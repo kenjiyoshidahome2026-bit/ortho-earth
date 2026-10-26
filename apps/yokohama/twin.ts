@@ -117,17 +117,18 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<input type="search" class="fq" placeholder="${esc(t("Name, type or address"))}" aria-label="${esc(t("Search facilities"))}" enterkeyhint="search">
 				<div class="fbt"></div>
 				<div class="fbar"><small class="fq-n"></small><button type="button" class="fcsv">${esc(t("Download CSV"))}</button></div>
-				<p class="sub flat">${esc(t("Tap a row to fly there. Lists the chosen district and the facility types switched on in Map display."))}</p>
+				<p class="sub flat">${esc(t("Tap a row to fly there. Lists every public facility in the chosen district."))}</p>
 				</div>
 				<div data-sub-pane="show" hidden>
-				<label class="grp fac-w"><input type="checkbox" class="fac" checked><b>${esc(t("Show public facilities"))}</b><small class="fac-n"></small></label>
+				<!-- 公共施設＝区分ごとに 1 行（チェック）・種別は ▾ で開く・最初は区役所だけ（本人 2026-10-26「最初から全部出しすぎ・せめて区役所ぐらい」）。出している施設の合計が少ない間（≤ FAC_FAR_MAX 件）は市全体の眺めからも点が出る -->
 				<h3>${esc(t("Types of facilities on the map"))}</h3>
+				<div class="fbar fac-bar"><small class="fac-n"></small><button type="button" class="fac-all">${esc(t("Show all"))}</button><button type="button" class="fac-none">${esc(t("Hide all"))}</button></div>
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
-					return `<div class="cg"><button type="button" class="on" data-cat="${i}"><i style="background:${c.color}"></i>${esc(t(c.name))}<small></small></button>${subs.length > 1 ? subs.map(({ x, j }) => `<button type="button" class="on kd" data-sub="${j}">${esc(t(x.name))}<small></small></button>`).join("") : ""}</div>`; }).join("")}</div>
+					return `<div class="cg" data-cg="${i}"><label class="grp"><input type="checkbox" data-cat="${i}"><b><i style="background:${c.color}"></i>${esc(t(c.name))}</b><small></small></label>${subs.length > 1 ? `<button type="button" class="tw" data-tw="${i}" aria-expanded="false" aria-label="${esc(t("Types"))}"></button><div class="kds">${subs.map(({ x, j }) => `<label class="grp kd"><input type="checkbox" data-sub="${j}"><b>${esc(t(x.name))}</b><small></small></label>`).join("")}</div>` : ""}</div>`; }).join("")}</div>
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
 				<h3>${esc(t("Zones and districts"))}</h3>
 				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
-				${AREAS.map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
+				${AREAS.filter(x => !("hide" in x)).map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
 				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map((z, i) => `<span data-z="${i}"><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
 				</div>
 			</section>
@@ -351,13 +352,17 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	$$<HTMLButtonElement>("[data-spot]").forEach(b => b.onclick = () => { const s = SPOTS.find(x => x.id === b.dataset.spot)!; showSpot(s); flySpot(s); });
 
 	// ── 観光：公共施設（区分ごとに出し入れ・押すと吹き出し）──
-	let fac: FacilityRow[] | null = null, facOn = $(".fac").checked;
+	let fac: FacilityRow[] | null = null, facOn = true;   // facOn＝海からの眺めなどで一時的に隠す用（点の出し入れは subOn）
 	// 施設の名前・住所＝日本語以外は英語（facilities-en.json＝「名称|住所」→ [名, 住所]・無い行は日本語のまま・本人 2026-10-26）
 	const facName = (r: FacilityRow) => EN?.rows?.[`${r[2]}|${r[4]}`]?.[0] || r[2];
 	const facAddr = (r: FacilityRow) => EN?.rows?.[`${r[2]}|${r[4]}`]?.[1] || shortAddr(r[4]);
-	const subOn = new Set(FACILITY_SUBS.map((_, i) => i));   // 種別ごと（区分のチップは中の種別をまとめて出し入れ）
-	// 全区分＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
+	const ALL_SUBS: ReadonlySet<number> = new Set(FACILITY_SUBS.map((_, i) => i)), subOn = new Set([FACILITY_SUBS.findIndex(x => x.kinds.includes("区役所"))]);   // 出している種別（最初は区役所だけ）。区分の行は中の種別をまとめて出し入れ
+	// 全種別＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
 	const facFilter = (): StyleExpression | null => subOn.size === FACILITY_SUBS.length ? null : ["match", ["get", "s"], [...subOn].length ? [...subOn] : [-1], true, false];
+	// 市全体の眺め（z 12.5 未満）でも点を出すのは、出している施設の合計が少ない間だけ（区役所 19・図書館を足して 40 など）。学校を点けた途端に市全体が点で埋まらないように（Mac 実測 2026-10-26：種別ごとの件数で決めると学校 ON で 114 点）
+	const FAC_FAR_MAX = 60, subN: number[] = [];
+	const farFilter = (): StyleExpression => { const js = [...subOn], n = js.reduce((a, j) => a + subN[j], 0); return ["match", ["get", "s"], js.length && n <= FAC_FAR_MAX ? js : [-1], true, false]; };
+	const FAC_LAYERS = ["yk-fac", "yk-fac-far"];
 	let facReady: Promise<void> | null = null;
 	const loadFac = () => facReady ??= (async () => {
 		$<HTMLElement>(".fac-n").textContent = t("Loading…");
@@ -366,43 +371,48 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		fac = d.rows;
 		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc.", true),
 			data: { type: "FeatureCollection", features: fac.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i, c: r[3], s: subOf(r[3], r[5]) } })) } });
-		const f0 = facFilter();
+		FACILITY_SUBS.forEach((_, j) => { subN[j] = fac!.filter(r => subOf(r[3], r[5]) === j).length; });
+		const f0 = facFilter(), color: StyleExpression = ["match", ["get", "c"], ...FACILITY_CATS.flatMap((c, i) => [i, c.color]), "#777"];
 		await map.addLayer({ id: "yk-fac", type: "circle", source: "yk-fac", minzoom: 12.5, ...(f0 ? { filter: f0 } : {}),
-			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 12.5, 3, 15, 5.5, 18, 8], "circle-color": ["match", ["get", "c"], ...FACILITY_CATS.flatMap((c, i) => [i, c.color]), "#777"],
-				"circle-stroke-color": "#fff", "circle-stroke-width": 1.3 } });
+			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 12.5, 3, 15, 5.5, 18, 8], "circle-color": color, "circle-stroke-color": "#fff", "circle-stroke-width": 1.3 } });
+		await map.addLayer({ id: "yk-fac-far", type: "circle", source: "yk-fac", minzoom: 9, maxzoom: 12.5, filter: farFilter(),
+			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3.5, 12.5, 4.5], "circle-color": color, "circle-stroke-color": "#fff", "circle-stroke-width": 1.3 } });
 		const tip = map.gadget.tip();
 		const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
-		map.on("mousemove", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; tip(r ? `<b>${esc(facName(r))}</b>` : null); });
-		map.on("mouseleave", "yk-fac", () => tip(null));
-		map.on("click", "yk-fac", e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null); facPop(r); });
-		$$<HTMLButtonElement>("[data-cat]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => r[3] === +b.dataset.cat!).length); });
-		$$<HTMLButtonElement>("[data-sub]").forEach(b => { b.querySelector("small")!.textContent = num(fac!.filter(r => subOf(r[3], r[5]) === +b.dataset.sub!).length); });
-		countFac();
+		for (const l of FAC_LAYERS) {
+			map.on("mousemove", l, e => { const f = top(e), r = f && fac![f.properties.i]; tip(r ? `<b>${esc(facName(r))}</b>` : null); });
+			map.on("mouseleave", l, () => tip(null));
+			map.on("click", l, e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null); facPop(r); });
+		}
+		paintChips(true);
 		facTable();
 	})();
 	const facKind = (r: FacilityRow) => lang === "ja" ? r[5] || t(FACILITY_CATS[r[3]]?.name || "") : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
 	const facPop = (r: FacilityRow) => { const c = FACILITY_CATS[r[3]];
 		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(facName(r))}</b>${r[4] ? `<p>${esc(facAddr(r))}</p>` : ""}`); };
-	const countFac = () => { if (fac) $<HTMLElement>(".fac-n").textContent = t("$1 places", num(fac.filter(r => subOn.has(subOf(r[3], r[5]))).length)); };
 	async function setFac(on: boolean) {
-		facOn = on; $(".fac").checked = on;
+		facOn = on;
 		if (on) await loadFac();
-		if (fac) map.setLayoutProperty("yk-fac", "visibility", facOn ? "visible" : "none");
+		if (fac) for (const l of FAC_LAYERS) map.setLayoutProperty(l, "visibility", facOn ? "visible" : "none");
 	}
-	$(".fac").onchange = () => setFac($(".fac").checked);
-	// チップの見た目＝種別は on/off・区分は中の種別が全部 on＝on・一部＝part
-	const paintChips = () => {
-		$$<HTMLButtonElement>("[data-sub]").forEach(b => b.classList.toggle("on", subOn.has(+b.dataset.sub!)));
-		$$<HTMLButtonElement>("[data-cat]").forEach(b => { const js = FACILITY_SUBS.flatMap((x, j) => x.cat === +b.dataset.cat! ? [j] : []), n = js.filter(j => subOn.has(j)).length;
-			b.classList.toggle("on", n === js.length); b.classList.toggle("part", n > 0 && n < js.length); });
+	const catSubs = (i: number) => FACILITY_SUBS.flatMap((x, j) => x.cat === i ? [j] : []);
+	// 行の見た目＝種別はチェック・区分は中の種別が全部 on＝チェック・一部＝半チェック（件数は「出している/全部」）。first＝台帳を読んだ直後：一部だけ点いている区分は開いて見せる
+	const paintChips = (first = false) => {
+		$$<HTMLInputElement>("[data-sub]").forEach(b => { const j = +b.dataset.sub!; b.checked = subOn.has(j); if (fac) b.parentElement!.querySelector("small")!.textContent = num(subN[j]); });
+		$$<HTMLInputElement>("[data-cat]").forEach(b => { const i = +b.dataset.cat!, js = catSubs(i), on = js.filter(j => subOn.has(j)), part = on.length > 0 && on.length < js.length;
+			b.checked = on.length === js.length; b.indeterminate = part;
+			if (fac) { const all = js.reduce((a, j) => a + subN[j], 0); b.parentElement!.querySelector("small")!.textContent = part ? `${num(on.reduce((a, j) => a + subN[j], 0))} / ${num(all)}` : num(all); }
+			if (first && part) openCat(i, true); });
+		if (fac) $<HTMLElement>(".fac-n").textContent = t("$1 places", num(fac.filter(r => subOn.has(subOf(r[3], r[5]))).length));
 	};
-	const applyFac = () => { paintChips(); if (fac) map.setFilter("yk-fac", facFilter()); countFac(); facTable(); if (!facOn) setFac(true); };
-	$$<HTMLButtonElement>("[data-cat]").forEach(b => b.onclick = () => {   // 区分＝中の種別が 1 つでも出ていれば全部消す・全部消えていれば全部出す
-		const js = FACILITY_SUBS.flatMap((x, j) => x.cat === +b.dataset.cat! ? [j] : []), any = js.some(j => subOn.has(j));
-		for (const j of js) any ? subOn.delete(j) : subOn.add(j);
-		applyFac();
-	});
-	$$<HTMLButtonElement>("[data-sub]").forEach(b => b.onclick = () => { const j = +b.dataset.sub!; subOn.has(j) ? subOn.delete(j) : subOn.add(j); applyFac(); });
+	const openCat = (i: number, on: boolean) => { const cg = $<HTMLElement>(`[data-cg="${i}"]`); cg.classList.toggle("open", on); cg.querySelector(".tw")?.setAttribute("aria-expanded", String(on)); };
+	const applyFac = () => { paintChips(); if (fac) { map.setFilter("yk-fac", facFilter()); map.setFilter("yk-fac-far", farFilter()); } facTable(); if (!facOn) setFac(true); };
+	$$<HTMLInputElement>("[data-cat]").forEach(b => b.onchange = () => { for (const j of catSubs(+b.dataset.cat!)) b.checked ? subOn.add(j) : subOn.delete(j); applyFac(); });   // 区分＝中の種別をまとめて
+	$$<HTMLInputElement>("[data-sub]").forEach(b => b.onchange = () => { const j = +b.dataset.sub!; b.checked ? subOn.add(j) : subOn.delete(j); applyFac(); });
+	$$<HTMLButtonElement>("[data-tw]").forEach(b => b.onclick = () => openCat(+b.dataset.tw!, b.getAttribute("aria-expanded") !== "true"));
+	$(".fac-all").onclick = () => { for (const j of ALL_SUBS) subOn.add(j); applyFac(); };
+	$(".fac-none").onclick = () => { subOn.clear(); applyFac(); };
+	paintChips();
 
 	// ── 暮らし：施設の検索（common/bigtable の表・本人 2026-10-22）──
 	// 行＝選んだ地区（区・全市）× 出している種別（上のチップ）の施設。窓の文字＝名称・種別・区・住所の部分一致（表記の揺れは normJa で揃える）。
@@ -420,7 +430,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (!fac || st.tab !== "life") return;
 		const tb = table = await facTableOf();
 		tb.setQuery(normJa(fq.value));
-		tb.setRows(facilityIndex(fac, st.ward, subOn).map(i => { const r = fac![i]; return [normJa(facName(r)), facKind(r), wardName(wardOfAddress(r[4])?.code ?? ""), normJa(facAddr(r)), i]; }));
+		tb.setRows(facilityIndex(fac, st.ward, ALL_SUBS).map(i => { const r = fac![i]; return [normJa(facName(r)), facKind(r), wardName(wardOfAddress(r[4])?.code ?? ""), normJa(facAddr(r)), i]; }));
 	}
 	fq.oninput = () => { table?.setQuery(normJa(fq.value)); };
 	async function goFac(r: FacilityRow) {
@@ -487,7 +497,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	function showAreas(on: boolean) { flat = on; for (const x of AREAS) areaVis(x.id); }
 	async function setArea(id: AreaId, on: boolean) {
 		on ? areaOn.add(id) : areaOn.delete(id);
-		$(`[data-area="${id}"]`).checked = on;
+		const inp = $$<HTMLInputElement>(`[data-area="${id}"]`)[0]; if (inp) inp.checked = on;   // 警察・消防の管轄は一覧に出していない（本人 2026-10-26）
 		if (on) setSubTab("show");   // 区域が点いた（URL など）＝その札を見せる
 		if (id === "zoning") $<HTMLElement>(".zlg").hidden = !on;
 		if (on) { if (!flat) setWard(st.ward); await loadArea(id); }   // 3D の時に入れた＝平面の地区地図へ移る
@@ -550,7 +560,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 港の物語（1859 の開港から今まで・章ごとに年と写真）と、海からの眺め＝東京都の頁に無い「横浜の物語」（本人 2026-10-21）──
 	async function seaView(run: number) {
 		// 眺めの間は施設の点を伏せる＝地平線に沿って何千もの丸が帯になり、街並みを隠す（Mac 実測 2026-10-26）
-		const facVis = (on: boolean) => { if (fac) map.setLayoutProperty("yk-fac", "visibility", on && facOn ? "visible" : "none"); };
+		const facVis = (on: boolean) => { if (fac) for (const l of FAC_LAYERS) map.setLayoutProperty(l, "visibility", on && facOn ? "visible" : "none"); };
 		facVis(false);
 		try { await seaRun(run); } finally { facVis(true); }
 	}
@@ -1121,7 +1131,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	else if (st.ward) wardSel.value = st.ward;
 	for (const id of st.hz) setHazard(id, true);
 	for (const id of st.tr) setTransit(id, true);
-	if (facOn) setFac(true);
+	setFac(true);   // 施設の台帳＝最初から（区役所の点・わが家のまわり・検索）
 	loadWards();   // 市の外の覆いと区の線は最初から
 	map.prefetchBuildings({ names: LOD2_PREFETCH }).catch(e => console.warn("[yokohama] prefetch", e));   // PLATEAU の LOD2（5 区＋橋梁）を起動直後から IDB へ先読み＝寄った時にすぐ立つ（本人 2026-10-26）
 
@@ -1150,11 +1160,21 @@ const CSS = `
 .yk-panel .spots,.yk-panel .cats{display:flex;flex-wrap:wrap;gap:5px}
 .yk-panel .spots button,.yk-panel .cats button{font:inherit;font-size:12px;padding:3px 8px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
 .yk-panel .spots button.on{background:#4fc3f7;border-color:#4fc3f7;color:#06121f}
-.yk-panel .cats button{opacity:.45}
-.yk-panel .cats button.on,.yk-panel .cats button.part{opacity:1;background:rgba(255,255,255,.08)}
-.yk-panel .cats button.part{border-style:dashed}
-.yk-panel .cats .cg{display:flex;flex-wrap:wrap;gap:4px;width:100%;align-items:center}
-.yk-panel .cats button.kd{font-size:11px;padding:2px 7px}   /* 種別のチップ（.sub は注記の段落の字下げ＝別の名に） */
+.yk-panel .cats{display:block}
+.yk-panel .cats .cg{display:grid;grid-template-columns:1fr auto;align-items:center;border-top:1px solid var(--qm-border-soft)}
+.yk-panel .cats .cg:first-child{border-top:0}
+.yk-panel .cats .cg .grp{min-width:0}
+.yk-panel .cats .cg .grp b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.yk-panel .cats .tw{width:32px;height:32px;border:0;background:transparent;color:var(--qm-text-dim);cursor:pointer;font-size:0;position:relative}
+.yk-panel .cats .tw::after{content:"";position:absolute;left:12px;top:11px;width:7px;height:7px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg);transition:transform .15s}
+.yk-panel .cats .cg.open .tw::after{transform:rotate(225deg);top:14px}
+.yk-panel .cats .kds{display:none;grid-column:1/-1;padding:0 0 4px 26px}
+.yk-panel .cats .cg.open .kds{display:block}
+.yk-panel .cats .kd{padding:1px 0;font-size:12px}
+.yk-panel .cats .kd b{font-weight:500;color:var(--qm-text)}
+.yk-panel .fac-bar{margin:0 0 4px}
+.yk-panel .fac-bar small{margin-right:auto}
+.yk-panel .fac-all,.yk-panel .fac-none{font:inherit;font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
 .yk-panel .cats i,.yk-panel .lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
 .yk-panel .cats small{margin-left:5px;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
 .yk-panel .spot-note{margin-top:8px;padding:8px 10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
@@ -1199,7 +1219,6 @@ const CSS = `
 .yk-panel ol.sa li i{position:absolute;inset-inline-start:0;bottom:1px;height:2px;background:#df65b0;opacity:.7}
 .yk-panel ol.sa li b{font-variant-numeric:tabular-nums;font-weight:600}
 .yk-panel .fitc{flex:none;font:inherit;font-size:12.5px;padding:5px 10px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:rgba(255,255,255,.05);color:var(--qm-text);cursor:pointer;white-space:nowrap}
-.yk-panel .fac-w{margin-top:8px}
 .yk-panel details.fold{margin-top:6px;border-top:1px solid var(--qm-border-soft);padding-top:4px}
 .yk-panel details.fold>summary{cursor:pointer;padding:6px 0;font-size:12.5px;font-weight:600;color:var(--qm-text-dim);list-style:none;display:flex;align-items:center;gap:6px}
 .yk-panel details.fold>summary::-webkit-details-marker{display:none}
@@ -1212,7 +1231,11 @@ const CSS = `
 	.yk-panel .act,.yk-panel .tour{min-height:44px}
 	.yk-panel .grp{min-height:36px}
 	.yk-panel .grp input{width:20px;height:20px}
-	.yk-panel .spots button,.yk-panel .cats button{min-height:32px;font-size:13px}
+	.yk-panel .spots button{min-height:32px;font-size:13px}
+	.yk-panel .cats .tw{width:40px;height:40px}
+	.yk-panel .cats .tw::after{left:15px;top:14px}
+	.yk-panel .cats .cg.open .tw::after{top:18px}
+	.yk-panel .fac-all,.yk-panel .fac-none{min-height:32px}
 	.yk-panel details.fold>summary{min-height:36px;font-size:14px}
 	.yk-panel .fcsv{min-height:32px}
 }
@@ -1227,7 +1250,7 @@ const CSS = `
 .yk-panel .dates{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:4px 0 6px}
 .yk-panel .dates label{display:flex;flex-direction:column;gap:2px;font-size:11.5px;color:var(--qm-text-dim)}
 .yk-panel .act{display:block;width:100%;margin:5px 0 0;padding:7px 10px;text-align:left;font:inherit;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:rgba(255,255,255,.05);color:var(--qm-text);cursor:pointer}
-.yk-panel .act:hover,.yk-panel .spots button:hover,.yk-panel .cats button:hover,.yk-panel .tabs button:hover{border-color:rgba(255,255,255,.5)}
+.yk-panel .act:hover,.yk-panel .spots button:hover,.yk-panel .fac-bar button:hover,.yk-panel .tabs button:hover{border-color:rgba(255,255,255,.5)}
 .yk-panel .detail{margin:8px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
 .yk-panel .detail .dh{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
 .yk-panel .detail .dh b{color:var(--qm-ink);font-size:14px}
