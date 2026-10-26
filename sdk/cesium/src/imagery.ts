@@ -126,14 +126,19 @@ async function geoLoader({ url }: { url: string }): Promise<{ data: ImageBitmap 
 
 /** ImageryLayer.brightness / contrast / saturation / hue (GlobeFS: color·b, mix(0.5, color, c), mix(gray, color, s), hue in radians) as the
  *  globe's MapLibre raster paint, whose factors are 1/(1−v) (contrast) and 1−1/(1.001−v) (saturation) — inverted here so the same picture comes out.
+ *  colorToAlpha (+threshold) and cutoutRectangle go as this map's raster-color-to-alpha / raster-cutout (baked into the tiles at decode).
  *  Not expressible: brightness above 1 (the paint's max is 1) and gamma (none in the paint) */
-export function adjustPaint(L: Any): Record<string, number> {
-	const out: Record<string, number> = {};
+export function adjustPaint(L: Any): Record<string, number | number[]> {
+	const out: Record<string, number | number[]> = {};
 	const b = +L.brightness, c = +L.contrast, s = +L.saturation, h = +L.hue;
 	if (Number.isFinite(b) && b !== 1) out["raster-brightness-max"] = Math.max(0, Math.min(1, b));
 	if (Number.isFinite(c) && c !== 1) out["raster-contrast"] = Math.max(-1, Math.min(0.999, c > 1 ? 1 - 1 / c : c - 1));
 	if (Number.isFinite(s) && s !== 1) out["raster-saturation"] = Math.max(-1, Math.min(0.999, s > 1 ? 1.001 - 1 / s : s - 1));
 	if (Number.isFinite(h) && h) out["raster-hue-rotate"] = h * 180 / Math.PI;
+	const c2a = L.colorToAlpha, th = +(L.colorToAlphaThreshold ?? 0.004);   // GlobeFS APPLY_COLOR_TO_ALPHA: max |rgb − c| < threshold → alpha 0
+	if (c2a && th > 0) out["raster-color-to-alpha"] = [+c2a.red || 0, +c2a.green || 0, +c2a.blue || 0, th];
+	const cut = L.cutoutRectangle, d = 180 / Math.PI;   // the layer is not drawn inside the rectangle
+	if (cut && Number.isFinite(cut.west)) out["raster-cutout"] = [cut.west * d, cut.south * d, cut.east * d, cut.north * d];
 	return out;
 }
 /** keep the globe's raster layers equal to scene.imageryLayers */
@@ -170,7 +175,7 @@ export function syncImagery(scene: Any, map: Any): void {
 	let last = "";
 	scene.postRender.addEventListener(() => {
 		let k = "";
-		for (let i = 0; i < coll.length; i++) { const L = coll.get(i); k += `${L.alpha},${L.show},${L.brightness},${L.saturation},${L.contrast},${L.hue},${L.ready};`; }
+		for (let i = 0; i < coll.length; i++) { const L = coll.get(i), c = L.colorToAlpha, r = L.cutoutRectangle; k += `${L.alpha},${L.show},${L.brightness},${L.saturation},${L.contrast},${L.hue},${L.ready},${c ? `${c.red},${c.green},${c.blue},${L.colorToAlphaThreshold}` : ""},${r ? `${r.west},${r.south},${r.east},${r.north}` : ""};`; }
 		if (k !== last) { last = k; sync(); }
 	});
 	sync();

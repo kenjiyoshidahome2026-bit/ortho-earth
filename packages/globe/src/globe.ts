@@ -3471,8 +3471,9 @@ const addPattern = async (layer: MLLayer, data: unknown, order?: number, queryOn
 const rasterAdjust: GlobeScope["rasterAdjust"] = P => {
 	if (!P) return null;
 	const n = (k: string, d: number) => { if (P[k] == null) return d; const v = evalExpr(P[k], { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }); return v === undefined ? d : +v!; };   // MapLibre の raster 層だけが呼ぶ
-	const a = { hueRotate: n("raster-hue-rotate", 0), saturation: n("raster-saturation", 0), contrast: n("raster-contrast", 0), brightnessMin: n("raster-brightness-min", 0), brightnessMax: n("raster-brightness-max", 1) };
-	return a.hueRotate || a.saturation || a.contrast || a.brightnessMin || a.brightnessMax !== 1 ? a : null;
+	const arr4 = (k: string) => { const v = P[k]; return Array.isArray(v) && v.length === 4 && v.every(x => typeof x === "number") ? v as [number, number, number, number] : null; };   // この地図の拡張（Cesium の colorToAlpha / cutoutRectangle）＝式ではなく数の配列
+	const a = { hueRotate: n("raster-hue-rotate", 0), saturation: n("raster-saturation", 0), contrast: n("raster-contrast", 0), brightnessMin: n("raster-brightness-min", 0), brightnessMax: n("raster-brightness-max", 1), colorToAlpha: arr4("raster-color-to-alpha"), cutout: arr4("raster-cutout") };
+	return a.hueRotate || a.saturation || a.contrast || a.brightnessMin || a.brightnessMax !== 1 || a.colorToAlpha || a.cutout ? a : null;
 };
 // ── vector source の fill-extrusion（MVT の 3D 建物・段 8①・2026-09-26）＝gadgets/vtextrude.js（遅延 chunk・この層が来た時だけ読む＝他の地図は何も変わらない）──
 // 基図の source 名（外来 style＝その名前・地域の基図＝"basemap"）も source として受ける（BASE_SRC の印）。描き方はメッシュ経路（setMesh / meshVis）の使う側を一つ足すだけ

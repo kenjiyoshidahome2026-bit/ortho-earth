@@ -90,6 +90,8 @@ for (const g of [
 	const c2 = adjustPaint({ contrast: 2 })["raster-contrast"], c05 = adjustPaint({ contrast: 0.5 })["raster-contrast"];
 	ok("contrast 2 / 0.5 → factors 2 / 0.5", near(1 / (1 - c2), 2, 1e-9) && near(1 + c05, 0.5, 1e-9), `${c2},${c05}`);
 	ok("default adjustments → no paint; brightness 0.5 / hue π", Object.keys(adjustPaint({ brightness: 1, contrast: 1, saturation: 1, hue: 0 })).length === 0 && adjustPaint({ brightness: 0.5 })["raster-brightness-max"] === 0.5 && near(adjustPaint({ hue: Math.PI })["raster-hue-rotate"], 180, 1e-9));
+	const c2a = adjustPaint({ colorToAlpha: { red: 0.1, green: 0.2, blue: 0.3 }, colorToAlphaThreshold: 0.05, cutoutRectangle: Rectangle.fromDegrees(-100, 10, -60, 50) });
+	ok("colorToAlpha / cutoutRectangle → raster-color-to-alpha / raster-cutout (degrees)", JSON.stringify(c2a["raster-color-to-alpha"]) === "[0.1,0.2,0.3,0.05]" && c2a["raster-cutout"].every((v, i) => near(v, [-100, 10, -60, 50][i], 1e-9)), JSON.stringify(c2a));
 	const r1 = mercatorRows(1, 1, 2, 4);   // level 1, southern tile: rows run from the equator (tile row 1) to −85°
 	ok("Mercator rows at level 1", near(r1[0], 1, 1e-9) && r1[4] < 2 && r1[4] > 1.9, `${r1[0]},${r1[4]}`);
 	class SingleTileImageryProvider { constructor(o) { Object.assign(this, o); } }
