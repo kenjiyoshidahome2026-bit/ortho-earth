@@ -890,7 +890,10 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		homeOut.scrollIntoView({ block: "nearest", behavior: "smooth" });
 	}
 	homeOut.addEventListener("click", e => { const el = e.target as HTMLElement, r = el.closest<HTMLElement>(".wroute");
-		if (r) { showRoute(+r.dataset.k!); if (narrow()) P.setFold(true); return; }
+		if (r) {   // 押した道順は線ごと画面に収める（最初に引く最寄り駅の線は視点を動かさない）
+			const k = +r.dataset.k!, line = routes[k]; showRoute(k); if (narrow()) P.setFold(true);
+			if (line?.length) { const xs = line.map(p => p[0]), ys = line.map(p => p[1]); map.fitBounds([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 17 }); }
+			return; }
 		if (el.closest(".x")) clearHome(); });
 	$(".hm-tap").onclick = () => { setProbing(!(probing && probeHome), true); if (probing && narrow()) P.setFold(true); };
 	$(".hm-gps").onclick = () => {
