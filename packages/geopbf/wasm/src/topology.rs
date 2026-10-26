@@ -673,6 +673,11 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     const MAX_CELL: usize = 1500; // これを超えるセルは総当たりしない（JS と同じ）
     const COVER: u64 = 8;         // 登録の総数の上限＝線分数の何倍まで
     const REG_BUDGET: u64 = 20_000_000;   // 基準の格子へ戻す時の登録の総数の上限（1 件 4 B＋セルの表＝数百 MB に収まる所）
+    // 交点の総数の上限＝線分数の何倍まで。超えたら交点は足さずに原線のまま返す（2026-10-26）。
+    // 国土数値情報の OD 線（S05-b パーソントリップ＝約 700 ゾーンの中心を結ぶ直線 2.3 万本）は互いに約 4,100 万回交差し、
+    // 全部を頂点に足すと hits の重複確認が 2 乗・arc が数百万本・gint が 150 MB に膨れて 100 秒〜止まっていた。
+    // 希望線どうしの交差は接合点ではない＝切らないのが正しい。道路・筆界は交点が線分数の数倍に届かない＝従来どおり
+    const HIT_FACTOR: u64 = 8;
     const SNAP: i128 = 125;   // 11 cm
     const UNIT: i128 = 10;    // 10 cm grid
 
@@ -786,6 +791,8 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     let mut checked: rustc_hash::FxHashSet<u64> = rustc_hash::FxHashSet::default();
     let mut pts: Vec<(i64, i64, u64)> = Vec::new();
     let add_hit = |s: &mut PSeg, p: (i64, i64, u64)| { if !s.hits.iter().any(|h| h.0 == p.0 && h.1 == p.1) { s.hits.push(p); } };   // JS Map.set＝同キーは初出位置を保つ
+    let hit_budget = seg_count as u64 * HIT_FACTOR + 100_000;
+    let mut found: u64 = 0;
     for cell in &cells {
         if cell.len() < 2 || cell.len() > MAX_CELL { continue; }
         for i in 0..cell.len() {
@@ -804,6 +811,8 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
                 let (left, right) = segs.split_at_mut(hi);
                 let (sa, sb) = (&mut left[lo], &mut right[0]);
                 for &p in &pts { add_hit(sa, p); add_hit(sb, p); }
+                found += pts.len() as u64;
+                if found > hit_budget { return; }   // 交点が多すぎる＝原線のまま（coords・ranges は未変更）
             }
         }
     }
