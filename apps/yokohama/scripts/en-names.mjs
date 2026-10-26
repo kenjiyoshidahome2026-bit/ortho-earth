@@ -33,6 +33,8 @@ const SMALL = new Set(["of", "and", "for"]);   // 英語の小さい語は頭で
 
 // 種類の語（長い順に当てる）→ 英語。kind＝台帳の種別（出張所は消防か役所かで変える）
 const SUFFIX = [
+	["盲特別支援学校", "School for the Blind"], ["ろう特別支援学校", "School for the Deaf"], ["区検察庁", "Public Prosecutors Office"], ["地方検察庁", "District Public Prosecutors Office"],
+	["埋蔵文化財センター", "Archaeological Center"], ["分校", "Branch School"],
 	["小コミュニティハウス", "Elementary School Community House"], ["中コミュニティハウス", "Junior High School Community House"],
 	["義務教育学校", "Compulsory Education School"], ["中等教育学校", "Secondary School"], ["特別支援学校", "Special Needs School"],
 	["小学校コミュニティスクール", "Elementary School Community School"], ["小学校コミュニティハウス", "Elementary School Community House"], ["中学校コミュニティハウス", "Junior High School Community House"],
@@ -79,6 +81,12 @@ const WORDS = [
 	["コーナー", "Corner", 1], ["システム", "System", 1], ["ニュース", "News", 1], ["マリタイム", "Maritime", 1], ["情報", "Information", 1], ["共同", "Joint", 1], ["事業", "Business", 1], ["組合", "Association", 1],
 	["教育", "Education", 1], ["社会教育", "Social Education", 1], ["技能", "Skills", 1], ["振興", "Promotion", 1], ["青年館", "Youth Hall", 1], ["医科学", "Medical Science", 1], ["薬業", "Pharmaceutical", 1],
 	["地域", "Community", 1], ["拠点", "Base", 1], ["町村", "Towns and Villages", 1],
+	// 3 回目の焼きの見直し。2＝前の語に続ける（「南が丘」→ Minamigaoka）
+	["が丘", "gaoka", 2], ["ケ丘", "gaoka", 2], ["の丘", "nooka", 2], ["ケ峯", "gamine", 2], ["ケ谷", "gaya", 2], ["井土ケ谷", "idogaya", 0], ["谷本", "tanimoto", 0], ["一本松", "ippommatsu", 0],
+	["本陣", "honjin", 0], ["元町橋", "motomachibashi", 0], ["共立", "kyoritsu", 0], ["第1", "No.1", 1], ["第2", "No.2", 1], ["東京", "Tokyo", 1], ["日本", "Japan", 1], ["相鉄口", "Sotetsu Exit", 1], ["吉田口", "Yoshida Exit", 1],
+	["海上保安", "Coast Guard", 1], ["歯学部", "School of Dental Medicine", 1], ["文化館", "Cultural Museum", 1], ["館", "kan", 2], ["ガス", "Gas", 1], ["エネルギー", "Energy", 1], ["シルク", "Silk", 1],
+	["ユーラシア", "Eurasian", 1], ["フェリス", "Ferris", 1], ["ハローワーク", "Hello Work", 1], ["ポートサイド", "Portside", 1], ["ニュータウン", "New Town", 1], ["イムス", "IMS", 1], ["ウィメンズ", "Women's", 1],
+	["カメリア", "Camellia", 1], ["ズーラシア", "Zoorasia", 1], ["環境", "Environmental", 1],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
 ];
 // 名そのものの訳（台帳の名と同じ時だけ）
@@ -93,10 +101,19 @@ export const EN_FIX = {
 	"聖マリアンナ医科大学横浜市西部病院": "St. Marianna University Yokohama Seibu Hospital", "横浜労災病院": "Yokohama Rosai Hospital",
 	"横浜市北部病院": "Showa Medical University Northern Yokohama Hospital", "横浜医療センター": "NHO Yokohama Medical Center",
 	"横浜市保健所": "Yokohama City Public Health Center", "八景島シーパラダイス": "Yokohama Hakkeijima Sea Paradise", "總持寺": "Sojiji Temple Treasure Hall",
-	"カップヌードルミュージアム": "Cup Noodles Museum", "日本新聞博物館": "Japan Newspaper Museum (Newspark)", "関東学院大学図書館本館": "Kanto Gakuin University Main Library",
+	"カップヌードルミュージアム": "Cup Noodles Museum", "盲特別支援学校": "Yokohama School for the Blind", "ろう特別支援学校": "Yokohama School for the Deaf", "第三管区海上保安本部": "Japan Coast Guard 3rd Regional Headquarters", "ブリキのおもちゃ博物館": "Tin Toy Museum",
+	"東京工業大学": "Tokyo Institute of Technology", "東京都市大学": "Tokyo City University", "日本体育大学": "Nippon Sport Science University", "東京ガス": "Tokyo Gas Environmental Energy Museum", "日本新聞博物館": "Japan Newspaper Museum (Newspark)", "関東学院大学図書館本館": "Kanto Gakuin University Main Library",
 	"配偶者暴力相談支援センター": "Kanagawa Spousal Violence Counseling and Support Center", "地球市民かながわプラザ": "Kanagawa Plaza for Global Citizenship", "日本郵船歴史博物館": "NYK Maritime Museum", "はまぎんこども宇宙科学館": "Yokohama Science Center",
 };
 
+// 領事館＝「◯◯共和国名誉領事館」→ Honorary Consulate of Bulgaria in Yokohama
+const COUNTRY = [["大韓民国", "the Republic of Korea"], ["韓国", "the Republic of Korea"], ["ブルガリア", "Bulgaria"], ["エルサルバドル", "El Salvador"], ["ベネズエラ", "Venezuela"], ["ルーマニア", "Romania"], ["フィジー", "Fiji"],
+	["中華人民共和国", "the People's Republic of China"], ["アメリカ", "the United States"], ["イギリス", "the United Kingdom"], ["フランス", "France"], ["ドイツ", "Germany"], ["イタリア", "Italy"], ["スペイン", "Spain"]];
+function consulate(s) {
+	if (!s.includes("領事館")) return null;
+	const c = COUNTRY.find(([k]) => s.includes(k)); if (!c) return null;
+	return `${s.includes("名誉") ? "Honorary " : ""}Consulate${s.includes("総領事館") ? " General" : ""} of ${c[1]} in Yokohama`;
+}
 /** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま） */
 export function makeEn({ towns, wards, tokenize }) {
 	const W = [["横浜", "Yokohama"], ...wards, ...wards.map(([k, r]) => [k + "区", r + " Ward"])];   // 名の中の「旭区」＝Asahi Ward
@@ -110,7 +127,7 @@ export function makeEn({ towns, wards, tokenize }) {
 	const longest = (s, i) => {
 		let best = null;
 		for (const [k, r] of W) if (s.startsWith(k, i) && (!best || k.length > best.n)) best = { n: k.length, out: ` ${r} ` };
-		for (const [k, o, sep] of WD) if (s.startsWith(k, i) && (!best || k.length > best.n)) best = { n: k.length, out: sep ? ` ${o} ` : o };
+		for (const [k, o, sep] of WD) if (s.startsWith(k, i) && (!best || k.length > best.n)) best = { n: k.length, out: sep === 1 ? ` ${o} ` : o, glue: sep === 2 };
 		for (const [k, r] of T) if (s.startsWith(k, i) && (!best || k.length > best.n)) best = { n: k.length, out: romaji(r) };
 		return best;
 	};
@@ -120,7 +137,7 @@ export function makeEn({ towns, wards, tokenize }) {
 		let out = "", i = 0;
 		while (i < s.length) {
 			const b = longest(s, i);
-			if (b) { out += b.out; i += b.n; continue; }
+			if (b) { out = (b.glue ? out.trimEnd() : out) + b.out; i += b.n; continue; }
 			let j = i + 1; while (j < s.length && !longest(s, j)) j++;   // 辞書へ（次に当たる所までの一続き）
 			const part = s.slice(i, j);
 			if (/^[\x20-\x7e]+$/.test(part.normalize("NFKC"))) out += ` ${part.normalize("NFKC")} `;
@@ -144,13 +161,14 @@ export function makeEn({ towns, wards, tokenize }) {
 	const name0 = (ja, cat) => {
 		if (EN_EXACT[ja]) return EN_EXACT[ja];
 		for (const [k, v] of Object.entries(EN_FIX)) if (ja.includes(k)) return v;
+		const cons = consulate(normJp(ja)); if (cons) return cons;
 		let s = normJp(ja).replace(/\([^)]*\)/g, "");   // 括弧の中（愛称）は落とす
 		const sp = s.lastIndexOf(" "); if (sp > 0 && /法人/.test(s.slice(0, sp))) s = s.slice(sp + 1);   // 「医療法人社団◯◯会 金沢病院」＝法人の名は落とす
 		// 空きの無い法人の名（「医療法人社団恵生会竹山病院」）＝法人の種類の後の最初の「会」「団」まで落とす
-		const corp = ["医療法人社団", "医療法人財団", "医療法人", "社会福祉法人", "公益財団法人", "一般財団法人", "一般社団法人", "公益社団法人", "社会医療法人"].find(k => s.startsWith(k));
+		const corp = ["医療法人社団", "医療法人財団", "医療法人", "社会福祉法人", "公益財団法人", "一般財団法人", "一般社団法人", "公益社団法人", "社会医療法人", "宗教法人", "学校法人"].find(k => s.startsWith(k));
 		const coop = s.indexOf("生活協同組合"); if (coop > 0 && coop + 6 < s.length) s = s.slice(coop + 6);   // 「医療生協かながわ生活協同組合戸塚病院」→ 戸塚病院
-		if (corp) { const rest = s.slice(corp.length), e = [...rest.slice(0, 9)].findIndex(c => c === "会" || c === "団"); if (e >= 0 && e + 1 < rest.length) s = rest.slice(e + 1); }
-		s = s.replace(/^神奈川県(?!立)/, "神奈川").replace(/^(横浜市立|横浜市|神奈川県立|市立|県立)/, "").replace(/^消防局/, "").replace(/\s+/g, "");
+		if (corp) { const rest = s.slice(corp.length), e = [...rest.slice(0, 9)].findIndex(c => c === "会" || c === "団"); s = e >= 0 && e + 1 < rest.length ? rest.slice(e + 1) : rest; }
+		s = s.replace(/^東京国税局/, "").replace(/^横浜地方検察庁(?=.)/, "").replace(/^神奈川県(?!立)/, "神奈川").replace(/^(横浜市立|横浜市|神奈川県立|市立|県立)/, "").replace(/^消防局/, "").replace(/\s+/g, "");
 		const fs = s.indexOf("消防署"); if (fs > 0 && s.endsWith("出張所") && s.length > fs + 6) s = s.slice(fs + 3);   // 「神奈川消防署菅田消防出張所」→ 菅田
 		// 警察署の中の交番＝「港北警察署下田交番」→ Shimoda Police Box
 		const ps = s.indexOf("警察署"); if (ps > 0 && ["交番", "駐在所", "派出所"].some(k => s.endsWith(k)) && s.length > ps + 5) s = s.slice(ps + 3);
