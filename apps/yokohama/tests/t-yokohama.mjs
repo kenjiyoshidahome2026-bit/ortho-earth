@@ -100,7 +100,7 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 		&& E.name("鶴見駅西口行政サービスコーナー", 7) === "Tsurumi Station West Exit Administrative Service Corner" && E.name("日本新聞博物館（ニュースパーク）", 3) === "Japan Newspaper Museum (Newspark)"
 		&& E.name("南高等学校附属中学校", 2) === "Minami High School Affiliated Junior High School" && E.name("神奈川県社会福祉会館", 7) === "Kanagawa Social Welfare Hall" && E.name("日下小学校", 2) === "Kusaka Elementary School"
 		&& E.name("横浜市立盲特別支援学校", 2) === "Yokohama School for the Blind" && E.name("南が丘中学校", 2) === "Minamigaoka Junior High School" && E.name("在横浜ブルガリア共和国名誉領事館", 7) === "Honorary Consulate of Bulgaria in Yokohama"
-		&& E.stop("鶴見駅西口") === "Tsurumi Station West Exit" && E.stop("菊名小学校前") === "Kikuna Elementary School" && E.station("新横浜") === "Shin-Yokohama"
+		&& E.stop("鶴見駅西口") === "Tsurumi Station West Exit" && E.stop("菊名小学校前") === "Kikuna Elementary School" && E.station("新横浜") === "Shin-Yokohama" && E.shelter("横浜市立日吉台小学校　校舎２８（３階以上）") === "Hiyoshidai Elementary School, Building 28 (3rd floor and above)" && E.shelter("日吉台小学校 体育館２－２") === "Hiyoshidai Elementary School, Gymnasium 2-2"
 		&& railLinesEn("京浜急行電鉄 本線・横浜市 1号線・横浜市 3号線") === "Keikyu Main Line・Blue Line"
 		&& WARDS.every(w => HOLIDAY_CLINICS[w.code].en.endsWith(w.en)) && NIGHT_CENTERS.every(c => c.enName && c.en));
 }

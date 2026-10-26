@@ -483,7 +483,7 @@ async function en() {
 	for (const s of rail.stations) st[s[2]] ??= E.station(s[2]);
 	for (const r of bus.stops) for (const n of [r[2], ...String(r[3] || "").split(/[・〜]/)]) if (n) stop[n] ??= E.stop(n);
 	for (const f of ["school-e", "school-j"]) for (const x of JSON.parse(fs.readFileSync(path.join(OUT, `${f}.json`), "utf8")).features) { const { n, a } = x.properties || {}; if (n) school[`${n}|${a || ""}`] ??= [E.name(n, 2), a ? E.addr(a, wardOfAddress(normJa(a))?.en) : ""]; }
-	for (const r of yokohamaShelters(JSON.parse((b => b[0] === 0x1f && b[1] === 0x8b ? zlib.gunzipSync(b) : b)(await getBuf(HINAN_URL)).toString("utf8")))) hinan[`${r[2]}|${r[3]}`] ??= [E.name(r[2], 0), E.addr(r[3], wardOfAddress(normJa(r[3]))?.en)];
+	for (const r of yokohamaShelters(JSON.parse((b => b[0] === 0x1f && b[1] === 0x8b ? zlib.gunzipSync(b) : b)(await getBuf(HINAN_URL)).toString("utf8")))) hinan[`${r[2]}|${r[3]}`] ??= [E.shelter(r[2]), E.addr(r[3], wardOfAddress(normJa(r[3]))?.en)];
 	console.log(`駅 ${Object.keys(st).length}・停留所 ${Object.keys(stop).length}・学校 ${Object.keys(school).length}・避難場所 ${Object.keys(hinan).length}`);
 	fs.writeFileSync(path.join(CACHE, "en-review-names.tsv"), [...Object.entries(st).map(([k, v]) => `駅\t${k}\t${v}`), ...Object.entries(stop).map(([k, v]) => `停\t${k}\t${v}`),
 		...Object.entries(school).map(([k, v]) => `学校\t${k}\t${v.join("\t")}`), ...Object.entries(hinan).map(([k, v]) => `避難\t${k}\t${v.join("\t")}`)].join("\n"));
