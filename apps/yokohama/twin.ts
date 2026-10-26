@@ -14,7 +14,7 @@ import type { BigTable } from "common/bigtable";   // 施設の検索の表（�
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -856,7 +856,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 防災：地点を調べる（押した所の想定浸水の深さ・土砂の区域・最寄りの避難場所 3 か所の距離・徒歩・標高差）＝東京都の頁に無い「自分ごと」の読み（本人 2026-10-21）──
 	// 浸水の深さ＝重ねるハザードマップの PNG（z17）の 1 画素を凡例の色に当てる（ブラウザが直に取る・ACAO *）。標高＝map.getHeight。距離＝直線・徒歩＝80m/分×道のり 1.3 倍
 	const probeOut = $<HTMLElement>(".probe-out");
-	let probing = false, probeHome = false, probedAt = 0, probeMark: Marker | null = null, probeLine = false;
+	let probing = false, probeHome = false, probedAt = 0, probeMark: Marker | null = null, probeLine = false, waterOn = false;
 	// 地図を押して調べる口は 2 つ＝防災の「地点を調べる」と暮らしの「わが家のまわり」（home）。どちらも同じ押し待ち（吹き出しを止める）
 	const setProbing = (on: boolean, home = false) => {
 		probing = on; probeHome = on && home;
@@ -897,12 +897,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (probeOut.dataset.run !== run) return;
 		const near = rows ? nearestSites(rows, [lon, lat], 3) : [];   // 同じ学校の棟違いは 1 件に
 		const worst = Math.max(...depths);
+		showWater([lon, lat], depthTop(worst));
 		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${legend[i].color}"></i>${esc(t(legend[i].label))}</span>`;
 		probeOut.innerHTML = `<div class="dh"><b>${Number.isFinite(here) ? esc(t("Elevation about $1 m", num(Math.round(here)))) : ""}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
 			<h3>${esc(t("Expected flood depth here"))}</h3>
 			<div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}
 				<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div></div>
 			${floorsOfDepth(worst) ? `<p class="warn">${esc(t("Water could reach floor $1 (3 m per floor).", floorsOfDepth(worst) >= 7 ? "7+" : floorsOfDepth(worst)))}</p>` : ""}
+			${worst >= 0 ? `<button class="wv" type="button">${esc(t("See the water level in 3D"))}</button>` : ""}
 			<h3>${esc(t("Nearest evacuation sites"))}</h3>
 			<ol class="near">${near.map(({ row, m }, i) => `<li data-i="${i}"><b>${esc(shName(row))}</b><small>${esc(t("$1 m · about $2 min on foot", num(Math.round(m)), walkMin(m)))}</small><small class="el"></small></li>`).join("")}</ol>
 			<p class="sub flat">${esc(t("Straight-line distance; walking time assumes 80 m per minute."))}</p>`;
@@ -918,7 +920,30 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			if (li && probeOut.dataset.run === run && Number.isFinite(h)) li.textContent = t("Elevation about $1 m ($2 m from here)", num(Math.round(h)), Number.isFinite(here) ? (h - here >= 0 ? "+" : "") + Math.round(h - here) : "?");
 		});
 	}
-	probeOut.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) { probeOut.hidden = true; probeMark?.remove(); if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "none"); } });
+	// 想定の深さの水面＝押した地点のまわり半径 WATER_R の半透明の柱（地面から帯の上端まで）。建物の何階まで来るかを絵で見せる（「水の深さを建物の高さで」・動画の試し撮り 2026-10-26）
+	// 押し出しは頂点ごとに地表へ接地する＝坂でも地面から同じ深さ。浸水の面そのものではなく「この地点の想定」の目安（範囲外＝出さない）
+	const WATER_R = 90;
+	let waterAt: [number, number] | null = null;
+	async function showWater(at: [number, number] | null, top = 0) {
+		waterAt = top > 0 ? at : null;
+		const fc = { type: "FeatureCollection" as const, features: waterAt ? [{ type: "Feature" as const, properties: { h: top }, geometry: { type: "Polygon" as const, coordinates: [circleRing(waterAt, WATER_R, 48)] } }] : [] };
+		if (!waterOn) {
+			if (!waterAt) return;
+			waterOn = true; map.addSource("yk-water", { type: "geojson", data: fc });
+			await map.addLayer({ id: "yk-water", type: "fill-extrusion", source: "yk-water", paint: { "fill-extrusion-color": "#1e88e5", "fill-extrusion-opacity": 0.45, "fill-extrusion-height": ["get", "h"], "fill-extrusion-base": 0 } });
+		} else map.getSource("yk-water")?.setData?.(fc);
+	}
+	// 「水の高さを立体で見る」＝その地点へ寄って傾ける（建物は寄る前から立て始める）
+	const seeWater = () => {
+		if (!waterAt) return;
+		const v = { lon: waterAt[0], lat: waterAt[1], zoom: 17.6, tilt: 62, bearing: map.getBearing?.() ?? 0 };
+		const h = holdBuildings(v); flyView(v).finally(() => { h.armed = true; });
+	};
+	probeOut.addEventListener("click", e => {
+		const el = e.target as HTMLElement;
+		if (el.closest(".wv")) { seeWater(); return; }
+		if (el.closest(".x")) { probeOut.hidden = true; probeMark?.remove(); showWater(null); if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "none"); }
+	});
 	// スマホ：開いた板（下からのシート）に押した点と最寄りへの線が隠れる＝点が板の上の見える所の中ほどに来るよう地図をずらす
 	const revealAbovePanel = (ll: LonLat) => requestAnimationFrame(() => {
 		const pr = panel.getBoundingClientRect(), mr = mapEl.getBoundingClientRect(), top = pr.top - mr.top;
@@ -1304,6 +1329,7 @@ const CSS = `
 .yk-panel .home-out .walkr{margin-top:8px;padding:6px 12px;border-radius:999px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;min-height:34px}
 .yk-panel .home-out .pr span small{color:var(--qm-text-dim)}
 .yk-panel .home-out .pr span{text-align:end;white-space:normal}
+.wv{display:block;width:100%;margin:6px 0 2px;padding:7px 10px;border:1px solid #1e88e5;border-radius:8px;background:#e3f2fd;color:#0d47a1;font:600 13px/1.3 system-ui,sans-serif;cursor:pointer}
 .yk-probe{width:16px;height:16px;border-radius:50%;background:#e65100;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .yk-pop .oe-popup-body{padding:9px 26px 9px 11px}
 .yk-pop b{font-size:14px}
