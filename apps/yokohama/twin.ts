@@ -979,6 +979,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const s0 = SPOTS.find(s => s.id === st.spot);
 	if (s0) { showSpot(s0); if (!location.hash) flySpot(s0); }
 	else if (!location.hash) setWard(st.ward);   // 初めて開いた＝「市全体」を押した時と同じ（真上から市を 9 割・基図は全層・本人 2026-10-26）。区つきの URL ならその区
+	// 星座線は最初から点ける（左上の「層と主題」を隠したので、隠れたチップを押して点ける・本人 2026-10-26「星座線はONでいいよ」）
+	const skyChip = map.mapEl.querySelector<HTMLButtonElement>("#chip-sky");
+	if (skyChip && skyChip.getAttribute("aria-pressed") !== "true") skyChip.click();
 	if (OSM_NAMES && map.setBaseLayers) { map.setBaseLayers({ place: false }); osmNames().catch(e => console.warn("[yokohama] places", e)); }
 	else if (st.ward) wardSel.value = st.ward;
 	for (const id of st.hz) setHazard(id, true);
