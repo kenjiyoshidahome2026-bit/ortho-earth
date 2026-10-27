@@ -86,11 +86,17 @@ ${RAY}
 // （未使用モジュールでは宣言だけ＝コスト無し）。bbox=[west,south,spanLon,spanLat] 絶対deg・p.x=has・行0=北＝v反転。
 @group(0) @binding(4) var cogTex0: texture_2d<f32>;
 @group(0) @binding(5) var<uniform> CG0: Cog0P;
+// 見比べ（2 枚組・2026-10-27）＝p.y＝組か・p.z＝境の u・p.w＝半テクセル（gl/glsl.ts の COG と同式）
 struct Cog0P { bbox: vec4f, p: vec4f };
+fn cogPairV(uv: vec2f, p: vec4f) -> f32 {
+	let v = 1.0 - uv.y;
+	if (p.y < 0.5) { return v; }
+	return clamp(v * 0.5, p.w, 0.5 - p.w) + select(0.0, 0.5, uv.x >= p.z);
+}
 fn cogTexMix0(col: vec3f, uv: vec2f) -> vec3f {
 	if (CG0.p.x < 0.5) { return col; }
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return col; }
-	let c = textureSampleLevel(cogTex0, elevSamp, vec2f(uv.x, 1.0 - uv.y), 0.0);
+	let c = textureSampleLevel(cogTex0, elevSamp, vec2f(uv.x, cogPairV(uv, CG0.p)), 0.0);
 	return mix(col, c.rgb, c.a);
 }
 // 地面アトラス（RTT ドレープ・2026-09-21）：ラスタ基図→ベクタ塗り（3D 時）→ラスタ重ね を renderer が 3 段窓（近/中/遠・前乗算）へ合成し、
@@ -1200,7 +1206,7 @@ ${RAY}
 // ユーザ COG（terrain 側 group(2) binding(3-4) と同じ素材・低地は terrain の t フェードで抜けるためここが床）
 @group(0) @binding(6) var gCogTex: texture_2d<f32>;
 @group(0) @binding(7) var<uniform> GCG: GCogP;
-struct GCogP { bbox: vec4f, p: vec4f };
+struct GCogP { bbox: vec4f, p: vec4f };   // p＝(has, 組か, 境の u, 半テクセル)＝Cog0P と同じバッファ
 // 地面アトラス（近/中/遠）＝基球の床（真俯瞰 2D の下地・地形の低地フェードの穴）。絶対経緯度→uv・行0＝北
 @group(0) @binding(8) var gGnd0: texture_2d<f32>;
 @group(0) @binding(9) var gGnd1: texture_2d<f32>;
@@ -1369,7 +1375,9 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	if (GCG.p.x > 0.5) {   // ユーザ COG（uv＝原点相対の係数＝f32 の絶対経緯度を経ない・#65）
 		let cuv = G.cogOff.xy + dll * G.cogOff.zw;
 		if (cuv.x >= 0.0 && cuv.x <= 1.0 && cuv.y >= 0.0 && cuv.y <= 1.0) {
-			let cc = textureSampleLevel(gCogTex, gSamp, vec2f(cuv.x, 1.0 - cuv.y), 0.0);
+			var cv = 1.0 - cuv.y;
+			if (GCG.p.y > 0.5) { cv = clamp(cv * 0.5, GCG.p.w, 0.5 - GCG.p.w) + select(0.0, 0.5, cuv.x >= GCG.p.z); }   // 見比べ（cogPairV と同式）
+			let cc = textureSampleLevel(gCogTex, gSamp, vec2f(cuv.x, cv), 0.0);
 			base = mix(base, cc.rgb, cc.a);
 		}
 	}

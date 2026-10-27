@@ -83,7 +83,7 @@ type CellSrc = Exclude<CellPayload, Float32Array> & { tile?: ElevTileGrid; atlas
 interface RawTexEntry { tex: WebGLTexture; bytes: number; kind: number; fresh: number }
 interface ResampleRes { fbo: WebGLFramebuffer; progs: WebGLProgram[]; vao: WebGLVertexArrayObject }
 interface TerrainMesh { vao: WebGLVertexArrayObject; vbo: WebGLBuffer; ibo: WebGLBuffer; count: number; G: number; mesh: number[]; chunks: TerrainChunk[] }
-interface CogInput { rgba: Uint8Array; w: number; h: number; bboxLL: number[] }
+interface CogInput { rgba: Uint8Array; w: number; h: number; bboxLL: number[]; pair?: boolean }
 type GLRasterTex = { kind: "tex"; tex: WebGLTexture; bytes: number; w: number; h: number; nearest: boolean };
 type GLRasterMesh = { kind: "mesh"; vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; count: number; bytes: number };
 type GLRasterDraw = Omit<RasterDraw, "tex" | "mesh"> & { tex: GLRasterTex; mesh: GLRasterMesh };
@@ -617,14 +617,15 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	}
 	// ユーザ COG アトラス（gadgets/cog.js が geopbf/cog の renderTo で等経緯度 RGBA に warp 済みを渡す）。
 	// unit9＝空き（1=elev・2-5=メッシュマスク・6=md線・7=gint elev・8=far・12=clim と不干渉）。
-	let cogTex: WebGLTexture | null = null, cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0 };
+	// 見比べ（pair）＝上下 2 枚組のアトラス・cogSplit＝境の経度（null＝境なし＝A だけ）
+	let cogTex: WebGLTexture | null = null, cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0, pair: 0, half: 0 }, cogSplitLon: number | null = null;
 	function setCogTex(data: CogInput | null | undefined): void {
 		if (!data) {   // 解放
 			if (cogTex) gl.deleteTexture(cogTex);
-			cogTex = null; cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0 };
+			cogTex = null; cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0, pair: 0, half: 0 };
 			return;
 		}
-		const { rgba, w, h, bboxLL } = data;   // bboxLL=[west,south,east,north]
+		const { rgba, w, h, bboxLL, pair } = data;   // bboxLL=[west,south,east,north]・pair＝h は 2 枚分
 		if (!cogTex) cogTex = gl.createTexture();
 		gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, cogTex);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(rgba.buffer || rgba, rgba.byteOffset || 0, rgba.byteLength ?? rgba.length));
@@ -633,12 +634,15 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		gl.activeTexture(gl.TEXTURE0);
-		cogSt = { bbox: [bboxLL[0], bboxLL[1], bboxLL[2] - bboxLL[0], bboxLL[3] - bboxLL[1]], has: 1, bytes: w * h * 4 };
+		cogSt = { bbox: [bboxLL[0], bboxLL[1], bboxLL[2] - bboxLL[0], bboxLL[3] - bboxLL[1]], has: 1, bytes: w * h * 4, pair: pair ? 1 : 0, half: 0.5 / h };
 	}
+	// 境の u（窓の経度幅で正規化）＝境なしは 2（どの u も A 側）
+	const cogSplitU = (): number => cogSplitLon == null ? 2 : (cogSplitLon - cogSt.bbox[0]) / cogSt.bbox[2];
 	// ⚠サンプラは has=0 でも毎フレーム unit9 へ向ける（未設定＝unit0 整数テクスチャの轍＝elev/clim と同族）
 	function bindCog(prog: WebGLProgram): void {
 		gl.uniform1i(loc(gl, prog, "u_cogTex"), 9);
 		gl.uniform1f(loc(gl, prog, "u_hasCog"), cogSt.has);
+		gl.uniform4f(loc(gl, prog, "u_cogPair"), cogSt.pair, cogSplitU(), cogSt.half, 0);
 		gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, cogSt.has ? cogTex : null); gl.activeTexture(gl.TEXTURE0);
 	}
 	// fill 系: COG uv＝off+dLL×inv の係数を JS の f64 で前計算（シーン原点ごと）＝f32 絶対経緯度のジッタ根治
@@ -2499,6 +2503,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "planets":   setPlanets(data as Float32Array | null); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点＋月）
 			case "ecliptic":  setEcliptic(data as Float32Array | null); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
 			case "celequator": setCelEquator(data as Float32Array | null); break;                                     // data=同上（天の赤道の大円）
+			case "cogSplit":  cogSplitLon = Number.isFinite(data as number) ? data as number : null; break;               // 見比べの境の経度（null＝境なし）
 			case "cogTex":    setCogTex(data as CogInput | null); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
 			case "post":   post = (data as PostProcessNormalized | null) || null; dOut?.setPost(post); break;
 			case "cityLights": break;   // 夜の街明かり（2026-10-24）＝WebGPU だけ（map.setCityLights は GL2 では送らない・念のため黙って受ける）   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1）＝renderworker が FBO（depthOut）を開いて end で合成
