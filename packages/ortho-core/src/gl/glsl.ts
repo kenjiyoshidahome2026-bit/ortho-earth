@@ -243,6 +243,11 @@ uniform float u_xfOn;        // バッチの剛体変換（glTF の rigid アニ
 uniform mat3 u_xfL;
 uniform vec3 u_xfT;
 ${PROJECT}
+// Cesium の霧（csatmo.ts csFogV・頂点で色と量）：u_csFogD＝濃さ（0＝なし）・u_csFogL＝xyz 光へ向く単位ベクトル・w 照明あり 1／なし −1
+uniform float u_csFogD;
+uniform vec4 u_csFogL;
+${CS_ATMO_GLSL}
+out vec4 v_csFog;
 out vec3  v_n;      // 実法線
 out vec3  v_toEye;  // 視線ベクトル（巻き順に依存せず法線を表向きへ）
 out float v_front;  // >0 で手前半球
@@ -256,6 +261,7 @@ void main() {
 	v_toEye = u_eye - wp;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
+	v_csFog = csFogV(u_eye * CS_R, wp * CS_R, u_csFogD, u_csFogL.xyz, u_csFogL.w);
 	// 接地リフト（DTM 化で解禁・746b48a の続き）：メッシュは単位球接地(r=1)で焼き込み済み＝頂点位置の
 	// 地表標高（DTM）を elev() でサンプルし法線方向へ持ち上げる。旧・リフト禁止の根拠は ALOS DSM の
 	// 不連続（ビル天端の縁で数十〜100m級→同一建物内の頂点が別量動き屋根が裂ける・実機確認）だったが、
@@ -281,6 +287,7 @@ export const MESH_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_bldColor;
 uniform vec3 u_fogColor;
+in vec4 v_csFog;   // Cesium の霧（頂点で計算）
 uniform float u_cullBack;   // 1=裏面discard（建物＝閉じた体積）、0=両面（橋梁＝ケーブル/柵の開いた薄面。dedupで片面化済みのため）
 uniform vec3  u_eye;        // カメラ位置（接地の局所系＝画素の動径を出す・light 用）
 uniform float u_lightOn;    // style の light（MapLibre・B3 2026-10-12）：1＝u_lightDir（東・北・上の単位ベクトル）・u_lightI（強さ）・u_lightColor で陰影。0＝従来の固定光（ビット同一）
@@ -394,6 +401,7 @@ void main() {
 	vec3 base = u_bldColor * d;
 	if (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色
 	vec3 c = mix(base, u_fogColor, v_fog);
+	c = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）
 	fragColor = vec4(c, 1.0);
 }`;
 
@@ -409,7 +417,7 @@ export const MESH_TEX_VS = derive(MESH_VS, [
 export const MESH_TEX_FS = derive(MESH_FS, [
 	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nin vec2 v_uv;\nin vec4 v_col;"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
 	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n"],
-	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 base = tx.rgb * d;\n\tif (u_csOn > 1.5) base = tx.rgb; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(txr.rgb) * v_col.rgb, n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tfragColor = vec4(c * a, a);\n}"],
+	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 base = tx.rgb * d;\n\tif (u_csOn > 1.5) base = tx.rgb; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(txr.rgb) * v_col.rgb, n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c * a, a);\n}"],
 ], "MESH_TEX_FS");
 
 // 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝
@@ -420,6 +428,11 @@ precision highp float;
 in vec2 a_uv;      // 単位格子 [0,1]²（メッシュは G だけに依存＝窓が動いても作り直さない）
 uniform vec4 u_mesh;   // xy=窓の原点(lon,lat)  zw=窓の幅(deg)
 ${PROJECT}
+// Cesium の霧（csatmo.ts csFogV・頂点で色と量）：u_csFogD＝濃さ（0＝なし）・u_csFogL＝xyz 光へ向く単位ベクトル・w 照明あり 1／なし −1
+uniform float u_csFogD;
+uniform vec4 u_csFogL;
+${CS_ATMO_GLSL}
+out vec4 v_csFog;
 out vec2 v_ll;
 out float v_front;
 out float v_fog;
@@ -454,6 +467,7 @@ void main() {
 	vec3 relW = rel + (h * u_elevScale) * liftDir(a_ll, dir);   // (dir*(1+h*scale)) − 原点3D を相殺なしで（楕円体＝測地法線）
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(u_originPt + relW);
+	v_csFog = csFogV(u_eye * CS_R, (u_originPt + relW) * CS_R, u_csFogD, u_csFogL.xyz, u_csFogL.w);
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
 	applyLogDepth();
 }`;
@@ -599,6 +613,7 @@ in vec2 v_ll;
 in float v_front;
 in float v_fog;
 in float v_h;
+in vec4 v_csFog;   // Cesium の霧（頂点で計算・csFogV）
 out vec4 fragColor;
 void main() {
 	float mpp = fwidth(v_ll.y) * 111320.0;   // 画素の地上寸法(m)の目安＝下の低地フェード帯の上端（WGSL terrMpp と同式・経度は f32 刻みが粗いので使わない）。微分は discard より前
@@ -639,6 +654,7 @@ void main() {
 	vec4 g = gndOver(vec4(cogTexMix(landC * mix(1.0, shade, min(tS / t, 1.0)), v_cuv) * ba, ba), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	if (u_cg.w > 0.5) g.rgb *= u_cgC * cgK;
 	vec3 col = g.rgb * (1.0 - v_fog) + u_fogColor * v_fog * g.a;   // ＝mix(colBase, fog, v_fog) を前乗算で
+	col = mix(col, v_csFog.rgb * g.a, v_csFog.a);   // Cesium の霧（800 km より下・遠景球の csFogL と同じ式）
 	fragColor = vec4(col * t * u_globeAlpha, g.a * t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
 }`;
 
@@ -729,7 +745,7 @@ uniform vec3 u_skyColor;
 uniform vec3 u_horizonColor;
 uniform vec3 u_skyFogColor;
 uniform vec4 u_skyBlend;
-// Cesium の大気（view.csAtmo・../csatmo.ts）＝(点ける 0/1, 地面の大気の効き 0..1, 空の大気 0/1, 0)。点けると従来の霞・リム光・sky の代わり
+// Cesium の大気（view.csAtmo・../csatmo.ts）＝(点ける 0/1, 地面の大気の効き 0..1, 空の大気 0/1, 霧の濃さ＝csFogDensity)。点けると従来の霞・リム光・sky の代わり
 uniform vec4 u_csAtm;
 ${CS_ATMO_GLSL}// 全球ハイプソ（NEラスタの美しさを標高から計算で作る＝ラスタタイル配布ゼロ）：
 // レイ→球→測地緯度→elev() は CONTOUR_FS と同式。R90 全球窓（z<6.5 は bounds=[-180,-90,360,180]）を引く。
@@ -869,7 +885,11 @@ void main() {
 	float haze = pow(1.0 - ndv, 3.0);             // 縁ほど強い内側リムの霞
 	float hz = haze * u_atmo.a * 0.9;
 	vec3 col = g.rgb * (1.0 - hz) + u_atmo.rgb * hz * g.a;   // ＝mix(base, atmo, hz) を前乗算で（a=1 で同値）
-	if (u_csAtm.x > 0.5) col = csGroundL(g.rgb / max(g.a, 1e-4), A * CS_R, P * CS_R, u_csAtm.y, u_cg.xyz, u_cg.w > 0.5 ? u_cgP.w : -1.0) * g.a;   // Cesium の地面の大気（従来の霞の代わり）
+	if (u_csAtm.x > 0.5) {   // Cesium の地面の大気（遠くから）と霧（800 km より下・u_csAtm.w＝濃さ）＝従来の霞の代わり
+		float night = u_cg.w > 0.5 ? u_cgP.w : -1.0;
+		vec3 cs = csGroundL(g.rgb / max(g.a, 1e-4), A * CS_R, P * CS_R, u_csAtm.y, u_cg.xyz, night);
+		col = csFogL(cs, A * CS_R, P * CS_R, u_csAtm.w, u_cg.xyz, night) * g.a;
+	}
 	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（SkyAtmosphere は地面を知らない＝殻の奥の面）
 	if (u_csAtm.x > 0.5 && u_csAtm.z > 0.5 && u_globeAlpha < 1.0) { vec4 cs = csSky2(A * CS_R, normalize(d), u_globeAlpha > 0.0 ? 2.0 : 1.0); fragColor += cs * (1.0 - fragColor.a); }

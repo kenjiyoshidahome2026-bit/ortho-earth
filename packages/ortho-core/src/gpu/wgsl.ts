@@ -62,7 +62,7 @@ struct Frame {
 	elevP: vec4f,      // elevScaleEff((誇張/半径)×pitchフェード), hasElev(0/1), edgeFade(deg), 0
 	mesh: vec4f,       // 地形メッシュの窓：xy=原点(lon,lat) zw=幅(deg)。頂点は単位格子 uv＝窓替えで作り直さない（terrain/terrainFar slot のみ非0）
 	farBounds: vec4f,  // 遠景層（far）アトラス被覆＝近窓の外を受け持つ粗い R10 第2アトラス（深ズーム×チルトで常設）
-	farP: vec4f,       // hasFar(0/1), farEdgeFade(deg), farPass(1=遠景メッシュパス・terrainFar slot のみ), 0
+	farP: vec4f,       // hasFar(0/1), farEdgeFade(deg), farPass(1=遠景メッシュパス・terrainFar slot のみ), Cesium の霧の濃さ（csFogDensity・地形と模型の頂点で csFogV）
 	ellTrig: vec4f,    // 楕円体 dβ 錨 (cos2φ0, sin2φ0, cos4φ0, sin4φ0)（CPU double・原点の測地緯度）。球=vec4(0)＝補正が厳密0
 	ellP: vec4f,       // x=1:楕円体（変位方向・β→φ復元のゲート）0:球, yzw=0
 	cogP: vec4f,       // ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）: fill系 slot=(off.xy, 1/span)・terrain系 slot=(off.xy, mesh.zw/span)
@@ -691,6 +691,7 @@ fn cgLambert(ll: vec2f, gEN: vec2f, cg: vec4f, cgP: vec4f) -> f32 {
 	return mix(1.0, diff, cgP.z);
 }
 ${WORLD_HYPSO_WGSL}
+${CS_ATMO_WGSL}
 // 気候場（全球ハイプソの cross-blend）＝terrain 専用 group(2)。未着は dummy（hasClim=P.p2.z=0 で不使用）
 @group(2) @binding(0) var climTex: texture_2d<f32>;
 @group(2) @binding(1) var climSamp: sampler;
@@ -705,6 +706,7 @@ struct TerrOut {
 	@location(5) guv0: vec2f,  // 地面アトラス uv（前景/近/中/遠＝F.gnd0..3）
 	@location(6) guv1: vec2f,
 	@location(7) guv2: vec2f,
+	@location(12) csFog: vec4f,   // Cesium の霧（頂点で色と量・csFogV）＝派生（影 9・切り抜き 10〜11・cw 15）と重ならない番号
 	@location(8) guv3: vec2f,
 };
 // 画素の地上寸法(m)の目安＝緯度の画面微分（fwidth＝x/y 両方向の和・方位に依らず拾う）。経度は使わない：
@@ -729,6 +731,7 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	let relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(F.originPt + relW);
+	o.csFog = csFogV(F.eye * CS_R, (F.originPt + relW) * CS_R, F.farP.w, F.cg.xyz, select(-1.0, 1.0, F.cg.w > 0.5 && F.cgP.w >= 0.0));
 	var p = F.clipT + F.mvp * vec4f(relW, 0.0);
 	p.z = logDepthZ(p.w);
 	o.pos = p;
@@ -771,7 +774,8 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	let tS = smoothstep(1.0, 100.0, in.h);
 	var colBase = gndMix0(cogTexMix0(landC * mix(1.0, shade, min(tS / t, 1.0)), in.cuv), in.guv0, in.guv1, in.guv2, in.guv3);
 	if (F.cg.w > 0.5) { colBase *= F.cgC.rgb * cgK; }   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
-	let col = mix(colBase, F.fogColor, in.fog);
+	var col = mix(colBase, F.fogColor, in.fog);
+	col = mix(col, in.csFog.rgb, in.csFog.a);   // Cesium の霧（800 km より下・globe の csFogL と同じ式）
 	return vec4f(col * t * P.p2.w, t * P.p2.w);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度（p2.w）
 }
 `;
@@ -851,6 +855,7 @@ struct BldOut {
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
+${CS_ATMO_WGSL}
 struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f };   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 0, 0)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
@@ -860,6 +865,7 @@ struct PlOut {
 	@location(0) n: vec3f,       // 実法線（巻き順非依存で表向きへ）
 	@location(1) toEye: vec3f,
 	@location(2) front: f32,
+	@location(13) csFog: vec4f,   // Cesium の霧（頂点で色と量・csFogV）＝派生（uv/col 4〜5・影 4/6・切り抜き 5〜8・wl 12・cw 15）と重ならない番号
 	@location(3) fog: f32,
 };
 @vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {
@@ -872,6 +878,7 @@ struct PlOut {
 	o.toEye = F.eye - wp;
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(wp);
+	o.csFog = csFogV(F.eye * CS_R, wp * CS_R, F.farP.w, F.cg.xyz, select(-1.0, 1.0, F.cg.w > 0.5 && F.cgP.w >= 0.0));
 	// 接地リフト（DTM 保証域 P.p0=liftBounds 内だけ・境界 0.05° smoothstep）。域外/bounds無しは h=0（r=1 接地）
 	let lat = geoLat(degrees(asin(clamp(dir.y, -1.0, 1.0))));   // β球点→測地緯度（elev/リフト域は測地の台帳。球=恒等）
 	let lon = degrees(atan2(dir.z, dir.x));
@@ -985,7 +992,8 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	let cwin = cityWin(select(n, normalize(gnRaw * sign(dot(gnRaw, n))), g2 > 1e-18), in.wl, wlx, wly);   // 夜の街明かり（cs.y＝0 のバッチ＝模型などは何もしない）・向きは面の幾何法線（面内で一定＝角で丸めた頂点法線でも壁は壁）
 	lit = mix(lit, cwin.rgb, cwin.w);
 	let wm = cwin.w * B.cs.z * (1.0 - in.fog);   // 窓の印＝canvas の α を 1−wm に（後処理の夜の色が窓だけ暗くしない・cs.z＝grade の間だけ）
-	let c = mix(lit, F.fogColor, in.fog);
+	var c = mix(lit, F.fogColor, in.fog);
+	c = mix(c, in.csFog.rgb, in.csFog.a);   // Cesium の霧
 	return vec4f(c, 1.0 - wm);
 }
 `;
@@ -1167,7 +1175,7 @@ struct Globe {
 	whP: vec4f,          // (出現度whK, hasElev, ell, hasClim)
 	seaC: vec4f,         // 海の平色（NE流の淡青）
 	farBounds: vec4f,    // far床（世界帯z<8=R90全球固定窓）の被覆＝近窓の外を受ける（タイラーのバグ根治 9/2）
-	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, 0, 0)
+	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, Cesium の霧の濃さ＝csFogDensity, 0)
 	misc: vec4f,         // (globeAlpha=球体の不透明度・本人裁定 2026-09-13, Cesium の地面の大気の効き 0..1, Cesium の大気を点ける 0/1, Cesium の空の大気 0/1)＝view.csAtmo（../csatmo.ts）
 	sun: vec4f,          // 大気散乱（#46 段 1）：xyz＝太陽の方向（地球固定）・w＝散乱を点ける度合い（fx.atmosphere × 全球ハイプソの出現度＝0 は従来のリム光と霞）
 	anc: vec4f,          // 錨（#65）：xyz＝シーン原点の β単位球の点 O・w＝cos β0
@@ -1401,7 +1409,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	if (G.cg.w > 0.5) { base *= G.cgC.rgb * cgLambert(ll, vec2f(0.0), vec4f(G.cg.xyz, 2.0), G.cgP); }   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
 	var colC = col;
-	if (G.misc.z > 0.5) { colC = csGroundL(base, A * CS_R, Pt * CS_R, G.misc.y, G.cg.xyz, select(-1.0, G.cgP.w, G.cg.w > 0.5)); }   // Cesium の地面の大気（従来の霞の代わり）
+	if (G.misc.z > 0.5) { let night = select(-1.0, G.cgP.w, G.cg.w > 0.5); colC = csFogL(csGroundL(base, A * CS_R, Pt * CS_R, G.misc.y, G.cg.xyz, night), A * CS_R, Pt * CS_R, G.farP.z, G.cg.xyz, night); }   // Cesium の地面の大気（遠くから）と霧（800 km より下・farP.z＝濃さ）＝従来の霞の代わり
 	var outC = vec4f(colC * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（gl と同じ）
 	if (G.misc.z > 0.5 && G.misc.w > 0.5 && G.misc.x < 1.0) { let cs = csSky2(A * CS_R, normalize(d), select(1.0, 2.0, G.misc.x > 0.0)); outC += cs * (1.0 - outC.a); }
@@ -1481,7 +1489,7 @@ export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tif (B.csL.w > 1.5) { lit = P.p1.rgb; }", "\tif (B.csL.w > 1.5) { lit = srgbEncode(tx.rgb); }"],   // unlit＝テクスチャの素の色
 	["\t\tvar ci: CsIn; ci.base = srgbDecode(P.p1.rgb); ci.n = n; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = B.pbr0.x; ci.rough = B.pbr0.y; ci.ao = 1.0; ci.emissive = vec3f(0.0); ci.sunK = sunK;\n",
 	 "\t\tlet cnm = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);   // 法線マップ（fx.pbr の経路と同じ接線）\n\t\tlet cdp1 = -dpx; let cdp2 = -dpy; let cdp2p = cross(cdp2, n); let cdp1p = cross(n, cdp1);\n\t\tlet cT = cdp2p * dux.x + cdp1p * duy.x; let cB = cdp2p * dux.y + cdp1p * duy.y; let cmx = max(dot(cT, cT), dot(cB, cB));\n\t\tvar cn = n; if (cmx > 1e-20) { let im = inverseSqrt(cmx); cn = normalize(cT * im * cnm.x + cB * im * cnm.y + n * max(cnm.z, 0.05)); }\n\t\tvar ci: CsIn; ci.base = tx.rgb; ci.n = cn; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); ci.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); ci.ao = mix(1.0, oc.r, B.pbr0.w); ci.emissive = B.emis.rgb * em.rgb; ci.sunK = sunK;\n"],
-	["\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0 - wm);\n}\n", "\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
+	["\tc = mix(c, in.csFog.rgb, in.csFog.a);   // Cesium の霧\n\treturn vec4f(c, 1.0 - wm);\n}\n", "\tc = mix(c, in.csFog.rgb, in.csFog.a);   // Cesium の霧\n\treturn vec4f(c * a, a);\n}\n"],
 ], "MESH_TEX_WGSL");
 
 
@@ -1609,7 +1617,7 @@ fn shShade(col: vec3f, sc: vec4f) -> vec3f { return col * mix(SH.p.x, 1.0, shLit
 export const TERRAIN_SH_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	["\t@location(8) guv3: vec2f,\n};", "\t@location(8) guv3: vec2f,\n\t@location(9) sc: vec4f,\n};"],
 	["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", "\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\to.sc = shClip(relW + (F.originPt - SH.anchor.xyz));\n"],
-	["\tlet col = mix(colBase, F.fogColor, in.fog);", "\tlet col = mix(shShade(colBase, in.sc), F.fogColor, in.fog);"],
+	["\tvar col = mix(colBase, F.fogColor, in.fog);", "\tvar col = mix(shShade(colBase, in.sc), F.fogColor, in.fog);"],
 	// 影の間の陰影（#112 段 2・本人裁定）＝北西の固定光でなく影と同じ太陽の方位（SH.mvp の 3 行目＝光の進む向き/Z＝shadow.time にも従う）。
 	// 強さは従来と同じ（勾配 1 あたり 0.44＝旧式 (−hx+hy)·0.0007 を歩幅 ≈445m で換算）＝平地は 0.82・向きだけ太陽へ回す。太陽の高度では強めない
 	//（ランバートを平地で割ると低い太陽で日向の斜面が全部 1.15 に飽和し、窓の外の遠い山がまだらになった＝富士で確認）。日の当たらない斜面は地形の影が暗くする
