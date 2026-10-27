@@ -11,7 +11,7 @@
 // 契約（map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
 // 当たり判定（統一 picking・deck.gl 差分 PR-1・2026-10-11）：pick(x, y, r, ctx)＝最後に描いたフレームの点・画像・札の位置（device px）から半径 r の中で一番近い軌跡
 //   ＝{ id, distance, lngLat, properties:{ id, name, description } }｜null。描いた物だけ当たる（出ていない区間・地球の陰は描いていない＝当たらない）。
-import { positionAt, availableAt, pathTimes, numberAt, boolAt, ecefToLlh } from "../czml-time.ts";
+import { positionAt, pathPositionAt, availableAt, pathTimes, numberAt, boolAt, ecefToLlh } from "../czml-time.ts";
 import { ellipsoidOn, worldRadiusM } from "@ortho-earth/core/camera";
 import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
 import type { LonLat, OverlayFrameApi } from "../../globe.d.ts";
@@ -297,12 +297,13 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		if (!availableAt(tr, ms)) continue;
 		const st: Partial<CzmlStyle> = tr.style || {};
 		const ph = st.path;
-		if (ph && boolAt(ph.show, ms, true)) {
+		const rel = ph?.relativeTo ? tracks.find(x => x.id === ph.relativeTo) ?? null : null;   // path.relativeTo＝その軌跡から見た相対の尾（無い id は尾を描かない＝Cesium と同じ）
+		if (ph && boolAt(ph.show, ms, true) && (!ph.relativeTo || rel)) {
 			const times = pathTimes(tr, ms, { lead: numberAt(ph.lead, ms, null), trail: numberAt(ph.trail, ms, null), resolution: numberAt(ph.resolution, ms, 60) });
 			const lw = ph.width * dpr, out: number[] = [];
 			let run: Array<[number, number]> = [];
 			const flush = () => { for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0); run = []; };   // 継ぎは丸・尾の端は butt
-			for (const t of times) { const q = positionAt(tr, t), P = q && toScreen(q); if (!P) { flush(); continue; } run.push(P); }
+			for (const t of times) { const q = pathPositionAt(tr, t, ms, rel, ph.frame ?? null), P = q && toScreen(q); if (!P) { flush(); continue; } run.push(P); }
 			flush();
 			stroke(out, rgbaOf(ph.color), lw);
 		}

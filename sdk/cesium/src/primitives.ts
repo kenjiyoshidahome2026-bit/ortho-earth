@@ -23,6 +23,8 @@ export interface PrimLine { p: number[]; color: string; width: number }
 interface Item {
 	p: Any; key: string; built: boolean; h: Any; loading: boolean; dead: boolean;
 	lines: PrimLine[]; ids: Any[]; colors: Uint8Array[]; shows: boolean[];
+	/** each instance's world bounding sphere (getGeometryInstanceAttributes(id).boundingSphere, as Primitive gives once built → camera.viewBoundingSphere) */
+	spheres: Array<BoundingSphere | undefined>;
 }
 
 /** a primitive this module draws */
@@ -129,7 +131,7 @@ export class PrimitiveDrawer {
 	get orthoModels() { return new Map([...this.#items].map(([p, it]) => [p, it.h])); }
 	add(p: Any) {
 		if (this.#items.has(p)) return;
-		const it: Item = { p, key: `cesium-prim:${++SEQ}`, built: false, h: null, loading: false, dead: false, lines: [], ids: [], colors: [], shows: [] };
+		const it: Item = { p, key: `cesium-prim:${++SEQ}`, built: false, h: null, loading: false, dead: false, lines: [], ids: [], colors: [], shows: [], spheres: [] };
 		this.#items.set(p, it);
 		this.#instrument(it);
 	}
@@ -185,7 +187,7 @@ export class PrimitiveDrawer {
 				get depthFailColor() { return undefined; }, set depthFailColor(_v: Any) { /* none */ },
 				get distanceDisplayCondition() { return undefined; }, set distanceDisplayCondition(_v: Any) { unsupported("instance distanceDisplayCondition"); },
 				get offset() { return undefined; }, set offset(_v: Any) { unsupported("instance offset"); },
-				boundingSphere: undefined,
+				get boundingSphere() { return it.spheres[i]; },
 			};
 		};
 	}
@@ -225,6 +227,7 @@ export class PrimitiveDrawer {
 				Matrix4.multiplyByPoint(W, v3, v3);
 				world[k * 3] = v3.x; world[k * 3 + 1] = v3.y; world[k * 3 + 2] = v3.z;
 			}
+			it.spheres[i] = BoundingSphere.fromVertices(world);
 			if (mode === LINES) {
 				const lw = p.appearance?.renderState?.lineWidth ?? 1;
 				for (let k = 0; k + 1 < idx.length; k += 2) { const a = idx[k], b = idx[k + 1]; lines.push({ p: [world[a * 3], world[a * 3 + 1], world[a * 3 + 2], world[b * 3], world[b * 3 + 1], world[b * 3 + 2]], color: css(col), width: lw }); }

@@ -7,9 +7,9 @@
 //   model → map.gadget.model (heading only: the globe's models do not pitch or roll)
 // It also answers what the CesiumWidget asks of a display: update(time), getBoundingSphere(entity) for zoomTo / flyTo / trackedEntity,
 // and picking (what is under a screen point).
-import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, CorridorOutlineGeometry, Ellipsoid, FixedFrameTransforms, JulianDate, Math as CMath, PolygonHierarchy, PolylinePipeline, Quaternion, Matrix3, Matrix4, ArcType } from "@cesium/core";
+import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, CorridorOutlineGeometry, Ellipsoid, FixedFrameTransforms, JulianDate, Math as CMath, PolygonHierarchy, PolylinePipeline, Quaternion, Matrix3, Matrix4, ArcType, ReferenceFrame, TimeInterval } from "@cesium/core";
 import * as engine from "@cesium/engine";
-import { CustomDataSource, HorizontalOrigin, LabelStyle, SceneTransforms, VerticalOrigin, HeightReference } from "@cesium/engine";
+import { CustomDataSource, HorizontalOrigin, LabelStyle, SceneTransforms, VerticalOrigin, HeightReference, Transforms } from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { cesiumSphereOf } from "./spheres.ts";
 import { gltfSphere } from "./gltf.ts";
@@ -185,7 +185,7 @@ function cesiumCorridorRing(ps: Cartesian3[], width: number, cornerType: number 
 
 /** what one entity shows at a time (JSON-comparable) */
 interface Desc {
-	track: { id: string; name: string | null; t: number[]; p: number[]; style: Any; avail: number[][] | null } | null;
+	track: { id: string; name: string | null; t: number[]; p: number[]; degree: number; style: Any; avail: number[][] | null } | null;
 	shapes: Any[];
 	/** shapes on the ground with a painted material (stripe, checkerboard, grid, image): an image layer over their box */
 	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number }>;
@@ -195,7 +195,7 @@ interface Desc {
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
 	solids: { fill: Any[]; outline: Any[]; width: number } | null;
 }
-interface Rec { e: Any; desc: Desc | null; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[] } | null; off: () => void; solids?: { d: Desc["solids"]; names: Set<string> } }
+interface Rec { e: Any; desc: Desc | null; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[]; degree: number } | null; icrf?: boolean; off: () => void; solids?: { d: Desc["solids"]; names: Set<string> } }
 
 export class EntityDisplay {
 	readonly defaultDataSource = new CustomDataSource("default");
@@ -312,7 +312,7 @@ export class EntityDisplay {
 		const tk = tracksKey(tracks);
 		if (tk !== this.#lastTracks) {
 			this.#lastTracks = tk;
-			this.#ov.post({ type: "tracks", tracks: tracks.map(t => ({ id: t.id, name: t.name, t: Float64Array.from(t.t), p: Float64Array.from(t.p), degree: 1, inertial: false, avail: t.avail, style: t.style, czml: {} })) });
+			this.#ov.post({ type: "tracks", tracks: tracks.map(t => ({ id: t.id, name: t.name, t: Float64Array.from(t.t), p: Float64Array.from(t.p), degree: t.degree, inertial: false, avail: t.avail, style: t.style, czml: {} })) });
 		}
 		const lk = JSON.stringify(lines);
 		if (lk !== this.#lastLines) { this.#lastLines = lk; this.#ov.post({ type: "lines", lines: lines.map(l => ({ ...l, avail: null, show: true })) }); }
@@ -427,14 +427,16 @@ export class EntityDisplay {
 			}
 		}
 		if (ph && val(ph.show, t, true)) {
-			dyn(ph.width, ph.material, ph.leadTime, ph.trailTime);
-			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60) };
+			dyn(ph.width, ph.material, ph.leadTime, ph.trailTime, ph.relativeTo);
+			// the frame the path is drawn in (Cesium's PathVisualizer): relativeTo "FIXED" / "INERTIAL" / an entity id (the VVLH frame of that entity), else the position's own frame (inertial = the orbit's ellipse)
+			const rel = val(ph.relativeTo, t, null), own = e.position?.referenceFrame === ReferenceFrame.INERTIAL ? "inertial" : "fixed";
+			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60), relativeTo: rel == null || rel === "FIXED" || rel === "INERTIAL" ? null : String(rel), frame: rel === "FIXED" ? "fixed" : rel === "INERTIAL" ? "inertial" : own };
 		}
 		if (e.position && (style.point || style.image || style.label || style.path)) {
 			const s = this.#samples(e, t, r);
 			if (s) {
 				const avail = e.availability ? intervalsOf(e.availability) : null;
-				d.track = { id: String(e.id), name: e.name ?? null, t: s.t, p: s.p, style, avail };
+				d.track = { id: String(e.id), name: e.name ?? null, t: s.t, p: s.p, degree: s.degree, style, avail };
 				if (s.dynamic) dynamic = true;
 			}
 			if (pos) sphPts.push(pos);
@@ -605,11 +607,11 @@ export class EntityDisplay {
 	}
 
 	/** the samples (ms, ECEF) of an entity's position: once for a time-sampled position, now for anything else */
-	#samples(e: Any, t: JulianDate, r: Rec): { t: number[]; p: number[]; dynamic: boolean } | null {
+	#samples(e: Any, t: JulianDate, r: Rec): { t: number[]; p: number[]; dynamic: boolean; degree: number } | null {
 		const prop = e.position;
 		if (isConst(prop)) {
 			const p = val(prop, t);
-			return p ? { t: [-FAR, FAR], p: [p.x, p.y, p.z, p.x, p.y, p.z], dynamic: false } : null;
+			return p ? { t: [-FAR, FAR], p: [p.x, p.y, p.z, p.x, p.y, p.z], dynamic: false, degree: 1 } : null;
 		}
 		const span = spanOf(prop);
 		if (span) {
@@ -620,12 +622,21 @@ export class EntityDisplay {
 				const ts = [...times].filter(x => x >= a && x <= b).sort((x, y) => x - y), tt: number[] = [], pp: number[] = [];
 				const jd = new JulianDate();
 				for (const ms of ts) { JulianDate.fromDate(new Date(ms), jd); const p = prop.getValue(jd); if (p) { tt.push(ms); pp.push(p.x, p.y, p.z); } }
-				r.samples = { t: tt, p: pp };
+				r.samples = { t: tt, p: pp, degree: Math.max(1, Math.min(5, Math.round(+prop.interpolationDegree || 1))) };   // the overlay interpolates the 30 s samples with the property's Lagrange degree (linear = 900 m off on an orbit, degree 5 = 7 m)
+				// inertial positions (CZML satellites): until the IAU 2006 XYS data has loaded, Cesium's getValue converts with the TEME approximation (~35 km off in 2023) → sample again once it is in.
+				// (sampled in the fixed frame with Cesium's own transform so the marks sit where Cesium's camera tracks them; the overlay's own transform differs by ~60 m)
+				if (prop.referenceFrame === ReferenceFrame.INERTIAL && !r.icrf) {
+					const j0 = JulianDate.fromDate(new Date(a)), j1 = JulianDate.fromDate(new Date(b));
+					if (!Transforms.computeIcrfToFixedMatrix(j0) || !Transforms.computeIcrfToFixedMatrix(j1)) {
+						r.icrf = true;
+						Transforms.preloadIcrfFixed(new TimeInterval({ start: j0, stop: j1 })).then(() => { if (!this.#destroyed) { r.samples = null; r.dirty = true; this.invalidate(); } }, () => {});
+					}
+				}
 			}
 			return r.samples.t.length ? { ...r.samples, dynamic: false } : null;
 		}
 		const p = val(prop, t);   // CallbackProperty and the like: where it is now, every frame
-		return p ? { t: [-FAR, FAR], p: [p.x, p.y, p.z, p.x, p.y, p.z], dynamic: true } : null;
+		return p ? { t: [-FAR, FAR], p: [p.x, p.y, p.z, p.x, p.y, p.z], dynamic: true, degree: 1 } : null;
 	}
 
 	#setShapes(map: Any, shapes: Any[]) {
@@ -816,7 +827,7 @@ function inShape(g: Any, x: number, y: number): boolean {
 	const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
 	return polys.some((p: number[][][]) => inRing(p[0], x, y) && !p.slice(1).some(h => inRing(h, x, y)));
 }
-const tracksKey = (tracks: Any[]) => JSON.stringify(tracks.map(t => [t.id, t.t.length, t.t[0], t.t[t.t.length - 1], t.p[0], t.p[1], t.p[2], t.p[t.p.length - 1], t.style, t.avail]));
+const tracksKey = (tracks: Any[]) => JSON.stringify(tracks.map(t => [t.id, t.t.length, t.t[0], t.t[t.t.length - 1], t.p[0], t.p[1], t.p[2], t.p[t.p.length - 1], t.degree, t.style, t.avail]));
 function intervalsOf(c: Any): number[][] | null {
 	const out: number[][] = [];
 	for (let i = 0; i < c.length; i++) {

@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { czmlToFeatures } from "geopbf/czml";
 import { GeoPBFBase } from "geopbf/pbf-base";
-import { trackOf, positionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf } from "../src/czml-time.ts";
+import { trackOf, positionAt, pathPositionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf } from "../src/czml-time.ts";
 globalThis.ImageData ??= class ImageData {};
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/czml");
@@ -60,6 +60,23 @@ console.log("― 区間・path・時刻付きの数 ―");
 	const lead = JSON.parse(fs.readFileSync(path.join(DIR, "simple.czml"), "utf8")).find(p => p.id === "Satellite/ISS").path.leadTime;
 	const v0 = numberAt(lead, Date.parse("2012-03-15T10:00:00Z")), v1 = numberAt(lead, Date.parse("2012-03-15T10:20:00Z"));
 	ok(Math.abs(v0 - 5537.55) < 0.01 && Math.abs(v1 - (v0 - 1200)) < 0.01, `leadTime（区間ごとの数列＝周回の残り秒）を時刻で引く（${v0.toFixed(2)} → ${v1?.toFixed(2)}＝20 分で 1200 秒減る）`);
+}
+
+console.log("― path の枠（慣性系・relativeTo の VVLH）＝Cesium の PathVisualizer ―");
+{
+	// 赤道上の円軌道（固定系の標本・1 分ごと・90 分で 1 周）：慣性系の path は時刻 ms の回転で描く＝ms で軌跡の点と一致し、他の時刻では固定系の標本とは違う点になる
+	const R = 6771e3, T0 = Date.parse("2023-03-10T17:00:00Z"), w = 2 * Math.PI / 5400, t = [], p = [];
+	for (let i = 0; i <= 90; i++) { const s = i * 60, a = w * s; t.push(T0 + s * 1000); p.push(R * Math.cos(a), R * Math.sin(a), 0); }
+	const tr = { t: Float64Array.from(t), p: Float64Array.from(p), degree: 1, inertial: false, avail: null, czml: {} };
+	const ms = T0 + 1800e3, near = (a, b, tol) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < tol;
+	ok(near(pathPositionAt(tr, ms, ms, null, "inertial"), positionAt(tr, ms), 1e-6) && near(pathPositionAt(tr, ms, ms), positionAt(tr, ms), 1e-6), "path の点は描く時刻で軌跡の点と一致（慣性系・固定系）");
+	const q = pathPositionAt(tr, ms - 600e3, ms, null, "inertial"), f = positionAt(tr, ms - 600e3);
+	ok(Math.abs(Math.hypot(...q) - R) < 1 && !near(q, f, 1000), `慣性系の path は 10 分前の点を地球の回転の分（${(Math.hypot(q[0] - f[0], q[1] - f[1], q[2] - f[2]) / 1000).toFixed(0)} km）回した所に置く`);
+	// relativeTo：同じ軌道を 5 分遅れて回る相手から見た相対の尾＝相手の VVLH 枠（進行方向 x）で前方の一定距離に留まる → 描く時刻の相手の位置から見て同じ向き・同じ距離
+	const t2 = t.map(x => x + 300e3), rel = { t: Float64Array.from(t2), p: Float64Array.from(p), degree: 1, inertial: false, avail: null, czml: {} };
+	const r0 = positionAt(rel, ms), d0 = Math.hypot(...pathPositionAt(tr, ms, ms, rel).map((v, k) => v - r0[k])), d1 = Math.hypot(...pathPositionAt(tr, ms - 900e3, ms, rel).map((v, k) => v - r0[k]));
+	const chord = 2 * R * Math.sin(w * 300 / 2);
+	ok(Math.abs(d0 - chord) < 1 && Math.abs(d1 - chord) < 100, `relativeTo の尾は相手から一定の距離（${(d0 / 1000).toFixed(1)} km・15 分前の点も ${(d1 / 1000).toFixed(1)} km）`);
 }
 
 console.log("― GPX（線形・±180° を跨ぐ）―");
