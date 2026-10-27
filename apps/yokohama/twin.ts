@@ -14,7 +14,7 @@ import type { BigTable } from "common/bigtable";   // 施設の検索の表（�
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -162,6 +162,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<!-- わが家のまわり＝暮らしの面ではかさばるので解析へ（本人 2026-10-26） -->
 				<h2>${esc(t("Around my home"))}</h2>
 				<div class="hm-btns"><button type="button" class="act hm-tap">${esc(t("Tap the map at your home"))}</button><button type="button" class="act hm-gps">${esc(t("Use my current location"))}</button></div>
+				<div class="hm-saved" role="group" aria-label="${esc(t("Saved places"))}" hidden></div>
 				<p class="sub flat hm-msg">${esc(t("One card shows your school districts, nearest stations, flood risk, evacuation site and nearby facilities."))}</p>
 				<div class="detail home-out" hidden></div>
 				<h2>${esc(t("At the center of the screen"))}</h2>
@@ -1017,9 +1018,46 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		} else map.getSource("yk-route")?.setData?.(fc);
 		homeOut.querySelectorAll<HTMLElement>(".wroute").forEach(b => b.classList.toggle("on", +b.dataset.k! === k));
 	}
-	const clearHome = () => { homeOut.hidden = true; homeMark?.remove(); homeMark = null; routes.length = 0; routeTo.length = 0; if (routeOn) showRoute(-1); else { destMark?.remove(); destMark = null; } };
+	const clearHome = () => { homeOut.hidden = true; homeNow = null; homeMark?.remove(); homeMark = null; routes.length = 0; routeTo.length = 0; if (routeOn) showRoute(-1); else { destMark?.remove(); destMark = null; } };
+	// 保存した地点＝自宅・実家・職場など名前を付けて 3 か所まで。押せばその地点のカードへ（この端末だけ＝localStorage・Kenji 2026-10-27「2〜3 点登録できると便利」）
+	const PLACES_KEY = "yk-places", savedEl = $<HTMLElement>(".hm-saved");
+	let places: SavedPlace[] = [], homeNow: [number, number] | null = null;
+	try { places = parsePlaces(localStorage.getItem(PLACES_KEY)); } catch { /* 読めない端末＝空 */ }
+	const paintPlaces = () => {
+		savedEl.hidden = !places.length;
+		savedEl.innerHTML = places.map((p, i) => `<span class="pl"><button type="button" class="pl-go" data-i="${i}">${esc(p.n)}</button><button type="button" class="pl-del" data-i="${i}" aria-label="${esc(t("Remove $1", p.n))}">×</button></span>`).join("");
+	};
+	const putPlaces = () => { try { localStorage.setItem(PLACES_KEY, JSON.stringify(places)); } catch { /* 保存できない端末＝この回だけ */ } paintPlaces(); if (homeNow) paintSave(homeNow); };
+	// カードの「この地点を保存」＝保存済みなら名前、3 か所埋まっていれば一言、それ以外は名前の欄と保存ボタン
+	function paintSave(at: [number, number]) {
+		const slot = homeOut.querySelector<HTMLElement>(".hm-sv");
+		if (!slot) return;
+		const p = places.find(q => samePlace(q.at, at));
+		slot.innerHTML = p ? `<p class="hm-is">★ ${esc(p.n)}</p>`
+			: places.length >= PLACES_MAX ? `<p class="sub flat">${esc(t("You can save up to $1 places. Remove one to add another.", PLACES_MAX))}</p>`
+			: `<form class="hm-svf"><input type="text" class="fq" maxlength="${PLACE_NAME_MAX}" placeholder="${esc(t("Name (e.g. Home, Parents, Work)"))}" aria-label="${esc(t("Place name"))}" enterkeyhint="done"><button type="submit" class="act">${esc(t("Save this place"))}</button></form>`;
+	}
+	const goHome = (ll: LonLat) => {
+		setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); });   // スマホ：家の印が下のシートに隠れない所へ
+		homeAt(ll);
+	};
+	savedEl.addEventListener("click", e => {
+		const el = e.target as HTMLElement, go = el.closest<HTMLElement>(".pl-go"), del = el.closest<HTMLElement>(".pl-del");
+		if (go) { const p = places[+go.dataset.i!]; if (p) { hmMsg.textContent = ""; goHome(p.at); } }
+		else if (del) { places.splice(+del.dataset.i!, 1); putPlaces(); }
+	});
+	homeOut.addEventListener("submit", e => {
+		const f = (e.target as HTMLElement).closest<HTMLFormElement>(".hm-svf");
+		if (!f || !homeNow) return;
+		e.preventDefault();
+		if (places.length >= PLACES_MAX || places.some(q => samePlace(q.at, homeNow!))) return;
+		const n = (f.querySelector("input")!.value.trim() || t("Place $1", places.length + 1)).slice(0, PLACE_NAME_MAX);
+		places.push({ n, at: homeNow }); putPlaces();
+	});
+	paintPlaces();
 	async function homeAt(ll: LonLat) {
 		const at: [number, number] = [ll[0], ll[1]];
+		homeNow = null;
 		closePop(); homeMark?.remove();
 		const el = document.createElement("div"); el.className = "yk-probe yk-home";
 		homeMark = new ML.Marker({ element: el, anchor: "center" }).setLngLat(ll).addTo(map);
@@ -1053,6 +1091,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${legend[i].color}"></i>${esc(t(legend[i].label))}</span>`;
 		const out: string[] = [];
 		out.push(`<div class="dh"><b>${esc(ward?.code ? wardName(ward.code) : "")}${Number.isFinite(here) ? ` · ${esc(t("Elevation about $1 m", num(Math.round(here))))}` : ""}</b>${x}</div>`);
+		out.push(`<div class="hm-sv"></div>`);
 		// 学区
 		const e1 = featureAt(se, at), j1 = featureAt(sj, at);
 		if (e1 || j1) out.push(`<h3>${esc(t("School districts"))}</h3><div class="pr">${e1 ? row(t("Elementary schools"), esc(schoolName(e1))) : ""}${j1 ? row(t("Junior high schools"), esc(schoolName(j1))) : ""}</div>`);
@@ -1089,6 +1128,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (z || p1 || f1) out.push(`<h3>${esc(t(HOME_JURIS ? "Zones and districts" : "Town planning rules"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(String(p1.n || ""))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(String(f1.n || ""))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
 		out.push(`<p class="sub flat">${esc(t(net ? "Distances follow streets and footpaths (OpenStreetMap); walking time assumes 80 m per minute." : "Straight-line distance; walking time assumes 80 m per minute."))}</p>`);
 		homeOut.innerHTML = out.join("");
+		homeNow = at; paintSave(at);
 		if (sta[0]?.w.k >= 0) showRoute(sta[0].w.k); else if (routeOn) showRoute(-1);   // 最寄り駅までの道順は最初から引く
 		homeOut.scrollIntoView({ block: "nearest", behavior: "smooth" });
 	}
@@ -1110,8 +1150,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			const ll: LonLat = [p.coords.longitude, p.coords.latitude];
 			hmMsg.textContent = "";
 			if (ll[0] < CITY_BBOX[0] || ll[0] > CITY_BBOX[2] || ll[1] < CITY_BBOX[1] || ll[1] > CITY_BBOX[3]) { hmMsg.textContent = t("Outside Yokohama City."); return; }
-			setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); });   // スマホ：家の印が下のシートに隠れない所へ
-			homeAt(ll);
+			goHome(ll);
 		}, () => { hmMsg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
 	};
 
@@ -1331,6 +1370,16 @@ const CSS = `
 .yk-panel .oe-panel-head #lang-btn svg{stroke:var(--qm-text-dim)}
 .yk-panel .hm-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .yk-panel .hm-btns .act{margin:0;text-align:center}
+.yk-panel .hm-saved{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.yk-panel .hm-saved .pl{display:inline-flex;align-items:stretch;border:1px solid #4fc3f7;border-radius:999px;overflow:hidden}
+.yk-panel .hm-saved button{border:0;background:transparent;color:#4fc3f7;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;padding:4px 10px}
+.yk-panel .hm-saved .pl-go::before{content:"★ "}
+.yk-panel .hm-saved .pl-del{padding:4px 9px 4px 6px;color:var(--qm-text-dim);border-left:1px solid rgba(79,195,247,.4)}
+.yk-panel .hm-svf{display:flex;gap:6px;align-items:center;margin:4px 0 6px}
+.yk-panel .hm-svf input.fq{flex:1;margin:0}
+.yk-panel .hm-svf .act{margin:0;white-space:nowrap;width:auto}
+.yk-panel .hm-is{margin:2px 0 6px;color:#4fc3f7;font-weight:600}
+@media (pointer:coarse){.yk-panel .hm-saved button{min-height:36px}}
 .yk-panel .home-out .wroute{margin-left:4px;padding:1px 8px;border-radius:999px;border:1px solid #4fc3f7;background:transparent;color:#4fc3f7;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;vertical-align:1px}
 .yk-panel .home-out .wroute.on{background:#4fc3f7;color:#0b1a24}
 @media (pointer:coarse){.yk-panel .home-out .wroute{padding:4px 10px;min-height:28px}}
