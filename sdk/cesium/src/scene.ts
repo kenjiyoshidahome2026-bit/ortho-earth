@@ -51,6 +51,7 @@ export class OrthoScene {
 	readonly primitives = new PrimitiveCollection(); readonly groundPrimitives = new PrimitiveCollection();
 	readonly camera: any; readonly preloadFlightCamera: any; preloadFlightCullingVolume: unknown = undefined;
 	readonly screenSpaceCameraController: any;
+	readonly controllerHost: any;
 	globe: any;
 	readonly frameState: any;
 	readonly context = { drawingBufferWidth: 1, drawingBufferHeight: 1, webgl2: true, stencilBuffer: true, depthTexture: true, uniformState: {}, _gl: null, shaderCache: { numberOfShaders: 0 } };
@@ -81,6 +82,7 @@ export class OrthoScene {
 		this.host = host; this.canvas = canvas; this.scene3DOnly = !!o.scene3DOnly;
 		this.frameState = { mode: SceneMode.SCENE3D, mapProjection: this.mapProjection, useLogDepth: false, frameNumber: 0, time: undefined, camera: null, context: this.context, pixelRatio: 1, verticalExaggeration: 1 };
 		this.screenSpaceCameraController = controllerOf(host);
+		this.controllerHost = new engine.ControllerHost();   // widget.addController(ScreenSpaceTiltOrbitCameraController…): Cesium's own host, updated each frame (camera-controllers example)
 		this.camera = new Camera(this as never);
 		this.frameState.camera = this.camera;
 		this.preloadFlightCamera = new Camera(this as never);
@@ -146,6 +148,7 @@ export class OrthoScene {
 				const L = this.imageryLayers.get(i), c = L.show && L.ready ? L.imageryProvider?.credit : undefined;
 				if (c) credits.addCreditToNextFrame(c);
 			}
+			this.controllerHost.update(this, time);   // as Scene.render: the registered controllers move the camera before it is pushed to the globe
 			this.#pushCamera();
 			this.camera._updateCameraChanged?.();
 			this.postRender.raiseEvent(this, time);

@@ -15,7 +15,7 @@ const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ?
 const flag = k => process.argv.includes(`--${k}`);
 const BASE = arg("base", "http://localhost:5460"), OUT = path.resolve(arg("out", path.join(REPO, ".cache/csexamples/runs/latest")));
 const JOBS = +arg("jobs", 3), WAIT = +arg("wait", 10000), SETTLE = +arg("settle", 20000), SIDES = arg("side") ? [arg("side")] : ["ref", "ortho"];
-const TIME_FROM = arg("time-from", "");   // the page's clock starts when that run's ref page started: the sun, the stars and the clock-driven examples at the same time of day as the ref shot
+const TIME_FROM = arg("time-from", "");   // the page's clock starts when that run's ref page started: the sun, the stars and the clock-driven examples at the same time of day as the ref shot; an animated example is also shot at the ref's simulation time (rec.clock, recorded by both sides)
 // runs in the page before any script: Date shifted by a constant (timers and performance.now keep running)
 function shiftDate(off) {
 	const D = Date, now = D.now.bind(D);
@@ -38,6 +38,7 @@ const STATE = () => {
 		const c = v.camera, p = c.positionCartographic;
 		out.camera = { lng: p.longitude * D, lat: p.latitude * D, height: p.height, heading: c.heading * D, pitch: c.pitch * D, roll: c.roll * D };
 	} catch (e) { out.cameraError = String(e?.message || e); }
+	try { const k = v.clock; out.clock = { time: String(k.currentTime), animating: !!k.shouldAnimate, multiplier: k.multiplier }; } catch (e) { out.clockError = String(e?.message || e); }   // the simulation time of the shot (JulianDate.toString = ISO 8601)
 	try {
 		const ds = v.dataSources, dsd = v.dataSourceDisplay, prims = v.scene.primitives;
 		let entities = v.entities?.values?.length || 0;
@@ -89,9 +90,10 @@ async function runOne(browser, side, ex) {
 	page.on("requestfailed", () => rec.failedRequests++);
 	page.on("load", () => rec.loads = (rec.loads || 0) + 1);   // more than 1 = the dev server reloaded the page (a dependency re-optimised)
 	await page.addInitScript(() => { try { localStorage.removeItem("cesium-hasSeenNavHelp"); } catch { /* none */ } });   // the help panel opens as on a first visit, also after a reload
+	let refClock = null;
 	if (TIME_FROM) {
 		const j = path.join(TIME_FROM, "ref", `${ex.name}.json`);
-		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")); rec.timeFrom = new Date(st.mtimeMs - (r.ms || 0)).toISOString(); await page.addInitScript(shiftDate, st.mtimeMs - (r.ms || 0) - Date.now()); }
+		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")); rec.timeFrom = new Date(st.mtimeMs - (r.ms || 0)).toISOString(); await page.addInitScript(shiftDate, st.mtimeMs - (r.ms || 0) - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; }
 	}
 	try {
 		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/`, { timeout: 60000 });
@@ -102,6 +104,20 @@ async function runOne(browser, side, ex) {
 		rec.settled = await page.waitForFunction(SETTLED, null, { timeout: SETTLE, polling: 250 }).then(() => true, () => false);
 		rec.settleMs = Date.now() - t1;
 		if (rec.settled) await page.waitForTimeout(500);   // the frame after the last tile
+		if (refClock && side === "ortho") {   // an animated example (the ref's clock was running): shoot at the ref's simulation time — the clock runs on while the page loads, which takes longer here, so a tracked satellite or a CZML vehicle would be elsewhere
+			rec.clockFrom = refClock;
+			const CAM = () => { const c = window.__csx?.viewers?.[0]?.camera?.positionWC; return c ? `${c.x.toFixed(1)},${c.y.toFixed(1)},${c.z.toFixed(1)}` : ""; };
+			const cam0 = await page.evaluate(CAM).catch(() => "");
+			const tracked = await page.evaluate(iso => { const X = window.__csx, v = X?.viewers?.[0]; if (!v || !X.Cesium?.JulianDate) return false; v.clock.shouldAnimate = false; v.clock.currentTime = X.Cesium.JulianDate.fromIso8601(iso); return !!v.trackedEntity; }, refClock).catch(() => false);
+			// a tracked entity's camera follows the new time a few frames later (seconds on a busy SwiftShader): wait until it has moved (at most 20 s), then until it has stood still for a second (at most 8 s)
+			await page.waitForTimeout(2000);
+			for (let i = 0; tracked && i < 36; i++) { if (await page.evaluate(CAM).catch(() => "") !== cam0) break; await page.waitForTimeout(500); }
+			let last = "", still = 0;
+			for (let i = 0; i < 12 && still < 2; i++) { await page.waitForTimeout(500); const now = await page.evaluate(CAM).catch(() => ""); still = now === last ? still + 1 : 0; last = now; }
+		}
+		// an animated example is shot with its clock paused, so the record's clock (and a tracked camera) is the shot's: the shot itself takes seconds = minutes at 300×
+		rec.paused = await page.evaluate(() => { const v = window.__csx?.viewers?.[0]; if (!v?.clock?.shouldAnimate) return false; v.clock.shouldAnimate = false; return true; }).catch(() => false);
+		if (rec.paused) await page.waitForTimeout(1000);   // the frame at the paused time
 		Object.assign(rec, await page.evaluate(STATE));
 		const shot = await page.screenshot({ timeout: 120000 });   // a frame of a city of 3D Tiles takes seconds on SwiftShader (on both sides)
 		fs.writeFileSync(path.join(OUT, side, `${ex.name}.png`), shot);
