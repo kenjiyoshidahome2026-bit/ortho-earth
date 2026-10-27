@@ -23,7 +23,8 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",
 	"t-copc", "t-copc?v=depth",   // COPC の点群の WebGPU の描き手（copc-gpu.ts＝本体の device と深度を共有・2026-10-23）・?v=depth＝本体の深度で隠れる   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
 	"t-cluster",   // map.gadget.cluster＝集約の source と層（丸は gint・件数は注記層の GPU の字・2026-10-22）
-	"t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor",
+	"t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-cogpair",   // t-cogpair＝COG の見比べ（2 枚組アトラス＋境の経度・tellus）
+	
 	"t-elevcell", "t-elevcell?cpuelev=1",   // 標高セルの GPU 再標本化＝CPU 経路と |Δ|≤f16 1ulp（perf plan P1 step 1）・cpuelev=1＝逃げ道は bit 一致
 	"t-mlcompat?g=layers", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=before", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt", "t-mlcompat?g=cover", "t-container?v=abs", "t-container?v=zero", "t-container?v=novec", "t-container?v=ug", "t-qm", "t-multimap", "t-multimap?v=default", "t-multimap?v=lowmem", "t-multimap?v=gs", "t-multimap?v=sync", "t-compare", "t-compare?v=h", "t-compare?v=ml", "t-inspect", "t-inspect?v=world", "t-inspect?v=ml",   // t-inspect＝検査表示（#174）
 	"t-columnar?g=same", "t-columnar?g=depth",

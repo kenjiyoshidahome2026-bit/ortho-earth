@@ -140,7 +140,7 @@ interface GintBld { origin: number[]; batches: { line: GbMesh | null; point: GbM
 /** style の sky（B4） */
 interface SkyStyle { fog: number[]; groundBlend: number; sky?: unknown }
 /** set("cogTex") の入力（等経緯度の RGBA） */
-export interface CogTexData { rgba: Uint8Array | Uint8ClampedArray; w: number; h: number; bboxLL: number[] }
+export interface CogTexData { rgba: Uint8Array | Uint8ClampedArray; w: number; h: number; bboxLL: number[]; /** 見比べ＝同じ窓の 2 枚を縦に積んだ（h は 2 枚分・上＝A・下＝B） */ pair?: boolean }
 interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null }
 interface FarState { bounds: number[]; has: number; edgeFade: number }
 /** 標高アトラスの寸法と窓（terrain.js の set("elevAtlas")） */
@@ -1530,7 +1530,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	// ユーザ COG アトラス（rgba8unorm・gadgets/cog.js が等経緯度 RGBA を渡す）。globe binding(6-7)/terrain group(2) binding(3-4)
 	const cogBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // CogP: bbox(vec4f)+p(vec4f)
-	let cogTexObj: GPUTexture | null = null, cogTexView: GPUTextureView | null = null, memCog = 0, cogHas = 0, cogGeo: number[] | null = null;   // cogGeo=[west,south,spanLon,spanLat]（f64 のまま＝packFrame の前計算用）
+	let cogTexObj: GPUTexture | null = null, cogTexView: GPUTextureView | null = null, memCog = 0, cogHas = 0, cogGeo: number[] | null = null, cogPair = 0, cogHalf = 0, cogSplitLon: number | null = null;   // cogGeo=[west,south,spanLon,spanLat]（f64 のまま＝packFrame の前計算用）
 	function setCogTex(data: CogTexData | null | undefined) {
 		if (cogTexObj) { cogTexObj.destroy(); cogTexObj = null; cogTexView = null; memCog = 0; }
 		cogHas = data ? 1 : 0;
@@ -1549,11 +1549,19 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			device.queue.writeTexture({ texture: cogTexObj }, src, { bytesPerRow: pad }, { width: w, height: h });
 			cogTexView = cogTexObj.createView();
 			memCog = w * h * 4;
-			device.queue.writeBuffer(cogBuf, 0, new Float32Array([bboxLL[0], bboxLL[1], bboxLL[2] - bboxLL[0], bboxLL[3] - bboxLL[1], 1, 0, 0, 0]));
+			cogPair = data.pair ? 1 : 0; cogHalf = 0.5 / h;
+			device.queue.writeBuffer(cogBuf, 0, new Float32Array([bboxLL[0], bboxLL[1], bboxLL[2] - bboxLL[0], bboxLL[3] - bboxLL[1], 1, cogPair, cogSplitU(), cogHalf]));
 		} else {
+			cogPair = 0;
 			device.queue.writeBuffer(cogBuf, 0, new Float32Array(8));   // has=0
 		}
 		rebuildBG0();   // globeBG/climBG が COG テクスチャを掴み直す
+	}
+	// 見比べの境（経度）→窓の u（境なし＝2＝どの u も A 側）。境だけの変更は p.z の 4 バイトを書き直す（テクスチャは触らない）
+	const cogSplitU = () => cogSplitLon == null || !cogGeo ? 2 : (cogSplitLon - cogGeo[0]) / cogGeo[2];
+	function setCogSplit(lon: number | null) {
+		cogSplitLon = Number.isFinite(lon) ? lon : null;
+		if (cogHas) device.queue.writeBuffer(cogBuf, 24, new Float32Array([cogSplitU()]));
 	}
 	let elevTexObj: GPUTexture | null = null, elevTexView: GPUTextureView | null = null, elev: ElevState = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain: TerrainMesh | null = null, elevStage: { tex: GPUTexture; a: ElevAtlasMeta; scale: number } | null = null;
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）
@@ -3411,6 +3419,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "constellations": constel = setStarBuf(constel, data as ArrayLike<number> | null, 3); break;  // [cel.xyz]×2n（LINES端点列）表示は view.showConst
 			case "ecliptic":    ecliptic = setStarBuf(ecliptic, data as ArrayLike<number> | null, 3); break;   // 黄道の大円
 			case "celequator":  celeq = setStarBuf(celeq, data as ArrayLike<number> | null, 3); break;         // 天の赤道の大円
+			case "cogSplit":    setCogSplit(data as number | null); break;                                // 見比べの境の経度（null＝境なし）
 			case "cogTex":      setCogTex(data as CogTexData | null); break;                             // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
 			case "ptOver": case "ptFsLayers": case "ptFs": case "pzOver": break;   // paint 表の (b) 類・paintFast（GL2 の md 専用）＝WebGPU は表を読まず組み直しで描く＝素通し・警告しない（GL2 の shadow／clip の裏返し）
 			default:

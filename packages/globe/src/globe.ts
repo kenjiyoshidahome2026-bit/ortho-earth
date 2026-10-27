@@ -2969,6 +2969,7 @@ registerGadget("cog", async (_map, src, opts) => {
 	const m = await import("./gadgets/cog.ts");
 	cogCtl ??= m.createCog(map, {
 		setCogTex: d => wPost({ type: "set", cmd: "cogTex", data: d, prop: null }, (d as { rgba?: { buffer?: ArrayBuffer } } | null)?.rgba?.buffer ? [(d!.rgba as Uint8Array).buffer] : []),
+		setCogSplit: lon => wPost({ type: "set", cmd: "cogSplit", data: lon, prop: null }),   // 見比べの境（経度）
 		fit: bb => {   // loadUserFile の fit と同じ視野幅逆解き（30%余白・真俯瞰・北向き）
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 			const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);

@@ -1,0 +1,64 @@
+<!doctype html>
+<!-- 実描画の検分：COG の見比べ（2 枚組アトラス＋境の経度・2026-10-27・tellus の見比べ）。
+     レンダラを直駆動（t-globefloor と同じ作法・地球儀は起こさない）。?gl2=1＝GL2（createRenderer）・無印＝WebGPU（createRendererGPU）。
+     試料＝東京（139.7/35.7）の ±0.01° に 64×64 の単色 2 枚を縦に積んだアトラス（上半分＝A 赤・下半分＝B 青）。真俯瞰・北向き＝境の経度は画面の縦線。
+     ①pair で境なし＝床は全部 A（赤）＝下半分（B）は混ざらない（半分の端の半テクセル寄せ）
+     ②境＝中央の経度＝左半分 A・右半分 B
+     ③境を東へずらす＝A が広がり B が縮む（赤＋青＝一列ぜんぶ・境は縦の一本）
+     ④cogSplit null＝全部 A に戻る
+     ⑤2 枚組でない絵（緑 1 枚）に戻す＝境が残っていても全部緑（従来の経路と同じ）
+     ⑥（WebGPU）GPU の検証エラー 0 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-cogpair</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const GL2 = /[?&]gl2=1/.test(location.search);
+try {
+	if (!GL2 && !navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const canvas = document.getElementById("g"), N = 256;
+	const r = GL2 ? (await import("@ortho-earth/core/gl")).createRenderer(canvas) : await (await import("@ortho-earth/core/gpu")).createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, D = 0.01, W = 64;
+	const bbox = [LON - D, LAT - D, LON + D, LAT + D];
+	const solid = (h, rgb) => { const a = new Uint8Array(W * h * 4); for (let i = 0; i < W * h; i++) { a[i * 4] = rgb[0]; a[i * 4 + 1] = rgb[1]; a[i * 4 + 2] = rgb[2]; a[i * 4 + 3] = 255; } return a; };
+	const pair = () => { const a = new Uint8Array(W * W * 2 * 4); a.set(solid(W, [230, 30, 30]), 0); a.set(solid(W, [30, 60, 230]), W * W * 4); return a; };
+	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.6, 0.6, 0.6, 1] });
+	// 真俯瞰・北向き・試料の中ほどが画面いっぱい（z15＝256px ≈ 0.0055°＜試料の幅 0.02°）
+	const cam = { center: [LON, LAT], zoom: 15, pitch: 0, bearing: 0, dpr: 1 };
+	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async () => {
+		r.draw(cam, {}); if (r.flush) r.flush();
+		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, N, N).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	// 中央の横一列で赤（A）・青（B）・その他を数える
+	const row = px => { let red = 0, blue = 0, other = 0; const y = N >> 1; for (let x = 0; x < N; x++) { const i = (y * N + x) * 4, R = px[i], B = px[i + 2]; if (R > 150 && B < 90) red++; else if (B > 150 && R < 90) blue++; else other++; } return { red, blue, other }; };
+	const fmt = c => `赤 ${c.red}・青 ${c.blue}・他 ${c.other}`;
+	r.set("cogTex", { rgba: pair(), w: W, h: W * 2, bboxLL: bbox, pair: true });
+	let c = row(await shot());
+	ok(`①境なし＝全部 A（${fmt(c)}）`, c.red === N && c.blue === 0);
+	r.set("cogSplit", LON);
+	c = row(await shot());
+	ok(`②境＝中央＝左 A・右 B（${fmt(c)}）`, Math.abs(c.red - N / 2) <= 3 && Math.abs(c.blue - N / 2) <= 3 && c.other <= 3);
+	// 画面の左端が赤であること（左＝西＝A）
+	{ const px = await shot(), i = ((N >> 1) * N + 4) * 4, j = ((N >> 1) * N + N - 5) * 4; ok(`②左端は A・右端は B（${px[i]}/${px[i + 2]}・${px[j]}/${px[j + 2]}）`, px[i] > 150 && px[j + 2] > 150); }
+	r.set("cogSplit", LON + 0.004);   // 画面の幅 ≈ 0.0135°（z15・256 px）＝約 75 px 東へ
+	c = row(await shot());
+	ok(`③境を東へ＝A が広がる（${fmt(c)}）`, c.red > N * 0.6 && c.red < N * 0.95 && c.red + c.blue >= N - 3);
+	r.set("cogSplit", null);
+	c = row(await shot());
+	ok(`④境を外す＝全部 A（${fmt(c)}）`, c.red === N);
+	r.set("cogSplit", LON);
+	r.set("cogTex", { rgba: solid(W, [30, 200, 60]), w: W, h: W, bboxLL: bbox });
+	{ const px = await shot(); let g = 0; const y = N >> 1; for (let x = 0; x < N; x++) { const i = (y * N + x) * 4; if (px[i + 1] > 150 && px[i] < 90 && px[i + 2] < 120) g++; } ok(`⑤2 枚組でない絵＝境が残っていても全部その絵（緑 ${g}）`, g === N); }
+	if (!GL2) { await new Promise(res => setTimeout(res, 50)); ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0); }
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
