@@ -422,6 +422,10 @@ export interface AnnoHandle { set(pbf: GeoPBF | null): void; clear(): void; /** 
 export interface CogOptions { fit?: boolean; fetch?: typeof fetch | null; [k: string]: unknown }
 export interface CogHandle {
 	load(src: string | File | Blob, opts?: CogOptions): Promise<unknown>; clear(): void; metrics(): Record<string, unknown> | null;
+	/** 見比べ：2 枚目の COG を同じ窓で描く（null＝外す）。境は split(経度)＝西が load の 1 枚目・東が 2 枚目。load の後に呼ぶ */
+	compare(src: string | File | Blob | null, opts?: CogOptions): Promise<unknown>;
+	/** 見比べの境（経度・null＝境なし＝1 枚目だけ）。地面に引く南北の線＝真北向きなら画面の縦線 */
+	split(lon: number | null): void;
 	/** 読めた COG の全解像度の寸法（px）。読む前・clear の後は null */
 	readonly width: number | null; readonly height: number | null;
 }

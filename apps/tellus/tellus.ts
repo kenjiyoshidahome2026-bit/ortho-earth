@@ -34,14 +34,14 @@ const NEXT = [
 ];
 
 // 見どころ（ワンタップで「その場所・その日付」へ）＝初めて開いた人（Tellus の方々を含む）に、何が見えるかを最初の 1 押しで見せる。
-// ids＝並べる順（古い→新しい＝▶ で時間が進む）。view＝[lon, lat, zoom, 傾き]。シーンは 2026-10-27 に Traveler API で実在と描画を確かめた物。
+// ids＝並べる順（古い→新しい）。2 枚の見どころは見比べ（左右に分けて境を動かす）で開く。view＝[lon, lat, zoom, 傾き]。シーンは 2026-10-27 に Traveler API で実在と描画を確かめた物。
 // 仙台＝AVNIR-2 の同じパス 67・フレーム 2830（震災前 2011-02-23 雲 6.5%／後 2011-04-10 雲 1%）。
 // 富士山＝PALSAR-2 2025-10-15 上昇 フレーム 750（山頂が枠の端に掛からない方）。西之島＝2020-09-21 下降（2019–20 噴火の後）。海面水温＝2025 年 2 月と 8 月の下降。
 const SHOWS = [
-	{ k: "sendai", ds: "avnir2", label: "2011 tsunami, Sendai", note: "AVNIR-2 optical, two weeks before and one month after 11 March 2011. Press ▶: the farmland behind the coast turns dark where the tsunami flooded it.", ids: ["01c632a6-0085-440b-840f-c2a1a86f6d41", "8af6df5d-0c4a-472c-b73e-706e5f018561"], view: [140.96, 38.21, 11.8, 35] },
+	{ k: "sendai", ds: "avnir2", label: "2011 tsunami, Sendai", note: "AVNIR-2 optical, two weeks before (left) and one month after (right) 11 March 2011. Drag the divider: the farmland behind the coast turns dark where the tsunami flooded it.", ids: ["01c632a6-0085-440b-840f-c2a1a86f6d41", "8af6df5d-0c4a-472c-b73e-706e5f018561"], view: [140.96, 38.21, 11.8, 35] },
 	{ k: "fuji", ds: "palsar2", label: "Mt Fuji in radar", note: "PALSAR-2 radar draped on the terrain: it sees through cloud and works at night. Forest is green, towns magenta, lakes black. Drag to tilt.", ids: ["2ee1f996-ae81-4892-882c-703e4ad0b990"], view: [138.73, 35.3, 11.8, 55] },
 	{ k: "nishinoshima", ds: "palsar2", label: "Nishinoshima volcano", note: "A volcanic island 940 km south of Tokyo, after its 2019–2020 eruption. Radar sees the island through the ash plume.", ids: ["95e05818-4199-4d51-a2ad-d6dde0e87506"], view: [140.876, 27.247, 13.6, 40] },
-	{ k: "sst", ds: "sst", label: "Sea temperature, winter → summer", note: "GCOM-C 8-day mean sea surface temperature, February and August 2025. Press ▶ to watch the warm water spread north.", ids: ["b7526483-b342-491f-bab2-e6dafe0d91f2", "f6fe599f-206a-4d33-880f-3d4c9d55073c"], view: [138, 33, 4.6, 0] },
+	{ k: "sst", ds: "sst", label: "Sea temperature, winter → summer", note: "GCOM-C 8-day mean sea surface temperature, February (left) and August (right) 2025. Drag the divider to watch the warm water spread north.", ids: ["b7526483-b342-491f-bab2-e6dafe0d91f2", "f6fe599f-206a-4d33-880f-3d4c9d55073c"], view: [138, 33, 4.6, 0] },
 ];
 
 const CSS = `
@@ -89,6 +89,14 @@ const CSS = `
 #side details code { font-size: 11px; background: rgba(255,255,255,.1); padding: 1px 4px; border-radius: 4px; }
 #side .metrics { font: 11px ui-monospace, Menlo, monospace; color: rgba(255,255,255,.62); padding: 2px 0 4px; }
 #side .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.5); font-size: 11px; }
+#side .scene.vs { background: rgba(255,211,106,.2); }
+#side .nav #tl-cmp.on { border-color: #ffd36a; background: #3a3220; }
+.tl-knob { position: absolute; z-index: 5; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 0; cursor: ew-resize; touch-action: none; user-select: none; font: 600 12px system-ui, sans-serif; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+.tl-knob[hidden] { display: none; }
+.tl-knob span { padding: 4px 8px; color: #fff; white-space: nowrap; }
+.tl-knob .l { background: rgba(70,110,220,.92); border-radius: 999px 0 0 999px; }
+.tl-knob .r { background: rgba(190,140,20,.95); border-radius: 0 999px 999px 0; }
+.tl-knob b { width: 30px; height: 30px; margin: 0 -4px; border-radius: 50%; background: #fff; color: #0b0d12; display: grid; place-items: center; z-index: 1; font-size: 13px; }
 #side .toast { position: sticky; bottom: 56px; margin: 0 auto; width: max-content; max-width: 90%; background: #fff; color: #0b0d12; border-radius: 8px; padding: 6px 12px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 #side .toast.on { opacity: 1; }`;
 
@@ -126,6 +134,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 			<button id="tl-prev" title="${t("Previous date")} (←)" aria-label="${t("Previous date")}">◀</button>
 			<span class="n" id="tl-n"></span>
 			<button id="tl-next" title="${t("Next date")} (→)" aria-label="${t("Next date")}">▶</button>
+			<button id="tl-cmp" title="${t("Drag to move the divider")}">${t("Compare")}</button>
 			<button id="tl-fit">${t("Zoom to scene")}</button>
 		</div>
 		<div class="opac"><span>${t("Map lines")}</span><input type="range" id="tl-opac" min="0" max="100" value="55"></div>
@@ -140,6 +149,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 	const foot = createFootprint(map, mapEl);
 	let show: (typeof SHOWS)[number] | null = null;   // 今見ている見どころ（地図クリックやタブで検索し直したら外れる）
 	let items: Item[] = [], sel = -1, ac: AbortController | null = null, cogCtl: CogHandle | null = null, lastClick: number[] | null = null, metricsTimer: ReturnType<typeof setInterval> | null = null;
+	let other = -1;   // 見比べの右（東）の行＝-1 は見比べなし。左（西）は sel
 	const urls = new Map<string, { url: string; ts: number }>();   // scene id → {url, ts}（署名 URL は 1 時間＝50 分まで使い回す・クイックルックと本番読みで共用）
 	const freshUrl = async (it: Item) => {
 		const u = urls.get(it.id);
@@ -159,7 +169,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		markShow(null);
 		$("#tl-hint").textContent = t(src.global ? "One global sheet per date. Step ◀▶ to watch the seasons move across the sea." : "Click the map to find scenes that cover that spot.");
 		applyPol(pol);
-		if (!keepItems) { items = []; sel = -1; $("#tl-list").replaceChildren(); nav(); }
+		if (!keepItems) { endCompare(); items = []; sel = -1; $("#tl-list").replaceChildren(); nav(); }
 	};
 	const markShow = (s: (typeof SHOWS)[number] | null) => {
 		show = s;
@@ -171,11 +181,17 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		$<HTMLButtonElement>("#tl-prev").disabled = !(sel > 0); $<HTMLButtonElement>("#tl-next").disabled = !(sel >= 0 && sel < items.length - 1);
 		$("#tl-n").textContent = items.length ? `${sel + 1} / ${items.length} ${t("scenes")}` : "";
 		$<HTMLButtonElement>("#tl-fit").disabled = sel < 0;
+		$<HTMLButtonElement>("#tl-cmp").disabled = items.length < 2 || sel < 0;
+		$("#tl-cmp").classList.toggle("on", other >= 0);
+		if (other >= 0) {   // 見比べ中の ◀▶＝右の行を動かす（左は据え置き）
+			$<HTMLButtonElement>("#tl-prev").disabled = !items.some((_, k) => k < other && k !== sel);
+			$<HTMLButtonElement>("#tl-next").disabled = !items.some((_, k) => k > other && k !== sel);
+		}
 	};
 	// 選択＝class の付け替えだけ（⚠一覧を作り直さない＝描き終わったサムネイルの canvas を捨てない・進行中の描画が外れた canvas に向かない）
 	const select = (i: number) => {
 		sel = i;
-		[...$("#tl-list").children].forEach((row, k) => row.classList.toggle("on", k === i));
+		[...$("#tl-list").children].forEach((row, k) => { row.classList.toggle("on", k === i); row.classList.toggle("vs", k === other); });
 		nav();
 	};
 	const bboxOf = (g: unknown): Bbox | null => {
@@ -217,7 +233,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 			row.innerHTML = `<canvas width="56" height="56"></canvas><span><span class="d">${it.date}</span><br><span class="c">${sub}</span></span>`;
 			row.addEventListener("mouseenter", () => { if (!src.global) foot.set(it.geometry as FootprintGeometry); });   // 全球 1 枚は枠を出さない（画面全部が枠）
 			row.addEventListener("mouseleave", () => foot.set(null));
-			row.addEventListener("click", () => load(i, { fit: false }));
+			row.addEventListener("click", () => pick(i));
 			list.append(row);
 			it._cv = row.querySelector("canvas");
 			if (it._thumb) paint(it._cv, it._thumb);
@@ -245,7 +261,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 	const search = async (ll: number[], { autoLoad = true, fit = false } = {}) => {
 		lastClick = ll;
 		if (show) applySrc(src.key, { keepItems: true });   // 見どころから地図クリックへ移った＝案内文を元へ
-		ac?.abort(); ac = new AbortController();
+		ac?.abort(); ac = new AbortController(); endCompare();
 		status(t("Searching…")); items = []; sel = -1; render();
 		try {
 			items = dedupe(await searchScenes(src, { c: ll, from: $<HTMLInputElement>("#tl-from").value, to: $<HTMLInputElement>("#tl-to").value, signal: ac.signal }), ll).slice(0, 12);
@@ -289,11 +305,71 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		if (src.pol && pol === "gray") u.searchParams.set("pol", "gray"); else u.searchParams.delete("pol");
 		u.searchParams.delete("tellusapi");
 		if (show) u.searchParams.set("show", show.k); else u.searchParams.delete("show");
+		if (other >= 0 && items[other]) u.searchParams.set("vs", items[other].id); else u.searchParams.delete("vs");
 		const h = location.hash || map.view?.hash || "";   // 視点の hash はエンジン（urlHash）がカメラ移動のたびに書く＝動かす前は view.hash から
 		history.replaceState(null, "", u.pathname + u.search + h);
 	};
 
-	// 見どころ＝データセットを切り替え、決めたシーンを並べて、決めた視点へ飛び、先頭を載せる（◀▶ で前後）
+	// ---- 見比べ（2 日付を左右に・境はつまみで動かす）----
+	// 左（西）＝古い日付・右（東）＝新しい日付。左は load（本番の 1 枚目）、右は cogCtl.compare（同じ窓の 2 枚目）。
+	// 境＝つまみの画面 x を、画面の縦の中ほどで経度へ引き直した線（地面に引く南北の線＝真北向きなら画面の縦線）。
+	const knob = document.createElement("div");
+	knob.className = "tl-knob"; knob.hidden = true; knob.setAttribute("role", "slider"); knob.setAttribute("aria-label", t("Drag to move the divider"));
+	knob.innerHTML = `<span class="l"></span><b>⇔</b><span class="r"></span>`;
+	(mapEl.parentElement || mapEl).append(knob);
+	let kx = 0.5, kRaf = 0;
+	const kY = () => mapEl.clientHeight * 0.55;
+	const placeKnob = () => {
+		kRaf = 0;
+		if (other < 0) return;
+		const x = kx * mapEl.clientWidth, ll = map.unprojectXY(x, kY());
+		knob.style.left = `${mapEl.offsetLeft + x}px`; knob.style.top = `${mapEl.offsetTop + kY()}px`;
+		cogCtl?.split(ll ? ll[0] : null);
+	};
+	const queueKnob = () => { if (!kRaf) kRaf = requestAnimationFrame(placeKnob); };
+	map.on("move", queueKnob);
+	window.addEventListener("resize", queueKnob);
+	knob.addEventListener("pointerdown", e => {
+		e.preventDefault(); e.stopPropagation(); knob.setPointerCapture(e.pointerId);
+		const move = (ev: PointerEvent) => { const r = mapEl.getBoundingClientRect(); kx = Math.min(0.97, Math.max(0.03, (ev.clientX - r.left) / r.width)); queueKnob(); };
+		const up = () => { knob.removeEventListener("pointermove", move); knob.removeEventListener("pointerup", up); knob.removeEventListener("pointercancel", up); };
+		knob.addEventListener("pointermove", move); knob.addEventListener("pointerup", up); knob.addEventListener("pointercancel", up);
+	});
+	knob.addEventListener("keydown", e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { kx = Math.min(0.97, Math.max(0.03, kx + (e.key === "ArrowLeft" ? -0.05 : 0.05))); queueKnob(); e.preventDefault(); e.stopPropagation(); } });
+	knob.tabIndex = 0;
+	let cmpSeq = 0;
+	const endCompare = () => {
+		if (other < 0) return;
+		other = -1; cmpSeq++; knob.hidden = true;
+		cogCtl?.compare(null).catch(() => {}); cogCtl?.split(null);
+		select(sel);
+	};
+	const runCompare = async (i: number, j: number) => {
+		if (!items[i] || !items[j] || i === j) return;
+		const [l, r] = items[i].date <= items[j].date ? [i, j] : [j, i];
+		const seq = ++cmpSeq; other = r;
+		await load(l, { fit: false });
+		if (seq !== cmpSeq || sel !== l || !cogCtl) return;   // 待つ間に別の操作が来た
+		const it = items[r];
+		try {
+			status(t("Loading…"));
+			const url = await freshUrl(it);
+			await cogCtl.compare(url, { fetch: renewingFetch(url, async () => { urls.delete(it.id); return freshUrl(it); }), cacheKey: `${src.key}/${it.id}`, ...drawOpts() });
+			if (seq !== cmpSeq) return;
+			status("");
+			(knob.querySelector(".l") as HTMLElement).textContent = items[l].date;
+			(knob.querySelector(".r") as HTMLElement).textContent = it.date;
+			knob.hidden = false; select(l); placeKnob(); shareUrl(items[l]);
+		} catch (e) { if (seq === cmpSeq) { status(t("Search failed") + ": " + (e as Error).message); endCompare(); } }
+	};
+	// 行・◀▶ の行き先＝見比べ中は右の行を差し替え、そうでなければその行を載せる
+	const pick = (i: number) => {
+		if (other < 0) return load(i, { fit: false });
+		if (i === sel) return;
+		return runCompare(sel, i);
+	};
+
+	// 見どころ＝データセットを切り替え、決めたシーンを並べて、決めた視点へ飛び、先頭を載せる（2 枚なら見比べで開く）
 	const runShow = async (k: string, { fly = true, at = 0 } = {}) => {
 		const s = SHOWS.find(x => x.k === k); if (!s) return;
 		ac?.abort(); ac = new AbortController(); const sig = ac.signal;
@@ -303,7 +379,8 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		try {
 			items = await Promise.all(s.ids.map(id => getScene(src, id, { signal: sig })));
 			if (sig.aborted) return;
-			render(); load(Math.min(Math.max(at, 0), items.length - 1), { fit: false }); thumbs();
+			render(); thumbs();
+			if (items.length === 2) runCompare(0, 1); else load(Math.min(Math.max(at, 0), items.length - 1), { fit: false });
 		} catch (e) { if ((e as Error)?.name !== "AbortError") { console.warn("[tellus] show", e); status(t("Search failed")); } }
 	};
 
@@ -314,10 +391,19 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 	side.querySelectorAll<HTMLElement>(".seg").forEach(b => b.addEventListener("click", () => {   // 偽色⇄グレー＝同じシーンを見せ方だけ変えて載せ直す（生タイルはキャッシュ済＝通信なし）
 		if (b.dataset.pol === pol) return;
 		applyPol(b.dataset.pol as "color" | "gray");
-		if (sel >= 0) load(sel, { fit: false });
+		if (other >= 0) runCompare(sel, other); else if (sel >= 0) load(sel, { fit: false });
 		thumbs();
 	}));
-	const step = (d: number) => { const i = sel + d; if (items[i]) load(i, { fit: false }); };
+	const step = (d: number) => {
+		if (other < 0) { const i = sel + d; if (items[i]) load(i, { fit: false }); return; }
+		let j = other + d; if (j === sel) j += d;   // 見比べ中＝右の行を前後へ（左の行は飛ばす）
+		if (items[j]) runCompare(sel, j);
+	};
+	$("#tl-cmp").addEventListener("click", () => {
+		if (other >= 0) return endCompare();
+		const j = items[sel + 1] ? sel + 1 : sel - 1;   // 隣の日付と並べる
+		if (sel >= 0 && items[j]) runCompare(sel, j);
+	});
 	$("#tl-prev").addEventListener("click", () => step(-1));
 	$("#tl-next").addEventListener("click", () => step(+1));
 	window.addEventListener("keydown", (e) => {   // ←→＝前後の日付（入力欄にフォーカスがある時は触らない）
@@ -329,7 +415,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		const z = map.fitZoomForBbox([bb[0] - (bb[2] - bb[0]) * .15, bb[1] - (bb[3] - bb[1]) * .15, bb[2] + (bb[2] - bb[0]) * .15, bb[3] + (bb[3] - bb[1]) * .15]);
 		map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(1.2, Math.min(17, z)), 0, 0);
 	});
-	$("#tl-clear").addEventListener("click", () => { cogCtl?.clear(); select(-1); });
+	$("#tl-clear").addEventListener("click", () => { endCompare(); cogCtl?.clear(); select(-1); });
 	$("#tl-opac").addEventListener("input", e => map.setOpacity?.({ base: (+(e.target as HTMLInputElement).value) / 100 }));
 	map.setOpacity?.({ base: 0.55 });   // 衛星画像を主役に＝基図の線は少し引く（スライダーで戻せる）
 	$("#tl-share").addEventListener("click", async () => {
@@ -347,14 +433,15 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		await runShow(showK, { fly: !location.hash, at: sceneId ? s.ids.indexOf(sceneId) : 0 });
 	} else if (sceneId) {   // 共有 URL＝そのシーンを復元（視点は hash が持つ＝寄せない。hash 無しなら寄せる）
 		try {
-			const it = await getScene(src, sceneId);
-			items = [it]; render(); lastClick = null;
-			await load(0, { fit: !location.hash });
+			const vs = q.get("vs");   // 見比べの共有 URL＝2 枚並べて見比べで開く
+			items = await Promise.all([getScene(src, sceneId), ...(vs ? [getScene(src, vs)] : [])]); render(); lastClick = null;
+			if (items.length === 2) { if (!location.hash) { const bb = bboxOf(items[0].geometry); if (bb) map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.min(17, map.fitZoomForBbox(bb)), 0, 0); } await runCompare(0, 1); }
+			else await load(0, { fit: !location.hash });
 			thumbs();
 		} catch (e) { console.warn("[tellus] share restore", e); status(t("Search failed")); }
 	} else {   // 初回＝画面中心（東京）で検索し、最新のシーンをそのまま載せる（視点は据え置き＝傾けた初期視点のまま立体で見せる）
 		const c = map.unprojectXY(mapEl.clientWidth / 2, mapEl.clientHeight / 2) || [139.75, 35.68];
 		search(c, { autoLoad: true, fit: false });
 	}
-	return { search, load, runShow, get items() { return items; }, get selected() { return sel; }, get pol() { return pol; }, setPol: (p: "color" | "gray") => { applyPol(p); if (sel >= 0) load(sel, { fit: false }); thumbs(); } };
+	return { search, load, runShow, compare: runCompare, endCompare, get other() { return other; }, get items() { return items; }, get selected() { return sel; }, get pol() { return pol; }, setPol: (p: "color" | "gray") => { applyPol(p); if (sel >= 0) load(sel, { fit: false }); thumbs(); } };
 }
