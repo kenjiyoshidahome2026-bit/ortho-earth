@@ -20,7 +20,7 @@ interface Job {
 	resolve: (r: CogWorkerResult) => void;
 	reject: (e: Error) => void;
 }
-interface Lane { w: Worker | null; queue: Job[]; busy: boolean }
+interface Lane { w: Worker | null; queue: Job[]; busy: boolean; job?: Job | null; timer?: ReturnType<typeof setTimeout> }
 
 export function makePool(opts: PoolOptions = {}): CogPool {
 	const NW = opts.workers ?? Math.min(3, Math.max(1, (globalThis.navigator?.hardwareConcurrency || 4) - 2));
@@ -31,9 +31,9 @@ export function makePool(opts: PoolOptions = {}): CogPool {
 	const pump = (lane: Lane): void => {
 		if (lane.busy || !lane.queue.length) return;
 		lane.busy = true;
-		const job = lane.queue.shift() as Job;
+		const job = lane.job = lane.queue.shift() as Job;
 		const w = lane.w ??= mk();
-		const timer = setTimeout(() => {   // ハング＝worker 作り直して lane 解放
+		const timer = lane.timer = setTimeout(() => {   // ハング＝worker 作り直して lane 解放
 			try { w.terminate(); } catch {}
 			lane.w = null; lane.busy = false;
 			job.reject(new Error("cog: worker timeout"));
@@ -63,6 +63,15 @@ export function makePool(opts: PoolOptions = {}): CogPool {
 				pump(lane);
 			});
 		},
-		destroy() { for (const l of lanes) { try { l.w?.terminate(); } catch {} l.w = null; l.queue.length = 0; } },
+		// 捨てる＝走っている分も待ち行列の分も AbortError で返す（返さないと呼び手の await が永久に終わらない）
+		destroy() {
+			const err = () => Object.assign(new Error("cog: pool destroyed"), { name: "AbortError" });
+			for (const l of lanes) {
+				try { l.w?.terminate(); } catch {}
+				clearTimeout(l.timer); l.w = null; l.busy = false;
+				if (l.job) { l.job.reject(err()); l.job = null; }
+				for (const j of l.queue.splice(0)) j.reject(err());
+			}
+		},
 	};
 }
