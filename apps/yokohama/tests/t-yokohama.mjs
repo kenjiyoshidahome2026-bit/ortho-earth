@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
 import { makeEn, romaji } from "../scripts/en-names.mjs";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -108,6 +108,12 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 		&& E.stop("鶴見駅西口") === "Tsurumi Station West Exit" && E.stop("菊名小学校前") === "Kikuna Elementary School-mae" && E.station("新横浜") === "Shin-Yokohama" && E.shelter("横浜市立日吉台小学校　校舎２８（３階以上）") === "Hiyoshidai Elementary School, Building 28 (3rd floor and above)" && E.shelter("日吉台小学校 体育館２－２") === "Hiyoshidai Elementary School, Gymnasium 2-2" && E.shelter("日吉台小学校　校舎１（２階以上）（※洪水は計画規模）") === "Hiyoshidai Elementary School, Building 1 (2nd floor and above; planned-scale flood)"
 		&& railLinesEn("京浜急行電鉄 本線・横浜市 1号線・横浜市 3号線") === "Keikyu Main Line・Blue Line"
 		&& WARDS.every(w => HOLIDAY_CLINICS[w.code].en.endsWith(w.en)) && NIGHT_CENTERS.every(c => c.enName && c.en));
+}
+{
+	const ok3 = parsePlaces(JSON.stringify([{ n: " 自宅 ", at: [139.6395, 35.5385] }, { n: "", at: [139.6, 35.5] }, { n: "東京", at: [139.76, 35.68] }, { n: "実家", at: [139.64, "x"] }, { n: "職場", at: [139.63, 35.45] }, { n: "あ", at: [139.6, 35.5] }, { n: "い", at: [139.6, 35.5] }]));
+	t("保存した地点：壊れた・市外・名前なしは捨て、3 か所まで・名前は前後の空白を落とす", ok3.length === PLACES_MAX && ok3[0].n === "自宅" && ok3[1].n === "職場" && ok3[2].n === "あ"
+		&& parsePlaces(null).length === 0 && parsePlaces("{") .length === 0 && parsePlaces('{"n":"x"}').length === 0
+		&& samePlace([139.6395, 35.5385], [139.6396, 35.5386]) && !samePlace([139.6395, 35.5385], [139.6405, 35.5385]));
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

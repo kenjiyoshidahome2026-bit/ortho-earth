@@ -325,6 +325,18 @@ export const floorsOfDepth = (i: number) => [0, 1, 2, 4, 7, 7][i] ?? 0;
 /** 浸水の帯の上端（m）＝地点に立てる水面の高さ（最大想定なので帯の上端・20m 以上は 20m）。範囲外＝0 */
 export const depthTop = (i: number) => [0.5, 3, 5, 10, 20, 20][i] ?? 0;
 /** 2 点の距離（m・球面） */
+/** 保存した地点（自宅・実家・職場など）＝名前と経緯度。この端末だけ（localStorage）・3 か所まで（Kenji 2026-10-27） */
+export type SavedPlace = { n: string; at: [number, number] };
+export const PLACES_MAX = 3, PLACE_NAME_MAX = 12;
+/** 保存の文字列 → 地点の列（壊れた・市外・名前なしは捨てる・多すぎは先頭 3 つ） */
+export function parsePlaces(raw: string | null): SavedPlace[] {
+	let a: unknown; try { a = JSON.parse(raw ?? "[]"); } catch { return []; }
+	if (!Array.isArray(a)) return [];
+	return a.filter((p): p is SavedPlace => !!p && typeof p.n === "string" && p.n.trim() !== "" && Array.isArray(p.at) && p.at.length === 2 && p.at.every((v: unknown) => typeof v === "number" && Number.isFinite(v)) && p.at[0] > CITY_BBOX[0] && p.at[0] < CITY_BBOX[2] && p.at[1] > CITY_BBOX[1] && p.at[1] < CITY_BBOX[3])
+		.slice(0, PLACES_MAX).map(p => ({ n: p.n.trim().slice(0, PLACE_NAME_MAX), at: [p.at[0], p.at[1]] }));
+}
+/** 同じ地点か（押し直しの揺れ 20m 以内） */
+export const samePlace = (a: [number, number], b: [number, number]) => distM(a, b) <= 20;
 export function distM(a: [number, number], b: [number, number]): number {
 	const R = 6371008.8, r = Math.PI / 180, dla = (b[1] - a[1]) * r, dlo = (b[0] - a[0]) * r;
 	const h = Math.sin(dla / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dlo / 2) ** 2;
