@@ -971,6 +971,12 @@ function groundRNow(c: CameraPose) {
 	const h = terrain.sampleElev ? (terrain.sampleElev(c.center[0], c.center[1], c) || 0) : 0;
 	return 1 + Math.max(0, h) * pf * elevBase;
 }
+// 遠景のリフト球＝遠景層（far）の最大標高：持ち上がった遠景は海面球の地平線より先まで映る＝その先のタイルも画像の選抜に入れる（旧＝中心の標高だけ＝地平線の手前に下地色の帯・2026-10-27）
+function farRNow(c: CameraPose) {
+	const pt = Math.max(0, Math.min(1, ((c.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
+	if (!(pf > 0) || !terrain || !terrain.farMaxElev) return 1;
+	return 1 + Math.max(0, terrain.farMaxElev()) * pf * elevBase;
+}
 function ensureIfMoved(c: CameraPose) {
 	const tol = 72 / Math.pow(2, c.zoom);   // 視野スパンの~10%相当(deg)（256px世界のz）
 	if (lastEnsure &&
@@ -1004,7 +1010,7 @@ function frame() {
 			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。ensure には draw と同じ glCam＝縮小 canvas と整合する視野を渡す。
 			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved(glCam);
 			// 画像タイル層：カメラ不変・在庫不変なら選抜は走らない（raster.js が camKey で判定）。groundR＝地形リフト球（塗りの選抜と同じ流儀）
-			if (raster) raster.update(glCam, canvas!.width, canvas!.height, { groundR: groundRNow(glCam), moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS });   // moving＝入力中/飛行中/静定前＝取得の並列を絞る（着地で戻す）
+			if (raster) raster.update(glCam, canvas!.width, canvas!.height, { groundR: groundRNow(glCam), farR: farRNow(glCam), moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS });   // moving＝入力中/飛行中/静定前＝取得の並列を絞る（着地で戻す）
 			let fogAnim = false;
 			const pfT0 = perfOn ? performance.now() : 0;
 			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌

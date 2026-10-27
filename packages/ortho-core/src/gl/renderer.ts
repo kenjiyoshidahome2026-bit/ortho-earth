@@ -74,7 +74,7 @@ interface GLGroundLight { dir: number[]; color: number[]; lambert: number[]; nor
 /** 局所の光源（W2・light.js localLightsPayload） */
 interface GLLocalLights { n: number; data: Float32Array }
 interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null }
-interface FarState { bounds: number[]; has: number; edgeFade: number }
+interface FarState { bounds: number[]; has: number; edgeFade: number; maxElev?: number }   // maxElev＝遠景層の最大標高（m・terrain.ts の elevFarMax）＝地面アトラスの地平線窓を伸ばす
 /** 標高アトラスの記述（terrain.js の set("elevAtlas"…)） */
 interface ElevAtlasDesc { originLng: number; originLat: number; cellsX: number; cellsY: number; cellRes: number; cellSpan?: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; gMax?: number }
 interface ElevCellProp { cx: number; cy: number; cellRes: number }
@@ -805,7 +805,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		const wantFills = fillsIn && !(rasterOn && rasterDraws!.hideFills);
 		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
 		if (!rasterOn && !wantFills && !(fillsIn && groundHook)) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; gnd.faces = 0; return; }
-		const wins = groundWindows(cam, canvas.width, canvas.height);
+		const wins = groundWindows(cam, canvas.width, canvas.height, far.has ? far.maxElev || 0 : 0);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（利用者のデータ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
@@ -2495,6 +2495,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "elevAtlasFar": setElevationAtlasFar(data as ElevAtlasDesc); break;                             // 遠景層（R10 第2アトラス）
 			case "elevCellFar": setElevationCellFar((prop as ElevCellProp).cx, (prop as ElevCellProp).cy, data as CellPayload, (prop as ElevCellProp).cellRes); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
+			case "elevFarMax": far.maxElev = +(data as number) || 0; break;   // 遠景層の最大標高（地平線窓）
 			case "elevAtlasFarOff": clearElevationFar(); break;                                 // 深ズーム離脱＝GPUメモリ返却
 			case "meshSet": setMeshSet(prop as string, data as MeshIn | null); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
 			case "classify": classify.set(prop as string, data as Parameters<typeof classify.set>[1]); break;   // 面の貼り付け（分類・2026-10-25）＝柱一式（null＝外す）

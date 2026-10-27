@@ -68,6 +68,8 @@ export interface ModelLoadOptions {
 	slot?: string;
 	/** 地面からの高さ（m・既定 0）＝置いた後も setAltitude で変えられる */
 	altitude?: number;
+	/** false＝地形へ持ち上げない（altitude を海面からの絶対高として置く＝Cesium の互換の口の模型・楕円体高で置く物・2026-10-27）。既定 true＝地面に乗せて altitude 分浮かす */
+	lift?: boolean;
 	/** 置き方の取っ手を出す。"auto"＝錨で置いた模型（CESIUM_RTC・ECEF 入りでない）だけ＝ドロップの既定 */
 	gizmo?: boolean | "auto";
 	/** 真俯瞰（pitch 0）でも描く（既定 false＝建物と同じく傾けた時だけ・Cesium の互換の口の Primitive は真上からも見える） */
@@ -83,6 +85,8 @@ interface ModelBatch { node: number; origin: number[]; xfOn: boolean; xf: Float3
 interface ModelItem {
 	slot: string; name: string; stats: ModelStats; src: string; animation: AnimationState | null; rig: GltfRig | null; place: GltfPlace | null;
 	batches: ModelBatch[]; pickable: boolean; states: Map<number, Record<string, unknown>>;
+	/** 地形へ持ち上げない（load の lift:false＝絶対高）＝当たりも持ち上げずに判定 */
+	noLift: boolean;
 	/** 焼いた時の置き方（at＝錨・CESIUM_RTC/ECEF の模型は bbox の中心・bbox＝焼いた時の外接矩形） */
 	base: { at: LonLat; heading: number; scale: number; bbox: Bbox };
 	/** 今の置き方 */
@@ -387,7 +391,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		const xm = batchXf(it.xfM, b.origin);
 		const origin = xm ? [b.origin[0] + xm[9], b.origin[1] + xm[10], b.origin[2] + xm[11]] : b.origin;
 		const xf = xm && b.xf ? Float32Array.of(b.xf[0], b.xf[1], b.xf[2], b.xf[3], b.xf[4], b.xf[5], b.xf[6], b.xf[7], b.xf[8], b.xf[9] - xm[9], b.xf[10] - xm[10], b.xf[11] - xm[11]) : b.xf;
-		return { pos: b.pos, idx: b.idx!, origin, xf, lift: env.lift(origin), features: b.features };
+		return { pos: b.pos, idx: b.idx!, origin, xf, lift: it.noLift ? 0 : env.lift(origin), features: b.features };
 	});
 	const pickOne = (it: ModelItem, x: number, y: number, env: MeshPickEnv) => {
 		if (!it.pickable) return null;
@@ -535,7 +539,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
 		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
 		// slot＝置き場（既定 "default"＝置き換え・別名＝並ぶ）。altitude＝地面からの高さ（m）。gizmo＝置き方の取っ手（true／"auto"＝錨で置いた時だけ）
-		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, slot = "default", altitude = 0, gizmo = false, keep2d = false, lighting = undefined } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
+		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, slot = "default", altitude = 0, lift = true, gizmo = false, keep2d = false, lighting = undefined } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
 			let ab: ArrayBuffer, baseUri: string | null = null;
 			if (typeof src === "string") {
 				const r = await fetch(src, { credentials: "omit" });
@@ -561,10 +565,10 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				...(pickable ? { pos: b.mesh.pos.slice(), idx: b.mesh.idx.slice(), features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : {}) })), pickable, states: new Map(),   // 当たりの写し（W7）＝setMesh が transfer する前に取る   // rig/place/batches＝rigid アニメ（W4）
 				base: { at: at0, heading: r.stats.mode === "anchor" ? heading : 0, scale: r.stats.mode === "anchor" ? scale : 1, bbox: [bb[0], bb[1], bb[2], bb[3]] },
 				now: { at: [at0[0], at0[1]], heading: r.stats.mode === "anchor" ? heading : 0, scale: r.stats.mode === "anchor" ? scale : 1, altitude: 0 },
-				xfM: null, animRaf: 0, animLast: null, handle: null as unknown as ModelHandle, gizmo: null, gizmoAuto: gizmo === "auto" || gizmo === true, tfListeners: new Set() };
+				xfM: null, animRaf: 0, animLast: null, handle: null as unknown as ModelHandle, gizmo: null, gizmoAuto: gizmo === "auto" || gizmo === true, tfListeners: new Set(), noLift: lift === false };
 			it.handle = makeHandle(it);
 			models.set(slot, it); cur = it;
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (altitude) setTransform(it, { altitude });
 			if (gizmo === true || (gizmo === "auto" && r.stats.mode === "anchor")) gizmoOf(it, true);
