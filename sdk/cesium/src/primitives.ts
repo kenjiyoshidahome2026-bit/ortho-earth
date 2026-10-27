@@ -267,7 +267,7 @@ export class PrimitiveDrawer {
 		for (let k = 0; k < tris.pos.length; k += 3) { const c = Ellipsoid.WGS84.cartesianToCartographic(Cartesian3.fromElements(tris.pos[k], tris.pos[k + 1], tris.pos[k + 2], v3)); if (c && c.height < minH) minH = c.height; }
 		it.loading = true;
 		const file = new File([glb as BlobPart], `${it.key}.glb`, { type: "model/gltf-binary" });
-		map.gadget.model(file, { slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true, lighting: "globe", altitude: Number.isFinite(minH) ? minH : 0 })   // Cesium shades geometry with Phong, not the model lighting: the globe's own light is the nearer look   // the globe grounds a model's lowest point: lift it back to its height
+		map.gadget.model(file, { slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true, lighting: "globe", altitude: Number.isFinite(minH) ? minH : 0, lift: false })   // Cesium shades geometry with Phong, not the model lighting: the globe's own light is the nearer look   // the globe grounds a model's lowest point: lift it back to its (ellipsoid) height, absolute = not onto the terrain
 			.then((h: Any) => {
 				it.loading = false;
 				if (it.dead) { h.clear(); return; }
@@ -303,7 +303,7 @@ export class PrimitiveDrawer {
 			p._initialRadius ??= sph.radius;
 			p._boundingSphere ??= new BoundingSphere();
 		});
-		map.gadget.model(url, { at: pl.at, altitude: pl.altitude, heading: pl.heading, scale: pl.scale, slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true })
+		map.gadget.model(url, { at: pl.at, altitude: pl.altitude, lift: false, heading: pl.heading, scale: pl.scale, slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true })   // the matrix's height is absolute (ellipsoid): not lifted onto the terrain
 			.then(async (h: Any) => {
 				it.loading = false;
 				if (it.dead) { h.clear(); return; }

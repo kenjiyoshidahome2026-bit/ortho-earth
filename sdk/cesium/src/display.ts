@@ -190,7 +190,7 @@ interface Desc {
 	/** shapes on the ground with a painted material (stripe, checkerboard, grid, image): an image layer over their box */
 	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number }>;
 	lines: Array<{ p: number[]; color: string; width: number; dash?: { len: number; pattern: number }; arrow?: boolean }>;
-	model: { uri: string; scale: number; at: [number, number]; altitude: number; heading: number; anim: boolean; minPx?: number; maxScale?: number | null; c?: number[] } | null;
+	model: { uri: string; scale: number; at: [number, number]; altitude: number; lift: boolean; heading: number; anim: boolean; minPx?: number; maxScale?: number | null; c?: number[] } | null;
 	sphere: { c: number[]; r: number } | null;
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
 	solids: { fill: Any[]; outline: Any[]; width: number } | null;
@@ -450,9 +450,10 @@ export class EntityDisplay {
 			const u = typeof uri === "string" ? new URL(uri, location.href).href : uri?.url ? new URL(uri.url, location.href).href : null;
 			const ll = llOf(pos);
 			if (u && ll) {
+				// NONE = the position's own (ellipsoid) height, absolute: the globe places it without lifting onto the terrain (lift:false), so the
+				// terrain arriving later cannot move it. CLAMP_TO_GROUND = on the terrain; RELATIVE_TO_GROUND = the terrain plus the height
 				const href = val(mo.heightReference, t, HeightReference.NONE);
-				const ground = href === HeightReference.NONE ? (this.host.map?.queryTerrainElevation?.(ll[0], ll[1]) ?? 0) : 0;
-				d.model = { uri: u, scale: val(mo.scale, t, 1), at: [ll[0], ll[1]], altitude: href === HeightReference.CLAMP_TO_GROUND ? 0 : ll[2] - (Number.isFinite(ground) ? ground : 0), heading: headingOf(val(e.orientation, t), pos), anim: val(mo.runAnimations, t, true),
+				d.model = { uri: u, scale: val(mo.scale, t, 1), at: [ll[0], ll[1]], altitude: href === HeightReference.CLAMP_TO_GROUND ? 0 : ll[2], lift: href !== HeightReference.NONE, heading: headingOf(val(e.orientation, t), pos), anim: val(mo.runAnimations, t, true),
 					minPx: val(mo.minimumPixelSize, t, 0), maxScale: val(mo.maximumScale, t, null), c: [pos.x, pos.y, pos.z] };
 				dyn(mo.minimumPixelSize, mo.maximumScale);
 				sphPts.push(pos);
@@ -707,7 +708,7 @@ export class EntityDisplay {
 			if (!m) {
 				const mm = { h: null as Any, loading: true, uri: d.uri, scale: d.scale, dead: false };
 				this.#models.set(e, mm);
-				map.gadget.model(d.uri, { at: d.at, altitude: d.altitude, heading: d.heading, scale: d.scale, slot: `cesium:${e.id}`, name: String(e.name ?? e.id), fit: false, gizmo: false })
+				map.gadget.model(d.uri, { at: d.at, altitude: d.altitude, lift: d.lift, heading: d.heading, scale: d.scale, slot: `cesium:${e.id}`, name: String(e.name ?? e.id), fit: false, gizmo: false })
 					.then((h: Any) => { mm.loading = false; if (mm.dead) { h.clear(); return; } mm.h = h; if (d.anim && h.animations?.length) h.play(); }, (err: unknown) => { mm.loading = false; console.warn("[csshim] model", d.uri, err); });
 				continue;
 			}
