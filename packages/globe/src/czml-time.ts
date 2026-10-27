@@ -31,7 +31,7 @@ export interface CzmlStyle {
 	point: { size: number; color: string; outline: string | null; outlineWidth: number; show: unknown } | null;
 	image: { src: string; scale: number; offset: [number, number]; show: unknown } | null;
 	label: { text: string | null; color: string; outline?: string; px: number; offset: [number, number]; align: string; show: unknown } | null;
-	path: { show: unknown; width: number; color: string; lead: unknown; trail: unknown; resolution: unknown } | null;
+	path: { show: unknown; width: number; color: string; lead: unknown; trail: unknown; resolution: unknown; relativeTo?: string | null; frame?: "fixed" | "inertial" | null } | null;
 }
 /** CZML の色（rgba 0..255・rgbaf 0..1・入れ子の material） */
 interface CzColor { color?: unknown; solidColor?: unknown; polylineOutline?: unknown; polylineGlow?: unknown; polylineArrow?: unknown; polylineDash?: unknown; rgba?: number[]; rgbaf?: number[] }
@@ -40,7 +40,7 @@ interface CzPacket {
 	point?: { pixelSize?: number; color?: unknown; outlineColor?: unknown; outlineWidth?: number; show?: unknown };
 	billboard?: { image?: unknown; scale?: number; pixelOffset?: unknown; show?: unknown };
 	label?: { text?: unknown; fillColor?: unknown; outlineColor?: unknown; font?: unknown; scale?: number; pixelOffset?: unknown; horizontalOrigin?: string; show?: unknown };
-	path?: { show?: unknown; width?: number; material?: unknown; leadTime?: unknown; trailTime?: unknown; resolution?: unknown };
+	path?: { show?: unknown; width?: number; material?: unknown; leadTime?: unknown; trailTime?: unknown; resolution?: unknown; relativeTo?: unknown };
 	model?: unknown;
 }
 const A = 6378137, F = 1 / 298.257223563, E2 = F * (2 - F), D2R = Math.PI / 180;
@@ -138,6 +138,38 @@ function interp(tr: CzmlTrack, ms: number): Vec3 | null {
 	}
 	return out;
 }
+// 慣性系での位置（固定系の軌跡は時刻 t の回転で慣性系へ）
+const inertialAt = (tr: CzmlTrack, ms: number): Vec3 | null => { const q = interp(tr, ms); return q && !tr.inertial ? toInertial(q[0], q[1], q[2], ms) : q; };
+// VVLH（Cesium の PathVisualizer computeVvlhTransform）＝慣性系の位置 r と 10 ms 後の向きから z＝r̂・y＝軌道面の法線・x＝進行方向の正規直交基底（列）｜null（止まっている）
+function vvlhAt(tr: CzmlTrack, ms: number): [Vec3, Vec3, Vec3] | null {
+	const r = inertialAt(tr, ms), r2 = inertialAt(tr, ms + 10);
+	if (!r || !r2) return null;
+	const nz = Math.hypot(r[0], r[1], r[2]), n2 = Math.hypot(r2[0], r2[1], r2[2]);
+	if (!(nz > 0 && n2 > 0)) return null;
+	const z: Vec3 = [r[0] / nz, r[1] / nz, r[2] / nz], d: Vec3 = [r2[0] / n2, r2[1] / n2, r2[2] / n2];
+	const y: Vec3 = [z[1] * d[2] - z[2] * d[1], z[2] * d[0] - z[0] * d[2], z[0] * d[1] - z[1] * d[0]], ny = Math.hypot(y[0], y[1], y[2]);
+	if (!(ny > 1e-16)) return null;
+	y[0] /= ny; y[1] /= ny; y[2] /= ny;
+	const x: Vec3 = [y[1] * z[2] - y[2] * z[1], y[2] * z[0] - y[0] * z[2], y[0] * z[1] - y[1] * z[0]];
+	return [x, y, z];
+}
+/** 時刻 t の path の点（ECEF・描く時刻 ms の枠で）｜null。Cesium の PathVisualizer と同じ枠：固定系の位置はそのまま・慣性系の位置は慣性系の軌跡を時刻 ms の回転で（軌道の楕円が出る）・
+ *  frame で枠を指定できる（relativeTo "FIXED"/"INERTIAL"）・rel（path.relativeTo の軌跡）があれば rel から見た相対位置を rel の VVLH 枠（時刻 t）で取り、時刻 ms の VVLH 枠と位置へ移す */
+export function pathPositionAt(tr: CzmlTrack, t: number, ms: number, rel: CzmlTrack | null = null, frame: "fixed" | "inertial" | null = null): Vec3 | null {
+	if (rel) {
+		const p = inertialAt(tr, t), r = inertialAt(rel, t), r0 = inertialAt(rel, ms), B = vvlhAt(rel, t), B0 = vvlhAt(rel, ms);
+		if (!p || !r || !r0 || !B || !B0) return null;
+		const d: Vec3 = [p[0] - r[0], p[1] - r[1], p[2] - r[2]];
+		const c = B.map(b => b[0] * d[0] + b[1] * d[1] + b[2] * d[2]);   // rel の枠の座標（基底は正規直交＝転置が逆）
+		const v: Vec3 = [r0[0], r0[1], r0[2]];
+		for (let k = 0; k < 3; k++) { v[0] += B0[k][0] * c[k]; v[1] += B0[k][1] * c[k]; v[2] += B0[k][2] * c[k]; }
+		return toFixed(v, ms);
+	}
+	const inertial = frame ? frame === "inertial" : tr.inertial;   // frame＝枠の指定（path.relativeTo "FIXED"/"INERTIAL"）・無ければ軌跡の枠
+	if (!inertial) return positionAt(tr, t);
+	const q = inertialAt(tr, t);
+	return q && toFixed(q, ms);
+}
 export const availableAt = (tr: CzmlTrack, ms: number): boolean => inIntervals(tr.avail, ms);
 // 見えるか＝出ている区間の中で、位置がある
 export const visibleAt = (tr: CzmlTrack, ms: number): boolean => availableAt(tr, ms) && positionAt(tr, ms) != null;
@@ -151,6 +183,7 @@ export function pathTimes(tr: CzmlTrack, ms: number, { lead = null, trail = null
 	const step = Math.max(1, +resolution! || 60) * 1000, out: number[] = [];
 	for (let x = a; x < b; x += step) out.push(x);
 	for (let i = 0; i < n; i++) if (tr.t[i] > a && tr.t[i] < b) out.push(tr.t[i]);
+	if (ms > a && ms < b) out.push(ms);   // 今の時刻を必ず踏む（尾が印を通る・Cesium の subSample も同じ）
 	out.push(b);
 	return [...new Set(out)].sort((u, v) => u - v);
 }
@@ -207,6 +240,6 @@ export function styleOf(f: CzmlFeature | null | undefined): CzmlStyle {
 		image: bb && imageOf(bb.image) ? { src: imageOf(bb.image)!, scale: +bb.scale! || 1, offset: offsetOf(bb.pixelOffset), show: bb.show ?? true } : null,
 		label: lb && textOf(lb.text) != null ? { text: textOf(lb.text), color: colorOf(lb.fillColor, "rgba(255,255,255,1)"), outline: colorOf(lb.outlineColor, "rgba(0,0,0,1)"), px: fontPx(lb.font) * (+lb.scale! || 1),
 			offset: offsetOf(lb.pixelOffset), align: String(lb.horizontalOrigin || "CENTER").toLowerCase(), show: lb.show ?? true } : null,
-		path: ph ? { show: ph.show ?? true, width: +ph.width! || 1, color: colorOf(ph.material, "rgba(255,255,255,1)"), lead: ph.leadTime ?? null, trail: ph.trailTime ?? null, resolution: ph.resolution ?? 60 } : null,
+		path: ph ? { show: ph.show ?? true, width: +ph.width! || 1, color: colorOf(ph.material, "rgba(255,255,255,1)"), lead: ph.leadTime ?? null, trail: ph.trailTime ?? null, resolution: ph.resolution ?? 60, relativeTo: typeof ph.relativeTo === "string" ? ph.relativeTo : null } : null,
 	};
 }
