@@ -1,0 +1,16 @@
+{
+  "type": "scenes",
+  "title": "Globe to Tokyo",
+  "frame": "16:9",
+  "waitLoading": false,
+  "preload": ["千代田区", "中央区"],
+  "light": true,
+  "date": "2026-11-03",
+  "credit": { "ja": "3D都市モデル：国土交通省 Project PLATEAU（CC BY 4.0）", "en": "3D city model: MLIT Project PLATEAU (CC BY 4.0)" },
+  "ending": { "title": "ortho-earth", "sub": { "ja": "サーバーなし・ブラウザだけで", "en": "No server ― just the browser" } },
+  "scenes": [
+    { "view": "#2.4/28/145/l=", "time": "15:30", "hold": 2.5, "orbit": 8 },
+    { "view": "#15.4/35.6812/139.7668/60t/-30r/l=", "time": "16:20", "hold": 0.5 },
+    { "glide": "#16.6/35.6812/139.7668/66t/60r/l=", "travel": 8, "time": "17:15", "hold": 4, "orbit": 30 }
+  ]
+}
