@@ -72,10 +72,10 @@ struct Frame {
 	gnd3: vec4f,       // 同・4 段目（前景あり＝[前景,近,中,遠]・無し＝[近,中,遠,−]）
 	eyeO: vec4f,       // xyz＝目−originPt（f64 で引く＝原点相対の目）・w＝原点の β（rad）。等高線の交点 δ＝eyeO＋t·d（#65）
 	elevOff: vec4f,    // 等高線の標高 uv 係数（f64 前計算）：(原点の uv, 1/span)＝uv＝off＋δll·inv
-	cg: vec4f,         // 地面の照明（setGroundLighting・2026-10-26）：xyz＝光へ向く単位ベクトル（世界）・w＝0 無し／1 地形の法線／2 楕円体の上向き（cgLambert）
+	sun: vec4f,        // 太陽（#46 段 0・2026-09-26）：xyz＝方向の単位ベクトル（地球固定・y=北極＝shadow.js sunVector と同軸）・w＝昼の度合い（原点の太陽高度 −6°→+6° の smoothstep）。夜は減光した固定光へ落とす量の鍵＝段 2 の PBR が読む。段 0 では運ぶだけ
+	cg: vec4f,         // 地面の照明（setGroundLighting・2026-10-26）：xyz＝光へ向く単位ベクトル（世界）・w＝0 無し／1 地形の法線／2 楕円体の上向き（cgLambert）。sun の後ろ＝packFrame の詰め順（sun 116・cg 120）と一致させる
 	cgP: vec4f,        // (lambert の倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ 0.05..1・負＝暗くしない)
 	cgC: vec4f,        // 光の色（czm_lightColor）
-	sun: vec4f,        // 太陽（#46 段 0・2026-09-26）：xyz＝方向の単位ベクトル（地球固定・y=北極＝shadow.js sunVector と同軸）・w＝昼の度合い（原点の太陽高度 −6°→+6° の smoothstep）。夜は減光した固定光へ落とす量の鍵＝段 2 の PBR が読む。段 0 では運ぶだけ
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 ${RAY}
