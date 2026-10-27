@@ -43,7 +43,7 @@ export interface RasterInfo { id: string; kind: string; tileSize: number; minZoo
 export interface RasterPending { total: number; layers: Record<string, number>; fading: boolean }
 export interface RasterLayerStats { id: string; kind: string | null; ready: number; loading: number; empty: number; error: number; selected: number; draws: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; resampling: RasterResampling; fadeDuration: number; fading: boolean }
 export interface RasterStats { layers: RasterLayerStats[]; texBytes: number; meshBytes: number; draws: number; meshes: number; inflight: number; budget: number; fading: boolean }
-export interface RasterUpdateOptions { moving?: boolean; groundR?: number }
+export interface RasterUpdateOptions { moving?: boolean; groundR?: number; /** 遠景のリフト球（遠景層の最大標高）＝tilecover.selectLOD の farR */ farR?: number }
 export interface RasterOptions { renderer: RasterRenderer; requestDraw?: (() => void) | null; lowMem?: boolean; post?: ((m: unknown) => void) | null; maxTiles?: number; budgetMB?: number | null }
 export interface Raster {
 	add(id: string, spec: RasterSpec, opts?: RasterLayerOptions): Promise<RasterInfo>; remove(id: string): boolean; set(id: string, o?: RasterLayerSet): boolean;
@@ -205,7 +205,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
 		let tilePx = src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
 		for (let step = 0; step < 4; step++) {
-			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1 });
+			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1, farR: opts?.farR ?? opts?.groundR ?? 1 });
 			if ((sel.length + coarseN(sel, src.minZoom)) * perTile <= share) break;   // 先に取る粗い祖先も在庫に居る＝予算に数える
 			tilePx *= 1.6;
 		}
