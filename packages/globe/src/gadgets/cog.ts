@@ -10,6 +10,7 @@ import { openCog } from "geopbf/cog";
 import type { BrowserCog, BrowserCogOptions, RenderOut } from "geopbf/cog";
 import type { CogHandle, CogOptions } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
+import { idbTileCache } from "./cog-idb.ts";
 
 /** 窓のアトラス（等経緯度 RGBA・bboxLL＝覆う範囲 [w,s,e,n]）＝renderer の cogTex スロットへ */
 export interface CogTex { rgba: NonNullable<RenderOut>; w: number; h: number; bboxLL: number[]; /** 見比べ＝同じ窓の 2 枚を縦に積んだ（h は 2 枚分） */ pair?: boolean }
@@ -28,9 +29,18 @@ function rawCache(budget: number) {
 	};
 }
 
+// メモリ（速い・揮発）の下に端末内保管（IDB・開き直しても残る）を敷く。IDB で当たったらメモリへ上げる
+function layered(mem: ReturnType<typeof rawCache>, disk: ReturnType<typeof idbTileCache>) {
+	return {
+		async get(k: string) { const v = await mem.get(k); if (v) return v; const d = await disk.get(k); if (d) await mem.set(k, d); return d; },
+		async set(k: string, buf: Uint8Array) { await mem.set(k, buf); disk.set(k, buf).catch(() => {}); },
+		get bytes() { return mem.bytes; },
+	};
+}
+
 export function createCog(map: GlobeMap, { setCogTex, setCogSplit, fit, lowMem, signal }: CogDeps = {} as CogDeps): CogHandle {
 	const ATLAS_W = lowMem ? 1024 : 2048;
-	const cache = rawCache(lowMem ? 24 << 20 : 96 << 20);
+	const cache = layered(rawCache(lowMem ? 24 << 20 : 96 << 20), idbTileCache(lowMem ? 128 << 20 : 512 << 20));
 	let cog2: BrowserCog | null = null;   // 見比べの 2 枚目（境の東）
 	// 窓の外枠＝1 枚目の範囲（見比べ中は 2 枚の和）
 	const full = () => {
