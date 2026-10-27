@@ -93,6 +93,11 @@ const CSS = `
 #side .nav #tl-cmp.on { border-color: #ffd36a; background: #3a3220; }
 .tl-knob { position: absolute; z-index: 5; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 0; cursor: ew-resize; touch-action: none; user-select: none; font: 600 12px system-ui, sans-serif; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
 .tl-knob[hidden] { display: none; }
+.tl-load { position: absolute; z-index: 6; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 9px 16px 9px 12px; border-radius: 999px; background: rgba(11,13,18,.86); color: #fff; font: 600 14px system-ui, sans-serif; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+.tl-load[hidden] { display: none; }
+.tl-load i { width: 18px; height: 18px; border: 3px solid rgba(255,255,255,.25); border-top-color: #ffd36a; border-radius: 50%; animation: tl-spin .8s linear infinite; }
+@keyframes tl-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tl-load i { animation-duration: 2.4s; } }
 .tl-knob span { padding: 4px 8px; color: #fff; white-space: nowrap; }
 .tl-knob .l { background: rgba(70,110,220,.92); border-radius: 999px 0 0 999px; }
 .tl-knob .r { background: rgba(190,140,20,.95); border-radius: 0 999px 999px 0; }
@@ -143,7 +148,37 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		<div class="foot"><span id="tl-credit"></span><span><button class="share" id="tl-share">${t("Copy share link")}</button> <button id="tl-clear">${t("Remove imagery")}</button></span></div>
 		<div class="toast" id="tl-toast"></div>`);
 	const $ = <E extends HTMLElement = HTMLElement>(id: string) => side.querySelector(id) as E;
-	const status = (s: string) => { $("#tl-status").textContent = s; };
+	// 地図の上のローダー（くるくる＋何をしているか＋届いた MB）＝案内板の小さな文字だけでは「止まった」と見えるので（Kenji 2026-10-27）。
+	// 出る条件＝検索・読込の最中（status の spin）か、COG の Range 読みが 1 本でも走っている間（ズームでの精細化・見比べの 2 枚目も含む）。
+	// 速く終わる読み（キャッシュ当たり）でちらつかないよう 250 ms 待ってから出し、終わったら 300 ms 置いて消す。
+	const loader = document.createElement("div");
+	loader.className = "tl-load"; loader.hidden = true; loader.setAttribute("role", "status"); loader.setAttribute("aria-live", "polite");
+	loader.innerHTML = `<i></i><span></span>`;
+	(mapEl.parentElement || mapEl).append(loader);
+	let task = "", inflight = 0, burst = 0, showT: ReturnType<typeof setTimeout> | undefined, hideT: ReturnType<typeof setTimeout> | undefined;
+	const paintLoad = () => {
+		const on = !!task || inflight > 0;
+		if (!on) { clearTimeout(showT); showT = undefined; hideT ??= setTimeout(() => { hideT = undefined; loader.hidden = true; burst = 0; }, 300); return; }
+		clearTimeout(hideT); hideT = undefined;
+		loader.querySelector("span")!.textContent = (task || t("Loading…")) + (burst > 0 ? ` ${(burst / 1e6).toFixed(1)} MB` : "");
+		loader.style.left = `${mapEl.offsetLeft + mapEl.clientWidth / 2}px`; loader.style.top = `${mapEl.offsetTop + 16}px`;
+		if (loader.hidden) showT ??= setTimeout(() => { showT = undefined; if (task || inflight > 0) loader.hidden = false; }, 250);
+	};
+	// 読み口を包んで、本文が流れてくる量を数える（ヘッダが届いた時点ではなく本文を読み終えた時点で「読込中」を外す）
+	const track = (f: (u: unknown, init?: RequestInit) => Promise<Response>) => async (u: unknown, init?: RequestInit): Promise<Response> => {
+		inflight++; paintLoad();
+		let fin = false;
+		const end = () => { if (!fin) { fin = true; inflight--; paintLoad(); } };
+		let r: Response;
+		try { r = await f(u, init); } catch (e) { end(); throw e; }
+		if (!r.body) { end(); return r; }
+		init?.signal?.addEventListener("abort", end, { once: true });
+		setTimeout(end, 60_000);   // 読み手が本文を捨てた時の保険（ローダーが出っぱなしにならない）
+		const body = r.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ transform(c, ctl) { burst += c.byteLength; paintLoad(); ctl.enqueue(c); }, flush: end }));
+		return new Response(body, { status: r.status, statusText: r.statusText, headers: r.headers });
+	};
+	// spin＝検索・読込の最中（地図の上のローダーにも同じ文を出す）。spin なしの文（結果・失敗）はローダーを外す
+	const status = (s: string, spin = false) => { $("#tl-status").textContent = s; task = spin ? s : ""; paintLoad(); };
 	const toast = (s: string) => { const el = $("#tl-toast"); el.textContent = s; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 1400); };
 
 	const foot = createFootprint(map, mapEl);
@@ -262,7 +297,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		lastClick = ll;
 		if (show) applySrc(src.key, { keepItems: true });   // 見どころから地図クリックへ移った＝案内文を元へ
 		ac?.abort(); ac = new AbortController(); endCompare();
-		status(t("Searching…")); items = []; sel = -1; render();
+		status(t("Searching…"), true); items = []; sel = -1; render();
 		try {
 			items = dedupe(await searchScenes(src, { c: ll, from: $<HTMLInputElement>("#tl-from").value, to: $<HTMLInputElement>("#tl-to").value, signal: ac.signal }), ll).slice(0, 12);
 			status(items.length ? "" : t("No scenes found (widen the period or click elsewhere)"));
@@ -274,22 +309,15 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 
 	const load = async (i: number, { fit = false } = {}) => {
 		if (!items[i]) return;
-		select(i); status(t("Loading…"));
+		select(i); status(t("Loading…"), true);
 		const it = items[i];
 		try {
 			const url = await freshUrl(it);
 			const renew = renewingFetch(url, async () => { urls.delete(it.id); return freshUrl(it); });
-			// 読込の進み具合＝届いた Range の量を数えて出す（最初の 1 枚が出るまで数秒〜十数秒かかる回線でも「止まっていない」と分かる）
-			let got = 0, done = false;
-			const counted = async (u: unknown, init?: RequestInit) => {
-				const r = await renew(u, init);
-				got += +(r.headers.get("content-length") || 0);
-				if (!done && sel === i) status(`${t("Loading…")} ${(got / 1e6).toFixed(1)} MB`);
-				return r;
-			};
+			// 読込の進み具合＝届いた量を地図の上のローダーに出す（最初の 1 枚が出るまで数秒〜十数秒かかる回線でも「止まっていない」と分かる）
+			const counted = track(renew);
 			// cacheKey＝データセット/シーン＝生タイルのメモリキャッシュの鍵（署名 URL は発行ごとに変わる＝URL では鍵にならない）
 			cogCtl = await map.gadget.cog(url, { fit, fetch: counted, cacheKey: `${src.key}/${it.id}`, ...drawOpts() });
-			done = true;
 			if (sel !== i) return;   // 読んでいる間に別の行へ移った＝古い方の後始末はしない（新しい load が上書き済み）
 			status(""); shareUrl(it);
 			if (!metricsTimer) metricsTimer = setInterval(showMetrics, 1000);
@@ -352,9 +380,9 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		if (seq !== cmpSeq || sel !== l || !cogCtl) return;   // 待つ間に別の操作が来た
 		const it = items[r];
 		try {
-			status(t("Loading…"));
+			status(t("Loading…"), true);
 			const url = await freshUrl(it);
-			await cogCtl.compare(url, { fetch: renewingFetch(url, async () => { urls.delete(it.id); return freshUrl(it); }), cacheKey: `${src.key}/${it.id}`, ...drawOpts() });
+			await cogCtl.compare(url, { fetch: track(renewingFetch(url, async () => { urls.delete(it.id); return freshUrl(it); })), cacheKey: `${src.key}/${it.id}`, ...drawOpts() });
 			if (seq !== cmpSeq) return;
 			status("");
 			(knob.querySelector(".l") as HTMLElement).textContent = items[l].date;
@@ -374,7 +402,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		const s = SHOWS.find(x => x.k === k); if (!s) return;
 		ac?.abort(); ac = new AbortController(); const sig = ac.signal;
 		applySrc(s.ds); markShow(s); lastClick = null;
-		status(t("Loading…"));
+		status(t("Loading…"), true);
 		if (fly) { const [lon, lat, z, tilt] = s.view; map.flyTo(lon, lat, z, tilt, 0); }
 		try {
 			items = await Promise.all(s.ids.map(id => getScene(src, id, { signal: sig })));
