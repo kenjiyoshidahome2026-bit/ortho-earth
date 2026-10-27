@@ -142,7 +142,7 @@ interface SkyStyle { fog: number[]; groundBlend: number; sky?: unknown }
 /** set("cogTex") の入力（等経緯度の RGBA） */
 export interface CogTexData { rgba: Uint8Array | Uint8ClampedArray; w: number; h: number; bboxLL: number[]; /** 見比べ＝同じ窓の 2 枚を縦に積んだ（h は 2 枚分・上＝A・下＝B） */ pair?: boolean }
 interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null }
-interface FarState { bounds: number[]; has: number; edgeFade: number }
+interface FarState { bounds: number[]; has: number; edgeFade: number; maxElev?: number }   // maxElev＝遠景層の最大標高（m・terrain.ts の elevFarMax）＝地面アトラスの地平線窓を伸ばす
 /** 標高アトラスの寸法と窓（terrain.js の set("elevAtlas")） */
 export interface ElevAtlasMeta { originLng: number; originLat: number; cellsX: number; cellsY: number; cellRes: number; cellSpan?: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; gMax?: number }
 interface TerrainMesh { vbo: GPUBuffer; ibo: GPUBuffer; count: number; G: number; mesh: number[]; chunks: TerrainChunk[] }
@@ -1925,7 +1925,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
 		const hook = fillsIn && groundHook;   // gint の面（3D＝地面アトラス側）
 		if (!rasterOn && !wantFills && !hook) { if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } gndWins = null; return null; }
-		const wins = groundWindows(cam, canvas.width, canvas.height);
+		const wins = groundWindows(cam, canvas.width, canvas.height, far.has ? far.maxElev || 0 : 0);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（gl/renderer.js と同じ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
@@ -3409,6 +3409,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "terrainExag": setTerrainExag(data as number); break;   // 地形の誇張（既定 1）＝今のアトラスにも掛け直す
 			case "elevAtlasFar": setElevationAtlasFar(data as ElevAtlasMeta); break;
 			case "elevCellFar": setElevationCellFar((prop as CellProp).cx, (prop as CellProp).cy, data as Float32Array | ElevCellSrc, (prop as CellProp).cellRes); break;
+			case "elevFarMax": far.maxElev = +(data as number) || 0; break;   // 遠景層の最大標高（地平線窓）
 			case "elevAtlasFarOff": clearElevationFar(); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "meshSet": setMeshSet(prop as string, data as MeshSetData | null); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放

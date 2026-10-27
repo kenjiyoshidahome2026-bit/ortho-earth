@@ -35,7 +35,7 @@ export interface TerrainDebug {
 }
 export interface Terrain {
 	ensure(cam: CameraPose, size: TerrainSize): boolean; sampleElev(lon: number, lat: number): number; prefetch(cellLng: number, cellLat: number, range: number): Promise<TerrainTile | null>;
-	prefetchWorld(): Promise<void>; bytes(): number; debug(): TerrainDebug; setDem(spec: DemSpecInput | QmeshSpecInput | null): void; demHeight(lon: number, lat: number, zHint?: number | null): Promise<number | null>;
+	prefetchWorld(): Promise<void>; bytes(): number; debug(): TerrainDebug; /** 遠景層（R10 の far アトラス）に載った最大標高（m）・遠景層なし＝0 */ farMaxElev(): number; setDem(spec: DemSpecInput | QmeshSpecInput | null): void; demHeight(lon: number, lat: number, zHint?: number | null): Promise<number | null>;
 }
 interface PerfHitch { elev: number; scene: number; resMs?: number; resMax?: number; upMs?: number; upMax?: number; cellN?: number }
 interface PerfSelf { __perfElev?: boolean; __perfElevLast?: { gpu?: boolean; raw: number; f16: number; write: number } | null; __perfHitch?: PerfHitch }
@@ -91,6 +91,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 特定の山の特別扱いはしない一般則：ズームインで近窓の外へ出た遠方の山（富士・アルプス・筑波…）は
 	// 全てこの層が受け持ち、シェーダ elev() が近窓の縁フェードで遠層の値へ溶ける（0 へ落とさない）。
 	let farKey = "", farLoaded = new Set<string>(), farWritten = new Set<string>(), farFails = new Map<string, number>();
+	let farMax = 0;   // 遠景層（R10）に載った最大標高（m）＝持ち上がった遠景は海面球の地平線より先まで見える＝画像タイルの選抜（groundR）と地面アトラスの地平線窓を其処まで伸ばす（2026-10-27・Cesium 例の門＝地平線の手前に下地色の帯）
+	const gridMax = (t: { data: ArrayLike<number> }): number => { let m = 0; const d = t.data; for (let i = 0; i < d.length; i += 2) if (d[i] > m) m = d[i]; return m; };
 	console.log("[terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)");   // 版印＝タブが古い世代を掴んだままの切り分け用（HMR跨ぎ事故の実績 9/2）
 	let writtenCells = new Set<string>();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
 	let lastEnsureCam: CameraPose | null = null, lastEnsureSize: TerrainSize | null = null, auditT: ReturnType<typeof setTimeout> | 0 = 0, auditTries = 0;   // 検札＝静止中の自己修復用
@@ -508,7 +510,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			if (farSpan === 10 && lowMem) fr.cellRes = Math.min(fr.cellRes, 256);
 			const fkey = ["F", farSpan, fr.originCX, fr.originCY, fr.cellsX, fr.cellsY, fr.cellRes].join(",");
 			if (fkey !== farKey) {
-				farKey = fkey; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
+				farKey = fkey; farLoaded = new Set(); farWritten = new Set(); farFails = new Map(); farMax = 0; renderer.set("elevFarMax", 0);
 				// ダブルバッファ無し（近窓の staging と違い）：R10/R90 は LRU・IDB に居ることが多く、
 				// ゼロ初期化→同フレーム内のキャッシュヒット書込で埋まる。コールドはセル到着順にせり上がる（許容）。
 				renderer.set("elevAtlasFar", { originLng: fr.originCX * farSpan, originLat: fr.originCY * farSpan, cellsX: fr.cellsX, cellsY: fr.cellsY, cellRes: fr.cellRes, cellSpan: farSpan, edgeFade: EDGE_FADE(farSpan) });
@@ -522,7 +524,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				const cellLng = (fr.originCX + cx) * farSpan, cellLat = (fr.originCY + cy) * farSpan;
 				pendingElev++; notifyPending(farSpan);
 				const farP: Promise<CellPayload | null> = farSpan === 90 ? cell90(fr.originCX + cx + 2, fr.originCY + cy + 1, fr.cellRes)   // 世界帯の床＝全球アトラス
-					: getCell(cellLng, cellLat, farSpan).then(t => t ? rsDown(t, fr.cellRes) : null);
+					: getCell(cellLng, cellLat, farSpan).then(t => { if (t && farKey === fkey) { const m = gridMax(t); if (m > farMax) { farMax = m; renderer.set("elevFarMax", farMax); } } return t ? rsDown(t, fr.cellRes) : null; });
 				farP.then(tile => {
 					pendingElev--; notifyPending(farSpan);
 					if (tile && farKey === fkey) { putCell("elevCellFar", tile, cx, cy, fr.cellRes); farWritten.add(ck); }
@@ -534,7 +536,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				});
 			}
 		} else if (farKey) {   // 深ズーム離脱／真俯瞰・世界帯離脱へ＝遠層を畳んで GPU メモリを返す
-			farKey = ""; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
+			farKey = ""; farLoaded = new Set(); farWritten = new Set(); farFails = new Map(); farMax = 0;
 			renderer.set("elevAtlasFarOff");
 			requestDraw();
 		}
@@ -551,5 +553,5 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		lru: r10Tiles.size, bytes: tileBytes, world: worldAtlas ? "atlas" : worldP ? "loading" : "none",
 		lastCam: lastEnsureCam ? { z: +lastEnsureCam.zoom.toFixed(2), c: [+lastEnsureCam.center[0].toFixed(2), +lastEnsureCam.center[1].toFixed(2)], p: +(lastEnsureCam.pitch || 0).toFixed(2) } : null,
 		lastSize: lastEnsureSize });
-	return { ensure, sampleElev, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug, setDem, demHeight };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
+	return { ensure, sampleElev, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug, setDem, demHeight, farMaxElev: () => farMax };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
 }
