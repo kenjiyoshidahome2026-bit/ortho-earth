@@ -39,20 +39,24 @@ export function createCog(map: GlobeMap, { setCogTex, setCogSplit, fit, lowMem, 
 	};
 	let cog: BrowserCog | null = null, timer: ReturnType<typeof setInterval> | null = null, busy = false, cur: number[] | null = null;   // cur＝現アトラスが覆う bbox
 	let last: string | null = null, still = 0, rc: AbortController | null = null;                    // rc＝進行中レンダの AbortController
+	// gen＝読み口の世代（clear/compare で進む）。古い COG を閉じると進行中のレンダは返ってこないことがある（pool の
+	// 待ち行列は destroy で捨てられる）＝busy が立ったまま二度と描かない、を世代で断つ（2026-10-27・タブ切替で AVNIR-2 が出ない）
+	let gen = 0;
+	const retire = () => { gen++; rc?.abort(); rc = null; busy = false; };
 
 	const renderWindow = async (bb: number[]) => {
 		if (!cog || busy) return;
 		busy = true;
-		rc = new AbortController();
-		const onOuter = () => rc!.abort();
+		const g = gen, ac = rc = new AbortController();
+		const onOuter = () => ac.abort();
 		signal?.addEventListener("abort", onOuter, { once: true });
 		try {
 			const [w, s, e, n] = bb;
 			const H = Math.max(64, Math.min(ATLAS_W, Math.round(ATLAS_W * (n - s) / Math.max(e - w, 1e-9))));
 			const grid = { bbox: bb as BrowserCog["bboxLL"], w: ATLAS_W, h: H };
 			if (cog2) {   // 見比べ＝2 枚を同じ窓で描いて縦に積む（片方が圏外なら透明＝下の地図が見える）
-				const [a, b] = await Promise.all([cog.renderTo(grid, { signal: rc.signal }), cog2.renderTo(grid, { signal: rc.signal })]);
-				if ((!a && !b) || !cog || !cog2 || rc.signal.aborted) return;
+				const [a, b] = await Promise.all([cog.renderTo(grid, { signal: ac.signal }), cog2.renderTo(grid, { signal: ac.signal })]);
+				if ((!a && !b) || g !== gen || !cog || !cog2 || ac.signal.aborted) return;
 				const n = ATLAS_W * H * 4, rgba = new Uint8ClampedArray(n * 2);
 				if (a) rgba.set(a as Uint8ClampedArray, 0);   // renderTo の既定＝raw（RGBA の配列）
 				if (b) rgba.set(b as Uint8ClampedArray, n);
@@ -61,13 +65,13 @@ export function createCog(map: GlobeMap, { setCogTex, setCogSplit, fit, lowMem, 
 				map.requestDraw?.();
 				return;
 			}
-			const rgba = await cog.renderTo(grid, { signal: rc.signal });
-			if (!rgba || !cog) return;   // 圏外 or 途中で clear/中断
+			const rgba = await cog.renderTo(grid, { signal: ac.signal });
+			if (!rgba || g !== gen || !cog) return;   // 圏外 or 途中で clear/中断（世代違い＝古い COG の絵は出さない）
 			cur = bb;
 			setCogTex({ rgba, w: ATLAS_W, h: H, bboxLL: bb });
 			map.requestDraw?.();
 		} catch (e) { if ((e as Error)?.name !== "AbortError") console.warn("[cog] render", (e as Error).message); }
-		finally { busy = false; rc = null; signal?.removeEventListener("abort", onOuter); }
+		finally { if (g === gen) { busy = false; rc = null; } signal?.removeEventListener("abort", onOuter); }
 	};
 
 	// ビュー窓＝画面四隅+中心の unproject ∩ COG bbox（20% 余白）∩ ズーム由来の視野幅キャップ。
@@ -141,9 +145,9 @@ export function createCog(map: GlobeMap, { setCogTex, setCogSplit, fit, lowMem, 
 		// 見比べ＝2 枚目を開いて同じ窓で描く（src＝null で外す＝1 枚に戻る）。opts は load と同じ（fetch・cacheKey・見せ方）
 		async compare(src, { fetch: f = null, ...cogOpts }: CogOptions = {}) {
 			if (!cog) throw new Error("cog.compare: load() first");
-			const prev = cog2; cog2 = null; prev?.close();
+			retire(); const prev = cog2; cog2 = null; prev?.close();
 			if (src) cog2 = await openCog(src, { signal, cache, ...cogOpts as BrowserCogOptions, ...(f ? { fetch: f } : {}) });
-			rc?.abort(); cur = null;            // 今の窓を描き直す（描いている途中なら次の静定で tick が拾う）
+			cur = null;                         // 今の窓を描き直す（描いている途中なら次の静定で tick が拾う）
 			await renderWindow(viewWindow() || full());
 			return cog2;
 		},
@@ -151,6 +155,7 @@ export function createCog(map: GlobeMap, { setCogTex, setCogSplit, fit, lowMem, 
 		split(lon) { setCogSplit?.(lon == null || !Number.isFinite(lon) ? null : lon); map.requestDraw?.(); },
 		clear() {
 			if (timer) { clearInterval(timer); timer = null; }
+			retire();
 			cog?.close(); cog = null; cog2?.close(); cog2 = null; cur = null; last = null; still = 0;
 			setCogSplit?.(null); setCogTex(null); map.requestDraw?.();
 		},
