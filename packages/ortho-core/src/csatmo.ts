@@ -11,6 +11,13 @@ export function csGroundFade(eyeDistM: number): number {
 	return Math.max(0, Math.min(1, (eyeDistM - out) / (inn - out)));
 }
 
+/** Cesium の霧の濃さ（Scene/Fog.js update・既定値）：目の楕円体上の高さ h（m）と視線と上向きの cos の絶対値。800 km より上は 0（霧なし＝遠くから見た地面の大気に替わる） */
+export function csFogDensity(heightM: number, absDot: number): number {
+	if (!(heightM < 800000)) return 0;
+	const d = 0.0006 * 0.001 * Math.pow(Math.max(heightM / 800000, 1e-4), -0.59);   // density × heightScalar × (h / maxHeight)^-heightFalloff
+	return d * (1 - Math.max(0, Math.min(1, absDot)));
+}
+
 const C = { R: "6378137.0", RPOLAR: "6356752.3142451793", THICK: "111000.0" };   // GLSL と WGSL で同じ定数
 
 /** GLSL（GL2）：csGround(色, 目, 点, 効き)・csSky(目, 視線の単位ベクトル)→前乗算 rgba */
@@ -102,6 +109,22 @@ vec3 csTone(vec3 c) {   // czm_pbrNeutralTonemapping
 	c *= np / peak;
 	return mix(c, vec3(np), 1.0 - 1.0 / (0.15 * (peak - np) + 1.0));
 }
+// 霧（GlobeFS の FOG の枝・HDR なし）：800 km より下で、地面の色を点の大気の色（tonemap＋逆ガンマ）へ czm_fog（距離×濃さ・visualDensityScalar 0.15）で寄せる。
+//   density＝csFogDensity（0＝霧なし）。lightDir/night は csGroundL と同じ（照明あり＝霧の色を目の位置の昼夜で暗く・minimumBrightness 0.03）
+//   csFogV＝霧の色（rgb）と混ぜる量（a）：地形・模型は頂点で出して補間する（Cesium の GlobeVS／模型の AtmosphereStage も頂点）
+vec4 csFogV(vec3 eye, vec3 p, float density, vec3 lightDir, float night) {
+	if (density <= 0.0) return vec4(0.0);
+	vec3 L = night >= 0.0 ? lightDir : normalize(p), ray, mie;
+	float op, dist = length(p - eye);
+	csScatter(eye, normalize(p - eye), dist, L, length(p), ray, mie, op);
+	vec3 fc = csColor(eye, p, L, ray, mie, op, 10.0).rgb;
+	if (night >= 0.0) fc *= clamp(dot(normalize(eye), lightDir), 0.03, 1.0);
+	fc = pow(max(csTone(fc), vec3(0.0)), vec3(1.0 / 2.2));
+	float s = dist * density, m = 0.15;
+	return vec4(fc, 1.0 - exp(-((m * s + m) * (s * (1.0 + m)))));
+}
+vec3 csFogL(vec3 col, vec3 eye, vec3 p, float density, vec3 lightDir, float night) { vec4 v = csFogV(eye, p, density, lightDir, night); return mix(col, v.rgb, v.a); }
+vec3 csFog(vec3 col, vec3 eye, vec3 p, float density) { return csFogL(col, eye, p, density, vec3(0.0), -1.0); }
 // 地面の向こうの空の大気（globe:false・translucency で地面が透ける時）＝Cesium の SkyAtmosphere は地面を知らず殻の奥の面まで描く。地面を通る視線だけ色を返す（通らない＝a<0）
 //   translucent（globe.translucency）：Cesium は球の裏面（backFaceAlpha 既定 1＝不透明・光の当たらない内側）が透けた表面の奥に見える＝黒
 //   それ以外（globe を描かない）：Cesium は地球の中まで標本化する＝密度 exp が溢れて NaN＝白く出る。浅い弦（地平の近く）は溢れず黒。その見た目を写す（深さ 282km＝exp(88) の 3200m）
@@ -212,6 +235,19 @@ fn csTone(c0: vec3f) -> vec3f {
 	c *= np / peak;
 	return mix(c, vec3f(np), 1.0 - 1.0 / (0.15 * (peak - np) + 1.0));
 }
+// 霧（gl と同じ・csFogL）
+fn csFogV(eye: vec3f, p: vec3f, density: f32, lightDir: vec3f, night: f32) -> vec4f {
+	if (density <= 0.0) { return vec4f(0.0); }
+	let L = select(normalize(p), lightDir, night >= 0.0);
+	let dist = length(p - eye);
+	var fc = csColor(eye, p, L, csScatter(eye, normalize(p - eye), dist, L, length(p)), 10.0).rgb;
+	if (night >= 0.0) { fc *= clamp(dot(normalize(eye), lightDir), 0.03, 1.0); }
+	fc = pow(max(csTone(fc), vec3f(0.0)), vec3f(1.0 / 2.2));
+	let s = dist * density; let m = 0.15;
+	return vec4f(fc, 1.0 - exp(-((m * s + m) * (s * (1.0 + m)))));
+}
+fn csFogL(col: vec3f, eye: vec3f, p: vec3f, density: f32, lightDir: vec3f, night: f32) -> vec3f { let v = csFogV(eye, p, density, lightDir, night); return mix(col, v.rgb, v.a); }
+fn csFog(col: vec3f, eye: vec3f, p: vec3f, density: f32) -> vec3f { return csFogL(col, eye, p, density, vec3f(0.0), -1.0); }
 // 地面の向こうの空の大気（gl と同じ・csSkyUnder）
 fn csSkyUnder(eye: vec3f, dir: vec3f, inner: f32, translucent: f32) -> vec4f {
 	let g = csSphere(eye, dir, inner);

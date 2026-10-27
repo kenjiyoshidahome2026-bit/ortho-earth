@@ -9,7 +9,7 @@ import type { ShadowWindow, ShadowCascade } from "../shadow.ts";   // 断面（P
 import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../clip.ts";
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
-import { csGroundFade } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
+import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
 import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
@@ -968,6 +968,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const lineSetup = () => { gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0); };
 	function setEcliptic(data: Float32Array | null | undefined): void { ecliptic = setStarBuf(ecliptic, data, 3, lineSetup); }
 	function setCelEquator(data: Float32Array | null | undefined): void { celeq = setStarBuf(celeq, data, 3, lineSetup); }
+	let csFogD = 0;   // Cesium の霧の濃さ（view.csAtmo・毎フレーム・地形と模型の u_csFogD と遠景球の u_csAtm.w）
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let lastCamDist = 0;   // 前のフレームの camDist（カメラが飛んだかを見る）
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
@@ -1773,6 +1774,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0 * fogK());
 		fog = fogColorOf(fog);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
+		gl.uniform1f(loc(gl, prog, "u_csFogD"), csFogD);   // Cesium の霧（地形・模型の VS が持つ・他は null＝無視）
+		gl.uniform4f(loc(gl, prog, "u_csFogL"), groundLight ? groundLight.dir[0] : 0, groundLight ? groundLight.dir[1] : 0, groundLight ? groundLight.dir[2] : 1, groundLight && groundLight.night ? 1 : -1);
 		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
 		gl.uniform1f(loc(gl, prog, "u_logCoef"), logCoefOf(st));
 		gl.uniform1i(loc(gl, prog, "u_elevTex"), 1);
@@ -1803,6 +1806,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		if (Math.abs(st.camDist - fogDist) < st.camDist * 0.002) fogDist = st.camDist;
 		lastCamDist = st.camDist;
 		st.fogDist = fogDist;
+		csFogD = view.csAtmo && view.csAtmo.ground !== false ? csFogDensity((Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - 1) * 6378137, Math.abs(Math.cos(cam.pitch || 0))) : 0;   // Cesium の霧の濃さ（csatmo.ts・800 km より下）
 		const fogAnimating = fogDist !== st.camDist;   // 収束まで追加フレームを要求（呼び出し側が dirty 継続）
 		// 視程下限のチルト係数（20°→46°）：真俯瞰0＝平面地図の縁を青く染めない／傾けるほど実距離の視程が効く
 		const pfFog = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.35) / 0.45));
@@ -1915,7 +1919,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				gl.uniform3f(loc(gl, globeProg, "u_cgC"), gl_ ? gl_.color[0] : 1, gl_ ? gl_.color[1] : 1, gl_ ? gl_.color[2] : 1);
 			}
 			const csA = view.csAtmo;   // Cesium の大気：地面は遠くからだけ（中心から π/2·R → π·R で効く）
-			gl.uniform4f(loc(gl, globeProg, "u_csAtm"), csA ? 1 : 0, csA && csA.ground !== false ? csGroundFade((1 + st.camDist) * 6378137) : 0, csA && csA.sky !== false ? 1 : 0, 0);
+			gl.uniform4f(loc(gl, globeProg, "u_csAtm"), csA ? 1 : 0, csA && csA.ground !== false ? csGroundFade((1 + st.camDist) * 6378137) : 0, csA && csA.sky !== false ? 1 : 0, csFogD);
 			// 全球ハイプソ（view.worldHypso＝テーマ/アプリのknob）：z5.5 まで全開→z6.3 で消灯。
 			// 終端 6.3＝R90 全球窓の終わり（z6.5 でアトラスがビュー窓へ切替＝窓の外の陸が「標高0＝海」に化ける）
 			// より手前。地形面（TERRAIN_FS u_whK）と同じ係数＝チルトでも色が連続。
