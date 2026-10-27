@@ -415,7 +415,12 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 	// ---- 配線 ----
 	side.querySelectorAll<HTMLElement>(".show").forEach(b => b.addEventListener("click", () => runShow(b.dataset.k!)));
 	$(".lang").addEventListener("change", e => { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.assign(u); });   // 言語＝読み直す（視点・シーンは URL に残る）
-	side.querySelectorAll<HTMLElement>(".tab").forEach(b => b.addEventListener("click", () => { if (b.dataset.k === src.key) return; applySrc(b.dataset.k!); if (lastClick) search(lastClick); }));
+	// 探す地点＝最後にクリックした所、無ければ（見どころの後・まだ押していない）画面の真ん中＝タブを押せば必ず何か出る
+	const here = () => lastClick || map.unprojectXY(mapEl.clientWidth / 2, mapEl.clientHeight / 2);
+	side.querySelectorAll<HTMLElement>(".tab").forEach(b => b.addEventListener("click", () => { if (b.dataset.k === src.key) return; applySrc(b.dataset.k!); const ll = here(); if (!ll) return;
+		if (src.global && map.getZoom() > 6.5) map.flyTo(ll[0], ll[1], 5, 0, 0);   // 全球 1 枚（SST 4.6 km）＝寄ったままでは陸しか見えない＝海が入る高さへ引く
+		search(ll);
+	}));
 	side.querySelectorAll<HTMLElement>(".seg").forEach(b => b.addEventListener("click", () => {   // 偽色⇄グレー＝同じシーンを見せ方だけ変えて載せ直す（生タイルはキャッシュ済＝通信なし）
 		if (b.dataset.pol === pol) return;
 		applyPol(b.dataset.pol as "color" | "gray");
@@ -449,7 +454,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 	$("#tl-share").addEventListener("click", async () => {
 		try { await navigator.clipboard.writeText(location.href); toast(t("Copied")); } catch { prompt("URL", location.href); }
 	});
-	side.querySelectorAll("#tl-from, #tl-to").forEach(el => el.addEventListener("change", () => { if (lastClick) search(lastClick); }));
+	side.querySelectorAll("#tl-from, #tl-to").forEach(el => el.addEventListener("change", () => { const ll = here(); if (ll) search(ll); }));
 	// 地図クリック＝その地点で検索（エンジンのクリック横取り＝4px のドラッグ弁別は済んでいる）
 	map.setEditClick((x, y) => { const ll = map.unprojectXY(x, y); if (ll) search(ll); });
 
