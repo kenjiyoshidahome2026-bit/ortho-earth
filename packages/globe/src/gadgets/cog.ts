@@ -4,15 +4,17 @@
 // 窓モデル v1: まず全域アトラス（粗 overview＝1 range で即表示）→ カメラ静定（≈0.5s 不動）でビュー窓へ
 // 絞って精細化・引いたら全域へ戻す。飛行中は発火しない（静定検出が兼ねる＝トランジション通過点で重い層を
 // 発火させない一般則）。lowMem はアトラス半辺（2048→1024）＝メモリと帯域の両方が半分以下。
+// 見比べ（compare・2026-10-27）＝2 枚目の COG を同じ窓で描き、上下に積んだ 1 枚のアトラス（pair）で渡す＝renderer は
+// 境の経度（split）の西を 1 枚目・東を 2 枚目で塗る（テクスチャ枠は増やさない）。窓は 2 枚の範囲の和。
 import { openCog } from "geopbf/cog";
 import type { BrowserCog, BrowserCogOptions, RenderOut } from "geopbf/cog";
 import type { CogHandle, CogOptions } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 
 /** 窓のアトラス（等経緯度 RGBA・bboxLL＝覆う範囲 [w,s,e,n]）＝renderer の cogTex スロットへ */
-export interface CogTex { rgba: NonNullable<RenderOut>; w: number; h: number; bboxLL: number[] }
+export interface CogTex { rgba: NonNullable<RenderOut>; w: number; h: number; bboxLL: number[]; /** 見比べ＝同じ窓の 2 枚を縦に積んだ（h は 2 枚分） */ pair?: boolean }
 /** createCog に globe が注入する物（setCogTex＝cogTex スロットへ（null＝外す）・fit＝範囲へ寄る・lowMem＝アトラスを半分に） */
-export interface CogDeps { setCogTex: (d: CogTex | null) => void; fit?: (bboxLL: number[]) => void; lowMem?: boolean; signal?: AbortSignal }
+export interface CogDeps { setCogTex: (d: CogTex | null) => void; setCogSplit?: (lon: number | null) => void; fit?: (bboxLL: number[]) => void; lowMem?: boolean; signal?: AbortSignal }
 
 // 生タイル（圧縮バイト）の共有メモリキャッシュ＝シーンを載せ替えても同じ Range を撃ち直さない（Tellus の ◀▶ 往復・偽色⇄グレー切替が無通信に）。
 // 鍵は core が cacheKey（呼び出し側が渡すシーン id）か ETag で刻む＝どちらも無い読み口は core 側で素通し（衝突しない）。
@@ -26,9 +28,15 @@ function rawCache(budget: number) {
 	};
 }
 
-export function createCog(map: GlobeMap, { setCogTex, fit, lowMem, signal }: CogDeps = {} as CogDeps): CogHandle {
+export function createCog(map: GlobeMap, { setCogTex, setCogSplit, fit, lowMem, signal }: CogDeps = {} as CogDeps): CogHandle {
 	const ATLAS_W = lowMem ? 1024 : 2048;
 	const cache = rawCache(lowMem ? 24 << 20 : 96 << 20);
+	let cog2: BrowserCog | null = null;   // 見比べの 2 枚目（境の東）
+	// 窓の外枠＝1 枚目の範囲（見比べ中は 2 枚の和）
+	const full = () => {
+		const a = cog!.bboxLL; if (!cog2) return a.slice();
+		const b = cog2.bboxLL; return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+	};
 	let cog: BrowserCog | null = null, timer: ReturnType<typeof setInterval> | null = null, busy = false, cur: number[] | null = null;   // cur＝現アトラスが覆う bbox
 	let last: string | null = null, still = 0, rc: AbortController | null = null;                    // rc＝進行中レンダの AbortController
 
@@ -41,7 +49,19 @@ export function createCog(map: GlobeMap, { setCogTex, fit, lowMem, signal }: Cog
 		try {
 			const [w, s, e, n] = bb;
 			const H = Math.max(64, Math.min(ATLAS_W, Math.round(ATLAS_W * (n - s) / Math.max(e - w, 1e-9))));
-			const rgba = await cog.renderTo({ bbox: bb as BrowserCog["bboxLL"], w: ATLAS_W, h: H }, { signal: rc.signal });
+			const grid = { bbox: bb as BrowserCog["bboxLL"], w: ATLAS_W, h: H };
+			if (cog2) {   // 見比べ＝2 枚を同じ窓で描いて縦に積む（片方が圏外なら透明＝下の地図が見える）
+				const [a, b] = await Promise.all([cog.renderTo(grid, { signal: rc.signal }), cog2.renderTo(grid, { signal: rc.signal })]);
+				if ((!a && !b) || !cog || !cog2 || rc.signal.aborted) return;
+				const n = ATLAS_W * H * 4, rgba = new Uint8ClampedArray(n * 2);
+				if (a) rgba.set(a as Uint8ClampedArray, 0);   // renderTo の既定＝raw（RGBA の配列）
+				if (b) rgba.set(b as Uint8ClampedArray, n);
+				cur = bb;
+				setCogTex({ rgba, w: ATLAS_W, h: H * 2, bboxLL: bb, pair: true });
+				map.requestDraw?.();
+				return;
+			}
+			const rgba = await cog.renderTo(grid, { signal: rc.signal });
 			if (!rgba || !cog) return;   // 圏外 or 途中で clear/中断
 			cur = bb;
 			setCogTex({ rgba, w: ATLAS_W, h: H, bboxLL: bb });
@@ -59,7 +79,7 @@ export function createCog(map: GlobeMap, { setCogTex, fit, lowMem, signal }: Cog
 		if (!cog) return null;
 		const el = map.mapEl, W = el.clientWidth, H = el.clientHeight;
 		const pts = [[W / 2, H / 2], [0, 0], [W, 0], [0, H], [W, H]].map(p => map.unprojectXY(p[0], p[1]));
-		if (pts.some(p => !p)) return cog.bboxLL.slice();
+		if (pts.some(p => !p)) return full();
 		const c = pts[0]!;
 		const capW = 360 * W / (256 * Math.pow(2, map.getZoom())) * 0.9;   // 中心±＝計1.8画面ぶん（精細化は少し広めに持つ）
 		const capH = capW * H / W;
@@ -68,7 +88,7 @@ export function createCog(map: GlobeMap, { setCogTex, fit, lowMem, signal }: Cog
 		const mx = (e - w) * 0.2, my = (n - s) * 0.2;
 		w = Math.max(w - mx, c[0] - capW); e = Math.min(e + mx, c[0] + capW);
 		s = Math.max(s - my, c[1] - capH); n = Math.min(n + my, c[1] + capH);
-		const [cw, cs, ce, cn] = cog.bboxLL;
+		const [cw, cs, ce, cn] = full();
 		const bb = [Math.max(w, cw), Math.max(s, cs), Math.min(e, ce), Math.min(n, cn)];
 		return (bb[2] > bb[0] && bb[3] > bb[1]) ? bb : null;
 	};
@@ -78,10 +98,10 @@ export function createCog(map: GlobeMap, { setCogTex, fit, lowMem, signal }: Cog
 		const bb = viewWindow();
 		if (!bb) return null;
 		const curSpan = cur ? cur[2] - cur[0] : 1e9, newSpan = bb[2] - bb[0];
-		const full = cog!.bboxLL;
+		const all = full();
 		if (newSpan < curSpan * 0.6) return bb;                // 寄った＝窓を絞って精細化
 		if (cur && (newSpan > curSpan * 2.5 || bb[0] < cur[0] || bb[1] < cur[1] || bb[2] > cur[2] || bb[3] > cur[3]))
-			return newSpan > (full[2] - full[0]) * 0.7 ? full.slice() : bb;   // 出た/引いた＝広い窓 or 全域へ
+			return newSpan > (all[2] - all[0]) * 0.7 ? all : bb;   // 出た/引いた＝広い窓 or 全域へ
 		return null;
 	};
 
@@ -118,12 +138,23 @@ export function createCog(map: GlobeMap, { setCogTex, fit, lowMem, signal }: Cog
 			console.info("[cog] loaded", cog.width + "x" + cog.height, "EPSG:" + cog.epsg, cog.metrics());
 			return cog;
 		},
+		// 見比べ＝2 枚目を開いて同じ窓で描く（src＝null で外す＝1 枚に戻る）。opts は load と同じ（fetch・cacheKey・見せ方）
+		async compare(src, { fetch: f = null, ...cogOpts }: CogOptions = {}) {
+			if (!cog) throw new Error("cog.compare: load() first");
+			const prev = cog2; cog2 = null; prev?.close();
+			if (src) cog2 = await openCog(src, { signal, cache, ...cogOpts as BrowserCogOptions, ...(f ? { fetch: f } : {}) });
+			rc?.abort(); cur = null;            // 今の窓を描き直す（描いている途中なら次の静定で tick が拾う）
+			await renderWindow(viewWindow() || full());
+			return cog2;
+		},
+		// 見比べの境（経度・null＝境なし＝1 枚目だけ）。毎フレームでも軽い（renderer の uniform 1 つ）
+		split(lon) { setCogSplit?.(lon == null || !Number.isFinite(lon) ? null : lon); map.requestDraw?.(); },
 		clear() {
 			if (timer) { clearInterval(timer); timer = null; }
-			cog?.close(); cog = null; cur = null; last = null; still = 0;
-			setCogTex(null); map.requestDraw?.();
+			cog?.close(); cog = null; cog2?.close(); cog2 = null; cur = null; last = null; still = 0;
+			setCogSplit?.(null); setCogTex(null); map.requestDraw?.();
 		},
-		metrics: () => cog ? { ...cog.metrics(), rawCacheBytes: cache.bytes } : null,
+		metrics: () => cog ? { ...cog.metrics(), rawCacheBytes: cache.bytes } : null,   // 1 枚目の読み（生タイルのキャッシュは 2 枚で共有）
 		// 読めた COG の全解像度の寸法（px）＝ドロップのトースト「W×Hpx」が読む。読む前・clear の後は null
 		get width() { return cog ? cog.width : null; },
 		get height() { return cog ? cog.height : null; },

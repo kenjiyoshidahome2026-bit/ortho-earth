@@ -470,13 +470,18 @@ void main() {
 // ユーザ COG（geopbf/cog が等経緯度整列 RGBA へ warp 済み）。uv は呼び出し側が「原点相対の小値 × f64 前計算係数」で
 // VS にて組む（u_cogOffInv/u_cogMesh）＝絶対経緯度を f32 で引かない（サブメートル COG の位置ジッタ根治＝
 // meshBbox の off+rel×inv 方式と同族）。アトラスは行0=北＝v 反転。α合成＝下色の上に被せる（nodata/圏外は素通し）。
+// 見比べ（2 枚組・2026-10-27）＝同じ窓の 2 枚を縦に積んだアトラス（上半分＝A・下半分＝B）。u_cogPair＝(組か, 境の u, 半テクセル, 0)：
+// u＜境＝A・u≥境＝B（境＝経度の線＝地面に引く縦の境）。半分の端は半テクセル内へ寄せる＝線形補間が隣の絵を混ぜない。
 const COG = /* glsl */`
 uniform sampler2D u_cogTex;
 uniform float u_hasCog;
+uniform vec4 u_cogPair;
 vec3 cogTexMix(vec3 col, vec2 uv) {
 	if (u_hasCog < 0.5) return col;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return col;
-	vec4 c = texture(u_cogTex, vec2(uv.x, 1.0 - uv.y));
+	float v = 1.0 - uv.y;
+	if (u_cogPair.x > 0.5) v = clamp(v * 0.5, u_cogPair.z, 0.5 - u_cogPair.z) + (uv.x >= u_cogPair.y ? 0.5 : 0.0);
+	vec4 c = texture(u_cogTex, vec2(uv.x, v));
 	return mix(col, c.rgb, c.a);
 }`;
 
