@@ -1,6 +1,7 @@
 // LOD選択と可視タイル算出（透視カメラ）。画面をサンプリングし各点をカメラ光線でunproject→タイルへ。
 import { lonLatToTile, tileBoundsInto, tileId, type TileXYZ } from "./tile.ts";
-import { cameraState, unproject, projectInto, lonlatTo3D, type CameraPose, type CameraState } from "./camera.ts";
+import { cameraState, unproject, projectInto, lonlatTo3D, geodeticOf, type CameraPose, type CameraState } from "./camera.ts";
+import * as mat from "./mat.ts";
 
 // 節ごとの作業域（selectLOD は同期＝使い回し）：タイル境界 [w,s,e,n]・射影 [sx,sy,front]。旧＝節ごと・隅ごとに配列を作って GC が選抜の 2 割
 const B = new Float64Array(4), P = new Float64Array(3);
@@ -13,6 +14,8 @@ export interface SelectLODOptions {
 	floorZ?: number; floorRatio?: number;
 	/** 地形リフト球の半径（既定 1＝海面） */
 	groundR?: number;
+	/** 遠景のリフト球の半径（既定＝groundR）：遠景層の最大標高＝海面球の地平線の向こうに映る持ち上がった地面の分だけ標本と四隅の射影を伸ばす（手前の標本は groundR のまま＝近景が細かくならない） */
+	farR?: number;
 	/** (z, x, y) → そのタイルで望む z（mlcover.mlTileZoomOf） */
 	zOf?: ((z: number, x: number, y: number) => number) | null;
 }
@@ -34,7 +37,7 @@ interface LODNode extends TileXYZ { s?: number[] | null }
 // 被覆は海面球との**和集合**で取る（サンプル・可視判定とも両球）＝リフト球は「手前の映り込み」を足すだけで、
 // 遠景は海面基準のまま守られる。中心標高が遠景より高い時（山上→谷）でも旧選抜の上位集合＝欠けの退行がない。
 // zOf＝(z, x, y) → そのタイルで望む z（MapLibre の選び方＝mlcover.mlTileZoomOf）。渡すと画面の大きさの閾（tilePx・sticky・floorZ）は使わず「z が望む z に届くまで割る」＝MapLibre の coveringTiles と同じ規則。可視判定はこのまま
-export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, zOf = null }: SelectLODOptions = {}): TileXYZ[] {
+export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, farR = groundR, zOf = null }: SelectLODOptions = {}): TileXYZ[] {
 	const st = cameraState(cam, W, H);
 	const samples: [number, number][] = [];
 	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
@@ -51,6 +54,17 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 			}
 		}
 	}
+	// 地平線ぎわの標本（2026-10-27・Cesium 例の門＝地平線の手前に下地色の帯）：格子（H/grid 刻み）は地平線の下の 1 行分（数 km〜地平線＝遠景の大半）に
+	// 標本を持たず、地平線を跨ぐ粗いタイルは四隅の射影（向こう側の隅は捨てる）でも拾えない＝遠景のタイルが選抜から落ちていた。
+	// 各列で最初に海面に当たる行を二分探索し、そこから 0,1,2,4,…行下の点を足す（距離は地平線ぎわで急に変わる＝等比の行が距離の等比に近い）。
+	// リフト球（groundR＞1＝持ち上がった遠景）はその上の行にも映る＝視線がリフト球を通る区間の点を足す（目が球の内側でも可＝liftSamples）
+	for (let ix = 0; ix <= grid; ix++) {
+		const sx = ix / grid * W;
+		let hi = H;   // 最初に海面に当たる行（無ければ H）
+		if (unproject(st, sx, 0)) hi = 0; else if (unproject(st, sx, H)) { let lo = 0; hi = H; while (hi - lo > 1) { const mid = (lo + hi) / 2; if (unproject(st, sx, mid)) hi = mid; else lo = mid; } }
+		for (let d = 0; hi + d <= H; d = d ? d * 2 : 1) { const y = hi + d, ll = unproject(st, sx, y); if (ll) samples.push(ll); if (farR > 1) liftSamples(st, sx, y, farR, samples); }
+		if (farR > 1) for (let d = 1; hi - d >= 0; d *= 2) { if (!liftSamples(st, sx, hi - d, farR, samples)) break; }
+	}
 	if (!samples.length) return [];
 	// サンプルの包含判定は「親に入っていたサンプル」だけを子で見直す（子⊂親＝境界の式も親と同値）＝旧＝全サンプル（チルトで ~900 点）を
 	// 見えない候補タイルごとに総なめ（選抜の 5 割）。sIn＝そのノードに入るサンプルの添字（根＝null＝全部）
@@ -65,7 +79,7 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 	while (stack.length && guard++ < 30000) {
 		const t = stack.pop()!;
 		const b = tileBoundsInto(t.x, t.y, t.z, B);
-		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, groundR);
+		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, Math.max(groundR, farR));
 		if (size < 0) continue;                     // 画面外＆中心外＆サンプル無し → cull
 		const th = t.z < floorZ ? tilePx * floorRatio
 			: sticky && sticky.has(tileId(t.z, t.x, t.y)) ? tilePx * stickyRatio : tilePx;
@@ -119,3 +133,25 @@ function samplesIn(b: Float64Array, sLo: Float64Array, sLa: Float64Array, sIn: n
 	return o;
 }
 
+
+// 画面 (sx,sy) の視線が半径 R の球（リフト球）を通る区間 [ta,tb]（目からの距離・目が球の内側なら ta=0・海面球に当たる視線はそこまで）の 4 点を足す。
+// 持ち上がった地面がこの視線に映りうる所＝海面球の地平線の向こうの遠景（低い目で高い山を見る時は目がリフト球の内側＝unproject は交点を返せない）。戻り＝足したか
+function liftSamples(st: CameraState, sx: number, sy: number, R: number, out: [number, number][]): boolean {
+	const ndcx = sx / st.W * 2 - 1, ndcy = (1 - sy / st.H) * 2 - 1;
+	const n = mat.transform(st.invMvp!, [ndcx, ndcy, -1, 1]), f = mat.transform(st.invMvp!, [ndcx, ndcy, 1, 1]);
+	const d = [f[0] / f[3] - n[0] / n[3], f[1] / f[3] - n[1] / n[3], f[2] / f[3] - n[2] / n[3]], dl = Math.hypot(d[0], d[1], d[2]);
+	if (!(dl > 0)) return false;
+	d[0] /= dl; d[1] /= dl; d[2] /= dl;
+	const E = st.eye, b = mat.dot(E, d), ee = mat.dot(E, E), disc = b * b - (ee - R * R);
+	if (disc <= 0) return false;
+	const sq = Math.sqrt(disc);
+	let ta = Math.max(-b - sq, 0), tb = -b + sq;
+	const d1 = b * b - (ee - 1);
+	if (d1 > 0 && -b - Math.sqrt(d1) > 0) tb = Math.min(tb, -b - Math.sqrt(d1));   // 海面に当たる＝その先は隠れる
+	if (!(tb > ta)) return false;
+	for (let k = 1; k <= 4; k++) {
+		const t = ta + (tb - ta) * k / 4, x = E[0] + d[0] * t, y = E[1] + d[1] * t, z = E[2] + d[2] * t, r = Math.hypot(x, y, z);
+		out.push([Math.atan2(z, x) * 180 / Math.PI, geodeticOf(Math.asin(Math.max(-1, Math.min(1, y / r))) * 180 / Math.PI)]);
+	}
+	return true;
+}

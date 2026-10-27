@@ -256,7 +256,7 @@ export function projectInto<T extends { [i: number]: number }>(state: CameraStat
 	}
 	const m = state.mvp, E = state.eye;
 	const c3 = m[3] * w0 + m[7] * w1 + m[11] * w2 + m[15] * 1;
-	const frontHemi = u0 * E[0] + u1 * E[1] + u2 * E[2] - 1;          // >0 手前半球（基準球方向で判定）
+	const frontHemi = u0 * E[0] + u1 * E[1] + u2 * E[2] - radius;     // >0 手前半球（半径 radius の球の上の点＝持ち上がった地面は海面の地平線の向こうでも映る・旧＝海面球固定＝リフト隅が地平線で捨てられタイル選抜が遠景で止まった 2026-10-27）
 	if (c3 <= 1e-6 || frontHemi < 0) {
 		const r = projectClamped(state, lon, lat, radius); out[0] = r[0]; out[1] = r[1]; out[2] = r[2];
 		if (Array.isArray(out)) { if (r.length > 3) { out[3] = r[3]; out[4] = r[4]; out[5] = r[5]; } else out.length = 3; }   // 写らない点の同次座標（project の新しい配列だけが運ぶ＝作業域の型付き配列は 3 要素のまま）
