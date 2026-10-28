@@ -110,7 +110,7 @@ const FS_MARK = `#version 300 es
 precision highp float;
 in vec2 v_l; in vec2 v_uv; flat in vec4 v_fill; flat in vec4 v_line; flat in vec4 v_p; uniform sampler2D u_atlas; out vec4 o;
 void main() {
-	if (v_p.z > 0.5) { o = texture(u_atlas, v_uv); return; }
+	if (v_p.z > 0.5) { o = texture(u_atlas, v_uv) * (1.0 - v_p.w); return; }   // 絵の w＝薄める量（translucencyByDistance）
 	float d = length(v_l), r = v_p.x, lw = v_p.y;
 	vec4 c = v_fill * clamp(r - d + 0.5, 0.0, 1.0);
 	if (lw > 0.0) { float s = clamp(lw * 0.5 - abs(d - r) + 0.5, 0.0, 1.0); c = v_line * s + c * (1.0 - v_line.a * s); }   // 縁は塗りの上（arc の fill→stroke と同じ）
@@ -277,7 +277,7 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 			}
 		}
 	};
-	const marks: Array<[[number, number], Partial<CzmlStyle>, DrawTrack]> = [];
+	const marks: Array<[[number, number], Partial<CzmlStyle>, DrawTrack, ArrayLike<number>]> = [];
 	// 高さのある線（CZML の polyline・P0 #5）＝尾と同じ描き方（隠れた所・切られた所で途切れる）
 	for (const L of lines) {
 		if ((L.avail && !L.avail.some(([a, b]) => ms >= a && ms <= b)) || !boolAt(L.show, ms, true)) continue;
@@ -308,18 +308,28 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 			stroke(out, rgbaOf(ph.color), lw);
 		}
 		const q = positionAt(tr, ms), P = q && toScreen(q);
-		if (P) marks.push([P, st, tr]);
+		if (P) marks.push([P, st, tr, q!]);
 	}
 	// 点・画像・札は尾の上に（印の順＝軌跡の順・印ごとに 点か画像 → 札）
 	const mk: number[] = [];
 	const push = (cx: number, cy: number, hx: number, hy: number, fill: number[], line: number[], p: number[], uv: number[]) => mk.push(cx, cy, hx, hy, ...fill, ...line, ...p, ...uv);
 	const Z4 = [0, 0, 0, 0];
-	for (const [P, st, tr] of marks) {
+	// 目からの距離（m）＝scaleByDistance／translucencyByDistance の引数
+	const distM = (q: ArrayLike<number>) => {
+		let x: number, y: number, z: number;
+		if (ell) { x = q[0] / R; y = q[2] / (R * rAx); z = q[1] / R; }
+		else { const llh = ecefToLlh(q[0], q[1], q[2]), a = llh[0] * D2R, b = llh[1] * D2R, k = 1 + llh[2] / R, cb = Math.cos(b); x = cb * Math.cos(a) * k; y = Math.sin(b) * k; z = cb * Math.sin(a) * k; }
+		return Math.hypot(x - E[0], y - E[1], z - E[2]) * R;
+	};
+	for (const [P, st, tr, q] of marks) {
 		let hitR = 4 * dpr;   // 当たり半径＝描いた物の大きさ（画像＝短辺の半分・点＝半径・最低 4px）
-		const img = st.image && boolAt(st.image.show, ms, true) ? imageOf(st.image.src) : null, sl = img ? imageSlot(st.image!.src, img) : null;
+		const dM = st.image?.sbd || st.image?.tbd || st.label?.sbd || st.label?.tbd ? distM(q) : 0;
+		const ia = st.image?.tbd ? nearFar(st.image.tbd, dM) : 1;
+		const img = st.image && ia > 0 && boolAt(st.image.show, ms, true) ? imageOf(st.image.src) : null, sl = img ? imageSlot(st.image!.src, img) : null;
 		if (img && sl) {
-			const sw = img.width * st.image!.scale * dpr, sh = img.height * st.image!.scale * dpr;
-			push(P[0] + st.image!.offset[0] * dpr, P[1] + st.image!.offset[1] * dpr, sw / 2, sh / 2, Z4, Z4, [0, 0, 1, 0], [sl.u0, sl.v0, sl.u1, sl.v1]);
+			const k = st.image!.sbd ? nearFar(st.image!.sbd, dM) : 1, ok = st.image!.offset;
+			const sw = img.width * st.image!.scale * k * dpr, sh = img.height * st.image!.scale * k * dpr;
+			push(P[0] + ok[0] * k * dpr, P[1] + ok[1] * k * dpr, sw / 2, sh / 2, Z4, Z4, [0, 0, 1, 1 - ia], [sl.u0, sl.v0, sl.u1, sl.v1]);
 			hitR = Math.max(hitR, Math.min(sw, sh) / 2);
 		} else if ((st.point && boolAt(st.point.show, ms, true)) || st.image) {   // 画像が取れない（取れる前も）＝点
 			const pt = st.point || { size: 8, color: "rgba(255,255,255,1)", outline: "rgba(0,0,0,0.8)", outlineWidth: 1 };
@@ -328,13 +338,14 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 			hitR = Math.max(hitR, r);
 		}
 		marks2.push({ x: P[0], y: P[1], r: hitR, tr });
-		const lb = st.label;
-		if (lb && boolAt(lb.show, ms, true) && lb.text) {
-			const L = labelSlot(lb.text, lb.px, lb.color, lb.outline || "rgba(0,0,0,0.85)", dpr);
+		const lb = st.label, la = lb?.tbd ? nearFar(lb.tbd, dM) : 1;
+		if (lb && la > 0 && boolAt(lb.show, ms, true) && lb.text) {
+			const k = lb.sbd ? nearFar(lb.sbd, dM) : 1;
+			const L = labelSlot(lb.text, lb.px * k, lb.color, lb.outline || "rgba(0,0,0,0.85)", dpr);
 			if (L) {
-				const x = P[0] + lb.offset[0] * dpr, y = P[1] + lb.offset[1] * dpr, ink = L.w - LABEL_PAD * 2 - 3 * dpr;   // ink＝字の幅
+				const x = P[0] + lb.offset[0] * k * dpr, y = P[1] + lb.offset[1] * k * dpr, ink = L.w - LABEL_PAD * 2 - 3 * dpr;   // ink＝字の幅
 				const x0 = lb.align === "left" ? x - LABEL_PAD - 1.5 * dpr : lb.align === "right" ? x - ink - LABEL_PAD - 1.5 * dpr : x - L.w / 2;
-				push(Math.round(x0) + L.w / 2, Math.round(y - L.h / 2) + L.h / 2, L.w / 2, L.h / 2, Z4, Z4, [0, 0, 1, 0], [L.u0, L.v0, L.u1, L.v1]);
+				push(Math.round(x0) + L.w / 2, Math.round(y - L.h / 2) + L.h / 2, L.w / 2, L.h / 2, Z4, Z4, [0, 0, 1, 1 - la], [L.u0, L.v0, L.u1, L.v1]);
 			}
 		}
 	}
@@ -346,6 +357,12 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 	}
 	g.bindVertexArray(null); g.disable(g.BLEND);
 	return api.clock?.rate !== 0;   // 時計が動いている（null＝実時間も）間は描き続ける
+}
+// Cesium の NearFarScalar（BillboardCollectionVS の getNearFarScalar と同じ：距離の 2 乗で割合をとり 0.2 乗して補間）＝純関数
+export function nearFar(nf: ArrayLike<number>, d: number): number {
+	const n2 = nf[0] * nf[0], f2 = nf[2] * nf[2];
+	const t = Math.pow(Math.min(1, Math.max(0, (d * d - n2) / (f2 - n2 || 1))), 0.2);
+	return nf[1] + (nf[3] - nf[1]) * t;
 }
 // 破線＝画面の長さで模様を刻む（Cesium の PolylineDash と同じ：1 巡 len px を 16 等分・ビットが立つ所が線）。線分の列 [x0,y0,x1,y1,幅,継ぎ前,継ぎ後] を out へ
 export function dashRun(run: Array<[number, number]>, lw: number, len: number, pattern: number, out: number[]) {
