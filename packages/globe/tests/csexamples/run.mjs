@@ -2,7 +2,9 @@
 // The Cesium examples gate (stage 0): run each example on real CesiumJS (ref) and on the facade (ortho), record what each side did, grade (grade.mjs).
 // Needs the example server: (packages/globe) npx vite --config tests/csexamples/vite.config.mjs --port 5460 --strictPort
 // CHROME=<path> picks the browser binary (the cloud sandbox: /opt/pw-browsers/chromium).
-// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade] [--no-warm] [--time-from <run dir>]
+// --gpu: the real GPU (Metal WebGPU + ANGLE Metal on a Mac). Without it Chrome is forced onto SwiftShader (no WebGPU → ortho falls back to GL2),
+//   which is what every Mac run before 2026-10-28 silently did; the refs and ortho shots of one run must share the flag.
+// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade] [--no-warm] [--time-from <run dir>] [--gpu]
 //   records: <out>/<side>/<name>.json and .png (default out: <repo>/.cache/csexamples/runs/latest) · summary: <out>/summary.json and summary.md
 import fs from "node:fs";
 import path from "node:path";
@@ -152,7 +154,7 @@ if (!flag("regrade")) {
 		let browser = null, uses = 0;
 		while (next < tasks.length) {
 			const t = tasks[next++];
-			if (!browser || uses++ >= 20) { await browser?.close().catch(() => {}); browser = await chromium.launch({ ...(process.env.CHROME && { executablePath: process.env.CHROME }), args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-dev-shm-usage"] }); uses = 1; if (!flag("no-warm")) await warm(browser); }
+			if (!browser || uses++ >= 20) { await browser?.close().catch(() => {}); browser = await chromium.launch({ ...(process.env.CHROME && { executablePath: process.env.CHROME }), args: ["--no-sandbox", "--disable-dev-shm-usage", ...(flag("gpu") ? ["--ignore-gpu-blocklist"] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])] }); uses = 1; if (!flag("no-warm")) await warm(browser); }
 			const r = await runOne(browser, t.side, t.ex);
 			done++;
 			console.log(`[${done}/${tasks.length}] ${t.side} ${t.ex.name} ${r.harnessError ? "HARNESS " + r.harnessError : r.exceptions.length ? "EXC " + r.exceptions[0].slice(0, 100) : r.ran ? "ok" : "not ran"} (${Math.round(r.ms / 1000)} s)`);

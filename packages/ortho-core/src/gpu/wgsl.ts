@@ -1385,6 +1385,13 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let cc = h.cc;
 	let aDotd = bb * 0.5; let tstar = -aDotd / aa;
 	let t = h.t;
+	// 地面の材質の等高線用 fwidth(標高)＝ここ（空の return より前＝一様な制御の流れ）で。WGSL の掟：微分は画素ごとの分岐の後では呼べず、
+	// Tint が 'fwidth' must only be called from uniform control flow でパイプラインごと落とす（Metal の実 WebGPU で地球が真っ黒）。naga は見逃す
+	var gmDe = 0.0;
+	if (G.gm.x > 0.5 && G.whP.y > 0.5) {
+		let dllS = deltaLL(G.eyeO.xyz + max(t, 0.0) * d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);
+		gmDe = fwidth(gElevAt(G.anc2.xy + dllS));
+	}
 	if (t < 0.0) {                             // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続減衰
 		if (G.misc.z > 0.5) {   // Cesium の空の大気（gl と同じ）
 			if (G.misc.w < 0.5) { discard; }
@@ -1463,7 +1470,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 			e = gElevAt(ll); let dstep = G.elevBounds.w / vec2f(textureDimensions(gElevTex, 0)).y;
 			gEN = vec2f((gElevAt(ll + vec2f(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (gElevAt(ll + vec2f(0.0, dstep)) - e) / (dstep * 111320.0));
 		}
-		let m = gGmColor(e, gEN, fwidth(e), G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);
+		let m = gGmColor(e, gEN, gmDe, G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);   // 標高の画素差は冒頭で（一様な制御の流れ）
 	}
 	if (G.cg.w > 0.5) { base *= G.cgC.rgb * cgLambert(ll, vec2f(0.0), vec4f(G.cg.xyz, 2.0), G.cgP); }   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
