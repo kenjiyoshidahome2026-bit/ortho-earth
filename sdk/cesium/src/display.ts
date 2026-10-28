@@ -9,7 +9,7 @@
 // and picking (what is under a screen point).
 import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, CorridorOutlineGeometry, Ellipsoid, FixedFrameTransforms, JulianDate, Math as CMath, PolygonHierarchy, PolylinePipeline, Quaternion, Matrix3, Matrix4, ArcType, ReferenceFrame, TimeInterval } from "@cesium/core";
 import * as engine from "@cesium/engine";
-import { CustomDataSource, HorizontalOrigin, LabelStyle, SceneTransforms, VerticalOrigin, HeightReference, Transforms } from "@cesium/engine";
+import { CustomDataSource, HorizontalOrigin, LabelStyle, SceneTransforms, VerticalOrigin, HeightReference, Transforms, ClassificationType } from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { cesiumSphereOf } from "./spheres.ts";
 import { gltfSphere } from "./gltf.ts";
@@ -190,6 +190,9 @@ interface Desc {
 	/** shapes on the ground with a painted material (stripe, checkerboard, grid, image): an image layer over their box */
 	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number }>;
 	lines: Array<{ p: number[]; color: string; width: number; dash?: { len: number; pattern: number }; arrow?: boolean }>;
+	/** ground shapes and clamped polylines classifying the 3D Tiles and models (classificationType CESIUM_3D_TILE or BOTH): a classification volume in their colour
+	 *  (the terrain part stays a fill / line layer); a polyline's width is its pixel width at the entity's distance, in metres */
+	classify: Array<{ geom: Any; color: string; opacity: number; width?: number }>;
 	model: { uri: string; scale: number; at: [number, number]; altitude: number; lift: boolean; heading: number; anim: boolean; minPx?: number; maxScale?: number | null; c?: number[] } | null;
 	sphere: { c: number[]; r: number } | null;
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
@@ -205,6 +208,7 @@ export class EntityDisplay {
 	#recs = new Map<Any, Rec>();
 	#ov: Any = null; #layers = new Set<string>(); #models = new Map<Any, { h: Any; loading: boolean; uri: string; scale: number; dead?: boolean }>();
 	#lastTracks = ""; #lastLines = ""; #lastShapes = ""; #pats = new Map<string, { n: number; z: number; ready: boolean }>(); #patGen = 0;
+	#cls = new Map<string, Any>();   // classification volumes on the map (key = outline + colour → handle)
 	#gsph = new Map<string, { center: number[]; radius: number } | null | "pending">();
 	#needRedraw = false; #destroyed = false;
 	#marks: Array<{ e: Any; x: number; y: number; r: number }> = [];
@@ -228,7 +232,7 @@ export class EntityDisplay {
 		for (const e of [...this.#tilesets.keys()]) this.#dropTileset(e);
 		this.#ov?.remove?.(); this.#ov = null;
 		const map = this.host.map;
-		if (map) { for (const id of this.#layers) if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(SRC)) map.removeSource(SRC); this.#setPatterns(map, []); }
+		if (map) { for (const id of this.#layers) if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(SRC)) map.removeSource(SRC); this.#setPatterns(map, []); this.#setClassify(map, []); }
 		return undefined;
 	}
 
@@ -284,7 +288,7 @@ export class EntityDisplay {
 		const ents = this.#entities(), live = new Set(ents);
 		for (const [e, r] of this.#recs) if (!live.has(e)) { r.off(); this.#recs.delete(e); }
 		for (const e of [...this.#tilesets.keys()]) if (!live.has(e)) this.#dropTileset(e);
-		const tracks: Any[] = [], lines: Any[] = [], shapes: Any[] = [], patterns: Desc["patterns"] = [], models = new Map<Any, NonNullable<Desc["model"]>>(), solids = new Map<Any, NonNullable<Desc["solids"]>>();
+		const tracks: Any[] = [], lines: Any[] = [], shapes: Any[] = [], patterns: Desc["patterns"] = [], classes: Desc["classify"] = [], models = new Map<Any, NonNullable<Desc["model"]>>(), solids = new Map<Any, NonNullable<Desc["solids"]>>();
 		for (const e of ents) {
 			const r = this.#rec(e);
 			if (r.dirty || r.dynamic || !r.desc) {
@@ -301,6 +305,7 @@ export class EntityDisplay {
 			for (const l of d.lines) lines.push(l);
 			for (const s of d.shapes) shapes.push(s);
 			for (const q of d.patterns) patterns.push(q);
+			for (const q of d.classify) classes.push(q);
 			if (d.model) models.set(e, d.model);
 			if (d.solids) solids.set(e, d.solids);
 		}
@@ -328,6 +333,7 @@ export class EntityDisplay {
 		const sk = JSON.stringify(shapes);
 		if (sk !== this.#lastShapes) { this.#lastShapes = sk; this.#setShapes(map, shapes); }
 		this.#setPatterns(map, patterns);
+		this.#setClassify(map, classes);
 		this.#placeModels(map, models);
 		// the globe's clock shows the Cesium clock's time (the overlay plays the tracks on it)
 		const ms = JulianDate.toDate(time).getTime();
@@ -379,7 +385,7 @@ export class EntityDisplay {
 	}
 
 	#describe(e: Any, t: JulianDate, r: Rec): Desc {
-		const d: Desc = { track: null, shapes: [], patterns: [], lines: [], model: null, sphere: null, solids: null };
+		const d: Desc = { track: null, shapes: [], patterns: [], lines: [], classify: [], model: null, sphere: null, solids: null };
 		let dynamic = false;
 		const dyn = (...ps: Any[]) => { for (const p of ps) if (!isConst(p)) dynamic = true; };
 		const pos: Cartesian3 | undefined = e.position ? val(e.position, t) : undefined;
@@ -461,13 +467,18 @@ export class EntityDisplay {
 		}
 		// ── shapes ──
 		const id = String(e.id);
-		const addShape = (rings: number[][][] | number[][][][], o: { fill: boolean; color: Color; mat?: MatDesc | null; z?: number; outline: boolean; outlineColor: Color; outlineWidth: number; base?: number; top?: number }, multi = false) => {
+		const addShape = (rings: number[][][] | number[][][][], o: { fill: boolean; color: Color; mat?: MatDesc | null; z?: number; outline: boolean; outlineColor: Color; outlineWidth: number; base?: number; top?: number; cls?: number }, multi = false) => {
 			const geom = multi ? { type: "MultiPolygon", coordinates: rings } : { type: "Polygon", coordinates: rings };
 			const polys = (multi ? rings : [rings]) as number[][][][];
 			if (!polys.length || !polys[0]?.[0]?.length) return;
 			const ext = o.top != null;
-			if (o.fill && o.mat && !ext) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0 });
-			else if (o.fill) {
+			// classificationType set to CESIUM_3D_TILE or BOTH on a ground shape: it also paints the 3D Tiles and models inside its outline (Cesium's
+			// classification; the globe's fill only drapes the terrain). CESIUM_3D_TILE alone leaves the terrain unpainted. Unset (Cesium's default BOTH)
+			// stays a plain fill: every GeoJSON polygon would otherwise become a volume
+			const onTiles = o.fill && !ext && (o.cls === ClassificationType.CESIUM_3D_TILE || o.cls === ClassificationType.BOTH);
+			if (onTiles) { const [cc, co] = rgbAlpha(o.color); d.classify.push({ geom: { type: "MultiPolygon", coordinates: polys }, color: cc, opacity: co }); }
+			if (o.fill && o.mat && !ext) { if (o.cls !== ClassificationType.CESIUM_3D_TILE) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0 }); }
+			else if (o.fill && o.cls !== ClassificationType.CESIUM_3D_TILE) {
 				const [fc, fo] = rgbAlpha(o.color);
 				d.shapes.push({ type: "Feature", geometry: geom, properties: { _id: id, _k: ext ? "ext" : "fill", _fc: fc, _fo: fo, _b: o.base ?? 0, _h: o.top ?? 0, _z: o.z ?? 0 } });
 			}
@@ -485,8 +496,8 @@ export class EntityDisplay {
 			for (const p of polys) for (const ring of p) for (const [x, y] of ring) { sphPts.push(ecef(x, y, o.base ?? 0)); if (o.top) sphPts.push(ecef(x, y, o.top)); }
 		};
 		const common = (g: Any) => {
-			dyn(g.material, g.fill, g.outline, g.outlineColor, g.height, g.extrudedHeight, g.show);
-			return { fill: val(g.fill, t, true), color: materialColor(g.material, t), mat: matOfProperty(g.material, t), z: val(g.zIndex, t, 0), outline: val(g.outline, t, false), outlineColor: val(g.outlineColor, t, Color.BLACK), outlineWidth: val(g.outlineWidth, t, 1) };
+			dyn(g.material, g.fill, g.outline, g.outlineColor, g.height, g.extrudedHeight, g.show, g.classificationType);
+			return { fill: val(g.fill, t, true), color: materialColor(g.material, t), mat: matOfProperty(g.material, t), z: val(g.zIndex, t, 0), outline: val(g.outline, t, false), outlineColor: val(g.outlineColor, t, Color.BLACK), outlineWidth: val(g.outlineWidth, t, 1), cls: val(g.classificationType, t, undefined) as number | undefined };
 		};
 		const vertical = (h: number | undefined, x: number | undefined, perPos?: number) => {
 			const hh = perPos ?? h ?? 0;   // per-position heights: their mean (the globe's extrusions are flat-topped)
@@ -584,13 +595,16 @@ export class EntityDisplay {
 		// ── polyline ──
 		const pl = e.polyline;
 		if (pl && val(pl.show, t, true)) {
-			dyn(pl.positions, pl.width, pl.material, pl.clampToGround, pl.arcType);
+			dyn(pl.positions, pl.width, pl.material, pl.clampToGround, pl.arcType, pl.classificationType);
 			const ps: Cartesian3[] = (val(pl.positions, t) || []).filter(Boolean);
 			if (ps.length > 1) {
 				const col = materialColor(pl.material, t), width = val(pl.width, t, 1);
 				if (val(pl.clampToGround, t, false)) {
-					const [lc, lo] = rgbAlpha(col);
-					d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: ps.map(p => llOf(p)).filter(Boolean).map(q => [q![0], q![1]]) }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: width } });
+					const [lc, lo] = rgbAlpha(col), cls = val(pl.classificationType, t, undefined) as number | undefined;
+					const coords = ps.map(p => llOf(p)).filter(Boolean).map(q => [q![0], q![1]]);
+					// on the 3D Tiles too (classificationType CESIUM_3D_TILE / BOTH): a band of the line's pixel width at its distance (Cesium's ground polyline keeps its pixel width)
+					if (cls === ClassificationType.CESIUM_3D_TILE || cls === ClassificationType.BOTH) d.classify.push({ geom: { type: "LineString", coordinates: coords }, color: lc, opacity: lo, width: Math.max(0.5, width * this.#metresPerPixel(ps)) });
+					if (cls !== ClassificationType.CESIUM_3D_TILE) d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: width } });
 				} else {
 					const at = val(pl.arcType, t, ArcType.GEODESIC);
 					const pts = at === ArcType.NONE ? ps : at === ArcType.RHUMB ? PolylinePipeline.generateCartesianRhumbArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84) }) : PolylinePipeline.generateCartesianArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84) });   // the heights go along (Cesium's PolylineGeometry passes them so)
@@ -654,6 +668,27 @@ export class EntityDisplay {
 			else if (id === "__cs-line") map.addLayer({ id, type: "line", source: SRC, filter: ["==", ["get", "_k"], "line"], paint: { "line-color": ["get", "_lc"], "line-opacity": ["get", "_lo"], "line-width": ["get", "_lw"] } });
 			else { const o = +id.slice(9); map.addLayer({ id, type: "fill-extrusion", source: SRC, filter: ["all", ["==", ["get", "_k"], "ext"], [">=", ["get", "_fo"], o - 0.05], ["<", ["get", "_fo"], o + 0.05]], paint: { "fill-extrusion-color": ["get", "_fc"], "fill-extrusion-opacity": Math.max(0.05, o), "fill-extrusion-height": ["get", "_h"], "fill-extrusion-base": ["get", "_b"] } }); }
 			this.#layers.add(id);
+		}
+	}
+
+	/** metres per pixel at the points' distance (a ground polyline's pixel width as a band on the tiles); 1 without a camera, and quantised to ±25 % so a camera drift does not rebuild the volume */
+	#metresPerPixel(ps: Cartesian3[]): number {
+		const cam = this.scene.camera;
+		if (!cam?.getPixelSize) return 1;
+		const bs = BoundingSphere.fromPoints(ps), mpp = cam.getPixelSize(bs, this.scene.drawingBufferWidth, this.scene.drawingBufferHeight);
+		if (!(mpp > 0) || !Number.isFinite(mpp)) return 1;
+		return Math.pow(1.5, Math.round(Math.log(mpp) / Math.log(1.5)));
+	}
+	/** the ground shapes and lines that classify 3D Tiles and models: one classification volume each (type "tiles3d": the terrain part is the fill / line layer), kept while the geometry and colour stay */
+	#setClassify(map: Any, cls: Desc["classify"]) {
+		const want = new Map<string, Desc["classify"][number]>();
+		for (const q of cls) want.set(JSON.stringify(q.geom) + "|" + q.color + "|" + q.opacity + "|" + (q.width ?? ""), q);
+		for (const [k, h] of this.#cls) if (!want.has(k)) { try { h.remove(); } catch { /* gone with the map */ } this.#cls.delete(k); }
+		if (!map.addClassification) return;
+		for (const [k, q] of want) {
+			if (this.#cls.has(k)) continue;
+			try { this.#cls.set(k, map.addClassification(q.geom, { color: q.color, opacity: q.opacity, type: "tiles3d", ...(q.width != null ? { width: q.width } : {}) })); }
+			catch (err) { console.warn("[csshim] classification", err); }
 		}
 	}
 
