@@ -736,6 +736,8 @@ export class EntityDisplay {
 	}
 	#placeModels(map: Any, models: Map<Any, NonNullable<Desc["model"]>>) {
 		for (const [e, m] of this.#models) if (!models.has(e)) { m.dead = true; m.h?.clear?.(); this.#models.delete(e); }
+		// model animations follow the viewer's clock, as Cesium's do: they run while clock.shouldAnimate, at clock.multiplier, and freeze when the clock is paused
+		const ck = this.host.clock, playing = ck ? !!ck.shouldAnimate : true, speed = ck && Number.isFinite(ck.multiplier) ? ck.multiplier : 1;
 		for (const [e, d0] of models) {
 			const d = { ...d0, scale: this.#modelScale(d0) };
 			let m = this.#models.get(e);
@@ -744,11 +746,19 @@ export class EntityDisplay {
 				const mm = { h: null as Any, loading: true, uri: d.uri, scale: d.scale, dead: false };
 				this.#models.set(e, mm);
 				map.gadget.model(d.uri, { at: d.at, altitude: d.altitude, lift: d.lift, heading: d.heading, scale: d.scale, slot: `cesium:${e.id}`, name: String(e.name ?? e.id), fit: false, gizmo: false })
-					.then((h: Any) => { mm.loading = false; if (mm.dead) { h.clear(); return; } mm.h = h; if (d.anim && h.animations?.length) h.play(); }, (err: unknown) => { mm.loading = false; console.warn("[csshim] model", d.uri, err); });
+					.then((h: Any) => { mm.loading = false; if (mm.dead) { h.clear(); return; } mm.h = h; this.#syncAnim(h, d.anim); }, (err: unknown) => { mm.loading = false; console.warn("[csshim] model", d.uri, err); });
 				continue;
 			}
-			if (m.h) m.h.setTransform({ at: d.at, altitude: d.altitude, heading: d.heading, scale: d.scale });   // the model's scale (absolute: the globe keeps the scale it loaded with as the base)
+			if (m.h) { m.h.setTransform({ at: d.at, altitude: d.altitude, heading: d.heading, scale: d.scale }); this.#syncAnim(m.h, d.anim); }   // the model's scale (absolute: the globe keeps the scale it loaded with as the base)
 		}
+	}
+	/** a model's animation ⇄ the clock: play (keeping its time) while the clock animates and the entity runs animations, stop otherwise */
+	#syncAnim(h: Any, run: boolean) {
+		if (!h.animations?.length) return;
+		const ck = this.host.clock, playing = run && (ck ? !!ck.shouldAnimate : true), speed = ck && Number.isFinite(ck.multiplier) ? ck.multiplier : 1;
+		const cur = h.getAnimation?.();
+		if (!playing) { if (cur?.playing) h.stop(); return; }
+		if (!cur?.playing || cur.speed !== speed) h.play({ ...(cur || {}), speed });
 	}
 
 	/** the CesiumWidget asks for an entity's bounding sphere (zoomTo, flyTo, trackedEntity) */

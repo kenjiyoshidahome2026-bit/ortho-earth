@@ -2704,6 +2704,7 @@ const applyPostChain = (chain: unknown) => {
 	requestDraw(); return map;
 };
 map.setPostChain = chain => applyPostChain(chain);
+map.setRenderFx = fx => { wPost({ type: "set", cmd: "fx", data: fx && typeof fx === "object" ? { ...fx } : {} }); requestDraw(); return map; };   // 描画の質の旗の実行時切替（WebGPU の fx.ao など・GL2 は読まない）＝Cesium の ambientOcclusion（順 4・2026-10-28）
 map.getPostChain = () => postChain.map(x => ({ ...x }));
 map.setPostProcess = p => (Array.isArray(p) ? applyPostChain(p) : applyPostChain(p == null ? null : { bloom: p.bloom, vignette: p.vignette, fxaa: p.fxaa, tonemap: p.tonemap, lut: p.lut }));
 map.getPostProcess = () => postCur as ReturnType<GlobeMap["getPostProcess"]>;

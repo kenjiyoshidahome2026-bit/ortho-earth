@@ -10,6 +10,8 @@
 // 詰め方と行の向きは ../depthout.js（24bit・R が上位・下の行から）。
 // 後処理（bloom・vignette・PR-8・2026-10-12、fxaa・tonemap・lut＝第 3 波 W1）も同じ FBO に乗る＝setPost(p) があれば ②の写しが合成パスになる（深度の申し出が無くても renderworker が begin〜end を挟む）。
 import { loadLUT } from "../lut.ts";
+import { createPostStagesGL } from "./poststage.ts";
+import type { PostStagesGL, StageFrame } from "./poststage.ts";
 import type { PostProcessNormalized } from "../postfx.ts";
 
 /** 後処理の program と半解像度の的（ensureP が作る） */
@@ -174,6 +176,7 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 	const realBind = gl.bindFramebuffer;
 	let T: DepthTargets | null = null, active = false;   // T＝寸法ごとの資産一式
 	let post: PostProcessNormalized | null = null, P: PostRes | null = null;      // 後処理の設定（postfx.js normPost の形）と、その program・半解像度の的（頼まれた時だけ作る）
+	let S: PostStagesGL | null = null, frameNo = 0;   // 画面の段（Cesium の postProcessStages 相当・gl/poststage.js）＝段がある間だけ・frameNo＝段の czm_frameNumber
 	const u = (pr: WebGLProgram, n: string): WebGLUniformLocation | null => gl.getUniformLocation(pr, n);
 	function ensureP(W: number, H: number): void {
 		if (!P) {
@@ -194,8 +197,9 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 		P.w = hw; P.h = hh;
 	}
 	function freeP(): void { if (!P) return; for (const f of P.fb) gl.deleteFramebuffer(f); for (const t of P.tex) gl.deleteTexture(t); gl.deleteProgram(P.bright); gl.deleteProgram(P.blur); gl.deleteProgram(P.comp); P = null; }
+	function freeS(): void { if (!S) return; S.dispose(); S = null; }
 	// 後処理の設定（null＝素の写し）。資産は次の end で作る・外したら返す
-	function setPost(p: PostProcessNormalized | null | undefined): void { post = p || null; if (!post) freeP(); syncLut(); }
+	function setPost(p: PostProcessNormalized | null | undefined): void { post = p || null; if (!post) freeP(); if (!post?.stages?.length) freeS(); syncLut(); }
 	// 3D LUT（W1）：url が変わったら読み直す（worker 内の fetch・../lut.js）。着くまでは LUT 無しで描き、着いたら一枚要求する。外したら返す
 	let L: LutRes | null = null;   // { url, size, tex, n（板の一辺）, ready }
 	function freeLut(): void { if (!L) return; if (L.tex) gl.deleteTexture(L.tex); L = null; }
@@ -215,9 +219,12 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 		}).catch(e => { if (L === me) { me.ready = false; me.failed = true; } console.warn("[post] lut load failed:", e?.message || e); });
 	}
 	// FBO の色（T.colorTex）→ 画面。bloom が要れば半解像度の 3 パスを挟む。呼ぶ側が program・VAO・texture の束縛を控えて戻す
-	function runPost(W: number, H: number): void {
+	function runPost(W: number, H: number, f: StageFrame): void {
 		const b = post!.bloom, v = post!.vignette, t = post!.tonemap, lutOn = !!(post!.lut && L && L.ready && L.url === post!.lut.url);
 		ensureP(W, H);
+		const stages = post!.stages?.length ? post!.stages : null;   // 画面の段（Cesium の postProcessStages 相当）＝固定の鎖の出力を的に描き、段を順に掛けて最後の段が画面へ
+		if (stages) S ??= createPostStagesGL(gl, realBind, vao);
+		const stageIn = stages && S!.drawable(stages) ? S!.target(W, H) : null;
 		gl.activeTexture(gl.TEXTURE1); const prevTex1 = gl.getParameter(gl.TEXTURE_BINDING_2D);
 		gl.activeTexture(gl.TEXTURE2); const prevTex2 = gl.getParameter(gl.TEXTURE_BINDING_2D); gl.activeTexture(gl.TEXTURE0);
 		try {
@@ -229,7 +236,7 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 				realBind.call(gl, gl.FRAMEBUFFER, P!.fb[2]!); gl.uniform2f(P!.lDir, 0, b.radius); gl.bindTexture(gl.TEXTURE_2D, P!.tex[1]!); gl.drawArrays(gl.TRIANGLES, 0, 3);
 				gl.viewport(0, 0, W, H);
 			}
-			realBind.call(gl, gl.FRAMEBUFFER, null);
+			realBind.call(gl, gl.FRAMEBUFFER, stageIn ? stageIn.fb : null);
 			gl.useProgram(P!.comp);
 			gl.uniform1i(P!.cTex, 0); gl.uniform1i(P!.cBloom, 1); gl.uniform2f(P!.cSize, W, H);
 			gl.uniform1f(P!.cStr, b ? b.strength : 0);
@@ -240,6 +247,7 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 			gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, b ? P!.tex[2]! : T!.colorTex);
 			gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, lutOn ? L!.tex : T!.colorTex); gl.activeTexture(gl.TEXTURE0);
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
+			if (stageIn) S!.run(stages!, stageIn.tex, T!.depthTex, W, H, f);
 		} finally { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, prevTex1); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, prevTex2); gl.activeTexture(gl.TEXTURE0); }
 	}
 
@@ -302,14 +310,15 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 	}
 	// フレームの終わり（gint.draw の後）：解決→画面へ写す→深度を詰めて読む。戻り＝{ pixels, w, h }（下の行から）
 	// opts.depth＝false なら深度の詰めと読みは飛ばす（後処理だけの時＝pixels は null）
-	function end(opts?: { depth?: boolean } | null): DepthOutFrame | null {
+	// opts.logCoef／dpr／fovy＝画面の段（Cesium の尺の深度・czm_pixelRatio・目の座標）が使う（renderer が添える・無ければ素の値）
+	function end(opts?: { depth?: boolean; logCoef?: number; dpr?: number; fovy?: number } | null): DepthOutFrame | null {
 		if (!active) return null;
 		active = false;
 		delete (gl as { bindFramebuffer?: unknown }).bindFramebuffer;   // 自前のプロパティを外す＝プロトタイプの素の口へ戻る
-		try { return endBody(opts?.depth !== false); }
+		try { return endBody(opts?.depth !== false, { logCoef: opts?.logCoef || 1, dpr: opts?.dpr || 1, fovy: opts?.fovy || 50 * Math.PI / 180, frame: ++frameNo }); }
 		finally { realBind.call(gl, gl.FRAMEBUFFER, null); }   // 途中で投げても画面の束縛は素へ（状態の戻しは endBody の finally）
 	}
-	function endBody(wantDepth: boolean): DepthOutFrame {
+	function endBody(wantDepth: boolean, f: StageFrame): DepthOutFrame {
 		const { w: W, h: H } = T!;
 		// 触る状態を控えて戻す（次のフレームの renderer/gint は既定を前提にしない書き方だが、念のため全部戻す）
 		const en = [gl.BLEND, gl.DEPTH_TEST, gl.STENCIL_TEST, gl.SCISSOR_TEST, gl.CULL_FACE].map(c => [c, gl.isEnabled(c)] as const);
@@ -328,7 +337,7 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 		gl.viewport(0, 0, W, H);
 		gl.bindVertexArray(vao);
 		// ②色を画面へ（MSAA の既定フレームバッファへは blit できない＝全画面の三角形で写す）。後処理（PR-8）があればここで bloom・vignette を掛ける
-		if (post) runPost(W, H);
+		if (post) runPost(W, H, f);
 		else {
 			realBind.call(gl, gl.FRAMEBUFFER, null);
 			gl.useProgram(copyProg);
@@ -359,7 +368,7 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 	}
 	// 途中で例外が出たフレーム＝読み替えだけ外して画面を素に戻す（その 1 枚は捨てる）
 	function abort(): void { if (!active) return; active = false; delete (gl as { bindFramebuffer?: unknown }).bindFramebuffer; realBind.call(gl, gl.FRAMEBUFFER, null); }
-	function dispose(): void { abort(); freeT(); freeP(); freeLut(); gl.deleteProgram(copyProg); gl.deleteProgram(encProg); gl.deleteVertexArray(vao); }
-	const bytes = (): number => (T ? T.w * T.h * (4 + 4 + 4 + 4 + (samples > 0 ? samples * 8 : 0)) : 0) + (P ? P.w * P.h * 4 * 3 : 0) + (L?.ready ? L.n * L.n * L.n * 4 : 0);   // 色tex＋深度tex＋詰めRB＋CPU 画素＋MSAA（＋後処理の半解像度 3 面）
+	function dispose(): void { abort(); freeT(); freeP(); freeS(); freeLut(); gl.deleteProgram(copyProg); gl.deleteProgram(encProg); gl.deleteVertexArray(vao); }
+	const bytes = (): number => (T ? T.w * T.h * (4 + 4 + 4 + 4 + (samples > 0 ? samples * 8 : 0)) : 0) + (P ? P.w * P.h * 4 * 3 : 0) + (S ? S.bytes() : 0) + (L?.ready ? L.n * L.n * L.n * 4 : 0);   // 色tex＋深度tex＋詰めRB＋CPU 画素＋MSAA（＋後処理の半解像度 3 面）
 	return { begin, end, abort, dispose, bytes, samples, setPost };
 }
