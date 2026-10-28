@@ -10,7 +10,7 @@ import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
+import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, betaRadiusOf, betaToLonLat } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
 import { downsampleFlipped, cropResample } from "../elevation.ts";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
@@ -1607,22 +1607,6 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		if (on) meshHidden.delete(ward); else meshHidden.add(ward);
 	}
 
-	// バッチ bbox（経緯度deg）の可視判定：4隅+中心を投影し、拡張スクリーン矩形と交差するか。
-	// pad は高層ビルの頭が地表bbox角の投影から食み出す分の余白（半画面）。カメラがbbox内に居れば無条件で可視。
-	function meshBboxVisible(st: GLCamState, bbox: number[], center: ArrayLike<number>, pad: number): boolean {
-		if (center[0] >= bbox[0] && center[0] <= bbox[2] && center[1] >= bbox[1] && center[1] <= bbox[3]) return true;
-		const pts = [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[0], bbox[3]], [bbox[2], bbox[3]], [(bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5]];
-		let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, nf = 0;
-		for (const q of pts) {
-			const [sx, sy, f] = project(st, q[0], q[1]);
-			if (f < 0) continue;
-			nf++;
-			if (sx < minx) minx = sx; if (sx > maxx) maxx = sx;
-			if (sy < miny) miny = sy; if (sy > maxy) maxy = sy;
-		}
-		if (!nf) return false;   // 全点が裏半球/カメラ背後
-		return !(maxx < -pad || minx > st.W + pad || maxy < -pad || miny > st.H + pad);
-	}
 
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
 	let overlay: OverlaySlot | null = null, overlayHi: OverlaySlot | null = null, overlayHover: OverlaySlot | null = null, rail: (OverlaySlot | null)[] = [];   // overlayHover＝ホバー境界の太線（選択マスク overlayHi と別スロット）。rail＝交通の常駐オーバーレイ群（地域が申告する路線）
@@ -2428,7 +2412,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			gl.useProgram(meshProg);
 			let curProg = meshProg;
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
-			const pad = 0.5 * Math.max(st.W, st.H);          // 高層ビルの頭のはみ出し余白（半画面）
+			const pad = 0.5 * Math.max(st.W, st.H), foot = betaToLonLat(st.eye);          // 高層ビルの頭のはみ出し余白（半画面）・foot＝目の足元
 			// LOD打ち切りの物差し＝画面1pxが何mか（app.js approxViewBbox と同式。ortho-z は緯度非依存）。
 			// 「画面上~1px未満の建物は描かない」＝見た目は変えずに頂点処理を捨てる。遠方バッチは距離で緩やかに閾値を上げる
 			// （チルト時の遠景は透視で1pxがもっと大きい＝控えめ側の近似）。
@@ -2438,7 +2422,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			for (const p of meshes.values()) {
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
-				if (!meshBboxVisible(st, p.bbox, cam.center, pad)) continue;
+				if (!bboxVisible(st, p.bbox, cam.center, foot, pad, betaRadiusOf(p.origin))) continue;   // 重心の高さで射影（camera.ts bboxVisible）
 				let count = p.count;
 				// LOD打ち切りは建物のみ。橋梁（two＝両面）は「高さ3〜5m×長さ数百m」＝高さ基準だと小物と誤判定され
 				// 桁が距離で歯抜けになる（横浜ベイブリッジで実測）ため適用しない。橋梁データは軽い＝全描画で問題ない。
