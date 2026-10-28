@@ -22,6 +22,7 @@ import { syncLighting } from "./lighting.ts";
 import { PrimitiveDrawer, isGeometryPrimitive } from "./primitives.ts";
 import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
 import { ParticleDrawer, isParticleSystem } from "./particles.ts";
+import { CloudDrawer, isCloudCollection } from "./clouds.ts";
 import { CollectionDrawer, isCollection } from "./collections.ts";
 import { unsupported } from "./report.ts";
 
@@ -139,7 +140,9 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	display.extra.pickers.push((x, y) => prims.pick(x, y));
 	const particles = new ParticleDrawer(host);
 	this._orthoParticles = particles;
-	scene.preRender.addEventListener((_s: Any, time: Any) => { prims.update(); colls.update(); voxels.update(); particles.update(time ?? this._clock.currentTime); });
+	const cloudsDr = new CloudDrawer(host);
+	this._orthoClouds = cloudsDr;
+	scene.preRender.addEventListener((_s: Any, time: Any) => { prims.update(); colls.update(); voxels.update(); particles.update(time ?? this._clock.currentTime); cloudsDr.update(); });
 	(scene as Any).__tilesets = tilesets;
 	const onAdd = (p: Any) => {
 		if (p instanceof Cesium3DTileset) { tilesets.push(p); p.__attach(host); }
@@ -148,10 +151,11 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		else if (isCollection(p)) colls.add(p);
 		else if (isVoxelPrimitive(p)) voxels.add(p);
 		else if (isParticleSystem(p)) particles.add(p);   // ParticleSystem (particles.ts): Cesium steps it, the globe's sprites overlay draws it
+		else if (isCloudCollection(p)) cloudsDr.add(p);   // CloudCollection (clouds.ts): Cesium's cloud shader in the sprites overlay
 		else if (p && typeof p.add === "function" && typeof p.get === "function" && p.primitiveAdded) { for (let i = 0; i < p.length; i++) onAdd(p.get(i)); p.primitiveAdded.addEventListener(onAdd); p.primitiveRemoved.addEventListener(onRemove); }
 		else unsupported(`scene.primitives.add(${p?.constructor?.name ?? typeof p})`);
 	};
-	const onRemove = (p: Any) => { prims.remove(p); colls.remove(p); voxels.remove(p); particles.remove(p); if (p instanceof I3SDataProvider) p.__detach(); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
+	const onRemove = (p: Any) => { prims.remove(p); colls.remove(p); voxels.remove(p); particles.remove(p); cloudsDr.remove(p); if (p instanceof I3SDataProvider) p.__detach(); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
 	scene.primitives.primitiveAdded.addEventListener(onAdd); scene.primitives.primitiveRemoved.addEventListener(onRemove);
 	scene.groundPrimitives.primitiveAdded.addEventListener(onAdd);
 
@@ -230,7 +234,7 @@ Object.assign(CesiumWidget.prototype, {
 		const ds = this.dataSources;
 		for (let i = 0; i < ds.length; i++) this._dataSourceRemoved(ds, ds.get(i));
 		this._dataSourceRemoved(undefined, this._dataSourceDisplay.defaultDataSource);
-		this._orthoSkyBox?.(); this._orthoPrimitives?.destroy(); this._orthoCollections?.destroy(); this._orthoVoxels?.destroy(); this._orthoParticles?.destroy();
+		this._orthoSkyBox?.(); this._orthoPrimitives?.destroy(); this._orthoCollections?.destroy(); this._orthoVoxels?.destroy(); this._orthoParticles?.destroy(); this._orthoClouds?.destroy();
 		this._dataSourceDisplay.destroy();
 		this._scene.destroy();
 		this._host.map?.destroy?.();

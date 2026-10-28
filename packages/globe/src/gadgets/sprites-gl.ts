@@ -10,12 +10,17 @@
 import { ellipsoidOn, worldRadiusM } from "@ortho-earth/core/camera";
 import { ecefToLlh } from "../czml-time.ts";
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
+import { CLOUD_VS, CLOUD_FS, NOISE_VS, NOISE_FS, NOISE_SLICE, NOISE_ROWS } from "./cesium-clouds-glsl.ts";
 
 type Uniforms = Record<string, WebGLUniformLocation | null>;
+/** Cesium の積雲の層（CloudCollection 1 つ）：位置・scale（m・目の空間の四角）・maximumSize・slice・明るさ・色、ノイズの作り方 */
+interface CloudLayer { n: number; origin: number[]; pos: Float32Array; scale: Float32Array; maxSize: Float32Array; slice: Float32Array; bright: Float32Array; rgba: Uint8Array; noiseKey: string; detail: number; offset: number[]; on: boolean }
+const CSTRIDE = 14;   // 雲ごと：x, y, hw, hh・r, g, b, a・maximumSize xyz, slice・clip w, brightness
 interface Layer { n: number; origin: number[]; pos: Float32Array; rgba: Uint8Array; size: Float32Array; rot: Float32Array | null; meters: boolean; tex: WebGLTexture | null; on: boolean }
 type Msg =
 	| { type: "layer"; q: string; n: number; origin: number[]; pos: Float32Array; rgba: Uint8Array; size: Float32Array; rot?: Float32Array | null; meters?: boolean }
 	| { type: "image"; q: string; image: ImageBitmap | null }
+	| { type: "clouds"; q: string; n: number; origin: number[]; pos: Float32Array; scale: Float32Array; maxSize: Float32Array; slice: Float32Array; bright: Float32Array; rgba: Uint8Array; noise?: { detail?: number; offset?: number[] } }
 	| { type: "remove"; q: string } | { type: "vis"; q: string; on: unknown } | { type: "clear" } | { type: "probe"; id: unknown };
 
 const D2R = Math.PI / 180;
@@ -65,6 +70,8 @@ export function create() {
 	let gl: WebGL2RenderingContext | null = null, prog: WebGLProgram | null = null, uni: Uniforms = {}, host: OverlayHost | null = null, wantDepth = false;
 	let vao: WebGLVertexArrayObject | null = null, quad: WebGLBuffer | null = null, inst: WebGLBuffer | null = null, cpu = new Float32Array(0);
 	const layers = new Map<string, Layer>(), images = new Map<string, WebGLTexture | null>();
+	const clouds = new Map<string, CloudLayer>(), noiseTex = new Map<string, WebGLTexture>();
+	let cprog: WebGLProgram | null = null, cuni: Uniforms = {}, cvao: WebGLVertexArrayObject | null = null, cinst: WebGLBuffer | null = null, ccpu = new Float32Array(0), depthGLSL = DEPTH_STUB;
 	const probes: unknown[] = [];
 	let fresh = false;   // a layer came in since the last frame (answered with { type:"drawn" } after drawing it)
 
@@ -80,7 +87,8 @@ export function create() {
 		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext | null;
 		if (!gl) throw new Error("WebGL2 is not available (sprites overlay)");
 		wantDepth = opts.depth !== false && !!h?.depthGLSL;
-		({ p: prog, u: uni } = compile(VS, FS(wantDepth ? h!.depthGLSL : DEPTH_STUB)));
+		depthGLSL = wantDepth ? h!.depthGLSL : DEPTH_STUB;
+		({ p: prog, u: uni } = compile(VS, FS(depthGLSL)));
 		vao = gl.createVertexArray(); gl.bindVertexArray(vao);
 		quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 		gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -111,12 +119,16 @@ export function create() {
 			const t = d.image ? upload(d.image) : null;
 			images.set(d.q, t); d.image?.close?.();
 			const L = layers.get(d.q); if (L) L.tex = t;
+		} else if (d.type === "clouds") {
+			fresh = true;
+			const detail = d.noise?.detail ?? 16, offset = d.noise?.offset ?? [0, 0, 0];
+			clouds.set(d.q, { n: d.n, origin: d.origin, pos: d.pos, scale: d.scale, maxSize: d.maxSize, slice: d.slice, bright: d.bright, rgba: d.rgba, detail, offset, noiseKey: `${detail}|${offset.join(",")}`, on: clouds.get(d.q)?.on ?? true });
 		} else if (d.type === "layer") {
 			fresh = true;
 			layers.set(d.q, { n: d.n, origin: d.origin, pos: d.pos, rgba: d.rgba, size: d.size, rot: d.rot ?? null, meters: !!d.meters, tex: images.get(d.q) ?? null, on: layers.get(d.q)?.on ?? true });
-		} else if (d.type === "remove") { layers.delete(d.q); const t = images.get(d.q); if (t) gl.deleteTexture(t); images.delete(d.q); }
-		else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
-		else if (d.type === "clear") { layers.clear(); for (const t of images.values()) if (t) gl.deleteTexture(t); images.clear(); }
+		} else if (d.type === "remove") { layers.delete(d.q); clouds.delete(d.q); const t = images.get(d.q); if (t) gl.deleteTexture(t); images.delete(d.q); }
+		else if (d.type === "vis") { const L = layers.get(d.q) ?? clouds.get(d.q); if (L) L.on = !!d.on; }
+		else if (d.type === "clear") { layers.clear(); clouds.clear(); for (const t of images.values()) if (t) gl.deleteTexture(t); images.clear(); }
 		host?.requestDraw?.();
 	}
 	function answerProbes(w: number, h: number) {
@@ -154,12 +166,102 @@ export function create() {
 		}
 		return k;
 	}
+	// ── Cesium の積雲 ──
+	function cloudProgram() {
+		if (cprog) return;
+		const g = gl!;
+		({ p: cprog, u: cuni } = compile(CLOUD_VS, CLOUD_FS(depthGLSL)));
+		cvao = g.createVertexArray(); g.bindVertexArray(cvao);
+		g.bindBuffer(g.ARRAY_BUFFER, quad); g.enableVertexAttribArray(0); g.vertexAttribPointer(0, 2, g.FLOAT, false, 0, 0);
+		cinst = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, cinst);
+		const B = CSTRIDE * 4;
+		g.enableVertexAttribArray(1); g.vertexAttribPointer(1, 4, g.FLOAT, false, B, 0); g.vertexAttribDivisor(1, 1);
+		g.enableVertexAttribArray(2); g.vertexAttribPointer(2, 4, g.FLOAT, false, B, 16); g.vertexAttribDivisor(2, 1);
+		g.enableVertexAttribArray(3); g.vertexAttribPointer(3, 4, g.FLOAT, false, B, 32); g.vertexAttribDivisor(3, 1);
+		g.enableVertexAttribArray(4); g.vertexAttribPointer(4, 2, g.FLOAT, false, B, 48); g.vertexAttribDivisor(4, 1);
+		g.bindVertexArray(null);
+	}
+	/** CloudCollection のノイズ（Cesium の createNoiseTexture）＝(128²/4)×(128·4) の RGBA を一度だけ描く */
+	function noiseOf(L: CloudLayer): WebGLTexture {
+		const have = noiseTex.get(L.noiseKey);
+		if (have) return have;
+		const g = gl!, W = NOISE_SLICE * NOISE_SLICE / NOISE_ROWS, H = NOISE_SLICE * NOISE_ROWS;
+		const t = g.createTexture()!;
+		g.bindTexture(g.TEXTURE_2D, t);
+		g.texImage2D(g.TEXTURE_2D, 0, g.RGBA8, W, H, 0, g.RGBA, g.UNSIGNED_BYTE, null);
+		g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.NEAREST); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.NEAREST);
+		g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.REPEAT); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.REPEAT);
+		const fb = g.createFramebuffer(); g.bindFramebuffer(g.FRAMEBUFFER, fb);
+		g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, t, 0);
+		const { p, u } = compile(NOISE_VS, NOISE_FS);
+		const va = g.createVertexArray(); g.bindVertexArray(va);
+		const tri = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, tri); g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), g.STATIC_DRAW);
+		g.enableVertexAttribArray(0); g.vertexAttribPointer(0, 2, g.FLOAT, false, 0, 0);
+		g.viewport(0, 0, W, H); g.disable(g.BLEND);
+		g.useProgram(p);
+		g.uniform3f(u.u_noiseTextureDimensions, NOISE_SLICE, NOISE_ROWS, 1 / NOISE_ROWS); g.uniform1f(u.u_noiseDetail, L.detail); g.uniform3f(u.u_noiseOffset, L.offset[0] || 0, L.offset[1] || 0, L.offset[2] || 0);
+		g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+		g.bindVertexArray(null); g.deleteVertexArray(va); g.deleteBuffer(tri); g.deleteProgram(p);
+		g.bindFramebuffer(g.FRAMEBUFFER, null); g.deleteFramebuffer(fb);
+		noiseTex.set(L.noiseKey, t);
+		return t;
+	}
+	/** 1 層の雲 → 画面の四角（目の空間で scale m の四角＝その距離の画素へ） */
+	function projectClouds(L: CloudLayer, s: CameraState, w: number, h: number, rAx: number): number {
+		const m = s.mvp, E = s.eye, ell = ellipsoidOn(), R = worldRadiusM(), o = L.origin;
+		if (ccpu.length < L.n * CSTRIDE) ccpu = new Float32Array(Math.max(L.n, 16) * CSTRIDE * 2);
+		let k = 0;
+		for (let i = 0; i < L.n; i++) {
+			if (!L.rgba[i * 4 + 3]) continue;
+			const [x, y, z] = ecefToWorld(o[0] + L.pos[i * 3], o[1] + L.pos[i * 3 + 1], o[2] + L.pos[i * 3 + 2], ell, R, rAx);
+			const ww = m[3] * x + m[7] * y + m[11] * z + m[15];
+			if (ww <= 1e-9) continue;
+			const dx = x - E[0], dy = y - E[1], dz = z - E[2], dd = dx * dx + dy * dy + dz * dz, tt = -(E[0] * dx + E[1] * dy + E[2] * dz) / dd;
+			if (tt > 0 && tt < 1) { const px = E[0] + dx * tt, py = E[1] + dy * tt, pz = E[2] + dz * tt; if (px * px + py * py + pz * pz < 0.99999) continue; }
+			const sx = ((m[0] * x + m[4] * y + m[8] * z + m[12]) / ww * 0.5 + 0.5) * w, sy = (1 - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / ww * 0.5 + 0.5)) * h;
+			const f = s.focal / (ww * R), hw = L.scale[i * 2] * f * 0.5, hh = L.scale[i * 2 + 1] * f * 0.5;
+			if (hw < 0.05 && hh < 0.05) continue;
+			if (sx + hw < 0 || sy + hh < 0 || sx - hw > w || sy - hh > h) continue;
+			const b = k * CSTRIDE;
+			ccpu[b] = sx; ccpu[b + 1] = sy; ccpu[b + 2] = hw; ccpu[b + 3] = hh;
+			ccpu[b + 4] = L.rgba[i * 4] / 255; ccpu[b + 5] = L.rgba[i * 4 + 1] / 255; ccpu[b + 6] = L.rgba[i * 4 + 2] / 255; ccpu[b + 7] = L.rgba[i * 4 + 3] / 255;
+			ccpu[b + 8] = L.maxSize[i * 3]; ccpu[b + 9] = L.maxSize[i * 3 + 1]; ccpu[b + 10] = L.maxSize[i * 3 + 2]; ccpu[b + 11] = L.slice[i];
+			ccpu[b + 12] = ww; ccpu[b + 13] = L.bright[i];
+			k++;
+		}
+		return k;
+	}
+	function drawClouds(s: CameraState, w: number, h: number, api: OverlayApi) {
+		const g = gl!;
+		let any = false;
+		for (const L of clouds.values()) if (L.on && L.n) { any = true; break; }
+		if (!any) return;
+		cloudProgram();
+		for (const L of clouds.values()) if (L.on && L.n) noiseOf(L);   // noise first (it binds its own framebuffer)
+		g.bindFramebuffer(g.FRAMEBUFFER, null); g.viewport(0, 0, w, h);
+		g.useProgram(cprog);
+		if (wantDepth) { if (api?.depth) api.depth.bind(g, cprog!, 3); else if (cuni.u_sceneDepthOn) g.uniform1f(cuni.u_sceneDepthOn, 0); }
+		g.uniform2f(cuni.u_vp, w, h);
+		g.uniform3f(cuni.u_noiseTextureDimensions, NOISE_SLICE, NOISE_ROWS, 1 / NOISE_ROWS);
+		g.enable(g.BLEND); g.blendFunc(g.ONE, g.ONE_MINUS_SRC_ALPHA); g.disable(g.DEPTH_TEST);
+		g.bindVertexArray(cvao);
+		for (const L of clouds.values()) {
+			if (!L.on || !L.n) continue;
+			const k = projectClouds(L, s, w, h, api?.rAx || 1);
+			if (!k) continue;
+			g.bindBuffer(g.ARRAY_BUFFER, cinst); g.bufferData(g.ARRAY_BUFFER, ccpu.subarray(0, k * CSTRIDE), g.STREAM_DRAW);
+			g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, noiseOf(L)); g.uniform1i(cuni.u_noiseTexture, 0); g.uniform1f(cuni.u_noiseDetail, L.detail);
+			g.drawArraysInstanced(g.TRIANGLE_STRIP, 0, 4, k);
+		}
+		g.bindVertexArray(null);
+	}
 	function frame(cam: CameraPose, s: CameraState, size: OverlaySize, api: OverlayApi) {
 		if (!gl) return false;
 		const g = gl, { w, h } = size;
 		g.bindFramebuffer(g.FRAMEBUFFER, null);
 		g.viewport(0, 0, w, h);
 		g.clearColor(0, 0, 0, 0); g.clear(g.COLOR_BUFFER_BIT);
+		drawClouds(s, w, h, api);
 		if (layers.size) {
 			g.useProgram(prog);
 			if (wantDepth) { if (api?.depth) api.depth.bind(g, prog!, 3); else if (uni.u_sceneDepthOn) g.uniform1f(uni.u_sceneDepthOn, 0); }
@@ -180,11 +282,14 @@ export function create() {
 		if (fresh) { fresh = false; host?.post?.({ type: "drawn" }); }   // main sends the next frame's particles only after this (a slow GPU is not flooded with messages)
 		return false;
 	}
-	const _state = () => ({ layers: [...layers].map(([q, L]) => ({ q, n: L.n, meters: L.meters, image: !!L.tex, on: L.on })) });
+	const _state = () => ({ layers: [...layers].map(([q, L]) => ({ q, n: L.n, meters: L.meters, image: !!L.tex, on: L.on })), clouds: [...clouds].map(([q, L]) => ({ q, n: L.n, on: L.on, noise: noiseTex.has(L.noiseKey) })) });
 	function destroy() {
 		if (!gl) return;
 		for (const t of images.values()) if (t) gl.deleteTexture(t);
-		images.clear(); layers.clear();
+		images.clear(); layers.clear(); clouds.clear();
+		for (const t of noiseTex.values()) gl.deleteTexture(t);
+		noiseTex.clear();
+		if (cprog) { gl.deleteProgram(cprog); gl.deleteBuffer(cinst); gl.deleteVertexArray(cvao); }
 		gl.deleteBuffer(quad); gl.deleteBuffer(inst); gl.deleteVertexArray(vao); gl.deleteProgram(prog);
 		gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null;
 	}
