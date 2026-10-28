@@ -72,8 +72,11 @@ uniform float u_logCoef;   // 対数深度係数 = 2/log2(far+1)。球(半径1)+
 // 隠面フラグメントまで全額シェーディングされるため、クリップ座標 z に log2(1+w) を書き込み FS は深度に触れない。
 // 三角形内は線形補間＝厳密な対数曲線と微差が出るが、terrain/建物/建物メッシュ とも三角形が小さく実害なし。
 // window深度は 0.5*(z/w+1) = log2(1+w)*u_logCoef*0.5 ＝旧FS版と同一式（全パスで一貫＝深度の互換維持）。
+// log2(1+w) を桁落ちなしに（w<0.1＝log1p の 7 次級数×1/ln2・FS の log1pS と同じ）：1.0+w を float32 で作ると w が 6e-8（≈0.4 m）刻みに量子化され、
+// 目が数 m まで寄った 1 m 級の模型（Cesium Man）は表と裏が同じ深度＝裏の三角形が透けてテクスチャが散った（2026-10-28）
+float log2p1(float w) { if (w < 0.1) return (w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715))))))) * 1.4426950; return log2(1.0 + w); }
 void applyLogDepth() {
-	gl_Position.z = (log2(max(1.0 + gl_Position.w, 1e-6)) * u_logCoef - 1.0) * gl_Position.w;
+	gl_Position.z = (log2p1(max(gl_Position.w, 1e-30)) * u_logCoef - 1.0) * gl_Position.w;
 }
 
 vec3 lonlatTo3D(vec2 ll) {
@@ -259,6 +262,7 @@ uniform vec4 u_liftBounds;   // DTM(裸地=DEM10B)保証域 [lng0,lat0,spanLng,s
 uniform float u_xfOn;        // バッチの剛体変換（glTF の rigid アニメ・W4）：1＝a_pos を u_xfL·a_pos + u_xfT（原点相対）に写し法線も回す。0＝素通し（ビット同一）
 uniform mat3 u_xfL;
 uniform vec3 u_xfT;
+uniform vec3 u_eyeRel;       // u_eye − u_meshOrigin（CPU double）＝視線ベクトルを原点相対で組む（下の v_toEye）
 ${PROJECT}
 // Cesium の霧（csatmo.ts csFogV・頂点で色と量）：u_csFogD＝濃さ（0＝なし）・u_csFogL＝xyz 光へ向く単位ベクトル・w 照明あり 1／なし −1
 uniform float u_csFogD;
@@ -275,7 +279,7 @@ void main() {
 	vec3 dir = normalize(wp);
 	v_n = a_normal;
 	if (u_xfOn > 0.5) v_n = u_xfL * a_normal;
-	v_toEye = u_eye - wp;
+	v_toEye = u_eyeRel - ap;                                     // ＝u_eye − wp を原点相対で：u_eye − wp（≈1 同士の差）は float32 で 0.4 m 級の誤差＝目が数 m まで寄った 1 m 級の模型（Cesium Man）で FS の面法線（dFdx）と裏面判定が乱れ裏側の三角形が透けた（2026-10-28）
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
 	v_csFog = csFogV(u_eye * CS_R, wp * CS_R, u_csFogD, u_csFogL.xyz, u_csFogL.w);
@@ -1487,7 +1491,7 @@ const LINE_MAIN = /* glsl */`
 	v_fog = fogOf((wa + wb) * 0.5);
 	// 端点の深度は対数系（applyLogDepth と同式）＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
 	float wz = (corner.x < 0.5) ? ca.w : cb.w;
-	float zc = log2(max(1.0 + wz, 1e-6)) * u_logCoef - 1.0;
+	float zc = log2p1(max(wz, 1e-30)) * u_logCoef - 1.0;   // 1.0+w の桁落ちを避ける（PROJECT の log2p1）
 	vec2 ndc = vec2(pos.x / u_viewport.x * 2.0 - 1.0, 1.0 - pos.y / u_viewport.y * 2.0);
 	gl_Position = vec4(ndc, zc, 1.0);
 `;

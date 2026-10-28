@@ -1079,8 +1079,8 @@ const attrTextNow: GlobeScope["attrTextNow"] = () => { const d = document.create
 // ズームの上限＝器ごとの頭打ち（opts.zoomMax・1.2.0〜 2026-09-23）＝データが在る所までしか寄らせない
 // （apps/world の国の地図＝世界データだけ＝z8）。入力・飛行・共有hash・fit の全経路がこの値に従う。
 // 既定 20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す。
-// 明示の zoomMax は 25 まで（≈3m・@ortho-earth/cesium の trackedEntity＝数 m 先の模型に寄る・2026-10-26）。既定は 20 のまま
-const ZOOM_MAX: GlobeScope["ZOOM_MAX"] = Math.max(1, Math.min(25, opts.zoomMax ?? 20));
+// 明示の zoomMax は 27 まで（≈1 m・@ortho-earth/cesium の trackedEntity＝数 m 先の模型に寄る・2026-10-26。25＝5 m 止まりで Cesium Man（3.5 m）に寄り切れなかった→27・2026-10-28）。既定は 20 のまま
+const ZOOM_MAX: GlobeScope["ZOOM_MAX"] = Math.max(1, Math.min(27, opts.zoomMax ?? 20));
 let zoomMaxCur: GlobeLive["zoomMaxCur"] = ZOOM_MAX, camBounds: GlobeLive["camBounds"] = null;   // 実行時の寄りの上限と中心の可動域（map.setMaxZoom / setMaxBounds・#35）＝onMove が毎移動で締める（使う所より前で宣言＝TDZ の轍）
 // 地域の申告が無い器（globe 仕様）＝日本固有の圏そのものが無い＝上限より上に置いて「来ない」ことを表す。
 // 世界ハイプソ・湖・罫線はこの値まで描かれる＝ズーム上限まで世界の色のまま（2026-09-23）。
@@ -3056,6 +3056,7 @@ const modelCtlGet = async (): Promise<ModelLive> => {
 	modelCtl = dbgHost.__model = m.createModel(map, {   // __model＝検証窓（t-model・押し出し）
 		setMeshXf: (name, data) => { wPost({ type: "set", cmd: "meshXf", data, prop: name }); requestDraw(); },   // バッチの剛体変換（glTF の rigid アニメ・W4）＝Float32Array(12)｜null
 		setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); requestDraw(); },   // feature state の色（W7）＝頂点色の列（RGBA8）
+		setMeshPos: (name, data) => { wPost({ type: "set", cmd: "meshPos", data, prop: name }, [data.pos.buffer, data.nrm.buffer]); requestDraw(); },   // skin（2026-10-28）＝焼き直した頂点（原点相対の pos と法線）
 		pickEnv: meshPickEnv,   // 当たり（W7）＝画面の点 → 三角形と地物の番号
 		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [(data[k] as TileTex | undefined)?.bitmap, (data[k] as TileTex | undefined)?.rgba?.buffer])].filter(Boolean) as Transferable[])] : []); requestDraw(); },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
 		fit: bb => {   // 模型へ寄る＝loadUserFile の fit と同じ視野幅逆解き。ただしチルト 55°（建物メッシュは真俯瞰 pitch<0.02 では描かない＝寄って何も無いを避ける）

@@ -1,5 +1,5 @@
 // glTF の rigid アニメ（W4）＝補間・階層・世界座標への写しの検定（DOM 無し）
-import { rigFromGltf, sampleChannel, samplePose, worldXf, batchXf, wrapTime, m4affineInv, m4trs, m4mul } from "../src/gltf-anim.ts";
+import { rigFromGltf, sampleChannel, samplePose, worldXf, batchXf, wrapTime, m4affineInv, m4trs, m4mul, skinsFromGltf, jointMatrices, skinVertices, skinBatch, cofactor3 } from "../src/gltf-anim.ts";
 let fails = 0; const ok = (name, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
 const I3 = { A: [1, 0, 0, 0, 1, 0, 0, 0, 1], T: [0, 0, 0] }, IF = { L: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 0] };
@@ -64,4 +64,40 @@ ok("batchXf", bx.length === 12 && rel.every((x, i) => near(x, full[i], 1e-7)) &&
 // 逆行列
 const M = m4trs([1, 2, 3], [0, S2, 0, S2], [2, 2, 2]), P = m4mul(M, m4affineInv(M));
 ok("affineInv", [...P].every((x, i) => near(x, i % 5 === 0 ? 1 : 0, 1e-12)));
+// ── skin（2026-10-28）：2 本の骨（root・tip）に 3 頂点。tip は root の子で x+10。IBM＝静止の world の逆（静止姿勢ではスキンが恒等）
+{
+	const sNodes = [{ name: "root", children: [] }, { name: "tip", translation: [10, 0, 0] }];
+	sNodes[0].children = [sNodes[1]];
+	const invTip = m4affineInv(m4trs([10, 0, 0]));
+	const sg = {
+		nodes: sNodes,
+		skins: [{ joints: [0, 1], inverseBindMatrices: { value: Float32Array.from([...Float64Array.of(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1), ...invTip]) } }],
+		animations: [{ name: "bend", channels: [{ sampler: 0, target: { node: 1, path: "rotation" } }], samplers: [{ input: 0, output: 1, interpolation: "LINEAR" }] }],
+		accessors: [{ value: Float32Array.from([0, 1]) }, { value: Float32Array.from([0, 0, 0, 1, 0, 0, S2, S2]) }],   // tip：t=1 で Z 回り 90°
+	};
+	const rigS = rigFromGltf(sg), skins = skinsFromGltf(sg);
+	ok("skin.rig", rigS && rigS.skins && rigS.skins.length === 1 && rigS.skins[0].joints.join() === "0,1" && rigS.skins[0].ibm.length === 32);
+	// 頂点：A＝root だけ (0,0,0)、B＝tip だけ (12,0,0)、C＝半々 (10,0,0)。法線は +Y
+	const seg = { start: 0, n: 3, skin: 0, P: Float32Array.from([0, 0, 0, 12, 0, 0, 10, 0, 0]), N: Float32Array.from([0, 1, 0, 0, 1, 0, 0, 1, 0]), J: Uint16Array.from([0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0]), W: Float32Array.from([1, 0, 0, 0, 1, 0, 0, 0, 0.5, 0.5, 0, 0]) };
+	const pose0 = samplePose(rigS, 0, 0), pose1 = samplePose(rigS, 0, 1);
+	const P0 = new Float64Array(9); skinVertices(seg, jointMatrices(skins[0], pose0.W), P0, null);
+	ok("skin.rest", [...P0].every((v, i) => near(v, seg.P[i], 1e-6)), [...P0].join());   // 静止＝元の位置
+	const P1 = new Float64Array(9), N1 = new Float64Array(9); skinVertices(seg, jointMatrices(skins[0], pose1.W), P1, N1);
+	// tip が (10,0,0) を中心に Z 回り 90°：B (12,0,0) → (10,2,0)。A は動かない。C＝半々＝(10,0,0) は中心なので動かない。B の法線 +Y → −X
+	ok("skin.bent", near(P1[0], 0) && near(P1[1], 0) && near(P1[3], 10) && near(P1[4], 2) && near(P1[6], 10) && near(P1[7], 0), [...P1].map(v => +v.toFixed(4)).join());
+	ok("skin.normal", near(N1[3], -1) && near(N1[4], 0) && near(N1[1], 1), [...N1].map(v => +v.toFixed(4)).join());
+	// 重みの和が 1 でない（量子化）＝正規化する
+	const segQ = { ...seg, W: Float32Array.from([0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.25, 0.25, 0, 0]) }, PQ = new Float64Array(9); skinVertices(segQ, jointMatrices(skins[0], pose1.W), PQ, null);
+	ok("skin.wsum", [...PQ].every((v, i) => near(v, P1[i], 1e-6)));
+	// skinBatch＝F·G で世界座標へ・原点相対・法線は余因子で ECEF へ回して ortho 軸（x,z,y）へ量子化
+	const sPlace = { G: { A: [2, 0, 0, 0, 2, 0, 0, 0, 2], T: [100, 200, 300] }, F: { L: [0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5], t: [1, 2, 3] } }, O = [1, 2, 3];
+	const r = skinBatch([seg], pose1, skins, sPlace, O, 3);
+	// 点 B (10,2,0) → G：(120, 204, 300) → F：(61, 104, 153) → 原点相対 (60, 102, 150)
+	ok("skinBatch.pos", r && r.pos.length === 9 && near(r.pos[3], 60, 1e-4) && near(r.pos[4], 102, 1e-4) && near(r.pos[5], 150, 1e-4) && near(r.pos[0], 100 * 0.5 + 1 - 1, 1e-4), r && [...r.pos].join());
+	// B の法線 −X（ECEF −x）→ ortho 軸 (x, z, y)＝(−127, 0, 0)。A の法線 +Y（ECEF +y）→ ortho の 3 番目＝(0, 0, 127)
+	ok("skinBatch.nrm", r && r.nrm[4] === -127 && r.nrm[5] === 0 && r.nrm[6] === 0 && r.nrm[0] === 0 && r.nrm[1] === 0 && r.nrm[2] === 127, r && [...r.nrm].join());
+	ok("skinBatch.none", skinBatch([], pose1, skins, sPlace, O, 3) === null && skinBatch([seg], pose1, null, sPlace, O, 3) === null);
+	const cf = cofactor3([2, 0, 0, 0, 3, 0, 0, 0, 4]);
+	ok("cofactor3", cf[0] === 12 && cf[4] === 8 && cf[8] === 6 && cf[1] === 0);
+}
 if (fails) { console.error(`${fails} failed`); process.exit(1); } else console.log("ALL PASS gltf-anim");
