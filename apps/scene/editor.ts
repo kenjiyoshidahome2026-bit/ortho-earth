@@ -32,7 +32,7 @@ const t = tr();
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 
 // 字幕の型（行キー look）の表示名
-const LOOK_LABEL: Record<string, string> = { top: t("Top caption"), lower: t("Lower third"), center: t("Center headline"), pin: t("Place pin") };
+const LOOK_LABEL = (): Record<string, string> => ({ top: t("Top caption"), lower: t("Lower third"), center: t("Center headline"), pin: t("Place pin") });   // 描く時に引く（読み込み時に引くと辞書の到着前＝英語のまま残った）
 const FRAMES: Record<string, number[]> = { "16:9": [16, 9], "9:16": [9, 16], "1:1": [1, 1], "4:3": [4, 3] };   // "free"＝舞台いっぱい（枠なし）
 const isVia = (r: Row | undefined) => r?.via != null && !r.view && !r.glide && !r.fade;
 const hashOf = (r: Row) => r.view ?? r.glide ?? r.fade ?? r.via;   // 行の視点（遷移キー3種＋via）
@@ -321,7 +321,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			const slideImg = r.slide && /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)|^(data:|https?:)/i.test(r.slide) ? `<img class="sc-slide-img" src="${esc(r.slide)}" alt="">` : "";
 			const more = via ? "" : `<details class="sc-more"${openMore.has(i) ? " open" : ""}><summary>${t("More")}</summary>
 					${strField("caption", t("Caption (if different from the title)"))}
-					<div class="sc-f"><label>${t("Caption style")}</label><select data-k="look">${LOOKS.map(k => `<option value="${k}"${(r.look ?? "top") === k ? " selected" : ""}>${LOOK_LABEL[k]}</option>`).join("")}</select></div>
+					<div class="sc-f"><label>${t("Caption style")}</label><select data-k="look">${LOOKS.map(k => `<option value="${k}"${(r.look ?? "top") === k ? " selected" : ""}>${LOOK_LABEL()[k]}</option>`).join("")}</select></div>
 					<div class="sc-f"><label>${t("Subtitle line")}</label><input type="text" data-k="sub" value="${esc(pick(r.sub, edLang()))}"></div>
 					${strField("en", t("English (en:)"))}
 					${strField("slide", t("Slide (plain text or image URL)"))}${slideImg}
