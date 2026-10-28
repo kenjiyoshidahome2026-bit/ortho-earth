@@ -167,20 +167,34 @@ export class OrthoScene {
 		const map = this.host.map;
 		if (!map) return;
 		const pose = poseKey(this.camera);
-		const same = sameKey(this.#lastPose, pose);
-		if (same && !this.#terrainPending) return;
+		const same = sameKey(this.#lastPose, pose), terrOn = !!map.getTerrain?.();
+		if (same && !this.#terrainPending && terrOn === this.#terrOnLast) return;   // also again when a terrain arrived or left after the last push
+		this.#terrOnLast = terrOn;
 		const tf = this.camera.transform, focus = tf && !Matrix4.equals(tf, Matrix4.IDENTITY) ? Matrix4.getTranslation(tf, new Cartesian3()) : null;   // camera.lookAt / trackedEntity
-		// the target is on the drawn terrain (map.queryTerrainElevation: null until the height is known, so the push is repeated while `pending`)
-		const terrainAt = typeof map.queryTerrainElevation === "function" ? (lng: number, lat: number) => map.queryTerrainElevation(lng, lat) : null;
+		// the target is on the drawn terrain: heights come from map.sampleTerrain (async, waits for the tiles) into a memo; a point not in it yet
+		// makes the result `pending`, the heights are fetched, and the push is repeated with the same pose once they are in
+		const memo = this.#terrHeights, wanted: [number, number][] = [], wanting = this.#terrWanting;
+		const terrainAt = typeof map.sampleTerrain === "function" && map.getTerrain?.() ? (lng: number, lat: number) => {
+			const k = `${lng.toFixed(6)},${lat.toFixed(6)}`, v = memo.get(k);
+			if (v !== undefined) return v;
+			if (!wanting.has(k)) { wanting.add(k); wanted.push([lng, lat]); }
+			return null;
+		} : null;
 		const g = globeCamOf(this.camera.positionWC, this.camera.directionWC, this.camera.upWC, focus, terrainAt);
 		if (!g) return;
-		this.#terrainPending = !!g.pending && ++this.#terrainTries < 120;   // give up after ~2 s of frames: a height that never comes (no terrain there) keeps the ellipsoid target
+		this.#terrainPending = false;
+		if (g.pending && wanted.length) {
+			if (memo.size > 4000) memo.clear();
+			map.sampleTerrain(wanted).then((rs: Array<{ lng: number; lat: number; height: number }>) => {
+				for (const r of rs) { const k = `${r.lng.toFixed(6)},${r.lat.toFixed(6)}`; memo.set(k, Number.isFinite(r.height) ? r.height : 0); wanting.delete(k); }
+				this.#terrainPending = true; this.requestRender();
+			}, () => { for (const [lng, lat] of wanted) wanting.delete(`${lng.toFixed(6)},${lat.toFixed(6)}`); });
+		}
 		if (same && this.#lastGlobe && Math.abs(this.#lastGlobe.distance - g.distance) <= 1e-3 * g.distance) return;   // the same pose, and the terrain did not move the target
-		if (!same) this.#terrainTries = 0;
 		map.setCamera(g);
 		this.#lastPose = pose; this.#lastGlobe = map.getCamera();
 	}
-	#terrainPending = false; #terrainTries = 0;
+	#terrainPending = false; #terrOnLast = false; #terrHeights = new Map<string, number>(); #terrWanting = new Set<string>();
 
 	// ── picking ──
 	pick(windowPosition: Cartesian2, _w?: number, _h?: number) { return this.host.display?.pick(windowPosition.x, windowPosition.y); }
