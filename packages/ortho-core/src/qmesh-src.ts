@@ -84,7 +84,8 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 		},
 		// セル（R01＝1°・R10＝10°）＝N×N の格子点（row0＝北）。段＝タイルの幅がセルの約 1/4（R01＝z10・R10＝z6）・cellZoom で固定可。
 		//   海底（seafloor）の R10＝約 1/16（z8）：海の配信は浅い段で三角形がとても粗い（World Bathymetry の z6＝数百 km の面）＝Cesium が見せる段まで下りる
-		//   タイルの無い所（404・layer.json の在庫外）は親の段（4 段まで）で埋める＝在庫を metadata で配る配信（ion）は深い段の有無を先に知れない
+		//   海底は、タイルの無い所（404・layer.json の在庫外）を親の段（4 段まで）で埋める＝在庫を metadata で配る配信（ion）は深い段の有無を先に知れない。
+//   陸（CWT など）は埋めない＝NaN のまま既定の標高（R01・R10）が入る（親の粗い三角形はヒマラヤで角ばった面になる）
 		async cell(lng0: number, lat0: number, range = 1, N = 1025): Promise<DemCell | null> {
 			const L = await layerP; if (!L) return null;
 			const b = bnd(L); if (!inB(b, lng0, lat0, lng0 + range, lat0 + range)) return null;
@@ -98,7 +99,7 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 			const found: [QMesh, number, number, number][] = [], miss: [number, number][] = [];
 			let i = 0;
 			await Promise.all(Array.from({ length: 6 }, async () => { while (i < need.length) { const [x, y] = need[i++]; const m = await tile(L, z, x, y); if (m) found.push([m, z, x, y]); else miss.push([x, y]); } }));
-			// 無いタイルは親の段で（粗い段を先に焼き、細かい段で上書き）
+			// 無いタイルは親の段で（海底だけ・粗い段を先に焼き、細かい段で上書き）
 			const par = new Map<string, Promise<[QMesh, number, number, number] | null>>();
 			const up = (x: number, y: number): Promise<[QMesh, number, number, number] | null> => (async () => {
 				for (let pz = z - 1, px = x >> 1, py = y >> 1; pz >= Math.max(L.minzoom, z - 4); pz--, px >>= 1, py >>= 1) {
@@ -107,7 +108,7 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 				}
 				return null;
 			})();
-			const fills = new Set((await Promise.all(miss.map(([x, y]) => up(x, y)))).filter(r => r) as [QMesh, number, number, number][]);
+			const fills = new Set((await Promise.all((spec.seafloor ? miss : []).map(([x, y]) => up(x, y)))).filter(r => r) as [QMesh, number, number, number][]);
 			const bake = [...fills].sort((a, b2) => a[1] - b2[1]).concat(found.sort((a, b2) => (a[2] - b2[2]) || (a[3] - b2[3])));
 			if (!bake.length) return null;
 			for (const [m, tz, x, y] of bake) qmBake(m, qmTileBounds(tz, x, y), grid);

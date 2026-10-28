@@ -119,6 +119,9 @@ console.log("― 海底のセル（seafloor）：R10＝z8・無い段は親で�
 	const at = (lng, lat) => c.data[Math.round((cellY + 10 - lat) / 10 * 64) * 65 + Math.round((lng - cellX) / 10 * 64)];
 	ok(asked.includes(8) && !asked.includes(6), `R10 は z8 から取る（取った段 ${[...new Set(asked)].sort((a, b) => a - b).join(",")}）`);
 	ok(c && c.valid === 1, `z8 の 404 は z7 の親で埋まり、穴が無い（valid ${c?.valid}）`);
+	const land = createQmeshSource({ url: "https://y.test/layer.json", heights: "orthometric", cellZoom: 8 });
+	const cl = await land.cell(cellX + 5, cellY + 5, 1, 65), li = Math.round(0.1 * 64) * 65 + Math.round(0.9 * 64);
+	ok(cl && cl.data[li] !== cl.data[li], `陸（seafloor 無し）は親で埋めない＝無い所は NaN（既定の標高が入る）`);
 	ok(at(cellX + 1, cellY + 1) === -5000 && at(cellX + 5.1, cellY + 5.1) === -6000, `親（-5000）の上に細かい段（-6000）が勝つ（${at(cellX + 1, cellY + 1)} / ${at(cellX + 5.1, cellY + 5.1)}）`);
 }
 
