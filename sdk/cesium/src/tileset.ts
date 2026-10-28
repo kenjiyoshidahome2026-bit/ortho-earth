@@ -65,7 +65,7 @@ export class Cesium3DTileset {
 	get root() { return { boundingVolume: { boundingVolume: this.#sphere, boundingSphere: this.#sphere }, boundingSphere: this.#sphere, transform: Matrix4.IDENTITY, children: [], content: undefined }; }
 	get boundingSphere() { return this.#sphere; }
 	get ready() { return true; }
-	get tilesLoaded() { return !!this.#h && (this.#h.stats?.inflight ?? 0) === 0; }
+	get tilesLoaded() { const st = this.#h?.stats; return !!st && st.complete !== false && (st.inflight ?? 0) === 0; }   // complete＝今の視点の分が揃った（inflight 0 だけだと最初に巡る前・次の段を投げる前の一瞬に true になる）
 	get totalMemoryUsageInBytes() { return this.#h?.stats?.bytes ?? 0; }
 	get ellipsoid() { return undefined; }
 	get show() { return this.#show; }
