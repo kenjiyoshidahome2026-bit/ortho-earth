@@ -15,6 +15,7 @@ import { createGlobe } from "@ortho-earth/globe";
 import { OrthoScene, type Host } from "./scene.ts";
 import { EntityDisplay } from "./display.ts";
 import { Cesium3DTileset } from "./tileset.ts";
+import { I3SDataProvider } from "./i3s.ts";
 import { syncImagery } from "./imagery.ts";
 import { skyBoxLayer } from "./skybox.ts";
 import { syncLighting } from "./lighting.ts";
@@ -138,13 +139,14 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	(scene as Any).__tilesets = tilesets;
 	const onAdd = (p: Any) => {
 		if (p instanceof Cesium3DTileset) { tilesets.push(p); p.__attach(host); }
+		else if (p instanceof I3SDataProvider) p.__attach(host);   // I3S (ArcGIS scene layers): the globe's own I3S reader (i3s.ts)
 		else if (isGeometryPrimitive(p)) prims.add(p);
 		else if (isCollection(p)) colls.add(p);
 		else if (isVoxelPrimitive(p)) voxels.add(p);
 		else if (p && typeof p.add === "function" && typeof p.get === "function" && p.primitiveAdded) { for (let i = 0; i < p.length; i++) onAdd(p.get(i)); p.primitiveAdded.addEventListener(onAdd); p.primitiveRemoved.addEventListener(onRemove); }
 		else unsupported(`scene.primitives.add(${p?.constructor?.name ?? typeof p})`);
 	};
-	const onRemove = (p: Any) => { prims.remove(p); colls.remove(p); voxels.remove(p); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
+	const onRemove = (p: Any) => { prims.remove(p); colls.remove(p); voxels.remove(p); if (p instanceof I3SDataProvider) p.__detach(); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
 	scene.primitives.primitiveAdded.addEventListener(onAdd); scene.primitives.primitiveRemoved.addEventListener(onRemove);
 	scene.groundPrimitives.primitiveAdded.addEventListener(onAdd);
 
