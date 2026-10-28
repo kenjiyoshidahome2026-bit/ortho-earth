@@ -8,7 +8,7 @@
 // requestSnapshot＝{ W, H, render:{base,w,h,labels,lw,lh} } を返す（注入は登録側。gint は基図GLに写り込み済み）。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
-import { composeLayersToCanvas } from "./compose.ts";   // 層重ねの実体は compose.js（shot/print/palette 共用）
+import { composeLayersToCanvas, solarSkyOf } from "./compose.ts";   // 層重ねの実体は compose.js（shot/print/palette 共用）
 import { tr } from "../i18n.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { ComposeSnapshot as Snapshot } from "./compose.ts";
@@ -64,7 +64,7 @@ export function shot(this: GlobeMap, { requestSnapshot, signal, btn, attribution
 	// 各層を1枚へ合成→webp Blob。層重ね（基図→知性→ラベル→計測）は composeLayersToCanvas（printと共用）。
 	async function composite(snap: Snapshot | null = null): Promise<Blob> {
 		snap ??= await requestSnapshot() as Snapshot;   // 引数省略＝今の画面を撮って合成（プログラム駆動用。旧＝undefined で例外）
-		const out = composeLayersToCanvas(snap, mapEl.querySelector<HTMLCanvasElement>("#measure-lines"));
+		const out = composeLayersToCanvas(snap, mapEl.querySelector<HTMLCanvasElement>("#measure-lines"), solarSkyOf(mapEl));
 		drawAttr(out.getContext("2d")!, snap.W, snap.H);
 		return out.convertToBlob({ type: "image/webp", quality: 0.92 });
 	}
