@@ -362,5 +362,37 @@ for (const g of [
 	ok("particles: remove drops the layer", posts[posts.length - 1].type === "remove");
 }
 
+// ── clouds: Cesium's CloudCollection packed for the sprites overlay (clouds.ts, 順 5) ──
+{
+	const engine = await import("@cesium/engine");
+	const core = await import("@cesium/core");
+	const { CloudDrawer, isCloudCollection, packClouds } = await import("../src/clouds.ts");
+	const posts = [];
+	const ovh = { post: (d) => posts.push(d), remove: () => {}, onmessage: null };
+	const host = { map: { overlay: () => ovh }, ready: Promise.resolve(), display: null };
+	const cc = new engine.CloudCollection({ noiseDetail: 20 });
+	const a = core.Cartesian3.fromDegrees(139.7, 35.6, 1000), b = core.Cartesian3.fromDegrees(139.71, 35.6, 1200);
+	cc.add({ position: a, scale: new core.Cartesian2(30, 10), maximumSize: new core.Cartesian3(20, 8, 6), slice: 0.4, brightness: 0.5, color: core.Color.RED });
+	const c2 = cc.add({ position: b });
+	cc.add({ position: b, show: false });
+	ok("clouds: CloudCollection recognised", isCloudCollection(cc) && !isCloudCollection({}));
+	const pk = packClouds(cc);
+	ok("clouds: hidden clouds are left out", pk.n === 2, pk.n);
+	ok("clouds: positions relative to the first", pk.origin[0] === a.x && pk.pos[0] === 0 && Math.abs(pk.pos[3] - (b.x - a.x)) < 0.01, pk.pos);
+	ok("clouds: scale, maximumSize, slice, brightness, colour", pk.scale[0] === 30 && pk.scale[1] === 10 && pk.maxSize[0] === 20 && pk.maxSize[2] === 6 && Math.abs(pk.slice[0] - 0.4) < 1e-6 && pk.bright[0] === 0.5 && pk.rgba[0] === 255 && pk.rgba[1] === 0 && pk.rgba[3] === 255, [pk.scale[0], pk.maxSize[0], pk.slice[0], pk.bright[0], pk.rgba[0]]);
+	ok("clouds: noise detail and offset", pk.noise.detail === 20 && pk.noise.offset.length === 3);
+	const d = new CloudDrawer(host);
+	d.add(cc); d.update();
+	ok("clouds: first update shows and sends the collection", posts.some(m => m.type === "vis" && m.on) && posts.filter(m => m.type === "clouds").length === 1);
+	d.update();
+	ok("clouds: nothing is sent again while unchanged", posts.filter(m => m.type === "clouds").length === 1);
+	c2.brightness = 0.2; d.update();
+	ok("clouds: a changed cloud is sent again", posts.filter(m => m.type === "clouds").length === 2);
+	cc.show = false; d.update();
+	ok("clouds: show=false hides the layer", posts[posts.length - 1].type === "vis" && posts[posts.length - 1].on === false);
+	d.remove(cc);
+	ok("clouds: remove drops the layer", posts[posts.length - 1].type === "remove");
+}
+
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
 process.exit(fails ? 1 : 0);

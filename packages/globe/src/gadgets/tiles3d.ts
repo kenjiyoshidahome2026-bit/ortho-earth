@@ -156,15 +156,22 @@ const worldOf = (e: ArrayLike<number>, baseH: number, ell: boolean, EW: number) 
 };
 
 // 境界体積 → ECEF の球 { c, r }
-function sphereOf(bv: BoundingVolume | undefined, M: ArrayLike<number>): Sphere | null {
+export function sphereOf(bv: BoundingVolume | undefined, M: ArrayLike<number>): Sphere | null {
 	if (bv?.box) {
 		const b = bv.box, c = m4pt(M, [b[0], b[1], b[2]]);
 		const u = m4vec(M, [b[3], b[4], b[5]]), v = m4vec(M, [b[6], b[7], b[8]]), w = m4vec(M, [b[9], b[10], b[11]]);
 		return { c, r: Math.sqrt(len(u) ** 2 + len(v) ** 2 + len(w) ** 2) };
 	}
 	if (bv?.region) {
+		// 角だけでなく経緯の中間も測る（2026-10-28・clouds 例）：OSM Buildings の根は全球の region＝旧は 8 角だけで半径を出し、経度 0 中心の
+		// 球が ±86° しか覆わず、ポートランド（-122°）では根ごと間引かれて建物が 1 枚も出なかった。広い region は地球の中心を中心にした球と比べて小さい方
 		const [w, s, e, n, h0, h1] = bv.region, lon = (w + e) / 2, lat = (s + n) / 2, c = geo2ecef(lon, lat, (h0 + h1) / 2);
-		let r = 0; for (const x of [w, e]) for (const y of [s, n]) for (const h of [h0, h1]) { const p = geo2ecef(x, y, h); r = Math.max(r, Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2])); }
+		const pts: number[][] = [], K = 8;
+		const lats = [s, n]; for (let j = 1; j < K; j++) lats.push(s + (n - s) * j / K); if (s < 0 && n > 0) lats.push(0);
+		for (let i = 0; i <= K; i++) for (const y of lats) for (const h of [h0, h1]) pts.push(geo2ecef(w + (e - w) * i / K, y, h));
+		const far = (o: number[]) => pts.reduce((m, p) => Math.max(m, Math.hypot(p[0] - o[0], p[1] - o[1], p[2] - o[2])), 0);
+		const r = far(c);
+		if (e - w > Math.PI / 2 || n - s > Math.PI / 2) { const r0 = far([0, 0, 0]); if (r0 < r) return { c: [0, 0, 0], r: r0 }; }
 		return { c, r };
 	}
 	const cy = cylinderOf(bv);
