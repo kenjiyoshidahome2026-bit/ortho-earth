@@ -1,0 +1,87 @@
+{
+ "at": "2026-10-28T21:15:17.311Z",
+ "cesium": "1.146.0",
+ "n": 2,
+ "levels": {
+  "0": 0,
+  "1": 1,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 1,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "3D Tiles draw nothing",
+   "n": 1,
+   "examples": [
+    "clouds"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "cloud-parameters",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3062,
+    "n": 3072,
+    "colour": 1,
+    "edge": 0.9967447916666666,
+    "blob": 0
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "clouds",
+   "level": 1,
+   "reasons": [
+    "3D Tiles drawn 21/0"
+   ],
+   "blockers": [
+    "3D Tiles draw nothing"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": false
+   },
+   "picture": {
+    "ok": 2231,
+    "n": 3072,
+    "colour": 0.7666015625,
+    "edge": 0.9287109375,
+    "blob": 166
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
