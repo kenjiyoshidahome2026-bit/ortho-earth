@@ -277,8 +277,16 @@ for (const g of [
 	both.polygon.material = Color.GREEN.withAlpha(0.5);
 	disp.update(t);
 	ok("display: a colour change replaces the volume", calls.length === 3 && removed.length === 2 && calls[2].opts.color === "rgb(0,128,0)", JSON.stringify(calls[2]?.opts));
+	// a clamped polyline with CESIUM_3D_TILE: a band of its pixel width on the tiles (1 m/px without a camera), no ground line
+	const road = disp.defaultDataSource.entities.add(new CEntity({ polyline: { positions: ring.slice(0, 3), width: 6, material: Color.YELLOW, clampToGround: true, classificationType: ClassificationType.CESIUM_3D_TILE } }));
+	disp.update(t);
+	const band = calls[3];
+	ok("display: a clamped CESIUM_3D_TILE polyline makes a tiles3d band of its pixel width", calls.length === 4 && band?.data.type === "LineString" && band.opts.type === "tiles3d" && near(band.opts.width, 6) && band.opts.color === "rgb(255,255,0)", JSON.stringify(band?.opts));
+	ok("display: the CESIUM_3D_TILE polyline draws no ground line", !(srcData[srcData.length - 1]?.features || []).some(f => f.properties._k === "line"));
+	disp.defaultDataSource.entities.remove(road); disp.update(t);
+	ok("display: removing the polyline removes its band", removed.length === 3 && removed[2] === band);
 	disp.destroy();
-	ok("display: destroy removes every volume", removed.length === 3);
+	ok("display: destroy removes every volume", removed.length === 4);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
