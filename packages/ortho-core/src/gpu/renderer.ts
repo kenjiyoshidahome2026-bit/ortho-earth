@@ -12,7 +12,7 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { cameraState, lonlatTo3D, ellNormal3D, project, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.ts";
+import { cameraState, lonlatTo3D, ellNormal3D, project, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, betaRadiusOf, betaToLonLat } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
 import { evalPaintZoom } from "../paintzoom.ts";   // 破線でずらす md の列のずらし（線分プールの語 6 が距離＝層で 1 つの値を uniform で置く）
 import type { PaintZoom } from "../paintzoom.ts";
@@ -2231,22 +2231,6 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (on) meshHidden.delete(ward); else meshHidden.add(ward);
 		maskSig = "\0";   // 非表示区はマスクスロットから外す＝基図建物が戻る（次フレーム再構築）
 	}
-	// バッチ bbox（経緯度deg）の可視判定＝gl/renderer.js meshBboxVisible と同一（4隅+中心を投影）
-	function meshBboxVisible(st: CameraState, bbox: number[], center: ArrayLike<number>, pad: number) {
-		if (center[0] >= bbox[0] && center[0] <= bbox[2] && center[1] >= bbox[1] && center[1] <= bbox[3]) return true;
-		const pts = [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[0], bbox[3]], [bbox[2], bbox[3]], [(bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5]];
-		let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, nf = 0;
-		for (const q of pts) {
-			const [sx, sy, f] = project(st, q[0], q[1]);
-			if (f < 0) continue;
-			nf++;
-			if (sx < minx) minx = sx; if (sx > maxx) maxx = sx;
-			if (sy < miny) miny = sy; if (sy > maxy) maxy = sy;
-		}
-		if (!nf) return false;
-		return !(maxx < -pad || minx > st.W + pad || maxy < -pad || miny > st.H + pad);
-	}
-
 	// --- シーン（classic merge）：slot → { origin, draws, bld } ---
 	const scenes: Record<string, SceneSlot> = {
 		base: { origin: [0, 0], draws: [], bld: null },
@@ -3225,14 +3209,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
 			const pad = 0.5 * Math.max(st.W, st.H);   // 高層ビルの頭のはみ出し余白（半画面）
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);   // 画面1pxが何m（LOD打ち切りの物差し）
-			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
+			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180), foot = betaToLonLat(st.eye);   // foot＝目の足元（bbox 内なら無条件で可視）
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
 			const draws: { p: MeshBatch; count: number; slot: number }[] = [];
 			for (const p of meshes.values()) {
 				if (draws.length >= MAX_PL_BATCH) { if (!warnedPL) { warnedPL = true; console.warn(`[gpu] mesh visible batches exceed ${MAX_PL_BATCH} = truncated`); } break; }   // 警告は 1 回（旧＝超えている間は毎フレーム）
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;
-				if (!meshBboxVisible(st, p.bbox, cam.center, pad)) continue;
+				if (!bboxVisible(st, p.bbox, cam.center, foot, pad, betaRadiusOf(p.origin))) continue;   // 重心の高さで射影（camera.ts bboxVisible）
 				let count = p.count;
 				if (p.lodH && !p.two && !p.keep2d) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」（橋梁 two は全描画・keep2d＝統計は間引かない）
 					const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - cam.center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - cam.center[1]) * 111320);

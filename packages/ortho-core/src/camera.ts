@@ -91,6 +91,29 @@ export const geodeticOf = (betaDeg: number): number => R_AX === 1 ? betaDeg
 // S⁻¹ が二重に掛かり、緯度が反対側へ同じ量（36°で約+0.09°≒10km 北）ずれる＝updateUnderground の地中フェード
 // 誤発動の真因その2（2026-09-21・?ell=1）。8/15 の修正（57a1f19）は地心緯度(−10km)を +10km に裏返しただけで、
 // 加賀市は北 10km が日本海(0m)ゆえ「直った」ように見えていた。
+// GPU が消費する座標（β単位球＝mvp に S を畳んだ後の座標・模型の重心 meshOrigin・cameraState の eye）の長さ＝project() の radius（面上の点で 1・高さ h の点で 1+h/R）
+export const betaRadiusOf = (p: ArrayLike<number>): number => Math.hypot(p[0], p[1], p[2]);
+// メッシュのバッチ（経緯度 bbox＋重心）の可視判定（gl/gpu renderer 共通・2026-10-28）：4 隅＋中心を「重心の高さ」で投影し、pad で広げた画面矩形と交差するか。
+// 旧＝海面（radius 1）で投影＝Google photorealistic 3D Tiles の地面（デンバー＝楕円体高 1600 m）を 1.6 km 下に置いて射影するので、目の高さ 260 m の
+// カメラの手前 750 m のタイルが画面の下へ外れて落とされた（building-insert の足元が真っ白＝床の色）。重心の高さで射影すれば実際の画面位置で判る。
+// 注視点（center）か目の足元（foot＝betaToLonLat(st.eye)）が bbox 内なら無条件で可視。radius＝betaRadiusOf(重心)。隅の一部がカメラの後ろ（clip w≦0）か地平線の向こうなら矩形で縛れない＝可視（手前のタイルは目の面を跨ぐ）。
+export function bboxVisible(st: CameraState, bbox: ArrayLike<number>, center: ArrayLike<number>, foot: ArrayLike<number> | null, pad: number, radius = 1): boolean {
+	const inside = (c: ArrayLike<number>) => c[0] >= bbox[0] && c[0] <= bbox[2] && c[1] >= bbox[1] && c[1] <= bbox[3];
+	if (inside(center) || (foot && inside(foot))) return true;
+	const pts = [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[0], bbox[3]], [bbox[2], bbox[3]], [(bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5]];
+	let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, nf = 0;
+	const q = [0, 0, 0];
+	for (const [lon, lat] of pts) {
+		projectInto(st, lon, lat, radius, q);
+		if (q[2] < 0) continue;
+		nf++;
+		if (q[0] < minx) minx = q[0]; if (q[0] > maxx) maxx = q[0];
+		if (q[1] < miny) miny = q[1]; if (q[1] > maxy) maxy = q[1];
+	}
+	if (!nf) return false;   // 全点が裏半球/カメラ背後
+	if (nf < pts.length) return true;   // 目の面（か地平線）を跨ぐ＝画面矩形では縛れない
+	return !(maxx < -pad || minx > st.W + pad || maxy < -pad || miny > st.H + pad);
+}
 export function worldToLonLat(p: ArrayLike<number>): LonLat {
 	const yb = p[1] / R_AX;                                       // world → β空間（S⁻¹＝y だけ 1/R_AX）
 	const len = Math.hypot(p[0], yb, p[2]) || 1;
