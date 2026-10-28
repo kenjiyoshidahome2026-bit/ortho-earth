@@ -1,0 +1,14 @@
+== 4bd2c8e7 clouds webgpu
+   1× error: Failed to load resource: the server responded with a status of 404 (Not Found)
+== 4bd2c8e7 cloud-parameters webgpu
+== 4bd2c8e7 cesium-osm-buildings webgpu
+== 4bd2c8e7 3d-tiles-feature-styling webgpu
+== 4bd2c8e7 3d-tiles-compare webgpu
+== main clouds webgpu
+   1× error: Failed to load resource: the server responded with a status of 404 (Not Found)
+   1× warning: [csshim] unsupported: scene.primitives.add(CloudCollection)
+== main cloud-parameters webgpu
+   1× warning: [csshim] unsupported: scene.primitives.add(CloudCollection)
+== main cesium-osm-buildings webgpu
+== main 3d-tiles-feature-styling webgpu
+== main 3d-tiles-compare webgpu
