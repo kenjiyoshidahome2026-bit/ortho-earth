@@ -193,6 +193,11 @@ export class OrthoScene {
 			}, () => { for (const [lng, lat] of wanted) wanting.delete(`${lng.toFixed(6)},${lat.toFixed(6)}`); });
 		}
 		if (same && this.#lastGlobe && Math.abs(this.#lastGlobe.distance - g.distance) <= 1e-3 * g.distance) return;   // the same pose, and the terrain did not move the target
+		// the globe's near plane is a share of the distance to the target; with globe:false (no terrain to hit) the target sits on the ellipsoid, up to
+		// 2 km under the 3D Tiles the camera actually looks at, so the near plane (hundreds of metres) cut away everything in front of the camera
+		// (google-photorealistic-3d-tiles-with-building-insert: the whole foreground white). Cesium's own near (frustum.near, 1 m) caps it instead
+		const near = (this.camera.frustum as { near?: number }).near;
+		if (Number.isFinite(near) && near! > 0) g.near = near;
 		map.setCamera(g);
 		this.#lastPose = pose; this.#lastGlobe = map.getCamera();
 	}

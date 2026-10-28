@@ -361,14 +361,17 @@ fn elev(ll: vec2f) -> f32 {
 fn elevQ(ll: vec2f) -> f32 {
 	let G = F.ellP.y;
 	if (G < 1.5) { return elev(ll); }
-	let g = (ll - F.mesh.xy) / F.mesh.zw;
+	// 近景層（順 1a）の窓の内側は近景メッシュパス（同じ単位格子を窓へ縮めた物）が地面＝その格子で量子化（主パスはそこを discard 済み・2026-10-28）
+	var win = F.mesh;
+	if (F.nearP.x > 0.5) { let gn = (ll - F.nearBounds.xy) / F.nearBounds.zw; if (gn.x >= 0.0 && gn.x <= 1.0 && gn.y >= 0.0 && gn.y <= 1.0) { win = F.nearBounds; } }
+	let g = (ll - win.xy) / win.zw;
 	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) { return elev(ll); }
 	let N = G - 1.0;
 	let gc = min(g * N, vec2f(N - 1e-4));
 	let gi = floor(gc);
 	let gf = gc - gi;
-	let st = F.mesh.zw / N;
-	let b0 = F.mesh.xy + gi * st;
+	let st = win.zw / N;
+	let b0 = win.xy + gi * st;
 	let h00 = elev(b0);
 	let h10 = elev(b0 + vec2f(st.x, 0.0));
 	let h01 = elev(b0 + vec2f(0.0, st.y));
