@@ -7,6 +7,7 @@ import * as engine from "@cesium/engine";
 const { TweenCollection } = engine as any;   // a runtime export the d.ts leaves out
 import { globeCamOf, poseOfGlobeCam, poseKey, sameKey, sameGlobeCam, setCameraWorldPose, type GlobeCam } from "./camera.ts";
 import { unsupported } from "./report.ts";
+import { postChainOf } from "./postprocess.ts";
 import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
 
 /** the globe and what the facade hangs on it (filled when createGlobe resolves) */
@@ -15,6 +16,8 @@ export interface Host {
 	ready: Promise<any>;
 	/** the entity display (picking, bounding spheres) */
 	display: { pick(x: number, y: number): unknown; drillPick(x: number, y: number, limit?: number): unknown[] } | null;
+	/** the viewer's clock: model animations run only while it animates, at its multiplier (Cesium's ModelVisualizer) */
+	clock?: { shouldAnimate: boolean; multiplier: number } | null;
 }
 
 const R2D = 180 / Math.PI;
@@ -77,6 +80,7 @@ export class OrthoScene {
 	lastRenderTime: any = undefined;
 	#terrainProvider: any;
 	#lastPose: number[] | null = null; #lastGlobe: GlobeCam | null = null; #fovy = 0;
+	#postKey = ""; #aoOn = false;   // postProcessStages → map.setPostChain (順 4): what was last pushed
 	#destroyed = false;
 
 	constructor(host: Host, canvas: HTMLCanvasElement, o: { scene3DOnly?: boolean; globe?: unknown } = {}) {
@@ -120,6 +124,18 @@ export class OrthoScene {
 		return terrain;
 	}
 
+	// postProcessStages (Cesium's real collection; the examples add stages to it) → map.setPostChain each frame when it changed (順 4 · postprocess.ts)
+	#syncPost() {
+		const map = this.host.map; if (!map?.setPostChain) return;
+		let r: ReturnType<typeof postChainOf>;
+		try { r = postChainOf(this.postProcessStages); } catch { return; }
+		const key = JSON.stringify(r.chain) + (r.ao ? "|ao" : "");
+		if (key === this.#postKey) return;
+		this.#postKey = key;
+		for (const w of r.skipped) unsupported(w);
+		try { map.setPostChain(r.chain.length ? r.chain : null); } catch (e) { console.warn("[csshim] postProcessStages", (e as Error)?.message || e); }
+		if (r.ao !== this.#aoOn) { this.#aoOn = r.ao; map.setRenderFx?.({ ao: r.ao }); }
+	}
 	// ── the frame (CesiumWidget.render: initializeFrame → clock.tick → render) ──
 	initializeFrame() {
 		this.tweens.update();
@@ -152,6 +168,7 @@ export class OrthoScene {
 			this.controllerHost.update(this, time);   // as Scene.render: the registered controllers move the camera before it is pushed to the globe
 			this.#pushCamera();
 			this.globe?.__orthoSyncMaterial?.();   // globe.material → the globe's ground material (after preRender: the examples set its uniforms there)
+			this.#syncPost();   // postProcessStages → the globe's post chain (the examples flip enabled/uniforms in preRender and the knockout bindings)
 			this.camera._updateCameraChanged?.();
 			this.postRender.raiseEvent(this, time);
 			credits?.endFrame?.();

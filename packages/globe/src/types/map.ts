@@ -126,6 +126,8 @@ export interface GlobeCoreApi {
 	setPostChain(chain: PostPass[] | PostPass | PostProcessOptions | null): this;   // globe.js:2501
 	/** 保っている鎖（正規化済み・順番どおり） */
 	getPostChain(): PostPass[];   // globe.js:2502
+	/** 描画の質の旗の実行時切替（{ ao?: boolean, pbr?: boolean, atmosphere?: boolean }＝WebGPU の fx・GL2 は読まない）＝Cesium の postProcessStages.ambientOcclusion（順 4・2026-10-28） */
+	setRenderFx(fx: { ao?: boolean; pbr?: boolean; atmosphere?: boolean } | null): this;
 	/** 後処理（bloom・vignette）。本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない。null で外す。 */
 	setPostProcess(p: PostProcessOptions | PostPass[] | null): this;   // globe.js:2503
 	/** 正規化済みの後処理の設定（off なら null）。fxaa／tonemap／lut の鍵は on の時だけ生える（W1） */

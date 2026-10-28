@@ -40,7 +40,8 @@ import { groundWindows, groundSizes, windowsKey } from "../ground.ts";   // 地�
 import { createDepthOutGPU } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createClassifyGPU } from "./classify.ts";   // 面の貼り付け（分類・2026-10-25）＝gl/classify.ts と同じ手順の WebGPU 版
 import { createAoGPU } from "./ao.ts";
-import { createPostGPU } from "./postfx.ts";   // 後処理 bloom・vignette（PR-8）＝flush の終端で canvas を控えに写して合成   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
+import { createPostGPU } from "./postfx.ts";
+import type { StageFrameGPU } from "./poststage.ts";   // 後処理 bloom・vignette（PR-8）＝flush の終端で canvas を控えに写して合成   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
 import { FAR_PIVOT } from "../gint/utility.ts";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
 import type { CameraPose, CameraState } from "../camera.ts";
 import type { WorldPal } from "../worldpal.ts";
@@ -3298,6 +3299,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, focal: st.focal, logCoef,
 				strength: (view.aoStrength ?? 0.6) * aoIn * aoIn * (3 - 2 * aoIn), radiusK: view.aoRadius ?? 0.10, biasSin: view.aoBias ?? 0.15, phase: view.aoPhase ?? 0 });   // 調律ノブ（公開面には出さない）。半径＝視距離の 10%（20〜400m）・強さ 0.6（#63 本人裁定 2026-09-29＝0.5 は斑を抑える暫定で、斑は PR #61 で根治済み）・接平面の sin の下駄 0.15（地平線型・2026-09-26）。aoPhase＝模様の位相（t-ao の安定の検定）
 		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
+		lastStage = { depthTex: t.depth, samples: S, logCoef, dpr: cam.dpr || 1, frame: ++stageFrame };   // 画面の段（Cesium の postProcessStages）が flush の後処理で使う尺
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
 		FAR_PIVOT.on = view.gintFarPivot !== false;   // 塗り扇の遠方の要（画面カリング）の逃げ道（view.gintFarPivot=false＝?nofarpivot=1・比較用）
@@ -3334,7 +3336,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 後処理（PR-8）：描き終えた canvas（1x＝直描き／4x＝上の resolve 済み）を控えに写して bloom・vignette を掛けて戻す。注記・オーバーレイは別 canvas＝掛からない
 		if (post) {
-			try { postFx ??= createPostGPU(device, format, () => rOpts.requestDraw?.()); postFx.encode(frame.enc, ctx!.getCurrentTexture(), frame.w, frame.h, post); }
+			try { postFx ??= createPostGPU(device, format, () => rOpts.requestDraw?.()); postFx.encode(frame.enc, ctx!.getCurrentTexture(), frame.w, frame.h, post, lastStage); }
 			catch (e) { console.warn("[gpu] post-process failed (disabled):", (e as Error)?.message || e); post = null; postFx?.dispose(); postFx = null; }
 		} else if (postFx) { postFx.dispose(); postFx = null; }
 		let st = null;
@@ -3367,6 +3369,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { bitmap()（遅延）, gpu: { device, texture }, w, h, logCoef }, abort() }／depthOut(false)＝畳む。
 	// begin＝申し出の確認だけ（深度テクスチャは常に読める形）。end＝flush の後に 1 パスで詰めて ImageBitmap に。
 	// ImageBitmap をオーバーレイの gl へ上げる所で GPU の完了を待つ＝1 フレーム 1 回の同期（申し出がある間だけの費用・GL2 の readPixels と同じ）
+	let lastStage: StageFrameGPU | null = null, stageFrame = 0;   // 画面の段の尺（gpu/poststage.js）
 	let dOut: DepthOutGPU | null = null, lastDepth: (DepthOutFrame & { logCoef: number }) | null = null, dOutFailed = false;
 	let ao: AoGPU | null = null;   // AO（#46 段 3）＝fx.ao の間だけ
 	let groundLight: { dir: number[]; color: number[]; lambert: number[]; normal: string; fade: number[] | null; night: number[] | null } | null = null;   // 地面の照明（setGroundLighting・Cesium の globe.enableLighting）＝Frame.cg*／Globe.cg*

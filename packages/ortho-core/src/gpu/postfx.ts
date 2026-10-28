@@ -3,6 +3,9 @@
 // canvas の今のテクスチャ（COPY_SRC）を控え（scratch）に copyTextureToTexture し、①明部の抜き出し（半解像度）②ぼかし横③ぼかし縦④合成（scratch＋bloom×strength・四隅の減光）を canvas へ描く。
 // 式は GL2（gl/depthout.js の BRIGHT_FS／BLUR_FS／POST_FS）と同じ。設定の形は ../postfx.js normPost。
 import { loadLUT } from "../lut.ts";
+import { createPostStagesGPU } from "./poststage.ts";
+import type { PostStagesGPU, StageFrameGPU } from "./poststage.ts";
+import type { PostStage } from "../postfx.ts";
 const TM_MODE: Record<string, number> = { linear: 0, reinhard: 1, aces: 2, agx: 3, filmic: 4 };
 const FULL_VS = `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
@@ -109,8 +112,10 @@ export interface PostFrameOptions {
 	lut?: { url: string; size: number; intensity: number } | null;
 	/** 夜の色（乗算 rgb 0..1）＝map.setGrade（2026-10-24）。窓の印（canvas の α）の所は掛けない */
 	grade?: number[] | null;
+	/** 画面の段（Cesium の postProcessStages 相当・2026-10-28）＝固定の鎖の後に並び順どおり（gpu/poststage.js） */
+	stages?: PostStage[] | null;
 }
-export interface PostGPU { encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions): void; dispose(): void; bytes(): number }
+export interface PostGPU { encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): void; dispose(): void; bytes(): number }
 interface PostTargets { w: number; h: number; hw: number; hh: number; scratch: GPUTexture; half: GPUTexture[]; sv: GPUTextureView; hv: GPUTextureView[] }
 interface PostLut { url: string; size: number; tex: GPUTexture | null; view: GPUTextureView | null; n: number; ready: boolean }
 export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null): PostGPU {
@@ -161,8 +166,12 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 		}).catch((e: unknown) => { console.warn("[gpu] post lut load failed:", (e as Error | null)?.message || e); });
 	}
 	// enc＝開いたコマンドエンコーダ・canvasTex＝ctx.getCurrentTexture()（描き終えた色）・post＝normPost の形
-	function encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions): void {
+	let SG: PostStagesGPU | null = null;   // 画面の段（Cesium の postProcessStages 相当）＝段がある間だけ
+	function encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): void {
 		ensure(W, H);
+		const stages = post.stages?.length && sf ? post.stages : null;
+		if (stages) SG ??= createPostStagesGPU(device, format); else if (SG) { SG.dispose(); SG = null; }
+		const stageOn = !!(stages && SG!.drawable(stages));
 		const b = post.bloom, v = post.vignette, t = post.tonemap, g = post.grade;
 		gr = g && g.length >= 3 ? [g[0], g[1], g[2], 1] : [1, 1, 1, 0];
 		syncLut(post.lut);
@@ -179,9 +188,10 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 		}
 		uni(3, bb, vg, sz, [0, 0, 0, 0], tm, lp);
 		const comp = device.createBindGroup({ layout: bglComp, entries: [{ binding: 0, resource: { buffer: ub[3] } }, { binding: 1, resource: T!.sv }, { binding: 2, resource: smp }, { binding: 3, resource: b ? T!.hv[2] : T!.sv }, { binding: 4, resource: lutOn ? L!.view! : dummyView() }] });
-		pass(pComp, canvasTex.createView(), comp);
+		pass(pComp, stageOn ? SG!.target(W, H) : canvasTex.createView(), comp);
+		if (stageOn) SG!.encode(enc, stages!, canvasTex.createView(), W, H, sf!);   // 固定の鎖の出力 → 段を順に → canvas
 	}
-	function dispose() { free(); freeLut(); dummy?.destroy(); dummy = null; for (const u of ub) u.destroy(); }
-	const bytes = () => (T ? T.w * T.h * 4 + T.hw * T.hh * 4 * 3 : 0) + (L?.ready ? L.n * L.n * L.n * 4 : 0);
+	function dispose() { free(); freeLut(); dummy?.destroy(); dummy = null; for (const u of ub) u.destroy(); SG?.dispose(); SG = null; }
+	const bytes = () => (T ? T.w * T.h * 4 + T.hw * T.hh * 4 * 3 : 0) + (SG ? SG.bytes() : 0) + (L?.ready ? L.n * L.n * L.n * 4 : 0);
 	return { encode, dispose, bytes };
 }
