@@ -1395,6 +1395,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		if (!e) return false;
 		const r = rsInit(), prog = r.progs[e.kind];
 		u[0] = w; u[1] = h; u[2] = e.kind; u[12] = cx * N; u[13] = cy * N; u[14] = N;
+		if (src.mode !== "world" && src.sea) u[19] = 1;   // box.w＝海底（負値を通す・mode 0/2 だけ＝mode 1 は box.w を読まない）
 		// 状態＝触る物だけ退避して戻す（set() は draw() の外で呼ばれる＝次の draw() が viewport を戻すが、gint 等の同居者のために戻しておく）
 		const wasBlend = gl.isEnabled(gl.BLEND), wasDepth = gl.isEnabled(gl.DEPTH_TEST), wasStencil = gl.isEnabled(gl.STENCIL_TEST), wasScissor = gl.isEnabled(gl.SCISSOR_TEST), wasCull = gl.isEnabled(gl.CULL_FACE);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, r.fbo);
@@ -1417,7 +1418,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		if ((self as unknown as PerfGlobal).__perfElev) (self as unknown as PerfGlobal).__perfElevLast = { f16: 0, write: 0, gpu: 1, raw: e.fresh };
 		return true;
 	}
-	const cpuCell = (src: CellSrc, N: number): Float32Array => src.mode === "down" ? downsampleFlipped(src.tile, N, src.edge ?? 2) : src.mode === "crop" ? cropResample(src.tile, src.lng0, src.lat0, src.span, N) : worldAtlasCell(src.atlas, src.cx, src.cy, N);
+	const cpuCell = (src: CellSrc, N: number): Float32Array => src.mode === "down" ? downsampleFlipped(src.tile, N, src.edge ?? 2, !!src.sea) : src.mode === "crop" ? cropResample(src.tile, src.lng0, src.lat0, src.span, N, !!src.sea) : worldAtlasCell(src.atlas, src.cx, src.cy, N);
 	function putCellAny(tex: WebGLTexture, cx: number, cy: number, data: CellPayload, N: number): void {   // data＝Float32Array（従来）か生タイルの記述子（mode あり）
 		if (data && (data as CellSrc).mode) { if (!resampleCell(tex, cx, cy, N, data as CellSrc)) writeCell(tex, cx, cy, cpuCell(data as CellSrc, N), N); }
 		else writeCell(tex, cx, cy, data as Float32Array, N);

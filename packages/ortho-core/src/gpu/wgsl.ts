@@ -1992,7 +1992,7 @@ fn rdRaw(idx: u32) -> f32 {
 }
 fn rd(idx: u32) -> f32 {
 	let v = rdRaw(idx);
-	if (!(v >= -420.0 && v <= 9000.0)) { return 0.0; }   // 異常値（int16 巨大値／-9999／NaN）は 0
+	if (!(v >= select(-420.0, -11500.0, R.box.w == 1u) && v <= 9000.0)) { return 0.0; }   // 異常値（int16 巨大値／-9999／NaN）は 0（box.w＝1：海底＝GEBCO の負値を通す）
 	return v;
 }
 @vertex fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -2035,7 +2035,7 @@ fn rd(idx: u32) -> f32 {
 		let t = a + (b - a) * fx;
 		v = t + ((c + (d - c) * fx) - t) * fy;
 	}
-	return vec4f(max(v, 0.0), 0.0, 0.0, 1.0);
+	return vec4f(select(max(v, 0.0), v, R.box.w == 1u), 0.0, 0.0, 1.0);
 }
 `;
 

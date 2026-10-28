@@ -102,5 +102,14 @@ for (const [name, fn] of [["f32ToF16（既定＝native があれば native）", 
 { const t = new Float32Array([3377, 2049, 4098, 1025.5]); const n = f32ToF16(t), l = f32ToF16Loop(t); const dec = h => { const e = (h >> 10) & 31, m = h & 1023; return e ? Math.pow(2, e - 15) * (1 + m / 1024) : m * Math.pow(2, -24); };
 	ok([...n].map(dec).join() === "3376,2048,4096,1026" && [...l].join() === [...n].join(), `タイは偶数丸め（3377→${dec(n[0])}・2049→${dec(n[1])}・4098→${dec(n[2])}・1025.5→${dec(n[3])}＝1026）・native とループが bit 一致`); }
 ok(f32ToF16(new Uint16Array([1, 2, 3])) instanceof Uint16Array, "f32ToF16：Uint16Array（変換済み）はそのまま通す");
+// 海底（sea＝true・Cesium の bathymetry・2026-10-28）：GEBCO の負値（海溝 -10,668 m）を通し、0 へ寄せない。既定は従来どおり 0（海面の地面）
+{
+	const deep = { data: new Int16Array([-10668, -5000, -3000, -32768]), width: 2, height: 2, lng: 140, lat: 30, range: 10 };
+	const d0 = downsampleFlipped(deep, 2, 0), d1 = downsampleFlipped(deep, 2, 0, true);
+	ok([...d0].every(v => v === 0), `既定：負値は 0（${[...d0].join(",")}）`);
+	ok(d1[2] === -10668 && d1[3] === -5000 && d1[0] === -3000 && d1[1] === 0, `sea：深さを通し、-11500 m より深い異常値（-32768）は 0（${[...d1].join(",")}）`);
+	const c1 = cropResample(deep, 140, 30, 10, 2, true);
+	ok(c1.some(v => v < -1000) && c1.every(v => v <= 0), `sea：cropResample も深さを通す（${[...c1].map(v => v.toFixed(0)).join(",")}）`);
+}
 console.log(fails ? `FAIL ${fails}` : "PASS");
 process.exit(fails ? 1 : 0);
