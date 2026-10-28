@@ -837,7 +837,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		const o3 = lonlatTo3D(center[0], center[1]), eye = [o3[0] * 1.001, o3[1] * 1.001, o3[2] * 1.001];   // 窓の上 6km＝地形の遠方の平ら化（距離×fog）に掛からない
 		const fake = { mvp: win.mvp, invMvp: st.invMvp, eye, rays: st.rays } as CameraState;
 		device.queue.writeBuffer(L.frameB, 0, packFrame(fake, mainOrigin, 10, 10, [0, 0, 0], 1, 1));
-		if (terrOn) device.queue.writeBuffer(L.frameT, 0, packFrame(fake, mainOrigin, 10, 10, [0, 0, 0], 1, 1, terrain!.mesh));
+		if (terrOn) device.queue.writeBuffer(L.frameT, 0, packFrame(fake, [center[0], center[1]], 10, 10, [0, 0, 0], 1, 1, terrain!.mesh));   // 地形の錨＝窓の中心（gl と同じく main の原点は使わない）
 		L.castKey = undefined;
 		const enc = device.createCommandEncoder();
 		anBusy = true;
@@ -2683,6 +2683,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const hideBldFill = bldFill.li >= 0 && (cam.pitch || 0) >= 0.02;
 		const dpr = cam.dpr || 1;
 		const mainOrigin = scenes.main.origin || [0, 0];
+		// 地形パスの RTE の錨＝カメラの注視点（f64・毎フレーム）。旧＝main の原点＝基図のタイルが無い地図（@ortho-earth/cesium）では経度 0・緯度 0 のまま＝
+		// 頂点の相対ベクトルが ~1 の大きさになり、f32 の mvp との積が深ズームで相殺を失う＝低い目で地形が目の前で何倍にも歪んだ（Cesium 例 shadows・2026-10-28）。gl/renderer.ts terrOrigin と同じ
+		const terrOrigin = [cam.center[0], cam.center[1]];
 		// 太陽（#46 段 0）：共通の時計の太陽方向（地球固定）と、シーン原点での昼の度合い（高度 −6°→+6°＝市民薄明の幅で 0→1）。
 		// 影の shadow.time は影だけの時刻＝ここは時計に従う（面の照明は「その時刻の空」に合わせる・段 2）。
 		// 評価点＝カメラの中心（シーンの原点は無い時に (0,0) へ落ちる＝レンダラ直叩き・世界ビュー）
@@ -2705,9 +2708,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		device.queue.writeBuffer(frameBuf, SLOT.base * FRAME_SLOT, packFrame(st, scenes.base.origin || [0, 0], st.fogDist * 2.5 * fogK(), fogFarCap, fogColorOf(land), logCoef, dpr));
 		device.queue.writeBuffer(frameBuf, SLOT.main * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5 * fogK(), fogFarCap, fogColorOf(land), logCoef, dpr));
 		const dc = view.distColor || [0.63, 0.72, 0.83];   // 空気遠近法＝遠くの山は青く霞む
-		device.queue.writeBuffer(frameBuf, SLOT.terrain * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, terrain ? terrain.mesh : null));
+		device.queue.writeBuffer(frameBuf, SLOT.terrain * FRAME_SLOT, packFrame(st, terrOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, terrain ? terrain.mesh : null));
 		const farActive = terrainActive && far.has && !!farTexObj;   // 遠景メッシュパス（terrain slot と同 fog・mesh=遠窓・farPass=1）
-		if (farActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFar * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, far.bounds, 1));
+		if (farActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFar * FRAME_SLOT, packFrame(st, terrOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, far.bounds, 1));
 		// 地形チャンクの可視区間（P4 step B）＝近窓・遠窓それぞれ（同じ単位格子・別の窓）。カメラの行列が同じ静止フレームでも安い（256 箱×20 点）
 		const nearRuns = terrainActive ? terrRuns(terrain!.mesh, st, "near") : null;
 		const farRuns = farActive ? terrRuns(far.bounds, st, "far") : null;
@@ -2721,7 +2724,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const Ls = sh!.L[i], w = wins[i];
 				device.queue.writeBuffer(Ls.frameB, 0, packFrame({ mvp: w.mvp, invMvp: st.invMvp, eye: shWin.eye, rays: st.rays } as CameraState, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, fogColorOf(land), logCoef, dpr));
 				// 地形を落とす側（#112 段 2）＝terrain スロットと同じ窓・同じ距離フェード（eye はカメラ＝画面の地形と同じ形）で行列だけ太陽
-				if (terrainActive) device.queue.writeBuffer(Ls.frameT, 0, packFrame({ mvp: w.mvp, invMvp: st.invMvp, eye: st.eye, rays: st.rays } as CameraState, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, fogColorOf(dc), logCoef, dpr, terrain!.mesh));
+				if (terrainActive) device.queue.writeBuffer(Ls.frameT, 0, packFrame({ mvp: w.mvp, invMvp: st.invMvp, eye: st.eye, rays: st.rays } as CameraState, terrOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, fogColorOf(dc), logCoef, dpr, terrain!.mesh));
 			}
 			// 受け手の錨＝窓の中心（視点の注視点）の f32 値（旧＝main の原点 Frame.originPt＝基図のタイルが無い地図（@ortho-earth/cesium）では経度 0・緯度 0
 			// のまま＝8000km 離れた錨から f32 で相対位置を取ると 1m 近くずれ、模型が 1m ずれた自分の影をまだらに被った・2026-10-27）。
@@ -2751,7 +2754,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			clipRes();
 			const sty = clip!.style;
 			CLIP_SLOTS.forEach((k, i) => {   // 対象のスロット＝main 原点・塗りと線のスロット＝そのシーンの原点で vector の面。蓋はその対象に面がある時だけ
-				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : mainOrigin, pl = tp![k] || tp!.vector, pg = (tg as Record<string, ReturnType<typeof clipPolygonFor>>)[k] ?? (k in tg! ? null : tg!.vector);
+				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : k === "terrain" ? terrOrigin : mainOrigin, pl = tp![k] || tp!.vector, pg = (tg as Record<string, ReturnType<typeof clipPolygonFor>>)[k] ?? (k in tg! ? null : tg!.vector);
 				packClip(pl, lonlatTo3D(o[0], o[1]), cl!.cpu.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), { ...sty, capOn: sty.capOn && pl.length > 0 }, pg);
 			});
 			device.queue.writeBuffer(cl!.buf, 0, cl!.cpu);
@@ -2922,9 +2925,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}
 			// 地形の蓋（#111 段 2）＝切った面ごとに「地面の中」だけ塗る板（近窓・遠窓の 2 回・地形と同じ分担）
 			if (C && tp!.terrain.length && clip!.style.capOn) {
-				const O = clipOPt!, clipPl = tp!.terrain;
-				packCap(0, clipPl, O, mainOrigin, terrain!.mesh, cam.center, false);
-				if (farActive) packCap(1, clipPl, O, mainOrigin, far.bounds, cam.center, true);
+				const O = lonlatTo3D(terrOrigin[0], terrOrigin[1]), clipPl = tp!.terrain;   // 蓋の錨＝地形の錨（terrOrigin）
+				packCap(0, clipPl, O, terrOrigin, terrain!.mesh, cam.center, false);
+				if (farActive) packCap(1, clipPl, O, terrOrigin, far.bounds, cam.center, true);
 				device.queue.writeBuffer(cl!.capBuf, 0, cl!.capCPU);
 				pass.setPipeline(C.cap!);
 				pass.setBindGroup(0, bg0.terrain); pass.setBindGroup(1, cl!.capBG[0]); pass.draw(6, clipPl.length);
