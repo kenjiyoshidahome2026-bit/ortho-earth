@@ -96,7 +96,14 @@ export interface ModelOut {
 /** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable・splats（KHR_gaussian_splatting を splat として返す＝false なら点として描く）・voxels（EXT_primitive_voxels を voxel として返す＝false なら飛ばす） */
 export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; splats?: boolean; voxels?: boolean | VoxelTileOpts; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
 /** decodeModel の opts */
-export interface DecodeModelOpts { at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number }
+export interface DecodeModelOpts { at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number; /** タイル本体を取った時の headers／credentials（transformRequest・ion の Bearer）＝同じ origin の外部画像・buffer・i3dm の glTF にも付ける（無いと ion の CDB のテクスチャが 401） */ fetchOpts?: FetchOpts | null }
+export interface FetchOpts { headers?: Record<string, string> | null; credentials?: RequestCredentials | null }
+/** fetch の代わり＝baseUri と同じ origin の URL にだけ headers／credentials を付ける（別ホストへ委譲された画像に token を漏らさない） */
+export const fetchFor = (baseUri: string | null | undefined, o: FetchOpts | null | undefined): typeof fetch => {
+	const origin = (() => { try { return baseUri ? new URL(baseUri, self.location?.href).origin : null; } catch { return null; } })();
+	const same = (u: RequestInfo | URL) => { try { return !!origin && new URL(typeof u === "string" ? u : u instanceof URL ? u : u.url, baseUri!).origin === origin; } catch { return false; } };
+	return (u, init) => fetch(u, { credentials: "omit", ...init, ...(o && same(u) ? { ...(o.credentials && { credentials: o.credentials }), ...(o.headers && { headers: { ...(init?.headers as Record<string, string> | undefined), ...o.headers } }) } : {}) });
+};
 /** 模型の束の断片（プリミティブ 1 つ分） */
 interface ModelSeg { geo: Float64Array; nrm: Int8Array; idx: Uint32Array; uv: Float32Array; col: Uint8Array; fid: Uint32Array | null; tbl: number | null }
 /** 変換器の module（registry.textureTranscoders の url を import() した物） */
@@ -115,7 +122,7 @@ const transcoderFor = (name: string) => {
 	return p;
 };
 // KHR_texture_basisu の texture を変換器で素の RGBA に。raw＝生の json（loaders.gl が拡張を外す前）・gltf＝postProcess 後。戻り＝{ textures, transcoded, failed }
-async function transcodeBasisu(gltf: GltfDoc, raw: RawGltf | null, baseUri: string | null) {
+async function transcodeBasisu(gltf: GltfDoc, raw: RawGltf | null, baseUri: string | null, f: typeof fetch = fetch) {
 	const out = { textures: 0, transcoded: 0, failed: 0 }, todo: Array<[number, number]> = [];
 	(raw?.textures || []).forEach((t, i) => { const src = t?.extensions?.KHR_texture_basisu?.source; if (Number.isInteger(src)) { out.textures++; todo.push([i, src!]); } });
 	if (!todo.length) return out;
@@ -123,7 +130,7 @@ async function transcodeBasisu(gltf: GltfDoc, raw: RawGltf | null, baseUri: stri
 	if (!mod) { out.failed = out.textures; return out; }
 	const bytesOf = async (img: NonNullable<RawGltf["images"]>[number]) => {
 		if (Number.isInteger(img.bufferView)) { const bv = gltf.bufferViews?.[img.bufferView!], b = bv?.buffer; return b?.arrayBuffer ? new Uint8Array(b.arrayBuffer, (b.byteOffset || 0) + (bv!.byteOffset || 0), bv!.byteLength) : null; }
-		if (typeof img.uri === "string") { const u = new URL(img.uri, baseUri || self.location?.href), r = await fetch(u, { credentials: "omit" }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); }
+		if (typeof img.uri === "string") { const u = new URL(img.uri, baseUri || self.location?.href), r = await f(u, { credentials: "omit" }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); }
 		return null;
 	};
 	const imgs = new Map<number, Promise<GltfImage | null>>();   // image 番号 → Promise<{ data, width, height } | null>（同じ画像は 1 回）
@@ -922,9 +929,10 @@ function voxelPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 // tile＝3D Tiles のタイルとして置く（#41・2026-09-23）＝{ places:[{ L:列優先3x3, t:[x,y,z] }]（タイル変換×インスタンス・ECEF）, rtc:[x,y,z]|null, baseH:m, points:true }。
 //   頂点 ECEF = L·(rtc + Y2Z·W·p) + t（仕様どおり glTF の Y-up→Z-up はノード変換の後・RTC とタイル変換の前）。
 //   baseH＝高さの基準（接地しない＝絶対高さ − baseH をそのまま持つ・呼び手は noLift で置く）。points＝点のプリミティブ（mode 0）を別に返す。
-export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0 }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
+export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
-	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
+	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
+	const f = fetchFor(baseUri, fetchOpts);   // 外部画像・buffer＝タイルと同じ headers で（ion の Bearer）
 	const raw = rawGltfJson(ab);   // 生の json（見出し＝F4・KHR_texture_basisu の texture→image＝W5）
 	let gltf: GltfDoc;
 	try { gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(textures))) as GltfDoc; }
@@ -933,7 +941,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		console.warn("[model] parse with images failed = retry without textures:", (e as Error | null)?.message);
 		textures = false; gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(false))) as GltfDoc;
 	}
-	const ktx2 = textures ? await transcodeBasisu(gltf, raw, baseUri) : { textures: 0, transcoded: 0, failed: 0 };   // KTX2/Basis の texture を変換器で素の RGBA に（W5・無ければ fallback の画像）
+	const ktx2 = textures ? await transcodeBasisu(gltf, raw, baseUri, f) : { textures: 0, transcoded: 0, failed: 0 };   // KTX2/Basis の texture を変換器で素の RGBA に（W5・無ければ fallback の画像）
 	// シーン木を根から歩き、mesh を持つノードごとに world 行列（Y-up ローカル）を確定。scene 無しの glb は「親を持たないノード」を根とみなす
 	const nodes = gltf.nodes || [];
 	let roots = gltf.scene?.nodes || gltf.scenes?.[0]?.nodes;
