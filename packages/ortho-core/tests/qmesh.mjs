@@ -100,5 +100,30 @@ console.log("― ジオイド高（段 5）―");
 	ok(Math.abs(e - w) < 0.2, `日付変更線で途切れない（${e.toFixed(2)} / ${w.toFixed(2)}）`);
 }
 
+console.log("― 海底のセル（seafloor）：R10＝z8・無い段は親で埋める ―");
+{
+	// layer.json に在庫（available）が無い配信（ion の World Bathymetry＝metadata で配る）：z8 は 1 枚だけ・残りは z7 の親で埋まる
+	const flat = h => makeTile([0, 0, 1, 1], 5, () => h).ab;
+	const asked = [], cellX = 140, cellY = 0;
+	const [hx, hy] = qmTileAt(8, cellX + 5.1, cellY + 5.1);
+	globalThis.fetch = async (u) => {
+		const url = String(u);
+		if (url.endsWith("layer.json")) return { ok: true, json: async () => ({ format: "quantized-mesh-1.0", tiles: ["{z}/{x}/{y}.terrain"], maxzoom: 18, extensions: ["metadata"], metadataAvailability: 10 }) };
+		const [z, x, y] = url.split("/").slice(-3).map(v => parseInt(v)); asked.push(z);
+		if (z === 7 || (z === 8 && x === hx && y === hy)) { const b = flat(z === 8 ? -6000 : -5000); return { ok: true, arrayBuffer: async () => b }; }
+		return { ok: false, status: 404 };
+	};
+	const { createQmeshSource } = await import("../src/qmesh-src.ts");
+	const src = createQmeshSource({ url: "https://x.test/layer.json", heights: "orthometric", seafloor: true });
+	const c = await src.cell(cellX, cellY, 10, 65);
+	const at = (lng, lat) => c.data[Math.round((cellY + 10 - lat) / 10 * 64) * 65 + Math.round((lng - cellX) / 10 * 64)];
+	ok(asked.includes(8) && !asked.includes(6), `R10 は z8 から取る（取った段 ${[...new Set(asked)].sort((a, b) => a - b).join(",")}）`);
+	ok(c && c.valid === 1, `z8 の 404 は z7 の親で埋まり、穴が無い（valid ${c?.valid}）`);
+	const land = createQmeshSource({ url: "https://y.test/layer.json", heights: "orthometric", cellZoom: 8 });
+	const cl = await land.cell(cellX + 5, cellY + 5, 1, 65), li = Math.round(0.1 * 64) * 65 + Math.round(0.9 * 64);
+	ok(cl && cl.data[li] !== cl.data[li], `陸（seafloor 無し）は親で埋めない＝無い所は NaN（既定の標高が入る）`);
+	ok(at(cellX + 1, cellY + 1) === -5000 && at(cellX + 5.1, cellY + 5.1) === -6000, `親（-5000）の上に細かい段（-6000）が勝つ（${at(cellX + 1, cellY + 1)} / ${at(cellX + 5.1, cellY + 5.1)}）`);
+}
+
 if (fails) { console.error(`FAIL ${fails}`); process.exit(1); }
 console.log("PASS qmesh");
