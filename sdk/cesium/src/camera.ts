@@ -52,7 +52,8 @@ export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, foc
 	const heading = (Math.hypot(de, dn) < 1e-6 ? Math.atan2(Cartesian3.dot(up, E), Cartesian3.dot(up, N)) : Math.atan2(de, dn)) * R2D;
 	const pitch = Math.max(0, Math.min(90, 90 + Math.asin(Math.max(-1, Math.min(1, du))) * R2D));   // 0 = straight down (MapLibre)
 	// roll: the angle from the level "up" (the up a camera with this heading and pitch has without roll) to the camera's up, about the view ray
-	const level = levelUp(d, v2);
+	// straight down (the heading came from up): no roll is left. Measuring it from levelUp turned a pitch just past -90° (the ray tipped back) into roll 180 = the picture upside down (3d-tiles-formats)
+	const level = Math.hypot(de, dn) < 1e-6 ? null : levelUp(d, v2);
 	let roll = 0;
 	if (level) {
 		const cr = Cartesian3.cross(level, Cartesian3.normalize(up, v3), new Cartesian3());

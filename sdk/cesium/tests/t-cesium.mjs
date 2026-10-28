@@ -38,6 +38,10 @@ for (const g of [
 	const pos = Cartesian3.fromDegrees(0, 0, 1e6), dir = Cartesian3.negate(Ellipsoid.WGS84.geodeticSurfaceNormal(pos, new Cartesian3()), new Cartesian3());
 	const g = globeCamOf(pos, dir, Cartesian3.UNIT_Z);
 	ok("camera straight down", near(g.lng, 0, 1e-9) && near(g.lat, 0, 1e-9) && near(g.distance, 1e6, 1e-3) && near(g.pitch, 0, 1e-6) && near(g.heading, 0, 1e-6), JSON.stringify(g));
+	// a hair past straight down (pitch -90.00001°, the ray tipped back toward the south): north-up stays north-up (was roll 180 = upside down)
+	const back = Cartesian3.normalize(Cartesian3.add(dir, Cartesian3.multiplyByScalar(Cartesian3.UNIT_Z, -2e-7, new Cartesian3()), new Cartesian3()), new Cartesian3());
+	const g2 = globeCamOf(pos, back, Cartesian3.UNIT_Z);
+	ok("camera a hair past straight down keeps north up", near(g2.heading, 0, 1e-6) && near(g2.roll, 0, 1e-6), JSON.stringify(g2));
 	const sky = globeCamOf(pos, Cartesian3.UNIT_Z, Cartesian3.negate(dir, new Cartesian3()));   // looking north along the horizon at 1000 km: misses the globe
 	ok("camera at the sky has a target", !!sky && sky.distance >= 1000 && sky.pitch <= 90, JSON.stringify(sky));
 }
