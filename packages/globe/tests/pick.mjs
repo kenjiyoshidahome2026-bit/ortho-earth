@@ -6,7 +6,7 @@
 // GPU の経路（FBO に描いて読む）は tests/t-pick.html（verify:ui）。
 // 使い方：node packages/globe/tests/pick.mjs
 import { decodeId, nearestId } from "../src/gadgets/points-gl.ts";
-import { nearestMark, dashRun, arrowRun } from "../src/gadgets/czml-draw.ts";
+import { nearestMark, dashRun, arrowRun, nearFar } from "../src/gadgets/czml-draw.ts";
 import { rayMeshes } from "../src/meshpick.ts";
 
 let fails = 0;
@@ -71,6 +71,14 @@ console.log("rayMeshes");
 	out = []; arrowRun([[0, 0], [100, 0]], 9, out);
 	const a = segs(out), shaft = a[0], tip = a[a.length - 1];
 	ok(Math.abs(shaft[2] - (100 - 13.5)) < 1e-6 && shaft[4] === 3 && tip[2] === 100 && tip[4] < 1 && a.slice(1).every((q, i, r) => !i || q[4] < r[i - 1][4]), `arrow: thin shaft to 1.5 widths from the tip, then a narrowing head (${a.map(q => q[4].toFixed(2)).join(" ")})`);
+}
+
+// Cesium's NearFarScalar (czm_nearFarScalar): the squared distances' fraction to the power 0.2. KML marks: scale 1 → 0.1 from 2414 km to 16093 km
+{
+	const nf = [2414016, 1, 16093000, 0.1];
+	const d = 23212982, mid = 9e6, t = Math.pow((mid * mid - nf[0] ** 2) / (nf[2] ** 2 - nf[0] ** 2), 0.2);
+	ok(nearFar(nf, 1000) === 1 && Math.abs(nearFar(nf, d) - 0.1) < 1e-12 && Math.abs(nearFar(nf, mid) - (1 + (0.1 - 1) * t)) < 1e-12, `nearFar: 1 near, 0.1 far, Cesium's curve between (${nearFar(nf, mid).toFixed(4)})`);
+	ok(nearFar([3e6, 1, 5e6, 0], 6e6) === 0, "nearFar: a label fades out past its far distance");
 }
 
 if (fails) { console.error(`pick: ${fails} failed`); process.exit(1); }

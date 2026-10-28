@@ -15,6 +15,8 @@ import { cesiumSphereOf } from "./spheres.ts";
 import { gltfSphere } from "./gltf.ts";
 import { Cesium3DTileset } from "./tileset.ts";
 import { PrimitiveDrawer } from "./primitives.ts";
+import { runClustering } from "./clusters.ts";
+import type { ClusterState } from "./clusters.ts";
 import { matKey, matOfProperty, paint } from "./materials.ts";
 import type { MatDesc } from "./materials.ts";
 import type { Host, OrthoScene } from "./scene.ts";
@@ -36,6 +38,8 @@ const onSurface = (name: string, g: Any, t: JulianDate) => SURFACE.has(name) && 
 const R2D = 180 / Math.PI, D2R = Math.PI / 180, FAR = 8.64e15;
 const SRC = "__cs-shapes";
 const val = (p: Any, t: JulianDate, d?: Any) => { const v = Property.getValueOrUndefined(p, t); return v === undefined ? d : v; };
+/** a NearFarScalar → [near, nearValue, far, farValue] (the globe's marks scale and fade by the eye's distance as Cesium's billboards and labels) */
+const nfOf = (v: Any): number[] | null => v && Number.isFinite(v.near) ? [v.near, v.nearValue, v.far, v.farValue] : null;
 const isConst = (p: Any) => p == null || Property.isConstant(p);
 const css = (c: Color | undefined, d = Color.WHITE) => (c ?? d).toCssColorString();
 const rgbAlpha = (c: Color | undefined, d = Color.WHITE): [string, number] => { const k = c ?? d; return [Color.fromAlpha(k, 1).toCssColorString(), k.alpha]; };
@@ -70,12 +74,17 @@ function imageSrc(im: Any): string | null {
 	return null;
 }
 /** the natural size of an image (loaded once, on the main thread) — the billboard's origins need it */
-const sizes = new Map<string, { w: number; h: number } | null>();
+//   every caller while it loads is told when it has (旧＝最初の 1 件だけ＝同じ画像の他の billboard は width / height の縮尺が付かないまま・clustering 例の 64 px の施設アイコン)
+const sizes = new Map<string, { w: number; h: number } | null>(), waiting = new Map<string, Array<() => void>>();
 function imageSize(src: string, onLoad: () => void): { w: number; h: number } | null {
-	if (sizes.has(src)) return sizes.get(src)!;
-	sizes.set(src, null);
+	if (sizes.get(src)) return sizes.get(src)!;
+	const w = waiting.get(src);
+	if (w) { w.push(onLoad); return null; }
+	if (sizes.has(src)) return null;   // failed to load
+	sizes.set(src, null); waiting.set(src, [onLoad]);
 	const im = new Image(); im.crossOrigin = "anonymous";
-	im.onload = () => { sizes.set(src, { w: im.naturalWidth, h: im.naturalHeight }); onLoad(); };
+	im.onload = () => { sizes.set(src, { w: im.naturalWidth, h: im.naturalHeight }); const cbs = waiting.get(src) ?? []; waiting.delete(src); for (const f of cbs) f(); };
+	im.onerror = () => { waiting.delete(src); };
 	im.src = src;
 	return null;
 }
@@ -224,6 +233,7 @@ export class EntityDisplay {
 	#gsph = new Map<string, { center: number[]; radius: number } | null | "pending">();
 	#needRedraw = false; #destroyed = false;
 	#marks: Array<{ e: Any; x: number; y: number; r: number }> = [];
+	#clusters = new Map<Any, ClusterState>(); #clusterSeq = 0; #clusterRecs = new Map<Any, Rec>();   // data source → its clustering now; the cluster entities' records (drawn and picked like entities)
 	#solids: PrimitiveDrawer; #solidPrims = new Map<Any, { of: Desc["solids"]; ps: Any[] }>();
 	/** what the scene's primitives draw through this display: 3D lines, and pickers ((x, y) → a pick result) */
 	readonly extra = { lines: () => [] as Any[], pickers: [] as Array<(x: number, y: number) => Any>, sources: [] as Any[] };
@@ -257,6 +267,36 @@ export class EntityDisplay {
 			for (const e of ds.entities.values) out.push(e);
 		}
 		return out;
+	}
+	// ── clustering (a data source's EntityCluster: clusters.ts) ──
+	/** the entities the clusters hide now; the cluster entities go to #clusterRecs. Clustered again when the view, the settings or the entities change */
+	#cluster(time: JulianDate): Set<Any> {
+		const hidden = new Set<Any>(), seen = new Set<Any>();
+		const cam = (this.scene as Any).camera, cv = (this.scene as Any).canvas;
+		const view = cam ? [cam.positionWC, cam.directionWC, cam.upWC].map((v: Any) => `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`).join("|") + `|${cv?.clientWidth}x${cv?.clientHeight}` : "";
+		for (let i = 0; i < this.dataSources.length; i++) {
+			const ds = this.dataSources.get(i), c = ds?.clustering;
+			if (!c || ds.show === false || !c.enabled || !cam) continue;
+			seen.add(ds);
+			const ents = ds.entities.values;
+			let st = this.#clusters.get(ds);
+			if (!st) this.#clusters.set(ds, st = { key: "", prev: [], prevHeight: 0, hidden: new Set(), ents: [] });
+			let waiting = false;
+			const size = (im: Any) => { const src = imageSrc(im); if (!src) return null; const z = imageSize(src, () => {}); if (!z) waiting = true; return z; };
+			const key = `${view}|${c.pixelRange}|${c.minimumClusterSize}|${c.clusterBillboards}${c.clusterLabels}${c.clusterPoints}|${ents.length}|${c.clusterEvent.numberOfListeners}`;
+			if (key !== st.key) {
+				runClustering(ds, ents, time, this.scene, st, size, () => ++this.#clusterSeq);
+				st.key = waiting || st.ents.some((e: Any) => e.billboard && !size(val(e.billboard.image, time))) ? "" : key;   // an image still loading: its box and origin are not known yet (cluster again)
+			}
+			for (const e of st.hidden) hidden.add(e);
+		}
+		for (const ds of [...this.#clusters.keys()]) if (!seen.has(ds)) this.#clusters.delete(ds);
+		// the cluster entities (kept while the same; a record each, like an entity's)
+		const want = new Set<Any>();
+		for (const st of this.#clusters.values()) for (const e of st.ents) want.add(e);
+		for (const [e, r] of this.#clusterRecs) if (!want.has(e)) { r.off(); this.#clusterRecs.delete(e); this.#recs.delete(e); }
+		for (const e of want) if (!this.#clusterRecs.has(e)) this.#clusterRecs.set(e, this.#rec(e));
+		return hidden;
 	}
 	#rec(e: Any): Rec {
 		let r = this.#recs.get(e);
@@ -298,7 +338,9 @@ export class EntityDisplay {
 		if (this.#destroyed) return true;
 		const map = this.host.map;
 		const ents = this.#entities(), live = new Set(ents);
-		for (const [e, r] of this.#recs) if (!live.has(e)) { r.off(); this.#recs.delete(e); }
+		for (const [e, r] of this.#recs) if (!live.has(e) && !this.#clusterRecs.has(e)) { r.off(); this.#recs.delete(e); }
+		const hidden = this.#cluster(time);
+		for (const e of this.#clusterRecs.keys()) { live.add(e); ents.push(e); }
 		for (const e of [...this.#tilesets.keys()]) if (!live.has(e)) this.#dropTileset(e);
 		const tracks: Any[] = [], lines: Any[] = [], shapes: Any[] = [], patterns: Desc["patterns"] = [], classes: Desc["classify"] = [], models = new Map<Any, NonNullable<Desc["model"]>>(), solids = new Map<Any, NonNullable<Desc["solids"]>>();
 		for (const e of ents) {
@@ -310,7 +352,7 @@ export class EntityDisplay {
 			}
 			const d = r.desc;
 			if (!d) continue;
-			const shown = e.isShowing && e.isAvailable(time);
+			const shown = e.isShowing && e.isAvailable(time) && !hidden.has(e);
 			if (e.tileset || this.#tilesets.has(e)) this.#placeTileset(e, time, shown);
 			if (d.track && shown) tracks.push(d.track);
 			if (!shown) continue;
@@ -412,7 +454,7 @@ export class EntityDisplay {
 			style.point = { size: val(pt.pixelSize, t, 1), color: css(val(pt.color, t)), outline: ow > 0 ? css(val(pt.outlineColor, t), Color.BLACK) : null, outlineWidth: ow, show: true };
 		}
 		if (bb && val(bb.show, t, true)) {
-			dyn(bb.image, bb.scale, bb.pixelOffset, bb.show, bb.verticalOrigin, bb.horizontalOrigin, bb.width, bb.height);
+			dyn(bb.image, bb.scale, bb.pixelOffset, bb.show, bb.verticalOrigin, bb.horizontalOrigin, bb.width, bb.height, bb.scaleByDistance, bb.translucencyByDistance);
 			const src = imageSrc(val(bb.image, t));
 			if (src) {
 				let scale = val(bb.scale, t, 1);
@@ -426,11 +468,11 @@ export class EntityDisplay {
 					if (vo === VerticalOrigin.BOTTOM || vo === VerticalOrigin.BASELINE) oy -= sz.h * scale / 2; else if (vo === VerticalOrigin.TOP) oy += sz.h * scale / 2;
 					if (ho === HorizontalOrigin.LEFT) ox += sz.w * scale / 2; else if (ho === HorizontalOrigin.RIGHT) ox -= sz.w * scale / 2;
 				}
-				style.image = { src, scale, offset: [ox, oy], show: true };
+				style.image = { src, scale, offset: [ox, oy], show: true, sbd: nfOf(val(bb.scaleByDistance, t)), tbd: nfOf(val(bb.translucencyByDistance, t)) };
 			}
 		}
 		if (lb && val(lb.show, t, true)) {
-			dyn(lb.text, lb.font, lb.fillColor, lb.outlineColor, lb.pixelOffset, lb.scale, lb.show, lb.style, lb.horizontalOrigin, lb.verticalOrigin);
+			dyn(lb.text, lb.font, lb.fillColor, lb.outlineColor, lb.pixelOffset, lb.scale, lb.show, lb.style, lb.horizontalOrigin, lb.verticalOrigin, lb.scaleByDistance, lb.translucencyByDistance);
 			const text = val(lb.text, t);
 			if (text != null && text !== "") {
 				const px = fontPx(val(lb.font, t, "30px sans-serif")) * val(lb.scale, t, 1);
@@ -438,6 +480,7 @@ export class EntityDisplay {
 				const ho = val(lb.horizontalOrigin, t, HorizontalOrigin.CENTER), vo = val(lb.verticalOrigin, t, VerticalOrigin.BASELINE);
 				const oy = off.y + (vo === VerticalOrigin.BOTTOM || vo === VerticalOrigin.BASELINE ? -px / 2 : vo === VerticalOrigin.TOP ? px / 2 : 0);
 				style.label = {
+					sbd: nfOf(val(lb.scaleByDistance, t)), tbd: nfOf(val(lb.translucencyByDistance, t)),
 					text: String(text), px, offset: [off.x, oy], align: ho === HorizontalOrigin.LEFT ? "left" : ho === HorizontalOrigin.RIGHT ? "right" : "center", show: true,
 					color: st === LabelStyle.OUTLINE ? "rgba(0,0,0,0)" : css(val(lb.fillColor, t)),
 					outline: st === LabelStyle.FILL ? "rgba(0,0,0,0)" : css(val(lb.outlineColor, t), Color.BLACK),
@@ -840,7 +883,7 @@ export class EntityDisplay {
 		const map = this.host.map;
 		for (const [e, r] of this.#recs) {
 			const d = r.desc;
-			if (!d || !e.isShowing || !e.isAvailable(t)) continue;
+			if (!d || !e.isShowing || !e.isAvailable(t) || this.#isClustered(e)) continue;
 			if (d.track || d.model) {
 				const p = val(e.position, t);
 				const w = p && SceneTransforms.worldToWindowCoordinates(this.scene as never, p);
@@ -857,6 +900,7 @@ export class EntityDisplay {
 		}
 		return out.sort((a, b) => a.d - b.d).map(c => c.e);
 	}
+	#isClustered(e: Any) { for (const st of this.#clusters.values()) if (st.hidden.has(e)) return true; return false; }
 	pick(x: number, y: number): Any {
 		const e = this.#candidates(x, y)[0];
 		if (e) return e.__csPick?.() ?? { id: e, primitive: { id: e }, collection: undefined };

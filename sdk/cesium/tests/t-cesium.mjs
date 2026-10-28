@@ -394,5 +394,31 @@ for (const g of [
 	ok("clouds: remove drops the layer", posts[posts.length - 1].type === "remove");
 }
 
+// ── clustering: EntityCluster's declutter pass on the entities' marks (clusters.ts, 順 5) ──
+{
+	const core = await import("@cesium/core");
+	const { clusterPoints, clusterGraphics, clusterEntity } = await import("../src/clusters.ts");
+	const R = (x, y, w, h) => new core.BoundingRectangle(x, y, w, h);
+	const P = (x, y, id) => ({ coord: { x, y }, bbox: R(x - 21, y - 21, 42, 42), position: new core.Cartesian3(x, y, 0), id });   // a 12 px mark widened by 15 px
+	const pts = [P(100, 100, "a"), P(110, 105, "b"), P(95, 112, "c"), P(400, 400, "d"), P(405, 402, "e"), P(800, 100, "f")];
+	const r = clusterPoints(pts, 3, [], 1e7, 0, () => undefined);
+	ok("clustering: three marks within the box make one cluster", r.clusters.length === 1 && r.clusters[0].ids.join() === "a,b,c", JSON.stringify(r.clusters.map(c => c.ids)));
+	ok("clustering: the cluster sits at their mean", Math.abs(r.clusters[0].position.x - 305 / 3) < 1e-9 && Math.abs(r.clusters[0].position.y - 317 / 3) < 1e-9);
+	ok("clustering: two near marks stay alone below minimumClusterSize, as does a far one", r.alone.join() === "d,e,f", r.alone.join());
+	const r2 = clusterPoints([P(400, 400, "d"), P(405, 402, "e"), P(800, 100, "f")], 2, [], 1e7, 0, () => undefined);
+	ok("clustering: minimumClusterSize 2 gathers the pair", r2.clusters.length === 1 && r2.clusters[0].ids.join() === "d,e");
+	// zooming in keeps the previous clusters first (Cesium's previous-cluster pass)
+	const prev = r.next.map(c => ({ ...c }));
+	const pts3 = [P(100, 100, "a"), P(120, 100, "b"), P(140, 100, "c")];   // on their own: a gathers b only, b gathers c only (no cluster of 3)
+	const r3 = clusterPoints(pts3, 3, prev, 5e6, 1e7, p => ({ x: p.x, y: p.y }));
+	ok("clustering: the same marks without the previous clusters make none", clusterPoints(pts3.map(p => ({ ...p, clustered: false })), 3, [], 5e6, 1e7, p => ({ x: p.x, y: p.y })).clusters.length === 0);
+	ok("clustering: zooming in, a previous cluster still holding enough marks is kept", r3.clusters.length === 1 && r3.clusters[0].ids.length === 3, JSON.stringify(r3.clusters.map(c => c.ids)));
+	const g = clusterGraphics(12, ["a"], new core.Cartesian3(1, 2, 3));
+	ok("clustering: the cluster starts as Cesium's (the count as a label, billboard and point hidden)", g.label.show && g.label.text === "12" && !g.billboard.show && !g.point.show);
+	g.label.show = false; g.billboard.show = true; g.billboard.image = "data:image/png;base64,AA=="; g.billboard.verticalOrigin = 1;
+	const ce = clusterEntity("k", g, ["a", "b"]);
+	ok("clustering: a restyled cluster draws its billboard, not its label", !!ce.billboard && !ce.label && ce.__csPick().id.length === 2);
+}
+
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
 process.exit(fails ? 1 : 0);

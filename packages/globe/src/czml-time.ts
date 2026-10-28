@@ -29,8 +29,8 @@ export interface CzmlTrack {
 /** 見た目（styleOf の戻り）。show・lead・trail・resolution は CZML の生の値（時刻つきもある＝boolAt／numberAt で引く） */
 export interface CzmlStyle {
 	point: { size: number; color: string; outline: string | null; outlineWidth: number; show: unknown } | null;
-	image: { src: string; scale: number; offset: [number, number]; show: unknown } | null;
-	label: { text: string | null; color: string; outline?: string; px: number; offset: [number, number]; align: string; show: unknown } | null;
+	image: { src: string; scale: number; offset: [number, number]; show: unknown; sbd?: number[] | null; tbd?: number[] | null } | null;   // sbd／tbd＝Cesium の scaleByDistance／translucencyByDistance（NearFarScalar の [near, nearValue, far, farValue]）
+	label: { text: string | null; color: string; outline?: string; px: number; offset: [number, number]; align: string; show: unknown; sbd?: number[] | null; tbd?: number[] | null } | null;
 	path: { show: unknown; width: number; color: string; lead: unknown; trail: unknown; resolution: unknown; relativeTo?: string | null; frame?: "fixed" | "inertial" | null } | null;
 }
 /** CZML の色（rgba 0..255・rgbaf 0..1・入れ子の material） */
