@@ -2540,6 +2540,8 @@ const map = { cam, renderer, mapEl, destroy, clock,   // flyTo は installCamera
 	playScenes: (obj, opts) => scenes.playScenes(obj, opts), stopScenes: () => scenes.stopScenes(),
 	//   sceneTimeline(obj)＝タイムライン（時刻評価・スクラブ）→ {dur, rows, at, seek, end}（再生せず任意秒の絵＝エディタ用）
 	sceneTimeline: obj => scenes.sceneTimeline(obj),
+	//   prepareScenes(obj)＝台本の全区を読み切り GPU に立ててから解決（🎞 書き出しの前に＝1 コマ目から 3D）
+	prepareScenes: obj => scenes.prepareScenes(obj),
 	// 録画用（scene エディタ）：動的解像度を固定（映像に縮み絵を混ぜない）。on=true で即 res=1・降段停止／false で通常運転へ
 	pinRes: on => renderWorker.postMessage({ type: "pinRes", on: !!on }) } satisfies Partial<GlobeMapBuilding> as Partial<GlobeMapBuilding> as GlobeMapBuilding;   // 残りの口は下の installer と map.X＝が付ける（組み上がった map が GlobeMap）
 // ガジェット注入用の座標ブリッジ（engine の project/unproject を今の cam/サイズで束ねた手綱）。
