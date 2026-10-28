@@ -308,5 +308,40 @@ for (const g of [
 	ok("post: empty collection → nothing", postChainOf(coll([])).chain.length === 0 && postChainOf(null).chain.length === 0);
 }
 
+// ── particles: Cesium's ParticleSystem stepped by the facade (particles.ts, 順 5): the billboards stay in a stand-in, packParticles turns them into the sprites overlay's arrays ──
+{
+	const engine = await import("@cesium/engine");
+	const core = await import("@cesium/core");
+	const { ParticleDrawer, isParticleSystem, packParticles } = await import("../src/particles.ts");
+	const posts = [];
+	const ovh = { post: (d) => posts.push(d), remove: () => {}, onmessage: null };
+	const host = { map: { overlay: () => ovh }, ready: Promise.resolve(), display: null };
+	const origin = core.Cartesian3.fromDegrees(139.7, 35.6, 100);
+	const ps = new engine.ParticleSystem({ image: null, emissionRate: 50, minimumParticleLife: 2, maximumParticleLife: 2, imageSize: new core.Cartesian2(10, 20), startColor: core.Color.RED.withAlpha(0.5), endColor: core.Color.RED.withAlpha(0.5), startScale: 2, endScale: 2, emitter: new engine.SphereEmitter(1), modelMatrix: (core.Transforms ?? engine.Transforms).eastNorthUpToFixedFrame(origin) });
+	ok("particles: ParticleSystem recognised", isParticleSystem(ps) && !isParticleSystem({}));
+	const d = new ParticleDrawer(host);
+	d.add(ps);
+	const t0 = core.JulianDate.fromIso8601("2026-10-28T00:00:00Z");
+	d.update(t0);
+	d.update(core.JulianDate.addSeconds(t0, 0.5, new core.JulianDate()));
+	ok("particles: nothing new is sent until the overlay has drawn", posts.filter(m => m.type === "layer").length === 1);
+	ovh.onmessage({ type: "drawn" });
+	d.update(core.JulianDate.addSeconds(t0, 1, new core.JulianDate()));
+	const pk = packParticles(ps);
+	ok("particles: one second at 50/s → about 50 particles", pk && pk.n >= 40 && pk.n <= 60, pk && pk.n);
+	ok("particles: colour, size × scale, pixels", pk && pk.rgba[0] === 255 && pk.rgba[3] === 128 && pk.size[0] === 20 && pk.size[1] === 40 && pk.meters === false, pk && [pk.rgba[0], pk.rgba[3], pk.size[0], pk.size[1]]);
+	ok("particles: positions near the emitter, relative to the first", pk && Math.hypot(pk.origin[0] - origin.x, pk.origin[1] - origin.y, pk.origin[2] - origin.z) < 50 && Math.abs(pk.pos[3]) < 100, pk && pk.origin);
+	const layer = posts.filter(m => m.type === "layer").pop();
+	ok("particles: after drawn the next frame is posted", posts.filter(m => m.type === "layer").length === 2 && layer.n === pk.n);
+	ovh.onmessage({ type: "drawn" });
+	const held = core.JulianDate.addSeconds(t0, 1, new core.JulianDate());
+	const n0 = ps._particles.length; d.update(held);
+	ok("particles: a paused clock (same time) emits nothing", ps._particles.length === n0, [n0, ps._particles.length]);
+	ps.show = false; d.update(core.JulianDate.addSeconds(t0, 2, new core.JulianDate()));
+	ok("particles: show=false hides the layer", posts[posts.length - 1].type === "vis" && posts[posts.length - 1].on === false);
+	d.remove(ps);
+	ok("particles: remove drops the layer", posts[posts.length - 1].type === "remove");
+}
+
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
 process.exit(fails ? 1 : 0);
