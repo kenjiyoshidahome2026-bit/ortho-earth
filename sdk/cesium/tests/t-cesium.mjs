@@ -6,6 +6,7 @@ import { Cartesian3, Ellipsoid, Matrix4, Rectangle } from "@cesium/core";
 import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
 import { gltfSphere } from "../src/gltf.ts";
 import { sphereOfVolume } from "../src/tileset.ts";
+import { extentOfLayerJson, unionExtents } from "../src/i3s.ts";
 import { rasterSourceOf, mercatorRows, adjustPaint } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
 import { glbOf } from "../src/primitives.ts";
@@ -57,6 +58,14 @@ for (const g of [
 	const focus = Cartesian3.fromDegrees(138.7, 35.3 + 500 / 111320, 1800);   // a tracked model on the ray before the plateau keeps the camera's distance to it
 	const f = globeCamOf(pose.position, pose.direction, pose.up, Cartesian3.add(pose.position, Cartesian3.multiplyByScalar(pose.direction, 400, new Cartesian3()), new Cartesian3()), () => 1500);
 	ok("a focus on the ray wins over the terrain", !!f && near(f.distance, 400, 1), JSON.stringify(f) + String(focus.x));
+}
+
+{   // I3S: the extent read from a scene layer's JSON (fullExtent, or store.extent), and the union over a service's layers
+	const a = extentOfLayerJson({ fullExtent: { xmin: -122.5, ymin: 37.7, xmax: -122.3, ymax: 37.9 } }), b = extentOfLayerJson({ store: { extent: [8.6, 50.0, 8.8, 50.2] } });
+	ok("I3S fullExtent", !!a && a.join() === "-122.5,37.7,-122.3,37.9", JSON.stringify(a));
+	ok("I3S store.extent", !!b && b.join() === "8.6,50,8.8,50.2", JSON.stringify(b));
+	ok("I3S without an extent", extentOfLayerJson({ layers: [] }) === null && extentOfLayerJson(null) === null);
+	ok("I3S union", unionExtents([a, b]).join() === "-122.5,37.7,8.8,50.2" && unionExtents([]) === null);
 }
 
 // ── glTF bounding sphere: node transforms, and glTF (y-up, z-forward) → Cesium's model frame (x-forward, z-up) ──

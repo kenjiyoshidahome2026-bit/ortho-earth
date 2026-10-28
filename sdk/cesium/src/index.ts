@@ -82,5 +82,6 @@ export {
 // :names
 export { Viewer, CesiumWidget } from "./viewer.ts";
 export { Cesium3DTileset, Cesium3DTileFeature } from "./tileset.ts";
+export { I3SDataProvider } from "./i3s.ts";
 export { createOsmBuildingsAsync, createGooglePhotorealistic3DTileset, createWorldTerrainAsync } from "./create.ts";
 export { unsupportedReport } from "./report.ts";
