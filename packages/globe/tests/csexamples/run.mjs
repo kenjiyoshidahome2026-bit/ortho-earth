@@ -48,7 +48,13 @@ const STATE = () => {
 		for (const d of [dsd?._defaultDataSource, ...Array.from({ length: ds?.length || 0 }, (_, i) => ds.get(i))]) for (const z of d?._visualizers || []) for (const u of Object.values(z?._updaters || {})) if (u?._polylineCollection) own.add(u._polylineCollection);
 		for (let i = 0; i < prims.length; i++) { const q = prims.get(i); if (q !== dsd?._primitives && q !== dsd?._groundPrimitives && !own.has(q) && !(X.Cesium?.Entity && q?.id instanceof X.Cesium.Entity)) primitives++; }
 		out.counts = { entities, dataSources: ds?.length || 0, primitives, imageryLayers: v.imageryLayers?.length ?? v.scene.imageryLayers?.length ?? 0 };
+		// what the 3D tilesets actually draw (a tileset that is "loaded" but draws nothing is not the same answer: 3d-tiles-interactivity 2026-10-28)
+		let tilesets = 0, tiles = 0, triangles = 0;
+		for (let i = 0; i < prims.length; i++) { const q = prims.get(i); const st = q && q.show !== false && "tilesLoaded" in q ? q.statistics : null; if (!st) continue; tilesets++; tiles += st.selected || 0; triangles += st.numberOfTrianglesSelected || 0; }
+		out.drawn = { tilesets, tiles, triangles };
 	} catch (e) { out.countsError = String(e?.message || e); }
+	// ours: the camera the globe really drew with (the camera above is the Cesium-side pose; a wrong conversion, such as roll 180 looking straight down, only shows here)
+	try { const g = v.orthoMap?.getCamera?.(); if (g) out.globeCam = { heading: g.heading, pitch: g.pitch - 90, roll: g.roll, distance: g.distance }; } catch (e) { out.globeCamError = String(e?.message || e); }
 	return out;
 };
 

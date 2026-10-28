@@ -8,7 +8,7 @@ import { ecefToLlh, positionAt } from "../czml-time.ts";
 import { moonAltAz, moonSubpoint, sunAltAz, sunSubpoint } from "@ortho-earth/ephem/sun";
 import { normClouds, normSun, sunToLight } from "../weather.ts";
 import { normSky } from "../sky-spec.ts";
-import type { AtmosphereSpec, CameraOptions, CameraTarget, LightSpec, LonLat, MeshLightingSpec, GroundLightingSpec, PaddingOptions } from "../../globe.d.ts";
+import type { AtmosphereSpec, CameraOptions, CameraTarget, LightSpec, LonLat, MeshLightingSpec, GroundLightingSpec, GroundMaterialSpec, PaddingOptions } from "../../globe.d.ts";
 import type { CameraDeps, CameraLive, CameraReturn, Installing } from "../types/install.ts";
 import type { CameraApi, GlobeMap } from "../types/map.ts";
 import type { FollowState } from "../types/scope.ts";
@@ -249,6 +249,14 @@ export function installCamera(map: Installing<CameraApi, "__clouds">, live: Came
 		requestDraw(); return map;
 	};
 	map.getGroundLighting = () => (groundLightCur ? { ...groundLightCur } : null);
+	// 地面の材質（setGroundMaterial・2026-10-28・Cesium の globe.material）＝render worker へは kind（0 なし／1 標高／2 傾斜／3 方位／4 等高線だけ）と 1 列の色の表で
+	let groundMatCur: GroundMaterialSpec | null = null;
+	map.setGroundMaterial = m => {
+		groundMatCur = m ? { ...m } : null;
+		renderer.set("groundMaterial", m ? packGroundMaterial(m) : null);
+		requestDraw(); return map;
+	};
+	map.getGroundMaterial = () => (groundMatCur ? { ...groundMatCur } : null);
 	// ── 太陽・月の向きと雲の口（第 2 波 F2・2026-10-12・src/weather.js・ephem/sun）──
 	//   getSunPosition(ms?, at?)／getMoonPosition(ms?, at?)＝{ time, subpoint:{lng,lat}, azimuth, altitude, enu }（度・at 省略＝視点の中心・ms 省略＝共通の時計）
 	//   setSun({ follow:"clock" } | { azimuth, altitude } | null)＝directional の光（setLight と同じ 1 本）を太陽に合わせる。follow＝時計の変化・静止・実時間なら 60 秒ごとに追う。null＝setLight(null)
@@ -292,4 +300,13 @@ export function installCamera(map: Installing<CameraApi, "__clouds">, live: Came
 	};
 	map.getClouds = () => (cloudsCur ? { ...cloudsCur, wind: [...cloudsCur.wind], precipitation: cloudsCur.precipitation && { ...cloudsCur.precipitation } } : null);
 	return { clampCamLimits, tickFollow };
+}
+
+/** 地面の材質（GroundMaterialSpec）→ render worker の形（gl/gpu の renderer.set("groundMaterial")）。ランプは n×RGBA の写し（worker へ渡すので元の配列は触らない） */
+export function packGroundMaterial(m: GroundMaterialSpec): { kind: number; min: number; max: number; landOnly: number; contour: number[] | null; spacing: number; width: number; opacity: number; ramp: Uint8Array | null; rampN: number } {
+	const r = m.ramp && m.ramp.colors && m.ramp.colors.length >= 4 ? m.ramp : null;
+	const n = r ? Math.floor(r.colors.length / 4) : 0;
+	const c = m.contour && m.contour.spacing > 0 ? m.contour : null;
+	const kind = r ? ({ elevation: 1, slope: 2, aspect: 3 } as Record<string, number>)[r.kind] || 1 : c ? 4 : 0;
+	return { kind, min: r?.min ?? 0, max: r?.max ?? 1, landOnly: m.landOnly ? 1 : 0, contour: c ? [c.color[0], c.color[1], c.color[2], c.color[3] ?? 1] : null, spacing: c ? c.spacing : 1, width: c ? (c.width ?? 1) : 0, opacity: m.opacity ?? 1, ramp: n ? Uint8Array.from(r!.colors.subarray(0, n * 4)) : null, rampN: n };
 }
