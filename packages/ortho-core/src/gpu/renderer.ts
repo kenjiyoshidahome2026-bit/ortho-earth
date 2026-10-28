@@ -207,7 +207,7 @@ type DrawSrc = SceneDraw[] | MDScene;
 export interface SceneData { origin: number[]; layers?: (DrawOp | null)[] | null; buildings?: BuildingsGeom | null; noFade?: boolean }
 interface AtlasFill { slot: string; gate: number; at: number; user: boolean; lo?: number; hi?: number; pick?: ((d: { li: number }) => boolean) | null }
 interface RenderTargets { tex: GPUTexture | null; depth: GPUTexture; view: GPUTextureView | null; depthView: GPUTextureView; w: number; h: number }
-interface ParamsIn { cityLift: number; land: number[]; bldColor: number[]; contour: { color: number[]; interval: number; major: number; alpha: number }; liftBounds?: number[] | null; fadeK?: number; worldHypsoK?: number; hasClim?: number }
+interface ParamsIn { cityLift: number; land: number[]; bldColor: number[]; contour: { color: number[]; interval: number; major: number; alpha: number }; liftBounds?: number[] | null; fadeK?: number; worldHypsoK?: number; hasClim?: number; dpr?: number }
 interface DrawDbg {
 	baseFill: number; baseLine: number; mainFill: number; mainLine: number; textMid: number; skipMain: boolean; skipBase: boolean; fadeK: number; terrainDepth: boolean; zoom: number; aa: number;
 	readonly raster: number; readonly fillsIn: boolean; readonly gndFaces: number; shadow?: number; pl?: number;
@@ -504,6 +504,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・遠窓
 		{ binding: 11, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                         // GGndP
 		{ binding: 12, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・4 段目
+		{ binding: 13, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 地面の材質のランプ（setGroundMaterial・未使用は dummy）
 	] });
 	const globeLayout = device.createPipelineLayout({ bindGroupLayouts: [bglGlobe] });
 	// terrain group(2)＝気候場（全球ハイプソの cross-blend）。未着は dummy（DrawP p2.z=0 で不使用）
@@ -511,6 +512,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
 		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
 		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: {} },   // WorldPal（globe 側 binding(4) と同一バッファ＝同色契約）
+		{ binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 地面の材質のランプ（setGroundMaterial・未使用は dummy）
 	] });
 	const terrLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglClim] });
 	// 星空劇場（z<4）：Sky UBO（group0）＋星座線の色 UBO（group1）。深度無関係の背景（dsOff）
@@ -1082,7 +1084,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 6, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const globeBuf = device.createBuffer({ size: 448, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
+	const globeBuf = device.createBuffer({ size: 448 + 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
 	let globeBG: GPUBindGroup = null!;   // rebuildBG0()（初期化の内）が作る   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
 	// 塗りの模様（S-P1-4/5）の束縛の既定＝1×1 の透明な絵（模様を使わない塗りも group(1) の binding 1/2 を満たす）・サンプラは repeat・linear（GL2 と同じ）
@@ -1516,6 +1518,26 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const dummyView = dummyTex.createView();
 	// 気候場テクスチャ（全球ハイプソ cross-blend・view.worldHypso.clim の URL から一度だけ取得）。
 	// 未着の間はシェーダが緯度近似へフォールバック（hasClim=0）＝1-2フレームの色ズレのみ。
+	// 地面の材質（setGroundMaterial・Cesium の globe.material・2026-10-28）＝ランプ n×1 の rgba8 テクスチャ（globe binding 13・terrain group(2) binding 3）と小物（terrain P.tr/lx/dashP・Globe gm/gmC/gmP）
+	let groundMat: { kind: number; min: number; max: number; landOnly: number; contour: number[] | null; spacing: number; width: number; opacity: number; ramp: Uint8Array | null; rampN: number } | null = null;
+	let gmView: GPUTextureView | null = null, gmTex: GPUTexture | null = null;
+	function setGroundMat(m: typeof groundMat): void {
+		groundMat = m && typeof m.kind === "number" ? m : null;
+		if (groundMat?.ramp && groundMat.rampN > 0) {
+			const old = gmTex;
+			gmTex = device.createTexture({ size: [groundMat.rampN, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+			device.queue.writeTexture({ texture: gmTex }, groundMat.ramp, { bytesPerRow: groundMat.rampN * 4 }, [groundMat.rampN, 1]);
+			gmView = gmTex.createView();
+			if (old) retire(old);
+			rebuildBG0();   // globeBG/climBG がランプを掴み直す
+		}
+	}
+	function packGroundMat(a: Float32Array, o: number, dpr: number): void {
+		const m = groundMat, c = m?.contour;
+		a[o] = m ? m.kind : 0; a[o + 1] = m ? m.min : 0; a[o + 2] = m ? 1 / Math.max(1e-6, m.max - m.min) : 0; a[o + 3] = m && m.landOnly ? 1 : 0;
+		a[o + 4] = c ? c[0] : 0; a[o + 5] = c ? c[1] : 0; a[o + 6] = c ? c[2] : 0; a[o + 7] = c ? c[3] : 0;
+		a[o + 8] = m ? Math.max(1e-3, m.spacing) : 1; a[o + 9] = m ? m.width * dpr : 0; a[o + 10] = m ? m.opacity : 0; a[o + 11] = 0;
+	}
 	let climTexView: GPUTextureView | null = null, climLoading = false, climBG: GPUBindGroup = null!;   // climBG＝rebuildBG0()（初期化の内）が作る
 	function ensureClimTex(url: string | null | undefined) {
 		if (climTexView || climLoading || !url) return;
@@ -1624,11 +1646,13 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			{ binding: 10, resource: gnd.w[2] ? gnd.w[2].view : dummyView },
 			{ binding: 11, resource: { buffer: gndPBuf } },
 			{ binding: 12, resource: gnd.w[3] ? gnd.w[3].view : dummyView },
+			{ binding: 13, resource: gmView || dummyView },   // 地面の材質のランプ
 		] });
 		climBG = device.createBindGroup({ layout: bglClim, entries: [
 			{ binding: 0, resource: climTexView || dummyView },
 			{ binding: 1, resource: elevSampler },
 			{ binding: 2, resource: { buffer: worldPalBuf } },
+			{ binding: 3, resource: gmView || dummyView },   // 地面の材質のランプ
 		] });
 	}
 	rebuildBG0();
@@ -2480,17 +2504,18 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
 	const paramF32 = new Float32Array(PARAM_SLOT / 4 * N_ROLES);
-	function packParams({ cityLift, land, bldColor, contour, liftBounds, fadeK = 1, worldHypsoK = 0, hasClim = 0 }: ParamsIn): Float32Array {   // p0.y＝線の接地リフト（塗りは 3D では地面アトラス側＝リフト/厳密深度は撤去 2026-09-21）
+	function packParams({ cityLift, land, bldColor, contour, liftBounds, fadeK = 1, worldHypsoK = 0, hasClim = 0, dpr = 1 }: ParamsIn): Float32Array {   // p0.y＝線の接地リフト（塗りは 3D では地面アトラス側＝リフト/厳密深度は撤去 2026-09-21）
 		const baseA = view.baseAlpha ?? 1;   // 基図の濃さ（表示パネル）＝fill/line の p0.w に一括（COG は下層にも合成済み＝紙と線だけが引く）
 		const f = paramF32; f.fill(0);
 		const at = (role: number, vals: number[]) => { const o = role * (PARAM_SLOT / 4); for (let i = 0; i < vals.length; i++) f[o + i] = vals[i]; };
 		at(ROLE.normal, [0, cityLift, 0, baseA]);
 		at(ROLE.water, [0, 0, 0, baseA]);
 		at(ROLE.seaFb, [1, 0, 0, baseA]);
-		const hy = view.hypso;
+		const hy = view.hypso, gmP = new Float32Array(12); packGroundMat(gmP, 0, dpr);
 		at(ROLE.terrain, [land[0], land[1], land[2], 0,
 			hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0, hy ? (hy.amount ?? 0.5) : 0,
-			hy ? 1 / (hy.max || 3000) : 0, worldHypsoK, hasClim, view.globeAlpha ?? 1]);   // p2.y=全球ハイプソ出現度 p2.z=気候場到着 p2.w=球体の不透明度（gl 側 u_whK/u_hasClim/u_globeAlpha と同義）
+			hy ? 1 / (hy.max || 3000) : 0, worldHypsoK, hasClim, view.globeAlpha ?? 1,
+			...gmP]);   // p2.y=全球ハイプソ出現度 p2.z=気候場到着 p2.w=球体の不透明度（gl 側 u_whK/u_hasClim/u_globeAlpha と同義）・tr/lx/dashP＝地面の材質（gm/gmC/gmP）
 		at(ROLE.bld, [bldColor[0], bldColor[1], bldColor[2], 1]);
 		at(ROLE.contour, [contour.color[0], contour.color[1], contour.color[2], contour.interval,
 			contour.major, contour.alpha, 0, 0]);
@@ -2781,6 +2806,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		worldPal();   // 世界パレット＝knob 参照変化時のみ worldPalBuf へ書込（バインドは常設）
 		lxFrame(cam);   // 層の画面効果の uniform（S-P1）＝このフレームの鍵表を空に（役割の DrawP は下で書く＝lxSlot が写す）
 		device.queue.writeBuffer(paramBuf, 0, packParams({
+			dpr: cam.dpr || 1,   // 地面の材質の等高線の太さ（px）
 			fadeK,
 			cityLift,
 			land, bldColor: view.bldColor || [0.86, 0.86, 0.85],
@@ -2789,7 +2815,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
 		if (!flat2d) {
-			const g = new Float32Array(104);   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
+			const g = new Float32Array(116);   // +gm/gmC/gmP（地面の材質 2026-10-28）   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
 			packRays(g, 0, st);   // 視線の基底（#65・旧 invMvp の枠）
 			g[16] = land[0]; g[17] = land[1]; g[18] = land[2]; g[19] = land[3];
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
@@ -2817,6 +2843,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				g.set(anchorUV(mainOrigin, elev.bounds), 88);
 			}
 			packGroundLight(g, 92, st);   // 地面の照明（cg/cgP/cgC）
+			packGroundMat(g, 104, cam.dpr || 1);   // 地面の材質（gm/gmC/gmP）
 			g[64] = view.atmSun ?? 20; g[65] = view.atmExposure ?? 1; g[66] = view.atmGround ?? 0.5; g[67] = view.atmScale ?? 4;   // 太陽の強さ・露出・床の空気遠近の強さ・帯の幅 k（本人裁定 4）（診断と調律のノブ＝公開面には出さない）
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
@@ -3389,6 +3416,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "sky":     sky = data && Array.isArray((data as SkyStyle).sky) ? data as SkyStyle : null; break;   // style の sky（B4）＝WebGPU は霧の色・濃さだけ写す（空の絵は従来のリム光・#46 の散乱のまま＝簡易の空は GL2 だけ）
 			case "lights":  lights = data && (data as NonNullable<typeof lights>).n > 0 && (data as NonNullable<typeof lights>).data ? data as NonNullable<typeof lights> : null; break;   // 局所の光源（W2）＝メッシュの陰影に足す
 			case "groundLight": groundLight = data && Array.isArray((data as NonNullable<typeof groundLight>).dir) ? data as NonNullable<typeof groundLight> : null; break;   // 地面の照明（@ortho-earth/cesium の setGroundLighting）
+			case "groundMaterial": setGroundMat(data as typeof groundMat); break;   // 地面の材質（@ortho-earth/cesium の globe.material → setGroundMaterial）
 			case "meshLight": meshLight = data && Array.isArray((data as NonNullable<typeof meshLight>).dir) && (data as NonNullable<typeof meshLight>).sh ? data as NonNullable<typeof meshLight> : null; break;   // Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting）
 			case "light":   light = data && Array.isArray((data as NonNullable<typeof light>).dir) ? data as NonNullable<typeof light> : null; break;   // style の light（B3・MapLibre の setLight）＝メッシュの陰影（PB の sl0/sl1・gl は u_light*）。fx.pbr の経路は太陽＋環境光のまま（#46 段 2）
 			case "sea":     sea = { ...sea, ...(data as Partial<typeof sea>) }; break;
