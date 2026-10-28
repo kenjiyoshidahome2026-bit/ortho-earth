@@ -1435,9 +1435,12 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
 		base = base * (1.0 - gc.a) + gc.rgb;
 	}
-	if (G.gm.x > 0.5 && G.whP.y > 0.5) {   // 地面の材質（Cesium の globe.material）＝球の床（低地の t フェードの穴と真俯瞰）にも地形面と同じ式で
-		let e = gElevAt(ll); let dstep = G.elevBounds.w / vec2f(textureDimensions(gElevTex, 0)).y;
-		let gEN = vec2f((gElevAt(ll + vec2f(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (gElevAt(ll + vec2f(0.0, dstep)) - e) / (dstep * 111320.0));
+	if (G.gm.x > 0.5) {   // 地面の材質（Cesium の globe.material）＝球の床（低地の t フェードの穴と真俯瞰）にも地形面と同じ式で。標高が無い所は Cesium と同じく高さ 0 の色
+		var e = 0.0; var gEN = vec2f(0.0);
+		if (G.whP.y > 0.5) {
+			e = gElevAt(ll); let dstep = G.elevBounds.w / vec2f(textureDimensions(gElevTex, 0)).y;
+			gEN = vec2f((gElevAt(ll + vec2f(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (gElevAt(ll + vec2f(0.0, dstep)) - e) / (dstep * 111320.0));
+		}
 		let m = gGmColor(e, gEN, fwidth(e), G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);
 	}
 	if (G.cg.w > 0.5) { base *= G.cgC.rgb * cgLambert(ll, vec2f(0.0), vec4f(G.cg.xyz, 2.0), G.cgP); }   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで
