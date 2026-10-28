@@ -85,3 +85,4 @@ export { Cesium3DTileset, Cesium3DTileFeature } from "./tileset.ts";
 export { I3SDataProvider } from "./i3s.ts";
 export { createOsmBuildingsAsync, createGooglePhotorealistic3DTileset, createWorldTerrainAsync } from "./create.ts";
 export { unsupportedReport } from "./report.ts";
+export { createElevationBandMaterial } from "./globe-material.ts";   // without a GL context: the globe paints the bands (globe.material)

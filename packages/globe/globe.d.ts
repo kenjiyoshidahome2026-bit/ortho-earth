@@ -133,6 +133,10 @@ export interface MeshLightingSpec { dir: [number, number, number]; color?: [numb
  *  lambert＝[倍率, 足す値]（既定 [0.9, 0.3]＝法線付き地形の式。法線の無い地形は Cesium は [5, 0.3]）・normal＝"terrain"（勾配から・既定）か "up"（楕円体の上向き＝Cesium の法線無し）・
  *  fade＝[消える距離, 全開の距離]（m・地球中心から・null＝常に全開）・night＝地面の大気（setAtmosphere）を夜側で暗くする距離の組（同形・null＝暗くしない） */
 export interface GroundLightingSpec { dir: [number, number, number]; color?: [number, number, number]; lambert?: [number, number]; normal?: "terrain" | "up"; fade?: [number, number] | null; night?: [number, number] | null }
+/** 地面の材質（setGroundMaterial・2026-10-28）：CesiumJS の globe.material＝地形（と球の床）の画像の上に標高／傾斜／方位のランプ・等高線を重ねる（Cesium の ElevationRamp・SlopeRamp・AspectRamp・ElevationContour・ElevationBand・WaterMask）。
+ *  ramp＝1 列の色の表（colors＝n×4 の RGBA 0..255・kind "elevation"＝min..max（m）を表の 0..1 に・"slope"＝平ら 0..垂直 1（法線と上の角 ÷ 90°）・"aspect"＝下り向きの東から反時計回りの角 ÷ 360°）
+ *  contour＝等高線（spacing m・width px・color 0..1 の rgba）＝ランプの上に重ねる・landOnly＝標高 0 以下（海面）は塗らない（WaterMask の逆）・opacity＝材質全体の不透明度（既定 1） */
+export interface GroundMaterialSpec { ramp?: { kind: "elevation" | "slope" | "aspect"; colors: Uint8Array; min?: number; max?: number } | null; contour?: { spacing: number; width?: number; color: [number, number, number, number] } | null; landOnly?: boolean; opacity?: number }
 export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-color"?: string | unknown[]; "fog-color"?: string | unknown[]; "fog-ground-blend"?: number | unknown[]; "horizon-fog-blend"?: number | unknown[]; "sky-horizon-blend"?: number | unknown[]; "atmosphere-blend"?: number | unknown[] }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */

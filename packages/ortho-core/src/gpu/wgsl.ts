@@ -43,6 +43,24 @@ fn deltaLL(dl: vec3f, O: vec3f, rhoO: f32, beta0: f32, ell: f32) -> vec2f {
 	return vec2f(dlon, dbeta + corr) * 57.29577951308232;
 }
 `;
+// 地面の材質（setGroundMaterial・CesiumJS の globe.material・2026-10-28）：地形面と球の床の画像の上に、標高／傾斜／方位の
+// ランプ（1 列の色の表）・等高線・「陸だけ」を重ねる（gl/glsl.ts GM と同式）。gm＝(種類 0 なし／1 標高／2 傾斜／3 方位／4 等高線だけ, 最低標高 m,
+// 1/(最高−最低), 陸だけ)・gmC＝等高線の色 rgba・gmP＝(間隔 m, 太さ px, 不透明度, 0)。h＝標高 m・gEN＝勾配（東・北 m/m）・dh＝fwidth(h)
+const GM_WGSL = (fn: string, tex: string, samp: string): string => /* wgsl */`
+fn ${fn}(h: f32, gEN: vec2f, dh: f32, gm: vec4f, gmC: vec4f, gmP: vec4f) -> vec4f {
+	let k = gm.x;
+	var m = vec4f(0.0);
+	if (k < 3.5) {
+		var v = clamp((h - gm.y) * gm.z, 0.0, 1.0);
+		if (k > 1.5 && k < 2.5) { v = acos(inverseSqrt(1.0 + dot(gEN, gEN))) / 1.5707963267948966; }
+		else if (k > 2.5) { v = fract(atan2(-gEN.y, -gEN.x) / 6.283185307179586 + 1.0); }
+		m = textureSampleLevel(${tex}, ${samp}, vec2f(v, 0.5), 0.0);
+	}
+	if (gmC.a > 0.0 && (h - floor(h / gmP.x) * gmP.x) < dh * gmP.y) { m = gmC; }   // 等高線（Cesium の ElevationContour）＝標高の画素差 × 太さ の帯
+	if (gm.w > 0.5 && h <= 0.0) { m.a = 0.0; }   // 陸だけ（WaterMask の逆）＝標高 0 以下（海面）は塗らない
+	m.a *= gmP.z;
+	return m;
+}`;
 const FRAME = /* wgsl */`
 struct Frame {
 	mvp: mat4x4f,
@@ -695,6 +713,8 @@ ${CS_ATMO_WGSL}
 // 気候場（全球ハイプソの cross-blend）＝terrain 専用 group(2)。未着は dummy（hasClim=P.p2.z=0 で不使用）
 @group(2) @binding(0) var climTex: texture_2d<f32>;
 @group(2) @binding(1) var climSamp: sampler;
+@group(2) @binding(3) var gmRamp: texture_2d<f32>;   // 地面の材質のランプ（n×1・無ければ dummy＝P.tr.x=0 で不使用）
+${GM_WGSL("gmColor", "gmRamp", "climSamp")}
 @group(2) @binding(2) var<uniform> WP: WorldPal;   // 世界パレット＝globe 側 binding(4) と同一バッファ（同色契約）
 struct TerrOut {
 	@builtin(position) pos: vec4f,
@@ -758,10 +778,13 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	let hy = elev(in.ll + vec2f(0.0, d)) - h0;
 	var shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
 	var cgK = 1.0;   // 地面の照明（Cesium）＝北西の陰影の代わりに太陽の lambert を画像ごと掛ける
-	if (F.cg.w > 0.5) {   // 勾配はアトラスの 1 texel 差分（陰影の 0.004° の下限を使わない＝近景の急斜面が鈍らない）
+	let gmDh = fwidth(h0);   // 地面の材質の等高線＝標高の画素差（一様な制御の流れで）
+	var gmEN = vec2f(0.0);   // 勾配（東・北 m/m）＝地面の照明と材質（傾斜・方位）が使う。アトラスの 1 texel 差分（陰影の 0.004° の下限を使わない＝近景の急斜面が鈍らない）
+	if (F.cg.w > 0.5 || P.tr.x > 1.5) {
 		let dL = F.elevBounds.w / tsz.y; let hxL = elev(in.ll + vec2f(dL, 0.0)) - h0; let hyL = elev(in.ll + vec2f(0.0, dL)) - h0;
-		shade = 1.0; cgK = cgLambert(in.ll, vec2f(hxL / (dL * 111320.0 * max(cos(in.ll.y * 0.017453292519943295), 0.01)), hyL / (dL * 111320.0)), F.cg, F.cgP);
+		gmEN = vec2f(hxL / (dL * 111320.0 * max(cos(in.ll.y * 0.017453292519943295), 0.01)), hyL / (dL * 111320.0));
 	}
+	if (F.cg.w > 0.5) { shade = 1.0; cgK = cgLambert(in.ll, gmEN, F.cg, F.cgP); }
 	// 標高ティント：land を高所ほど hypso 色へ寄せる（テーマのノブ・未指定は量0で恒等）。陰影の前
 	var landC = mix(P.p0.rgb, P.p1.rgb, clamp(h0 * P.p2.x, 0.0, 1.0) * P.p1.w);
 	// 全球ハイプソ（低ズーム帯・p2.y=出現度/p2.z=hasClim）＝globe パスと同色でピッチ不変（gl 側と同式）
@@ -773,6 +796,7 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	// ＝ t·X + (1−t)·床 が旧 tS·地形 + (1−tS)·床 と一致（床≈landC）。低ズーム（t＝tS）は旧式と恒等
 	let tS = smoothstep(1.0, 100.0, in.h);
 	var colBase = gndMix0(cogTexMix0(landC * mix(1.0, shade, min(tS / t, 1.0)), in.cuv), in.guv0, in.guv1, in.guv2, in.guv3);
+	if (P.tr.x > 0.5) { let m = gmColor(h0, gmEN, gmDh, P.tr, P.lx, P.dashP); colBase = mix(colBase, m.rgb, m.a); }   // 地面の材質（Cesium の globe.material）＝画像の上・照明の下
 	if (F.cg.w > 0.5) { colBase *= F.cgC.rgb * cgK; }   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	var col = mix(colBase, F.fogColor, in.fog);
 	col = mix(col, in.csFog.rgb, in.csFog.a);   // Cesium の霧（800 km より下・globe の csFogL と同じ式）
@@ -1191,6 +1215,9 @@ struct Globe {
 	cg: vec4f,           // 地面の照明（setGroundLighting・2026-10-26）＝Frame.cg と同形
 	cgP: vec4f,
 	cgC: vec4f,
+	gm: vec4f,           // 地面の材質（setGroundMaterial・2026-10-28）＝terrain の P.tr/P.lx/P.dashP と同形（GM_WGSL）
+	gmC: vec4f,
+	gmP: vec4f,
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert。
@@ -1221,6 +1248,8 @@ struct GCogP { bbox: vec4f, p: vec4f };   // p＝(has, 組か, 境の u, 半テ�
 @group(0) @binding(10) var gGnd2: texture_2d<f32>;
 @group(0) @binding(11) var<uniform> GGD: GGndP;
 @group(0) @binding(12) var gGnd3: texture_2d<f32>;
+@group(0) @binding(13) var gGmRamp: texture_2d<f32>;   // 地面の材質のランプ（無ければ dummy＝G.gm.x=0 で不使用）
+${GM_WGSL("gGmColor", "gGmRamp", "gSamp")}
 struct GGndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };
 ${WORLD_HYPSO_WGSL}
 const R2Dg: f32 = 57.29577951308232;
@@ -1405,6 +1434,11 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let g3 = textureSampleLevel(gGnd3, gSamp, vec2f(clamp(u3.x, 0.0, 1.0), 1.0 - clamp(u3.y, 0.0, 1.0)), 0.0);
 		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
 		base = base * (1.0 - gc.a) + gc.rgb;
+	}
+	if (G.gm.x > 0.5 && G.whP.y > 0.5) {   // 地面の材質（Cesium の globe.material）＝球の床（低地の t フェードの穴と真俯瞰）にも地形面と同じ式で
+		let e = gElevAt(ll); let dstep = G.elevBounds.w / vec2f(textureDimensions(gElevTex, 0)).y;
+		let gEN = vec2f((gElevAt(ll + vec2f(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (gElevAt(ll + vec2f(0.0, dstep)) - e) / (dstep * 111320.0));
+		let m = gGmColor(e, gEN, fwidth(e), G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);
 	}
 	if (G.cg.w > 0.5) { base *= G.cgC.rgb * cgLambert(ll, vec2f(0.0), vec4f(G.cg.xyz, 2.0), G.cgP); }   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）

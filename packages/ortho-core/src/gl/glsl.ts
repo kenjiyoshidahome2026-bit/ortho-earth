@@ -535,6 +535,30 @@ vec4 gndOver(vec4 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
 	return col * (1.0 - c.a) + c;
 }`;
 
+// 地面の材質（setGroundMaterial・CesiumJS の globe.material・2026-10-28）：地形面と球の床の画像の上に、標高／傾斜／方位の
+// ランプ（1 列の色の表）・等高線・「陸だけ」を重ねる（Cesium の ElevationRamp・SlopeRamp・AspectRamp・ElevationContour・
+// ElevationBand（ランプに焼く）・WaterMask の逆）。gpu/wgsl.ts GM_WGSL と同式。
+const GM = /* glsl */`
+uniform vec4 u_gm;        // (種類 0 なし／1 標高／2 傾斜／3 方位／4 等高線だけ, 最低標高 m, 1/(最高−最低), 陸だけ 0/1)
+uniform vec4 u_gmC;       // 等高線の色 rgba（a=0 なし）
+uniform vec4 u_gmP;       // (等高線の間隔 m, 太さ px, 材質の不透明度, 0)
+uniform sampler2D u_gmRamp;
+// h＝標高 m・gEN＝勾配（東・北 m/m）・dh＝fwidth(h)。戻り＝材質の色（rgb・a）。傾斜＝法線と上の角 0..π/2 を 0..1 に・
+// 方位＝法線の水平成分（下り向き）の東から反時計回りの角 0..2π を 0..1 に（Cesium の GlobeVS と同じ）
+vec4 gmColor(float h, vec2 gEN, float dh) {
+	float k = u_gm.x;
+	vec4 m = vec4(0.0);
+	if (k < 3.5) {
+		float v = k < 1.5 ? clamp((h - u_gm.y) * u_gm.z, 0.0, 1.0)
+			: k < 2.5 ? acos(inversesqrt(1.0 + dot(gEN, gEN))) / 1.5707963267948966
+			: fract(atan(-gEN.y, -gEN.x) / 6.283185307179586 + 1.0);
+		m = texture(u_gmRamp, vec2(v, 0.5));
+	}
+	if (u_gmC.a > 0.0 && mod(h, u_gmP.x) < dh * u_gmP.y) m = u_gmC;   // 等高線（Cesium の ElevationContour）＝標高の画素差 × 太さ の帯
+	if (u_gm.w > 0.5 && h <= 0.0) m.a = 0.0;   // 陸だけ（WaterMask の逆）＝標高 0 以下（海面）は塗らない
+	m.a *= u_gmP.z;
+	return m;
+}`;
 const WORLD_HYPSO = /* glsl */`
 uniform float u_whK;
 uniform sampler2D u_climTex;   // 気候場 720x360（Köppen-Geiger/Beck et al. CC-BY を焼き縮め）R=乾燥度 G=極地/氷床
@@ -602,6 +626,7 @@ uniform float u_globeAlpha;   // 球体の不透明度（globe パスと同じ�
 uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）
 ${ELEV}
 ${WORLD_HYPSO}
+${GM}
 ${COG}
 ${GND}
 in vec2 v_guv0;
@@ -640,10 +665,13 @@ void main() {
 	float hy = elev(v_ll + vec2(0.0, d)) - h0;
 	float shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
 	float cgK = 1.0;   // 地面の照明（Cesium）＝北西の陰影の代わりに太陽の lambert を画像ごと掛ける
-	if (u_cg.w > 0.5) {   // 勾配はアトラスの 1 texel 差分（陰影の 0.004° の下限を使わない＝近景の急斜面が鈍らない）
+	float gmDh = fwidth(h0);   // 地面の材質の等高線＝標高の画素差（一様な制御の流れで）
+	vec2 gmEN = vec2(0.0);   // 勾配（東・北 m/m）＝地面の照明と材質（傾斜・方位）が使う。アトラスの 1 texel 差分（陰影の 0.004° の下限を使わない＝近景の急斜面が鈍らない）。影の派生（TERR_SUN_SHADE）の gEN とは別名
+	if (u_cg.w > 0.5 || u_gm.x > 1.5) {
 		float dL = u_elevBounds.w / tsz.y, hxL = elev(v_ll + vec2(dL, 0.0)) - h0, hyL = elev(v_ll + vec2(0.0, dL)) - h0;
-		shade = 1.0; cgK = cgLambert(v_ll, vec2(hxL / (dL * 111320.0 * max(cos(v_ll.y * 0.017453292519943295), 0.01)), hyL / (dL * 111320.0)), u_cg.w);
+		gmEN = vec2(hxL / (dL * 111320.0 * max(cos(v_ll.y * 0.017453292519943295), 0.01)), hyL / (dL * 111320.0));
 	}
+	if (u_cg.w > 0.5) { shade = 1.0; cgK = cgLambert(v_ll, gmEN, u_cg.w); }
 	// 標高ティント：land を高所ほど u_hypso へ寄せる（テーマのノブ＝未指定は y=0 で恒等）。陰影の前＝shade が上に乗る
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
 	landC = mix(landC, worldHypso(h0, v_ll), u_whK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色でピッチ不変
@@ -652,6 +680,7 @@ void main() {
 	float tS = smoothstep(1.0, 100.0, v_h);
 	float ba = mix(u_landA, 1.0, max(u_whK, u_hasCog));   // 床の不透明度（B5）＝全球ハイプソ・COG は不透明
 	vec4 g = gndOver(vec4(cogTexMix(landC * mix(1.0, shade, min(tS / t, 1.0)), v_cuv) * ba, ba), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	if (u_gm.x > 0.5) { vec4 m = gmColor(h0, gmEN, gmDh); g = vec4(g.rgb * (1.0 - m.a) + m.rgb * m.a, max(g.a, m.a)); }   // 地面の材質（Cesium の globe.material）＝画像の上・照明の下
 	if (u_cg.w > 0.5) g.rgb *= u_cgC * cgK;
 	vec3 col = g.rgb * (1.0 - v_fog) + u_fogColor * v_fog * g.a;   // ＝mix(colBase, fog, v_fog) を前乗算で
 	col = mix(col, v_csFog.rgb * g.a, v_csFog.a);   // Cesium の霧（800 km より下・遠景球の csFogL と同じ式）
@@ -755,6 +784,7 @@ uniform vec4 u_elevBounds;
 uniform float u_hasElev;
 uniform float u_ell;      // 1=楕円体（β→測地復元。球=0＝恒等）
 uniform vec3 u_seaC;      // 海の平色（NE流の淡青）
+${GM}
 in vec2 v_ndc;
 out vec4 fragColor;
 const float R2D = 57.29577951308232;
@@ -878,6 +908,11 @@ void main() {
 	vec4 g = vec4(base * ba, ba);   // 前乗算の床
 	if (u_gndN > 0.5) {   // 地面アトラス＝基球の床（地形パスの低地 t フェードの穴と真俯瞰 2D の下地）。uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
 		g = gndOver(g, u_gndOff0.xy + dll * u_gndOff0.zw, u_gndOff1.xy + dll * u_gndOff1.zw, u_gndOff2.xy + dll * u_gndOff2.zw, u_gndOff3.xy + dll * u_gndOff3.zw);
+	}
+	if (u_gm.x > 0.5 && u_hasElev > 0.5) {   // 地面の材質（Cesium の globe.material）＝球の床（低地の t フェードの穴と真俯瞰）にも地形面と同じ式で
+		float e = elevAt(ll), dstep = u_elevBounds.w / float(textureSize(u_elevTex, 0).y);
+		vec2 gEN = vec2((elevAt(ll + vec2(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (elevAt(ll + vec2(0.0, dstep)) - e) / (dstep * 111320.0));
+		vec4 m = gmColor(e, gEN, fwidth(e)); g = vec4(g.rgb * (1.0 - m.a) + m.rgb * m.a, max(g.a, m.a));
 	}
 	if (u_cg.w > 0.5) g.rgb *= u_cgC * cgLambert(ll, vec2(0.0), 2.0);   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで（Cesium も法線の無い地形は位置の法線）
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
