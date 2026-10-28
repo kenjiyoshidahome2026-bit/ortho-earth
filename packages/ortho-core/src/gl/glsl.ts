@@ -35,11 +35,25 @@ float elevFar(vec2 ll) {
 	}
 	return texture(u_farElevTex, uv).r * f;
 }
+// 近景層（near）＝目の足元の細密窓（1 セル・2026-10-28）：近窓（R01＝108m/texel）の内側に外来 DEM／R01 生タイルから焼いた
+// 1/64°〜1/2° の窓を重ねる。縁は近窓の値へ溶かす（far の一般則の内側版）＝近景層なし（u_hasNear=0）は base をそのまま返す＝挙動不変
+uniform sampler2D u_nearElevTex;
+uniform vec4 u_nearBounds;
+uniform float u_hasNear;
+uniform float u_nearEdgeFade;
+float elevNear(vec2 ll, float base) {
+	if (u_hasNear < 0.5) return base;
+	vec2 uv = (ll - u_nearBounds.xy) / u_nearBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return base;
+	vec2 w = vec2(u_nearEdgeFade) / u_nearBounds.zw;
+	float f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	return mix(base, texture(u_nearElevTex, uv).r, f);
+}
 float elev(vec2 ll) {
 	if (u_hasElev < 0.5) return 0.0;
 	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
-	return mix(elevFar(ll), texture(u_elevTex, uv).r, elevFadeAt(uv));   // アトラスは南上げ格納＝v直接
+	return elevNear(ll, mix(elevFar(ll), texture(u_elevTex, uv).r, elevFadeAt(uv)));   // アトラスは南上げ格納＝v直接
 }
 `;
 
@@ -623,7 +637,7 @@ float cgLambert(vec2 ll, vec2 gEN, float mode) {
 	return mix(1.0, diff, u_cgP.z);
 }
 uniform float u_globeAlpha;   // 球体の不透明度（globe パスと同じ値＝地形面も一緒に透ける）
-uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）
+uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）・2=近景メッシュパス（近景層の窓だけ・主パスはその内側を discard）
 ${ELEV}
 ${WORLD_HYPSO}
 ${GM}
@@ -643,9 +657,13 @@ out vec4 fragColor;
 void main() {
 	float mpp = fwidth(v_ll.y) * 111320.0;   // 画素の地上寸法(m)の目安＝下の低地フェード帯の上端（WGSL terrMpp と同式・経度は f32 刻みが粗いので使わない）。微分は discard より前
 	if (v_front < -0.0015) discard;   // 海抜0の接線より少し先まで許容＝地平線の先に頭を出す高山（〜9km球換算）を描く。遮蔽は深度とフォグが担う
-	if (u_farPass > 0.5) {   // 遠景パスは近窓の内側を塗らない。縁の座標一致は連続な elev()（近縁が遠層値へ溶ける）が保証
+	if (u_farPass > 0.5 && u_farPass < 1.5) {   // 遠景パスは近窓の内側を塗らない。縁の座標一致は連続な elev()（近縁が遠層値へ溶ける）が保証
 		vec2 uvN = (v_ll - u_elevBounds.xy) / u_elevBounds.zw;
 		if (uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0) discard;
+	}
+	if (u_farPass < 0.5 && u_hasNear > 0.5) {   // 主パスは近景層の窓の内側を塗らない（近景メッシュパスの担当。縁の連続は elevNear の溶かしが保証）
+		vec2 uvF = (v_ll - u_nearBounds.xy) / u_nearBounds.zw;
+		if (uvF.x >= 0.0 && uvF.x <= 1.0 && uvF.y >= 0.0 && uvF.y <= 1.0) discard;
 	}
 	// 海〜低地は地形を透明化し、海岸線は精細なベクタに委ねる。低地から滑らかに陰影を立ち上げ、
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
@@ -660,15 +678,21 @@ void main() {
 	// 遠層域は下限 0.004°≈450m がそのまま R10 texel（463m）＝遠景の歩幅として妥当（別計算しない）。
 	vec2 tsz = vec2(textureSize(u_elevTex, 0));
 	float d = max(0.004, u_elevBounds.w / tsz.y);
+	float dTex = u_elevBounds.w / tsz.y;   // アトラス 1 texel（勾配・材質用）
+	float shadeK = 1.0;
+	if (u_farPass > 1.5) {   // 近景メッシュパス：歩幅は近景層の 1 texel（下限 0.004° を外す）・陰影の利得は歩幅比で揃える（＝勾配換算・見た目の濃さ不変）
+		dTex = u_nearBounds.w / float(textureSize(u_nearElevTex, 0).y);
+		shadeK = 0.004 / max(dTex, 1e-6); d = dTex;
+	}
 	float h0 = elev(v_ll);
 	float hx = elev(v_ll + vec2(d, 0.0)) - h0;
 	float hy = elev(v_ll + vec2(0.0, d)) - h0;
-	float shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
+	float shade = clamp(0.82 + (-hx + hy) * 0.0007 * shadeK, 0.45, 1.15);
 	float cgK = 1.0;   // 地面の照明（Cesium）＝北西の陰影の代わりに太陽の lambert を画像ごと掛ける
 	float gmDh = fwidth(h0);   // 地面の材質の等高線＝標高の画素差（一様な制御の流れで）
 	vec2 gmEN = vec2(0.0);   // 勾配（東・北 m/m）＝地面の照明と材質（傾斜・方位）が使う。アトラスの 1 texel 差分（陰影の 0.004° の下限を使わない＝近景の急斜面が鈍らない）。影の派生（TERR_SUN_SHADE）の gEN とは別名
 	if (u_cg.w > 0.5 || u_gm.x > 1.5) {
-		float dL = u_elevBounds.w / tsz.y, hxL = elev(v_ll + vec2(dL, 0.0)) - h0, hyL = elev(v_ll + vec2(0.0, dL)) - h0;
+		float dL = dTex, hxL = elev(v_ll + vec2(dL, 0.0)) - h0, hyL = elev(v_ll + vec2(0.0, dL)) - h0;
 		gmEN = vec2(hxL / (dL * 111320.0 * max(cos(v_ll.y * 0.017453292519943295), 0.01)), hyL / (dL * 111320.0));
 	}
 	if (u_cg.w > 0.5) { shade = 1.0; cgK = cgLambert(v_ll, gmEN, u_cg.w); }
@@ -2031,7 +2055,7 @@ SH_VS.meshTex = SH_VS.mesh;
 // 影の間の地形の陰影＝北西の固定光でなく影と同じ太陽の方位（WebGPU の TERRAIN_SH_WGSL と同式）
 const TERR_SUN_SHADE = "\tvec3 sdir = -normalize(vec3(SH.mvp[0].z, SH.mvp[1].z, SH.mvp[2].z));\n\tvec2 lr = v_ll * 0.017453292519943295;\n\tfloat cl = cos(lr.y), sl = sin(lr.y), co = cos(lr.x), so = sin(lr.x);\n\tvec2 sH = vec2(dot(sdir, vec3(-so, 0.0, co)), dot(sdir, vec3(-sl * co, cl, -sl * so)));   // 太陽の方位（東・北）\n\tvec2 aH = sH / max(length(sH), 1e-6);\n\tvec2 gEN = vec2(hx / (d * 111320.0 * max(cl, 0.01)), hy / (d * 111320.0));   // 勾配（東・北・m/m）\n\tfloat shade = clamp(0.82 - 0.44 * dot(gEN, aH), 0.45, 1.15);";
 const SH_FSP: Record<ShadowFam, Pairs> = {
-	terrain: [["in float v_h;\n", "in float v_h;\n" + SC_IN], ["\tfloat shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);", TERR_SUN_SHADE], ["\tvec3 col = g.rgb * (1.0 - v_fog)", "\tg.rgb = shShade(g.rgb, v_sc);\n\tvec3 col = g.rgb * (1.0 - v_fog)"]],
+	terrain: [["in float v_h;\n", "in float v_h;\n" + SC_IN], ["\tfloat shade = clamp(0.82 + (-hx + hy) * 0.0007 * shadeK, 0.45, 1.15);", TERR_SUN_SHADE], ["\tvec3 col = g.rgb * (1.0 - v_fog)", "\tg.rgb = shShade(g.rgb, v_sc);\n\tvec3 col = g.rgb * (1.0 - v_fog)"]],
 	fill: [["in vec2 v_guv3;\n", "in vec2 v_guv3;\n" + SC_IN], ["fragColor = vec4(mix(gndMix(cogTexMix(rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);", "fragColor = vec4(mix(shShade(gndMix(cogTexMix(rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), v_sc), u_fogColor, v_fog) * af, af);"]],
 	line: [["in vec2 v_pos;\n", "in vec2 v_pos;\n" + SC_IN], ["\tvec3 rgb = mix(lc.rgb, u_fogColor, v_fog);", "\tvec3 rgb = mix(shShade(lc.rgb, v_sc), u_fogColor, v_fog);"]],
 	bld: [["in vec2  v_ll;\n", "in vec2  v_ll;\n" + SC_IN], ["\tvec3 c = mix(u_bldColor * v_shade, u_fogColor, v_fog);", "\tvec3 c = mix(shShade(u_bldColor * v_shade, v_sc), u_fogColor, v_fog);"]],

@@ -95,7 +95,7 @@ interface RwMsg {
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
 	perf?: boolean; stay?: boolean; lowMem?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
-	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; gmax?: number;
+	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
 	url?: string; builtin?: string; opts?: RwOpts | null; x?: number; y?: number; r?: number; names?: string[]; seq?: number;
@@ -376,7 +376,7 @@ async function bootWebGL(m: RwMsg) {
 let terrLazyInit: RwMsg | null = null;
 const makeTerrain = (m: RwMsg, dem: TerrainOptions["dem"] | undefined): RwTerrain => createTerrain({
 	renderer: renderer!, requestDraw: () => { dirty = true; kick(); },
-	exag: m.terrainExag!, earthM: m.earthM!, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
+	exag: m.terrainExag!, earthM: m.earthM!, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr, noNear: !!m.noNearTerr,
 	gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
 	dem: dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
 	dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.ts から渡す（接地リフトと失効判定の根拠）
