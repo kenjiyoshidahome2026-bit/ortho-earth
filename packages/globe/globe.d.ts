@@ -33,7 +33,12 @@ export interface GltfAnimationInfo { index: number; name: string; duration: numb
 export interface AnimationSpec { name?: string; index?: number; time?: number; loop?: boolean; speed?: number; playing?: boolean }
 export interface AnimationState extends Required<Omit<AnimationSpec, "name" | "index">> { name: string | null; index: number | null; duration: number }
 /** 模型の置き方（at＝錨の経緯度・heading＝北から時計回りの度・scale＝倍率・altitude＝地面からの高さ m）。CESIUM_RTC・ECEF 入りの模型は外接矩形の中心を錨に見立て heading 0・scale 1 から数える */
-export interface ModelTransform { at: LonLat; heading: number; scale: number; altitude: number }
+export interface ModelTransform {
+	at: LonLat; heading: number; scale: number; altitude: number;
+	/** 姿勢を丸ごと（heading に加えて pitch・roll）：その地点の ENU（東・北・上）での回転 3x3（列優先 9 個）＝heading 0 で置いた姿勢からの回し方。heading だけなら Rh(heading)。
+	 *  渡すと heading より勝つ（Cesium の互換の口の orientation／modelMatrix・2026-10-28）。null で外す */
+	rot?: number[] | null;
+}
 export interface ModelHandle {
 	/** ドロップのトーストの文言（"$1 triangles"・模型が無ければ "?"） */
 	toastLength(): string;

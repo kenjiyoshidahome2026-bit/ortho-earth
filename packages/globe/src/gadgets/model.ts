@@ -74,6 +74,8 @@ export interface ModelLoadOptions {
 	gizmo?: boolean | "auto";
 	/** 真俯瞰（pitch 0）でも描く（既定 false＝建物と同じく傾けた時だけ・Cesium の互換の口の Primitive は真上からも見える） */
 	keep2d?: boolean;
+	/** 姿勢を丸ごと（ModelTransform.rot＝ENU での回転 3x3・列優先）＝heading より勝つ */
+	rot?: number[] | null;
 	/** "globe"＝setMeshLighting（Cesium の照明）があっても globe の固定光で描く（Cesium の entity geometry＝Phong の見た目・@ortho-earth/cesium の primitives が使う） */
 	lighting?: "globe";
 }
@@ -90,7 +92,7 @@ interface ModelItem {
 	/** 焼いた時の置き方（at＝錨・CESIUM_RTC/ECEF の模型は bbox の中心・bbox＝焼いた時の外接矩形） */
 	base: { at: LonLat; heading: number; scale: number; bbox: Bbox };
 	/** 今の置き方 */
-	now: { at: LonLat; heading: number; scale: number; altitude: number };
+	now: { at: LonLat; heading: number; scale: number; altitude: number; rot?: number[] | null };
 	/** 世界座標の剛体変換（base → now・恒等なら null）と、束ごとの xt（原点相対の平行移動＝pick が原点を動かす分） */
 	xfM: WorldXf | null;
 	animRaf: number; animLast: number | null;
@@ -267,14 +269,19 @@ function enuBasis(lon: number, lat: number): { P: number[]; E: number[]; N: numb
 }
 /** base（焼いた置き方）→ now の世界座標の剛体変換（倍率込み）。恒等なら null。
  *  v' = C1 + alt·U1 + k·Q·(v − C0)、Q＝[E1 N1 U1]·Rh(Δheading)·[E0 N0 U0]ᵀ、k＝scale1/scale0。heading は北から時計回り（ENU 内で e'=c·e+s·n・n'=−s·e+c·n） */
-export function modelWorldXf(base: { at: LonLat; heading: number; scale: number }, now: { at: LonLat; heading: number; scale: number; altitude: number }): WorldXf | null {
+export function modelWorldXf(base: { at: LonLat; heading: number; scale: number }, now: { at: LonLat; heading: number; scale: number; altitude: number; rot?: ArrayLike<number> | null }): WorldXf | null {
 	const same = (a: number, b: number) => Math.abs(a - b) < 1e-12;
-	if (same(base.at[0], now.at[0]) && same(base.at[1], now.at[1]) && same(base.heading, now.heading) && same(base.scale, now.scale) && same(0, now.altitude)) return null;
+	const rot = now.rot && now.rot.length >= 9 ? now.rot : null;
+	if (!rot && same(base.at[0], now.at[0]) && same(base.at[1], now.at[1]) && same(base.heading, now.heading) && same(base.scale, now.scale) && same(0, now.altitude)) return null;
 	const b0 = enuBasis(base.at[0], base.at[1]), b1 = enuBasis(now.at[0], now.at[1]);
 	const B0 = Float64Array.of(...b0.E, ...b0.N, ...b0.U), B1 = Float64Array.of(...b1.E, ...b1.N, ...b1.U);   // 列＝E・N・U
 	const B0t = Float64Array.of(B0[0], B0[3], B0[6], B0[1], B0[4], B0[7], B0[2], B0[5], B0[8]);
 	const ps = (now.heading - base.heading) * Math.PI / 180, c = Math.cos(ps), s = Math.sin(ps);
-	const Rh = Float64Array.of(c, -s, 0, s, c, 0, 0, 0, 1);   // meshdecode と同じ並び（列優先）
+	let Rh = Float64Array.of(c, -s, 0, s, c, 0, 0, 0, 1);   // meshdecode と同じ並び（列優先）
+	if (rot) {   // 姿勢を丸ごと（pitch・roll も）：rot·Rh(base.heading)ᵀ＝焼いた姿勢（heading だけ）を戻してから回す
+		const b = base.heading * Math.PI / 180, cb = Math.cos(b), sb = Math.sin(b);
+		Rh = m3mulF(Float64Array.from(rot as ArrayLike<number>), Float64Array.of(cb, sb, 0, -sb, cb, 0, 0, 0, 1));
+	}
 	const k = (now.scale || 1) / (base.scale || 1);
 	const L = m3mulF(B1, m3mulF(Rh, B0t)); for (let i = 0; i < 9; i++) L[i] *= k;
 	const ar = (now.altitude || 0) / worldRadiusM(), up = ellNormal3D(now.at[0], now.at[1]);   // 高さは測地法線の向き（β空間の像）＝楕円体で動径に足すと高度×0.3% ほど赤道側へずれる（5000m で約 17m・Cesium の互換の口の門で判明 2026-10-25）。球では動径と同じ
@@ -282,8 +289,15 @@ export function modelWorldXf(base: { at: LonLat; heading: number; scale: number 
 	return { L, t: [C1[0] - LC0[0], C1[1] - LC0[1], C1[2] - LC0[2]] };
 }
 /** 外接矩形（度）を base → now に写す（錨の周りで回して倍率を掛け、新しい錨へ） */
-export function transformBbox(bbox: Bbox, base: { at: LonLat; heading: number; scale: number }, now: { at: LonLat; heading: number; scale: number }): Bbox {
+export function transformBbox(bbox: Bbox, base: { at: LonLat; heading: number; scale: number }, now: { at: LonLat; heading: number; scale: number; rot?: ArrayLike<number> | null }): Bbox {
 	const mLon0 = 111320 * Math.cos(base.at[1] * Math.PI / 180), mLon1 = 111320 * Math.cos(now.at[1] * Math.PI / 180), mLat = 110950;
+	if (now.rot && now.rot.length >= 9) {   // pitch・roll で倒すと足元の矩形の外へ出る：錨から一番遠い角までの円（高さは知らない＝横幅の倍まで見込む）
+		const k = (now.scale || 1) / (base.scale || 1);
+		let r = 0;
+		for (const [x, y] of [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[2], bbox[3]], [bbox[0], bbox[3]]]) r = Math.max(r, Math.hypot((x - base.at[0]) * mLon0, (y - base.at[1]) * mLat));
+		r *= 2 * k;
+		return [now.at[0] - r / (mLon1 || 1e-9), now.at[1] - r / mLat, now.at[0] + r / (mLon1 || 1e-9), now.at[1] + r / mLat];
+	}
 	const ps = (now.heading - base.heading) * Math.PI / 180, c = Math.cos(ps), s = Math.sin(ps), k = (now.scale || 1) / (base.scale || 1);
 	const out: Bbox = [Infinity, Infinity, -Infinity, -Infinity];
 	for (const [x, y] of [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[2], bbox[3]], [bbox[0], bbox[3]]]) {
@@ -362,7 +376,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 	};
 	const clear = (slot?: string | null) => { for (const it of [...models.values()]) if (slot == null || it.slot === slot) removeItem(it); };
 	// ── 置き方（2026-10-18）──────────────────────────────────────────────────────
-	const transformOf = (it: ModelItem): ModelTransform => ({ at: [it.now.at[0], it.now.at[1]], heading: it.now.heading, scale: it.now.scale, altitude: it.now.altitude });
+	const transformOf = (it: ModelItem): ModelTransform => ({ at: [it.now.at[0], it.now.at[1]], heading: it.now.heading, scale: it.now.scale, altitude: it.now.altitude, ...(it.now.rot ? { rot: [...it.now.rot] } : {}) });
 	const setTransform = (it: ModelItem, tf: Partial<ModelTransform>) => {
 		if (!live(it)) return;
 		const n = it.now;
@@ -370,6 +384,8 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		if (tf.heading != null && Number.isFinite(+tf.heading)) n.heading = ((+tf.heading % 360) + 360) % 360;
 		if (tf.scale != null && Number.isFinite(+tf.scale) && +tf.scale > 0) n.scale = Math.max(1e-4, Math.min(1e5, +tf.scale));
 		if (tf.altitude != null && Number.isFinite(+tf.altitude)) n.altitude = +tf.altitude;
+		if (tf.rot === null) n.rot = null;
+		else if (tf.rot && tf.rot.length >= 9 && [...tf.rot].slice(0, 9).every(Number.isFinite)) n.rot = [...tf.rot].slice(0, 9).map(Number);
 		it.xfM = modelWorldXf(it.base, n);
 		it.stats = { ...it.stats, bbox: transformBbox(it.base.bbox, it.base, n) };
 		pushXf(it);
@@ -551,7 +567,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
 		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
 		// slot＝置き場（既定 "default"＝置き換え・別名＝並ぶ）。altitude＝地面からの高さ（m）。gizmo＝置き方の取っ手（true／"auto"＝錨で置いた時だけ）
-		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, slot = "default", altitude = 0, lift = true, gizmo = false, keep2d = false, lighting = undefined } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
+		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, slot = "default", altitude = 0, lift = true, gizmo = false, keep2d = false, lighting = undefined, rot = null } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
 			let ab: ArrayBuffer, baseUri: string | null = null;
 			if (typeof src === "string") {
 				const r = await fetch(src, { credentials: "omit" });
@@ -582,7 +598,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 			models.set(slot, it); cur = it;
 			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
-			if (altitude) setTransform(it, { altitude });
+			if (altitude || (rot && r.stats.mode === "anchor")) setTransform(it, { altitude, ...(rot && r.stats.mode === "anchor" ? { rot } : {}) });   // rot＝姿勢を丸ごと（pitch・roll も）
 			if (gizmo === true || (gizmo === "auto" && r.stats.mode === "anchor")) gizmoOf(it, true);
 			if (it.gizmoAuto) bindClick();
 			if (doFit && fit) fit(it.stats.bbox);

@@ -76,4 +76,18 @@ ok("compose: m rotates a's translation", nearV([...c].slice(9), [0, 1, 0], 1e-6)
 ok("compose: null∘null = null", composeXf(null, null) === null);
 
 console.log(fails ? `\n${fails} FAIL` : "\nall PASS");
-process.exit(fails ? 1 : 0);
+process.exit(fails ? 1 : 0);// rot（姿勢まるごと・2026-10-28 Cesium の orientation の pitch・roll）
+{
+	const h = 30 * Math.PI / 180, c = Math.cos(h), s = Math.sin(h);
+	const a = modelWorldXf(base, { ...now0, heading: 30 }), b = modelWorldXf(base, { ...now0, heading: 0, rot: [c, -s, 0, s, c, 0, 0, 0, 1] });
+	const p = world(A, 7, 11, 3);
+	ok("rot = Rh(heading) moves as heading does", dist(apply(a, p), apply(b, p)) < 1e-6, String(dist(apply(a, p), apply(b, p))));
+	const up = modelWorldXf(base, { ...now0, rot: [1, 0, 0, 0, 0, 1, 0, -1, 0] });   // east stays, north → up, up → south (nose up about the east axis)
+	ok("rot tips north up", dist(apply(up, world(A, 0, 10)), world(A, 0, 0, 10)) < 0.01, String(dist(apply(up, world(A, 0, 10)), world(A, 0, 0, 10))));
+	ok("rot tips up south", dist(apply(up, world(A, 0, 0, 10)), world(A, 0, -10)) < 0.01);
+	const hb = modelWorldXf({ at: A, heading: 90, scale: 1 }, { ...now0, heading: 90, rot: [0, -1, 0, 1, 0, 0, 0, 0, 1] });   // baked at heading 90, rot = Rh(90): no change
+	ok("rot over a baked heading", dist(apply(hb, p), p) < 1e-6, String(dist(apply(hb, p), p)));
+	const bb = transformBbox([A[0] - 1e-4, A[1] - 1e-4, A[0] + 1e-4, A[1] + 1e-4], base, { ...now0, rot: [1, 0, 0, 0, 0, 1, 0, -1, 0] });
+	ok("rot widens the bbox", bb[2] - bb[0] > 2e-4 && bb[3] - bb[1] > 2e-4);
+}
+

@@ -4,7 +4,7 @@
 //   polyline → a 3D line (the overlay) or, clamped to ground, a GeoJSON line layer
 //   box / cylinder / ellipsoid (constant, not on terrain) → Cesium's own geometry (the graphic's updater makes the fill and outline instances) drawn as a primitive is
 //   polygon / rectangle / ellipse / corridor / wall / polylineVolume (and the time-varying solids) → GeoJSON fill, line and fill-extrusion layers
-//   model → map.gadget.model (heading only: the globe's models do not pitch or roll)
+//   model → map.gadget.model (heading, and the full attitude as an ENU rotation when the orientation pitches or rolls)
 // It also answers what the CesiumWidget asks of a display: update(time), getBoundingSphere(entity) for zoomTo / flyTo / trackedEntity,
 // and picking (what is under a screen point).
 import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, CorridorOutlineGeometry, Ellipsoid, FixedFrameTransforms, JulianDate, Math as CMath, PolygonHierarchy, PolylinePipeline, Quaternion, Matrix3, Matrix4, ArcType, ReferenceFrame, TimeInterval } from "@cesium/core";
@@ -110,6 +110,18 @@ export function headingOf(q: Quaternion | undefined, at: Cartesian3): number {
 	const bearing = Math.atan2(Cartesian3.dot(x, E), Cartesian3.dot(x, N)) * R2D;
 	return bearing - 180;
 }
+/** the full attitude for the globe's model (ModelTransform.rot): the rotation in the ENU frame at the point (column-major) that turns the model
+ *  placed at heading 0 (Cesium's +X south, +Z up) into the orientation. null when the model stands upright (heading alone says it all) */
+export function enuRotOf(q: Quaternion | undefined, at: Cartesian3): number[] | null {
+	if (!q) return null;
+	const m = Matrix3.fromQuaternion(q), enu = FixedFrameTransforms.eastNorthUpToFixedFrame(at);
+	const E = new Cartesian3(enu[0], enu[1], enu[2]), N = new Cartesian3(enu[4], enu[5], enu[6]), U = new Cartesian3(enu[8], enu[9], enu[10]);
+	const inEnu = (j: number) => { const c = new Cartesian3(m[j * 3], m[j * 3 + 1], m[j * 3 + 2]); return [Cartesian3.dot(c, E), Cartesian3.dot(c, N), Cartesian3.dot(c, U)]; };
+	const ax = inEnu(0), ay = inEnu(1), az = inEnu(2);
+	if (az[2] > 1 - 1e-9) return null;   // upright: no pitch or roll
+	// R·M0 = A with M0 = [X→south, Y→east, Z→up]: R's columns (the images of east, north, up) are A's Y, −X and Z
+	return [...ay, -ax[0], -ax[1], -ax[2], ...az];
+}
 /** yaw (rad, clockwise from east) of an orientation's +X at a point: 0 without one (the ENU frame) */
 const yawOf = (q: Quaternion | undefined, at: Cartesian3) => (headingOf(q, at) + 90) * D2R;
 const ringOfPositions = (ps: Cartesian3[]): number[][] => {
@@ -193,7 +205,7 @@ interface Desc {
 	/** ground shapes and clamped polylines classifying the 3D Tiles and models (classificationType CESIUM_3D_TILE or BOTH): a classification volume in their colour
 	 *  (the terrain part stays a fill / line layer); a polyline's width is its pixel width at the entity's distance, in metres */
 	classify: Array<{ geom: Any; color: string; opacity: number; width?: number }>;
-	model: { uri: string; scale: number; at: [number, number]; altitude: number; lift: boolean; heading: number; anim: boolean; minPx?: number; maxScale?: number | null; c?: number[] } | null;
+	model: { uri: string; scale: number; at: [number, number]; altitude: number; lift: boolean; heading: number; rot?: number[] | null; anim: boolean; minPx?: number; maxScale?: number | null; c?: number[] } | null;
 	sphere: { c: number[]; r: number } | null;
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
 	solids: { fill: Any[]; outline: Any[]; width: number } | null;
@@ -459,7 +471,7 @@ export class EntityDisplay {
 				// NONE = the position's own (ellipsoid) height, absolute: the globe places it without lifting onto the terrain (lift:false), so the
 				// terrain arriving later cannot move it. CLAMP_TO_GROUND = on the terrain; RELATIVE_TO_GROUND = the terrain plus the height
 				const href = val(mo.heightReference, t, HeightReference.NONE);
-				d.model = { uri: u, scale: val(mo.scale, t, 1), at: [ll[0], ll[1]], altitude: href === HeightReference.CLAMP_TO_GROUND ? 0 : ll[2], lift: href !== HeightReference.NONE, heading: headingOf(val(e.orientation, t), pos), anim: val(mo.runAnimations, t, true),
+				d.model = { uri: u, scale: val(mo.scale, t, 1), at: [ll[0], ll[1]], altitude: href === HeightReference.CLAMP_TO_GROUND ? 0 : ll[2], lift: href !== HeightReference.NONE, heading: headingOf(val(e.orientation, t), pos), rot: enuRotOf(val(e.orientation, t), pos), anim: val(mo.runAnimations, t, true),
 					minPx: val(mo.minimumPixelSize, t, 0), maxScale: val(mo.maximumScale, t, null), c: [pos.x, pos.y, pos.z] };
 				dyn(mo.minimumPixelSize, mo.maximumScale);
 				sphPts.push(pos);
@@ -745,11 +757,11 @@ export class EntityDisplay {
 			if (!m) {
 				const mm = { h: null as Any, loading: true, uri: d.uri, scale: d.scale, dead: false };
 				this.#models.set(e, mm);
-				map.gadget.model(d.uri, { at: d.at, altitude: d.altitude, lift: d.lift, heading: d.heading, scale: d.scale, slot: `cesium:${e.id}`, name: String(e.name ?? e.id), fit: false, gizmo: false })
+				map.gadget.model(d.uri, { at: d.at, altitude: d.altitude, lift: d.lift, heading: d.heading, rot: d.rot, scale: d.scale, slot: `cesium:${e.id}`, name: String(e.name ?? e.id), fit: false, gizmo: false })
 					.then((h: Any) => { mm.loading = false; if (mm.dead) { h.clear(); return; } mm.h = h; this.#syncAnim(h, d.anim); }, (err: unknown) => { mm.loading = false; console.warn("[csshim] model", d.uri, err); });
 				continue;
 			}
-			if (m.h) { m.h.setTransform({ at: d.at, altitude: d.altitude, heading: d.heading, scale: d.scale }); this.#syncAnim(m.h, d.anim); }   // the model's scale (absolute: the globe keeps the scale it loaded with as the base)
+			if (m.h) { m.h.setTransform({ at: d.at, altitude: d.altitude, heading: d.heading, rot: d.rot ?? null, scale: d.scale }); this.#syncAnim(m.h, d.anim); }   // the model's scale (absolute: the globe keeps the scale it loaded with as the base)
 		}
 	}
 	/** a model's animation ⇄ the clock: play (keeping its time) while the clock animates and the entity runs animations, stop otherwise */

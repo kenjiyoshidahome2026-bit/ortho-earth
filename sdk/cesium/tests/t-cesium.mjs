@@ -312,6 +312,21 @@ for (const g of [
 	ok("post: empty collection → nothing", postChainOf(coll([])).chain.length === 0 && postChainOf(null).chain.length === 0);
 }
 
+// ── a model's attitude (順 5 tails: the plane pitched nose up lay flat): enuRotOf = the ENU rotation the globe's model takes ──
+{
+	const { enuRotOf, headingOf } = await import("../src/display.ts");
+	const { HeadingPitchRoll, Transforms: T } = await import("@cesium/engine");
+	const at = Cartesian3.fromDegrees(-75.6, 40.04, 1000);
+	ok("attitude: upright needs no rotation", enuRotOf(T.headingPitchRollQuaternion(at, new HeadingPitchRoll(0.7, 0, 0)), at) === null);
+	const r = enuRotOf(T.headingPitchRollQuaternion(at, new HeadingPitchRoll(0, Math.PI / 2, 0)), at);
+	// the model's +X (its nose) at heading 0 is south (0,−1,0) in the globe's frame: R·(0,−1,0) = −R's north column = up
+	ok("attitude: pitch 90 points the nose up", !!r && Math.abs(-r[3]) < 1e-6 && Math.abs(-r[4]) < 1e-6 && Math.abs(-r[5] - 1) < 1e-6, JSON.stringify(r));
+	const r2 = enuRotOf(T.headingPitchRollQuaternion(at, new HeadingPitchRoll(0.4, 0.3, 0.2)), at);
+	const q2 = T.headingPitchRollQuaternion(at, new HeadingPitchRoll(0.4, 0.3, 0.2));
+	// the nose's bearing from R matches headingOf's (heading = bearing of +X − 180)
+	const nose = [-r2[3], -r2[4], -r2[5]], bearing = Math.atan2(nose[0], nose[1]) * 180 / Math.PI;
+	ok("attitude: the nose's bearing agrees with headingOf", Math.abs((((bearing - 180 - headingOf(q2, at)) % 360) + 540) % 360 - 180) < 1e-6, `${bearing} ${headingOf(q2, at)}`);
+}
 // ── particles: Cesium's ParticleSystem stepped by the facade (particles.ts, 順 5): the billboards stay in a stand-in, packParticles turns them into the sprites overlay's arrays ──
 {
 	const engine = await import("@cesium/engine");
