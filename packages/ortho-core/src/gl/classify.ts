@@ -17,10 +17,11 @@ uniform mat4 u_mvp;
 uniform vec4 u_clip;
 uniform float u_logCoef;
 out float v_w;
+float log2p1(float w) { if (w < 0.1) return (w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715))))))) * 1.4426950; return log2(1.0 + w); }   // 1.0+w の桁落ちを避ける（glsl.ts PROJECT と同じ）
 void main() {
 	gl_Position = u_clip + u_mvp * vec4(a_pos, 0.0);
 	v_w = gl_Position.w;
-	gl_Position.z = (log2(max(1.0 + gl_Position.w, 1e-6)) * u_logCoef - 1.0) * gl_Position.w;
+	gl_Position.z = (log2p1(max(gl_Position.w, 1e-30)) * u_logCoef - 1.0) * gl_Position.w;
 }`;
 const FS = `#version 300 es
 precision highp float;

@@ -226,7 +226,7 @@ const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から 
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, mesh: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10, user: 11 };   // fade*=クロスフェード中の新シーン用（p0.w=α）・user＝利用者の vector の層（基図の濃さに従わない＝p0.w=1・段 8⑤）
 const N_ROLES = 12;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
-const PL_BATCH_SLOT = 1024; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）＋xf/xt（196〜211）＋sl0/sl1/cs（212〜223・style の light と頂点色の色空間）のスロット境界（dynamic offset）
+const PL_BATCH_SLOT = 1024; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）＋xf/xt（196〜211）＋sl0/sl1/cs（212〜223・style の light と頂点色の色空間）＋csL/csC/csI（224〜235）＋eyeRel（236〜239）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
 const MAX_MESH_MASKS = 4;
 
@@ -3247,6 +3247,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					plBatchCPU[o + 232] = meshLight.ibl[0]; plBatchCPU[o + 233] = meshLight.ibl[1]; plBatchCPU[o + 234] = 0; plBatchCPU[o + 235] = 0;
 					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = meshLight.sh[i * 3]; plBatchCPU[o + 25 + i * 4] = meshLight.sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = meshLight.sh[i * 3 + 2]; }
 				} else plBatchCPU[o + 227] = 0;
+				plBatchCPU[o + 236] = st.eye[0] - p.origin[0]; plBatchCPU[o + 237] = st.eye[1] - p.origin[1]; plBatchCPU[o + 238] = st.eye[2] - p.origin[2];   // eyeRel＝目 − 原点（double）＝toEye の錨（近接の裏面判定）
 				plBatchCPU[o + 221] = p.textured || p.two ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ・橋梁 two は点けない）・cs.z＝窓の印を α に（夜の色 grade の間）
 				if (clipOPt) { plBatchCPU[o + 60] = p.origin[0] - clipOPt[0]; plBatchCPU[o + 61] = p.origin[1] - clipOPt[1]; plBatchCPU[o + 62] = p.origin[2] - clipOPt[2]; }   // clipO＝バッチ原点 − main 原点（f64 で引く・断面の派生だけが読む）
 				draws.push({ p, count, slot });
@@ -3471,6 +3472,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "meshSet": setMeshSet(prop as string, data as MeshSetData | null); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.cbo && (data as Uint8Array | null)?.length && (data as Uint8Array).byteLength <= p.cbo.size) device.queue.writeBuffer(p.cbo, 0, (data as Uint8Array).buffer, (data as Uint8Array).byteOffset, (data as Uint8Array).byteLength); break; }   // 頂点色だけ書き換える（feature state の色・W7）
+			case "meshPos": {   // skin の頂点の焼き直し（2026-10-28）＝pos（原点相対・Float32・3n）と法線（Int8・4n）を同じ頂点数のまま書き換える（大きさが違えば捨てる）。影の深度も描き直す
+				const p = meshes.get(prop as string), d = data as { pos?: Float32Array; nrm?: Int8Array } | null;
+				if (!p || !d?.pos?.length || ((d.pos.byteLength + 3) & ~3) !== p.vbo.size) break;
+				device.queue.writeBuffer(p.vbo, 0, d.pos.buffer, d.pos.byteOffset, d.pos.byteLength);
+				if (d.nrm?.length && ((d.nrm.byteLength + 3) & ~3) === p.nbo.size) device.queue.writeBuffer(p.nbo, 0, d.nrm.buffer, d.nrm.byteOffset, d.nrm.byteLength);
+				castRev++;
+				break;
+			}
 			case "classify": classify.set(prop as string, data as Parameters<typeof classify.set>[1]); break;   // 面の貼り付け（分類・2026-10-25）＝柱一式（null＝外す）
 			case "classifyStyle": classify.style(prop as string, data as Parameters<typeof classify.style>[1]); break;
 			case "meshXf": { const p = meshes.get(prop as string); if (p) { p.xf = data && (data as ArrayLike<number>).length >= 12 ? data as ArrayLike<number> : null; castRev++; } break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
