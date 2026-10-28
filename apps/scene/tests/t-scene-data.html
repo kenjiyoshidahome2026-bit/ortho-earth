@@ -18,6 +18,15 @@ try {
 	map.gadget.demo({ player: true });
 	const ed = mountSceneEditor({ map, stageEl, panelEl, storageKey: "t.sceneDraft5" });
 	await new Promise(r => setTimeout(r, 200));
+	// 応募前の試し撮り（2026-10-28）：下書きの無い初回に雛形を読む＝台本が枠を持つので「画面の定義」カードは閉じる（残ると試写が暗いまま）
+	{
+		const had = !!document.getElementById("sc-start"), sel = panelEl.querySelector("#sc-tpl");
+		sel.value = [...sel.options].map(o => o.value).find(Boolean); sel.dispatchEvent(new Event("change", { bubbles: true }));
+		ok("tplClosesStart", had && !document.getElementById("sc-start") && ed.doc.frame === "16:9");
+		// 書き出し前の先読みの口＝Promise<boolean>（建物の無い環境は false で即答）
+		const pr = map.prepareScenes({ type: "scenes", scenes: [] });
+		ok("prepareApi", pr instanceof Promise && (await pr) === false);
+	}
 	document.querySelector('#sc-start button[data-f="16:9"]')?.click();
 
 	// 第5便：行の画像タイル（raster）＝タイムラインの行に載る・スクラブで累積適用（l= と同じ：無し＝現状維持・[]＝全部外す）・エディタの「今のを写す」

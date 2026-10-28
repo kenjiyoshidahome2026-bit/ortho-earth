@@ -54,6 +54,7 @@ export interface GlobeCoreApi {
 	/** 上映を止める（準備中でも安全） */
 	stopScenes(): void;   // globe.js:2362
 	/** 台本のタイムライン（再生せずに任意の秒の絵を出す＝エディタ用）。読めなければ null */
+	prepareScenes(scenes: object): Promise<boolean>;
 	sceneTimeline(scenes: object): { dur: number; rows: unknown[]; at(t: number): unknown; seek(t: number): unknown; end(): void } | null;   // globe.js:2364
 	pinRes(on: boolean): void;   // globe.js:2366
 	// ── snapshot
