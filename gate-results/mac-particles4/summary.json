@@ -1,0 +1,529 @@
+{
+ "at": "2026-10-28T20:38:40.018Z",
+ "cesium": "1.146.0",
+ "n": 16,
+ "levels": {
+  "0": 0,
+  "1": 2,
+  "2": 12,
+  "3": 2,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 2,
+  "2": 12,
+  "3": 2,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 12,
+   "examples": [
+    "atmosphere",
+    "cesium-world-terrain",
+    "drawing-on-terrain",
+    "fog",
+    "globe-translucency",
+    "google-photorealistic-3d-tiles",
+    "hello-world",
+    "lighting",
+    "particle-system-fireworks",
+    "particle-system-weather",
+    "terrain",
+    "terrain-exaggeration"
+   ]
+  },
+  {
+   "blocker": "camera differs",
+   "n": 1,
+   "examples": [
+    "particle-system"
+   ]
+  },
+  {
+   "blocker": "drawn camera differs",
+   "n": 1,
+   "examples": [
+    "underground-color"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-photogrammetry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2989,
+    "n": 3072,
+    "colour": 0.9912109375,
+    "edge": 0.978515625,
+    "blob": 2
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "atmosphere",
+   "level": 2,
+   "reasons": [
+    "picture: colour 45% · edges 92% of the cells match · a patch of 1560 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1371,
+    "n": 3072,
+    "colour": 0.4462890625,
+    "edge": 0.9156901041666666,
+    "blob": 1560
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cesium-world-terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 46% · edges 60% of the cells match · a patch of 583 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1141,
+    "n": 3072,
+    "colour": 0.4602864583333333,
+    "edge": 0.5986328125,
+    "blob": 583
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "drawing-on-terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 72% · edges 78% of the cells match · a patch of 217 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1800,
+    "n": 3072,
+    "colour": 0.7220052083333334,
+    "edge": 0.7825520833333334,
+    "blob": 217
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "fog",
+   "level": 2,
+   "reasons": [
+    "picture: colour 87% · edges 69% of the cells match · a patch of 59 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2036,
+    "n": 3072,
+    "colour": 0.8697916666666666,
+    "edge": 0.6878255208333334,
+    "blob": 59
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-translucency",
+   "level": 2,
+   "reasons": [
+    "picture: colour 83% · edges 96% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2459,
+    "n": 3072,
+    "colour": 0.8304036458333334,
+    "edge": 0.9557291666666666,
+    "blob": 16
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "google-photorealistic-3d-tiles",
+   "level": 2,
+   "reasons": [
+    "picture: colour 94% · edges 96% of the cells match · a patch of 118 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2865,
+    "n": 3072,
+    "colour": 0.9427083333333334,
+    "edge": 0.9612630208333334,
+    "blob": 118
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "hello-world",
+   "level": 2,
+   "reasons": [
+    "picture: colour 26% · edges 69% of the cells match · a patch of 2210 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 813,
+    "n": 3072,
+    "colour": 0.2646484375,
+    "edge": 0.6897786458333334,
+    "blob": 2210
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "lighting",
+   "level": 2,
+   "reasons": [
+    "picture: colour 63% · edges 87% of the cells match · a patch of 776 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1849,
+    "n": 3072,
+    "colour": 0.6337890625,
+    "edge": 0.8723958333333334,
+    "blob": 776
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "particle-system",
+   "level": 1,
+   "reasons": [
+    "camera (Δ 125 m · Δangle 0.0°)"
+   ],
+   "blockers": [
+    "camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": false,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1417,
+    "n": 3072,
+    "colour": 0.533203125,
+    "edge": 0.7327473958333334,
+    "blob": 724
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "particle-system-fireworks",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 97% of the cells match · a patch of 216 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2767,
+    "n": 3072,
+    "colour": 0.9108072916666666,
+    "edge": 0.9749348958333334,
+    "blob": 216
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "particle-system-tails",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3021,
+    "n": 3072,
+    "colour": 0.9921875,
+    "edge": 0.990234375,
+    "blob": 5
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "particle-system-weather",
+   "level": 2,
+   "reasons": [
+    "picture: colour 68% · edges 90% of the cells match · a patch of 445 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2015,
+    "n": 3072,
+    "colour": 0.6800130208333334,
+    "edge": 0.9033203125,
+    "blob": 445
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 30% · edges 71% of the cells match · a patch of 1384 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 923,
+    "n": 3072,
+    "colour": 0.30078125,
+    "edge": 0.7073567708333334,
+    "blob": 1384
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain-exaggeration",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 93% of the cells match · a patch of 55 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2507,
+    "n": 3072,
+    "colour": 0.8557942708333334,
+    "edge": 0.9300130208333334,
+    "blob": 55
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "underground-color",
+   "level": 1,
+   "reasons": [
+    "drawn camera (Δangle 27.2° from the Cesium pose)"
+   ],
+   "blockers": [
+    "drawn camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": false
+   },
+   "picture": {
+    "ok": 515,
+    "n": 3072,
+    "colour": 0.17154947916666666,
+    "edge": 0.8050130208333334,
+    "blob": 2273
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
