@@ -1,6 +1,7 @@
 // The Cesium examples gate (stage 0): the pure part. A run (run.mjs) records one side of one example; grade() compares the facade (ortho) with real CesiumJS (ref).
 //   level null = not graded: real Cesium does not run it here, or it starts in 2D / Columbus view (the globe is 3D only, by choice), or it is the Moon / Mars · 0 = ours does not run · 1 = runs · 2 = same answers · 3 = same picture
-// The answers: the counts (entities, data sources, primitives, imagery layers), the camera, and nothing reported unsupported.
+// The answers: the counts (entities, data sources, primitives, imagery layers), the camera (and, on ours, the camera the globe really drew with),
+// what the 3D tilesets draw (real Cesium draws tiles → ours draws some too), and nothing reported unsupported.
 // The picture: the screenshots cut into a grid of cells, the mean colour and the edge strength of each cell compared (the widgets are the real ones on both sides, so they match too).
 import { decodePng } from "../mlexamples/compare.mjs";
 export { decodePng };
@@ -106,6 +107,17 @@ export function grade(R, O, T = THRESH) {
 		const da = Math.max(angDiff(R.camera.heading, O.camera.heading) * Math.cos(R.camera.pitch * D2R), angDiff(R.camera.pitch, O.camera.pitch));   // heading is loose looking straight down
 		checks.camera = d <= tol && da <= T.angDeg;
 		if (!checks.camera) { why.push(`camera (Δ ${Math.round(d)} m · Δangle ${da.toFixed(1)}°)`); out.blockers.push("camera differs"); }
+	}
+	// the camera the globe really drew with must agree with the Cesium-side pose (heading loose looking straight down; roll counts: a 180 turned the whole picture, 3d-tiles-formats)
+	if (O.camera && O.globeCam) {
+		const g = O.globeCam, da = Math.max(angDiff(O.camera.heading, g.heading) * Math.cos(O.camera.pitch * D2R), angDiff(O.camera.pitch, g.pitch), angDiff(O.camera.roll, g.roll));
+		checks.drawnCamera = da <= T.angDeg;
+		if (!checks.drawnCamera) { why.push(`drawn camera (Δangle ${da.toFixed(1)}° from the Cesium pose)`); out.blockers.push("drawn camera differs"); }
+	}
+	// a 3D tileset real Cesium draws must draw something on ours too (tilesLoaded alone said "done" before the first tile: 3d-tiles-interactivity)
+	if (R.drawn && O.drawn && R.drawn.tilesets > 0 && R.drawn.tiles > 0) {
+		checks.drawn = O.drawn.tiles > 0;
+		if (!checks.drawn) { why.push(`3D Tiles drawn ${R.drawn.tiles}/0`); out.blockers.push("3D Tiles draw nothing"); }
 	}
 	if (why.length) { out.reasons.push(...why); }
 	else out.level = 2;

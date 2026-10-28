@@ -127,7 +127,8 @@ export class Cesium3DTileset {
 Object.setPrototypeOf(Cesium3DTileset.prototype, RealTileset.prototype);
 for (const k of ["fromUrl", "fromIonAssetId"] as const) void k;
 
-const statsOf = (h: Any) => new Proxy({ numberOfLoadedTilesTotal: h?.stats?.loaded ?? 0, numberOfTilesTotal: h?.stats?.loaded ?? 0, numberOfTilesWithContentReady: h?.stats?.shown ?? 0, numberOfPendingRequests: h?.stats?.inflight ?? 0, geometryByteLength: h?.stats?.bytes ?? 0 } as Any, { get: (t, k) => (k in t ? t[k] : 0) });
+const statsOf = (h: Any) => new Proxy({ numberOfLoadedTilesTotal: h?.stats?.loaded ?? 0, numberOfTilesTotal: h?.stats?.loaded ?? 0, numberOfTilesWithContentReady: h?.stats?.shown ?? 0, numberOfPendingRequests: h?.stats?.inflight ?? 0, geometryByteLength: h?.stats?.bytes ?? 0,
+	selected: h?.stats?.shown ?? 0, numberOfTrianglesSelected: h?.stats?.triangles ?? 0, numberOfPointsSelected: h?.stats?.points ?? 0 } as Any, { get: (t, k) => (k in t ? t[k] : 0) });   // selected／triangles＝描いている物（公式例の門の「答え」＝足した物が実際に描けたか）
 
 /** a Cesium3DTileStyle (or its JSON) → the globe's Tiles3DStyle (it reads Cesium's styling language as is) */
 function styleOf(s: Any): Any {
