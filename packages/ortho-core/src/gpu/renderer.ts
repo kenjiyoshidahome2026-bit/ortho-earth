@@ -91,7 +91,7 @@ interface ShadowMods { terr: GPUShaderModule; fill: GPUShaderModule; line: GPUSh
 interface ShadowPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; terrain: GPURenderPipeline;
 	bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; globe: GPURenderPipeline }
 interface CastPipes { bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; terr: GPURenderPipeline }
-interface ShBG0Key { v: GPUTextureView; fv: GPUTextureView; cv: GPUTextureView }
+interface ShBG0Key { v: GPUTextureView; fv: GPUTextureView; cv: GPUTextureView; nv: GPUTextureView }
 /** 落とす側の深度パスが描いた物の数（影の計器・解析の統計） */
 interface CastCount { bldTris: number; meshBatches: number; meshTris: number; terrTris: number }
 /** 建物の影の資源（点けている間だけ） */
@@ -218,8 +218,8 @@ const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6�
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一
 const LINE_IDX = new Uint16Array([0, 1, 2, 2, 1, 3]);
 const FRAME_SLOT = 768;    // frame UBO のスロット境界（実使用528B＝FRAME_F32×4・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 132;     // 528B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
-const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5 };   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
+const FRAME_F32 = 140;     // 560B/4（末尾 nearBounds/nearP＝近景層・順 1a）（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
+const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5, terrainNear: 6 };   // terrainNear＝近景メッシュパス（順 1a）   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP のスロット境界
 const DRAWP_B = 144;       // DrawP（9×vec4＝p0〜p2＋tr/lx/dashP/dashI0/dashI1/patP）の大きさ（wgsl.ts FRAME と対）
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
@@ -411,6 +411,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                          // GndP（窓 bbox×3＋有効数）
 		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },     // アトラスのサンプラ（mips・異方性・clamp）
 		{ binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・4 段目（前景あり時）
+		{ binding: 12, visibility: VF, texture: { sampleType: "float" } },   // 近景層（near）アトラス（順 1a）。elev() が静的参照＝far と同じく全レイアウトに必須
 	] });
 	// group(1)＝DrawP＋塗りの模様（S-P1-4/5・FILL_WGSL だけが binding 1/2 を宣言＝他のシェーダは余分な束縛を無視する）
 	const PAT_ENTRIES: GPUBindGroupLayoutEntry[] = [{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }];
@@ -531,6 +532,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ binding: 1, visibility: VF, texture: { sampleType: "float" } },
 		{ binding: 2, visibility: VF, sampler: { type: "filtering" } },
 		{ binding: 3, visibility: VF, texture: { sampleType: "float" } },   // 遠景層（LINE/BUILDING/OVERLAY モジュールの elev() が静的参照）
+		{ binding: 12, visibility: VF, texture: { sampleType: "float" } },   // 近景層（同）
 	] });
 	const bglOvParam = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }, ...PAT_ENTRIES] });
 	const ovLayout = device.createPipelineLayout({ bindGroupLayouts: [bglOvFrame, bglOvParam] });
@@ -793,16 +795,17 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		return p;
 	}
 	function shadowBG0(L: ShadowLayer, which: "bg0" | "bg0T" = "bg0"): GPUBindGroup {   // 影を落とす側の group(0)＝bg0.bld と同じ素材で Frame だけ太陽の正射影（bg0＝段の frameB・bg0T＝地形の frameT）
-		const v = (elev.has && elevTexView) ? elevTexView : dummyView, fv = (far.has && farTexView) ? farTexView : dummyView, cv = cogTexView || dummyView;
+		const v = (elev.has && elevTexView) ? elevTexView : dummyView, fv = (far.has && farTexView) ? farTexView : dummyView, cv = cogTexView || dummyView, nv = (near.has && nearTexView) ? nearTexView : dummyView;
 		const c = (L as unknown as Bag)[which + "K"] as ShBG0Key | undefined;
-		if (L[which] && c && c.v === v && c.fv === fv && c.cv === cv) return L[which]!;
-		(L as unknown as Bag)[which + "K"] = { v, fv, cv };
+		if (L[which] && c && c.v === v && c.fv === fv && c.cv === cv && c.nv === nv) return L[which]!;
+		(L as unknown as Bag)[which + "K"] = { v, fv, cv, nv };
 		return (L[which] = device.createBindGroup({ layout: bgl0, entries: [
 			{ binding: 0, resource: { buffer: which === "bg0T" ? L.frameT : L.frameB, offset: 0, size: FRAME_SLOT } },
 			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv },
 			{ binding: 4, resource: cv }, { binding: 5, resource: { buffer: cogBuf } },
 			{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
 			{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler }, { binding: 11, resource: dummyView },
+			{ binding: 12, resource: nv },
 		] }));
 	}
 
@@ -1082,7 +1085,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
-	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 6, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
+	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 7, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBuf = device.createBuffer({ size: 448 + 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
@@ -1254,16 +1257,16 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const ovFrameBuf = device.createBuffer({ size: FRAME_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * OV_SLOTS);
-	let ovFrameBG: GPUBindGroup | null = null, ovFrameBGView: GPUTextureView | null = null, ovFrameBGFarView: GPUTextureView | null = null;   // drawOverlay が elevTexView/farTexView 変化時だけ作り直す（rebuildBG0 と独立）
+	let ovFrameBG: GPUBindGroup | null = null, ovFrameBGView: GPUTextureView | null = null, ovFrameBGFarView: GPUTextureView | null = null, ovFrameBGNearView: GPUTextureView | null = null;   // drawOverlay が elevTexView/farTexView 変化時だけ作り直す（rebuildBG0 と独立）
 	const ovParamBG = device.createBindGroup({ layout: bglOvParam, entries: [{ binding: 0, resource: { buffer: ovParamBuf, offset: 0, size: DRAWP_B } }, ...patEntries(patDummyView)] });   // tr/lx/dashP は 0 のまま＝丸い端・実線・ずらさない
 	function ensureOvFrameBG() {
 		const v = (elev.has && elevTexView) ? elevTexView : dummyView;
-		const fv = (far.has && farTexView) ? farTexView : dummyView;
-		if (ovFrameBG && ovFrameBGView === v && ovFrameBGFarView === fv) return;
-		ovFrameBGView = v; ovFrameBGFarView = fv;
+		const fv = (far.has && farTexView) ? farTexView : dummyView, nv = (near.has && nearTexView) ? nearTexView : dummyView;
+		if (ovFrameBG && ovFrameBGView === v && ovFrameBGFarView === fv && ovFrameBGNearView === nv) return;
+		ovFrameBGView = v; ovFrameBGFarView = fv; ovFrameBGNearView = nv;
 		ovFrameBG = device.createBindGroup({ layout: bglOvFrame, entries: [
 			{ binding: 0, resource: { buffer: ovFrameBuf, offset: 0, size: FRAME_SLOT } },
-			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv }] });
+			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv }, { binding: 12, resource: nv }] });
 	}
 	// overlay スロット：{ fanBuf, fanCount, lineBufs?, lineCount, origin, fill, minZoom }
 	let overlay: OverlaySlot | null = null, overlayHi: OverlaySlot | null = null, overlayHover: OverlaySlot | null = null, rail: (OverlaySlot | null)[] = [];   // overlayHover＝ホバー中の地物境界を太線で（選択マスク overlayHi とは別スロット＝両立）
@@ -1589,6 +1592,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	let elevTexObj: GPUTexture | null = null, elevTexView: GPUTextureView | null = null, elev: ElevState = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain: TerrainMesh | null = null, elevStage: { tex: GPUTexture; a: ElevAtlasMeta; scale: number } | null = null;
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）
 	let farTexObj: GPUTexture | null = null, farTexView: GPUTextureView | null = null, far: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+	let nearTexObj: GPUTexture | null = null, nearTexView: GPUTextureView | null = null, near: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };   // 近景層（1 セル・順 1a）
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 	let memAtlas = 0, memStage = 0, memFar = 0, memMesh = 0, memMsaa = 0;
 	let bg0: Record<string, GPUBindGroup> = null!;   // group(0) の5スロット bind group（elevTex/farTex 差し替えで作り直し）
@@ -1601,8 +1605,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	function rebuildBG0() {
 		elevTexView = elevTexObj ? elevTexObj.createView() : null;   // view は1回だけ作って使い回す（gint の bind group キャッシュも view 同一性で安定）
 		farTexView = farTexObj ? farTexObj.createView() : null;
+		nearTexView = nearTexObj ? nearTexObj.createView() : null;
 		const view = (elev.has && elevTexView) ? elevTexView : dummyView;
 		const farView = (far.has && farTexView) ? farTexView : dummyView;
+		const nearView = (near.has && nearTexView) ? nearTexView : dummyView;
 		bg0 = {}; bg0Atl = {};
 		// 地面アトラスへ塗りを焼くパス用＝同じレイアウトだがアトラス自身（binding 6-8）は dummy：描き込み先のテクスチャを同じ同期スコープで
 		// 読み取り側にも張ると「writable usage と別 usage の同居」で CommandBuffer ごと無効になる（実際に踏んだ 2026-09-21）
@@ -1613,6 +1619,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ binding: 4, resource: cogTexView || dummyView }, { binding: 5, resource: { buffer: cogBuf } },
 				{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
 				{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler }, { binding: 11, resource: dummyView },
+				{ binding: 12, resource: nearView },
 			],
 		});
 		for (const [name, idx] of Object.entries(SLOT)) bg0[name] = device.createBindGroup({
@@ -1629,6 +1636,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ binding: 9, resource: { buffer: gndPBuf } },
 				{ binding: 10, resource: rasSampler },
 				{ binding: 11, resource: gnd.w[3] ? gnd.w[3].view : dummyView },
+				{ binding: 12, resource: nearView },
 			],
 		});
 		// globe（全球ハイプソ＝標高+気候）と terrain group(2)（気候）も同じ素材に依存＝一緒に作り直す
@@ -1721,6 +1729,22 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		if (!farTexObj) return;
 		retire(farTexObj); farTexObj = null;
 		far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 }; memFar = 0;
+		rebuildBG0();
+	}
+	// ── 近景層（near）アトラス（順 1a）──：1 セル（1024²・2MB）。terrain.ts は焼けてから「elevAtlasNear → elevCellNear」を続けて送る＝張替えの平坦は無い。
+	// has はセルが書けてから 1（主パスの discard は中身がある時だけ）。メッシュは近窓と同じ単位格子を Frame.mesh（terrainNear slot）で近景窓へ縮める
+	function setElevationAtlasNear(a: ElevAtlasMeta) {
+		const span = a.cellSpan || 0.25;
+		if (nearTexObj) retire(nearTexObj);
+		nearTexObj = mkAtlasTex(a.cellsX * a.cellRes, a.cellsY * a.cellRes);
+		near = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], has: 0, edgeFade: a.edgeFade || 0 };
+		rebuildBG0();
+	}
+	function setElevationCellNear(cx: number, cy: number, data: Float32Array | ElevCellSrc, cellRes: number) { if (nearTexObj) { putCellAny(nearTexObj, cx, cy, data, cellRes); if (!near.has) { near.has = 1; rebuildBG0(); } } }
+	function clearElevationNear() {
+		if (!nearTexObj) return;
+		retire(nearTexObj); nearTexObj = null;
+		near = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
 		rebuildBG0();
 	}
 	// ── 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）──
@@ -1839,7 +1863,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	// 地形チャンクのカリング（perf plan P4 step B）：可視チャンクの区間だけ drawIndexed。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
-	const terrStat: Record<string, Required<ChunkStats>> = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 } };   // ?perf=1／HUD の物差し（renderworker が mem テレメトリに載せる）
+	const terrStat: Record<string, Required<ChunkStats>> = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 } };   // fine＝近景層のパス   // ?perf=1／HUD の物差し（renderworker が mem テレメトリに載せる）
 	const terrRuns = (mesh: ArrayLike<number>, st: CameraState, which: string): number[][] => TERR_LOD ? visibleChunkRuns(terrain!.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain!.chunks.length, [[0, terrain!.count]]);
 
 	// --- 建物メッシュ（LOD2 等）（gl/renderer.js setMeshSet/setMeshVis/meshBboxVisible の移植）---
@@ -2471,7 +2495,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		f[68] = mesh ? mesh[0] : 0; f[69] = mesh ? mesh[1] : 0; f[70] = mesh ? mesh[2] : 0; f[71] = mesh ? mesh[3] : 0;
 		// 遠景層（far）：bounds/has/edgeFade は全スロット共通（elev() のフォールバック参照）・farPass は terrainFar slot のみ 1
 		f[72] = far.bounds[0]; f[73] = far.bounds[1]; f[74] = far.bounds[2]; f[75] = far.bounds[3];
-		f[76] = far.has; f[77] = far.edgeFade || 0; f[78] = farPass ? 1 : 0; f[79] = csFogD;   // farP.w＝Cesium の霧の濃さ（地形・模型の頂点 csFogV）
+		f[76] = far.has; f[77] = far.edgeFade || 0; f[78] = farPass || 0; f[79] = csFogD;   // farP.z＝1 遠景パス・2 近景パス   // farP.w＝Cesium の霧の濃さ（地形・模型の頂点 csFogV）
 		// 楕円体 dβ 錨（原点の測地緯度 2φ/4φ 三角・CPU double）＋ゲート。球＝全0＝シェーダ補正が厳密0
 		const _ell = ellipsoidOn(), _pr = origin[1] * Math.PI / 180;
 		f[80] = _ell ? Math.cos(2 * _pr) : 0; f[81] = _ell ? Math.sin(2 * _pr) : 0;
@@ -2500,6 +2524,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (mesh) { f[i] = (mesh[0] - W) / sLon; f[i + 1] = (mesh[1] - S) / sLat; f[i + 2] = mesh[2] / sLon; f[i + 3] = mesh[3] / sLat; }
 			else { f[i] = (origin[0] - W) / sLon; f[i + 1] = (origin[1] - S) / sLat; f[i + 2] = 1 / sLon; f[i + 3] = 1 / sLat; }
 		}
+		// 近景層（near・順 1a）：bounds/has/edgeFade は全スロット共通（elev() が参照）。近景メッシュパスは farP.z=2（terrainNear slot）
+		f[132] = near.bounds[0]; f[133] = near.bounds[1]; f[134] = near.bounds[2]; f[135] = near.bounds[3];
+		f[136] = near.has; f[137] = near.edgeFade || 0; f[138] = 0; f[139] = 0;
 		return f;
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
@@ -2740,6 +2767,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const nearRuns = terrainActive ? terrRuns(terrain!.mesh, st, "near") : null;
 		const farRuns = farActive ? terrRuns(far.bounds, st, "far") : null;
 		if (!farActive) { terrStat.far.drawn = 0; terrStat.far.of = 0; }
+		const nearActive = terrainActive && near.has && !!nearTexObj;   // 近景メッシュパス（順 1a・terrain slot と同 fog・mesh=近景窓・farPass=2）
+		if (nearActive) device.queue.writeBuffer(frameBuf, SLOT.terrainNear * FRAME_SLOT, packFrame(st, terrOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, near.bounds, 2));
+		const nearRunsF = nearActive ? terrRuns(near.bounds, st, "fine") : null;
+		if (!nearActive) { terrStat.fine.drawn = 0; terrStat.fine.of = 0; }
 		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), fogColorOf(land), logCoef, dpr));
 		if (userOn) device.queue.writeBuffer(frameBuf, SLOT.user * FRAME_SLOT, packFrame(st, scenes.user.origin || [0, 0], st.fogDist * 2.5 * fogK(), fogFarCap, fogColorOf(land), logCoef, dpr));   // base/main と同じ fog
 		if (shWin) {   // 影：太陽の正射影の Frame（落とす側・段ごと）と ShadowP（受け手）
@@ -2949,6 +2980,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				// 近を先に描く＝遠の被り分は深度で早期棄却。頂点コストは近と同額＝チルト×深ズーム時のみ発生。
 				pass.setBindGroup(0, bg0.terrainFar);
 				for (const [f0, n] of farRuns!) pass.drawIndexed(n, 1, f0);
+			}
+			if (nearActive) {   // 近景メッシュ＝同じ単位格子を近景層の窓へ縮めて 3 度目のドロー（主パスはその内側を discard 済み）
+				pass.setBindGroup(0, bg0.terrainNear);
+				for (const [f0, n] of nearRunsF!) pass.drawIndexed(n, 1, f0);
 			}
 			// 地形の蓋（#111 段 2）＝切った面ごとに「地面の中」だけ塗る板（近窓・遠窓の 2 回・地形と同じ分担）
 			if (C && tp!.terrain.length && clip!.style.capOn) {
@@ -3442,6 +3477,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "elevCellFar": setElevationCellFar((prop as CellProp).cx, (prop as CellProp).cy, data as Float32Array | ElevCellSrc, (prop as CellProp).cellRes); break;
 			case "elevFarMax": far.maxElev = +(data as number) || 0; break;   // 遠景層の最大標高（地平線窓）
 			case "elevAtlasFarOff": clearElevationFar(); break;
+			case "elevAtlasNear": setElevationAtlasNear(data as ElevAtlasMeta); break;   // 近景層（1 セル・順 1a）
+			case "elevCellNear": setElevationCellNear((prop as CellProp).cx, (prop as CellProp).cy, data as Float32Array | ElevCellSrc, (prop as CellProp).cellRes); break;
+			case "elevAtlasNearOff": clearElevationNear(); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "meshSet": setMeshSet(prop as string, data as MeshSetData | null); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.cbo && (data as Uint8Array | null)?.length && (data as Uint8Array).byteLength <= p.cbo.size) device.queue.writeBuffer(p.cbo, 0, (data as Uint8Array).buffer, (data as Uint8Array).byteOffset, (data as Uint8Array).byteLength); break; }   // 頂点色だけ書き換える（feature state の色・W7）
