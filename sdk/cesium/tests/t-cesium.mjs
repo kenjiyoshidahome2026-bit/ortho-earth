@@ -247,5 +247,47 @@ for (const g of [
 	ok("createElevationBandMaterial needs layers", threw);
 }
 
+// ── entity display: a ground polygon with classificationType CESIUM_3D_TILE / BOTH becomes a classification volume on the 3D Tiles (building-insert's yellow lot) ──
+{
+	const { EntityDisplay } = await import("../src/display.ts");
+	const { ClassificationType, Entity: CEntity, JulianDate: CJulianDate, PolygonHierarchy } = await import("@cesium/engine");
+	const calls = [], removed = [], srcData = [];
+	const map = {
+		addClassification: (data, opts) => { const h = { data, opts, remove: () => removed.push(h) }; calls.push(h); return h; },
+		getSource: () => null, addSource: (id, s) => srcData.push(s.data), addLayer: () => {}, getLayer: () => null, removeLayer: () => {}, removeSource: () => {},
+		overlay: () => ({ post: () => {}, remove: () => {} }), gadget: { model: () => Promise.resolve({ clear: () => {} }) }, clock: null,
+	};
+	const scene = { frameState: { time: CJulianDate.now() }, camera: null, drawingBufferWidth: 800, drawingBufferHeight: 600 };
+	const disp = new EntityDisplay({ scene, dataSourceCollection: { length: 0, get: () => null }, host: { map, ready: Promise.resolve(map), display: null } });
+	const ring = Cartesian3.fromDegreesArray([-105.0077, 39.7520, -105.0096, 39.7505, -105.0072, 39.7513, -105.0077, 39.7520]);
+	const lot = disp.defaultDataSource.entities.add(new CEntity({ polygon: { hierarchy: new PolygonHierarchy(ring), material: Color.YELLOW.withAlpha(0.6), classificationType: ClassificationType.CESIUM_3D_TILE } }));
+	const both = disp.defaultDataSource.entities.add(new CEntity({ polygon: { hierarchy: new PolygonHierarchy(ring), material: Color.RED.withAlpha(0.5), classificationType: ClassificationType.BOTH } }));
+	disp.defaultDataSource.entities.add(new CEntity({ polygon: { hierarchy: new PolygonHierarchy(ring), material: Color.BLUE } }));   // no classificationType: a fill only
+	const t = CJulianDate.now();
+	disp.update(t);
+	ok("display: CESIUM_3D_TILE and BOTH polygons each make one tiles3d classification volume", calls.length === 2 && calls.every(h => h.opts.type === "tiles3d" && h.data.type === "MultiPolygon"), `calls=${calls.length}`);
+	ok("display: the volume carries the material's colour and alpha", calls[0]?.opts.color === "rgb(255,255,0)" && near(calls[0]?.opts.opacity, 0.6) && calls[1]?.opts.color === "rgb(255,0,0)" && near(calls[1]?.opts.opacity, 0.5), JSON.stringify(calls.map(h => [h.opts.color, h.opts.opacity])));
+	const fills = (srcData[srcData.length - 1]?.features || []).filter(f => f.properties._k === "fill");
+	ok("display: CESIUM_3D_TILE leaves the terrain unpainted, BOTH and the plain polygon are fills", fills.length === 2 && !fills.some(f => f.properties._fc === "rgb(255,255,0)"), `fills=${fills.length}`);
+	disp.update(t);
+	ok("display: an unchanged scene keeps its volumes", calls.length === 2 && removed.length === 0);
+	disp.defaultDataSource.entities.remove(lot);
+	disp.update(t);
+	ok("display: removing the entity removes its volume", removed.length === 1 && removed[0] === calls[0] && calls.length === 2);
+	both.polygon.material = Color.GREEN.withAlpha(0.5);
+	disp.update(t);
+	ok("display: a colour change replaces the volume", calls.length === 3 && removed.length === 2 && calls[2].opts.color === "rgb(0,128,0)", JSON.stringify(calls[2]?.opts));
+	// a clamped polyline with CESIUM_3D_TILE: a band of its pixel width on the tiles (1 m/px without a camera), no ground line
+	const road = disp.defaultDataSource.entities.add(new CEntity({ polyline: { positions: ring.slice(0, 3), width: 6, material: Color.YELLOW, clampToGround: true, classificationType: ClassificationType.CESIUM_3D_TILE } }));
+	disp.update(t);
+	const band = calls[3];
+	ok("display: a clamped CESIUM_3D_TILE polyline makes a tiles3d band of its pixel width", calls.length === 4 && band?.data.type === "LineString" && band.opts.type === "tiles3d" && near(band.opts.width, 6) && band.opts.color === "rgb(255,255,0)", JSON.stringify(band?.opts));
+	ok("display: the CESIUM_3D_TILE polyline draws no ground line", !(srcData[srcData.length - 1]?.features || []).some(f => f.properties._k === "line"));
+	disp.defaultDataSource.entities.remove(road); disp.update(t);
+	ok("display: removing the polyline removes its band", removed.length === 3 && removed[2] === band);
+	disp.destroy();
+	ok("display: destroy removes every volume", removed.length === 4);
+}
+
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
 process.exit(fails ? 1 : 0);
