@@ -9,7 +9,7 @@ import { parseScenes } from "../demo/scene-adapter.ts";     // 共有シーン�
 import { buildSceneTimeline } from "../demo/scene-timeline.ts";   // 台本→総タイムライン（時刻評価・純関数）
 import { tr } from "../i18n.ts";
 import { sceneTitlesOf, cardOf, pick, gradeOf, glowOf } from "./titles.ts";
-import { composeLayersToCanvas } from "../gadgets/compose.ts";   // 溶け替え（dissolve）の前の絵＝生スナップの合成   // 見た目の層＝開幕/終幕カード・出典の焼き込み（字幕の型は demo ガジェットが同じ層へ）
+import { composeLayersToCanvas, solarSkyOf } from "../gadgets/compose.ts";   // 溶け替え（dissolve）の前の絵＝生スナップの合成   // 見た目の層＝開幕/終幕カード・出典の焼き込み（字幕の型は demo ガジェットが同じ層へ）
 import type { DemoHandle } from "../../globe.d.ts";
 import type { GlobeScope } from "../types/scope.ts";
 import type { SceneTimeline } from "../demo/scene-timeline.ts";
@@ -314,7 +314,7 @@ async function fadeViewRun(hash: string, secs?: number, dissolve = false): Promi
 			const f = (Number.isFinite(secs) && secs! > 0) ? secs! : 1.2;
 			let still: HTMLCanvasElement | null = null;
 			try {
-				const off = composeLayersToCanvas(await env.map.requestSnapshot(), null) as unknown as CanvasImageSource & { width: number; height: number };
+				const off = composeLayersToCanvas(await env.map.requestSnapshot(), null, solarSkyOf(mapEl)) as unknown as CanvasImageSource & { width: number; height: number };
 				still = document.createElement("canvas"); still.width = off.width; still.height = off.height;
 				still.getContext("2d")!.drawImage(off, 0, 0);
 				Object.assign(still.style, { position: "absolute", inset: "0", width: "100%", height: "100%", zIndex: "4", pointerEvents: "none", opacity: "1", transition: `opacity ${f}s ease` });

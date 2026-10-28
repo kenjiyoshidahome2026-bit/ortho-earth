@@ -8,7 +8,7 @@
 import { parseScenes, compileVias, rasterOf } from "@ortho-earth/globe/demo/scene-adapter.js";
 import { sniffScene } from "@ortho-earth/globe/gadgets/dropfile.js";
 import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // クラウド保存（共通の器＝geoedit と同じ account Worker /me/files）
-import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
+import { composeLayersToCanvas, solarSkyOf } from "@ortho-earth/globe/gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
 import { parseViewHash } from "@ortho-earth/core/viewurl";   // 行のレイヤー(l=)・配色(c=) チップ＝共有URLの正典パーサ。index.js 経由だとサイトビルドにエンジン一式（worker・WASM）が二重に出る（2026-09-14）
 import { tr } from "@ortho-earth/globe/i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
 import { pick, cardSecs, cardOf, LOOKS } from "@ortho-earth/globe/scenes/titles.js";   // 見た目の層（字幕の型・開幕/終幕カード・出典）の約束＝プレーヤーと同じ解き方
@@ -242,7 +242,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const captureThumb = async (key: string, retry = 1): Promise<void> => {   // 今の画面を撮って key の絵にする（失敗は1回だけ撮り直し・それでも駄目なら無視＝サムネは補助）
 		if (!key || !map.requestSnapshot) return;
 		try {
-			const full = composeLayersToCanvas(await map.requestSnapshot(), null);
+			const full = composeLayersToCanvas(await map.requestSnapshot(), null, solarSkyOf(map.mapEl));
 			const W = 128, H = 72, out = new OffscreenCanvas(W, H), ctx = out.getContext("2d")!;
 			const k = Math.max(W / full.width, H / full.height);
 			ctx.drawImage(full, (W - full.width * k) / 2, (H - full.height * k) / 2, full.width * k, full.height * k);

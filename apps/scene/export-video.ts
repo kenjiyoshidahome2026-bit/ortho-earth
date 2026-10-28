@@ -7,7 +7,7 @@
 // 音（第4便）＝opts.audio（BGM の音声ファイル）を総尺に合わせて切り（頭 0.5 秒の溶明・尻 2.5 秒の溶暗）、AudioEncoder の AAC で同じ MP4 へ。
 //   AAC の符号器が無いブラウザは音なしで焼き、onNote で知らせる。
 import { parseScenes, compileVias } from "@ortho-earth/globe/demo/scene-adapter.js";
-import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+import { composeLayersToCanvas, solarSkyOf } from "@ortho-earth/globe/gadgets/compose.js";
 import { pick, cardOf, cardSecs, CARD_FADE, gradeOf, glowOf, type CardSpec } from "@ortho-earth/globe/scenes/titles.js";
 import { getLang } from "@ortho-earth/globe/i18n.js";
 import { Mp4Muxer } from "./mp4mux.ts";
@@ -269,7 +269,7 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 					const alt = map.getSunPosition().altitude, g0 = gradeOn ? gradeOf(alt) : null;
 					const g = map.setGrade(g0, { glow: lightsOn && g0 ? glowOf(alt) : 0 }) ? null : g0;
 					await settle(ri !== lastRow ? waitMs : Math.min(waitMs, 4000));
-					const snap = composeLayersToCanvas(await map.requestSnapshot(), null);
+					const snap = composeLayersToCanvas(await map.requestSnapshot(), null, solarSkyOf(map.mapEl));
 					bctx.clearRect(0, 0, width, height); bctx.drawImage(snap, 0, 0, width, height);
 					if (g) { bctx.globalCompositeOperation = "multiply"; bctx.fillStyle = `rgb(${g[0]},${g[1]},${g[2]})`; bctx.fillRect(0, 0, width, height); bctx.globalCompositeOperation = "source-over"; }
 					lastKey = key; lastRow = ri;
