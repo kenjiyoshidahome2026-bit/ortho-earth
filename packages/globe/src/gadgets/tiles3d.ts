@@ -110,7 +110,7 @@ interface T3dNode {
 type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token?: string; splat?: Record<string, unknown> | null; voxel?: Record<string, unknown> | null };
 /** 1 つの tileset（3D Tiles か I3S＝kind "i3s"）。asset 等は 3D Tiles だけ・states は両方（I3S は手綱に setFeatureState が無い＝常に空） */
 interface T3dSet {
-	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; splats: number; voxels: number; bytes: number; subtrees: number };
+	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; splats: number; voxels: number; bytes: number; subtrees: number; complete: boolean };
 	states: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean; releaseT?: number; splatWarned?: boolean; voxelWarned?: boolean; voxDecl?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null;
 	asset?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null; extras?: Record<string, unknown> | null; extensionsUsed?: string[]; extensionsRequired?: string[];
 	name?: string | null; copyright?: string | null; ellipsoidal?: boolean;
@@ -634,7 +634,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				return false;
 			};
 			const out: T3dNode[] = [];
-			walk(set.root, out);
+			set.stats.complete = walk(set.root, out);   // 今の視点で描くべき物が全部揃った（か失敗した）＝Cesium の tilesLoaded。根が読めて最初に巡るまでは false
 			for (const n of out) show.add(n);
 			// 出す/伏せる
 			for (const n of set.loaded()) setOn(n, show.has(n));
@@ -676,7 +676,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			if (!j.root) throw new Error("not a 3D Tiles tileset (no root)");
 			const id = opts.id ?? `t${++seq}`;
 			if (sets.has(id)) ctl.remove(id);
-			const set = { id, url: abs.href, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, splats: 0, voxels: 0, bytes: 0, subtrees: 0 }, states: new Map(), ready: new Set(), query: [...abs.searchParams], pts: null, removed: false, hidden: false,
+			const set = { id, url: abs.href, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, splats: 0, voxels: 0, bytes: 0, subtrees: 0, complete: false }, states: new Map(), ready: new Set(), query: [...abs.searchParams], pts: null, removed: false, hidden: false,
 				asset: j.asset ?? null, metadata: j.metadata ?? null, extras: j.extras ?? j.asset?.extras ?? null, extensionsUsed: j.extensionsUsed ?? [], extensionsRequired: j.extensionsRequired ?? [] } as T3dSet;   // root の見出し（F5）＝手綱から読める
 			set.scope = await scopeOf(j, abs.href, opts.requestTransform);
 			// voxel の tileset（Cesium の経路＝root.content の 3DTILES_content_voxels が dimensions／padding／class を宣言し、タイルの glb は属性だけ・形はタイルの境界体積）
@@ -719,7 +719,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const info = await rpc<I3SInfo>({ kind: "i3sOpen", url: abs, token: opts.token });
 			const id = opts.id ?? `i${++seq}`;
 			if (sets.has(id)) ctl.remove(id);
-			const set = { id, kind: "i3s", url: abs, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, splats: 0, voxels: 0, bytes: 0, subtrees: 0 }, states: new Map(), ready: new Set(), query: [] as Array<[string, string]>, pts: null, removed: false, hidden: false, name: info.name, copyright: info.copyright } as T3dSet;
+			const set = { id, kind: "i3s", url: abs, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, splats: 0, voxels: 0, bytes: 0, subtrees: 0, complete: false }, states: new Map(), ready: new Set(), query: [] as Array<[string, string]>, pts: null, removed: false, hidden: false, name: info.name, copyright: info.copyright } as T3dSet;
 			set.root = i3sNode(info.root, set, null);
 			set.loaded = () => [...set.ready];
 			sets.set(id, set);
