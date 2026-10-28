@@ -886,11 +886,12 @@ export interface SampleHeightResult { lng: number; lat: number; height: number |
  *  heights＝タイルの高さの基準：既定 "ellipsoidal"（仕様どおりの楕円体高＝Cesium World Terrain・PDOK）＝同梱の EGM96（30 分）のジオイド高を引いて標高へ直す（要る時だけ読む）／
  *  "orthometric"＝標高で配る配信（swisstopo）。heightOffset＝足す高さ（m）。高さ 0..0 の空のタイル（PDOK の粗い段）と 404/403 は無い所＝既定の標高が残る */
 export interface QuantizedMeshSource { type: "quantized-mesh"; url?: string; ion?: { assetId: number | string; accessToken: string }; heights?: "ellipsoidal" | "orthometric"; heightOffset?: number;
-	/** R01 のセルを焼く段（既定＝タイルの幅がセルの約 1/4＝z10）・maxzoom＝1 点の標本の上限の段（既定 16） */ cellZoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; headers?: Record<string, string>; credentials?: RequestCredentials }
-export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "terrarium" | "mapbox" | "gsi" | "custom"; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number }
+	/** R01 のセルを焼く段（既定＝タイルの幅がセルの約 1/4＝z10）・maxzoom＝1 点の標本の上限の段（既定 16） */ cellZoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; headers?: Record<string, string>; credentials?: RequestCredentials;
+	/** 海底を持つ（Cesium の World Bathymetry 等）＝負の標高を海面の 0 へ寄せずに描く。この間は既定の標高（GEBCO の R10／R90）の海底も出す */ seafloor?: boolean }
+export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "terrarium" | "mapbox" | "gsi" | "custom"; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number; /** 海底を持つ（負の標高を 0 へ寄せない）＝QuantizedMeshSource と同じ */ seafloor?: boolean }
 /** 標高の source を整えた後の spec（map.getTerrain の source）＝raster-dem は tiles を頁基準の絶対・encoding 既定 mapbox・tileSize 512・maxzoom 22（TileJSON の申告の encoding・bounds はそのまま）／
  *  quantized-mesh は url を頁基準の絶対にしただけ（ion・heights などもそのまま） */
-export type TerrainSourceSpec = { type?: string; url?: string; tiles?: string[]; encoding?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: number[] | null; dtm?: boolean; cellZoom?: number | null; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number };
+export type TerrainSourceSpec = { type?: string; url?: string; tiles?: string[]; encoding?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: number[] | null; dtm?: boolean; cellZoom?: number | null; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number; seafloor?: boolean };
 export type ResourceType = "Style" | "Source" | "Tile" | "SpriteJSON" | "SpriteImage" | "Image" | "Unknown";
 export type TransformRequestFunction = (url: string, resourceType: ResourceType) => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | undefined | null;
 export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json" | "image" | "string"; headers?: Record<string, string> }, abortController: AbortController) => Promise<{ data: ArrayBuffer | ArrayBufferView | Blob | string | object | null }>;

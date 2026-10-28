@@ -151,7 +151,7 @@ interface TerrainMesh { vbo: GPUBuffer; ibo: GPUBuffer; count: number; G: number
 type RawTile = ElevTileGrid & { data: ArrayBufferView & ArrayLike<number> };
 /** 標高セルの記述子（terrain.js が渡す生タイルの切り方） */
 type CellProp = { cx: number; cy: number; cellRes: number };   // set("elevCell*") の prop
-export interface ElevCellSrc { mode: "down" | "crop" | "world"; tile?: RawTile; atlas?: RawTile; edge?: number; lng0?: number; lat0?: number; span?: number; cx?: number; cy?: number }
+export interface ElevCellSrc { mode: "down" | "crop" | "world"; tile?: RawTile; atlas?: RawTile; edge?: number; sea?: boolean; lng0?: number; lat0?: number; span?: number; cx?: number; cy?: number }
 interface RawEntry { buf: GPUBuffer; bg: GPUBindGroup; bytes: number; kind: number; fresh: number }
 interface ResampleRes { pipe: GPURenderPipeline; bgl: GPUBindGroupLayout; ubuf: GPUBuffer; u32: Uint32Array; f32: Float32Array; slot: number }
 interface MeshTex { tex: GPUTexture; view: GPUTextureView }
@@ -1813,6 +1813,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		if (!e) return false;
 		castRev++;   // 標高が変わる＝建物の足元（リフト）が変わる＝影の深度を描き直す（writeCell と同じ）
 		u[0] = w; u[1] = h; u[2] = e.kind; u[12] = cx * N; u[13] = cy * N; u[14] = N;
+		if (src.mode !== "world" && src.sea) u[19] = 1;   // box.w＝海底（負値を通す・mode 0/2 だけ）
 		const slot = r.slot; r.slot = (slot + 1) % RS_RING;
 		device.queue.writeBuffer(r.ubuf, slot * RS_SLOT, u.buffer, 0, RS_BYTES);
 		const enc = device.createCommandEncoder();
@@ -1823,7 +1824,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		if ((self as PerfSelf).__perfElev) (self as PerfSelf).__perfElevLast = { f16: 0, write: 0, gpu: 1, raw: e.fresh };   // 計器 a：GPU 経路＝f16/write なし・raw＝この呼びで上げた生タイルのバイト（LRU ヒットは 0）
 		return true;
 	}
-	const cpuCell = (src: ElevCellSrc, N: number) => src.mode === "down" ? downsampleFlipped(src.tile!, N, src.edge ?? 2) : src.mode === "crop" ? cropResample(src.tile!, src.lng0!, src.lat0!, src.span!, N) : worldAtlasCell(src.atlas!, src.cx!, src.cy!, N);
+	const cpuCell = (src: ElevCellSrc, N: number) => src.mode === "down" ? downsampleFlipped(src.tile!, N, src.edge ?? 2, !!src.sea) : src.mode === "crop" ? cropResample(src.tile!, src.lng0!, src.lat0!, src.span!, N, !!src.sea) : worldAtlasCell(src.atlas!, src.cx!, src.cy!, N);
 	function putCellAny(tex: GPUTexture, cx: number, cy: number, data: Float32Array | ElevCellSrc, N: number) {   // data＝Float32Array（従来・CPU 済み）か生タイルの記述子（mode あり）
 		if (data && (data as ElevCellSrc).mode) { if (!resampleCell(tex, cx, cy, N, data as ElevCellSrc)) writeCell(tex, cx, cy, cpuCell(data as ElevCellSrc, N), N); }
 		else writeCell(tex, cx, cy, data as Float32Array, N);
