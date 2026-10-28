@@ -28,6 +28,20 @@ try {
 		ok("prepareApi", pr instanceof Promise && (await pr) === false);
 	}
 	document.querySelector('#sc-start button[data-f="16:9"]')?.click();
+	// 太陽系圏（z<1）は main の Canvas2D＝合成に入れる（撮影・🎞 で太陽系が写らなかった・2026-10-28）
+	{
+		const { composeLayersToCanvas, solarSkyOf } = await import("@ortho-earth/globe/gadgets/compose.js");
+		const z0 = map.cam.zoom;
+		map.cam.zoom = 0.2; map.requestDraw();
+		let cv = null;
+		for (let i = 0; i < 40 && !cv; i++) { await new Promise(r => setTimeout(r, 100)); map.requestDraw(); cv = solarSkyOf(map.mapEl); }
+		const snap = await map.requestSnapshot();
+		const sum = c => { const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) n += d[i] + d[i + 1] + d[i + 2]; return n; };
+		const a = sum(composeLayersToCanvas(snap, null)), b = sum(composeLayersToCanvas(snap, null, cv));
+		ok("solarSkyBaked", !!cv && b > a);
+		if (!cv || !(b > a)) console.log("solar", !!cv, a, b);
+		map.cam.zoom = z0; map.requestDraw();
+	}
 
 	// 第5便：行の画像タイル（raster）＝タイムラインの行に載る・スクラブで累積適用（l= と同じ：無し＝現状維持・[]＝全部外す）・エディタの「今のを写す」
 	{
