@@ -190,8 +190,9 @@ interface Desc {
 	/** shapes on the ground with a painted material (stripe, checkerboard, grid, image): an image layer over their box */
 	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number }>;
 	lines: Array<{ p: number[]; color: string; width: number; dash?: { len: number; pattern: number }; arrow?: boolean }>;
-	/** ground shapes classifying the 3D Tiles and models (classificationType CESIUM_3D_TILE or BOTH): a classification volume in the shape's colour (the terrain part stays a fill) */
-	classify: Array<{ polys: number[][][][]; color: string; opacity: number }>;
+	/** ground shapes and clamped polylines classifying the 3D Tiles and models (classificationType CESIUM_3D_TILE or BOTH): a classification volume in their colour
+	 *  (the terrain part stays a fill / line layer); a polyline's width is its pixel width at the entity's distance, in metres */
+	classify: Array<{ geom: Any; color: string; opacity: number; width?: number }>;
 	model: { uri: string; scale: number; at: [number, number]; altitude: number; lift: boolean; heading: number; anim: boolean; minPx?: number; maxScale?: number | null; c?: number[] } | null;
 	sphere: { c: number[]; r: number } | null;
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
@@ -475,7 +476,7 @@ export class EntityDisplay {
 			// classification; the globe's fill only drapes the terrain). CESIUM_3D_TILE alone leaves the terrain unpainted. Unset (Cesium's default BOTH)
 			// stays a plain fill: every GeoJSON polygon would otherwise become a volume
 			const onTiles = o.fill && !ext && (o.cls === ClassificationType.CESIUM_3D_TILE || o.cls === ClassificationType.BOTH);
-			if (onTiles) { const [cc, co] = rgbAlpha(o.color); d.classify.push({ polys, color: cc, opacity: co }); }
+			if (onTiles) { const [cc, co] = rgbAlpha(o.color); d.classify.push({ geom: { type: "MultiPolygon", coordinates: polys }, color: cc, opacity: co }); }
 			if (o.fill && o.mat && !ext) { if (o.cls !== ClassificationType.CESIUM_3D_TILE) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0 }); }
 			else if (o.fill && o.cls !== ClassificationType.CESIUM_3D_TILE) {
 				const [fc, fo] = rgbAlpha(o.color);
@@ -594,13 +595,16 @@ export class EntityDisplay {
 		// ── polyline ──
 		const pl = e.polyline;
 		if (pl && val(pl.show, t, true)) {
-			dyn(pl.positions, pl.width, pl.material, pl.clampToGround, pl.arcType);
+			dyn(pl.positions, pl.width, pl.material, pl.clampToGround, pl.arcType, pl.classificationType);
 			const ps: Cartesian3[] = (val(pl.positions, t) || []).filter(Boolean);
 			if (ps.length > 1) {
 				const col = materialColor(pl.material, t), width = val(pl.width, t, 1);
 				if (val(pl.clampToGround, t, false)) {
-					const [lc, lo] = rgbAlpha(col);
-					d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: ps.map(p => llOf(p)).filter(Boolean).map(q => [q![0], q![1]]) }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: width } });
+					const [lc, lo] = rgbAlpha(col), cls = val(pl.classificationType, t, undefined) as number | undefined;
+					const coords = ps.map(p => llOf(p)).filter(Boolean).map(q => [q![0], q![1]]);
+					// on the 3D Tiles too (classificationType CESIUM_3D_TILE / BOTH): a band of the line's pixel width at its distance (Cesium's ground polyline keeps its pixel width)
+					if (cls === ClassificationType.CESIUM_3D_TILE || cls === ClassificationType.BOTH) d.classify.push({ geom: { type: "LineString", coordinates: coords }, color: lc, opacity: lo, width: Math.max(0.5, width * this.#metresPerPixel(ps)) });
+					if (cls !== ClassificationType.CESIUM_3D_TILE) d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: width } });
 				} else {
 					const at = val(pl.arcType, t, ArcType.GEODESIC);
 					const pts = at === ArcType.NONE ? ps : at === ArcType.RHUMB ? PolylinePipeline.generateCartesianRhumbArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84) }) : PolylinePipeline.generateCartesianArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84) });   // the heights go along (Cesium's PolylineGeometry passes them so)
@@ -667,15 +671,23 @@ export class EntityDisplay {
 		}
 	}
 
-	/** the ground shapes that classify 3D Tiles and models: one classification volume each (type "tiles3d": the terrain part is the fill layer), kept while the shape and colour stay */
+	/** metres per pixel at the points' distance (a ground polyline's pixel width as a band on the tiles); 1 without a camera, and quantised to ±25 % so a camera drift does not rebuild the volume */
+	#metresPerPixel(ps: Cartesian3[]): number {
+		const cam = this.scene.camera;
+		if (!cam?.getPixelSize) return 1;
+		const bs = BoundingSphere.fromPoints(ps), mpp = cam.getPixelSize(bs, this.scene.drawingBufferWidth, this.scene.drawingBufferHeight);
+		if (!(mpp > 0) || !Number.isFinite(mpp)) return 1;
+		return Math.pow(1.5, Math.round(Math.log(mpp) / Math.log(1.5)));
+	}
+	/** the ground shapes and lines that classify 3D Tiles and models: one classification volume each (type "tiles3d": the terrain part is the fill / line layer), kept while the geometry and colour stay */
 	#setClassify(map: Any, cls: Desc["classify"]) {
 		const want = new Map<string, Desc["classify"][number]>();
-		for (const q of cls) want.set(JSON.stringify(q.polys) + "|" + q.color + "|" + q.opacity, q);
+		for (const q of cls) want.set(JSON.stringify(q.geom) + "|" + q.color + "|" + q.opacity + "|" + (q.width ?? ""), q);
 		for (const [k, h] of this.#cls) if (!want.has(k)) { try { h.remove(); } catch { /* gone with the map */ } this.#cls.delete(k); }
 		if (!map.addClassification) return;
 		for (const [k, q] of want) {
 			if (this.#cls.has(k)) continue;
-			try { this.#cls.set(k, map.addClassification({ type: "MultiPolygon", coordinates: q.polys }, { color: q.color, opacity: q.opacity, type: "tiles3d" })); }
+			try { this.#cls.set(k, map.addClassification(q.geom, { color: q.color, opacity: q.opacity, type: "tiles3d", ...(q.width != null ? { width: q.width } : {}) })); }
 			catch (err) { console.warn("[csshim] classification", err); }
 		}
 	}
