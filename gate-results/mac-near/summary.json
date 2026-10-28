@@ -1,0 +1,91 @@
+{
+ "at": "2026-10-28T05:47:11.809Z",
+ "cesium": "1.146.0",
+ "n": 2,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 0,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 0,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 2,
+   "examples": [
+    "cesium-world-terrain",
+    "shadows"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "cesium-world-terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 19% · edges 53% of the cells match · a patch of 1791 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 586,
+    "n": 3072,
+    "colour": 0.193359375,
+    "edge": 0.5348307291666666,
+    "blob": 1791
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "shadows",
+   "level": 2,
+   "reasons": [
+    "picture: colour 15% · edges 88% of the cells match · a patch of 2351 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 438,
+    "n": 3072,
+    "colour": 0.14973958333333334,
+    "edge": 0.8815104166666666,
+    "blob": 2351
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}

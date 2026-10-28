@@ -1,0 +1,12 @@
+   error: [gpu] init検証: Error while parsing WGSL: :450:28 error: 'fwidth' must only be called from uniform control flow
+    let m = gGmColor(e, gEN, fwidth(e), G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);
+                             ^^^^^^^^^
+
+--
+   error: [render] draw failed (worker report, once): GPU diagnostics 4 issue(s): WGSL globe: 450:28 'fwidth' must only be called from uniform control flow | init検証: Error while parsing WGSL: :450:28 error: 'fwidth' must only be called from uniform control flow
+    let m = gGmColor(e, gEN, fwidth(e), G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);
+                             ^^^^^^^^^
+
+--
+   error: [gpu] init検証: Error while parsing WGSL: :450:28 error: 'fwidth' must only be called from uniform control flow
+    let m = gGmColor(e, gEN, fwidth(e), G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);
