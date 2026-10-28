@@ -8,7 +8,7 @@
 import { BoundingSphere, Cartesian3, Color, Ellipsoid, Event, Matrix3, Matrix4, PolylineGeometry, PolylinePipeline, Quaternion } from "@cesium/core";
 import * as engine from "@cesium/engine";
 import { unsupported } from "./report.ts";
-import { headingOf } from "./display.ts";
+import { enuRotOf, headingOf } from "./display.ts";
 import { gltfNodeNames, gltfSphere } from "./gltf.ts";
 import { ownArrays } from "./spheres.ts";
 import { matKey, matOfMaterial, matTranslucent, paintSquare } from "./materials.ts";
@@ -155,7 +155,7 @@ export class PrimitiveDrawer {
 			if (!show) { if (it.h) { it.h.clear(); it.h = null; it.built = false; } continue; }   // hidden: off the globe, built again when shown
 			const mk = Matrix4.toArray(p.modelMatrix ?? Matrix4.IDENTITY).join(",") + (Model && p instanceof Model ? `|${p.scale}` : "");
 			if (Model && p instanceof Model && it.h) this.#syncAnim(it);
-			if (Model && p instanceof Model) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; const pl = placeOf(p); if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, scale: pl.scale }); } continue; }
+			if (Model && p instanceof Model) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; const pl = placeOf(p); if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, rot: pl.rot, scale: pl.scale }); } continue; }
 			if (!it.built || (it as Any).mk !== mk) { (it as Any).mk = mk; this.#build(map, it); linesChanged = true; }
 		}
 		if (linesChanged) this.#collectLines();
@@ -317,7 +317,7 @@ export class PrimitiveDrawer {
 			p._initialRadius ??= sph.radius;
 			p._boundingSphere ??= new BoundingSphere();
 		});
-		map.gadget.model(url, { at: pl.at, altitude: pl.altitude, lift: false, heading: pl.heading, scale: pl.scale, slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true })   // the matrix's height is absolute (ellipsoid): not lifted onto the terrain
+		map.gadget.model(url, { at: pl.at, altitude: pl.altitude, lift: false, heading: pl.heading, rot: pl.rot, scale: pl.scale, slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true })   // the matrix's height is absolute (ellipsoid): not lifted onto the terrain
 			.then(async (h: Any) => {
 				it.loading = false;
 				if (it.dead) { h.clear(); return; }
@@ -331,14 +331,14 @@ export class PrimitiveDrawer {
 }
 
 /** where a Model's matrix puts it on the globe: position, altitude above the ellipsoid, heading, scale */
-function placeOf(p: Any): { at: [number, number]; altitude: number; heading: number; scale: number } | null {
+function placeOf(p: Any): { at: [number, number]; altitude: number; heading: number; rot: number[] | null; scale: number } | null {
 	const M = p.modelMatrix ?? Matrix4.IDENTITY, pos = Matrix4.getTranslation(M, new Cartesian3());
 	const c = Ellipsoid.WGS84.cartesianToCartographic(pos);
 	if (!c) return null;
 	const R = Matrix4.getMatrix3(M, new Matrix3()), sc = Matrix3.getScale(R, new Cartesian3());
 	const k = (sc.x + sc.y + sc.z) / 3 || 1;
 	const q = Quaternion.fromRotationMatrix(Matrix3.multiplyByScalar(R, 1 / k, new Matrix3()));
-	return { at: [c.longitude * 180 / Math.PI, c.latitude * 180 / Math.PI], altitude: c.height, heading: headingOf(q, pos), scale: k * (p.scale ?? 1) };
+	return { at: [c.longitude * 180 / Math.PI, c.latitude * 180 / Math.PI], altitude: c.height, heading: headingOf(q, pos), rot: enuRotOf(q, pos), scale: k * (p.scale ?? 1) };
 }
 
 /** join segments that continue one another (outlines come as separate segments) */

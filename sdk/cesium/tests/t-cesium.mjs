@@ -45,7 +45,11 @@ for (const g of [
 	const g2 = globeCamOf(pos, back, Cartesian3.UNIT_Z);
 	ok("camera a hair past straight down keeps north up", near(g2.heading, 0, 1e-6) && near(g2.roll, 0, 1e-6), JSON.stringify(g2));
 	const sky = globeCamOf(pos, Cartesian3.UNIT_Z, Cartesian3.negate(dir, new Cartesian3()));   // looking north along the horizon at 1000 km: misses the globe
-	ok("camera at the sky has a target", !!sky && sky.distance >= 1000 && sky.pitch <= 90, JSON.stringify(sky));
+	ok("camera at the sky has a target", !!sky && sky.distance >= 1000 && sky.pitch > 90 && sky.pitch < 180, JSON.stringify(sky));
+	// looking up (fireworks: lookUp above the horizon): the pitch goes past 90 and the pose comes back looking up the same way
+	const up20 = { lng: 139.7, lat: 35.6, height: 1000, distance: 900, heading: 40, pitch: 110, roll: 0 };
+	const pu = poseOfGlobeCam(up20), gu = globeCamOf(pu.position, pu.direction, pu.up);
+	ok("camera looking up keeps its pitch past 90", !!gu && near(gu.pitch, 110, 1e-2) && near(gu.heading, 40, 1e-2), JSON.stringify(gu));
 }
 
 {   // the target is on the terrain, not the ellipsoid: a camera 2 km up looking down at 30° over a 1500 m plateau (2026-10-28)
@@ -306,6 +310,56 @@ for (const g of [
 	ok("post: bloom threshold from contrast/brightness, radius from sigma×stepSize", near(b.threshold, 0.5 - 0.5 / ((259 * 383) / (255 * 131)) + 0.3, 1e-9) && b.radius === 4 && b.strength === 1, JSON.stringify(b));
 	ok("post: uniformValue shapes", JSON.stringify([uniformValue(1), uniformValue(false), uniformValue(() => 3), uniformValue({ x: 1, y: 2 }), uniformValue("s")]) === "[1,false,3,[1,2],null]");
 	ok("post: empty collection → nothing", postChainOf(coll([])).chain.length === 0 && postChainOf(null).chain.length === 0);
+}
+
+// ── a model's attitude (順 5 tails: the plane pitched nose up lay flat): enuRotOf = the ENU rotation the globe's model takes ──
+{
+	const { enuRotOf, headingOf } = await import("../src/display.ts");
+	const { HeadingPitchRoll, Transforms: T } = await import("@cesium/engine");
+	const at = Cartesian3.fromDegrees(-75.6, 40.04, 1000);
+	ok("attitude: upright needs no rotation", enuRotOf(T.headingPitchRollQuaternion(at, new HeadingPitchRoll(0.7, 0, 0)), at) === null);
+	const r = enuRotOf(T.headingPitchRollQuaternion(at, new HeadingPitchRoll(0, Math.PI / 2, 0)), at);
+	// the model's +X (its nose) at heading 0 is south (0,−1,0) in the globe's frame: R·(0,−1,0) = −R's north column = up
+	ok("attitude: pitch 90 points the nose up", !!r && Math.abs(-r[3]) < 1e-6 && Math.abs(-r[4]) < 1e-6 && Math.abs(-r[5] - 1) < 1e-6, JSON.stringify(r));
+	const r2 = enuRotOf(T.headingPitchRollQuaternion(at, new HeadingPitchRoll(0.4, 0.3, 0.2)), at);
+	const q2 = T.headingPitchRollQuaternion(at, new HeadingPitchRoll(0.4, 0.3, 0.2));
+	// the nose's bearing from R matches headingOf's (heading = bearing of +X − 180)
+	const nose = [-r2[3], -r2[4], -r2[5]], bearing = Math.atan2(nose[0], nose[1]) * 180 / Math.PI;
+	ok("attitude: the nose's bearing agrees with headingOf", Math.abs((((bearing - 180 - headingOf(q2, at)) % 360) + 540) % 360 - 180) < 1e-6, `${bearing} ${headingOf(q2, at)}`);
+}
+// ── particles: Cesium's ParticleSystem stepped by the facade (particles.ts, 順 5): the billboards stay in a stand-in, packParticles turns them into the sprites overlay's arrays ──
+{
+	const engine = await import("@cesium/engine");
+	const core = await import("@cesium/core");
+	const { ParticleDrawer, isParticleSystem, packParticles } = await import("../src/particles.ts");
+	const posts = [];
+	const ovh = { post: (d) => posts.push(d), remove: () => {}, onmessage: null };
+	const host = { map: { overlay: () => ovh }, ready: Promise.resolve(), display: null };
+	const origin = core.Cartesian3.fromDegrees(139.7, 35.6, 100);
+	const ps = new engine.ParticleSystem({ image: null, emissionRate: 50, minimumParticleLife: 2, maximumParticleLife: 2, imageSize: new core.Cartesian2(10, 20), startColor: core.Color.RED.withAlpha(0.5), endColor: core.Color.RED.withAlpha(0.5), startScale: 2, endScale: 2, emitter: new engine.SphereEmitter(1), modelMatrix: (core.Transforms ?? engine.Transforms).eastNorthUpToFixedFrame(origin) });
+	ok("particles: ParticleSystem recognised", isParticleSystem(ps) && !isParticleSystem({}));
+	const d = new ParticleDrawer(host);
+	d.add(ps);
+	const t0 = core.JulianDate.fromIso8601("2026-10-28T00:00:00Z");
+	d.update(t0);
+	d.update(core.JulianDate.addSeconds(t0, 0.5, new core.JulianDate()));
+	ok("particles: nothing new is sent until the overlay has drawn", posts.filter(m => m.type === "layer").length === 1);
+	ovh.onmessage({ type: "drawn" });
+	d.update(core.JulianDate.addSeconds(t0, 1, new core.JulianDate()));
+	const pk = packParticles(ps);
+	ok("particles: one second at 50/s → about 50 particles", pk && pk.n >= 40 && pk.n <= 60, pk && pk.n);
+	ok("particles: colour, size × scale, pixels", pk && pk.rgba[0] === 255 && pk.rgba[3] === 128 && pk.size[0] === 20 && pk.size[1] === 40 && pk.meters === false, pk && [pk.rgba[0], pk.rgba[3], pk.size[0], pk.size[1]]);
+	ok("particles: positions near the emitter, relative to the first", pk && Math.hypot(pk.origin[0] - origin.x, pk.origin[1] - origin.y, pk.origin[2] - origin.z) < 50 && Math.abs(pk.pos[3]) < 100, pk && pk.origin);
+	const layer = posts.filter(m => m.type === "layer").pop();
+	ok("particles: after drawn the next frame is posted", posts.filter(m => m.type === "layer").length === 2 && layer.n === pk.n);
+	ovh.onmessage({ type: "drawn" });
+	const held = core.JulianDate.addSeconds(t0, 1, new core.JulianDate());
+	const n0 = ps._particles.length; d.update(held);
+	ok("particles: a paused clock (same time) emits nothing", ps._particles.length === n0, [n0, ps._particles.length]);
+	ps.show = false; d.update(core.JulianDate.addSeconds(t0, 2, new core.JulianDate()));
+	ok("particles: show=false hides the layer", posts[posts.length - 1].type === "vis" && posts[posts.length - 1].on === false);
+	d.remove(ps);
+	ok("particles: remove drops the layer", posts[posts.length - 1].type === "remove");
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");

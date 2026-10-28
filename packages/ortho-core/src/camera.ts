@@ -114,6 +114,18 @@ export function bboxVisible(st: CameraState, bbox: ArrayLike<number>, center: Ar
 	if (nf < pts.length) return true;   // 目の面（か地平線）を跨ぐ＝画面矩形では縛れない
 	return !(maxx < -pad || minx > st.W + pad || maxy < -pad || miny > st.H + pad);
 }
+/** a batch's bbox where its rigid transform (meshXf: L 3x3 + xt, origin-relative) has moved it: the bbox around the moved origin, wide enough
+ *  for any turn about it (a model driven along a track by setTransform was culled by the box it was loaded in = it vanished once it left that box,
+ *  the Cesium milk truck, 2026-10-28). No transform: the bbox itself */
+export function movedBbox(bbox: ArrayLike<number>, origin: ArrayLike<number>, xf: ArrayLike<number> | null | undefined): ArrayLike<number> {
+	if (!xf || xf.length < 12) return bbox;
+	const o = betaToLonLat(origin), m = betaToLonLat([origin[0] + xf[9], origin[1] + xf[10], origin[2] + xf[11]]);
+	const cl = Math.max(0.01, Math.cos(o[1] * D2R));
+	let r = 0;   // the farthest corner from the origin (degrees of latitude): the reach of the batch about the point it turns around
+	for (const lon of [bbox[0], bbox[2]]) for (const lat of [bbox[1], bbox[3]]) r = Math.max(r, Math.hypot((lon - o[0]) * cl, lat - o[1]));
+	const k = Math.max(1, Math.hypot(xf[0], xf[1], xf[2])) * 1.05;   // L carries the scale (minimumPixelSize enlarges a far model)
+	return [m[0] - k * r / cl, m[1] - k * r, m[0] + k * r / cl, m[1] + k * r];
+}
 export function worldToLonLat(p: ArrayLike<number>): LonLat {
 	const yb = p[1] / R_AX;                                       // world → β空間（S⁻¹＝y だけ 1/R_AX）
 	const len = Math.hypot(p[0], yb, p[2]) || 1;

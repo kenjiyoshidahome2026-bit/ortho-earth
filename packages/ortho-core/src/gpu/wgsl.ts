@@ -26,7 +26,7 @@ fn sphereRay(ndc: vec2f, rF: vec4f, rX: vec4f, rY: vec4f, eyeC: vec4f) -> Sphere
 	let aa = dot(d, d); let bb = 2.0 * dot(A, d);
 	let disc = bb * bb - 4.0 * aa * cc;
 	var t = -1.0;
-	if (disc >= 0.0) { let q = -bb + sqrt(disc); if (q > 0.0) { t = 2.0 * cc / q; } }
+	if (disc >= 0.0 && !(bb >= 0.0 && cc >= 0.0)) { let q = -bb + sqrt(disc); if (q > 0.0) { t = 2.0 * cc / q; } }   // 外から上向き＝交点なし（c≈0 で q が丸めの ±ulp＝空が地面に化けた・2026-10-28）
 	return SphereHit(A, d, t, aa, bb, cc, disc);
 }
 // 交点の原点相対 δ（＝EO＋t·d・f32 で mm 級）から経緯度の差（deg・測地）を桁落ちなしで：O＝原点（β単位球）・rhoO＝cos β0・beta0（rad）・ell＝楕円体ゲート。
@@ -1882,7 +1882,7 @@ fn ovClipped(px: vec2f) -> bool {
 	for (var k = 0; k < 3; k++) {
 		let cc = F.eyeC.w - (2.0 * hW + hW * hW);   // |E|² − (1+h)²（|E|²−1 は CPU f64）
 		let disc = bb * bb - 4.0 * aa * cc;
-		if (disc < 0.0) { return true; }
+		if (disc < 0.0 || (bb >= 0.0 && cc >= 0.0)) { return true; }
 		let q = -bb + sqrt(disc);
 		if (q <= 0.0) { return true; }
 		rel = F.eyeO.xyz + (2.0 * cc / q) * d;
