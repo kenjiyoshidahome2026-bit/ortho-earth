@@ -336,7 +336,9 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		clock++;
 		const wasMoving = moving; moving = !!opts?.moving;
 		if (wasMoving && !moving) { for (const L of layers.values()) L.dirty = true; pump(); }   // 着地＝絞っていた取得を本来の並列で再開
-		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}`;
+		// 鍵のリフト球（groundR/farR）は 1e-7（≈0.6 m）まで見る：旧＝toFixed(4)＝637 m 刻み＝地形が後から届いて中心の標高が 95 m 持ち上がっても
+		// 鍵が変わらず選び直されない（中心の標高 centerAlt＝目の高さも鍵に無かった）＝低い目（shadows 例・目が地面の 28 m 上）の足元のタイルが海面球の視野のまま＝下地色の長方形（2026-10-28・Mac 実機）
+		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(cam.centerAlt || 0).toFixed(1)}/${(opts?.groundR ?? 1).toFixed(7)}/${(opts?.farR ?? opts?.groundR ?? 1).toFixed(7)}`;
 		let changed = false, anyFade = false;
 		const tNow = now();
 		const rd: RasterDraws = { rev: 0, hideFills: false, layers: [] };
