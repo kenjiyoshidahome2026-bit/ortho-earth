@@ -94,12 +94,15 @@ struct Frame {
 	cg: vec4f,         // 地面の照明（setGroundLighting・2026-10-26）：xyz＝光へ向く単位ベクトル（世界）・w＝0 無し／1 地形の法線／2 楕円体の上向き（cgLambert）。sun の後ろ＝packFrame の詰め順（sun 116・cg 120）と一致させる
 	cgP: vec4f,        // (lambert の倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ 0.05..1・負＝暗くしない)
 	cgC: vec4f,        // 光の色（czm_lightColor）
+	nearBounds: vec4f, // 近景層（near・順 1a 2026-10-28）＝目の足元の細密窓（1 セル）の被覆。末尾に足す＝前の欄の詰め順は不変（tests/frame-layout.mjs）
+	nearP: vec4f,      // hasNear(0/1), nearEdgeFade(deg), 0, 0
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 ${RAY}
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
 @group(0) @binding(2) var elevSamp: sampler;
 @group(0) @binding(3) var farElevTex: texture_2d<f32>;
+@group(0) @binding(12) var nearElevTex: texture_2d<f32>;   // 近景層（elev() が静的参照＝bgl0/bglOvFrame の全レイアウトに必須・未使用は dummy）
 // ユーザ COG（等経緯度整列 RGBA・geopbf/cog が warp 済み）。FRAME を含む全モジュールが宣言＝bgl0 が常に充足
 // （未使用モジュールでは宣言だけ＝コスト無し）。bbox=[west,south,spanLon,spanLat] 絶対deg・p.x=has・行0=北＝v反転。
 @group(0) @binding(4) var cogTex0: texture_2d<f32>;
@@ -337,11 +340,20 @@ fn elevFar(ll: vec2f) -> f32 {
 	}
 	return textureSampleLevel(farElevTex, elevSamp, uv, 0.0).r * f;
 }
+// 近景層（near）＝近窓の内側に重ねる細密窓。縁は近窓の値へ溶かす（far の一般則の内側版）。無し（nearP.x=0）は base＝挙動不変。glsl.ts ELEV と同式
+fn elevNear(ll: vec2f, base: f32) -> f32 {
+	if (F.nearP.x < 0.5) { return base; }
+	let uv = (ll - F.nearBounds.xy) / F.nearBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return base; }
+	let w = vec2f(F.nearP.y) / F.nearBounds.zw;
+	let f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	return mix(base, textureSampleLevel(nearElevTex, elevSamp, uv, 0.0).r, f);
+}
 fn elev(ll: vec2f) -> f32 {
 	if (F.elevP.y < 0.5) { return 0.0; }
 	let uv = (ll - F.elevBounds.xy) / F.elevBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return elevFar(ll); }
-	return mix(elevFar(ll), textureSampleLevel(elevTex, elevSamp, uv, 0.0).r, elevFadeAt(uv));
+	return elevNear(ll, mix(elevFar(ll), textureSampleLevel(elevTex, elevSamp, uv, 0.0).r, elevFadeAt(uv)));
 }
 // 案A（gl/glsl.js QELEV と 1:1）: 線・塗りのドレープ標高を「地形メッシュと同じ折れ線面」に量子化＝
 // 同じ格子頂点で elev() を取り同じ三角形分割（対角 a-c-b / b-c-d）で補間＝描画されている面に厳密に乗る。
@@ -760,9 +772,13 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 @fragment fn fs(in: TerrOut) -> @location(0) vec4f {
 	let mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）
 	if (in.front < -0.0015) { discard; }   // 接線より少し先まで許容＝地平線に頭を出す高山。遮蔽は深度とフォグ
-	if (F.farP.z > 0.5) {   // 遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（縁の連続は elev() が保証）
+	if (F.farP.z > 0.5 && F.farP.z < 1.5) {   // 遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（縁の連続は elev() が保証）
 		let uvN = (in.ll - F.elevBounds.xy) / F.elevBounds.zw;
 		if (uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0) { discard; }
+	}
+	if (F.farP.z < 0.5 && F.nearP.x > 0.5) {   // 主パス：近景層の窓の内側は近景メッシュパス（farP.z=2）の担当＝discard（縁の連続は elevNear の溶かし）
+		let uvF = (in.ll - F.nearBounds.xy) / F.nearBounds.zw;
+		if (uvF.x >= 0.0 && uvF.x <= 1.0 && uvF.y >= 0.0 && uvF.y <= 1.0) { discard; }
 	}
 	// 海〜低地は地形を透明化し海岸線は精細なベクタに委ねる（粗いメッシュの海岸の崖・平野ノイズを消す）。
 	// 帯の上端＝画素 2 個分の標高（1〜100m）：透けた先は海抜0の球の床（同じ地面アトラスを貼る）＝チルトで
@@ -772,16 +788,22 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	if (t <= 0.0) { discard; }
 	// 北西光の hillshade（前方差分）。歩幅＝アトラス1texel（下限0.004°≈R10 texel＝遠層域の歩幅としても妥当）
 	let tsz = vec2f(textureDimensions(elevTex, 0));
-	let d = max(0.004, F.elevBounds.w / tsz.y);
+	var d = max(0.004, F.elevBounds.w / tsz.y);
+	var dTex = F.elevBounds.w / tsz.y;   // アトラス 1 texel（勾配・材質用）
+	var shadeK = 1.0;
+	if (F.farP.z > 1.5) {   // 近景メッシュパス：歩幅は近景層の 1 texel（下限 0.004° を外す）・陰影の利得は歩幅比で揃える（gl と同式）
+		dTex = F.nearBounds.w / f32(textureDimensions(nearElevTex, 0).y);
+		shadeK = 0.004 / max(dTex, 1e-6); d = dTex;
+	}
 	let h0 = elev(in.ll);
 	let hx = elev(in.ll + vec2f(d, 0.0)) - h0;
 	let hy = elev(in.ll + vec2f(0.0, d)) - h0;
-	var shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
+	var shade = clamp(0.82 + (-hx + hy) * 0.0007 * shadeK, 0.45, 1.15);
 	var cgK = 1.0;   // 地面の照明（Cesium）＝北西の陰影の代わりに太陽の lambert を画像ごと掛ける
 	let gmDh = fwidth(h0);   // 地面の材質の等高線＝標高の画素差（一様な制御の流れで）
 	var gmEN = vec2f(0.0);   // 勾配（東・北 m/m）＝地面の照明と材質（傾斜・方位）が使う。アトラスの 1 texel 差分（陰影の 0.004° の下限を使わない＝近景の急斜面が鈍らない）
 	if (F.cg.w > 0.5 || P.tr.x > 1.5) {
-		let dL = F.elevBounds.w / tsz.y; let hxL = elev(in.ll + vec2f(dL, 0.0)) - h0; let hyL = elev(in.ll + vec2f(0.0, dL)) - h0;
+		let dL = dTex; let hxL = elev(in.ll + vec2f(dL, 0.0)) - h0; let hyL = elev(in.ll + vec2f(0.0, dL)) - h0;
 		gmEN = vec2f(hxL / (dL * 111320.0 * max(cos(in.ll.y * 0.017453292519943295), 0.01)), hyL / (dL * 111320.0));
 	}
 	if (F.cg.w > 0.5) { shade = 1.0; cgK = cgLambert(in.ll, gmEN, F.cg, F.cgP); }
@@ -1658,7 +1680,7 @@ export const TERRAIN_SH_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	// 影の間の陰影（#112 段 2・本人裁定）＝北西の固定光でなく影と同じ太陽の方位（SH.mvp の 3 行目＝光の進む向き/Z＝shadow.time にも従う）。
 	// 強さは従来と同じ（勾配 1 あたり 0.44＝旧式 (−hx+hy)·0.0007 を歩幅 ≈445m で換算）＝平地は 0.82・向きだけ太陽へ回す。太陽の高度では強めない
 	//（ランバートを平地で割ると低い太陽で日向の斜面が全部 1.15 に飽和し、窓の外の遠い山がまだらになった＝富士で確認）。日の当たらない斜面は地形の影が暗くする
-	["\tvar shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);", "\tlet sdir = -normalize(vec3f(SH.mvp[0].z, SH.mvp[1].z, SH.mvp[2].z));\n\tlet lr = in.ll * 0.017453292519943295;\n\tlet cl = cos(lr.y); let sl = sin(lr.y); let co = cos(lr.x); let so = sin(lr.x);\n\tlet sH = vec2f(dot(sdir, vec3f(-so, 0.0, co)), dot(sdir, vec3f(-sl * co, cl, -sl * so)));   // 太陽の方位（東・北）\n\tlet aH = sH / max(length(sH), 1e-6);\n\tlet gEN = vec2f(hx / (d * 111320.0 * max(cl, 0.01)), hy / (d * 111320.0));   // 勾配（東・北・m/m）\n\tvar shade = clamp(0.82 - 0.44 * dot(gEN, aH), 0.45, 1.15);"],
+	["\tvar shade = clamp(0.82 + (-hx + hy) * 0.0007 * shadeK, 0.45, 1.15);", "\tlet sdir = -normalize(vec3f(SH.mvp[0].z, SH.mvp[1].z, SH.mvp[2].z));\n\tlet lr = in.ll * 0.017453292519943295;\n\tlet cl = cos(lr.y); let sl = sin(lr.y); let co = cos(lr.x); let so = sin(lr.x);\n\tlet sH = vec2f(dot(sdir, vec3f(-so, 0.0, co)), dot(sdir, vec3f(-sl * co, cl, -sl * so)));   // 太陽の方位（東・北）\n\tlet aH = sH / max(length(sH), 1e-6);\n\tlet gEN = vec2f(hx / (d * 111320.0 * max(cl, 0.01)), hy / (d * 111320.0));   // 勾配（東・北・m/m）\n\tvar shade = clamp(0.82 - 0.44 * dot(gEN, aH), 0.45, 1.15);"],
 ], "TERRAIN_SH_WGSL") + SHADOW_WGSL(3);
 export const FILL_SH_WGSL = deriveWgsl(FILL_WGSL, [
 	["\t@location(9) guv3: vec2f,\n};", "\t@location(9) guv3: vec2f,\n\t@location(10) sc: vec4f,\n};"],

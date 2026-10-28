@@ -26,9 +26,9 @@ const F = layout(TERRAIN_WGSL, "Frame");
 // packFrame の詰め順（f[...]）
 const FRAME_AT = { mvp: 0, rayF: 16, clipT: 32, trig: 36, originPt: 40, eye: 44, origin: 48, viewport: 50, fogColor: 52, params: 56,
 	elevBounds: 60, elevP: 64, mesh: 68, farBounds: 72, farP: 76, ellTrig: 80, ellP: 84, cogP: 88, gnd0: 92, gnd3: 104, eyeO: 108, elevOff: 112,
-	sun: 116, cg: 120, cgP: 124, cgC: 128 };
+	sun: 116, cg: 120, cgP: 124, cgC: 128, nearBounds: 132, nearP: 136 };
 for (const [k, v] of Object.entries(FRAME_AT)) assert.equal(F.off[k], v, `Frame.${k} は f[${v}]（packFrame）`);
-assert.equal(F.f32, 132, "Frame の大きさ＝FRAME_F32");
+assert.equal(F.f32, 140, "Frame の大きさ＝FRAME_F32");
 const G = layout(GLOBE_WGSL, "Globe");
 // globe の g[]（gpu/renderer.ts）
 const GLOBE_AT = { rayF: 0, land: 16, atmo: 20, elevBounds: 24, whP: 28, seaC: 32, farBounds: 36, farP: 40, misc: 44, sun: 48, anc: 52, anc2: 56, eyeO: 60,

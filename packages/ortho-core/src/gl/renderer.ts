@@ -410,6 +410,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	// 落とす側は毎フレーム描き直す（WebGPU の「窓と中身が同じなら描かない」は未移植）
 	const SH_N = rOpts.lowMem ? 1024 : 2048, SH_LAYERS = rOpts.lowMem ? 2 : 3;
 	const SH_UNIT = 18, SH_RAW_UNIT = 19;   // 0〜17 は埋まっている（PAT_UNIT 16・PT_UNIT 17）
+	const NEAR_UNIT = 20;   // 近景層の標高（ELEV を持つ全プログラムが参照＝far の unit8 と同じ常時結合）
 	const SH_PEN_K = 0.018, SH_SEARCH = 4, SH_FADE_R0 = 0.7;   // 半影の係数・遮る物を探す半径（texel）・基の窓の縁のフェード（WebGPU と同値）
 	let shadow: { on: boolean; time?: number; darkness?: number } = { on: false };
 	let shGL: { tex: WebGLTexture; fbos: WebGLFramebuffer[]; sampC: WebGLSampler; sampR: WebGLSampler; ubo: WebGLBuffer; cpu: Float32Array; cast: Map<string, WebGLProgram> } | null = null;
@@ -599,6 +600,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	let elevTex: WebGLTexture | null = null, elev: ElevState = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain: TerrainMesh | null = null;
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）。unit8（2-5=メッシュマスク・6=md線・7=gint elev と不干渉）
 	let farTex: WebGLTexture | null = null, far: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+	let nearTex: WebGLTexture | null = null, near: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };   // 近景層（1 セル・順 1a 2026-10-28）＝unit NEAR_UNIT
 	// 気候場テクスチャ（全球ハイプソの cross-blend 用・view.worldHypso.clim の URL から一度だけ取得）。
 	// 未着の間はシェーダが緯度近似へフォールバック（u_hasClim=0）＝1-2フレームの色ズレのみ。
 	let climTex: WebGLTexture | null = null, climLoading = false;
@@ -757,6 +759,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		// 塗りが空のアトラスになる（実際に踏んだ 2026-09-21）。draw() 本体と同じく明示的に張り直す（無ければ null＝incomplete＝黒で無害）
 		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null);
 		gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, (far.has && farTex) ? farTex : null);
+		gl.activeTexture(gl.TEXTURE0 + NEAR_UNIT); gl.bindTexture(gl.TEXTURE_2D, (near.has && nearTex) ? nearTex : null);
 		gl.activeTexture(gl.TEXTURE0);
 		for (const slot of slots) {
 			const scene = scenes[slot];
@@ -1488,6 +1491,25 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		if (farTex) gl.deleteTexture(farTex);
 		farTex = null; far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 }; memFar = 0;
 	}
+	// ── 近景層（near）アトラス ──：1 セル（1024²・2MB）。terrain.ts は焼けてから「elevAtlasNear → elevCellNear」を続けて送る＝張替えの瞬間の平坦は無い。
+	// has はセルが書けてから 1（主パスの discard は中身がある時だけ）。メッシュは近窓と同じ単位格子を u_mesh で近景窓へ縮める
+	function setElevationAtlasNear(a: ElevAtlasDesc): void {
+		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 0.25;
+		if (!nearTex) nearTex = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, nearTex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		allocZeroR16F(W, H);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		near = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], has: 0, edgeFade: a.edgeFade || 0 };
+	}
+	function setElevationCellNear(cx: number, cy: number, data: CellPayload, cellRes: number): void { if (nearTex) { putCellAny(nearTex, cx, cy, data, cellRes); near.has = 1; } }
+	function clearElevationNear(): void {
+		if (nearTex) gl.deleteTexture(nearTex);
+		nearTex = null; near = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+	}
 	// 地形メッシュ＝単位格子 [0,1]²（G だけに依存）。窓の原点/幅は uniform u_mesh で渡す＝
 	// 標高アトラスの窓替え（パンのたび）でメッシュを作り直さない。旧実装は毎回 lon/lat を焼いた
 	// 頂点配列(G=1536 で 18.9MB)＋index(56.5MB)を作って GPU へ上げ直しており、広域×高チルトの
@@ -1511,8 +1533,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	}
 	// 地形チャンクのカリング（perf plan P4 step B・gpu/renderer.js と同じ純関数）：可視チャンクの区間だけ drawElements。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
-	const terrStat = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 } };
-	const terrRuns = (mesh: ArrayLike<number>, st: GLCamState, which: "near" | "far"): DrawRun[] => TERR_LOD ? visibleChunkRuns(terrain!.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain!.chunks.length, [[0, terrain!.count]]);
+	const terrStat = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 } };   // fine＝近景層のパス
+	const terrRuns = (mesh: ArrayLike<number>, st: GLCamState, which: "near" | "far" | "fine"): DrawRun[] => TERR_LOD ? visibleChunkRuns(terrain!.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain!.chunks.length, [[0, terrain!.count]]);
 
 	// 建物メッシュ（LOD2 等）を受ける。key=バッチキー "区名#i"（data あり）または区名（data=null＝区の全バッチ+マスク解放）。
 	// data={ pos:Float32Array(xyz…), idx:Uint32Array, ward, mask, maskN, maskBbox }（頂点は ortho 単位球座標へ変換済み）。
@@ -1815,6 +1837,10 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		gl.uniform4f(loc(gl, prog, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_hasFar"), far.has);
 		gl.uniform1f(loc(gl, prog, "u_farEdgeFade"), far.edgeFade || 0);
+		gl.uniform1i(loc(gl, prog, "u_nearElevTex"), NEAR_UNIT);   // 近景層（順 1a）
+		gl.uniform4f(loc(gl, prog, "u_nearBounds"), near.bounds[0], near.bounds[1], near.bounds[2], near.bounds[3]);
+		gl.uniform1f(loc(gl, prog, "u_hasNear"), near.has);
+		gl.uniform1f(loc(gl, prog, "u_nearEdgeFade"), near.edgeFade || 0);
 	}
 
 	function draw(cam: CameraPose, opts?: GLDrawOptions | null): boolean {
@@ -1993,6 +2019,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		// null＝incomplete texture は黒を返すだけでエラーにならない（u_hasElev=0 ガードで値は不使用）。
 		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null);
 		gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, (far.has && farTex) ? farTex : null);   // 遠景層（null＝incomplete=黒。u_hasFar=0 ガードで不使用）
+		gl.activeTexture(gl.TEXTURE0 + NEAR_UNIT); gl.bindTexture(gl.TEXTURE_2D, (near.has && nearTex) ? nearTex : null);   // 近景層（同）
 		gl.activeTexture(gl.TEXTURE0);
 		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);   // 傾き時のみ地形あり。noTerrain=全球ビューでは矩形アトラスを描かない
 		// ここから深度あり（建物同士の前後関係を共有）
@@ -2081,6 +2108,13 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				for (const [f0, n] of terrRuns(far.bounds, st, "far")) gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_INT, f0 * 4);
 				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
 			} else { terrStat.far.drawn = 0; terrStat.far.of = 0; }
+			if (near.has && nearTex) {   // 近景メッシュ＝同じ単位格子を近景層の窓へ縮めて 3 度目のドロー（主パスはその内側を discard 済み）
+				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 2);
+				gl.uniform4f(loc(gl, terrainProg, "u_mesh"), near.bounds[0], near.bounds[1], near.bounds[2], near.bounds[3]);
+				setCogMesh(near.bounds); setGndMesh(near.bounds);
+				for (const [f0, n] of terrRuns(near.bounds, st, "fine")) gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_INT, f0 * 4);
+				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
+			} else { terrStat.fine.drawn = 0; terrStat.fine.of = 0; }
 			if (clipFr && clipFr.tp.terrain.length && clip!.style.capOn) {   // 地形の蓋（断面）＝地形と同じ深度の流儀・polygonOffset は外す（蓋は地形の手前で勝つ）
 				if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
 				gl.depthMask(true);
@@ -2530,6 +2564,9 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "elevFarMax": far.maxElev = +(data as number) || 0; break;   // 遠景層の最大標高（地平線窓）
 			case "elevAtlasFarOff": clearElevationFar(); break;                                 // 深ズーム離脱＝GPUメモリ返却
+			case "elevAtlasNear": setElevationAtlasNear(data as ElevAtlasDesc); break;                           // 近景層（1 セル・順 1a）
+			case "elevCellNear": setElevationCellNear((prop as ElevCellProp).cx, (prop as ElevCellProp).cy, data as CellPayload, (prop as ElevCellProp).cellRes); break;
+			case "elevAtlasNearOff": clearElevationNear(); break;
 			case "meshSet": setMeshSet(prop as string, data as MeshIn | null); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
 			case "classify": classify.set(prop as string, data as Parameters<typeof classify.set>[1]); break;   // 面の貼り付け（分類・2026-10-25）＝柱一式（null＝外す）
 			case "classifyStyle": classify.style(prop as string, data as Parameters<typeof classify.style>[1]); break;

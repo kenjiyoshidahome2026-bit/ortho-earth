@@ -2,7 +2,7 @@
 // R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
-import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.ts";
+import { unproject, cameraState, lonlatTo3D, worldToLonLat, WORLD_PX } from "./camera.ts";
 import { downsampleFlipped, cropResample } from "./elevation.ts";
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.ts";
 import { createDemSource } from "./dem-src.ts";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
@@ -21,7 +21,7 @@ export interface TerrainRenderer { set(slot: string, data?: unknown, extra?: unk
 export type PendingCallback = (n: number, range: number, stat?: string | null) => void;
 export interface TerrainOptions {
 	renderer: TerrainRenderer; requestDraw: () => void; exag: number; earthM: number; apiUrl?: string; onPending?: PendingCallback | null;
-	lowMem?: boolean; noMixed?: boolean; noFar?: boolean; dtm?: DtmDecl | null; dem?: DemSpecInput | QmeshSpecInput | null; gMax?: number | null;
+	lowMem?: boolean; noMixed?: boolean; noFar?: boolean; noNear?: boolean; dtm?: DtmDecl | null; dem?: DemSpecInput | QmeshSpecInput | null; gMax?: number | null;
 	/** 検定用：標高タイルの読み手を直に渡す（無ければ createTileLoader＝altpbf） */
 	tileLoader?: TileLoader | null;
 }
@@ -30,7 +30,7 @@ export interface CellWindow { range: number; originCX: number; originCY: number;
 export interface TerrainSize { w: number; h: number }
 export interface TerrainDebug {
 	gen: string; loader: string | null; atlasKey: string; staging: boolean; stagePending: number; pendingElev: number; loaded: number; written: number; fails: [string, number][];
-	farKey: string; farLoaded: number; farWritten: number; farFails: [string, number][]; lru: number; bytes: number; world: string;
+	farKey: string; farLoaded: number; farWritten: number; farFails: [string, number][]; nearKey: string; nearFails: [string, number][]; lru: number; bytes: number; world: string;
 	lastCam: { z: number; c: number[]; p: number } | null; lastSize: TerrainSize | null;
 }
 export interface Terrain {
@@ -55,7 +55,7 @@ export function clipToDTM(box: number[] | null | undefined, dtm: number[] | null
 // 未申告＝保証なし＝接地リフトをしない（建物は海面高に置く）。地域の知識はアプリが持つ（2026-09-17）。
 // dem＝外来の標高タイル（raster-dem の spec・#36）。R01・R10 のセルを上書きする（DEM が有効な画素だけ・無い所は altpbf の標高のまま）。
 //   dem.dtm＝true（裸地の申告）なら、地域の申告が無い所ではその範囲で接地リフトしてよい。setDem(spec|null) で生き替え。
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null, dem = null, gMax = null, tileLoader = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, noNear = false, dtm = null, dem = null, gMax = null, tileLoader = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
 	const dtmDecl = dtm || null;
 	const S = self as unknown as PerfSelf;
 	// 計器 a（perf plan §1・?perf=1）：セル 1 枚の再標本化（resample）と GPU への上げ（upload＝f16 変換＋writeTexture 発行）の時間。
@@ -92,6 +92,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 全てこの層が受け持ち、シェーダ elev() が近窓の縁フェードで遠層の値へ溶ける（0 へ落とさない）。
 	let farKey = "", farLoaded = new Set<string>(), farWritten = new Set<string>(), farFails = new Map<string, number>();
 	let farMax = 0;   // 遠景層（R10）に載った最大標高（m）＝持ち上がった遠景は海面球の地平線より先まで見える＝画像タイルの選抜（groundR）と地面アトラスの地平線窓を其処まで伸ばす（2026-10-27・Cesium 例の門＝地平線の手前に下地色の帯）
+	// 近景層（near）＝第 3 アトラス（1 セル・2026-10-28・順 1a）：深ズーム（z≥13.5）の R01 窓は 1°/1024≈108m/texel＝崖の縁に立つカメラ
+	// （cesium-world-terrain：目の高さ 26m）では地形がぼやけて目を飲み込む。外来の DEM（CWT の z14-15・raster-dem）や R01 の生タイル
+	// （30m）から、目の足元を含む 1/64°〜1/2° の窓を 1024² へ焼き直して重ねる＝elev() が近窓の値へ縁で溶かす（far と同じ一般則の内側版）。
+	// 窓は 2 の冪の幅（カメラ高さ×3）・原点は幅/8 の格子に丸める＝微動で焼き直さない。焼けてから張る（舞台裏なし・古い近窓は焼き上がりまで残す）
+	let nearKey = "", nearFails = new Map<string, number>();
+	const nearCache = new Map<string, CellPayload>();   // "lng0,lat0,span,res" → 焼いたセル（直近 12 窓＝行き来で再焼きしない）
 	const gridMax = (t: { data: ArrayLike<number> }): number => { let m = 0; const d = t.data; for (let i = 0; i < d.length; i += 2) if (d[i] > m) m = d[i]; return m; };
 	console.log("[terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)");   // 版印＝タブが古い世代を掴んだままの切り分け用（HMR跨ぎ事故の実績 9/2）
 	let writtenCells = new Set<string>();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
@@ -169,7 +175,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		for (const [k, t] of [...r10Tiles]) if (k.startsWith("1,") || k.startsWith("10,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); }
 		inflightCells.clear();   // 取りに行っている最中の物も古い世代＝新しい要求は取り直す（古い方は gen の門で捨てられる）
 		demGen++;   // 窓の鍵に世代を入れる＝外す前と同じ窓でも別の窓（古い世代の .then は atlasKey === key に当たらない）
-		atlasKey = ""; requestDraw();
+		atlasKey = ""; nearKey = ""; nearCache.clear(); nearFails = new Map(); requestDraw();
 	}
 	// 1 点の標高（DEM の最大ズームから・範囲外や無効は null）＝main の getHeight・計測が使う
 	const demHeight = (lon: number, lat: number, zHint: number | null = null): Promise<number | null> => demSrc ? demSrc.height(lon, lat, zHint).then(v => (v === v ? v : null)) : Promise.resolve(null);
@@ -202,6 +208,39 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		if (tile && !(tile.data && tile.width)) { console.warn("[terrain] malformed tile (Blob-contaminated cache?) -> treated as null", k); return null; }   // クラッシュ保険＝描画ループを絶対に落とさない（根治はローダ側の形検札）
 		if (tile) cacheTile(k, tile);
 		return tile;
+	}
+	// 近景層のセルを焼く：外来の DEM があれば span の窓を直接（段＝タイル幅≈窓/4＝CWT なら z13-16）・無効画素は R01 の生タイルで埋める。
+	// 外来の DEM が無ければ R01 の生タイル（ALOS 30m・3601²）から窓を切り出す＝1°/1024 の近窓より 3 倍細かい。どちらも無ければ null
+	async function bakeNear(lng0: number, lat0: number, span: number, res: number): Promise<CellPayload | null> {
+		const c1x = Math.floor(lng0), c1y = Math.floor(lat0);   // 窓は 1° セルを跨ぎうる＝左下のセルだけを床に使う（跨いだ分は DEM 無しなら切り出しが縁で止まる）
+		const base = await getCell(c1x, c1y, 1);
+		const src = demSrc;
+		if (src && src.covers(c1x, c1y, 1)) {
+			const d = await src.cell(lng0, lat0, span, res + 1).catch((e: unknown) => { console.warn("[terrain] near dem cell failed", (e as Error)?.message); return null; });
+			if (src !== demSrc) return null;
+			if (d) {
+				// 無効画素＝R01 の生タイルの同じ場所（窓は 1° セルの内側に無い事もある＝そこは 0）
+				if (base && base.data && base.width && (d.valid ?? 1) < 1) {
+					const B = base.data, w = base.width, h = base.height, N = d.width, dat = d.data;
+					for (let r = 0; r < N; r++) {
+						const la = lat0 + span - r / (N - 1) * span, gy = (c1y + 1 - la) * (h - 1);
+						for (let c = 0; c < N; c++) {
+							const i = r * N + c; if (dat[i] === dat[i]) continue;
+							const lo = lng0 + c / (N - 1) * span, gx = (lo - c1x) * (w - 1);
+							if (gx < 0 || gy < 0 || gx > w - 1 || gy > h - 1) { dat[i] = 0; continue; }
+							const x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), fx = gx - x0, fy = gy - y0;
+							let a = B[y0 * w + x0], b = B[y0 * w + x0 + 1], cc = B[(y0 + 1) * w + x0], dd = B[(y0 + 1) * w + x0 + 1];
+							if (a < -420 || a > 9000) a = 0; if (b < -420 || b > 9000) b = 0; if (cc < -420 || cc > 9000) cc = 0; if (dd < -420 || dd > 9000) dd = 0;
+							dat[i] = (a + (b - a) * fx) * (1 - fy) + (cc + (dd - cc) * fx) * fy;
+						}
+					}
+				} else if ((d.valid ?? 1) < 1) mergeDemCell(d, null);
+				return rsDown(d, res);
+			}
+		}
+		if (!base || !base.data || !base.width) return null;
+		if (lng0 + span > c1x + 1 + 1e-9 || lat0 + span > c1y + 1 + 1e-9) return null;   // 切り出しはセルの内側だけ（跨ぐ窓は R01 のまま＝粗いが抜けない）
+		return rsCrop(base, lng0, lat0, span, res);
 	}
 	// 全球アトラス（WORLD_ATLAS＝uploader が R90 8 枚から焼いた 1 本・4096×2048 Int16・row0=北・3.25MB）：
 	// R90 固定窓（z<5.5 の近窓・z<8 の far 床）はこれ 1 本で埋める＝従来の R90 8 枚（55MB・復号 8 回・downsampleFlipped 8 回）が
@@ -540,6 +579,42 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			renderer.set("elevAtlasFarOff");
 			requestDraw();
 		}
+		// ── 近景層（near）＝目の足元の細密窓（1 セル）。純 R01 窓×z≥13.5 でだけ（混成・R10・R90 は近窓自体が粗い＝対象外）
+		const nearOn = !noNear && range === 1 && !mixed && cam.zoom >= 13.5;
+		if (nearOn) {
+			const st = cameraState(cam, size.w, size.h);
+			const camDeg = st.camDist * 180 / Math.PI;
+			let span = 1 / 64; while (span < 0.5 && span < camDeg * 3) span *= 2;   // 2 の冪（1/64°〜1/2°）＝カメラ高さの 3 倍を覆う
+			// 窓の中心＝画面下端中央の地面（最も近い見えている地面）。空なら目の足元。そこから注視点へ幅/4 だけ寄せる
+			const foot = worldToLonLat(st.eye), bot = unproject(st, size.w / 2, size.h) || foot;
+			const dx = cam.center[0] - bot[0], dy = cam.center[1] - bot[1], dd = Math.hypot(dx, dy), reach = Math.min(dd, span / 4);
+			const cx0 = bot[0] + (dd > 1e-9 ? dx / dd * reach : 0), cy0 = bot[1] + (dd > 1e-9 ? dy / dd * reach : 0);
+			const q = span / 8, lng0 = Math.round((cx0 - span / 2) / q) * q, lat0 = Math.max(-90, Math.min(90 - span, Math.round((cy0 - span / 2) / q) * q));
+			const res = lowMem ? 512 : 1024;
+			const nkey = ["N", demGen, span, lng0.toFixed(6), lat0.toFixed(6), res].join(",");
+			if (nkey !== nearKey && (nearFails.get(nkey) || 0) < 3) {
+				nearKey = nkey;
+				const put = (payload: CellPayload): void => {
+					renderer.set("elevAtlasNear", { originLng: lng0, originLat: lat0, cellsX: 1, cellsY: 1, cellRes: res, cellSpan: span, edgeFade: span / 8 });
+					putCell("elevCellNear", payload, 0, 0, res);
+					requestDraw();
+				};
+				const hit = nearCache.get(nkey);
+				if (hit) put(hit);
+				else {
+					pendingElev++; notifyPending(1);
+					bakeNear(lng0, lat0, span, res).then(payload => {
+						pendingElev--; notifyPending(1);
+						if (nearKey !== nkey) return;   // 焼いている間に窓が替わった
+						if (!payload) { nearFails.set(nkey, (nearFails.get(nkey) || 0) + 1); nearKey = ""; return; }   // 次の ensure で再挑戦（上限 3）
+						nearCache.set(nkey, payload); if (nearCache.size > 12) nearCache.delete(nearCache.keys().next().value!);
+						put(payload);
+					});
+				}
+			}
+		} else if (nearKey) {   // 深ズーム離脱＝近景層を畳む
+			nearKey = ""; renderer.set("elevAtlasNearOff"); requestDraw();
+		}
 		scheduleAudit();   // 取り込みの顛末を後から突合＝失敗セルを静止中でも埋め直す（リロード不要の自己修復）
 		return true;
 	}
@@ -550,6 +625,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		atlasKey, staging, stagePending: stagePending.size, pendingElev,
 		loaded: loadedCells.size, written: writtenCells.size, fails: [...cellFails.entries()],
 		farKey, farLoaded: farLoaded.size, farWritten: farWritten.size, farFails: [...farFails.entries()],
+		nearKey, nearFails: [...nearFails.entries()],
 		lru: r10Tiles.size, bytes: tileBytes, world: worldAtlas ? "atlas" : worldP ? "loading" : "none",
 		lastCam: lastEnsureCam ? { z: +lastEnsureCam.zoom.toFixed(2), c: [+lastEnsureCam.center[0].toFixed(2), +lastEnsureCam.center[1].toFixed(2)], p: +(lastEnsureCam.pitch || 0).toFixed(2) } : null,
 		lastSize: lastEnsureSize });
