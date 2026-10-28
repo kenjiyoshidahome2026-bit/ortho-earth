@@ -2,7 +2,14 @@
 import { normPass, normPostChain, POST_TYPES } from "../src/postchain.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const J = v => JSON.stringify(v);
-ok("types", POST_TYPES.join() === "bloom,vignette,fxaa,smaa,tonemap,lut,dof,ssr");
+ok("types", POST_TYPES.join() === "bloom,vignette,fxaa,smaa,tonemap,lut,dof,ssr,silhouette,grey,brightness,nightVision,glsl");
+// 画面の段（Cesium の postProcessStages 相当・2026-10-28）＝既定・並び順・renderer へは stages として・glsl の uniforms の選別・src の無い glsl は落ちる
+{
+	const st = normPostChain([{ type: "silhouette", color: [1, 1, 0], length: 0.5 }, { type: "grey", gradations: 3 }, { type: "brightness" }, { type: "nightVision", enabled: false }, { type: "glsl", src: "void main(){}", uniforms: { a: 1, b: [1, 2], c: true, d: "x", "1e": 2 } }]);
+	ok("stage.defaults", J(st.passes[0]) === J({ type: "silhouette", enabled: true, color: [1, 1, 0, 1], length: 0.5 }) && st.passes[2].value === 0.5);
+	ok("stage.toRenderer", J(st.post.stages) === J([{ type: "silhouette", color: [1, 1, 0, 1], length: 0.5 }, { type: "grey", gradations: 3 }, { type: "brightness", value: 0.5 }, { type: "glsl", src: "void main(){}", uniforms: { a: 1, b: [1, 2], c: true } }]) && st.post.bloom === null);
+	ok("stage.glslNoSrc", normPass({ type: "glsl" }) === null && normPostChain([{ type: "nightVision", enabled: false }]).post === null);
+}
 ok("legacy", J(normPostChain({ bloom: true, vignette: { strength: 0.3 } })) === J({ passes: [{ type: "bloom", enabled: true, threshold: 0.75, strength: 0.5, radius: 1 }, { type: "vignette", enabled: true, strength: 0.3, radius: 0.8, softness: 0.5 }], post: { bloom: { threshold: 0.75, strength: 0.5, radius: 1 }, vignette: { strength: 0.3, radius: 0.8, softness: 0.5 } } }), J(normPostChain({ bloom: true, vignette: { strength: 0.3 } })));
 ok("null", J(normPostChain(null)) === J({ passes: [], post: null }) && normPostChain([]).post === null);
 const c = normPostChain([{ type: "tonemap", mode: "agx" }, { type: "vignette" }, { type: "bloom", strength: 2 }, { type: "fxaa", enabled: false }, "smaa"]);

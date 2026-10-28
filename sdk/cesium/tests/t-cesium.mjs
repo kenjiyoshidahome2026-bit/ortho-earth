@@ -289,5 +289,24 @@ for (const g of [
 	ok("display: destroy removes every volume", removed.length === 4);
 }
 
+// ── post: scene.postProcessStages → the globe's post chain (postprocess.ts, 順 4): the library stages by name, a user stage's GLSL + uniforms, bloom's uniforms → threshold/radius, what is skipped ──
+{
+	const { postChainOf, bloomOf, uniformValue } = await import("../src/postprocess.ts");
+	const stage = (name, uniforms, extra = {}) => ({ name, enabled: true, uniforms, ...extra });
+	const coll = (stages, o = {}) => ({ fxaa: { enabled: false }, bloom: { enabled: false, uniforms: {} }, ambientOcclusion: { enabled: false }, length: stages.length, get: i => stages[i], ...o });
+	const sil = stage("czm_silhouette", { color: Color.YELLOW, length: 0.25 }), bw = stage("czm_black_and_white", { gradations: 5 }, { enabled: false });
+	const r = postChainOf(coll([sil, bw, stage("czm_brightness", { brightness: 0.5 }), stage("czm_night_vision", {})], { fxaa: { enabled: true } }));
+	ok("post: library stages by name, disabled ones dropped, fxaa last", JSON.stringify(r.chain) === JSON.stringify([{ type: "silhouette", color: [1, 1, 0, 1], length: 0.25 }, { type: "brightness", value: 0.5 }, { type: "nightVision" }, { type: "fxaa" }]), JSON.stringify(r.chain));
+	const user = { name: "fog", enabled: true, fragmentShader: "void main(){}", uniforms: { fogByDistance: new (await import("@cesium/core")).Cartesian4(10, 0, 200, 1), fogColor: Color.BLACK, k: 2, on: true, tex: "img.png" } };
+	const r2 = postChainOf(coll([user]));
+	ok("post: a user stage carries its GLSL and uniforms (Cartesian4/Color/number/boolean), textures are skipped", r2.chain.length === 1 && r2.chain[0].type === "glsl" && r2.chain[0].src === "void main(){}" && JSON.stringify(r2.chain[0].uniforms) === JSON.stringify({ fogByDistance: [10, 0, 200, 1], fogColor: [0, 0, 0, 1], k: 2, on: true }) && r2.skipped.includes("postProcessStages texture uniforms"));
+	const r3 = postChainOf(coll([stage("czm_silhouette", { color: Color.RED, length: 0.5 }, { selected: [{}] }), stage("czm_depth_of_field", {}), stage("czm_ambient_occlusion", {})], { bloom: { enabled: true, uniforms: { contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5 } }, ambientOcclusion: { enabled: false } }));
+	ok("post: per-feature (selected) and depth of field are skipped, ambient occlusion sets the flag, bloom comes from its uniforms", r3.chain.length === 1 && r3.chain[0].type === "bloom" && r3.ao && r3.skipped.length === 2, JSON.stringify(r3));
+	const b = bloomOf({ contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5 });
+	ok("post: bloom threshold from contrast/brightness, radius from sigma×stepSize", near(b.threshold, 0.5 - 0.5 / ((259 * 383) / (255 * 131)) + 0.3, 1e-9) && b.radius === 4 && b.strength === 1, JSON.stringify(b));
+	ok("post: uniformValue shapes", JSON.stringify([uniformValue(1), uniformValue(false), uniformValue(() => 3), uniformValue({ x: 1, y: 2 }), uniformValue("s")]) === "[1,false,3,[1,2],null]");
+	ok("post: empty collection → nothing", postChainOf(coll([])).chain.length === 0 && postChainOf(null).chain.length === 0);
+}
+
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
 process.exit(fails ? 1 : 0);

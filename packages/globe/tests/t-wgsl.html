@@ -22,6 +22,8 @@ try {
 	mods.push(["AO_BLUR_WGSL(H)", AO.AO_BLUR_WGSL([1, 0])], ["AO_BLUR_WGSL(V)", AO.AO_BLUR_WGSL([0, 1])]);
 	const PF = await import("@ortho-earth/core/src/gpu/postfx.ts");   // 後処理（PR-8・W1 の fxaa/tonemap/lut）＝明部・ぼかし・合成の 3 本
 	for (const [k, v] of Object.entries(PF.POST_WGSL)) mods.push([k, v]);
+	const PS = await import("@ortho-earth/core/src/gpu/poststage.ts");   // 画面の段（Cesium の postProcessStages 相当・2026-10-28）＝縁取り・白黒・明るさ・暗視・深度の写し（1x/4x）
+	for (const [k, v] of Object.entries(PS.STAGE_WGSL)) mods.push([k, v]);
 	// 線の派生（基図の classic＝前後の点と旗・距離を属性で／md＝線分プール・影の有無）＝LINEX の継ぎ目と line-gradient（G-3）の色の語の読み方
 	for (const [k, v] of [["LINE_WGSL", W.LINE_WGSL], ["LINE_SH_WGSL", W.LINE_SH_WGSL]]) mods.push([`lineXWgsl(${k})`, W.lineXWgsl(v, k)], [`mdLineWgsl(${k})`, W.mdLineWgsl(v, k)]);
 	let n = 0;
