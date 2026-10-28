@@ -77,6 +77,8 @@ export class I3SDataProvider {
 		});
 	}
 	__detach(): void { this.#host = null; this.#handle?.remove?.(); this.#handle = null; }
+	/** the globe's handle (its stats: loaded / shown / triangles) once the layer is on the globe; the gate reads it */
+	get orthoHandle(): Any { return this.#handle; }
 	getAttributeNames(): string[] { return []; }
 	getAttributeValues(): Any[] { return []; }
 	filterByAttributes(): Promise<void> { unsupported("I3SDataProvider.filterByAttributes"); return Promise.resolve(); }
