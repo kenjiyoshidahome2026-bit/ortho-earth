@@ -330,5 +330,30 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	ok(windowsKey(groundWindows({ ...camH, center: [camH.center[0] + 1e-7, camH.center[1]] }, 800, 600)) === windowsKey(wH), "horizon: a tiny pan keeps the key");
 }
 
+// 8b. 地形リフト球の鍵（2026-10-28・shadows 例）：低い目（地面の 28 m 上・45° チルト）で、地形が後から届いて中心の標高が 95 m 持ち上がる＝
+// カメラは不変でも足元に映る地面が変わる＝選び直して足元のタイルを要求する（旧＝鍵の groundR が 637 m 刻み＝選び直されず下地色の長方形）
+{
+	const ch = new MessageChannel(); let asked = 0;
+	ch.port1.onmessage = ev => { const q = ev.data; if (q.abort) return; asked++; ch.port1.postMessage({ id: q.id, bitmap: { width: 256, height: 256 } }); };
+	ch.port1.postMessage({ type: "info", info: { tileSize: 256, minZoom: 0, maxZoom: 20, bbox: null, name: "lift" } });
+	const R = { last: null, rasterTex: bm => ({ kind: "tex", bytes: bm.width * bm.height * 4 }), rasterMesh: m => ({ kind: "mesh", bytes: m.pos.byteLength, count: m.idx.length }), rasterFree: () => {}, setRasterDraws: rd => { R.last = rd; } };
+	const raster = createRaster({ renderer: R, requestDraw: () => {}, post: () => {} });
+	await raster.add("t", { port: ch.port2 }, { order: "under", fadeDuration: 0 });
+	const cam = { center: [-75.6121, 40.0425], zoom: 21.6, pitch: 0.785, bearing: 0, dpr: 1 };
+	const settle = async () => { for (let i = 0; i < 60 && (raster.pending().total || !R.last); i++) { raster.update(cam, 1280, 720, { groundR: 1 }); await new Promise(r => setTimeout(r, 20)); } };
+	raster.update(cam, 1280, 720, { groundR: 1 }); await settle();
+	const keys = rd => new Set(rd.layers[0].draws.map(d => d.bounds.join(","))), sea = keys(R.last), asked0 = asked, rev0 = R.last.rev;
+	ok(sea.size > 0 && raster.pending().total === 0, `lift: sea-level selection settled (${sea.size} draws)`);
+	const lift = 1 + 95.7 / 6371000, camL = { ...cam, centerAlt: 95.7 };   // 中心の標高 95.7 m（Exton）＝main が cam.centerAlt に・worker が groundR に載せる
+	raster.update(camL, 1280, 720, { groundR: lift, farR: lift });
+	ok(raster.pending().total > 0 || asked > asked0, `lift: terrain arriving (ground +95.7 m) re-selects and asks for the tiles at the feet (pending=${raster.pending().total} asked=${asked - asked0})`);
+	for (let i = 0; i < 60 && raster.pending().total; i++) { raster.update(camL, 1280, 720, { groundR: lift, farR: lift }); await new Promise(r => setTimeout(r, 20)); }
+	const lifted = keys(R.last); let fresh = 0; for (const k of lifted) if (!sea.has(k)) fresh++;
+	ok(fresh > 0 && R.last.rev > rev0, `lift: the lifted draw list holds tiles the sea-level one lacked (${fresh} new of ${lifted.size}, rev ${rev0}→${R.last.rev})`);
+	raster.update(camL, 1280, 720, { groundR: lift, farR: lift });   // 最後の到着の dirty を消化
+	{ const r0 = R.last.rev, a0 = asked; raster.update(camL, 1280, 720, { groundR: lift, farR: lift }); ok(R.last.rev === r0 && asked === a0, `lift: same lift again = no re-select, no requests (rev ${r0}→${R.last.rev}, asked +${asked - a0})`); }
+	raster.destroy(); ch.port1.close();
+}
+
 console.log(fails ? `✗ ${fails} failure(s)` : "✓ raster: all checks passed");
 process.exit(fails ? 1 : 0);
