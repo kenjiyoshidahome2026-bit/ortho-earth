@@ -1037,7 +1037,7 @@ fn clipPx(px: vec2f, vp: vec2f) -> bool {   // 画素 px（device）の視線が
 	let A = ${U}.eyeC.xyz; let cc = ${U}.eyeC.w;
 	let aa = dot(d, d); let bb = 2.0 * dot(A, d);
 	let disc = bb * bb - 4.0 * aa * cc;
-	if (disc < 0.0) { return true; }
+	if (disc < 0.0 || (bb >= 0.0 && cc >= 0.0)) { return true; }
 	let q = -bb + sqrt(disc);
 	if (q <= 0.0) { return true; }
 	let t = 2.0 * cc / q;

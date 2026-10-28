@@ -783,7 +783,7 @@ uniform float u_rayC;
 uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
 uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
 vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
-float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+float sphereT(float bb, float disc) { if (disc < 0.0 || (bb >= 0.0 && u_rayC >= 0.0)) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }   // 外から上向き（bb≥0）は前に交点なし：q＝−b＋√(b²−4c) は c≈0（目が地面すれすれ）で丸めの ±1ulp になり、実 GPU の sqrt では空の画素が地面に化けた（2026-10-28 Cesium 花火）
 // δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
 vec2 deltaLL(vec3 dl, float ell) {
 	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
@@ -978,7 +978,7 @@ uniform float u_rayC;
 uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
 uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
 vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
-float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+float sphereT(float bb, float disc) { if (disc < 0.0 || (bb >= 0.0 && u_rayC >= 0.0)) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }   // 外から上向き（bb≥0）は前に交点なし：q＝−b＋√(b²−4c) は c≈0（目が地面すれすれ）で丸めの ±1ulp になり、実 GPU の sqrt では空の画素が地面に化けた（2026-10-28 Cesium 花火）
 // δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
 vec2 deltaLL(vec3 dl, float ell) {
 	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
@@ -1082,7 +1082,7 @@ uniform float u_rayC;
 uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
 uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
 vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
-float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+float sphereT(float bb, float disc) { if (disc < 0.0 || (bb >= 0.0 && u_rayC >= 0.0)) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }   // 外から上向き（bb≥0）は前に交点なし：q＝−b＋√(b²−4c) は c≈0（目が地面すれすれ）で丸めの ±1ulp になり、実 GPU の sqrt では空の画素が地面に化けた（2026-10-28 Cesium 花火）
 // δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
 vec2 deltaLL(vec3 dl, float ell) {
 	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
@@ -1177,7 +1177,7 @@ uniform float u_rayC;
 uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
 uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
 vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
-float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+float sphereT(float bb, float disc) { if (disc < 0.0 || (bb >= 0.0 && u_rayC >= 0.0)) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }   // 外から上向き（bb≥0）は前に交点なし：q＝−b＋√(b²−4c) は c≈0（目が地面すれすれ）で丸めの ±1ulp になり、実 GPU の sqrt では空の画素が地面に化けた（2026-10-28 Cesium 花火）
 // δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
 vec2 deltaLL(vec3 dl, float ell) {
 	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
@@ -1219,7 +1219,7 @@ uniform float u_rayC;
 uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
 uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
 vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
-float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+float sphereT(float bb, float disc) { if (disc < 0.0 || (bb >= 0.0 && u_rayC >= 0.0)) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }   // 外から上向き（bb≥0）は前に交点なし：q＝−b＋√(b²−4c) は c≈0（目が地面すれすれ）で丸めの ±1ulp になり、実 GPU の sqrt では空の画素が地面に化けた（2026-10-28 Cesium 花火）
 // δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
 vec2 deltaLL(vec3 dl, float ell) {
 	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
