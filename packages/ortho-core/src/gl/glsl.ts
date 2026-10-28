@@ -909,9 +909,12 @@ void main() {
 	if (u_gndN > 0.5) {   // 地面アトラス＝基球の床（地形パスの低地 t フェードの穴と真俯瞰 2D の下地）。uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
 		g = gndOver(g, u_gndOff0.xy + dll * u_gndOff0.zw, u_gndOff1.xy + dll * u_gndOff1.zw, u_gndOff2.xy + dll * u_gndOff2.zw, u_gndOff3.xy + dll * u_gndOff3.zw);
 	}
-	if (u_gm.x > 0.5 && u_hasElev > 0.5) {   // 地面の材質（Cesium の globe.material）＝球の床（低地の t フェードの穴と真俯瞰）にも地形面と同じ式で
-		float e = elevAt(ll), dstep = u_elevBounds.w / float(textureSize(u_elevTex, 0).y);
-		vec2 gEN = vec2((elevAt(ll + vec2(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (elevAt(ll + vec2(0.0, dstep)) - e) / (dstep * 111320.0));
+	if (u_gm.x > 0.5) {   // 地面の材質（Cesium の globe.material）＝球の床（低地の t フェードの穴と真俯瞰）にも地形面と同じ式で。標高が無い所は Cesium と同じく高さ 0 の色
+		float e = 0.0; vec2 gEN = vec2(0.0);
+		if (u_hasElev > 0.5) {
+			e = elevAt(ll); float dstep = u_elevBounds.w / float(textureSize(u_elevTex, 0).y);
+			gEN = vec2((elevAt(ll + vec2(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (elevAt(ll + vec2(0.0, dstep)) - e) / (dstep * 111320.0));
+		}
 		vec4 m = gmColor(e, gEN, fwidth(e)); g = vec4(g.rgb * (1.0 - m.a) + m.rgb * m.a, max(g.a, m.a));
 	}
 	if (u_cg.w > 0.5) g.rgb *= u_cgC * cgLambert(ll, vec2(0.0), 2.0);   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで（Cesium も法線の無い地形は位置の法線）
