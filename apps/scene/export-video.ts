@@ -248,6 +248,7 @@ export async function exportVideo({ map, frameEl, doc, width, height, fps, lang,
 	let lastKey = "", lastRow = -1;
 	try {
 		await new Promise(r => setTimeout(r, 300));   // 枠の寸法替え＝地図の canvas の作り直しを一呼吸待つ
+		if (doc.waitLoading) await map.prepareScenes?.(doc);   // 上映と同じ先読み＝台本の全区を読み切り GPU に立ててから 1 コマ目（冷えた端末で開幕行が平らな基図になった・2026-10-28 試し撮り）
 		for (let f = 0; f < N; f++) {
 			if (signal?.aborted) throw new DOMException("aborted", "AbortError");
 			if (encErr) throw encErr;

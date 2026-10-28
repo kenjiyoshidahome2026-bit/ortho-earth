@@ -653,7 +653,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		a.download = `${(doc.title || "untitled").replace(/[\\/:*?"<>|]/g, "_")}.scenes`;
 		a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
 	};
-	const load = (obj: unknown) => { if ((obj as Doc | null)?.type !== "scenes") return false; mark(); doc = { frame: "16:9", ...(obj as object) } as Doc; sel = -1; save(); fit(); paint(); return true; };   // 読込＝下書きの上書きも ⌘Z で戻る
+	const load = (obj: unknown) => { if ((obj as Doc | null)?.type !== "scenes") return false; mark(); doc = { frame: "16:9", ...(obj as object) } as Doc; sel = -1; document.getElementById("sc-start")?.remove(); save(); fit(); paint(); return true; };   // 読込＝下書きの上書きも ⌘Z で戻る。最初の「画面の定義」カードは台本が枠を持つので閉じる（雛形を読んでもカードが残り試写が暗いままだった）
 
 	// ── 配線 ──
 	titleEl.addEventListener("input", () => { doc.title = titleEl.value; save(); });
