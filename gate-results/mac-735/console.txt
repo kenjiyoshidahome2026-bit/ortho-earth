@@ -1,0 +1,6 @@
+== ref cesium-world-terrain {"backend":null} msgs 1
+   error: Failed to load resource: the server responded with a status of 404 (Not Found)
+== ref shadows {"backend":null} msgs 0
+== ortho cesium-world-terrain {"backend":"webgpu","cam":{"lng":-119.57902860590136,"lat":37.74059636659853,"height":1187.2264759499772,"distance":3222.3674159991347,"heading":93.41468034177274,"pitch":72.60628630621684,"roll":0}} msgs 0
+== ortho shadows {"backend":"webgpu","cam":{"lng":-75.61212589948566,"lat":40.04253061141799,"height":95.72613210403506,"distance":39.6756727413008,"heading":0,"pitch":44.999999999999986,"roll":0}} msgs 1
+   warning: ColorGeometryInstanceAttribute has been moved from cesium/engine to cesium/core in CesiumJS 1.146, and will be removed from cesium/engine in 1.150. Import from cesium/core instead.
