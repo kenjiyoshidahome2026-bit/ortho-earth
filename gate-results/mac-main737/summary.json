@@ -1,0 +1,92 @@
+{
+ "at": "2026-10-28T08:54:40.610Z",
+ "cesium": "1.146.0",
+ "n": 2,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 0,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 0,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 2,
+   "examples": [
+    "google-photorealistic-3d-tiles-with-building-insert",
+    "shadows"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "google-photorealistic-3d-tiles-with-building-insert",
+   "level": 2,
+   "reasons": [
+    "picture: colour 51% · edges 57% of the cells match · a patch of 1438 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1502,
+    "n": 3072,
+    "colour": 0.5143229166666666,
+    "edge": 0.5748697916666666,
+    "blob": 1438
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "shadows",
+   "level": 2,
+   "reasons": [
+    "picture: colour 67% · edges 91% of the cells match · a patch of 352 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1955,
+    "n": 3072,
+    "colour": 0.6702473958333334,
+    "edge": 0.9085286458333334,
+    "blob": 352
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
