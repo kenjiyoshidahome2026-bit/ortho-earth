@@ -179,7 +179,7 @@ export function cameraState(cam: CameraPose, W: number, H: number): CameraState 
 	const limb0 = Math.sqrt(Math.max((1 + camDist) * (1 + camDist) - 1, 1e-12)), limb = alt ? Math.max(limb0, Math.sqrt(Math.max(mat.dot(eye, eye) - 1, 1e-12))) : limb0;
 	// 傾けるほど近景の足元がカメラに寄るので、near を浅くして下が抜けるのを防ぐ（真俯瞰0.3→急チルト0.03）。
 	const pf = Math.min(1, pitch / (60 * D2R));
-	const near0 = camDist * (0.3 - 0.27 * pf), nearCap = cam.near! > 0 ? cam.near! / worldRadiusM() : Infinity;   // cam.near［m］＝上限（Cesium の frustum.near・無指定＝従来）
+	const near0 = camDist * (0.3 - 0.27 * pf), nearCap = cam.near! > 0 ? (cam.near as number) / worldRadiusM() : Infinity;   // cam.near［m］＝上限（Cesium の frustum.near・無指定＝従来）
 	const near = Math.max(Math.min(near0, nearCap), 1e-7), far = limb * 1.15 + camDist;
 	const proj = mat.perspective(fovy, aspect, near, far);
 	const mvp = mat.multiply(proj, view);
