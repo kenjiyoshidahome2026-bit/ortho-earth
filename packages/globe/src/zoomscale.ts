@@ -99,7 +99,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	setPostChain: "none", getPostChain: "none",   // 後処理の鎖（F3）
 	sampleTerrain: "none", sampleHeight: "none", addClassification: "none", loadCZML: "none", walk: "none",   // 地形の一括標本・一人称歩行の口（F6）＝lon/lat と m
 	// 台本の族（台本の書式＝hash 文字列に属する）
-	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine",
+	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine", prepareScenes: "engine",
 	// その他
 	renderer: "none", mapEl: "none", destroy: "none", clock: "none", backend: "none", lang: "none", t: "none",
 	// 地域パックが install で足すキーはここに載せない（globe は地域を知らない＝その地域パックの検定が自分の分を持つ）
