@@ -158,14 +158,17 @@ uniform vec4 u_meshQ;    // 地形メッシュ窓（xy=原点 lon/lat・zw=span 
 uniform float u_meshG;   // 格子の頂点数 G（0=量子化オフ＝真俯瞰など地形なし）
 float elevQ(vec2 ll) {
 	if (u_meshG < 1.5) return elev(ll);
-	vec2 g = (ll - u_meshQ.xy) / u_meshQ.zw;
+	// 近景層（順 1a）の窓の内側は近景メッシュパス（同じ単位格子を窓へ縮めた物）が地面＝その格子で量子化（主パスはそこを discard 済み・2026-10-28）
+	vec4 win = u_meshQ;
+	if (u_hasNear > 0.5) { vec2 gn = (ll - u_nearBounds.xy) / u_nearBounds.zw; if (gn.x >= 0.0 && gn.x <= 1.0 && gn.y >= 0.0 && gn.y <= 1.0) win = u_nearBounds; }
+	vec2 g = (ll - win.xy) / win.zw;
 	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) return elev(ll);
 	float N = u_meshG - 1.0;                        // セル数
 	vec2 gc = min(g * N, vec2(N - 1e-4));
 	vec2 gi = floor(gc);
 	vec2 gf = gc - gi;
-	vec2 st = u_meshQ.zw / N;
-	vec2 b0 = u_meshQ.xy + gi * st;
+	vec2 st = win.zw / N;
+	vec2 b0 = win.xy + gi * st;
 	float h00 = elev(b0);
 	float h10 = elev(b0 + vec2(st.x, 0.0));
 	float h01 = elev(b0 + vec2(0.0, st.y));

@@ -199,9 +199,10 @@ export function installCamera(map: Installing<CameraApi, "__clouds">, live: Came
 		if (!p) return map;
 		let pitch: number = c.pitch ?? cur.pitch; if (pitch < 0) pitch = 90 + pitch;
 		map.jumpTo(camOfLookAt(p, { distance: c.distance, zoom: c.zoom, bearing: c.heading ?? c.bearing, pitch, roll: c.roll }));
+		if (c.near !== undefined) cam.near = Number.isFinite(+c.near!) && +c.near! > 0 ? +c.near! : undefined;   // near 面の上限［m］（core Camera.near・省けば今の値・null/0＝従来の近さに戻す）
 		syncCenterAlt(); return map;
 	};
-	map.getCamera = () => ({ lng: cam.center[0], lat: cam.center[1], height: cam.centerAlt || 0, distance: distMOfZoom(cam.zoom), heading: cam.bearing * R2D, pitch: cam.pitch * R2D, roll: (cam.roll || 0) * R2D });
+	map.getCamera = () => ({ lng: cam.center[0], lat: cam.center[1], height: cam.centerAlt || 0, distance: distMOfZoom(cam.zoom), heading: cam.bearing * R2D, pitch: cam.pitch * R2D, roll: (cam.roll || 0) * R2D, ...(cam.near ? { near: cam.near } : {}) });
 	// style の light（MapLibre 同名・B3）：押し出し・glTF・LOD2 の陰影（GL2 の u_light*・WebGPU は PB の sl0/sl1＝同式・2026-10-13）。null＝従来の固定光
 	map.setLight = l => { live.mlLight = l == null ? null : normLight(l); sendLight(); requestDraw(); return map; };   // setLight＝setLights の directional の別名（F1・getLights は mlLight を見る＝style の根の light も映る）
 	map.getLight = () => normLight(live.mlLight);

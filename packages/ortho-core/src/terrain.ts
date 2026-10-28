@@ -209,8 +209,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		if (tile) cacheTile(k, tile);
 		return tile;
 	}
-	// 近景層のセルを焼く：外来の DEM があれば span の窓を直接（段＝タイル幅≈窓/4＝CWT なら z13-16）・無効画素は R01 の生タイルで埋める。
-	// 外来の DEM が無ければ R01 の生タイル（ALOS 30m・3601²）から窓を切り出す＝1°/1024 の近窓より 3 倍細かい。どちらも無ければ null
+	// 近景層のセルを焼く：外来の DEM（CWT の quantized-mesh・raster-dem）があれば span の窓を直接（段＝タイル幅≈窓/4＝CWT なら z13-16）・
+	// 無効画素は R01 の生タイルで埋める。外来の DEM が無ければ null（近景層なし＝近窓のまま・下の注）
 	async function bakeNear(lng0: number, lat0: number, span: number, res: number): Promise<CellPayload | null> {
 		const c1x = Math.floor(lng0), c1y = Math.floor(lat0);   // 窓は 1° セルを跨ぎうる＝左下のセルだけを床に使う（跨いだ分は DEM 無しなら切り出しが縁で止まる）
 		const base = await getCell(c1x, c1y, 1);
@@ -238,9 +238,9 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				return rsDown(d, res);
 			}
 		}
-		if (!base || !base.data || !base.width) return null;
-		if (lng0 + span > c1x + 1 + 1e-9 || lat0 + span > c1y + 1 + 1e-9) return null;   // 切り出しはセルの内側だけ（跨ぐ窓は R01 のまま＝粗いが抜けない）
-		return rsCrop(base, lng0, lat0, span, res);
+		// 外来の DEM が無ければ近景層は焼かない（2026-10-28）：R01 の生タイル（ALOS 30m＝DSM）を目の足元に素のまま出すと、街では建物が地面の瘤になり、
+		// 頂点ごとに標高を引くドレープ（列チャンク層・注記）が瘤の下に沈む（t-columnar?g=depth の手前の面が消えた）。近窓（108m/texel）は従来どおり
+		return null;
 	}
 	// 全球アトラス（WORLD_ATLAS＝uploader が R90 8 枚から焼いた 1 本・4096×2048 Int16・row0=北・3.25MB）：
 	// R90 固定窓（z<5.5 の近窓・z<8 の far 床）はこれ 1 本で埋める＝従来の R90 8 枚（55MB・復号 8 回・downsampleFlipped 8 回）が
