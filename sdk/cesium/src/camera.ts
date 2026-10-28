@@ -9,7 +9,7 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const enu = new Matrix4(), rot = new Matrix3(), inv = new Matrix3(), ray = new Ray(), carto = new Cartographic();
 const v1 = new Cartesian3(), v2 = new Cartesian3(), v3 = new Cartesian3(), E = new Cartesian3(), N = new Cartesian3(), U = new Cartesian3();
 
-export interface GlobeCam { lng: number; lat: number; height: number; distance: number; heading: number; pitch: number; roll: number; pending?: boolean }
+export interface GlobeCam { lng: number; lat: number; height: number; distance: number; heading: number; pitch: number; roll: number; pending?: boolean; near?: number }
 
 /** the east, north and up axes at a point (ECEF) */
 function axesAt(p: Cartesian3): void {

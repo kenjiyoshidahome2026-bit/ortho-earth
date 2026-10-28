@@ -950,7 +950,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 面の記述は clip.js（毎フレーム面を作り直す＝楕円体の切替にも追従・高々 6 枚）。K は原点ごと＝束縛も原点ごと（CLIP_SLOTS：main＝地形/建物/床/メッシュ/模型・base・user）。
 	// 段 2：地形の蓋（面ごとの板＝地面の中だけ塗る）・建物の疑似の蓋（閉じた建物の裏面を蓋の色）・縁の帯・影と重ねる（受け手は影＋面の派生・深度パスも面で切る）
 	// 段 4＝対象ごとの面：スロット＝対象（terrain＝地形・床・蓋／buildings＝基図の押し出し・建物メッシュ／models＝模型・3D Tiles・I3S・押し出し）＋塗りと線の原点（main/base/user＝vector の面）
-	const CLIP_SLOTS = ["terrain", "buildings", "models", "main", "base", "user"], CLIP_SLOT_B = 1280;   // uniform のオフセット境界（ClipP＝1216B＝面 160B＋多角形 1056B・256 の倍数）
+	const CLIP_SLOTS = ["terrain", "buildings", "models", "main", "base", "user", "globe"], CLIP_SLOT_B = 1280;   // globe＝球の床（地形の面を mainOrigin の K で・2026-10-28）   // uniform のオフセット境界（ClipP＝1216B＝面 160B＋多角形 1056B・256 の倍数）
 	const CS: Record<string, number> = Object.fromEntries(CLIP_SLOTS.map((k, i) => [k, i]));
 	const CAP_SLOT_B = 512;   // 地形の蓋の CapP（320B）＝近窓・遠窓の 2 スロット
 	let clip: ClipNorm | null = null;   // 正規化した切り方（clip.js normClip＝{ groups, style }）・null＝切らない
@@ -2810,7 +2810,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			clipRes();
 			const sty = clip!.style;
 			CLIP_SLOTS.forEach((k, i) => {   // 対象のスロット＝main 原点・塗りと線のスロット＝そのシーンの原点で vector の面。蓋はその対象に面がある時だけ
-				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : k === "terrain" ? terrOrigin : mainOrigin, pl = tp![k] || tp!.vector, pg = (tg as Record<string, ReturnType<typeof clipPolygonFor>>)[k] ?? (k in tg! ? null : tg!.vector);
+				// globe＝球の床：地形と同じ面を mainOrigin の K で（床のレイ・錨は mainOrigin＝gl の clipBind(錨) と同じ分担。#730 で terrain スロットだけ注視点の錨になった）
+				const kt = k === "globe" ? "terrain" : k;
+				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : k === "terrain" ? terrOrigin : mainOrigin, pl = tp![kt] || tp!.vector, pg = (tg as Record<string, ReturnType<typeof clipPolygonFor>>)[kt] ?? (kt in tg! ? null : tg!.vector);
 				packClip(pl, lonlatTo3D(o[0], o[1]), cl!.cpu.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), { ...sty, capOn: sty.capOn && pl.length > 0 }, pg);
 			});
 			device.queue.writeBuffer(cl!.buf, 0, cl!.cpu);
@@ -2865,15 +2867,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			// 大気散乱（#46 段 1）：太陽の方向（段 0 の sunF）と点ける度合い＝fx.atmosphere × 全球ハイプソの出現度（紙のテーマ・基図の帯＝従来のリム光）。atmP＝太陽の強さ・露出
 			g[48] = sunF[0]; g[49] = sunF[1]; g[50] = sunF[2]; g[51] = FX.atmosphere && view.worldHypso ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;   // ハイプソと同じ帯（標高の到着は待たない＝殻の絵は標高に依らない）
 			{   // 錨（#65）：球の床・海面下の交点を原点相対 δ で持ち、uv は f64 前計算の (off, 1/span) で作る＝絶対経緯度（f32 で 1.4 m 刻み）を経ない
-				// 錨＝地形の錨（terrOrigin）：球の床は clip の terrain スロット（面の K はその錨で詰める）を束ねるので、同じ錨でないと面が横へずれる
-				// （#730 で terrain スロットの錨だけ注視点になり、床の切り口が西へ動いて t-clipgint の西側が暗くなった・2026-10-28）。gl は clipBind に錨を渡す
-				const u = sphereRayUniforms(st, terrOrigin);
+				// 錨＝シーン原点（mainOrigin）。断面の面は globe スロット（mainOrigin の K）を束ねる＝#730 で terrain スロットの錨が注視点になって床の切り口が
+				// ずれた（t-clipgint 西側）のを #735 は床の錨を terrOrigin に変えて直したが、画像の uv の丸めが変わり t-mlcompat の陰影の輝度が 0.6 動いた（2026-10-28）
+				const u = sphereRayUniforms(st, mainOrigin);
 				g[52] = u.O![0]; g[53] = u.O![1]; g[54] = u.O![2]; g[55] = u.rho!;
 				g[56] = u.ll![0]; g[57] = u.ll![1]; g[58] = u.beta0!; g[59] = 0;
 				g[60] = u.EO![0]; g[61] = u.EO![1]; g[62] = u.EO![2]; g[63] = 0;
-				g.set(anchorUV(terrOrigin, cogGeo), 68);
-				for (let k = 0; k < 4; k++) g.set(anchorUV(terrOrigin, k < gnd.n ? gnd.w[k]!.win : null), 72 + k * 4);
-				g.set(anchorUV(terrOrigin, elev.bounds), 88);
+				g.set(anchorUV(mainOrigin, cogGeo), 68);
+				for (let k = 0; k < 4; k++) g.set(anchorUV(mainOrigin, k < gnd.n ? gnd.w[k]!.win : null), 72 + k * 4);
+				g.set(anchorUV(mainOrigin, elev.bounds), 88);
 			}
 			packGroundLight(g, 92, st);   // 地面の照明（cg/cgP/cgC）
 			packGroundMat(g, 104, cam.dpr || 1);   // 地面の材質（gm/gmC/gmP）
@@ -2964,7 +2966,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!flat2d) {   // 球体本体：land基色を縁(リム)まで敷く。2D高速パス時は clear で代替＝省略
 			pass.setPipeline(PX.globe);
 			pass.setBindGroup(0, globeBG);
-			if (grp("terrain")) pass.setBindGroup(1, grp("terrain"));   // 球の床＝地形の対象
+			if (grp("globe")) pass.setBindGroup(1, grp("globe"));   // 球の床＝地形の対象の面を mainOrigin の K で（globe スロット）
 			pass.draw(3);
 		}
 		// 地形サーフェス（標高変位＋hillshade）。深度を書く＝尾根の向こうの基図・建物が隠れる

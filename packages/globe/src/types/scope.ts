@@ -178,7 +178,7 @@ export interface ExtStyle {
 export type TerrainSpec = TerrainSourceSpec;
 
 /** globe の cam（core の CameraPose を常に全部埋めた物＋globe が足す物）＝map.cam と同じ物 */
-export interface GlobeCam extends CameraPose { pitch: number; bearing: number; roll: number; dpr: number; centerAlt?: number }
+export interface GlobeCam extends CameraPose { pitch: number; bearing: number; roll: number; dpr: number; centerAlt?: number; near?: number }
 
 /** 基図の style（themes.js の theme.style・外来 style は extBaseStyle）＝installer が読む分 */
 export interface BaseStyle {
