@@ -472,11 +472,11 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		const meshQ = (p: WebGLProgram) => { gl.uniform4f(loc(gl, p, "u_meshQ"), mq ? mq[0] : 0, mq ? mq[1] : 0, mq ? mq[2] : 1, mq ? mq[3] : 1); gl.uniform1f(loc(gl, p, "u_meshG"), mq ? terrain!.G : 0); };
 		if (terrOn && terrain) {
 			const p = castProg("terrain", clipOn);
-			setCommonUniforms(p, sS, mo, land);
+			setCommonUniforms(p, sS, terrOrigin, land);
 			gl.uniform1f(loc(gl, p, "u_fogNear"), fogT.near); gl.uniform1f(loc(gl, p, "u_fogFar"), fogT.far);   // 地形の頂点と同じ遠景の平ら化
 			const mh = terrain.mesh;
 			gl.uniform4f(loc(gl, p, "u_mesh"), mh[0], mh[1], mh[2], mh[3]);
-			clipBind("terrain", mo);
+			clipBind("terrain", terrOrigin);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 		}
@@ -972,6 +972,10 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let lastCamDist = 0;   // 前のフレームの camDist（カメラが飛んだかを見る）
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
+	// 地形パスの RTE の錨＝カメラの注視点（f64・毎フレーム）。旧＝main シーンの原点＝基図のタイルが無い地図（@ortho-earth/cesium）では経度 0・緯度 0 のまま＝
+	// 頂点の相対ベクトルが ~1 の大きさになり、f32 の u_mvp との積が深ズームで相殺を失う＝低い目で地形が目の前で何倍にも歪んだ（Cesium 例 shadows・2026-10-28）。
+	// 注視点なら相対ベクトルは常に画面の中の距離＝桁落ちなし。地形の錨を使う物（蓋・断面・影の落とし手）も同じ値を使う
+	let terrOrigin: number[] = [0, 0];
 	let exagMul = 1;        // 地形の誇張（setTerrain の exaggeration・既定 1＝実スケール）＝アトラスの scale に掛ける
 	let gintCtx: GintDepthCtx | null = null;   // gint 埋込パス用の frame コンテキスト（terrainDepth 時のみ非null。draw() が毎フレーム更新）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
@@ -1818,6 +1822,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		// 10m DTM＝裸地）＝都市の起伏は本物の地形（台地・谷・扇状地）なので全ズームで見せるのが正しい。
 		// ⚠轍：都市帯の標高源を DSM 系へ戻す時はこの taper（と深度のテント問題）が再び必要になる。
 		elevScaleEff = elev.scale * pf;
+		terrOrigin = [cam.center[0], cam.center[1]];   // 地形パスの錨＝注視点（上の宣言を参照）
 		// 地面アトラス（RTT ドレープ）：3D（地形あり）＝ベクタ塗りもアトラスへ（直描きは伏せる）／ラスタは常にアトラス。鍵が変わった時だけ合成
 		{
 			const fillsIn = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);   // ＝terrainActive（下で再計算される同じ式）
@@ -2001,8 +2006,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		if (terrainActive) {
 			gl.depthMask(terrainDepth);
 			if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.0, 4.0); }
-			setCommonUniforms(terrainProg, st, scenes.main.origin || [0, 0], land);   // RTE 錨＝シーン原点（旧[0,0]だと錨が地物から遠く相殺回避が効かない）
-			clipBind("terrain", scenes.main.origin);
+			setCommonUniforms(terrainProg, st, terrOrigin, land);   // RTE 錨＝カメラの注視点（terrOrigin）
+			clipBind("terrain", terrOrigin);
 			// 地形だけフォグを「遠山ブルー」に：空気遠近法＝遠くの山は青く霞む。地平線の山並みが
 			// 説明不要で"山"として読める（基図の線/塗りは従来どおり紙色へフェードアウト＝浮かない）。
 			// 距離も地形だけ半分に詰める＝中景の山並み（80-150km）にしっかり青が乗る。
@@ -2052,9 +2057,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
 				gl.depthMask(true);
 				const fogT = { near: Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), far: Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK(), color: fogColorOf(view.distColor || [0.63, 0.72, 0.83]) };
-				const mo = (scenes.main.origin || [0, 0]) as number[];
-				drawCaps(st, clipFr.tp.terrain, mo, terrain!.mesh, cam.center, false, fogT, land);
-				if (far.has && farTex) drawCaps(st, clipFr.tp.terrain, mo, far.bounds, cam.center, true, fogT, land);
+				drawCaps(st, clipFr.tp.terrain, terrOrigin, terrain!.mesh, cam.center, false, fogT, land);
+				if (far.has && farTex) drawCaps(st, clipFr.tp.terrain, terrOrigin, far.bounds, cam.center, true, fogT, land);
 			}
 			gl.depthMask(true);
 			if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
