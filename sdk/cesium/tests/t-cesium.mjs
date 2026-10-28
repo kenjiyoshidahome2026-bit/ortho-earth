@@ -45,7 +45,11 @@ for (const g of [
 	const g2 = globeCamOf(pos, back, Cartesian3.UNIT_Z);
 	ok("camera a hair past straight down keeps north up", near(g2.heading, 0, 1e-6) && near(g2.roll, 0, 1e-6), JSON.stringify(g2));
 	const sky = globeCamOf(pos, Cartesian3.UNIT_Z, Cartesian3.negate(dir, new Cartesian3()));   // looking north along the horizon at 1000 km: misses the globe
-	ok("camera at the sky has a target", !!sky && sky.distance >= 1000 && sky.pitch <= 90, JSON.stringify(sky));
+	ok("camera at the sky has a target", !!sky && sky.distance >= 1000 && sky.pitch > 90 && sky.pitch < 180, JSON.stringify(sky));
+	// looking up (fireworks: lookUp above the horizon): the pitch goes past 90 and the pose comes back looking up the same way
+	const up20 = { lng: 139.7, lat: 35.6, height: 1000, distance: 900, heading: 40, pitch: 110, roll: 0 };
+	const pu = poseOfGlobeCam(up20), gu = globeCamOf(pu.position, pu.direction, pu.up);
+	ok("camera looking up keeps its pitch past 90", !!gu && near(gu.pitch, 110, 1e-2) && near(gu.heading, 40, 1e-2), JSON.stringify(gu));
 }
 
 {   // the target is on the terrain, not the ellipsoid: a camera 2 km up looking down at 30° over a 1500 m plateau (2026-10-28)
