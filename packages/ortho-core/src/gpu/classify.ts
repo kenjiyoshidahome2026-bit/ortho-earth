@@ -13,7 +13,7 @@ struct O { @builtin(position) pos: vec4f, @location(0) w: f32 };
 	var o: O;
 	var p = u.clip + u.mvp * vec4f(a, 0.0);
 	o.w = p.w;
-	p.z = log2(max(1.0 + p.w, 1e-6)) * u.p.x * 0.5 * p.w;
+	p.z = log1pS(max(p.w, 1e-30)) * 1.4426950 * u.p.x * 0.5 * p.w;   // 1.0+w の桁落ちを避ける（下の log1pS）
 	o.pos = p;
 	return o;
 }

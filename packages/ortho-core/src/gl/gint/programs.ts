@@ -14,6 +14,7 @@ const GLSL_VS_HEADER = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp usampler2D;
+float log2p1G(float w) { if (w < 0.1) return (w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715))))))) * 1.4426950; return log2(1.0 + w); }   // log2(1+w) を桁落ちなしに（対数深度の頂点側・glsl.ts PROJECT の log2p1 と同じ）
 uniform usampler2D u_arc_tex;
 uniform usampler2D u_meta_tex;
 uniform int        u_arc_w;
@@ -793,7 +794,7 @@ void main() {
 	// 対数深度（renderer applyLogDepth/LINE_MAIN の zc と同式・同係数）＝地形/基図線と同じ深度空間。
 	// u_logCoef=0（深度オフ）は z=0＝従来動作（深度テストも off なので値は無関係だが分岐で保証）。
 	float wS = useA ? wA : wB;
-	float zc = (u_logCoef > 0.0) ? (log2(max(1.0 + wS, 1e-6)) * u_logCoef - 1.0) : 0.0;
+	float zc = (u_logCoef > 0.0) ? (log2p1G(max(wS, 1e-30)) * u_logCoef - 1.0) : 0.0;   // 1.0+w の桁落ちを避ける（glsl.ts PROJECT の log2p1 と同じ）
 
 	vec2 dir = bxy - axy;
 	float len = length(dir);

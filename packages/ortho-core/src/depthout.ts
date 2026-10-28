@@ -23,7 +23,8 @@ highp float sceneDepthAt(highp vec2 uv) {
 	highp vec3 c = floor(texture(u_sceneDepth, uv).rgb * 255.0 + 0.5);
 	return dot(c, vec3(65536.0, 256.0, 1.0)) / 16777215.0;
 }
-highp float depthOfW(highp float w) { return 0.5 * log2(max(1.0 + w, 1e-6)) * u_sceneLogCoef; }
+highp float log2p1D(highp float w) { if (w < 0.1) return (w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715))))))) * 1.4426950; return log2(1.0 + w); }   // 1.0+w の桁落ちを避ける（glsl.ts PROJECT の log2p1 と同じ）
+highp float depthOfW(highp float w) { return 0.5 * log2p1D(max(w, 1e-30)) * u_sceneLogCoef; }
 highp float sceneOcclusion(highp vec2 uv, highp float w) {
 	if (u_sceneDepthOn < 0.5) return 0.0;
 	highp float s = sceneDepthAt(uv);

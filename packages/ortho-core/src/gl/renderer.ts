@@ -2469,6 +2469,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				if (meshLight) gl.uniform2f(loc(gl, pg, "u_csMR"), p.pbr ? p.pbr.metallic : 0, p.pbr ? p.pbr.roughness : 1);   // バッチの材質（Cesium の照明）
 				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two || p.noCull ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
+				gl.uniform3f(loc(gl, pg, "u_eyeRel"), st.eye[0] - p.origin[0], st.eye[1] - p.origin[1], st.eye[2] - p.origin[2]);   // 目 − 原点（double）＝v_toEye の錨（近接の裏面判定）
 				gl.uniform1f(loc(gl, pg, "u_xfOn"), p.xf ? 1 : 0);   // バッチの剛体変換（glTF の rigid アニメ・W4）＝L（3x3 列優先）と原点相対の平行移動
 				if (p.xf) { gl.uniformMatrix3fv(loc(gl, pg, "u_xfL"), false, p.xf.subarray(0, 9)); gl.uniform3f(loc(gl, pg, "u_xfT"), p.xf[9], p.xf[10], p.xf[11]); }
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で（旧: シェーダ float32 で mvp*meshOrigin＝相殺）
@@ -2556,6 +2557,15 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "classifyStyle": classify.style(prop as string, data as Parameters<typeof classify.style>[1]); break;
 			case "meshXf": { const p = meshes.get(prop as string); if (p) p.xf = data && (data as Float32Array).length >= 12 ? data as Float32Array : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.textured && (data as Uint8Array | null | undefined)?.length && p.bufs[4]) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[4]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data as Uint8Array); gl.bindBuffer(gl.ARRAY_BUFFER, null); } break; }   // 頂点色だけ書き換える（feature state の色・W7）＝Uint8Array RGBA×頂点（長さは meshSet と同じ）
+			case "meshPos": {   // skin の頂点の焼き直し（2026-10-28）＝pos（原点相対・Float32・3n）と法線（Int8・4n）を同じ頂点数のまま書き換える（大きさが違えば捨てる）
+				const p = meshes.get(prop as string), d = data as { pos?: Float32Array; nrm?: Int8Array } | null;
+				if (!p || !d?.pos?.length) break;
+				gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[0]);
+				if (gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) === d.pos.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.pos);
+				if (d.nrm?.length) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[1]); if (gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) === d.nrm.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.nrm); }
+				gl.bindBuffer(gl.ARRAY_BUFFER, null);
+				break;
+			}
 			case "meshVis":  setMeshVis(prop as string, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
 			case "stars":     setStars(data as Float32Array | null); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
 			case "constellations": setConstellations(data as Float32Array | null); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst

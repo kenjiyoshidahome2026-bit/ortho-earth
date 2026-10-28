@@ -209,7 +209,7 @@ fn fogOf(w: vec3f) -> f32 {
 }
 // クリップ z ← 対数深度（WebGPU z01）。GL 版 applyLogDepth の window 深度と同値
 fn logDepthZ(w: f32) -> f32 {
-	return log2(max(1.0 + w, 1e-6)) * F.params.z * 0.5 * w;
+	return log1pS(max(w, 1e-30)) * 1.4426950 * F.params.z * 0.5 * w;   // 1.0+w を f32 で作らない（下の log1pS）：目が数 m まで寄った 1 m 級の模型は表と裏が同じ深度になり裏が透けた（2026-10-28）
 }
 // 画素ごとの深度（frag_depth・#62）＝z_ndc＝logDepthZ(w)/w＝0.5·logCoef·log2(1+w)。1+w を f32 で作ると w が 1.2e-7（≈0.76m）刻みに量子化され、
 // 画素ごとに書くと 0.76m の階段になる（AO が横縞の壁として見た＝実 GPU 2026-09-29）。log1p を級数で（AO の expm1s と対・w<0.1＝7 次・相対 1e-9）
@@ -578,7 +578,7 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	// 端点の深度は対数系＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
 	let wz = select(cb.w, ca.w, corner.x < 0.5);
 	let ndc = vec2f(posS.x / F.viewport.x * 2.0 - 1.0, 1.0 - posS.y / F.viewport.y * 2.0);
-	o.pos = vec4f(ndc, log2(max(1.0 + wz, 1e-6)) * F.params.z * 0.5, 1.0);
+	o.pos = vec4f(ndc, log1pS(max(wz, 1e-30)) * 1.4426950 * F.params.z * 0.5, 1.0);
 	return o;
 }
 // 端の先の覆い（S-P1-1）：k＝端の形（jk）・e＝端からの距離（先へ正）・q＝端からの位置・j＝切り口・bev＝bevel の切り線。丸い形の時だけ dist（芯からの距離）を端の点からの距離に替える
@@ -905,7 +905,7 @@ struct BldOut {
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
 ${CS_ATMO_WGSL}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f };   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 0, 0)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f, eyeRel: vec4f };   // eyeRel＝F.eye − meshOrigin（CPU double・float 236〜238）＝toEye を原点相対で組む（近接の裏面判定）   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 0, 0)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
@@ -924,7 +924,7 @@ struct PlOut {
 	let dir = normalize(wp);
 	o.wl = ap * 6371000.0;   // 原点相対＝f32 でも mm 級（絶対位置の f32 は 0.4m 刻み＝窓の格子が揺れる）
 	o.n = select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5);
-	o.toEye = F.eye - wp;
+	o.toEye = B.eyeRel.xyz - ap;                      // ＝F.eye − wp を原点相対で（≈1 同士の差は float32 で 0.4 m 級の誤差＝数 m まで寄った 1 m 級の模型で裏面判定が乱れた・2026-10-28）
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(wp);
 	o.csFog = csFogV(F.eye * CS_R, wp * CS_R, F.farP.w, F.cg.xyz, select(-1.0, 1.0, F.cg.w > 0.5 && F.cgP.w >= 0.0));
