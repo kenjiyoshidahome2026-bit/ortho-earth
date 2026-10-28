@@ -2865,13 +2865,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			// 大気散乱（#46 段 1）：太陽の方向（段 0 の sunF）と点ける度合い＝fx.atmosphere × 全球ハイプソの出現度（紙のテーマ・基図の帯＝従来のリム光）。atmP＝太陽の強さ・露出
 			g[48] = sunF[0]; g[49] = sunF[1]; g[50] = sunF[2]; g[51] = FX.atmosphere && view.worldHypso ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;   // ハイプソと同じ帯（標高の到着は待たない＝殻の絵は標高に依らない）
 			{   // 錨（#65）：球の床・海面下の交点を原点相対 δ で持ち、uv は f64 前計算の (off, 1/span) で作る＝絶対経緯度（f32 で 1.4 m 刻み）を経ない
-				const u = sphereRayUniforms(st, mainOrigin);
+				// 錨＝地形の錨（terrOrigin）：球の床は clip の terrain スロット（面の K はその錨で詰める）を束ねるので、同じ錨でないと面が横へずれる
+				// （#730 で terrain スロットの錨だけ注視点になり、床の切り口が西へ動いて t-clipgint の西側が暗くなった・2026-10-28）。gl は clipBind に錨を渡す
+				const u = sphereRayUniforms(st, terrOrigin);
 				g[52] = u.O![0]; g[53] = u.O![1]; g[54] = u.O![2]; g[55] = u.rho!;
 				g[56] = u.ll![0]; g[57] = u.ll![1]; g[58] = u.beta0!; g[59] = 0;
 				g[60] = u.EO![0]; g[61] = u.EO![1]; g[62] = u.EO![2]; g[63] = 0;
-				g.set(anchorUV(mainOrigin, cogGeo), 68);
-				for (let k = 0; k < 4; k++) g.set(anchorUV(mainOrigin, k < gnd.n ? gnd.w[k]!.win : null), 72 + k * 4);
-				g.set(anchorUV(mainOrigin, elev.bounds), 88);
+				g.set(anchorUV(terrOrigin, cogGeo), 68);
+				for (let k = 0; k < 4; k++) g.set(anchorUV(terrOrigin, k < gnd.n ? gnd.w[k]!.win : null), 72 + k * 4);
+				g.set(anchorUV(terrOrigin, elev.bounds), 88);
 			}
 			packGroundLight(g, 92, st);   // 地面の照明（cg/cgP/cgC）
 			packGroundMat(g, 104, cam.dpr || 1);   // 地面の材質（gm/gmC/gmP）
