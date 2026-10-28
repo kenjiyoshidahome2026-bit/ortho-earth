@@ -27,6 +27,8 @@ export interface CameraPose {
 	centerAlt?: number;
 	/** 注視点を画面の中心からずらす量［CSS px・右・下が正］＝MapLibre の centerOffset（padding の中身の中心）。消失点も動く。無指定＝[0,0]。 */
 	offset?: [number, number];
+	/** near 面の上限［m］（無指定＝従来＝注視距離の 3〜30%）。注視点より手前に描く物がある時（Cesium の frustum.near＝1 m・目標点が楕円体で 3D Tiles の地面の下）に下げる。深度は対数なので far との比は問わない */
+	near?: number;
 }
 
 /** 視線の基底（viewRays の戻り） */
@@ -177,7 +179,8 @@ export function cameraState(cam: CameraPose, W: number, H: number): CameraState 
 	const limb0 = Math.sqrt(Math.max((1 + camDist) * (1 + camDist) - 1, 1e-12)), limb = alt ? Math.max(limb0, Math.sqrt(Math.max(mat.dot(eye, eye) - 1, 1e-12))) : limb0;
 	// 傾けるほど近景の足元がカメラに寄るので、near を浅くして下が抜けるのを防ぐ（真俯瞰0.3→急チルト0.03）。
 	const pf = Math.min(1, pitch / (60 * D2R));
-	const near = Math.max(camDist * (0.3 - 0.27 * pf), 1e-7), far = limb * 1.15 + camDist;
+	const near0 = camDist * (0.3 - 0.27 * pf), nearCap = cam.near! > 0 ? (cam.near as number) / worldRadiusM() : Infinity;   // cam.near［m］＝上限（Cesium の frustum.near・無指定＝従来）
+	const near = Math.max(Math.min(near0, nearCap), 1e-7), far = limb * 1.15 + camDist;
 	const proj = mat.perspective(fovy, aspect, near, far);
 	const mvp = mat.multiply(proj, view);
 	// 上空から見ると座標系が鏡像になるため clip.x を反転（東=画面右）。行0を符号反転。
