@@ -1,0 +1,459 @@
+{
+ "at": "2026-10-28T20:12:47.583Z",
+ "cesium": "1.146.0",
+ "n": 13,
+ "levels": {
+  "0": 0,
+  "1": 2,
+  "2": 10,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 2,
+  "2": 10,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 10,
+   "examples": [
+    "3d-models",
+    "3d-models-coloring",
+    "camera",
+    "camera-tutorial",
+    "custom-shaders-models",
+    "czml-model",
+    "czml-model-articulations",
+    "czml-model-node-transformations",
+    "interpolation",
+    "time-dynamic-wheels"
+   ]
+  },
+  {
+   "blocker": "drawn camera differs",
+   "n": 1,
+   "examples": [
+    "plane"
+   ]
+  },
+  {
+   "blocker": "unsupported: entity.plane",
+   "n": 1,
+   "examples": [
+    "plane"
+   ]
+  },
+  {
+   "blocker": "unsupported: model animation animationTime (a time function)",
+   "n": 1,
+   "examples": [
+    "manually-controlled-animation"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-models",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 94% of the cells match · a patch of 272 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2735,
+    "n": 3072,
+    "colour": 0.9016927083333334,
+    "edge": 0.9430338541666666,
+    "blob": 272
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-models-coloring",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 94% of the cells match · a patch of 303 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2739,
+    "n": 3072,
+    "colour": 0.8968098958333334,
+    "edge": 0.9352213541666666,
+    "blob": 303
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "camera",
+   "level": 2,
+   "reasons": [
+    "picture: colour 29% · edges 74% of the cells match · a patch of 2121 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 904,
+    "n": 3072,
+    "colour": 0.2942708333333333,
+    "edge": 0.7379557291666666,
+    "blob": 2121
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "camera-tutorial",
+   "level": 2,
+   "reasons": [
+    "picture: colour 34% · edges 75% of the cells match · a patch of 1973 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1052,
+    "n": 3072,
+    "colour": 0.3424479166666667,
+    "edge": 0.7545572916666666,
+    "blob": 1973
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "clamp-model-to-ground",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2997,
+    "n": 3072,
+    "colour": 0.9876302083333334,
+    "edge": 0.9840494791666666,
+    "blob": 1
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "custom-shaders-models",
+   "level": 2,
+   "reasons": [
+    "picture: colour 82% · edges 97% of the cells match · a patch of 482 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2526,
+    "n": 3072,
+    "colour": 0.8245442708333334,
+    "edge": 0.9677734375,
+    "blob": 482
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-model",
+   "level": 2,
+   "reasons": [
+    "picture: colour 78% · edges 81% of the cells match · a patch of 210 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2137,
+    "n": 3072,
+    "colour": 0.775390625,
+    "edge": 0.8125,
+    "blob": 210
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-model-articulations",
+   "level": 2,
+   "reasons": [
+    "picture: colour 81% · edges 82% of the cells match · a patch of 32 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2203,
+    "n": 3072,
+    "colour": 0.810546875,
+    "edge": 0.8219401041666666,
+    "blob": 32
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-model-node-transformations",
+   "level": 2,
+   "reasons": [
+    "picture: colour 97% · edges 96% of the cells match · a patch of 74 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2899,
+    "n": 3072,
+    "colour": 0.9677734375,
+    "edge": 0.9599609375,
+    "blob": 74
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "interpolation",
+   "level": 2,
+   "reasons": [
+    "picture: colour 69% · edges 83% of the cells match · a patch of 57 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1912,
+    "n": 3072,
+    "colour": 0.6871744791666666,
+    "edge": 0.8330078125,
+    "blob": 57
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "manually-controlled-animation",
+   "level": 1,
+   "reasons": [
+    "unsupported: model animation animationTime (a time function)"
+   ],
+   "blockers": [
+    "unsupported: model animation animationTime (a time function)"
+   ],
+   "unsupported": [
+    {
+     "what": "model animation animationTime (a time function)",
+     "n": 1
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2894,
+    "n": 3072,
+    "colour": 0.9729817708333334,
+    "edge": 0.9641927083333334,
+    "blob": 4
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "plane",
+   "level": 1,
+   "reasons": [
+    "unsupported: entity.plane",
+    "drawn camera (Δangle 15.2° from the Cesium pose)"
+   ],
+   "blockers": [
+    "unsupported: entity.plane",
+    "drawn camera differs"
+   ],
+   "unsupported": [
+    {
+     "what": "entity.plane",
+     "n": 3
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": false
+   },
+   "picture": {
+    "ok": 2190,
+    "n": 3072,
+    "colour": 0.7255859375,
+    "edge": 0.9501953125,
+    "blob": 778
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "time-dynamic-wheels",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 95% of the cells match · a patch of 186 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2700,
+    "n": 3072,
+    "colour": 0.9130859375,
+    "edge": 0.9505208333333334,
+    "blob": 186
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
