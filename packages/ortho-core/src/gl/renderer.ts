@@ -1832,7 +1832,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, pt: 0, ptw: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
 		const st = cameraState(cam, canvas.width, canvas.height) as GLCamState;
 		st.mvp32 = Float32Array.from(st.mvp);
-		lastLogCoef = logCoefOf(st);
+		lastLogCoef = logCoefOf(st); lastDpr = cam.dpr || 1; lastFovy = cam.fovy || 50 * Math.PI / 180;
 		const clipOn = clipFrame(cam.dpr || 1);   // 断面（P0 #3）＝このフレームのプログラムを派生か base に   // 深度の書き出し（#47）が添える尺度＝u_logCoef・gintCtx.logCoef と同じ物
 		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）は camDist へ滑らかに追従（臨界減衰）：
 		// 直結だとホイール1ノッチ毎に霞の帯が跳んでチラチラし、凍結だとズームアウトで旧距離の霞が
@@ -2588,12 +2588,12 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 });
 	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { pixels, w, h, logCoef }, abort() }（初回に FBO 一式を作る）／
 	// depthOut(false)＝畳む（資産を返す・従来の経路へ）。begin は renderer.draw の前・end は gint.draw の後（renderworker が挟む）
-	let dOut: DepthOutGL | null = null, lastLogCoef = 0, post: PostProcessNormalized | null = null;   // post＝後処理の設定（PR-8・normPost 済み）＝depthOut の FBO の写しの段で掛ける
+	let dOut: DepthOutGL | null = null, lastLogCoef = 0, lastDpr = 1, lastFovy = 50 * Math.PI / 180, post: PostProcessNormalized | null = null;   // post＝後処理の設定（PR-8・normPost 済み）＝depthOut の FBO の写しの段で掛ける
 	function depthOut(on: boolean) {
 		if (!on) { if (dOut) { dOut.dispose(); dOut = null; } return null; }
 		if (!dOut) { dOut = createDepthOutGL(gl, canvas, () => rOpts.requestDraw?.()); dOut.setPost(post); }
 		const d = dOut;
-		return { begin: d.begin, abort: d.abort, end: (o?: { depth?: boolean } | null) => { const f = d.end(o); return f ? { ...f, logCoef: lastLogCoef } : null; } };
+		return { begin: d.begin, abort: d.abort, end: (o?: { depth?: boolean } | null) => { const f = d.end({ ...(o || {}), logCoef: lastLogCoef, dpr: lastDpr, fovy: lastFovy }); return f ? { ...f, logCoef: lastLogCoef } : null; } };   // 画面の段（Cesium の postProcessStages）が使う尺を添える
 	}
 	return { gl, set, draw, dispose, depthOut, md: !!md, mdMax: MD_MAX_DRAWS, mdDash: true, pt: !!md, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数

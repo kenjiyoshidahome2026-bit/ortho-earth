@@ -25,6 +25,8 @@ interface Item {
 	lines: PrimLine[]; ids: Any[]; colors: Uint8Array[]; shows: boolean[];
 	/** each instance's world bounding sphere (getGeometryInstanceAttributes(id).boundingSphere, as Primitive gives once built → camera.viewBoundingSphere) */
 	spheres: Array<BoundingSphere | undefined>;
+	/** a Model's activeAnimations (addAll / add): what to play, at what multiplier; null = stopped */
+	anim?: { name?: string; speed: number } | null;
 }
 
 /** a primitive this module draws */
@@ -152,6 +154,7 @@ export class PrimitiveDrawer {
 			if ((it as Any).shown !== show) { (it as Any).shown = show; linesChanged = true; }
 			if (!show) { if (it.h) { it.h.clear(); it.h = null; it.built = false; } continue; }   // hidden: off the globe, built again when shown
 			const mk = Matrix4.toArray(p.modelMatrix ?? Matrix4.IDENTITY).join(",") + (Model && p instanceof Model ? `|${p.scale}` : "");
+			if (Model && p instanceof Model && it.h) this.#syncAnim(it);
 			if (Model && p instanceof Model) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; const pl = placeOf(p); if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, scale: pl.scale }); } continue; }
 			if (!it.built || (it as Any).mk !== mk) { (it as Any).mk = mk; this.#build(map, it); linesChanged = true; }
 		}
@@ -277,6 +280,16 @@ export class PrimitiveDrawer {
 			}, (err: unknown) => { it.loading = false; (it as Any).error = String((err as Error)?.message || err); console.warn("[csshim] primitive", err); });
 	}
 	#markReady(p: Any) { p._ready = true; p._readyEvent?.raiseEvent?.(p); }
+	/** a Model's animation ⇄ the clock (Cesium's Model advances its animations by the clock's delta × the animation's multiplier): plays while the
+	 *  clock animates and an animation is active, keeping its time; stops otherwise */
+	#syncAnim(it: Item) {
+		const h = it.h, a = it.anim;
+		if (!h?.animations?.length) return;
+		const ck = this.host.clock, playing = !!a && (ck ? !!ck.shouldAnimate : true), speed = (a?.speed ?? 1) * (ck && Number.isFinite(ck.multiplier) ? ck.multiplier : 1);
+		const cur = h.getAnimation?.();
+		if (!playing) { if (cur?.playing) h.stop(); return; }
+		if (!cur?.playing || cur.speed !== speed || (a!.name != null && cur.name !== a!.name)) h.play({ ...(cur || {}), ...(a!.name != null ? { name: a!.name } : {}), speed });
+	}
 	/** a Model (Model.fromGltfAsync): the globe loads the same glTF where the model matrix puts it */
 	#loadModel(map: Any, it: Item) {
 		const p = it.p, url: string | undefined = p._resource?.url ?? p._resource?._url;
@@ -288,9 +301,10 @@ export class PrimitiveDrawer {
 		// animations: the globe plays the glTF's own (all of them, looping) while any is active
 		const anims = p.activeAnimations, started: Any[] = [];
 		if (anims) {
-			anims.addAll = (o: Any = {}) => { if (o.multiplier && o.multiplier !== 1) unsupported("model animation multiplier"); it.h?.animations?.length && it.h.play(); started.push(o); return []; };
-			anims.add = (o: Any = {}) => { it.h?.animations?.length && it.h.play(o.name); started.push(o); return { ...o, start: new Event(), update: new Event(), stop: new Event() }; };
-			anims.removeAll = () => { started.length = 0; it.h?.stop?.(); };
+			const spec = (o: Any) => { if (typeof o.animationTime === "function") unsupported("model animation animationTime (a time function)"); return { name: o.name != null ? String(o.name) : undefined, speed: Number.isFinite(o.multiplier) ? o.multiplier : 1 }; };
+			anims.addAll = (o: Any = {}) => { it.anim = spec(o); started.push(o); this.#syncAnim(it); return []; };
+			anims.add = (o: Any = {}) => { it.anim = spec(o); started.push(o); this.#syncAnim(it); return { ...o, start: new Event(), update: new Event(), stop: new Event() }; };
+			anims.removeAll = () => { started.length = 0; it.anim = null; this.#syncAnim(it); };
 			Object.defineProperty(anims, "length", { configurable: true, get: () => started.length });
 		}
 		void gltfNodeNames(url).then(names => {   // nodes (getNode): there, but the globe does not move them one by one
@@ -308,6 +322,7 @@ export class PrimitiveDrawer {
 				it.loading = false;
 				if (it.dead) { h.clear(); return; }
 				it.h = h;
+				this.#syncAnim(it);
 				await gltfSphere(url);
 				this.#markReady(p);
 				if (started.length && h.animations?.length) h.play();

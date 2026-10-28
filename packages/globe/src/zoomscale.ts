@@ -97,6 +97,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	setLights: "none", getLights: "none",   // 光源の口（F1）＝位置は lon/lat/alt・zoom を運ばない
 	getSunPosition: "none", getMoonPosition: "none", setSun: "none", getSun: "none", setClouds: "none", getClouds: "none",   // 太陽・月・雲の口（F2）＝度と m
 	setPostChain: "none", getPostChain: "none",   // 後処理の鎖（F3）
+	setRenderFx: "none",   // 描画側の fx（AO など・Cesium facade の postProcessStages・2026-10-28）
 	sampleTerrain: "none", sampleHeight: "none", addClassification: "none", loadCZML: "none", walk: "none",   // 地形の一括標本・一人称歩行の口（F6）＝lon/lat と m
 	// 台本の族（台本の書式＝hash 文字列に属する）
 	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine", prepareScenes: "engine",

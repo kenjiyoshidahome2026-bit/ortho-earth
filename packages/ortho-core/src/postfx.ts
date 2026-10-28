@@ -20,7 +20,18 @@ export interface PostProcessOptions {
 	fxaa?: boolean | FxaaOptions;
 	tonemap?: true | TonemapOptions;
 	lut?: LutOptions | null;
+	/** 画面の段（Cesium の postProcessStages 相当・2026-10-28）＝固定の鎖の後に並び順どおり 1 段ずつ掛ける。 */
+	stages?: PostStage[] | null;
 }
+/** 画面の段（固定の鎖＝fxaa→bloom→tonemap→lut→vignette の後に、並び順どおり 1 段ずつ掛ける・Cesium の postProcessStages 相当・2026-10-28）
+ *  silhouette＝深度の縁取り（Cesium の EdgeDetection＋Silhouette：length＝縁と見る深度差の閾値・color＝縁の色 rgba 0..1）／grey＝白黒（gradations 段）／brightness＝明るさ（value＝0 で黒・1 で素）／
+ *  nightVision＝暗視（緑＋雑音）／glsl＝利用者の GLSL ES 3.00 の fragment（Cesium の PostProcessStage の書き方＝colorTexture・depthTexture・v_textureCoordinates・out_FragColor・czm_* の一部）＝GL2 だけ（WebGPU は飛ばす）。uniforms＝名前 → 数か数の並び（2〜4＝vec）か真偽 */
+export type PostStage =
+	| { type: "silhouette"; color: number[]; length: number }
+	| { type: "grey"; gradations: number }
+	| { type: "brightness"; value: number }
+	| { type: "nightVision" }
+	| { type: "glsl"; src: string; uniforms: Record<string, number | number[] | boolean> };
 /** 正規化の戻り。fxaa/tonemap/lut の鍵は on の時だけ生える（従来の { bloom, vignette } の形を壊さない）。 */
 export interface PostProcessNormalized {
 	bloom: { threshold: number; strength: number; radius: number } | null;
@@ -28,6 +39,8 @@ export interface PostProcessNormalized {
 	fxaa?: true;
 	tonemap?: { mode: TonemapMode; exposure: number };
 	lut?: { url: string; size: number; intensity: number };
+	/** 画面の段（並び順・正規化済み）＝有る時だけ生える */
+	stages?: PostStage[];
 }
 const num = (v: unknown, d: number, lo: number, hi: number): number => { const x = typeof v === "number" && Number.isFinite(v) ? v : d; return Math.min(hi, Math.max(lo, x)); };
 /** tonemap.mode の語彙（既定 "aces"）。 */
@@ -43,11 +56,41 @@ export function normPost(p: PostProcessOptions | null | undefined): PostProcessN
 	const fxaa = f === true || (f && typeof f === "object" && f.enabled !== false);
 	const tonemap = t && (t === true || typeof t === "object") ? { mode: TONEMAP_MODES.includes((t as TonemapOptions).mode!) ? (t as TonemapOptions).mode! : "aces", exposure: num((t as TonemapOptions).exposure, 1, 0, 16) } : null;
 	const lut = l && typeof l === "object" && typeof l.url === "string" && l.url ? { url: l.url, size: LUT_SIZES.includes(+l.size!) ? +l.size! : 32, intensity: num(l.intensity, 1, 0, 1) } : null;
+	const stages = normStages(p.stages);
 	const bOn = bloom && bloom.strength > 0, vOn = vignette && vignette.strength > 0, lOn = lut && lut.intensity > 0;
-	if (!bOn && !vOn && !fxaa && !tonemap && !lOn) return null;
+	if (!bOn && !vOn && !fxaa && !tonemap && !lOn && !stages.length) return null;
 	const out: PostProcessNormalized = { bloom: bOn ? bloom : null, vignette: vOn ? vignette : null };
 	if (fxaa) out.fxaa = true;
 	if (tonemap) out.tonemap = tonemap;
 	if (lOn) out.lut = lut!;
+	if (stages.length) out.stages = stages;
+	return out;
+}
+/** 画面の段を正規化する（知らない type・壊れた物は落とす）。1 段ずつ新しい object（uniforms の数は有限に・並びは 1〜4 の数）。 */
+export function normStages(list: unknown): PostStage[] {
+	if (!Array.isArray(list)) return [];
+	const out: PostStage[] = [];
+	for (const s of list) {
+		const o = s && typeof s === "object" ? s as Record<string, unknown> : null; if (!o) continue;
+		switch (o.type) {
+			case "silhouette": { const c = Array.isArray(o.color) ? o.color.map(v => num(v, 1, 0, 1)) : [1, 1, 0, 1]; while (c.length < 4) c.push(c.length === 3 ? 1 : 0); out.push({ type: "silhouette", color: c.slice(0, 4), length: num(o.length, 0.25, 0, 10) }); break; }
+			case "grey": out.push({ type: "grey", gradations: num(o.gradations, 5, 1, 256) }); break;
+			case "brightness": out.push({ type: "brightness", value: num(o.value, 0.5, 0, 4) }); break;
+			case "nightVision": out.push({ type: "nightVision" }); break;
+			case "glsl": {
+				if (typeof o.src !== "string" || !o.src) break;
+				const u: Record<string, number | number[] | boolean> = {};
+				const src = o.uniforms && typeof o.uniforms === "object" ? o.uniforms as Record<string, unknown> : {};
+				for (const k of Object.keys(src)) {
+					if (!/^[A-Za-z_]\w*$/.test(k)) continue;
+					const v = src[k];
+					if (typeof v === "boolean") u[k] = v;
+					else if (typeof v === "number") u[k] = Number.isFinite(v) ? v : 0;
+					else if (Array.isArray(v) && v.length >= 1 && v.length <= 4 && v.every(x => typeof x === "number")) u[k] = v.map(x => Number.isFinite(x) ? x : 0);
+				}
+				out.push({ type: "glsl", src: o.src, uniforms: u }); break;
+			}
+		}
+	}
 	return out;
 }

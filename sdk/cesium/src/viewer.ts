@@ -86,6 +86,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	this._trackedEntityChanged = new Event(); this._allowDataSourcesToSuspendAnimation = true;
 	this._clock = options.clock ?? new Clock();
 	if (options.shouldAnimate != null) this._clock.shouldAnimate = options.shouldAnimate;
+	host.clock = this._clock;
 
 	const scene = new OrthoScene(host, canvas, { scene3DOnly: options.scene3DOnly, globe: options.globe });
 	this._scene = scene;
