@@ -1,0 +1,169 @@
+{
+ "at": "2026-10-28T23:28:39.876Z",
+ "cesium": "1.146.0",
+ "n": 5,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 3,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 3,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 2,
+   "examples": [
+    "elevation-band-material",
+    "terrain"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "bathymetry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2463,
+    "n": 3072,
+    "colour": 0.9840494791666666,
+    "edge": 0.8069661458333334,
+    "blob": 8
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "cesium-world-terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2940,
+    "n": 3072,
+    "colour": 0.9915364583333334,
+    "edge": 0.9651692708333334,
+    "blob": 4
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "elevation-band-material",
+   "level": 2,
+   "reasons": [
+    "picture: colour 45% · edges 58% of the cells match · a patch of 1259 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1148,
+    "n": 3072,
+    "colour": 0.4495442708333333,
+    "edge": 0.5774739583333334,
+    "blob": 1259
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-materials",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2971,
+    "n": 3072,
+    "colour": 0.9674479166666666,
+    "edge": 0.9996744791666666,
+    "blob": 12
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 30% · edges 71% of the cells match · a patch of 1384 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 923,
+    "n": 3072,
+    "colour": 0.30078125,
+    "edge": 0.7073567708333334,
+    "blob": 1384
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
