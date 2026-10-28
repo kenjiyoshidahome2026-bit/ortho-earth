@@ -1,0 +1,216 @@
+{
+ "at": "2026-10-28T04:17:05.830Z",
+ "cesium": "1.146.0",
+ "n": 6,
+ "levels": {
+  "0": 0,
+  "1": 2,
+  "2": 3,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 2,
+  "2": 3,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 3,
+   "examples": [
+    "bathymetry",
+    "elevation-band-material",
+    "globe-materials"
+   ]
+  },
+  {
+   "blocker": "drawn camera differs",
+   "n": 2,
+   "examples": [
+    "globe-materials-3d-tiles-terrain",
+    "globe-materials-water-mask-elevation-map"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-1.1-cdb-yemen",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2598,
+    "n": 3072,
+    "colour": 0.9895833333333334,
+    "edge": 0.8531901041666666,
+    "blob": 2
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "bathymetry",
+   "level": 2,
+   "reasons": [
+    "picture: colour 40% · edges 65% of the cells match · a patch of 1575 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1048,
+    "n": 3072,
+    "colour": 0.3971354166666667,
+    "edge": 0.6468098958333334,
+    "blob": 1575
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "elevation-band-material",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 91% of the cells match · a patch of 55 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2601,
+    "n": 3072,
+    "colour": 0.8994140625,
+    "edge": 0.9111328125,
+    "blob": 55
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-materials",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 100% of the cells match · a patch of 95 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2645,
+    "n": 3072,
+    "colour": 0.8636067708333334,
+    "edge": 0.9967447916666666,
+    "blob": 95
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-materials-3d-tiles-terrain",
+   "level": 1,
+   "reasons": [
+    "drawn camera (Δangle 180.0° from the Cesium pose)"
+   ],
+   "blockers": [
+    "drawn camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": false
+   },
+   "picture": {
+    "ok": 2995,
+    "n": 3072,
+    "colour": 0.9869791666666666,
+    "edge": 0.9879557291666666,
+    "blob": 1
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-materials-water-mask-elevation-map",
+   "level": 1,
+   "reasons": [
+    "drawn camera (Δangle 180.0° from the Cesium pose)"
+   ],
+   "blockers": [
+    "drawn camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": false
+   },
+   "picture": {
+    "ok": 2993,
+    "n": 3072,
+    "colour": 0.9856770833333334,
+    "edge": 0.9820963541666666,
+    "blob": 15
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
