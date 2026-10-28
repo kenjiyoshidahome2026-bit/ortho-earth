@@ -14,6 +14,8 @@ import { gridOf, placementOf } from "../src/voxels.ts";
 import { cesiumSphereOf } from "../src/spheres.ts";
 import { cesiumEnvSH, cesiumEvalSH, cesiumEnvRadiance, CESIUM_SH_UNIFORM_L00 } from "../src/envmap.ts";
 import { Entity, JulianDate as EJulianDate } from "@cesium/engine";
+import { bandRamp, groundMaterialOf, materialKey, createElevationBandMaterial } from "../src/globe-material.ts";
+import { Color, Material } from "@cesium/engine";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -198,6 +200,47 @@ for (const g of [
 	ok("envmap on the surface has no NaN", Array.from(ground).every(Number.isFinite) && ground[0] > 0.01, Array.from(ground.subarray(0, 3), v => v.toFixed(4)).join(","));
 	const night = cesiumEnvSH(pos, { radius, dynamicLighting: 2, sunDirWC: [0.3, 0.3, -0.9] });   // SUNLIGHT with the sun below: darker
 	ok("envmap SUNLIGHT mode follows the sun", night[0] < sh[0] * 0.8, `${night[0].toFixed(4)} vs ${sh[0].toFixed(4)}`);
+}
+
+// ── globe.material → the globe's ground material (globe-material.ts): ramps, contour, bands, land only ──
+{
+	const img = { width: 4, height: 1 }, pix = Uint8Array.from([0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255, 255, 255, 255, 255]);
+	const read = im => (im === img ? pix : null);
+	const ramp = { type: "ElevationRamp", uniforms: { image: img, minimumHeight: -414, maximumHeight: 8777 } };
+	const spec = groundMaterialOf(ramp, read);
+	ok("ElevationRamp → elevation ramp with min/max", spec?.ramp?.kind === "elevation" && spec.ramp.min === -414 && spec.ramp.max === 8777 && spec.ramp.colors.length === 16 && spec.ramp.colors[4] === 255 && !spec.contour && !spec.landOnly);
+	ok("SlopeRamp / AspectRamp → their kinds", groundMaterialOf({ type: "SlopeRamp", uniforms: { image: img } }, read)?.ramp?.kind === "slope" && groundMaterialOf({ type: "AspectRamp", uniforms: { image: img } }, read)?.ramp?.kind === "aspect");
+	const contour = { type: "ElevationContour", uniforms: { color: new Color(1, 0, 0, 1), spacing: 150, width: 2 } };
+	const c = groundMaterialOf(contour, read);
+	ok("ElevationContour alone → contour, no ramp", !c?.ramp && c?.contour?.spacing === 150 && c.contour.width === 2 && c.contour.color.join() === "1,0,0,1");
+	const comp = { type: "ElevationColorContour", materials: { contourMaterial: contour, elevationRampMaterial: ramp } };
+	const cs = groundMaterialOf(comp, read);
+	ok("composite contour + ramp → both", cs?.ramp?.kind === "elevation" && cs.contour?.spacing === 150);
+	const land = { type: "ElevationLand", materials: { waterMaskMaterial: { type: "WaterMask", uniforms: {} }, elevationRampMaterial: ramp } };
+	const ls = groundMaterialOf(land, read);
+	ok("composite water mask + ramp → land only", ls?.ramp?.kind === "elevation" && ls.landOnly === true);
+	const before = warns.length;
+	ok("an unknown material is null and reported", groundMaterialOf({ type: "Stripe", uniforms: {} }, read) === null && warns.length === before + 1);
+	ok("an unreadable ramp image is null", groundMaterialOf({ type: "ElevationRamp", uniforms: { image: {} } }, read) === null);
+	const k1 = materialKey(ramp); ramp.uniforms.minimumHeight = -10000; const k2 = materialKey(ramp); ramp.uniforms.image = { width: 4, height: 1 }; const k3 = materialKey(ramp);
+	ok("materialKey follows the uniforms and the image", k1 !== k2 && k2 !== k3 && materialKey(ramp) === k3);
+}
+{   // elevation bands: the layers baked into one ramp, later layers over earlier ones, ends transparent unless extended
+	const bg = { entries: [{ height: 4200, color: new Color(0, 0, 0.2, 0.75) }, { height: 8000, color: new Color(1, 1, 1, 0.75) }], extendDownwards: true, extendUpwards: true };
+	const band = { entries: [{ height: 6900, color: new Color(0, 0, 1, 0) }, { height: 6950, color: new Color(0, 0, 1, 1) }, { height: 7050, color: new Color(0, 0, 1, 1) }, { height: 7100, color: new Color(0, 0, 1, 0) }] };
+	const r = bandRamp([bg, band], 1000);
+	const at = h => { const i = Math.round((h - r.min) / (r.max - r.min) * 999) * 4; return Array.from(r.colors.subarray(i, i + 4)); };
+	ok("bandRamp spans the layers' heights", r.min === 4200 && r.max === 8000, `${r.min}..${r.max}`);
+	ok("bandRamp: the background at its low end", at(4200)[2] === 51 && at(4200)[3] === 191, at(4200).join());
+	ok("bandRamp: the band is opaque blue in its middle", at(7000)[2] === 255 && at(7000)[0] === 0 && at(7000)[3] === 255, at(7000).join());
+	ok("bandRamp: outside the band the background shows (grey, 0.75)", at(6000)[3] === 191 && Math.abs(at(6000)[0] - at(6000)[1]) < 2, at(6000).join());
+	const r2 = bandRamp([band], 100);
+	ok("bandRamp: a band that does not extend is transparent at the ramp's ends", r2.colors[3] === 0 && r2.colors[99 * 4 + 3] === 0 && r2.min < 6900 && r2.max > 7100);
+	ok("bandRamp: a single entry extends both ways", bandRamp([{ entries: [{ height: 100, color: new Color(1, 0, 0, 1) }] }], 8).colors[3] === 255);
+	const m = createElevationBandMaterial({ layers: [bg, band] });
+	ok("createElevationBandMaterial makes an ElevationBand material that the globe can paint", m instanceof Material && m.type === "ElevationBand" && groundMaterialOf(m, () => null)?.ramp?.kind === "elevation");
+	let threw = false; try { createElevationBandMaterial({ layers: [] }); } catch { threw = true; }
+	ok("createElevationBandMaterial needs layers", threw);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");

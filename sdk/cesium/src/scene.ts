@@ -7,6 +7,7 @@ import * as engine from "@cesium/engine";
 const { TweenCollection } = engine as any;   // a runtime export the d.ts leaves out
 import { globeCamOf, poseOfGlobeCam, poseKey, sameKey, sameGlobeCam, setCameraWorldPose, type GlobeCam } from "./camera.ts";
 import { unsupported } from "./report.ts";
+import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
 
 /** the globe and what the facade hangs on it (filled when createGlobe resolves) */
 export interface Host {
@@ -150,6 +151,7 @@ export class OrthoScene {
 			}
 			this.controllerHost.update(this, time);   // as Scene.render: the registered controllers move the camera before it is pushed to the globe
 			this.#pushCamera();
+			this.globe?.__orthoSyncMaterial?.();   // globe.material → the globe's ground material (after preRender: the examples set its uniforms there)
 			this.camera._updateCameraChanged?.();
 			this.postRender.raiseEvent(this, time);
 			credits?.endFrame?.();
@@ -272,6 +274,16 @@ function makeGlobe(scene: OrthoScene): any {
 	};
 	// tilesLoaded: everything in view has loaded (the globe's areTilesLoaded: a running clock does not matter, as in Cesium)
 	Object.defineProperty(g, "tilesLoaded", { get: () => !!scene.host.map?.areTilesLoaded?.(), configurable: true });
+	// globe.material: painted by the globe (globe-material.ts) and re-read each frame while its uniforms change (bathymetry sets them in preRender)
+	let material: any; let sent = "";
+	Object.defineProperty(g, "material", { get: () => material, set: (m: any) => { material = m; sent = ""; }, configurable: true });
+	g.__orthoSyncMaterial = () => {
+		const map = scene.host.map; if (!map || typeof map.setGroundMaterial !== "function") return;
+		const key = material ? materialKey(material) : "";
+		if (key === sent) return;
+		sent = key;
+		map.setGroundMaterial(material ? groundMaterialOf(material, readRampImage) : null);
+	};
 	return g;
 }
 

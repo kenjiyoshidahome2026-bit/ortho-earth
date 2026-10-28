@@ -71,6 +71,8 @@ interface GLLight { dir: number[]; color?: number[] | null; intensity?: number }
 interface GLMeshLight { dir: number[]; color: number[]; sh: Float32Array; ibl: number[]; invL00: number }
 /** 地面の照明（setGroundLighting・Cesium の globe.enableLighting）：dir＝光へ向く単位ベクトル（世界）・lambert＝[倍率, 足す値]・fade/night＝[消える距離, 全開の距離]（m・中心から・null＝常に全開/暗くしない） */
 interface GLGroundLight { dir: number[]; color: number[]; lambert: number[]; normal: string; fade: number[] | null; night: number[] | null }
+/** 地面の材質（setGroundMaterial・Cesium の globe.material・2026-10-28）＝globe の api/camera.ts packGroundMaterial の形：kind 0 なし／1 標高／2 傾斜／3 方位／4 等高線だけ・ramp＝n×RGBA（1 列の色の表） */
+interface GLGroundMat { kind: number; min: number; max: number; landOnly: number; contour: number[] | null; spacing: number; width: number; opacity: number; ramp: Uint8Array | null; rampN: number }
 /** 局所の光源（W2・light.js localLightsPayload） */
 interface GLLocalLights { n: number; data: Float32Array }
 interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null }
@@ -915,6 +917,28 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const fogColorOf = (c: ArrayLike<number>): ArrayLike<number> => (sky ? sky.fog : c);
 	function setView(v: Partial<GLView>): void { view = { ...view, ...v }; }
 	let lights: GLLocalLights | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }（light.js localLightsPayload）｜null＝無し。メッシュ（模型・LOD2）の陰影に足す
+	let groundMat: GLGroundMat | null = null, gmTex: WebGLTexture | null = null;   // 地面の材質（setGroundMaterial・Cesium の globe.material）＝ランプは unit17 の n×1 テクスチャ
+	const GM_UNIT = 17;
+	function setGroundMat(m: GLGroundMat | null): void {
+		groundMat = m && typeof m.kind === "number" ? m : null;
+		if (groundMat?.ramp && groundMat.rampN > 0) {
+			if (!gmTex) gmTex = gl.createTexture();
+			gl.activeTexture(gl.TEXTURE0 + GM_UNIT); gl.bindTexture(gl.TEXTURE_2D, gmTex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, groundMat.rampN, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, groundMat.ramp);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			gl.activeTexture(gl.TEXTURE0);
+		}
+	}
+	// ⚠サンプラは材質が無くても毎フレーム unit17 へ向ける（未設定＝unit0 整数テクスチャの轍＝elev/clim と同族）
+	function bindGm(prog: WebGLProgram, dpr: number): void {
+		const m = groundMat;
+		gl.uniform4f(loc(gl, prog, "u_gm"), m ? m.kind : 0, m ? m.min : 0, m ? 1 / Math.max(1e-6, m.max - m.min) : 0, m && m.landOnly ? 1 : 0);
+		const c = m?.contour; gl.uniform4f(loc(gl, prog, "u_gmC"), c ? c[0] : 0, c ? c[1] : 0, c ? c[2] : 0, c ? c[3] : 0);
+		gl.uniform4f(loc(gl, prog, "u_gmP"), m ? Math.max(1e-3, m.spacing) : 1, m ? m.width * dpr : 0, m ? m.opacity : 0, 0);
+		gl.uniform1i(loc(gl, prog, "u_gmRamp"), GM_UNIT);
+		gl.activeTexture(gl.TEXTURE0 + GM_UNIT); gl.bindTexture(gl.TEXTURE_2D, m?.ramp ? gmTex : null); gl.activeTexture(gl.TEXTURE0);
+	}
 	let groundLight: GLGroundLight | null = null;   // 地面の照明（setGroundLighting）＝地形・遠景球の画像に太陽の lambert を掛ける（Cesium の globe.enableLighting）
 	let meshLight: GLMeshLight | null = null;   // Cesium の模型の照明（setMeshLighting）＝有れば固定光・style の light の代わりに Cesium の式（csLit）で描く
 	let light: GLLight | null = null;   // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）。メッシュ（押し出し・glTF・LOD2）の陰影に効く
@@ -1923,6 +1947,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				gl.uniform4f(loc(gl, globeProg, "u_cgP"), gl_ ? gl_.lambert[0] : 1, gl_ ? gl_.lambert[1] : 0, gl_ ? fk(gl_.fade, 0) : 0, gl_ && gl_.night ? fk(gl_.night, 0.05) : -1);
 				gl.uniform3f(loc(gl, globeProg, "u_cgC"), gl_ ? gl_.color[0] : 1, gl_ ? gl_.color[1] : 1, gl_ ? gl_.color[2] : 1);
 			}
+			bindGm(globeProg, cam.dpr || 1);   // 地面の材質（Cesium の globe.material）＝球の床にも
 			const csA = view.csAtmo;   // Cesium の大気：地面は遠くからだけ（中心から π/2·R → π·R で効く）
 			gl.uniform4f(loc(gl, globeProg, "u_csAtm"), csA ? 1 : 0, csA && csA.ground !== false ? csGroundFade((1 + st.camDist) * 6378137) : 0, csA && csA.sky !== false ? 1 : 0, csFogD);
 			// 全球ハイプソ（view.worldHypso＝テーマ/アプリのknob）：z5.5 まで全開→z6.3 で消灯。
@@ -1940,12 +1965,14 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			gl.uniform1i(loc(gl, globeProg, "u_farElevTex"), 8);   // far床サンプラも常時 unit8（K=0でも）。従来は flat2d(z≥9真俯瞰)で globe 自体が
 			// 走らず潜伏していたが、COG 搭載で flat2d を解除すると未設定＝unit0（gint整数）を掴み Metal で draw 全滅（2026-09-06 実測）
 			gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null); gl.activeTexture(gl.TEXTURE0);
-			if (worldHypsoK > 0) {
+			if (worldHypsoK > 0 || groundMat) {   // 標高の窓＝全球ハイプソと地面の材質（Cesium の globe.material＝球の床にも標高・勾配で塗る）が読む
 				gl.uniform4f(loc(gl, globeProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 				gl.uniform1f(loc(gl, globeProg, "u_elevEdgeFade"), elev.edgeFade || 0);
 				gl.uniform4f(loc(gl, globeProg, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
 				gl.uniform1f(loc(gl, globeProg, "u_hasFar"), far.has);
-				gl.uniform1f(loc(gl, globeProg, "u_hasElev"), 1);
+				gl.uniform1f(loc(gl, globeProg, "u_hasElev"), elev.has && elevTex ? 1 : 0);
+			}
+			if (worldHypsoK > 0) {
 				const sc = worldPal().sea;   // 正準パレット（worldpal.js 既定＝NE流の淡青・knobで差し替え可）
 				gl.uniform3f(loc(gl, globeProg, "u_seaC"), sc[0], sc[1], sc[2]);
 				bindWorldPal(globeProg);
@@ -2034,6 +2061,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				gl.uniform4f(loc(gl, terrainProg, "u_cgP"), gl_ ? gl_.lambert[0] : 1, gl_ ? gl_.lambert[1] : 0, gl_ ? fk(gl_.fade, 0) : 0, gl_ && gl_.night ? fk(gl_.night, 0.05) : -1);
 				gl.uniform3f(loc(gl, terrainProg, "u_cgC"), gl_ ? gl_.color[0] : 1, gl_ ? gl_.color[1] : 1, gl_ ? gl_.color[2] : 1);
 			}
+			bindGm(terrainProg, cam.dpr || 1);   // 地面の材質（Cesium の globe.material）
 			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso!.clim); bindClim(terrainProg); bindWorldPal(terrainProg); }
 			else { gl.uniform1i(loc(gl, terrainProg, "u_climTex"), 12); gl.uniform1f(loc(gl, terrainProg, "u_hasClim"), 0); }   // サンプラは常時unit12へ（未設定=unit0整数テクスチャの轍）
 			bindCog(terrainProg);   // ユーザ COG（陰影の上・フォグの下＝TERRAIN_FS 側で合成）
@@ -2468,6 +2496,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "view":      setView(data as Partial<GLView>); break;
 			case "patImage":  setPatImage(data as Parameters<typeof setPatImage>[0]); break;                       // fill-pattern の画像（S-P1-4/5・render worker が記号帳の写しを回す）                                            // data={clear,land,atmo,bldColor}
 			case "groundLight": groundLight = data && Array.isArray((data as GLGroundLight).dir) ? data as GLGroundLight : null; break;   // 地面の照明（@ortho-earth/cesium の setGroundLighting）
+			case "groundMaterial": setGroundMat(data as GLGroundMat | null); break;   // 地面の材質（@ortho-earth/cesium の globe.material → setGroundMaterial）
 			case "meshLight": meshLight = data && Array.isArray((data as GLMeshLight).dir) && (data as GLMeshLight).sh ? data as GLMeshLight : null; break;   // Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting）
 			case "light":     light = data && Array.isArray((data as GLLight).dir) ? data as GLLight : null; break;      // style の light（B3・MapLibre の setLight）
 			case "lights":    lights = data && (data as GLLocalLights).n > 0 && (data as GLLocalLights).data ? data as GLLocalLights : null; break;      // 局所の光源（W2・light.js localLightsPayload）
