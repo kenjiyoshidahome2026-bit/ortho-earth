@@ -21,6 +21,7 @@ import { skyBoxLayer } from "./skybox.ts";
 import { syncLighting } from "./lighting.ts";
 import { PrimitiveDrawer, isGeometryPrimitive } from "./primitives.ts";
 import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
+import { ParticleDrawer, isParticleSystem } from "./particles.ts";
 import { CollectionDrawer, isCollection } from "./collections.ts";
 import { unsupported } from "./report.ts";
 
@@ -41,7 +42,7 @@ function globeOptions(o: Any, target: HTMLElement): Any {
 	const terrain = o.terrain != null || (o.terrainProvider != null && o.terrainProvider.constructor?.name !== "EllipsoidTerrainProvider");
 	return {
 		target, terrain: terrain ? undefined : false, chips: false, countryTip: false, persistView: false, urlHash: false, instruments: ["attr"], ellipsoid: true,
-		night: false, coastline: false, worldLines: false, maxPitch: 89, zoomMax: 27,   // Cesium lets the camera come within metres of a model (trackedEntity); the globe default stops at z20 (≈100 m)
+		night: false, coastline: false, worldLines: false, maxPitch: 179, zoomMax: 27,   // Cesium lets the camera come within metres of a model (trackedEntity); the globe default stops at z20 (≈100 m)
 		// the globe's own basemap is off: Cesium's imagery layers draw the ground, over the globe's base colour (Cesium's default is blue)
 		style: { version: 8, sources: {}, layers: [{ id: "__cs-base", type: "background", paint: { "background-color": "#0000ff" } }] },
 		stars: false, clearColor: "transparent",   // space is Cesium's: scene.backgroundColor and the sky box, drawn under the globe (skybox.ts)
@@ -136,7 +137,9 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	display.extra.sources.push(colls.source);
 	display.extra.lines = () => prims.lines.length && colls.lines.length ? [...prims.lines, ...colls.lines] : prims.lines.length ? prims.lines : colls.lines;
 	display.extra.pickers.push((x, y) => prims.pick(x, y));
-	scene.preRender.addEventListener(() => { prims.update(); colls.update(); voxels.update(); });
+	const particles = new ParticleDrawer(host);
+	this._orthoParticles = particles;
+	scene.preRender.addEventListener((_s: Any, time: Any) => { prims.update(); colls.update(); voxels.update(); particles.update(time ?? this._clock.currentTime); });
 	(scene as Any).__tilesets = tilesets;
 	const onAdd = (p: Any) => {
 		if (p instanceof Cesium3DTileset) { tilesets.push(p); p.__attach(host); }
@@ -144,10 +147,11 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		else if (isGeometryPrimitive(p)) prims.add(p);
 		else if (isCollection(p)) colls.add(p);
 		else if (isVoxelPrimitive(p)) voxels.add(p);
+		else if (isParticleSystem(p)) particles.add(p);   // ParticleSystem (particles.ts): Cesium steps it, the globe's sprites overlay draws it
 		else if (p && typeof p.add === "function" && typeof p.get === "function" && p.primitiveAdded) { for (let i = 0; i < p.length; i++) onAdd(p.get(i)); p.primitiveAdded.addEventListener(onAdd); p.primitiveRemoved.addEventListener(onRemove); }
 		else unsupported(`scene.primitives.add(${p?.constructor?.name ?? typeof p})`);
 	};
-	const onRemove = (p: Any) => { prims.remove(p); colls.remove(p); voxels.remove(p); if (p instanceof I3SDataProvider) p.__detach(); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
+	const onRemove = (p: Any) => { prims.remove(p); colls.remove(p); voxels.remove(p); particles.remove(p); if (p instanceof I3SDataProvider) p.__detach(); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
 	scene.primitives.primitiveAdded.addEventListener(onAdd); scene.primitives.primitiveRemoved.addEventListener(onRemove);
 	scene.groundPrimitives.primitiveAdded.addEventListener(onAdd);
 
@@ -226,7 +230,7 @@ Object.assign(CesiumWidget.prototype, {
 		const ds = this.dataSources;
 		for (let i = 0; i < ds.length; i++) this._dataSourceRemoved(ds, ds.get(i));
 		this._dataSourceRemoved(undefined, this._dataSourceDisplay.defaultDataSource);
-		this._orthoSkyBox?.(); this._orthoPrimitives?.destroy(); this._orthoCollections?.destroy(); this._orthoVoxels?.destroy();
+		this._orthoSkyBox?.(); this._orthoPrimitives?.destroy(); this._orthoCollections?.destroy(); this._orthoVoxels?.destroy(); this._orthoParticles?.destroy();
 		this._dataSourceDisplay.destroy();
 		this._scene.destroy();
 		this._host.map?.destroy?.();
