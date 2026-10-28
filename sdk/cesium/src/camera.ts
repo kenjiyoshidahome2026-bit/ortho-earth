@@ -9,7 +9,7 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const enu = new Matrix4(), rot = new Matrix3(), inv = new Matrix3(), ray = new Ray(), carto = new Cartographic();
 const v1 = new Cartesian3(), v2 = new Cartesian3(), v3 = new Cartesian3(), E = new Cartesian3(), N = new Cartesian3(), U = new Cartesian3();
 
-export interface GlobeCam { lng: number; lat: number; height: number; distance: number; heading: number; pitch: number; roll: number }
+export interface GlobeCam { lng: number; lat: number; height: number; distance: number; heading: number; pitch: number; roll: number; pending?: boolean }
 
 /** the east, north and up axes at a point (ECEF) */
 function axesAt(p: Cartesian3): void {
@@ -21,18 +21,27 @@ function axesAt(p: Cartesian3): void {
 /** the globe camera that shows what a Cesium camera at (pos, dir, up) shows (all ECEF, world frame) */
 //   focus: the point the camera looks at (camera.lookAt / trackedEntity): when it is on the view ray and nearer than the ground, it is the target,
 //   so the globe's near plane follows the distance to it (a model seen from a few metres at 100 km up is not cut away)
-export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, focus?: Cartesian3 | null): GlobeCam | null {
+//   terrainAt: the drawn terrain's height (m, Cesium's heights) at a lng/lat, null while unknown. With it the target is where the view ray meets the
+//   terrain, not the ellipsoid (a camera looking at a mountain 2 km away had its target 7 km away on the ellipsoid behind it: the globe took a low
+//   zoom and coarse windows, 2026-10-28). The ray is sampled from the eye outwards and the first crossing refined; a sample without an answer
+//   yet marks the result `pending` (the caller asks again on a later frame) and the march goes on with the ellipsoid
+export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, focus?: Cartesian3 | null, terrainAt?: ((lng: number, lat: number) => number | null | undefined) | null): GlobeCam | null {
 	Cartesian3.clone(pos, ray.origin); Cartesian3.normalize(dir, ray.direction);
 	const hit = IntersectionTests.rayEllipsoid(ray, Ellipsoid.WGS84);
 	const c = Ellipsoid.WGS84.cartesianToCartographic(pos, carto);
 	if (!c) return null;
-	let t: number;
+	let t: number, pending = false;
 	const ground = hit && hit.start > 0 ? hit.start : Infinity;
 	const ft = focus ? Cartesian3.dot(Cartesian3.subtract(focus, pos, v2), ray.direction) : 0;
 	if (focus && ft > 0 && ft < ground && Cartesian3.distance(Ray.getPoint(ray, ft, v3), focus) < ft * 1e-3 && (Ellipsoid.WGS84.cartesianToCartographic(focus, new Cartographic())?.height ?? 0) > 0) t = ft;
 	else if (hit && hit.start > 0) t = hit.start;
 	else if (hit && hit.stop > 0) t = hit.stop;   // inside the ellipsoid (below sea level)
 	else t = Math.max(1000, c.height);   // sky: a target along the ray as far as the camera is high
+	if (terrainAt && !(focus && t === ft)) {
+		const m = terrainHit(terrainAt, hit && hit.start > 0 ? hit.start : horizonDistance(c.height));
+		if (m.t != null) t = m.t;
+		pending = m.pending;
+	}
 	const target = Ray.getPoint(ray, t, v1);
 	const tc = Ellipsoid.WGS84.cartesianToCartographic(target, new Cartographic());
 	if (!tc) return null;
@@ -49,8 +58,46 @@ export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, foc
 		const cr = Cartesian3.cross(level, Cartesian3.normalize(up, v3), new Cartesian3());
 		roll = Math.atan2(Cartesian3.dot(cr, d), Cartesian3.dot(level, v3)) * R2D;
 	}
-	return { lng: tc.longitude * R2D, lat: tc.latitude * R2D, height: tc.height, distance: t, heading: ((heading % 360) + 360) % 360, pitch, roll: Math.abs(roll) < 1e-3 ? 0 : roll };
+	const out: GlobeCam = { lng: tc.longitude * R2D, lat: tc.latitude * R2D, height: tc.height, distance: t, heading: ((heading % 360) + 360) % 360, pitch, roll: Math.abs(roll) < 1e-3 ? 0 : roll };
+	if (pending) out.pending = true;
+	return out;
 }
+/** how far the view ray (ray.origin / ray.direction) goes before it meets the terrain: null = no crossing before tMax. pending = a sample had no height yet */
+const TERRAIN_SAMPLES = 48;
+function terrainHit(terrainAt: (lng: number, lat: number) => number | null | undefined, tMax: number): { t: number | null; pending: boolean } {
+	let pending = false;
+	const above = (t: number): boolean | null => {   // is the ray point above the terrain at t? null = unknown
+		const p = Ray.getPoint(ray, t, v3), pc = Ellipsoid.WGS84.cartesianToCartographic(p, scratchCarto);
+		if (!pc) return true;
+		const h = terrainAt(pc.longitude * R2D, pc.latitude * R2D);
+		if (h == null || !Number.isFinite(h)) { pending = true; return null; }
+		return pc.height > h;
+	};
+	if (!(tMax > 0) || !Number.isFinite(tMax)) return { t: null, pending };
+	const t0 = Math.max(0.5, tMax * 1e-4);
+	let prev = -1;   // the last sample known to be above the terrain (−1 = none yet)
+	for (let i = 0; i <= TERRAIN_SAMPLES; i++) {
+		const ti = i === TERRAIN_SAMPLES ? tMax : t0 * Math.pow(tMax / t0, i / TERRAIN_SAMPLES);
+		const a = above(ti);
+		if (a === false) {
+			if (prev < 0) return { t: ti, pending };   // no sample above before this one: the eye is in the ground (or the heights before are unknown yet)
+			let lo = prev, hi = ti;   // refine the crossing between the last point above and this one below
+			for (let k = 0; k < 12; k++) {
+				let mid = (lo + hi) / 2, am = above(mid);
+				if (am === null) { mid = lo + (hi - lo) * 0.37; am = above(mid); }   // no height at that point yet: a nearby one may be known
+				if (am === null) { mid = lo + (hi - lo) * 0.63; am = above(mid); }
+				if (am === null) break;   // stop refining: the next frame (pending) tries again
+				if (am === false) hi = mid; else lo = mid;
+			}
+			return { t: hi, pending };
+		}
+		if (a === true) prev = ti;
+	}
+	return { t: null, pending };
+}
+const scratchCarto = new Cartographic();
+/** distance (m) from a camera h m up to the sea horizon, and a little beyond for the terrain above it */
+const horizonDistance = (h: number): number => Math.sqrt(Math.max(0, h) * (2 * 6378137 + Math.max(0, h))) * 1.2 + 10000;
 // the up vector without roll for view direction d at the current axes (E, N, U): perpendicular to d, in the plane of d and U
 function levelUp(d: Cartesian3, out: Cartesian3): Cartesian3 | null {
 	const du = Cartesian3.dot(d, U);

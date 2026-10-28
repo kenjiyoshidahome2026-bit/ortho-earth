@@ -167,13 +167,20 @@ export class OrthoScene {
 		const map = this.host.map;
 		if (!map) return;
 		const pose = poseKey(this.camera);
-		if (sameKey(this.#lastPose, pose)) return;
+		const same = sameKey(this.#lastPose, pose);
+		if (same && !this.#terrainPending) return;
 		const tf = this.camera.transform, focus = tf && !Matrix4.equals(tf, Matrix4.IDENTITY) ? Matrix4.getTranslation(tf, new Cartesian3()) : null;   // camera.lookAt / trackedEntity
-		const g = globeCamOf(this.camera.positionWC, this.camera.directionWC, this.camera.upWC, focus);
+		// the target is on the drawn terrain (map.queryTerrainElevation: null until the height is known, so the push is repeated while `pending`)
+		const terrainAt = typeof map.queryTerrainElevation === "function" ? (lng: number, lat: number) => map.queryTerrainElevation(lng, lat) : null;
+		const g = globeCamOf(this.camera.positionWC, this.camera.directionWC, this.camera.upWC, focus, terrainAt);
 		if (!g) return;
+		this.#terrainPending = !!g.pending && ++this.#terrainTries < 120;   // give up after ~2 s of frames: a height that never comes (no terrain there) keeps the ellipsoid target
+		if (same && this.#lastGlobe && Math.abs(this.#lastGlobe.distance - g.distance) <= 1e-3 * g.distance) return;   // the same pose, and the terrain did not move the target
+		if (!same) this.#terrainTries = 0;
 		map.setCamera(g);
 		this.#lastPose = pose; this.#lastGlobe = map.getCamera();
 	}
+	#terrainPending = false; #terrainTries = 0;
 
 	// ── picking ──
 	pick(windowPosition: Cartesian2, _w?: number, _h?: number) { return this.host.display?.pick(windowPosition.x, windowPosition.y); }

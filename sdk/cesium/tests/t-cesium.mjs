@@ -41,6 +41,24 @@ for (const g of [
 	ok("camera at the sky has a target", !!sky && sky.distance >= 1000 && sky.pitch <= 90, JSON.stringify(sky));
 }
 
+{   // the target is on the terrain, not the ellipsoid: a camera 2 km up looking down at 30° over a 1500 m plateau (2026-10-28)
+	const pose = poseOfGlobeCam({ lng: 138.7, lat: 35.3, height: 0, distance: 4000, heading: 0, pitch: 60, roll: 0 });   // eye 2000 m up, target on the ellipsoid 3464 m north
+	const flat = globeCamOf(pose.position, pose.direction, pose.up, null, () => 0);
+	ok("terrain at 0 m = the ellipsoid target", !!flat && near(flat.distance, 4000, 1) && near(flat.height, 0, 0.5) && !flat.pending, JSON.stringify(flat));
+	const hill = globeCamOf(pose.position, pose.direction, pose.up, null, () => 1500);
+	// the ray meets the plateau where its height is 1500: 2000 − t·cos60° = 1500 → t = 1000 m
+	ok("target on a 1500 m plateau", !!hill && near(hill.distance, 1000, 2) && near(hill.height, 1500, 0.5) && !hill.pending, JSON.stringify(hill));
+	let asked = 0;
+	const late = globeCamOf(pose.position, pose.direction, pose.up, null, (lng, lat) => (++asked % 7 === 0 ? null : 1500));
+	ok("unknown heights mark the result pending, the known ones still place the target", !!late && late.pending === true && near(late.distance, 1000, 5), JSON.stringify(late));
+	// a 3000 m wall 1500 m north of the eye: the ray (2000 m up, 60° down) meets its face at t = 1500 / sin60° = 1732 m, 1134 m up
+	const wall = globeCamOf(pose.position, pose.direction, pose.up, null, (lng, lat) => (lat > 35.3 - 3464 / 111320 + 1500 / 111320 ? 3000 : 0));
+	ok("a mountain before the ellipsoid hit is the target", !!wall && near(wall.distance, 1732, 10) && near(wall.height, 1134, 6), JSON.stringify(wall));   // ± a few m: the wall's latitude is a flat-earth estimate
+	const focus = Cartesian3.fromDegrees(138.7, 35.3 + 500 / 111320, 1800);   // a tracked model on the ray before the plateau keeps the camera's distance to it
+	const f = globeCamOf(pose.position, pose.direction, pose.up, Cartesian3.add(pose.position, Cartesian3.multiplyByScalar(pose.direction, 400, new Cartesian3()), new Cartesian3()), () => 1500);
+	ok("a focus on the ray wins over the terrain", !!f && near(f.distance, 400, 1), JSON.stringify(f) + String(focus.x));
+}
+
 // ── glTF bounding sphere: node transforms, and glTF (y-up, z-forward) → Cesium's model frame (x-forward, z-up) ──
 {
 	const json = { scene: 0, scenes: [{ nodes: [0] }], nodes: [{ translation: [0, 0, 10], children: [1] }, { mesh: 0, scale: [2, 2, 2] }],
