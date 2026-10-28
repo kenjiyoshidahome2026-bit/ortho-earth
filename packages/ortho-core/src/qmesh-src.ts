@@ -12,7 +12,7 @@ import type { DemCell, DemSource } from "./dem-src.ts";
 /** 利用者が書く spec（quantized-mesh） */
 export interface QmeshSpecInput { type?: "quantized-mesh"; url?: string | null; ion?: { assetId: string | number; accessToken?: string } | null; heights?: "ellipsoidal" | "orthometric"; heightOffset?: number; cellZoom?: number | null; maxzoom?: number | null; bounds?: number[] | null; dtm?: boolean; headers?: Record<string, string> | null; credentials?: RequestCredentials; [k: string]: unknown }
 /** 整えた spec */
-export interface QmeshSpec { type: "quantized-mesh"; url: string | null; ion: { assetId: string | number; accessToken: string } | null; heights: "ellipsoidal" | "orthometric"; heightOffset: number; cellZoom: number | null; maxzoom: number | null; bounds: number[] | null; dtm: boolean; headers: Record<string, string> | null; credentials: RequestCredentials }
+export interface QmeshSpec { type: "quantized-mesh"; url: string | null; ion: { assetId: string | number; accessToken: string } | null; heights: "ellipsoidal" | "orthometric"; heightOffset: number; cellZoom: number | null; seafloor: boolean; maxzoom: number | null; bounds: number[] | null; dtm: boolean; headers: Record<string, string> | null; credentials: RequestCredentials }
 export interface QmeshSource extends DemSource { spec: QmeshSpec; ready: Promise<QMLayer | null>; tileSpan: (z: number) => number }
 interface IonEndpoint { url?: string; accessToken?: string; message?: string }
 
@@ -23,7 +23,7 @@ const CACHE_BYTES = 96 << 20;   // 解いたタイルの在庫（バイトで区
 function normalizeQmeshSpec(s: QmeshSpecInput | null | undefined): QmeshSpec {
 	if (!s?.url && !s?.ion?.assetId) throw new Error("quantized-mesh: spec needs url (layer.json) or ion { assetId, accessToken }");
 	return { type: "quantized-mesh", url: s.url || null, ion: s.ion ? { assetId: s.ion.assetId, accessToken: s.ion.accessToken || "" } : null,
-		heights: s.heights === "orthometric" ? "orthometric" : "ellipsoidal", heightOffset: +(s.heightOffset ?? 0) || 0, cellZoom: s.cellZoom ?? null, maxzoom: s.maxzoom ?? null,
+		heights: s.heights === "orthometric" ? "orthometric" : "ellipsoidal", heightOffset: +(s.heightOffset ?? 0) || 0, cellZoom: s.cellZoom ?? null, seafloor: !!s.seafloor, maxzoom: s.maxzoom ?? null,
 		bounds: Array.isArray(s.bounds) && s.bounds.length === 4 ? s.bounds.slice() : null, dtm: !!s.dtm, headers: s.headers || null, credentials: s.credentials || "omit" };
 }
 
@@ -72,29 +72,45 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 	return {
 		spec, ready: layerP,
 		covers: (lng0: number, lat0: number, range = 1): boolean => inB(spec.bounds, lng0, lat0, lng0 + range, lat0 + range),
-		// 1 点＝最大の段から（無ければ粗い段へ 6 段まで）
+		// 1 点＝最大の段から（無ければ粗い段へ 6 段まで・海底は z0 まで）
 		async height(lon: number, lat: number): Promise<number> {
 			const L = await layerP; if (!L || !inB(bnd(L), lon, lat, lon, lat)) return NaN;
 			const zMax = Math.min(L.maxzoom, spec.maxzoom ?? 16);
-			for (let z = zMax; z >= Math.max(L.minzoom, zMax - 6); z--) {
+			for (let z = zMax; z >= Math.max(L.minzoom, spec.seafloor ? 0 : zMax - 6); z--) {   // 海底＝深い段の無い所が広い（z16 の 404 から z0 まで下りる）
 				const [x, y] = qmTileAt(z, lon, lat), m = await tile(L, z, x, y);
 				if (m) { const h = qmSample(m, qmTileBounds(z, x, y), lon, lat); if (h === h) return fix(h, lon, lat); }
 			}
 			return NaN;
 		},
-		// セル（R01＝1°・R10＝10°）＝N×N の格子点（row0＝北）。段＝タイルの幅がセルの約 1/4（R01＝z10・R10＝z7）・cellZoom で固定可
+		// セル（R01＝1°・R10＝10°）＝N×N の格子点（row0＝北）。段＝タイルの幅がセルの約 1/4（R01＝z10・R10＝z6）・cellZoom で固定可。
+		//   海底（seafloor）の R10＝約 1/16（z8）：海の配信は浅い段で三角形がとても粗い（World Bathymetry の z6＝数百 km の面）＝Cesium が見せる段まで下りる
+		//   タイルの無い所（404・layer.json の在庫外）は親の段（4 段まで）で埋める＝在庫を metadata で配る配信（ion）は深い段の有無を先に知れない
 		async cell(lng0: number, lat0: number, range = 1, N = 1025): Promise<DemCell | null> {
 			const L = await layerP; if (!L) return null;
 			const b = bnd(L); if (!inB(b, lng0, lat0, lng0 + range, lat0 + range)) return null;
-			const z = Math.max(L.minzoom, Math.min(L.maxzoom, range === 1 && spec.cellZoom != null ? spec.cellZoom : Math.round(Math.log2(180 / (range / 4)))));
+			const div = spec.seafloor && range !== 1 ? 16 : 4;
+			const z = Math.max(L.minzoom, Math.min(L.maxzoom, range === 1 && spec.cellZoom != null ? spec.cellZoom : Math.round(Math.log2(180 / (range / div)))));
 			const w = Math.max(lng0, b ? b[0] : -180), e = Math.min(lng0 + range, b ? b[2] : 180), s = Math.max(lat0, b ? b[1] : -90), n = Math.min(lat0 + range, b ? b[3] : 90);
 			const [x0, y0] = qmTileAt(z, w, s), [x1, y1] = qmTileAt(z, e - 1e-9, n - 1e-9);
 			const need: [number, number][] = []; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) need.push([x, y]);
 			if (need.length > MAX_TILES) return null;
 			const grid: QMGrid = { data: new Float32Array(N * N).fill(NaN), N, lng: lng0, lat: lat0, range };
-			let i = 0, got = 0;
-			await Promise.all(Array.from({ length: 6 }, async () => { while (i < need.length) { const [x, y] = need[i++]; const m = await tile(L, z, x, y); if (m) { qmBake(m, qmTileBounds(z, x, y), grid); got++; } } }));
-			if (!got) return null;
+			const found: [QMesh, number, number, number][] = [], miss: [number, number][] = [];
+			let i = 0;
+			await Promise.all(Array.from({ length: 6 }, async () => { while (i < need.length) { const [x, y] = need[i++]; const m = await tile(L, z, x, y); if (m) found.push([m, z, x, y]); else miss.push([x, y]); } }));
+			// 無いタイルは親の段で（粗い段を先に焼き、細かい段で上書き）
+			const par = new Map<string, Promise<[QMesh, number, number, number] | null>>();
+			const up = (x: number, y: number): Promise<[QMesh, number, number, number] | null> => (async () => {
+				for (let pz = z - 1, px = x >> 1, py = y >> 1; pz >= Math.max(L.minzoom, z - 4); pz--, px >>= 1, py >>= 1) {
+					const k = pz + "/" + px + "/" + py; if (!par.has(k)) par.set(k, tile(L, pz, px, py).then(m => m ? [m, pz, px, py] as [QMesh, number, number, number] : null));
+					const r = await par.get(k)!; if (r) return r;
+				}
+				return null;
+			})();
+			const fills = new Set((await Promise.all(miss.map(([x, y]) => up(x, y)))).filter(r => r) as [QMesh, number, number, number][]);
+			const bake = [...fills].sort((a, b2) => a[1] - b2[1]).concat(found.sort((a, b2) => (a[2] - b2[2]) || (a[3] - b2[3])));
+			if (!bake.length) return null;
+			for (const [m, tz, x, y] of bake) qmBake(m, qmTileBounds(tz, x, y), grid);
 			// ジオイド高は 33×33 の粗い格子で引いて双一次（元の格子は 30 分＝1° のセルで 2×2 の升＝粗く引いても形は保つ・1025² を 1 点ずつ引くと約 12ms）
 			const G = 33, ng = new Float32Array(G * G), ell = spec.heights === "ellipsoidal", sc = (G - 1) / (N - 1);
 			if (ell) for (let r = 0; r < G; r++) for (let c = 0; c < G; c++) ng[r * G + c] = geoidHeight(lng0 + c / (G - 1) * range, lat0 + range - r / (G - 1) * range);

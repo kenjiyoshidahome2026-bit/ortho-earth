@@ -3,7 +3,7 @@
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
 import { unproject, cameraState, lonlatTo3D, worldToLonLat, WORLD_PX } from "./camera.ts";
-import { downsampleFlipped, cropResample } from "./elevation.ts";
+import { downsampleFlipped, cropResample, SEA_FLOOR } from "./elevation.ts";
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.ts";
 import { createDemSource } from "./dem-src.ts";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
 import type { CameraPose } from "./camera.ts";
@@ -15,7 +15,7 @@ import type { QmeshSpecInput } from "./qmesh-src.ts";
 /** アトラスへ上げる標高タイル（altpbf の生タイル・または DEM で上書きしたセル） */
 export type TerrainTile = ElevTile | DemCell;
 /** renderer へ渡すセルの中身：CPU 再標本化の Float32・または GPU 再標本化の記述子（renderer.gpuResample） */
-export type CellPayload = Float32Array | { tile: ElevTileGrid; mode: "down"; edge: number } | { tile: ElevTileGrid; mode: "crop"; lng0: number; lat0: number; span: number } | { atlas: ElevGrid; mode: "world"; cx: number; cy: number };
+export type CellPayload = Float32Array | { tile: ElevTileGrid; mode: "down"; edge: number; sea?: boolean } | { tile: ElevTileGrid; mode: "crop"; lng0: number; lat0: number; span: number; sea?: boolean } | { atlas: ElevGrid; mode: "world"; cx: number; cy: number };
 /** 地形の renderer 契約（gl/renderer.js・gpu/renderer.js が実装） */
 export interface TerrainRenderer { set(slot: string, data?: unknown, extra?: unknown): void; gpuResample?: boolean }
 export type PendingCallback = (n: number, range: number, stat?: string | null) => void;
@@ -79,8 +79,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 縁の除外（downsampleFlipped の M）＝fill の縁を持つ ALOS の R01 だけ 2。GEBCO の R10/R90・brand 銘（DEM10B）の R01 は 0＝
 	// 10° の境で両側 2 画素をクランプして継ぎ目の帯を作らない（2026-10-02・東北 140°E）
 	const edgeOf = (tile: TerrainTile): number => (tile.range === 1 && !(dtm?.brand && String(tile.source || "").startsWith(dtm.brand))) ? 2 : 0;
-	const rsDown = (tile: TerrainTile, N: number): CellPayload => gpuRs ? { tile, mode: "down", edge: edgeOf(tile) } : perfT("resample", N, () => downsampleFlipped(tile, N, edgeOf(tile)));
-	const rsCrop = (tile: TerrainTile, lng0: number, lat0: number, span: number, N: number): CellPayload => gpuRs ? { tile, mode: "crop", lng0, lat0, span } : perfT("resample", N, () => cropResample(tile, lng0, lat0, span, N));
+	// 海底（seafloor）＝外来の DEM の spec が seafloor:true（Cesium の createWorldBathymetryAsync）の間だけ、R10／R90（GEBCO）と DEM の負値を
+	// 通す（既定は 0 へ寄せる＝海面の地面）。R01（ALOS・DEM10B）は陸だけ＝縁の fill など負の異常があり得るので従来どおり（2026-10-28）
+	let seafloor = !!(dem as { seafloor?: unknown } | null)?.seafloor;
+	const seaOf = (tile: TerrainTile): boolean => seafloor && (tile.range !== 1 || /^(dem|qmesh)/.test(String(tile.source || "")));
+	const rsDown = (tile: TerrainTile, N: number): CellPayload => gpuRs ? { tile, mode: "down", edge: edgeOf(tile), sea: seaOf(tile) } : perfT("resample", N, () => downsampleFlipped(tile, N, edgeOf(tile), seaOf(tile)));
+	const rsCrop = (tile: TerrainTile, lng0: number, lat0: number, span: number, N: number): CellPayload => gpuRs ? { tile, mode: "crop", lng0, lat0, span, sea: seaOf(tile) } : perfT("resample", N, () => cropResample(tile, lng0, lat0, span, N, seaOf(tile)));
 	let demSrc: DemSource | null = dem ? createDemSource(dem) : null;
 	let dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
 	console.log(`[terrain] DTM declared: ${dtmBounds ? dtmBounds.join(",") + " (" + (dtmDecl?.brand ?? "dem") + ")" : "none (no ground lift)"}`);
@@ -171,6 +175,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 外来の DEM の生き替え（null＝外す）。R01 のキャッシュとアトラスの世代を捨てて組み直す
 	function setDem(spec: DemSpecInput | QmeshSpecInput | null): void {
 		demSrc = spec ? createDemSource(spec) : null;
+		const sea = !!(spec as { seafloor?: unknown } | null)?.seafloor;
+		if (sea !== seafloor) { seafloor = sea; farKey = ""; farLoaded = new Set(); farWritten = new Set(); for (const [k, t] of [...r10Tiles]) if (k.startsWith("90,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); } }   // 海底の出し入れ＝遠景層・R90 のセルも焼き直す
 		dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
 		for (const [k, t] of [...r10Tiles]) if (k.startsWith("1,") || k.startsWith("10,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); }
 		inflightCells.clear();   // 取りに行っている最中の物も古い世代＝新しい要求は取り直す（古い方は gen の門で捨てられる）
@@ -230,7 +236,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 							if (gx < 0 || gy < 0 || gx > w - 1 || gy > h - 1) { dat[i] = 0; continue; }
 							const x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), fx = gx - x0, fy = gy - y0;
 							let a = B[y0 * w + x0], b = B[y0 * w + x0 + 1], cc = B[(y0 + 1) * w + x0], dd = B[(y0 + 1) * w + x0 + 1];
-							if (a < -420 || a > 9000) a = 0; if (b < -420 || b > 9000) b = 0; if (cc < -420 || cc > 9000) cc = 0; if (dd < -420 || dd > 9000) dd = 0;
+							const bad = seafloor && base.range !== 1 ? SEA_FLOOR : -420;
+							if (a < bad || a > 9000) a = 0; if (b < bad || b > 9000) b = 0; if (cc < bad || cc > 9000) cc = 0; if (dd < bad || dd > 9000) dd = 0;
 							dat[i] = (a + (b - a) * fx) * (1 - fy) + (cc + (dd - cc) * fx) * fy;
 						}
 					}
