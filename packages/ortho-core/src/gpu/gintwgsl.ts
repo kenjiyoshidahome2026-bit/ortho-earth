@@ -13,6 +13,7 @@
 //   centers=(ix,iy) Morton中心 / texw=(arc_w, meta_w) / flags=(has_pivot, use_vbb, pivot_w, fidstyle_w)
 //   depthP=(logCoef, fogFar, elevScale, hasElev)＝深度統合（terrainDepth 時のみ非0）
 const GF = /* wgsl */`
+fn log1pG(w: f32) -> f32 { if (w < 0.1) { return w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715)))))); } return log(1.0 + w); }   // log(1+w) を桁落ちなしに（wgsl.ts log1pS と同じ・対数深度の頂点側）
 struct GF {
 	mvp: mat4x4f,
 	clipT: vec4f,      // mvp*[原点3D,1]（CPU double）＝MVP相殺回避の錨
@@ -523,7 +524,7 @@ struct LineOut {
 	if (pa3.zr < 0.0 && pb3.zr > 0.0) { axy = pb3.xy + (pb3.zr / (pb3.zr - pa3.zr)) * (pa3.xy - pb3.xy); }
 	// 対数深度（renderer と同式・同係数の z01）。logCoef=0（深度オフ）は z=0
 	let wS = select(pb3.w, pa3.w, useA);
-	let zc = select(0.0, log2(max(1.0 + wS, 1e-6)) * F.depthP.x * 0.5, F.depthP.x > 0.0);
+	let zc = select(0.0, log1pG(max(wS, 1e-30)) * 1.4426950 * F.depthP.x * 0.5, F.depthP.x > 0.0);   // 1.0+w の桁落ちを避ける（GF の log1pG）
 	let dir = bxy - axy;
 	let len = length(dir);
 	if (len < 1e-4) { let nd0 = toNDC(axy); o.pos = vec4f(nd0.xy, zc, 1.0); return o; }

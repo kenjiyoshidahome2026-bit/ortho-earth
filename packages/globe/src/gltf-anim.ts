@@ -12,7 +12,11 @@ export interface RigNode { parent: number; t: number[]; r: number[]; s: number[]
 export interface RigChannel { node: number; path: "translation" | "rotation" | "scale"; interpolation: string; times: Float32Array; values: Float32Array; stride: number }
 export interface RigAnimation { name: string; duration: number; channels: RigChannel[] }
 /** rig（worker の rigFromGltf）＝ノードの親子・静止の TRS・アニメの channel の数列・animated＝動くノード（と子孫）の番号 */
-export interface GltfRig { nodes: RigNode[]; animations: RigAnimation[]; animated?: number[] }
+export interface GltfRig { nodes: RigNode[]; animations: RigAnimation[]; animated?: number[]; skins?: RigSkin[] }
+/** skin（glTF の skins[i]・2026-10-28）＝joints（ノード番号）と inverseBindMatrices（joint ごとの 4x4・列優先・16×joints） */
+export interface RigSkin { joints: number[]; ibm: Float32Array }
+/** 束の中のスキンされた区間＝glTF のメッシュ座標（ローカル）の位置・法線と、頂点ごとの joint（skin.joints の添字・4 個）と重み。start＝束の頂点番号の先頭 */
+export interface SkinSeg { start: number; n: number; skin: number; P: Float32Array; N: Float32Array | null; J: Uint16Array; W: Float32Array }
 /** place＝glTF のローカル → ECEF（G）と、ECEF → 世界座標の局所線形化（F） */
 export interface GltfPlace { G: { A: ArrayLike<number>; T: ArrayLike<number> }; F: { L: ArrayLike<number>; t: ArrayLike<number> } }
 /** 全ノードの world 行列（アニメ後 W と静止 W0） */
@@ -24,6 +28,7 @@ export interface AnimGltf {
 	nodes?: Array<{ children?: unknown[]; translation?: ArrayLike<number> & Iterable<number>; rotation?: ArrayLike<number> & Iterable<number>; scale?: ArrayLike<number> & Iterable<number>; matrix?: ArrayLike<number> }>;
 	animations?: Array<{ name?: unknown; channels?: Array<{ sampler: number; target?: { node?: number; path?: string } }>; samplers?: Array<{ input: number; output: number; interpolation?: string }> }>;
 	accessors?: Array<{ value?: ArrayLike<number> | null } | null>;
+	skins?: Array<{ joints?: Array<number | unknown>; inverseBindMatrices?: { value?: ArrayLike<number> | null } | null }>;
 }
 type M4 = ArrayLike<number>;
 
@@ -86,7 +91,21 @@ export function rigFromGltf(gltf: AnimGltf | null | undefined): GltfRig | null {
 	// 子孫へ伝える
 	let grew = true;
 	while (grew) { grew = false; for (let i = 0; i < nodes.length; i++) if (!animated.has(i) && parent[i] >= 0 && animated.has(parent[i])) { animated.add(i); grew = true; } }
-	return { nodes: rigNodes, animations, animated: [...animated].sort((a, b) => a - b) };
+	const skins = skinsFromGltf(gltf);
+	return { nodes: rigNodes, animations, animated: [...animated].sort((a, b) => a - b), ...(skins ? { skins } : {}) };
+}
+/** skins（joints＝ノード番号・inverseBindMatrices＝accessor の value）→ RigSkin[]（無ければ null）。joints が実体（ノード object）でも番号へ */
+export function skinsFromGltf(gltf: AnimGltf | null | undefined): RigSkin[] | null {
+	const sk = gltf?.skins; if (!sk?.length) return null;
+	const idx = new Map<unknown, number>((gltf!.nodes || []).map((n, i) => [n, i]));
+	const out: RigSkin[] = [];
+	for (const s of sk) {
+		const joints = (s.joints || []).map(j => typeof j === "number" ? j : (idx.get(j) ?? -1));
+		const v = s.inverseBindMatrices?.value;
+		const ibm = v && v.length >= joints.length * 16 ? Float32Array.from(v as ArrayLike<number>) : (() => { const m = new Float32Array(joints.length * 16); for (let j = 0; j < joints.length; j++) m.set(I4, j * 16); return m; })();
+		out.push({ joints, ibm });
+	}
+	return out;
 }
 
 // ── 補間 ──────────────────────────────────────────────────────────────
@@ -164,4 +183,64 @@ export function batchXf(xf: WorldXf | null, origin: ArrayLike<number> | null | u
 	out[10] = L[1]*O[0] + L[4]*O[1] + L[7]*O[2] + t[1] - O[1];
 	out[11] = L[2]*O[0] + L[5]*O[1] + L[8]*O[2] + t[2] - O[2];
 	return out;
+}
+
+// ── スキン（頂点の重み・2026-10-28）＝頂点を焼き直す段 ──────────────────────────────────
+// glTF の仕様：スキンされた頂点 p' = Σ w_j · (W(joint_j) · IBM_j) · p（W＝ノードの world 行列・シーン座標。mesh のノードの変換は掛けない）。
+// worker（meshdecode）は静止姿勢で焼く（rig が無い模型もこれで裂けない）。main（gadgets/model.js）は時計のたびに同じ式で頂点を焼き直し、
+// place（G：ローカル → ECEF・F：ECEF → 世界座標の局所線形化）で束の原点相対の世界座標にして renderer の "meshPos" へ（rigid の meshXf と違い頂点が変わる）。
+/** joint ごとの行列 M_j = W[joint_j] · IBM_j（4x4・列優先） */
+export function jointMatrices(skin: RigSkin, W: ArrayLike<ArrayLike<number> | undefined>): Float64Array[] {
+	return skin.joints.map((node, j) => { const w = W[node]; const ibm = skin.ibm.subarray(j * 16, j * 16 + 16); return w ? m4mul(w, ibm) : Float64Array.from(ibm); });
+}
+/** 区間の頂点をスキンする＝シーン座標の位置（outP・3n）と法線（outN・3n・線形部だけ・正規化しない）。J の範囲外の joint は恒等 */
+export function skinVertices(seg: SkinSeg, M: Float64Array[], outP: Float32Array | Float64Array, outN: Float32Array | Float64Array | null): void {
+	const { n, P, N, J, W } = seg;
+	for (let i = 0; i < n; i++) {
+		const px = P[i*3], py = P[i*3+1], pz = P[i*3+2], nx = N ? N[i*3] : 0, ny = N ? N[i*3+1] : 0, nz = N ? N[i*3+2] : 0;
+		let x = 0, y = 0, z = 0, a = 0, b = 0, c = 0, ws = 0;
+		for (let k = 0; k < 4; k++) {
+			const w = W[i*4+k]; if (!(w > 0)) continue;
+			const m = M[J[i*4+k]] || I4; ws += w;
+			x += w * (m[0]*px + m[4]*py + m[8]*pz + m[12]); y += w * (m[1]*px + m[5]*py + m[9]*pz + m[13]); z += w * (m[2]*px + m[6]*py + m[10]*pz + m[14]);
+			if (N) { a += w * (m[0]*nx + m[4]*ny + m[8]*nz); b += w * (m[1]*nx + m[5]*ny + m[9]*nz); c += w * (m[2]*nx + m[6]*ny + m[10]*nz); }
+		}
+		if (ws <= 0) { x = px; y = py; z = pz; a = nx; b = ny; c = nz; }   // 重みの無い頂点＝そのまま
+		else if (Math.abs(ws - 1) > 1e-6) { x /= ws; y /= ws; z /= ws; }   // 重みの和が 1 でない（量子化）＝正規化
+		outP[i*3] = x; outP[i*3+1] = y; outP[i*3+2] = z;
+		if (outN) { outN[i*3] = a; outN[i*3+1] = b; outN[i*3+2] = c; }
+	}
+}
+/** 3x3（列優先）の余因子行列＝法線の変換（非等方スケールでも面の向きが狂わない） */
+export function cofactor3(L: ArrayLike<number>): Float64Array {
+	return Float64Array.of(
+		L[4]*L[8] - L[5]*L[7], L[5]*L[6] - L[3]*L[8], L[3]*L[7] - L[4]*L[6],
+		L[7]*L[2] - L[8]*L[1], L[8]*L[0] - L[6]*L[2], L[6]*L[1] - L[7]*L[0],
+		L[1]*L[5] - L[2]*L[4], L[2]*L[3] - L[0]*L[5], L[0]*L[4] - L[1]*L[3]);
+}
+/** 束の頂点を焼き直す（main）：pose.W で各区間をスキンし、F·G で世界座標へ、origin 相対の pos（Float32・3n）と ortho 軸の量子化法線（Int8・4n）にする。
+ *  nV＝束の頂点数（スキンされない区間は 0 のまま＝束は worker がスキンだけで組むので来ない）。戻り null＝skin が無い／place が無い */
+export function skinBatch(segs: SkinSeg[] | null | undefined, pose: GltfPose, skins: RigSkin[] | null | undefined, place: GltfPlace | null | undefined, origin: ArrayLike<number> | null | undefined, nV: number): { pos: Float32Array; nrm: Int8Array } | null {
+	if (!segs?.length || !skins || !place) return null;
+	const M = m4mul(m4fromLT(place.F.L, place.F.t), m4fromLT(place.G.A, place.G.T)), O = origin || [0, 0, 0];
+	const cof = cofactor3(place.G.A);   // 法線＝ECEF へ（A の余因子）→ ortho 軸（x, z, y）
+	const pos = new Float32Array(nV * 3), nrm = new Int8Array(nV * 4);
+	const mats = new Map<number, Float64Array[]>();
+	for (const seg of segs) {
+		const sk = skins[seg.skin]; if (!sk) continue;
+		let jm = mats.get(seg.skin); if (!jm) mats.set(seg.skin, jm = jointMatrices(sk, pose.W));
+		const P = new Float64Array(seg.n * 3), N = seg.N ? new Float64Array(seg.n * 3) : null;
+		skinVertices(seg, jm, P, N);
+		for (let i = 0; i < seg.n; i++) {
+			const v = seg.start + i, px = P[i*3], py = P[i*3+1], pz = P[i*3+2];
+			pos[v*3] = M[0]*px + M[4]*py + M[8]*pz + M[12] - O[0]; pos[v*3+1] = M[1]*px + M[5]*py + M[9]*pz + M[13] - O[1]; pos[v*3+2] = M[2]*px + M[6]*py + M[10]*pz + M[14] - O[2];
+			if (N) {
+				const a = N[i*3], b = N[i*3+1], c = N[i*3+2];
+				const ex = cof[0]*a + cof[3]*b + cof[6]*c, ey = cof[1]*a + cof[4]*b + cof[7]*c, ez = cof[2]*a + cof[5]*b + cof[8]*c;
+				const nx = ex, ny = ez, nz = ey, l = Math.hypot(nx, ny, nz);   // ECEF(x,y,z) → ortho 世界軸(x, z, y)
+				if (l > 0) { const s = 127 / l; nrm[v*4] = Math.round(nx * s); nrm[v*4+1] = Math.round(ny * s); nrm[v*4+2] = Math.round(nz * s); } else nrm[v*4+1] = 127;
+			} else nrm[v*4+1] = 127;
+		}
+	}
+	return { pos, nrm };
 }
