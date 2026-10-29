@@ -25,13 +25,21 @@ export interface PostProcessOptions {
 }
 /** 画面の段（固定の鎖＝fxaa→bloom→tonemap→lut→vignette の後に、並び順どおり 1 段ずつ掛ける・Cesium の postProcessStages 相当・2026-10-28）
  *  silhouette＝深度の縁取り（Cesium の EdgeDetection＋Silhouette：length＝縁と見る深度差の閾値・color＝縁の色 rgba 0..1）／grey＝白黒（gradations 段）／brightness＝明るさ（value＝0 で黒・1 で素）／
- *  nightVision＝暗視（緑＋雑音）／glsl＝利用者の GLSL ES 3.00 の fragment（Cesium の PostProcessStage の書き方＝colorTexture・depthTexture・v_textureCoordinates・out_FragColor・czm_* の一部）＝GL2 だけ（WebGPU は飛ばす）。uniforms＝名前 → 数か数の並び（2〜4＝vec）か真偽 */
+ *  nightVision＝暗視（緑＋雑音）／lensFlare・depthOfField（下）／glsl＝利用者の GLSL ES 3.00 の fragment（Cesium の PostProcessStage の書き方＝colorTexture・depthTexture・v_textureCoordinates・out_FragColor・czm_* の一部）＝GL2 だけ（WebGPU は飛ばす）。uniforms＝名前 → 数か数の並び（2〜4＝vec）か真偽 */
 export type PostStage =
 	| { type: "silhouette"; color: number[]; length: number }
 	| { type: "grey"; gradations: number }
 	| { type: "brightness"; value: number }
 	| { type: "nightVision" }
-	| { type: "glsl"; src: string; uniforms: Record<string, number | number[] | boolean> };
+	| { type: "glsl"; src: string; uniforms: Record<string, number | number[] | boolean> }
+	| LensFlareStage | DepthOfFieldStage;
+/** レンズフレア（Cesium の PostProcessStageLibrary.createLensFlareStage と同式・2026-10-28）。sun＝太陽の画面位置（NDC x,y）・earth＝地球の中心の NDC（x,y）と、
+ *  目の座標で中心を earthRadius×1.5 だけ横へずらした点の NDC x（isInEarth の尺）・space＝目が宇宙（地心から 6500 km 超）・camrot＝czm_view[0].z＋czm_view[1].y（星形の回り）・
+ *  dirt／star＝レンズの汚れ・星形の画像の URL（無ければ汚れ無し・星形無し）。太陽が画面外（|NDC|＞1.1）か宇宙でない時は素の色（Cesium と同じ） */
+export type LensFlareStage = { type: "lensFlare"; intensity: number; distortion: number; ghostDispersal: number; haloWidth: number; dirtAmount: number; sun: number[]; earth: number[]; space: boolean; camrot: number; dirt?: string; star?: string };
+/** 被写界深度（Cesium の createDepthOfFieldStage と同式）：Gaussian の 2 段のぼかし（delta・sigma・stepSize px）と、目からの奥行きで素とぼかしを混ぜる（focalDistance m・near／far＝Cesium の frustum）。
+ *  earth＝地球の中心の目の座標と半径 [x,y,z,R]・tan＝画角の半分の tan [x,y]：深度の無い画素（地面を深度に書かない描き方）は、目の光線が球に当たる奥行きで見る */
+export type DepthOfFieldStage = { type: "depthOfField"; focalDistance: number; delta: number; sigma: number; stepSize: number; near: number; far: number; earth?: number[]; tan?: number[] };
 /** 正規化の戻り。fxaa/tonemap/lut の鍵は on の時だけ生える（従来の { bloom, vignette } の形を壊さない）。 */
 export interface PostProcessNormalized {
 	bloom: { threshold: number; strength: number; radius: number } | null;
@@ -89,6 +97,20 @@ export function normStages(list: unknown): PostStage[] {
 					else if (Array.isArray(v) && v.length >= 1 && v.length <= 4 && v.every(x => typeof x === "number")) u[k] = v.map(x => Number.isFinite(x) ? x : 0);
 				}
 				out.push({ type: "glsl", src: o.src, uniforms: u }); break;
+			}
+			case "lensFlare": {
+				const v2 = (a: unknown, n: number): number[] => { const r = Array.isArray(a) ? a.slice(0, n).map(x => num(x, 0, -1e6, 1e6)) : []; while (r.length < n) r.push(0); return r; };
+				const url = (x: unknown): string | undefined => (typeof x === "string" && x ? x : undefined);
+				const lf: LensFlareStage = { type: "lensFlare", intensity: num(o.intensity, 2, 0, 100), distortion: num(o.distortion, 10, 0, 1000), ghostDispersal: num(o.ghostDispersal, 0.4, 0, 10), haloWidth: num(o.haloWidth, 0.4, 0, 10),
+					dirtAmount: num(o.dirtAmount, 0.4, 0, 10), sun: v2(o.sun, 2), earth: v2(o.earth, 3), space: o.space !== false, camrot: num(o.camrot, 0, -100, 100) };
+				const d = url(o.dirt), st = url(o.star); if (d) lf.dirt = d; if (st) lf.star = st;
+				out.push(lf); break;
+			}
+			case "depthOfField": {
+				const d: DepthOfFieldStage = { type: "depthOfField", focalDistance: num(o.focalDistance, 5, 0, 1e9), delta: num(o.delta, 1, 0, 100), sigma: num(o.sigma, 2, 0.01, 100), stepSize: num(o.stepSize, 1, 0, 100), near: num(o.near, 1, 1e-3, 1e9), far: num(o.far, 5e8, 1, 1e12) };
+				if (Array.isArray(o.earth) && o.earth.length === 4) d.earth = o.earth.map(x => num(x, 0, -1e12, 1e12));
+				if (Array.isArray(o.tan) && o.tan.length === 2) d.tan = o.tan.map(x => num(x, 1, 1e-6, 1e6));
+				out.push(d); break;
 			}
 		}
 	}

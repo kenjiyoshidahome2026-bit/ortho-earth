@@ -68,7 +68,7 @@ export interface RendererGPUOptions {
 export interface RenderFx { atmosphere: boolean; pbr: boolean; ao: boolean }
 /** 色・見た目のノブ（set("view")）＝読む物だけ */
 export interface RenderView {
-	clear?: number[] | null; land?: number[] | null; atmo?: number[] | null; bldColor?: number[] | null; sea?: number[] | null;
+	clear?: number[] | null; /** clear の α を合成に使う（利用者が clearColor に透明を明示した時だけ＝下の canvas が透ける・Cesium の facade の星空） */ clearAlpha?: boolean; land?: number[] | null; atmo?: number[] | null; bldColor?: number[] | null; sea?: number[] | null;
 	fog?: boolean; worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
 	globeAlpha?: number; baseAlpha?: number; skySolar?: boolean; clock?: ClockAnchor | null; showConst?: boolean; night?: boolean; graticule?: boolean;
 	showRail?: boolean; showContour?: boolean; hypso?: { color: number[]; amount?: number; max?: number } | null; distColor?: number[] | null;
@@ -320,6 +320,9 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 「白黒反転」に見える。Android 実機の反転（?gl2=1では正常・?nofade/noterr/nogint すべてで再現）は
 	// この形の疑いが濃い＝合成をαから切り離して構造的に断つ（2026-08-03）。
 	ctx.configure({ device, format, alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+	// 例外：利用者が clearColor に透明を明示した地図（view.clearAlpha）だけは premultiplied へ切り替え、宇宙を透かす（GL2 の premultipliedAlpha と同じ見え方・2026-10-28）
+	let seeThrough = false;
+	const setSeeThrough = (on: boolean): void => { if (on === seeThrough) return; seeThrough = on; ctx.configure({ device, format, alphaMode: on ? "premultiplied" : "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC }); };
 	const isBGRA = format === "bgra8unorm";   // Mac の既定＝readback は BGRA＝RGBA へ swizzle
 	// WebKit(Safari) は GPUDevice の EventTarget 実装が無い版がある＝onuncapturederror 属性も併用（両対応・二重発火なし＝どちらか一方しか効かない環境前提）
 	const onUncap = (e: GPUUncapturedErrorEvent) => console.error("[gpu] uncaptured:", e.error?.message || e.error);
@@ -2706,7 +2709,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const tg = clip ? { terrain: clipPolygonFor(clip, "terrain"), buildings: clipPolygonFor(clip, "buildings"), models: clipPolygonFor(clip, "models"), vector: clipPolygonFor(clip, "vector") } : null;   // 多角形（P0 #4）
 		const clipAny = !!tp && (tp.terrain.length + tp.buildings.length + tp.models.length + tp.vector.length > 0 || !!(tg!.terrain || tg!.buildings || tg!.models || tg!.vector));
 		const flat2d = !shWin && !clipAny && (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogHas && !gnd.rasterOn;   // 影と断面の間は球の床を描く（真俯瞰の地面も影を受ける・床の切れ目を陸の色で埋めない）   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
-		const c = flat2d ? [land[0], land[1], land[2], 1] : (solid(view.clear) || [1, 1, 1, 1]);
+		const see = !flat2d && !!view.clearAlpha && !!view.clear && view.clear[3] < 1;
+		setSeeThrough(see);
+		const c = flat2d ? [land[0], land[1], land[2], 1] : see ? view.clear! : (solid(view.clear) || [1, 1, 1, 1]);
 		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
 		const logCoef = 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0);
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK();   // fill/line/terrain 共通の終端＝線が地形に厳密追随（fog:false＝無限）

@@ -650,6 +650,8 @@ mapEl.classList.add("ui-dark");
 // 宇宙（球の外側）。MapLibre の口＝透明（MapLibre の canvas は描かない所が透明＝頁の色が見える・地平線の上も同じ・本人裁定 2026-10-12・B5）。opts.clearColor（色か "transparent"）で変えられる
 const clearOf = (c: unknown): readonly number[] | null => (c === "transparent" ? [0, 0, 0, 0] : typeof c === "string" && isColor(c) ? parseRGBA(c) : Array.isArray(c) && c.length === 4 ? c : null);
 let clear = clearOf(opts.clearColor) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]);
+// 透明を明示した時だけ WebGPU も透かす（既定の透明＝MapLibre の口は WebGPU では白に畳む・gpu/renderer の 2026-08-03 の裁定）
+let clearAlpha = clearOf(opts.clearColor) != null && clear[3] < 1;
 
 let dpr: GlobeLive["dpr"] = Math.min(2, window.devicePixelRatio || 1);
 
@@ -1535,7 +1537,7 @@ function switchTheme(name: string) {
 	worldContentH?.repaint();     // 世界帯の中身（州境・道路・注記…）も新テーマへ
 	// ★任意ノブ(等高線色/遠山/標高段彩)は「新テーマが持たなければ null」で必ず既定へ戻す＝前テーマの居座り防止。
 	// 条件付きspreadだと未指定キーが setView のマージで残る＝例: sepia/dark の暖茶hypso が mono/topo へ漏れて「山が茶色」になる。
-	renderer.set("view", { clear, land, atmo, bldColor,
+	renderer.set("view", { clear, clearAlpha, land, atmo, bldColor,
 		contourColor: theme.contourColor || null,
 		distColor: theme.distColor || null,
 		hypso: theme.hypso || null,
@@ -1554,7 +1556,7 @@ function switchTheme(name: string) {
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; requestDraw(); onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
-renderer.set("view", { clear, land, atmo, bldColor, showRail: false, sea: seaOf(bg), ...(opts.fog === false ? { fog: false } : {}),   // opts.fog:false＝霧を焚かない（MapLibre の口の既定）
+renderer.set("view", { clear, clearAlpha, land, atmo, bldColor, showRail: false, sea: seaOf(bg), ...(opts.fog === false ? { fog: false } : {}),   // opts.fog:false＝霧を焚かない（MapLibre の口の既定）
 	...(opts.night === false && { night: false }),   // opts.night＝false：低ズームの夜面を描かない（MapLibre の口・公式例の門 段 2）
 	gintSub: !/[?&]nosub=1/.test(location.search),
 	dashDz: STYLE_DZ,   // 破線（core S-P1-3）の段＝外来 style の floor(z)（MapLibre の tileZoom）
@@ -2823,7 +2825,7 @@ map.getDebug = () => ({ ...dbgState });
 // 見えているタイルが全部載ったか（MapLibre の areTilesLoaded・2026-10-25）＝idle の材料のうち読み込みだけ（動き・描き直し・時計の再生は問わない＝時計が回る頁でも答える）
 map.areTilesLoaded = () => mapLoaded && (coverOk || noVecBase()) && !elevBusy && !(centerElevMode === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !rasterFading && !extExtras.mounting
 	&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
-map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); renderer.set("view", { clear }); requestDraw(); return map; };
+map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); clearAlpha = clearOf(c) != null && clear[3] < 1; renderer.set("view", { clear, clearAlpha }); requestDraw(); return map; };
 // 球の不透明度（1.17.0〜・2026-10-26）：0＝地面を描かない（3D Tiles だけの眺め・Cesium の globe:false）・0〜1＝半透明（Cesium の globe.translucency）。表示パネル「基図」のつまみと同じ経路（globe/terrain/湖/夜面/塗り）
 map.setGlobeOpacity = a => { const v = Number.isFinite(a) ? Math.max(0, Math.min(1, a)) : 1; renderer.set("view", { baseAlpha: v, globeAlpha: v }); requestDraw(); return map; };
 map.setMaxBounds = b => {
