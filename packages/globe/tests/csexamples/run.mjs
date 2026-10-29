@@ -17,6 +17,7 @@ const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ?
 const flag = k => process.argv.includes(`--${k}`);
 const BASE = arg("base", "http://localhost:5460"), OUT = path.resolve(arg("out", path.join(REPO, ".cache/csexamples/runs/latest")));
 const JOBS = +arg("jobs", 3), WAIT = +arg("wait", 10000), SETTLE = +arg("settle", 20000), SIDES = arg("side") ? [arg("side")] : ["ref", "ortho"];
+const ORTHO_QUERY = arg("ortho-query", "");   // a query string for the ortho pages only (e.g. gl2=1 = shoot on WebGL2 to compare the backends)
 const TIME_FROM = arg("time-from", "");   // the page's clock starts when that run's ref page started: the sun, the stars and the clock-driven examples at the same time of day as the ref shot; an animated example is also shot at the ref's simulation time (rec.clock, recorded by both sides)
 // runs in the page before any script: Date shifted by a constant (timers and performance.now keep running)
 function shiftDate(off) {
@@ -104,7 +105,7 @@ async function runOne(browser, side, ex) {
 		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")); rec.timeFrom = new Date(st.mtimeMs - (r.ms || 0)).toISOString(); await page.addInitScript(shiftDate, st.mtimeMs - (r.ms || 0) - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; }
 	}
 	try {
-		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/`, { timeout: 60000 });
+		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/${side === "ortho" && ORTHO_QUERY ? `?${ORTHO_QUERY}` : ""}`, { timeout: 60000 });
 		await page.waitForFunction(() => window.__csx?.ran || window.__csx?.errors?.some(e => /^import:/.test(e)), null, { timeout: 45000 }).catch(() => {});
 		await page.waitForTimeout(WAIT);
 		// then until the globe and the tilesets say everything in view is loaded (real Cesium was often shot with its imagery still blurred)
