@@ -1,0 +1,37 @@
+== c64c2c45 lensflare gl2
+== c64c2c45 depth-of-field gl2
+== c64c2c45 depth-of-field
+== c64c2c45 clustering
+== c64c2c45 billboards
+== c64c2c45 labels
+== c64c2c45 points
+== c64c2c45 kml
+== c64c2c45 post-processing
+== c64c2c45 bloom
+== c64c2c45 custom-post-process
+== c64c2c45 fog-post-process
+== c64c2c45 per-feature-post-processing
+== c64c2c45 globe-translucency
+== c64c2c45 underground-color
+== c64c2c45 cloud-parameters
+PASS  t-wgsl             ok:80/80 modules compile ok:Frame に sun がある（段 0）  〔0.9s〕
+✓ 全1ページ PASS
+== main lensflare gl2
+   1× warning: [csshim] unsupported: postProcessStages lens flare
+== main depth-of-field gl2
+   1× warning: [csshim] unsupported: postProcessStages depth of field
+== main depth-of-field
+   1× warning: [csshim] unsupported: postProcessStages depth of field
+== main clustering
+== main billboards
+== main labels
+== main points
+== main kml
+== main post-processing
+== main bloom
+== main custom-post-process
+== main fog-post-process
+== main per-feature-post-processing
+== main globe-translucency
+== main underground-color
+== main cloud-parameters
