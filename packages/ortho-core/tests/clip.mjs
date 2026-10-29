@@ -10,7 +10,7 @@
 // 使い方: node packages/ortho-core/tests/clip.mjs
 import { lonlatTo3D, ellNormal3D, setEllipsoid, worldRadiusM } from "../src/camera.ts";
 import { meridionalRadius, primeVerticalRadius } from "../src/geodesic.ts";
-import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX, normClip, clipPlanesFor, clipPackOrigin, CLIP_TARGETS, clipPolygon, clipPolygonFor, clipPolygonDistanceM, CLIP_POLY_MAX } from "../src/clip.ts";
+import { clipPlaneEcef, clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX, normClip, clipPlanesFor, clipPackOrigin, CLIP_TARGETS, clipPolygon, clipPolygonFor, clipPolygonDistanceM, CLIP_POLY_MAX } from "../src/clip.ts";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };
@@ -132,6 +132,20 @@ for (const ell of [false, true]) {
 		worst = Math.max(worst, Math.abs(polyD(rel) - clipPolygonDistanceM(pg, lng0 + dLng * lx, lat0 + dLat * ly)));
 	}
 	ok(worst < 0.01, `シェーダの式（f32・原点相対）と f64 が合う（最大 ${(worst * 1000).toFixed(2)} mm）`);
+}
+setEllipsoid(false);
+
+console.log("― ECEF の平面（Cesium の ClippingPlane）―");
+{
+	setEllipsoid(true);
+	const at = [139.7, 35.7], D = Math.PI / 180, a = 6378137, e2 = 6.69437999014e-3, la = at[0] * D, fa = at[1] * D;
+	const N = a / Math.sqrt(1 - e2 * Math.sin(fa) ** 2), h = 30;
+	const P = [(N + h) * Math.cos(fa) * Math.cos(la), (N + h) * Math.cos(fa) * Math.sin(la), (N * (1 - e2) + h) * Math.sin(fa)];
+	const up = [Math.cos(fa) * Math.cos(la), Math.cos(fa) * Math.sin(la), Math.sin(fa)], d = -(up[0] * P[0] + up[1] * P[1] + up[2] * P[2]);
+	const E = [clipPlaneEcef([up[0], up[1], up[2], d])], Ed = clipPlanes({ ecef: [[-up[0] * 2, -up[1] * 2, -up[2] * 2, -d * 2]] });
+	ok(Math.abs(clipDistanceM(E, ...at, 45) - 15) < 0.01 && Math.abs(clipDistanceM(E, ...at, 10) + 20) < 0.01, "ECEF の面（測地の上向き・高さ 30m）は n·P + d ≥ 0＝上を残す");
+	ok(Ed.length === 1 && Math.abs(clipDistanceM(Ed, ...at, 10) - 20) < 0.01, "spec.ecef は長さの違う法線も正規化して下を残す");
+	ok(clipPlaneEcef([0, 0, 0, 1]) === null, "法線 0 は捨てる");
 }
 setEllipsoid(false);
 

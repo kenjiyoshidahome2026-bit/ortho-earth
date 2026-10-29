@@ -6,6 +6,7 @@ import { Cartesian3, Ellipsoid, Matrix4, Rectangle } from "@cesium/core";
 import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
 import { gltfSphere } from "../src/gltf.ts";
 import { sphereOfVolume } from "../src/tileset.ts";
+import { clippingOriginOf, clipSpecOf } from "../src/clipping.ts";
 import { extentOfLayerJson, unionExtents } from "../src/i3s.ts";
 import { rasterSourceOf, mercatorRows, adjustPaint } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
@@ -434,6 +435,19 @@ for (const g of [
 	g.label.show = false; g.billboard.show = true; g.billboard.image = "data:image/png;base64,AA=="; g.billboard.verticalOrigin = 1;
 	const ce = clusterEntity("k", g, ["a", "b"]);
 	ok("clustering: a restyled cluster draws its billboard, not its label", !!ce.billboard && !ce.label && ce.__csPick().id.length === 2);
+}
+
+// tileset clippingPlanes → the globe's clipping in the Earth-fixed frame (3d-tiles-clipping-planes: plane (0,0,-1) at the volume's centre keeps what is below it)
+{
+	const C = Cartesian3.fromDegrees(-75.6, 40.0, 50), n = Ellipsoid.WGS84.geodeticSurfaceNormal(C, new Cartesian3());
+	const json = { root: { boundingVolume: { sphere: [C.x, C.y, C.z, 100] } } };
+	const coll = { length: 1, enabled: true, edgeWidth: 1, modelMatrix: Matrix4.IDENTITY, get: () => ({ normal: new Cartesian3(0, 0, -1), distance: 20 }) };
+	const { spec } = clipSpecOf(coll, clippingOriginOf(json, Matrix4.IDENTITY));
+	const [nx, ny, nz, d] = spec.ecef[0], at = h => { const P = Cartesian3.fromDegrees(-75.6, 40.0, h); return nx * P.x + ny * P.y + nz * P.z + d; };
+	ok("clipping: an ENU plane at the volume centre turns Earth-fixed (normal = down)", Math.abs(nx + n.x) < 1e-9 && Math.abs(ny + n.y) < 1e-9 && Math.abs(nz + n.z) < 1e-9);
+	ok("clipping: kept below 50 m + 20 m, cut above", Math.abs(at(60) - 10) < 1e-3 && Math.abs(at(80) + 10) < 1e-3);
+	ok("clipping: the models only, edge 1 px white, no caps", spec.targets.join() === "models" && spec.edge.width === 1 && spec.edge.color.join() === "1,1,1" && spec.cap === false);
+	ok("clipping: a disabled collection clips nothing", clipSpecOf({ ...coll, enabled: false }, Matrix4.IDENTITY).spec === null);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");

@@ -16,7 +16,10 @@ export interface ClipBoxSpec { center: [number, number] | number[]; size?: [numb
 export interface ClipHorizontalSpec { at: [number, number] | number[]; h?: number; keep?: "below" | "above" | string }
 /** 切り方の記述（1 群） */
 export interface ClipSpec {
-	planes?: (number[] | null | undefined)[]; vertical?: [number[], number[]][]; horizontal?: (ClipHorizontalSpec | null | undefined)[]; box?: ClipBoxSpec | null; param?: string | null;
+	planes?: (number[] | null | undefined)[];
+	/** 地球固定の直交座標（ECEF・m＝x 経度 0・y 東経 90°・z 北極）の平面 [nx, ny, nz, d]＝n·P + d ≥ 0 を残す（Cesium の ClippingPlane を変換行列で移した物と同じ書き方） */
+	ecef?: (number[] | null | undefined)[];
+	vertical?: [number[], number[]][]; horizontal?: (ClipHorizontalSpec | null | undefined)[]; box?: ClipBoxSpec | null; param?: string | null;
 	/** 多角形（Cesium の ClippingPolygon）＝GeoJSON の Polygon・MultiPolygon（Feature・FeatureCollection も）か輪の列 [[lon,lat]…][]。既定は内側を消す・inverse＝内側だけ残す */
 	polygon?: unknown; inverse?: boolean;
 	targets?: string[]; on?: boolean;
@@ -78,12 +81,20 @@ export function clipBox({ center, size = [200, 200], h = [-500, 9000], bearing =
 	return out;
 }
 
+// ECEF の平面 [nx, ny, nz, d]（m・n·P + d ≥ 0 を残す）→ β 空間。world の軸は (x, y, z)＝(ECEF x, ECEF z, ECEF y)・単位＝worldRadiusM
+export function clipPlaneEcef(p: ArrayLike<number>): ClipPlane | null {
+	const l = Math.hypot(p[0], p[1], p[2]);
+	if (!(l > 0)) return null;
+	return toBeta([p[0] / l, p[2] / l, p[1] / l], -p[3] / l / worldRadiusM());
+}
+
 // 切り方の記述 → 面の列（全部の面で残る側＝交わり）。
 // spec＝{ planes?: [[nx,ny,nz,c]…], vertical?: [[a, b]…], horizontal?: [{ at, h, keep }…], box?: { center, size, h, bearing }, param?: "?clip= の文字列" }。7 枚目からは捨てる
 export function clipPlanes(spec: ClipSpec | null | undefined): ClipPlane[] {
 	const out: ClipPlane[] = [];
 	if (spec?.param) { const q = parseClipParam(spec.param); if (q) out.push(...clipPlanes(q)); }   // URL の書き方（globe の ?clip=）＝読み解きはここ 1 か所
 	for (const p of spec?.planes || []) if (p && p.length >= 4) out.push([+p[0], +p[1], +p[2], +p[3]]);
+	for (const p of spec?.ecef || []) { const q = p && p.length >= 4 ? clipPlaneEcef(p) : null; if (q) out.push(q); }
 	for (const [a, b] of spec?.vertical || []) { const p = clipPlaneVertical(a, b); if (p) out.push(p); }
 	for (const o of spec?.horizontal || []) if (o?.at) out.push(clipPlaneHorizontal(o.at, +o.h! || 0, o.keep));
 	if (spec?.box?.center) out.push(...clipBox(spec.box));

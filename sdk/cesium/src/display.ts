@@ -29,7 +29,7 @@ const { BoundingSphereState, Property, ColorGeometryInstanceAttribute } = engine
 const E = engine as Any;
 const SOLIDS: [string, Any][] = [["box", E.BoxGeometryUpdater], ["cylinder", E.CylinderGeometryUpdater], ["ellipsoid", E.EllipsoidGeometryUpdater],
 	["polygon", E.PolygonGeometryUpdater], ["rectangle", E.RectangleGeometryUpdater], ["ellipse", E.EllipseGeometryUpdater], ["corridor", E.CorridorGeometryUpdater],
-	["wall", E.WallGeometryUpdater], ["polylineVolume", E.PolylineVolumeGeometryUpdater]];
+	["wall", E.WallGeometryUpdater], ["polylineVolume", E.PolylineVolumeGeometryUpdater], ["plane", E.PlaneGeometryUpdater]];
 /** a height measured from the terrain (Cesium moves such geometry with the ground under it): the GeoJSON layers below draw it */
 const onGround = (g: Any, t: JulianDate) => [g.heightReference, g.extrudedHeightReference].some(p => { const v = val(p, t, HeightReference.NONE); return v !== HeightReference.NONE; });
 /** a polygon, rectangle, ellipse or corridor with neither height nor extrusion lies on the surface (the GeoJSON fill drapes it; Cesium's is a ground primitive) */
@@ -38,6 +38,14 @@ const onSurface = (name: string, g: Any, t: JulianDate) => SURFACE.has(name) && 
 const R2D = 180 / Math.PI, D2R = Math.PI / 180, FAR = 8.64e15;
 const SRC = "__cs-shapes";
 const val = (p: Any, t: JulianDate, d?: Any) => { const v = Property.getValueOrUndefined(p, t); return v === undefined ? d : v; };
+/** a time-varying plane (a CallbackProperty plane, as the clipping examples drag): what it is at t, or "" (constant, or nothing to draw) */
+const movingPlane = (e: Any, t: JulianDate): string => {
+	const g = e.plane;
+	if (!g || (isConst(g.plane) && isConst(g.dimensions) && isConst(e.position) && Property.isConstant(e.orientation))) return "";
+	const pl = val(g.plane, t), dm = val(g.dimensions, t), p = val(e.position, t), q = val(e.orientation, t);
+	if (!pl?.normal || !dm || !p) return "";
+	return [pl.normal.x, pl.normal.y, pl.normal.z, pl.distance, dm.x, dm.y, p.x, p.y, p.z, q?.x, q?.y, q?.z, q?.w].join();
+};
 /** a NearFarScalar → [near, nearValue, far, farValue] (the globe's marks scale and fade by the eye's distance as Cesium's billboards and labels) */
 const nfOf = (v: Any): number[] | null => v && Number.isFinite(v.near) ? [v.near, v.nearValue, v.far, v.farValue] : null;
 const isConst = (p: Any) => p == null || Property.isConstant(p);
@@ -219,7 +227,7 @@ interface Desc {
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
 	solids: { fill: Any[]; outline: Any[]; width: number } | null;
 }
-interface Rec { e: Any; desc: Desc | null; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[]; degree: number } | null; icrf?: boolean; off: () => void; solids?: { d: Desc["solids"]; names: Set<string> } }
+interface Rec { e: Any; desc: Desc | null; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[]; degree: number } | null; icrf?: boolean; off: () => void; solids?: { d: Desc["solids"]; names: Set<string>; sig: string } }
 
 export class EntityDisplay {
 	readonly defaultDataSource = new CustomDataSource("default");
@@ -411,15 +419,17 @@ export class EntityDisplay {
 	}
 	/** the entity's constant solids as Cesium's geometry instances (into d.solids): the names done so (a time-varying or ground one is not: the shapes below draw it) */
 	#solidsOf(e: Any, t: JulianDate, d: Desc, r: Rec): Set<string> {
-		if (r.solids) { d.solids = r.solids.d; return r.solids.names; }
+		const sig = movingPlane(e, t);
+		if (r.solids && r.solids.sig === sig) { d.solids = r.solids.d; return r.solids.names; }
 		const done = new Set<string>();
-		r.solids = { d: null, names: done };
+		r.solids = { d: null, names: done, sig };
 		for (const [name, U] of SOLIDS) {
 			if (!U || !e[name]) continue;
 			let u: Any;
 			try { u = new U(e, this.scene); } catch { continue; }
 			try {
-				if (u.isDynamic || u.onTerrain || onGround(e[name], t) || onSurface(name, e[name], t)) continue;
+				if (u.isDynamic && name === "plane" && sig) { u._options.plane = val(e.plane.plane, t); u._options.dimensions = val(e.plane.dimensions, t); }   // made again whenever it moves (the sig)
+				else if (u.isDynamic || u.onTerrain || onGround(e[name], t) || onSurface(name, e[name], t)) continue;
 				done.add(name);
 				const g = d.solids ??= r.solids.d = { fill: [], outline: [], width: 1 };
 				if (u.fillEnabled) {
@@ -560,6 +570,7 @@ export class EntityDisplay {
 			return Math.abs(hh) > 0.01 ? { base: hh - 0.5, top: hh + 0.5 } : {};   // a polygon in the air: a 1 m slab
 		};
 		const solid = this.#solidsOf(e, t, d, r);
+		if (r.solids?.sig) dynamic = true;
 		const pg = e.polygon;
 		if (pg && val(pg.show, t, true) && !solid.has("polygon")) {
 			dyn(pg.hierarchy, pg.perPositionHeight);
@@ -646,7 +657,7 @@ export class EntityDisplay {
 				addShape([corridorRing(ps, w)], { ...common(pv), base: hh + Math.min(...ys), top: hh + Math.max(...ys) });
 			}
 		}
-		if (e.plane && val(e.plane.show, t, true)) unsupported("entity.plane");
+		if (e.plane && val(e.plane.show, t, true) && !solid.has("plane")) unsupported("entity.plane (time-varying)");
 		// ── polyline ──
 		const pl = e.polyline;
 		if (pl && val(pl.show, t, true)) {

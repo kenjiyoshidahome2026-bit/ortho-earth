@@ -9,6 +9,7 @@ import { globeCamOf, poseOfGlobeCam, poseKey, sameKey, sameGlobeCam, setCameraWo
 import { unsupported } from "./report.ts";
 import { postChainOf, type PostFrame } from "./postprocess.ts";
 import { sunPositionWC } from "./lighting.ts";
+import { clipSpecOf } from "./clipping.ts";
 import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
 
 /** the globe and what the facade hangs on it (filled when createGlobe resolves) */
@@ -81,7 +82,7 @@ export class OrthoScene {
 	lastRenderTime: any = undefined;
 	#terrainProvider: any;
 	#lastPose: number[] | null = null; #lastGlobe: GlobeCam | null = null; #fovy = 0;
-	#postKey = ""; #aoOn = false;   // postProcessStages → map.setPostChain (順 4): what was last pushed
+	#postKey = ""; #aoOn = false; #clipKey = "";   // postProcessStages → map.setPostChain (順 4): what was last pushed
 	#destroyed = false;
 
 	constructor(host: Host, canvas: HTMLCanvasElement, o: { scene3DOnly?: boolean; globe?: unknown } = {}) {
@@ -152,6 +153,24 @@ export class OrthoScene {
 		try { map.setPostChain(r.chain.length ? r.chain : null); } catch (e) { console.warn("[csshim] postProcessStages", (e as Error)?.message || e); }
 		if (r.ao !== this.#aoOn) { this.#aoOn = r.ao; map.setRenderFx?.({ ao: r.ao }); }
 	}
+	// the tilesets' clippingPlanes → map.setClipping (one clipping on the globe: the first shown tileset that clips)
+	#syncClip() {
+		const map = this.host.map; if (!map?.setClipping) return;
+		let spec: any = null, skipped: string[] = [];
+		const walk = (c: any) => {
+			for (let i = 0; i < (c?.length ?? 0) && !spec; i++) {
+				const p = c.get(i);
+				if (p instanceof PrimitiveCollection) walk(p);
+				else if (p?.clippingPlanes && p.show !== false && typeof p.clippingPlanesOriginMatrix === "object" && p.orthoHandle !== undefined) ({ spec, skipped } = clipSpecOf(p.clippingPlanes, p.clippingPlanesOriginMatrix));
+			}
+		};
+		try { walk(this.primitives); } catch { return; }
+		const key = JSON.stringify(spec);
+		if (key === this.#clipKey) return;
+		this.#clipKey = key;
+		for (const w of skipped) unsupported(w);
+		try { map.setClipping(spec ?? false); } catch (e) { console.warn("[csshim] clippingPlanes", (e as Error)?.message || e); }
+	}
 	// ── the frame (CesiumWidget.render: initializeFrame → clock.tick → render) ──
 	initializeFrame() {
 		this.tweens.update();
@@ -184,6 +203,7 @@ export class OrthoScene {
 			this.controllerHost.update(this, time);   // as Scene.render: the registered controllers move the camera before it is pushed to the globe
 			this.#pushCamera();
 			this.globe?.__orthoSyncMaterial?.();   // globe.material → the globe's ground material (after preRender: the examples set its uniforms there)
+			this.#syncClip();   // tileset clippingPlanes → the globe's clipping (the examples move the plane in preRender / on drag)
 			this.#syncPost();   // postProcessStages → the globe's post chain (the examples flip enabled/uniforms in preRender and the knockout bindings)
 			this.camera._updateCameraChanged?.();
 			this.postRender.raiseEvent(this, time);
