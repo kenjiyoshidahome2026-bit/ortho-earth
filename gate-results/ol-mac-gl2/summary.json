@@ -1,0 +1,301 @@
+{
+ "at": "2026-10-29T23:08:11.762Z",
+ "cesium": "1.146.0",
+ "n": 9,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 6,
+  "3": 3,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 6,
+  "3": 3,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 6,
+   "examples": [
+    "3d-tiles-feature-styling",
+    "3d-tiles-gaussian-splats-with-lod",
+    "3d-tiles-gaussian-splatting",
+    "3d-tiles-gaussian-splatting-comparison",
+    "cesium-osm-buildings",
+    "gltf-pbr-extensions"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-feature-picking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2819,
+    "n": 3072,
+    "colour": 0.9625651041666666,
+    "edge": 0.9410807291666666,
+    "blob": 9
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-feature-styling",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 97% of the cells match · a patch of 21 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2769,
+    "n": 3072,
+    "colour": 0.9222005208333334,
+    "edge": 0.9684244791666666,
+    "blob": 21
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-gaussian-splats-with-lod",
+   "level": 2,
+   "reasons": [
+    "picture: colour 52% · edges 53% of the cells match · a patch of 221 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 997,
+    "n": 3072,
+    "colour": 0.517578125,
+    "edge": 0.529296875,
+    "blob": 221
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-gaussian-splatting",
+   "level": 2,
+   "reasons": [
+    "picture: colour 75% · edges 76% of the cells match · a patch of 70 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1935,
+    "n": 3072,
+    "colour": 0.7548828125,
+    "edge": 0.7568359375,
+    "blob": 70
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-gaussian-splatting-comparison",
+   "level": 2,
+   "reasons": [
+    "picture: colour 89% · edges 82% of the cells match · a patch of 65 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2382,
+    "n": 3072,
+    "colour": 0.8929036458333334,
+    "edge": 0.822265625,
+    "blob": 65
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-interactivity",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2840,
+    "n": 3072,
+    "colour": 0.9625651041666666,
+    "edge": 0.9479166666666666,
+    "blob": 9
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cesium-osm-buildings",
+   "level": 2,
+   "reasons": [
+    "picture: colour 83% · edges 95% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2433,
+    "n": 3072,
+    "colour": 0.8274739583333334,
+    "edge": 0.9518229166666666,
+    "blob": 13
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "custom-shaders-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2996,
+    "n": 3072,
+    "colour": 0.9876302083333334,
+    "edge": 0.9814453125,
+    "blob": 18
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "gltf-pbr-extensions",
+   "level": 2,
+   "reasons": [
+    "picture: colour 79% · edges 89% of the cells match · a patch of 380 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2334,
+    "n": 3072,
+    "colour": 0.78515625,
+    "edge": 0.8876953125,
+    "blob": 380
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
