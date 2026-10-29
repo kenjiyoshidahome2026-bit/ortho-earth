@@ -205,7 +205,7 @@ for (const g of [
 	const rel = (i, c) => Math.abs(sh[i * 3 + c] - ref[i][c]) / Math.abs(ref[i][c]);
 	ok("envmap L00 (the mean) within 12% of Cesium's", [0, 1, 2].every(c => rel(0, c) < 0.12), Array.from(sh.subarray(0, 3), v => v.toFixed(4)).join(","));
 	ok("envmap L1-1 (sky over ground) within 3% of Cesium's", [0, 1, 2].every(c => rel(1, c) < 0.03), Array.from(sh.subarray(3, 6), v => v.toFixed(4)).join(","));
-	ok("envmap L20 within 25% of Cesium's", [1, 2].every(c => rel(6, c) < 0.25));
+	ok("envmap L20 within 0.0012 of Cesium's", [0, 1, 2].every(c => Math.abs(sh[18 + c] - ref[6][c]) < 0.0012), Array.from(sh.subarray(18, 21), v => v.toFixed(4)).join(","));   // the reference's camera (which turns the ground test) is not known: the horizon band moves a little
 	const up = cesiumEvalSH(sh, [0, 1, 0]), down = cesiumEvalSH(sh, [0, -1, 0]);
 	ok("envmap: the sky lights from above, blue", up[2] > down[2] * 2 && up[2] > up[0]);
 	ok("envmap: a uniform environment comes back as its radiance", near(cesiumEvalSH(new Float32Array(27).fill(0).map((v, i) => i < 3 ? CESIUM_SH_UNIFORM_L00 * 2 : 0), [0.3, 0.9, 0.3])[0] / (CESIUM_SH_UNIFORM_L00 * 2), 1, 1e-6));
@@ -213,8 +213,16 @@ for (const g of [
 	ok("envmap computes quickly", ms < 200, `${ms.toFixed(1)} ms`);
 	const ground = cesiumEnvSH([-2503858.174101297, -3844658.942363919, 4415712.092618074], { radius: 6367827.056697302 });   // a point on the surface (where the facade's camera looks): rays meet the ground at distance 0
 	ok("envmap on the surface has no NaN", Array.from(ground).every(Number.isFinite) && ground[0] > 0.01, Array.from(ground.subarray(0, 3), v => v.toFixed(4)).join(","));
-	const night = cesiumEnvSH(pos, { radius, dynamicLighting: 2, sunDirWC: [0.3, 0.3, -0.9] });   // SUNLIGHT with the sun below: darker
-	ok("envmap SUNLIGHT mode follows the sun", night[0] < sh[0] * 0.8, `${night[0].toFixed(4)} vs ${sh[0].toFixed(4)}`);
+	// a tileset's map on the ground (3d-tiles-interactivity, read on a Mac GPU): the horizon band where the atmosphere thins shows the default
+	// white cube, the sun's glow clips at 1 in the RGBA8 cube, and the ground test meets the ellipsoid turned by the camera (viewRotation)
+	{
+		const p = [1336448, -4653936, 4137935], d = [0.0932, 0.9024, 0.4208], u = [0.2617, -0.43, 0.8641], r = [d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]];
+		const ref2 = [[0.1159, 0.1448, 0.1788], [0.0845, 0.1075, 0.1482], null, null, null, null, [-0.0175, -0.0148, -0.0178], null, [-0.0217, -0.0174, -0.0206]];
+		const s2 = cesiumEnvSH(p, { radius: 6369033.6, viewRotation: [...r, ...u, -d[0], -d[1], -d[2]] });
+		ok("envmap of a tileset on the ground matches Cesium's L00, L1-1, L20, L22 within 0.002", ref2.every((q, i) => !q || q.every((v, c) => Math.abs(s2[i * 3 + c] - v) < 0.002)), Array.from(s2, v => v.toFixed(4)).join(","));
+	}
+	const night = cesiumEnvSH(pos, { radius, dynamicLighting: 2, sunDirWC: [0.3, 0.3, -0.9] });   // SUNLIGHT with the sun below: the black sky is treated as transparent and shows the white default cube (3d-tiles-interactivity at 06:00 UTC: L00 0.2886 grey)
+	ok("envmap SUNLIGHT mode follows the sun: the night sky turns white grey", Math.abs(night[0] - night[2]) < 0.01 && night[0] > sh[0] * 2, `${night[0].toFixed(4)} vs ${sh[0].toFixed(4)}`);
 }
 
 // ── globe.material → the globe's ground material (globe-material.ts): ramps, contour, bands, land only ──
