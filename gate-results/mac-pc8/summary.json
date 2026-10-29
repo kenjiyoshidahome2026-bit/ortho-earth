@@ -1,0 +1,175 @@
+{
+ "at": "2026-10-29T19:05:16.628Z",
+ "cesium": "1.146.0",
+ "n": 5,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 3,
+  "3": 2,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 3,
+   "examples": [
+    "gltf-pbr-extensions",
+    "ground-polyline-material-dev",
+    "image-based-lighting"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-feature-picking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2795,
+    "n": 3072,
+    "colour": 0.9446614583333334,
+    "edge": 0.9501953125,
+    "blob": 9
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "gltf-pbr-extensions",
+   "level": 2,
+   "reasons": [
+    "picture: colour 74% · edges 81% of the cells match · a patch of 694 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2237,
+    "n": 3072,
+    "colour": 0.7428385416666666,
+    "edge": 0.8050130208333334,
+    "blob": 694
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ground-polyline-material-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 83% · edges 81% of the cells match · a patch of 22 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2117,
+    "n": 3072,
+    "colour": 0.8326822916666666,
+    "edge": 0.814453125,
+    "blob": 22
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "image-based-lighting",
+   "level": 2,
+   "reasons": [
+    "picture: colour 94% · edges 96% of the cells match · a patch of 24 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2828,
+    "n": 3072,
+    "colour": 0.9407552083333334,
+    "edge": 0.9560546875,
+    "blob": 24
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "pbr-lighting-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2885,
+    "n": 3072,
+    "colour": 0.99609375,
+    "edge": 0.9427083333333334,
+    "blob": 1
+   },
+   "dev": true,
+   "ion": true
+  }
+ ]
+}
