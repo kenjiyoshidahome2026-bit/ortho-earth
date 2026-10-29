@@ -65,6 +65,18 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 		for (let d = 0; hi + d <= H; d = d ? d * 2 : 1) { const y = hi + d, ll = unproject(st, sx, y); if (ll) samples.push(ll); if (farR > 1) liftSamples(st, sx, y, farR, samples); }
 		if (farR > 1) for (let d = 1; hi - d >= 0; d *= 2) { if (!liftSamples(st, sx, hi - d, farR, samples)) break; }
 	}
+	// 目が海面球の内側（地下・Cesium の underground）：前方の交点が無い＝上の標本は全部空振り。視線が球を内から抜ける所（裏から見る地面）を標本に
+	// （遠すぎる出口＝地球を貫いて裏側＝捨てる・UNDER_REACH 世界単位）
+	// 四隅の射影は裏の面を「見えない」とする＝タイルは標本でしか拾えない＝網は 4 倍の細かさ
+	// 遠い所（地平線へ向かう行）は距離が行ごとに急に伸びる＝列ごとに出口が UNDER_REACH を越える行を二分探索し、その手前 1,2,4,… 行の点を足す
+	if (Math.hypot(st.eye[0], st.eye[1], st.eye[2]) < 1) {
+		const g = grid * 4;
+		for (let ix = 0; ix <= g; ix++) {
+			const sx = ix / g * W;
+			let lastIn = -1;
+			for (let iy = 0; iy <= g; iy++) { const ll = unprojectUnder(st, sx, iy / g * H); if (ll) { samples.push(ll); lastIn = iy; } else if (lastIn >= 0) { let lo = lastIn / g * H, hi = iy / g * H; while (hi - lo > 1) { const mid = (lo + hi) / 2; if (unprojectUnder(st, sx, mid)) lo = mid; else hi = mid; } for (let d = 0; d < H / g; d = d ? d * 2 : 1) { const q = unprojectUnder(st, sx, lo - d); if (q) samples.push(q); } lastIn = -1; } }
+		}
+	}
 	if (!samples.length) return [];
 	// サンプルの包含判定は「親に入っていたサンプル」だけを子で見直す（子⊂親＝境界の式も親と同値）＝旧＝全サンプル（チルトで ~900 点）を
 	// 見えない候補タイルごとに総なめ（選抜の 5 割）。sIn＝そのノードに入るサンプルの添字（根＝null＝全部）
@@ -101,7 +113,16 @@ function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: Array
 	// 四隅に加えて辺の途中も見る（粗いタイル＝z≤4）：球の縁では四隅が全部裏側でも辺の一部が表に出る（極を見下ろす時の赤道帯＝南半球の z1 タイル）。旧＝四隅だけ＝縁の帯が「見えない」と切られて紙色のまま（2026-09-30）
 	const K = t.z <= 4 ? 6 : 1;
 	let nf = 0, minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+	const E = st.eye, under = Math.hypot(E[0], E[1], E[2]) < 1, m = st.mvp;
 	const corner = (lo: number, la: number): void => {
+		if (under) {   // 地下の目＝面を裏から見る（projectInto は手前の半球だけ＝全部「見えない」）：カメラの前で UNDER_REACH より近い隅を射影
+			const q = lonlatTo3D(lo, la), c3 = m[3] * q[0] + m[7] * q[1] + m[11] * q[2] + m[15];
+			if (c3 > 1e-10 && Math.hypot(q[0] - E[0], q[1] - E[1], q[2] - E[2]) < UNDER_REACH) {
+				const sx = ((m[0] * q[0] + m[4] * q[1] + m[8] * q[2] + m[12]) / c3 * 0.5 + 0.5) * W, sy = (1 - ((m[1] * q[0] + m[5] * q[1] + m[9] * q[2] + m[13]) / c3 * 0.5 + 0.5)) * H;
+				nf++; minx = Math.min(minx, sx); miny = Math.min(miny, sy); maxx = Math.max(maxx, sx); maxy = Math.max(maxy, sy);
+			}
+			return;
+		}
 		for (let r = 0; r < (groundR !== 1 ? 2 : 1); r++) {
 			projectInto(st, lo, la, r ? groundR : 1, P);
 			const sx = P[0], sy = P[1], f = P[2];
@@ -134,6 +155,21 @@ function samplesIn(b: Float64Array, sLo: Float64Array, sLa: Float64Array, sIn: n
 }
 
 
+const UNDER_REACH = 0.16;   // 約 1000 km（Cesium の undergroundColorAlphaByDistance の far の既定 1e6 m 程度まで）
+// 地下の目（海面球の内側）から画面 (sx,sy) の視線が海面球を抜ける所（遠い根）。遠すぎれば null
+function unprojectUnder(st: CameraState, sx: number, sy: number): [number, number] | null {
+	const ndcx = sx / st.W * 2 - 1, ndcy = (1 - sy / st.H) * 2 - 1;
+	const n = mat.transform(st.invMvp!, [ndcx, ndcy, -1, 1]), f = mat.transform(st.invMvp!, [ndcx, ndcy, 1, 1]);
+	const d = [f[0] / f[3] - n[0] / n[3], f[1] / f[3] - n[1] / n[3], f[2] / f[3] - n[2] / n[3]], dl = Math.hypot(d[0], d[1], d[2]);
+	if (!(dl > 0)) return null;
+	d[0] /= dl; d[1] /= dl; d[2] /= dl;
+	const E = st.eye, b = mat.dot(E, d), disc = b * b - (mat.dot(E, E) - 1);
+	if (disc <= 0) return null;
+	const t = -b + Math.sqrt(disc);
+	if (!(t > 0 && t < UNDER_REACH)) return null;
+	const x = E[0] + d[0] * t, y = E[1] + d[1] * t, z = E[2] + d[2] * t, r = Math.hypot(x, y, z);
+	return [Math.atan2(z, x) * 180 / Math.PI, geodeticOf(Math.asin(Math.max(-1, Math.min(1, y / r))) * 180 / Math.PI)];
+}
 // 画面 (sx,sy) の視線が半径 R の球（リフト球）を通る区間 [ta,tb]（目からの距離・目が球の内側なら ta=0・海面球に当たる視線はそこまで）の 4 点を足す。
 // 持ち上がった地面がこの視線に映りうる所＝海面球の地平線の向こうの遠景（低い目で高い山を見る時は目がリフト球の内側＝unproject は交点を返せない）。戻り＝足したか
 function liftSamples(st: CameraState, sx: number, sy: number, R: number, out: [number, number][]): boolean {

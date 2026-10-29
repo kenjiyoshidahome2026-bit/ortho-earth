@@ -11,6 +11,7 @@ import type { CameraPose, LonLat } from "./camera.ts";
 export type GroundWindow = [number, number, number, number];
 
 const GND_SCALES = [1, 6, 36];
+const UNDER_REACH_DEG = 9;   // tilecover の UNDER_REACH（0.16 地球半径）の角
 const snapWin = (cx: number, cy: number, hw: number, hh: number): GroundWindow => {
 	const step = hw / 4, sx = Math.round(cx / step) * step, sy = Math.round(cy / step) * step;
 	return [sx - hw, Math.max(-90, sy - hh), sx + hw, Math.min(90, sy + hh)];   // 極まで（画像層の極の蓋＝raster.ts buildPoleCapMesh が乗る）
@@ -54,8 +55,8 @@ export function groundWindows(cam: CameraPose, W: number, H: number, liftM = 0):
 // 画面の上辺（左・中・右）に写る一番遠い地面までの角距離（度）。空を見る点は地平線（目から接する所）まで
 function groundReach(cam: CameraPose, W: number, H: number, cx: number, cy: number, liftM = 0): number {
 	const st = cameraState(cam, W, H), e = st.eye, eL = Math.hypot(e[0], e[1], e[2]);
-	if (!(eL > 1)) return 0;
 	const c = lonlatTo3D(cx, cy), ang = (q: number[]) => Math.acos(Math.max(-1, Math.min(1, (q[0] * c[0] + q[1] * c[1] + q[2] * c[2]) / Math.hypot(q[0], q[1], q[2])))) * 180 / Math.PI;
+	if (!(eL > 1)) return eL > 0 && eL < 1 ? ang(e) + UNDER_REACH_DEG : 0;   // 地下の目（Cesium の underground）＝裏から見る地面は tilecover の UNDER_REACH（約 1000 km）まで
 	let far = 0, sky = false;
 	for (const sx of [0, W / 2, W]) { const p = unproject(st, sx, 0); if (p) far = Math.max(far, ang(lonlatTo3D(p[0], p[1]))); else sky = true; }
 	if (sky) far = Math.max(far, ang(e) + (Math.acos(1 / eL) + (liftM > 0 ? Math.acos(1 / (1 + liftM / 6378137)) : 0)) * 180 / Math.PI);   // 目の真下からの地平線までの角（＋海面に接した視線が持ち上がった地面に届くまでの角）

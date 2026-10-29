@@ -360,6 +360,8 @@ export interface CameraApi {
 	getAtmosphere(): AtmosphereSpec | null;   // api/camera.ts:234
 	/** 模型の照明（2026-10-26・@ortho-earth/cesium が使う）：CesiumJS の式（czm_pbrLighting＋環境光の SH9＋PBR Neutral トーンマップ・両レンダラ）で押し出し・glTF・3D Tiles のメッシュを描く。null＝従来（固定光・setLight） */
 	setMeshLighting(l: MeshLightingSpec | null): GlobeMap;   // api/camera.ts:236
+	/** 模型の鏡面の環境（Cesium の ImageBasedLighting.specularEnvironmentMaps）：levels[mip]＝6 面の RGBA16F（半精度）・null＝SH9 の近似に戻す */
+	setMeshEnvironmentMap(e: { size: number; levels: ArrayLike<number>[] } | null): GlobeMap;   // globe.ts
 	/** 今の模型の照明（null＝従来） */
 	getMeshLighting(): MeshLightingSpec | null;   // api/camera.ts:244
 	/** 地面の照明（2026-10-26・@ortho-earth/cesium が使う）：CesiumJS の globe.enableLighting＝地形・遠景球の画像に太陽の lambert を掛け、地面の大気を夜側で暗くする（両レンダラ）。null＝従来（北西の陰影） */
