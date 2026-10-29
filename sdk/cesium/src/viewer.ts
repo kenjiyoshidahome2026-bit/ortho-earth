@@ -175,7 +175,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	// the globe
 	const gopts = globeOptions(options, element);
 	(host as Any).flatStart = gopts.terrain === false;   // the globe started flat: a terrain provider set later brings a DEM (scene.ts)
-	const ready = createGlobe(gopts).then((map: Any) => {
+	const ready = createGlobe(gopts).then(async (map: Any) => {
 		host.map = map;
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
@@ -216,6 +216,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 			if (`${ground}${sky}` !== atm) { atm = `${ground}${sky}`; map.setAtmosphere?.({ model: "cesium", ground, sky }); }
 		});
 		this._forceResize = true;
+		await useKtx2(map);   // before anything loads: a tile decoded without the transcoder keeps its fallback (white) for good
 		resolveReady(map);
 		return map;
 	});
@@ -227,6 +228,13 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	this.targetFrameRate = options.targetFrameRate;
 	this._onRenderError = (_s: unknown, error: unknown) => { console.error("[csshim] render error", error); };
 	scene.renderError.addEventListener(this._onRenderError);
+}
+// Cesium transcodes KHR_texture_basisu (KTX2) textures itself: the globe needs the @ortho-earth/ktx2 plugin for that (the WASM loads on first use)
+async function useKtx2(map: Any) {
+	const reg = map.registry?.textureTranscoders;
+	if (!reg || reg.get("ktx2")) return;
+	try { const { ktx2Plugin } = await import("@ortho-earth/ktx2"); if (!reg.get("ktx2")) map.use(ktx2Plugin()); }
+	catch (e) { console.warn("[csshim] @ortho-earth/ktx2 unavailable: KTX2 textures keep their fallback image", e); }
 }
 CesiumWidget.prototype = Object.create(RealWidget.prototype, { constructor: { value: CesiumWidget, writable: true, configurable: true } });
 Object.setPrototypeOf(CesiumWidget, RealWidget);
