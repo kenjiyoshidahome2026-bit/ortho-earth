@@ -112,6 +112,7 @@ interface T3dNode {
 	pick?: PickPart[] | null; copyright?: string[] | null; meshN?: number; bbox?: number[] | null;
 	/** 分類の立体（.geom）と、いま renderer に出している柱の名・点群の内外の判定（β 空間） */ vols?: GeomOut[] | null; volKeys?: string[] | null; volTests?: VolTest[] | null;
 	/** 点群の写し（分類の立体がある時だけ）＝点ごとに内側の立体の色を混ぜ直す元（pos・origin＝β・base＝スタイル後の色） */ ptsSrc?: Array<{ pos: Float32Array; origin: number[]; base: Uint8Array; tinted: boolean }> | null;
+	/** 点の層ごとの間隔の見積もり（世界単位・attenuation の誤差が無いタイルの代わり） */ ptsSp?: number[];
 }
 /** 分類の立体 1 つの内外の判定（β 空間）：単位の形の座標 u＝Q·(β−bc)＋q0（Q＝列優先 3x3）・r2＝β の外接球の半径²・color＝0..1（α＝混ぜる量） */
 interface VolTest { shape: number; Q: Float64Array; q0: number[]; bc: number[]; r2: number; color: number[] }
@@ -438,7 +439,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			if (r.volumes?.length) { n.vols = r.volumes; for (const g of r.volumes) for (const q of g.parts) n.mainBytes += q.pos.byteLength + q.idx.byteLength; }   // 分類の立体（.geom）＝出すのは setOn（見える時だけ柱を上げる）
 			if (r.points.length) {
 				set.pts ??= map.overlay({ builtin: "points" }, { name: `tiles3d:${set.id}` });
-				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1], edl: edlOf(set) });
+				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1], edl: edlOf(set), square: set.opts.pointShape === "square" });
 				n.ptsFeat = r.points.map(p => p.feat);
 				const keep = classifying();   // 分類の立体のある地図＝点の写しを持つ（内側の点に立体の色を混ぜる）
 				n.ptsSrc = keep ? [] : null;
@@ -446,7 +447,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 					const q = `${n.id}:${k}`, sp = p.feat ? stylePoints(set, p.feat, p.n) : null, rgba = sp?.rgba ?? p.rgba;
 					if (keep) { n.ptsSrc!.push({ pos: p.pos.slice(), origin: [...p.origin], base: rgba.slice(), tinted: false }); n.mainBytes += p.pos.byteLength + rgba.byteLength; }
 					n.bytes += p.pos.byteLength + p.rgba.byteLength; if (p.feat) n.mainBytes += p.feat.local.byteLength + p.feat.rgba.byteLength;
-					set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba, origin: p.origin, ...(sp?.size && { size: sp.size }), att: attOf(set, n) }, [p.pos.buffer, rgba.buffer, ...(sp?.size ? [sp.size.buffer] : [])]);
+					(n.ptsSp ??= [])[k] = spacingOf(p.pos, p.n);
+					set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba, origin: p.origin, ...(sp?.size && { size: sp.size }), att: attOf(set, n, k) }, [p.pos.buffer, rgba.buffer, ...(sp?.size ? [sp.size.buffer] : [])]);
 					return q;
 				});
 			}
@@ -503,16 +505,24 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	};
 	// 点群の陰影（pointShading・Cesium の PointCloudShading）：attenuation＝層（タイル）ごとに [誤差（世界単位）, 上限 px]＝点の層が距離で幅を決める。
 	// 誤差＝baseResolution か geometricError×geometricErrorScale（0＝Cesium は中身の体積から見積もる＝ここでは減衰しない）
-	const attOf = (set: T3dSet, n: T3dNode): [number, number] | null => {
+	//   Cesium の順：タイルの geometricError（>0）→ baseResolution → 点の間隔の見積もり cbrt(箱の体積／点の数)（葉のタイルは geometricError 0 が多い）。どれにも geometricErrorScale を掛ける
+	const attOf = (set: T3dSet, n: T3dNode, k: number): [number, number] | null => {
 		const o = set.opts.pointShading; if (!o?.attenuation) return null;
-		const ge = o.baseResolution ?? n.ge * (o.geometricErrorScale ?? 1);
-		return ge > 0 ? [ge / EARTH_M, o.maximumAttenuation ?? set.opts.maxSSE ?? 16] : null;
+		const ge = (n.ge > 0 ? n.ge / EARTH_M : o.baseResolution != null ? o.baseResolution / EARTH_M : n.ptsSp?.[k] ?? 0) * (o.geometricErrorScale ?? 1);
+		return ge > 0 ? [ge, o.maximumAttenuation ?? set.opts.maxSSE ?? 16] : null;
+	};
+	// 点の層の間隔（世界単位）＝cbrt(箱の体積／点の数)。平らな層（体積 0）は 0＝減衰しない
+	const spacingOf = (pos: Float32Array, cnt: number) => {
+		let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+		for (let i = 0; i < pos.length; i += 3) { const x = pos[i], y = pos[i + 1], z = pos[i + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+		const v = (x1 - x0) * (y1 - y0) * (z1 - z0);
+		return cnt > 0 && v > 0 ? Math.cbrt(v / cnt) : 0;
 	};
 	const edlOf = (set: T3dSet): [number, number] | null => { const o = set.opts.pointShading; return o?.eyeDomeLighting ? [o.edlStrength ?? 1, o.edlRadius ?? 1] : null; };
 	const setPointShading = (set: T3dSet) => {
 		if (!set.pts) return;
 		set.pts.post({ type: "style", edl: edlOf(set) });
-		for (const n of set.loaded()) if (n.state === "ready" && n.pts) for (const q of n.pts) set.pts.post({ type: "att", q, att: attOf(set, n) });
+		for (const n of set.loaded()) if (n.state === "ready" && n.pts) n.pts.forEach((q, k) => set.pts!.post({ type: "att", q, att: attOf(set, n, k) }));
 	};
 	// 点群のスタイル（color・show・pointSize）＝点ごとに元の色から。点の属性＝batch table の行（BATCH_ID か点の番号）＋POSITION（局所）＋COLOR（元の色）。
 	// 引く属性（["get", 名]）の値の組で結果を覚える（分類のように値の種類が少ない列なら式は数回しか回らない）。pointSize は幅 px → 点の層の半径（CSS px）
