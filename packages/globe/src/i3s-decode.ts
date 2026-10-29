@@ -17,14 +17,14 @@ interface I3SLayer {
 }
 /** I3S の中身（I3SLoader の tile content・読む欄だけ） */
 interface I3SContent {
-	attributes?: { positions?: { value?: NumArr }; texCoords?: { value?: NumArr }; uvRegions?: { value?: NumArr }; colors?: { value?: NumArr } } | null;
+	attributes?: { positions?: { value?: NumArr }; normals?: { value?: NumArr }; texCoords?: { value?: NumArr }; uvRegions?: { value?: NumArr }; colors?: { value?: NumArr } } | null;
 	indices?: ArrayLike<number> | null; texture?: unknown;
 	material?: { pbrMetallicRoughness?: { baseColorFactor?: number[]; baseColorTexture?: { texture?: { source?: { image?: unknown } } } }; alphaMode?: string; alphaCutoff?: number } | null;
 }
 /** 節点の見出し */
 export interface I3SSummary { id: number | string; c: number[]; r: number; thr: number; kids: Array<number | string>; mesh: boolean }
 /** i3sContent の戻り */
-export interface I3SContentOut { batches: Array<{ mesh: MeshOut; tex: TexOut | null; alphaMode: string; alphaCutoff: number }>; stats: { triangles: number; vertices?: number } }
+export interface I3SContentOut { batches: Array<{ mesh: MeshOut; tex: TexOut | null; alphaMode: string; alphaCutoff: number; unlit?: boolean }>; stats: { triangles: number; vertices?: number } }
 let _l: Promise<typeof import("./i3s-loaders.ts")> | null = null;
 const L = () => _l ??= import("./i3s-loaders.ts");   // loaders.gl の i3s は最初の I3S を読む時だけ
 
@@ -101,5 +101,7 @@ export async function i3sContent(url: string, id: number | string, { baseH = 0, 
 	if (raw && (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw))) { try { tex = { bitmap: await createImageBitmap(new Blob([raw as BlobPart])) }; } catch { /* 復号できない形式（圧縮テクスチャ等）＝色だけで描く */ } }
 	const mesh = finishMesh(geo, nrm, idx, ground === "terrain" ? minH : baseH, null, null, true, { uv, col }, ground !== "terrain");
 	const alphaMode = (mat?.alphaMode || "OPAQUE").toUpperCase();
-	return { batches: [{ mesh, tex, alphaMode, alphaCutoff: mat?.alphaCutoff ?? 0.5 }], stats: { triangles: idx.length / 3, vertices: n } };
+	// unlit＝層に法線が無い（面法線は陰影の為に積むが、Cesium は法線の無い I3S を照明無しで描く＝calculateNormals 既定 false）
+	const unlit = !A.normals?.value?.length;
+	return { batches: [{ mesh, tex, alphaMode, alphaCutoff: mat?.alphaCutoff ?? 0.5, unlit }], stats: { triangles: idx.length / 3, vertices: n } };
 }
