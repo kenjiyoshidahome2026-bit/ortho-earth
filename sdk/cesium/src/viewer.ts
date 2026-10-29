@@ -19,6 +19,7 @@ import { I3SDataProvider } from "./i3s.ts";
 import { syncImagery } from "./imagery.ts";
 import { skyBoxLayer } from "./skybox.ts";
 import { syncLighting } from "./lighting.ts";
+import { syncSpecularEnv } from "./specular-env.ts";
 import { TimePointsDrawer, isTimeDynamicPointCloud } from "./timepoints.ts";
 import { PrimitiveDrawer, isGeometryPrimitive, isDebugAxes, debugAxesPrimitive, isEllipsoidPrimitive, ellipsoidPrimitive } from "./primitives.ts";
 import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
@@ -181,8 +182,10 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		syncImagery(scene, map);
 		let base = "", atm = "", gop = -1, ugKey = "";   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
 		const lighting = syncLighting(scene, map);   // scene.light + Cesium's environment map → the globe's mesh lighting (lighting.ts)
+		const specular = syncSpecularEnv(scene, map);   // ImageBasedLighting.specularEnvironmentMaps → the globe's specular cube (specular-env.ts)
 		scene.postRender.addEventListener((_s: unknown, time: Any) => {
 			lighting(time);
+			specular();
 			// the globe's opacity: none (viewer { globe: false }, globe.show = false: the 3D Tiles are the ground), translucent (globe.translucency) or opaque
 			const gb = scene.globe, tr = gb?.translucency, bd = tr?.frontFaceAlphaByDistance;
 			let op = 1;

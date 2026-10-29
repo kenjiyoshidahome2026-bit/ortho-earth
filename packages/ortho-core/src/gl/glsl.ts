@@ -326,6 +326,8 @@ uniform vec3  u_csDir;       // 光へ向く単位ベクトル（世界系）
 uniform vec3  u_csColor;     // 光の色×強さ（HDR・SunLight は 2）
 uniform vec3  u_csSH[9];     // 環境光の SH9（Cesium の並び＝L00,L1-1,L10,L11,L2-2,L2-1,L20,L21,L22・立方体図の系＝x 東・y 上・z 南）
 uniform vec3  u_csIbl;       // (拡散の係数, 鏡面の係数, 一様な環境で L00 が 1 になる倍率＝鏡面の環境光を放射輝度に戻す)
+uniform samplerCube u_csEnvMap;   // the model's specular environment (ImageBasedLighting.specularEnvironmentMaps: a prefiltered KTX2 cube, mip = roughness)
+uniform vec2  u_csEnv;       // (1 = u_csEnvMap is set, its largest mip level)
 uniform vec2  u_csMR;        // バッチの材質（metallic, roughness）＝glTF の係数（GL は材質テクスチャを持たない）
 in vec3  v_n;
 in vec3  v_toEye;
@@ -394,7 +396,7 @@ vec3 csLit(vec3 base, vec3 n) {   // base＝リニアの基本色・n＝表向�
 	vec3 FssEss = Fn * AB.x + AB.y;
 	vec3 avgF = f0 + (1.0 - f0) / 21.0; float Ems = 1.0 - AB.x - AB.y;
 	vec3 FmsEms = FssEss * avgF * Ems / (1.0 - avgF * Ems);
-	color += csSH(nC) * (FmsEms + (1.0 - FssEss - FmsEms) * diffuse) * u_csIbl.x + csSH(rC) * u_csIbl.z * FssEss * u_csIbl.y;
+	color += csSH(nC) * (FmsEms + (1.0 - FssEss - FmsEms) * diffuse) * u_csIbl.x + (u_csEnv.x > 0.5 ? textureLod(u_csEnvMap, rC, roughness * u_csEnv.y).rgb : csSH(rC) * u_csIbl.z) * FssEss * u_csIbl.y;
 	return pow(max(csTonemap(color), 0.0), vec3(1.0 / 2.2));
 }
 void main() {

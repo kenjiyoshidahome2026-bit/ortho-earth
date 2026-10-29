@@ -96,7 +96,7 @@ interface ShadowMods { terr: GPUShaderModule; fill: GPUShaderModule; line: GPUSh
 interface ShadowPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; terrain: GPURenderPipeline;
 	bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; globe: GPURenderPipeline }
 interface CastPipes { bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; terr: GPURenderPipeline }
-interface ShBG0Key { v: GPUTextureView; fv: GPUTextureView; cv: GPUTextureView; nv: GPUTextureView }
+interface ShBG0Key { v: GPUTextureView; fv: GPUTextureView; cv: GPUTextureView; nv: GPUTextureView; ev: GPUTextureView }
 /** 落とす側の深度パスが描いた物の数（影の計器・解析の統計） */
 interface CastCount { bldTris: number; meshBatches: number; meshTris: number; terrTris: number }
 /** 建物の影の資源（点けている間だけ） */
@@ -436,6 +436,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },     // アトラスのサンプラ（mips・異方性・clamp）
 		{ binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・4 段目（前景あり時）
 		{ binding: 12, visibility: VF, texture: { sampleType: "float" } },   // 近景層（near）アトラス（順 1a）。elev() が静的参照＝far と同じく全レイアウトに必須
+		{ binding: 13, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },   // Cesium の模型の鏡面の環境（setMeshEnvironmentMap・csLit だけが引く・無ければ dummy の立方体）
+		{ binding: 14, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
 	] });
 	// group(1)＝DrawP＋塗りの模様（S-P1-4/5・FILL_WGSL だけが binding 1/2 を宣言＝他のシェーダは余分な束縛を無視する）
 	const PAT_ENTRIES: GPUBindGroupLayoutEntry[] = [{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }];
@@ -828,15 +830,15 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	function shadowBG0(L: ShadowLayer, which: "bg0" | "bg0T" = "bg0"): GPUBindGroup {   // 影を落とす側の group(0)＝bg0.bld と同じ素材で Frame だけ太陽の正射影（bg0＝段の frameB・bg0T＝地形の frameT）
 		const v = (elev.has && elevTexView) ? elevTexView : dummyView, fv = (far.has && farTexView) ? farTexView : dummyView, cv = cogTexView || dummyView, nv = (near.has && nearTexView) ? nearTexView : dummyView;
 		const c = (L as unknown as Bag)[which + "K"] as ShBG0Key | undefined;
-		if (L[which] && c && c.v === v && c.fv === fv && c.cv === cv && c.nv === nv) return L[which]!;
-		(L as unknown as Bag)[which + "K"] = { v, fv, cv, nv };
+		if (L[which] && c && c.v === v && c.fv === fv && c.cv === cv && c.nv === nv && c.ev === envView) return L[which]!;
+		(L as unknown as Bag)[which + "K"] = { v, fv, cv, nv, ev: envView };
 		return (L[which] = device.createBindGroup({ layout: bgl0, entries: [
 			{ binding: 0, resource: { buffer: which === "bg0T" ? L.frameT : L.frameB, offset: 0, size: FRAME_SLOT } },
 			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv },
 			{ binding: 4, resource: cv }, { binding: 5, resource: { buffer: cogBuf } },
 			{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
 			{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler }, { binding: 11, resource: dummyView },
-			{ binding: 12, resource: nv },
+			{ binding: 12, resource: nv }, { binding: 13, resource: envView }, { binding: 14, resource: envSampler },
 		] }));
 	}
 
@@ -1550,6 +1552,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const elevSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	const dummyTex = device.createTexture({ size: [1, 1], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyView = dummyTex.createView();
+	// Cesium の模型の鏡面の環境（setMeshEnvironmentMap・ImageBasedLighting.specularEnvironmentMaps）＝rgba16float の立方体図（mip＝粗さ×最大 mip）。無い間は 1×1 の dummy
+	const envSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", addressModeW: "clamp-to-edge" });
+	const dummyCubeView = device.createTexture({ size: [1, 1, 6], format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST }).createView({ dimension: "cube" });
+	let envTex: GPUTexture | null = null, envView: GPUTextureView = dummyCubeView, envLod = 0;
 	// 気候場テクスチャ（全球ハイプソ cross-blend・view.worldHypso.clim の URL から一度だけ取得）。
 	// 未着の間はシェーダが緯度近似へフォールバック（hasClim=0）＝1-2フレームの色ズレのみ。
 	// 地面の材質（setGroundMaterial・Cesium の globe.material・2026-10-28）＝ランプ n×1 の rgba8 テクスチャ（globe binding 13・terrain group(2) binding 3）と小物（terrain P.tr/lx/dashP・Globe gm/gmC/gmP）
@@ -1650,7 +1656,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ binding: 4, resource: cogTexView || dummyView }, { binding: 5, resource: { buffer: cogBuf } },
 				{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
 				{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler }, { binding: 11, resource: dummyView },
-				{ binding: 12, resource: nearView },
+				{ binding: 12, resource: nearView }, { binding: 13, resource: envView }, { binding: 14, resource: envSampler },
 			],
 		});
 		for (const [name, idx] of Object.entries(SLOT)) bg0[name] = device.createBindGroup({
@@ -1667,7 +1673,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ binding: 9, resource: { buffer: gndPBuf } },
 				{ binding: 10, resource: rasSampler },
 				{ binding: 11, resource: gnd.w[3] ? gnd.w[3].view : dummyView },
-				{ binding: 12, resource: nearView },
+				{ binding: 12, resource: nearView }, { binding: 13, resource: envView }, { binding: 14, resource: envSampler },
 			],
 		});
 		// globe（全球ハイプソ＝標高+気候）と terrain group(2)（気候）も同じ素材に依存＝一緒に作り直す
@@ -3300,7 +3306,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (meshLight) {   // Cesium の模型の照明（csL/csC/csI＝float 224〜235）・sh[9] の xyz には Cesium の係数
 					plBatchCPU[o + 224] = meshLight.dir[0]; plBatchCPU[o + 225] = meshLight.dir[1]; plBatchCPU[o + 226] = meshLight.dir[2]; plBatchCPU[o + 227] = p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1;   // csL.w：1＝csLit・2＝素の色（unlit）・0＝固定光（entity geometry）
 					plBatchCPU[o + 228] = meshLight.color[0]; plBatchCPU[o + 229] = meshLight.color[1]; plBatchCPU[o + 230] = meshLight.color[2]; plBatchCPU[o + 231] = meshLight.invL00;
-					plBatchCPU[o + 232] = meshLight.ibl[0]; plBatchCPU[o + 233] = meshLight.ibl[1]; plBatchCPU[o + 234] = 0; plBatchCPU[o + 235] = 0;
+					plBatchCPU[o + 232] = meshLight.ibl[0]; plBatchCPU[o + 233] = meshLight.ibl[1]; plBatchCPU[o + 234] = envTex ? 1 : 0; plBatchCPU[o + 235] = envLod;   // csI.zw＝鏡面の環境の立方体図あり・その最大 mip
 					const sh = p.sh ?? meshLight.sh;   // 模型ごとの環境（meshEnv）が勝つ
 					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = sh[i * 3]; plBatchCPU[o + 25 + i * 4] = sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = sh[i * 3 + 2]; }
 				} else plBatchCPU[o + 227] = 0;
@@ -3617,6 +3623,17 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "lights":  lights = data && (data as NonNullable<typeof lights>).n > 0 && (data as NonNullable<typeof lights>).data ? data as NonNullable<typeof lights> : null; break;   // 局所の光源（W2）＝メッシュの陰影に足す
 			case "groundLight": groundLight = data && Array.isArray((data as NonNullable<typeof groundLight>).dir) ? data as NonNullable<typeof groundLight> : null; break;   // 地面の照明（@ortho-earth/cesium の setGroundLighting）
 			case "groundMaterial": setGroundMat(data as typeof groundMat); break;   // 地面の材質（@ortho-earth/cesium の globe.material → setGroundMaterial）
+			case "meshEnv": {   // Cesium の ImageBasedLighting.specularEnvironmentMaps（KTX2 の前処理済み立方体図）＝levels[mip] に 6 面（+X −X +Y −Y +Z −Z）の RGBA16F
+				const e = data as { size: number; levels: Uint16Array[] } | null;
+				envTex?.destroy(); envTex = null; envView = dummyCubeView; envLod = 0;
+				if (e && e.size > 0 && e.levels?.length) {
+					envTex = device.createTexture({ size: [e.size, e.size, 6], mipLevelCount: e.levels.length, format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+					e.levels.forEach((lv, m) => { const w = Math.max(1, e.size >> m); device.queue.writeTexture({ texture: envTex!, mipLevel: m }, lv, { bytesPerRow: w * 8, rowsPerImage: w }, [w, w, 6]); });
+					envView = envTex.createView({ dimension: "cube" }); envLod = e.levels.length - 1;
+				}
+				rebuildBG0();   // group(0) が立方体図を掴み直す（影の bg0 は shadowBG0 が envView の替わりを見て作り直す）
+				break;
+			}
 			case "meshLight": meshLight = data && Array.isArray((data as NonNullable<typeof meshLight>).dir) && (data as NonNullable<typeof meshLight>).sh ? data as NonNullable<typeof meshLight> : null; break;   // Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting）
 			case "light":   light = data && Array.isArray((data as NonNullable<typeof light>).dir) ? data as NonNullable<typeof light> : null; break;   // style の light（B3・MapLibre の setLight）＝メッシュの陰影（PB の sl0/sl1・gl は u_light*）。fx.pbr の経路は太陽＋環境光のまま（#46 段 2）
 			case "sea":     sea = { ...sea, ...(data as Partial<typeof sea>) }; break;

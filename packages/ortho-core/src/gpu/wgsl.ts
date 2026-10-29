@@ -103,6 +103,8 @@ ${RAY}
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
 @group(0) @binding(2) var elevSamp: sampler;
 @group(0) @binding(3) var farElevTex: texture_2d<f32>;
+@group(0) @binding(13) var csEnvTex: texture_cube<f32>;   // the model's specular environment (Cesium ImageBasedLighting.specularEnvironmentMaps, a prefiltered cube, mip = roughness; a dummy cube when none)
+@group(0) @binding(14) var csEnvSamp: sampler;
 @group(0) @binding(12) var nearElevTex: texture_2d<f32>;   // 近景層（elev() が静的参照＝bgl0/bglOvFrame の全レイアウトに必須・未使用は dummy）
 // ユーザ COG（等経緯度整列 RGBA・geopbf/cog が warp 済み）。FRAME を含む全モジュールが宣言＝bgl0 が常に充足
 // （未使用モジュールでは宣言だけ＝コスト無し）。bbox=[west,south,spanLon,spanLat] 絶対deg・p.x=has・行0=北＝v反転。
@@ -293,7 +295,7 @@ fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> ve
 	let FssEss = Fn * AB.x + AB.y;
 	let avgF = f0 + (vec3f(1.0) - f0) / 21.0; let Ems = 1.0 - AB.x - AB.y;
 	let FmsEms = FssEss * avgF * Ems / (vec3f(1.0) - avgF * Ems);
-	color += (csSH(sh, nC) * (FmsEms + (vec3f(1.0) - FssEss - FmsEms) * diffuse) * csI.x + csSH(sh, rC) * csC.w * FssEss * csI.y) * i.ao;
+	color += (csSH(sh, nC) * (FmsEms + (vec3f(1.0) - FssEss - FmsEms) * diffuse) * csI.x + select(csSH(sh, rC) * csC.w, textureSampleLevel(csEnvTex, csEnvSamp, rC, i.rough * csI.w).rgb, csI.z > 0.5) * FssEss * csI.y) * i.ao;
 	return pow(max(csTonemap(color), vec3f(0.0)), vec3f(1.0 / 2.2));
 }
 struct PbrIn { base: vec3f, n: vec3f, pos: vec3f, v: vec3f, metallic: f32, rough: f32, ao: f32, sunK: f32, lp: vec4f, fill: f32 };
@@ -906,7 +908,7 @@ struct BldOut {
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
 ${CS_ATMO_WGSL}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f, eyeRel: vec4f, tint: vec4f, tintB: vec4f, sil: vec4f };   // tint/tintB＝Cesium の Model.color（float 240〜245）：tint＝色 rgba・tintB.x＝混ぜ方（−1 無し・0 HIGHLIGHT・1 REPLACE・間 MIX の量）・tintB.y＝輪郭線の太さ（device px）・sil＝輪郭線の色 rgba（float 248〜251・Model.silhouetteColor）   // eyeRel＝F.eye − meshOrigin（CPU double・float 236〜238）＝toEye を原点相対で組む（近接の裏面判定）   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 0, 0)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f, eyeRel: vec4f, tint: vec4f, tintB: vec4f, sil: vec4f };   // tint/tintB＝Cesium の Model.color（float 240〜245）：tint＝色 rgba・tintB.x＝混ぜ方（−1 無し・0 HIGHLIGHT・1 REPLACE・間 MIX の量）・tintB.y＝輪郭線の太さ（device px）・sil＝輪郭線の色 rgba（float 248〜251・Model.silhouetteColor）   // eyeRel＝F.eye − meshOrigin（CPU double・float 236〜238）＝toEye を原点相対で組む（近接の裏面判定）   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 鏡面の環境の立方体図あり, その最大 mip)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
