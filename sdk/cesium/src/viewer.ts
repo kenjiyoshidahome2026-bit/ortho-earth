@@ -53,8 +53,8 @@ function globeOptions(o: Any, target: HTMLElement): Any {
 }
 
 // ── CesiumWidget ──────────────────────────────────────────────────────────────
-// the globe's own furniture a Cesium page does not have (the star theatre's clock)
-const CSS = ".cesium-widget #sky-clock{display:none}";
+// the globe's own furniture a Cesium page does not have (the star theatre's clock, the solar zone's planet dots, names and orbits far out in space)
+const CSS = ".cesium-widget #sky-clock,.cesium-widget #solar-sky{display:none}";
 function addCss() {
 	if (document.getElementById("__csshim-css")) return;
 	const st = document.createElement("style"); st.id = "__csshim-css"; st.textContent = CSS; document.head.appendChild(st);

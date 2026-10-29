@@ -85,14 +85,22 @@ fn isInEarth(texcoord: vec2f, sceneSize: vec2f) -> f32 {
 	var ndc = texcoord * 2.0 - 1.0;
 	ndc -= X.d.xy;
 	let x = abs(ndc.x) * sceneSize.x; let y = abs(ndc.y) * sceneSize.y;
-	// Cesium の本文は clamp(0.0, 1.0, m)（下限＞上限＝GLSL では未定義）。実機（Mac の Metal・SwiftShader）の Cesium は max(min(0, m), 1)＝常に 1 の絵＝地球を隠さない＝同じ値にする
-	return max(min(0.0, max(sqrt(x * x + y * y) / max(abs(X.d.z * sceneSize.x), 1.0) - 0.8, 0.0)), 1.0);
+	// Cesium の本文は clamp(0.0, 1.0, m)（下限＞上限＝GLSL では未定義）。実機（Mac の Metal）の Cesium の絵＝min(1, m)＝地球を隠す（gl/poststage.js と同じ）
+	return min(1.0, max(sqrt(x * x + y * y) / max(abs(X.d.z * sceneSize.x), 1.0) - 0.8, 0.0));
+}
+// 太陽の光の玉（gl/poststage.js sunGlow と同式）
+fn sunGlow(uv: vec2f) -> vec3f {
+	let sp = (X.c.xy * 0.5 + 0.5) * X.size.xy;
+	let d = length(uv * X.size.xy - sp) / X.b.w;
+	return vec3f(1.0, 1.0, 0.72) * 0.75 * clamp(1.0 - d / 22.0, 0.0, 1.0) + vec3f(exp(-d * d / 2.0));
+}
+fn sceneAt(uv: vec2f) -> vec4f { let c = tex(src, uv); return vec4f(c.rgb + sunGlow(uv), c.a);
 }
 fn distorted(texcoord: vec2f, direction: vec2f, distortion: vec3f) -> vec4f {
 	let sceneSize = X.size.xy;
-	let r = isInEarth(texcoord + direction * distortion.r, sceneSize) * tex(src, texcoord + direction * distortion.r).r;
-	let g = isInEarth(texcoord + direction * distortion.g, sceneSize) * tex(src, texcoord + direction * distortion.g).g;
-	let b = isInEarth(texcoord + direction * distortion.b, sceneSize) * tex(src, texcoord + direction * distortion.b).b;
+	let r = isInEarth(texcoord + direction * distortion.r, sceneSize) * sceneAt(texcoord + direction * distortion.r).r;
+	let g = isInEarth(texcoord + direction * distortion.g, sceneSize) * sceneAt(texcoord + direction * distortion.g).g;
+	let b = isInEarth(texcoord + direction * distortion.b, sceneSize) * sceneAt(texcoord + direction * distortion.b).b;
 	return vec4f(clamp(vec3f(r, g, b), vec3f(0.0), vec3f(1.0)), 0.0);
 }
 @fragment fn fs(in: VOut) -> @location(0) vec4f {
@@ -126,7 +134,7 @@ fn distorted(texcoord: vec2f, direction: vec2f, distortion: vec3f) -> vec4f {
 	let oneMinus = max(1.0 - weightForLensFlare, 0.0);
 	result *= oneMinus * intensity;
 	result *= tex(texB, st3.xy) * weightForLensFlare * max(1.0 - length(st1.xy), 0.0) * 2.0;
-	let o = result + originalColor;
+	let o = result + sceneAt(uv);
 	return vec4f(o.rgb, clamp(max(o.a, max(o.r, max(o.g, o.b))), 0.0, 1.0));   // 透かした宇宙（premultiplied）の上でも光が乗る＝α を色の明るさまで上げる（色＞α は合成で落ちる）
 }`;
 // 被写界深度のぼかし（Cesium の GaussianBlur1D・USE_STEP_SIZE）：X.a＝(delta, sigma, stepSize, direction)・X.b.w＝dpr

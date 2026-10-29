@@ -113,19 +113,27 @@ float isInEarth(vec2 texcoord, vec2 sceneSize) {
 	NDC.xy -= u_earth.xy;
 	float X = abs(NDC.x) * sceneSize.x;
 	float Y = abs(NDC.y) * sceneSize.y;
-	return max(min(0.0, max(sqrt(X * X + Y * Y) / max(abs(u_earth.z * sceneSize.x), 1.0) - 0.8, 0.0)), 1.0);   // Cesium の clamp(0.0, 1.0, m)（下限＞上限＝未定義）を実機の Cesium の絵（常に 1）に固定＝GPU で揺れない
+	return min(1.0, max(sqrt(X * X + Y * Y) / max(abs(u_earth.z * sceneSize.x), 1.0) - 0.8, 0.0));   // Cesium の clamp(0.0, 1.0, m)（下限＞上限＝未定義）を実機（Mac の Metal）の Cesium の絵＝min(1, m)＝地球を隠す、に固定（SwiftShader は 1 を返す＝砂場の Cesium は地球ごと光る）
 }
+// 太陽の光の玉（Cesium は太陽を場面に描き、フレアはそれを光源に輪と筋を出す。この地図の場面に太陽は無い＝ここで足す）。Mac の Cesium の絵から：芯は白・
+// 半径 22 px（CSS）で直線に落ちる黄みの暈
+vec3 sunGlow(vec2 uv) {
+	vec2 sp = (u_sun.xy * 0.5 + 0.5) * czm_viewport.zw;
+	float d = length(uv * czm_viewport.zw - sp) / czm_pixelRatio;
+	return vec3(1.0, 1.0, 0.72) * 0.75 * clamp(1.0 - d / 22.0, 0.0, 1.0) + vec3(exp(-d * d / 2.0));
+}
+vec4 sceneAt(sampler2D tex, vec2 uv) { vec4 c = texture(tex, uv); return vec4(c.rgb + sunGlow(uv), c.a); }
 vec4 textureDistorted(sampler2D tex, vec2 texcoord, vec2 direction, vec3 distortion, bool isSpace) {
 	vec2 sceneSize = czm_viewport.zw;
 	vec3 color;
 	if (isSpace) {
-		color.r = isInEarth(texcoord + direction * distortion.r, sceneSize) * texture(tex, texcoord + direction * distortion.r).r;
-		color.g = isInEarth(texcoord + direction * distortion.g, sceneSize) * texture(tex, texcoord + direction * distortion.g).g;
-		color.b = isInEarth(texcoord + direction * distortion.b, sceneSize) * texture(tex, texcoord + direction * distortion.b).b;
+		color.r = isInEarth(texcoord + direction * distortion.r, sceneSize) * sceneAt(tex, texcoord + direction * distortion.r).r;
+		color.g = isInEarth(texcoord + direction * distortion.g, sceneSize) * sceneAt(tex, texcoord + direction * distortion.g).g;
+		color.b = isInEarth(texcoord + direction * distortion.b, sceneSize) * sceneAt(tex, texcoord + direction * distortion.b).b;
 	} else {
-		color.r = texture(tex, texcoord + direction * distortion.r).r;
-		color.g = texture(tex, texcoord + direction * distortion.g).g;
-		color.b = texture(tex, texcoord + direction * distortion.b).b;
+		color.r = sceneAt(tex, texcoord + direction * distortion.r).r;
+		color.g = sceneAt(tex, texcoord + direction * distortion.g).g;
+		color.b = sceneAt(tex, texcoord + direction * distortion.b).b;
 	}
 	return vec4(clamp(color, 0.0, 1.0), 0.0);
 }
@@ -164,7 +172,7 @@ void main() {
 	float oneMinusWeightForLensFlare = max(1.0 - weightForLensFlare, 0.0);
 	result *= oneMinusWeightForLensFlare * intensity;
 	result *= texture(starTexture, lensStarTexcoord) * pow(weightForLensFlare, 1.0) * max((1.0 - length(vec3(st1.xy, 0.0))), 0.0) * 2.0;
-	result += texture(colorTexture, v_textureCoordinates);
+	result += sceneAt(colorTexture, v_textureCoordinates);
 	out_FragColor = vec4(result.rgb, clamp(max(result.a, max(result.r, max(result.g, result.b))), 0.0, 1.0));   // 透かした宇宙の上でも光が乗る＝α を色の明るさまで上げる（premultiplied の色＞α は合成で落ちる）
 }`;
 // 被写界深度：Cesium の GaussianBlur1D（USE_STEP_SIZE・8 標本・重みは正規化しない＝同式）と DepthOfField.glsl（目からの奥行き＝Cesium の尺の深度から戻す）
