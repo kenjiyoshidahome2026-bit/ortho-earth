@@ -204,12 +204,15 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const gen = demGen;   // 取りに行っている間に setDem が来たら、この結果は捨てる（キャッシュに入れると新しい DEM の窓がずっと古い標高を引く）
 		// 失敗は null に畳む＝getCell は絶対に reject しない（呼び出し側の pending デクリメントが
 		// .then 購読のみのため、reject が漏れると読込インジケータが永久に残る）
-		let tile: TerrainTile | null = await loadTile!(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] cell fetch failed", k, e); return null; });
+		const own = (): Promise<TerrainTile | null> => loadTile!(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] cell fetch failed", k, e); return null; });
+		let tile: TerrainTile | null;
 		if ((range === 1 || range === 10) && demSrc?.covers(lngN, cellLat, range)) {   // 外来の DEM（#36）＝有効な画素だけ上書き（R01・R10。R90＝全球の眺めは既定のまま）
+			// 外来の DEM を先に：全部の画素が有効なら既定のタイルは取らない（バケット未収録の R01＝JAXA の 5° zip の取り寄せで 1 分前後待たされ、その間の地面は 0 m だった・フランスの CWT 2026-10-29）
 			const src = demSrc, d = await src.cell(lngN, cellLat, range).catch((e: unknown) => { console.warn("[terrain] dem cell failed", k, (e as Error)?.message); return null; });
 			if (src !== demSrc) return null;   // 待っている間に差し替えられた
-			if (d) tile = mergeDemCell(d, tile && tile.data && tile.width ? tile : null);
-		}
+			if (d && (d.valid ?? 0) >= 1) tile = d;
+			else { const t = await own(); tile = d ? mergeDemCell(d, t && t.data && t.width ? t : null) : t; }
+		} else tile = await own();
 		if (gen !== demGen && (range === 1 || range === 10)) return null;   // 待っている間に DEM が差し替えられた（外した・付けた）＝R01・R10 は DEM で中身が変わる
 		if (tile && !(tile.data && tile.width)) { console.warn("[terrain] malformed tile (Blob-contaminated cache?) -> treated as null", k); return null; }   // クラッシュ保険＝描画ループを絶対に落とさない（根治はローダ側の形検札）
 		if (tile) cacheTile(k, tile);

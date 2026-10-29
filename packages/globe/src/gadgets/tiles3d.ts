@@ -42,6 +42,7 @@ import type { Requester, ResolvedRequest } from "../request.ts";
 import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
+import { insideUnit, type GeomOut } from "../geom-tile.ts";
 
 /** タイルの content（読む欄だけ） */
 interface ContentJson { uri?: string; url?: string; metadata?: MetadataEntityJson; group?: number }
@@ -73,6 +74,7 @@ interface TileReply {
 	points: Array<{ n: number; pos: Float32Array<ArrayBuffer>; rgba: Uint8Array<ArrayBuffer>; origin: number[]; feat?: PointsFeat | null }>;
 	splats?: TileSplat[];
 	voxels?: TileVoxel[];
+	/** Geometry タイル（.geom）の分類の立体（geom-tile の decodeGeom） */ volumes?: GeomOut[];
 	stats: { triangles: number; points: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bytes?: number; copyright?: string[] | null };
 }
 /** worker が返す voxel（meshdecode の VoxelPrimOut）＝box は単位立方体 → ECEF の transform・region は経緯度高（voxel の VoxelData にそのまま） */
@@ -108,7 +110,11 @@ interface T3dNode {
 	extra?: T3dNode[] | null; owner?: T3dNode;
 	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; /** main のヒープに持つ写しの量（当たり・塗り直し・地物の番号）＝予算に数える（2026-10-20） */ mainBytes: number; pts: string[] | null; /** 点群の点の地物（スタイルで塗り直す元・pts と同じ並び） */ ptsFeat?: (PointsFeat | null | undefined)[] | null; splat?: SplatLayer[] | null; voxel?: SplatLayer[] | null; on: boolean; used: number; err: number;
 	pick?: PickPart[] | null; copyright?: string[] | null; meshN?: number; bbox?: number[] | null;
+	/** 分類の立体（.geom）と、いま renderer に出している柱の名・点群の内外の判定（β 空間） */ vols?: GeomOut[] | null; volKeys?: string[] | null; volTests?: VolTest[] | null;
+	/** 点群の写し（分類の立体がある時だけ）＝点ごとに内側の立体の色を混ぜ直す元（pos・origin＝β・base＝スタイル後の色） */ ptsSrc?: Array<{ pos: Float32Array; origin: number[]; base: Uint8Array; tinted: boolean }> | null;
 }
+/** 分類の立体 1 つの内外の判定（β 空間）：単位の形の座標 u＝Q·(β−bc)＋q0（Q＝列優先 3x3）・r2＝β の外接球の半径²・color＝0..1（α＝混ぜる量） */
+interface VolTest { shape: number; Q: Float64Array; q0: number[]; bc: number[]; r2: number; color: number[] }
 /** add／addI3S の opts（既定を補った物） */
 type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token?: string; splat?: Record<string, unknown> | null; voxel?: Record<string, unknown> | null };
 /** 1 つの tileset（3D Tiles か I3S＝kind "i3s"）。asset 等は 3D Tiles だけ・states は両方（I3S は手綱に setFeatureState が無い＝常に空） */
@@ -136,6 +142,8 @@ export interface Tiles3DEnv {
 	setMeshCut?: ((name: string, cut: number) => void) | null;
 	/** 利用者のシェーダの名（map.setCustomShader）｜null（renderer の meshCustom） */
 	setMeshCustom?: ((name: string, id: string | null) => void) | null;
+	/** 分類の柱（renderer の "classify"）＝{ pos・idx（β の原点相対・閉じた三角形）・origin・color（0..1・直の α）・type（0 両方・1 地形・2 3D）}｜null＝外す */
+	setClassify?: ((name: string, data: { pos: Float32Array; idx: Uint32Array; origin: number[]; color: number[]; type: number } | null) => void) | null;
 	pickEnv?: (() => MeshPickEnv | null) | null;
 	setAttribution?: ((id: string, text: string | null) => void) | null;
 	lowMem?: boolean; signal?: AbortSignal; requester?: Requester | null; ell?: boolean;
@@ -207,7 +215,7 @@ let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;
 const cssRGB = (c: string): number[] | null => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB!.fillStyle = "#000"; ctxRGB!.fillStyle = c; const f = ctxRGB!.fillStyle as string, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -427,12 +435,16 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			if (set.states.size || n.paint) paintNode(n);   // feature state の色とスタイルは後から読んだタイルにも
 			n.copyright = r.stats?.copyright || null;   // glTF の asset.copyright（W8）＝出典の欄へ
 			n.meshN = r.batches.length; n.bbox = r.batches[0]?.mesh.bbox?.map(v => +v.toFixed(5)) ?? null;
+			if (r.volumes?.length) { n.vols = r.volumes; for (const g of r.volumes) for (const q of g.parts) n.mainBytes += q.pos.byteLength + q.idx.byteLength; }   // 分類の立体（.geom）＝出すのは setOn（見える時だけ柱を上げる）
 			if (r.points.length) {
 				set.pts ??= map.overlay({ builtin: "points" }, { name: `tiles3d:${set.id}` });
 				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1], edl: edlOf(set) });
 				n.ptsFeat = r.points.map(p => p.feat);
+				const keep = classifying();   // 分類の立体のある地図＝点の写しを持つ（内側の点に立体の色を混ぜる）
+				n.ptsSrc = keep ? [] : null;
 				n.pts = r.points.map((p, k) => {
 					const q = `${n.id}:${k}`, sp = p.feat ? stylePoints(set, p.feat, p.n) : null, rgba = sp?.rgba ?? p.rgba;
+					if (keep) { n.ptsSrc!.push({ pos: p.pos.slice(), origin: [...p.origin], base: rgba.slice(), tinted: false }); n.mainBytes += p.pos.byteLength + rgba.byteLength; }
 					n.bytes += p.pos.byteLength + p.rgba.byteLength; if (p.feat) n.mainBytes += p.feat.local.byteLength + p.feat.rgba.byteLength;
 					set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba, origin: p.origin, ...(sp?.size && { size: sp.size }), att: attOf(set, n) }, [p.pos.buffer, rgba.buffer, ...(sp?.size ? [sp.size.buffer] : [])]);
 					return q;
@@ -467,6 +479,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				});
 			}
 			if (r.stats.voxelsSkipped && !set.voxelWarned) { set.voxelWarned = true; console.warn(`[tiles3d] ${set.id}: EXT_primitive_voxels skipped (${r.stats.voxelsSkipped}+ grids)${hasVoxel() ? " (unsupported shape or attribute)" : "; map.use(voxelPlugin()) from @ortho-earth/voxel to draw voxels"}`); }
+			if (n.ptsSrc) tintPoints(n);
 			gpuBytes += n.bytes; mainBytes += n.mainBytes; set.stats.loaded++; set.stats.triangles += r.stats.triangles; set.stats.points += r.stats.points; set.stats.splats += r.stats.splats || 0; set.stats.voxels += r.stats.voxels || 0; set.stats.bytes += r.stats.bytes || 0;
 			// 上げた直後は伏せておく（次の update が出す物だけ出す）。旧＝上げた直後は見えていて次の update で消した＝兄弟が揃う前の子が
 			// 1 枚ずつ現れては消える（描いては消す・2026-10-19）。メッシュは上で転送の前に伏せた。点と splat はここで伏せる
@@ -569,6 +582,89 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const a = Math.max(0, Math.min(1, b?.amount ?? 0.5));
 		return a <= 0 ? -1 : a >= 1 ? 1 : a;
 	};
+	// 分類の立体（.geom）→ 分類の柱（renderer の "classify"）。地物ごとにスタイルの色（無ければ白・Cesium の既定）・show:false は出さない。同じ色の立体は 1 本の柱に束ねる。
+	// 頂点は ECEF → この地図の世界（worldOf＝tileset の高さの直しも同じ）。on＝false・立体なし＝出している柱を外す
+	const CLS_TYPE: Record<string, number> = { both: 0, terrain: 1, tiles3d: 2 };
+	const volsOn = (n: T3dNode, on: boolean) => {
+		for (const k of n.volKeys || []) setClassify?.(k, null);
+		const had = !!n.volTests?.length;
+		n.volKeys = null; n.volTests = null;
+		if (!on || !n.vols) { if (had) tintAll(); return; }
+		const set = n.set, sty = set.style ?? null, baseH = -liftOf(set, n), type = CLS_TYPE[set.opts.classificationType ?? "both"] ?? 0, keys: string[] = [];
+		set.metaBase ??= { ...(entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema)?.properties || {}) };
+		const base = { ...set.metaBase, ...n.tileMeta?.properties, ...n.contentMeta?.properties };
+		n.vols.forEach((g, gi) => {
+			const groups = new Map<string, { color: number[]; parts: GeomOut["parts"] }>();
+			for (const q of g.parts) {
+				const state = set.states.get(q.id) ?? null, x = { props: { ...base, ...featureProperties(g.table, q.id) }, id: q.id, state };
+				if ((sty?.show && !sty.show(x)) || state?.show === false) continue;
+				const sc = sty?.color?.(x), st = state?.color ? cssRGB(String(state.color)) : null;
+				const c = st ? [st[0], st[1], st[2], sc?.[3] ?? 255] : sc ?? [255, 255, 255, 255], key = c.join(",");
+				let grp = groups.get(key); if (!grp) groups.set(key, grp = { color: c.map(v => v / 255), parts: [] });
+				grp.parts.push(q);
+			}
+			const o = worldOf(g.center, baseH, ell, EARTH_M);
+			let k = 0;
+			for (const grp of groups.values()) for (const q of grp.parts) (n.volTests ??= []).push(volTest(g.center, q, baseH, grp.color));
+			if (!setClassify) return;
+			for (const grp of groups.values()) {
+				const nv = grp.parts.reduce((a, q) => a + q.pos.length, 0), ni = grp.parts.reduce((a, q) => a + q.idx.length, 0);
+				const pos = new Float32Array(nv), idx = new Uint32Array(ni);
+				let pv = 0, pi = 0;
+				for (const q of grp.parts) {
+					const v0 = pv / 3;
+					for (let i = 0; i < q.pos.length; i += 3) { const w = worldOf([g.center[0] + q.pos[i], g.center[1] + q.pos[i + 1], g.center[2] + q.pos[i + 2]], baseH, ell, EARTH_M); pos[pv++] = w[0] - o[0]; pos[pv++] = w[1] - o[1]; pos[pv++] = w[2] - o[2]; }
+					for (let i = 0; i < q.idx.length; i++) idx[pi++] = q.idx[i] + v0;
+				}
+				const key = `${n.ward ?? `t3d:${set.id}:${n.id}`}~cls${gi}.${k++}`;
+				setClassify(key, { pos, idx, origin: o, color: grp.color, type }); keys.push(key);
+			}
+		});
+		n.volKeys = keys;
+		tintAll();
+	};
+	// 立体 1 つ → β 空間の内外の判定。ECEF → β は立体の中心で線形に（立体は数十 m＝地球の丸みは効かない）：J＝worldOf の 1 m ごとの差・u＝inv·(c＋J⁻¹(β−βc))
+	const volTest = (center: number[], q: GeomOut["parts"][number], baseH: number, color: number[]): VolTest => {
+		const I = q.inv, c = [-I[12], -I[13], -I[14]];
+		// 立体の中心（単位の形の原点）の ECEF＝inv の逆の平行移動＝M の t。inv の 3x3 の逆で求める
+		const L = [I[0], I[1], I[2], I[4], I[5], I[6], I[8], I[9], I[10]];
+		const a = L[0], b = L[3], cc = L[6], d = L[1], e = L[4], f = L[7], g = L[2], h = L[5], k = L[8];
+		const A = e * k - f * h, B = -(d * k - f * g), C = d * h - e * g, det = a * A + b * B + cc * C;
+		const Mi = [A, -(b * k - cc * h), b * f - cc * e, B, a * k - cc * g, -(a * f - cc * d), C, -(a * h - b * g), a * e - b * d].map(v => v / det);   // 行優先＝inv の 3x3 の逆＝M の 3x3
+		const ce = [Mi[0] * c[0] + Mi[1] * c[1] + Mi[2] * c[2], Mi[3] * c[0] + Mi[4] * c[1] + Mi[5] * c[2], Mi[6] * c[0] + Mi[7] * c[1] + Mi[8] * c[2]];
+		const bc = worldOf(ce, baseH, ell, EARTH_M), J: number[][] = [0, 1, 2].map(i => { const t = [...ce]; t[i] += 1; const w = worldOf(t, baseH, ell, EARTH_M); return [w[0] - bc[0], w[1] - bc[1], w[2] - bc[2]]; });   // 列＝ECEF の各軸 1 m の β
+		const ja = J[0][0], jb = J[1][0], jc = J[2][0], jd = J[0][1], je = J[1][1], jf = J[2][1], jg = J[0][2], jh = J[1][2], jk = J[2][2];
+		const JA = je * jk - jf * jh, JB = -(jd * jk - jf * jg), JC = jd * jh - je * jg, jdet = ja * JA + jb * JB + jc * JC;
+		const Ji = [JA, -(jb * jk - jc * jh), jb * jf - jc * je, JB, ja * jk - jc * jg, -(ja * jf - jc * jd), JC, -(ja * jh - jb * jg), ja * je - jb * jd].map(v => v / jdet);   // 行優先 J⁻¹（β → m）
+		const Q = new Float64Array(9);   // 列優先：u = inv3 · J⁻¹ · (β−βc)（ce は単位の形の原点なので q0＝0）
+		for (let r = 0; r < 3; r++) for (let col = 0; col < 3; col++) { let sum = 0; for (let m = 0; m < 3; m++) sum += I[m * 4 + r] * Ji[m * 3 + col]; Q[col * 3 + r] = sum; }
+		let r2 = 0; for (let i = 0; i < q.pos.length; i += 3) { const dx = center[0] + q.pos[i] - ce[0], dy = center[1] + q.pos[i + 1] - ce[1], dz = center[2] + q.pos[i + 2] - ce[2]; r2 = Math.max(r2, dx * dx + dy * dy + dz * dz); }
+		const rb = Math.sqrt(r2) * 1.01 / EARTH_M;
+		return { shape: q.shape, Q, q0: [0, 0, 0], bc, r2: rb * rb, color };
+	};
+	const classifying = () => { for (const s of sets.values()) if (s.opts.classificationType) return true; return false; };
+	// 点群の 1 タイル：内側の点に立体の色を α で混ぜる（重なりは後の立体が上）。どの立体にも入らない＝元の色のまま（混ぜてあった物だけ戻す）
+	const tintPoints = (n: T3dNode) => {
+		if (!n.ptsSrc || !n.pts || !n.set.pts) return;
+		const tests: VolTest[] = []; for (const s of sets.values()) if (s.opts.classificationType) for (const m of s.ready) if (m.on && m.volTests) tests.push(...m.volTests);
+		n.ptsSrc.forEach((src, k) => {
+			const { pos, origin: o, base } = src, out = tests.length ? base.slice() : null;
+			let hit = false;
+			if (out) for (const t of tests) {
+				const ox = o[0] - t.bc[0], oy = o[1] - t.bc[1], oz = o[2] - t.bc[2], Q = t.Q, a = t.color[3];
+				for (let i = 0, j = 0; i < pos.length; i += 3, j += 4) {
+					const x = pos[i] + ox, y = pos[i + 1] + oy, z = pos[i + 2] + oz;
+					if (x * x + y * y + z * z > t.r2) continue;
+					if (!insideUnit(t.shape, Q[0] * x + Q[3] * y + Q[6] * z, Q[1] * x + Q[4] * y + Q[7] * z, Q[2] * x + Q[5] * y + Q[8] * z)) continue;
+					out[j] = Math.round(out[j] * (1 - a) + t.color[0] * 255 * a); out[j + 1] = Math.round(out[j + 1] * (1 - a) + t.color[1] * 255 * a); out[j + 2] = Math.round(out[j + 2] * (1 - a) + t.color[2] * 255 * a);
+					hit = true;
+				}
+			}
+			if (hit) { n.set.pts!.post({ type: "paint", q: n.pts![k], rgba: out! }); src.tinted = true; }
+			else if (src.tinted) { n.set.pts!.post({ type: "paint", q: n.pts![k], rgba: base.slice() }); src.tinted = false; }
+		});
+	};
+	const tintAll = () => { for (const s of sets.values()) for (const m of s.ready) if (m.ptsSrc) tintPoints(m); };
 	// スタイルを差し替え＝上げてあるタイルは塗り直す（元の色を持っていない・show に MASK が要るのに無い＝読み直す）
 	const styleOf = (spec: Tiles3DStyle | null | undefined) => compileStyle(isCesiumStyle(spec) ? cesiumToSpec(spec) : spec as StyleSpec | null | undefined);   // Cesium 形は訳す（訳せなければ例外）
 	const setStyle = (set: T3dSet, spec: Tiles3DStyle | null | undefined) => {
@@ -576,8 +672,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		set.styleSpec = spec ?? null; set.style = st;
 		const sty = set.style;
 		for (const n of set.loaded()) {
-			if (n.state === "ready" && n.pts && n.ptsFeat) n.ptsFeat.forEach((f, k) => { if (!f) return; const sp = stylePoints(set, f, f.rgba.length >> 2); set.pts?.post({ type: "paint", q: n.pts![k], rgba: sp?.rgba ?? new Uint8Array(f.rgba), size: sp?.size ?? null }); });
+			if (n.state === "ready" && n.pts && n.ptsFeat) n.ptsFeat.forEach((f, k) => { if (!f) return; const sp = stylePoints(set, f, f.rgba.length >> 2), rgba = sp?.rgba ?? new Uint8Array(f.rgba); if (n.ptsSrc?.[k]) { n.ptsSrc[k].base = rgba.slice(); n.ptsSrc[k].tinted = false; } set.pts?.post({ type: "paint", q: n.pts![k], rgba, size: sp?.size ?? null }); });
+			if (n.state === "ready" && n.ptsSrc) tintPoints(n);
 			if (n.state !== "ready" || !n.ward) continue;
+			if (n.vols) { if (n.on) volsOn(n, true); continue; }   // 分類の立体＝色だけ塗り直す（柱を上げ直す）
 			if ((sty && !n.paint) || (sty?.show && n.paint?.some(p => p.alpha0 === "OPAQUE" && !p.mask))) unload(n);
 			else paintNode(n);
 		}
@@ -610,6 +708,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const unload = (n: T3dNode) => {
 		if (n.state !== "ready") return;
 		if (n.ward) setMesh(n.ward, null);
+		volsOn(n, false); n.vols = null; n.ptsSrc = null;
 		if (n.pts) for (const q of n.pts) n.set.pts?.post({ type: "remove", q });
 		if (n.splat) for (const h of n.splat) { try { h.remove(); } catch (err) { console.warn("[tiles3d] splat remove", (err as Error)?.message || err); } }
 		if (n.voxel) for (const h of n.voxel) { try { h.remove(); } catch (err) { console.warn("[tiles3d] voxel remove", (err as Error)?.message || err); } }
@@ -628,6 +727,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		if (n.on === on || n.state !== "ready") return;
 		n.on = on;
 		if (n.ward) meshVis(n.ward, on);
+		if (n.vols) volsOn(n, on);
 		if (n.pts) for (const q of n.pts) n.set.pts?.post({ type: "vis", q, on });
 		if (n.splat) for (const h of n.splat) h.setVisible(on);
 		if (n.voxel) for (const h of n.voxel) h.setVisible(on);
@@ -773,6 +873,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const sp = set.root.sphere;
 			if (opts.heights === "ellipsoidal") set.ellipsoidal = await loadGeoid().then(() => true, () => false);   // 楕円体高＝タイルを読む前に格子を（liftOf）
 			sets.set(id, set);
+			if (opts.classificationType) for (const s of sets.values()) if (s !== set) for (const m of s.loaded()) if (m.pts && !m.ptsSrc) unload(m);   // 点群は写しを持って読み直す（内側の点に色を混ぜる）
 			if (opts.fit !== false && sp) {   // 寄る＝境界球が画面に収まる所へ（傾けて）
 				const [lon, lat] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]);
 				const z = Math.log2(Math.min(size().w, size().h) / (cam.dpr || dpr || 1) * 360 / (256 * Math.max(1e-6, 2.4 * sp.r / 111320)));

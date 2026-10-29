@@ -3198,6 +3198,7 @@ const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); ret
 	setMeshPaint: (name, data) => { wPost({ type: "set", cmd: "meshPaint", data, prop: name }, data ? [data.rgba.buffer] : []); requestDraw(); },   // 画素ごとの地物の番号から塗った絵（photogrammetry の分類）
 	setMeshCut: (name, cut) => { wPost({ type: "set", cmd: "meshCut", data: cut, prop: name }); requestDraw(); },
 	setMeshCustom: (name, id) => { wPost({ type: "set", cmd: "meshCustom", data: id, prop: name }); requestDraw(); },   // 利用者のシェーダ（tileset.customShader）   // 不透明の束を MASK に（feature state の show:false）
+	setClassify: (name, data) => { wPost({ type: "set", cmd: "classify", prop: name, data }, data ? [data.pos.buffer, data.idx.buffer] : []); requestDraw(); },   // 分類の立体（.geom・classificationType）＝分類の柱
 	pickEnv: meshPickEnv,   // 当たり（W7）
 	setAttribution: (id, text) => setSrcAttr("t3d:" + id, text ? sanitizeHTML(String(text)) : null),   // tileset の出典（W8・opts.attribution）＝出典の欄（#attr）へ
 }) as T3dLive; };
