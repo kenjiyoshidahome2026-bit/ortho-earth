@@ -1259,7 +1259,7 @@ const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "first
 let ugT = 0, ugBusy = false, ugLastD = Infinity;   // ugLastD＝直近サンプルの eye直下地表からの余裕[m]（静止時コミット用。Infinity=地上/不明）
 const UG_FADE_TOP_M = 20, UG_FADE_FULL_M = -15, UG_WAIT_MS = 20000;
 function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove から）：eye直下の地表との高低差→オーバーレイ不透明度。force＝スロットル無視（起動/settle/到着）
-	if (!getHeight || ugBusy || (!force && performance.now() - ugT < 60)) return;
+	if ((!getHeight && !demMain) || ugBusy || (!force && performance.now() - ugT < 60)) return;
 	ugT = performance.now(); ugBusy = true;
 	// 動作中＝帯（smoothstep）で滑らかに／静止中に届いた答え＝確定（地中なら全黒・地上なら解除）＝commitUnderground と同じ裁定
 	const done = (t: number, d: number) => { ugBusy = false; ugLastD = d; (undergroundEl.style as { opacity: string | number }).opacity = moving ? t : (d < 0 ? 1 : 0); };
@@ -1270,7 +1270,10 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	const [lon, lat] = betaToLonLat(st.eye);   // ★eye は β空間（cameraState が S⁻¹ 済み）＝β→測地緯度の一段だけ。生 asin=地心(−10km)・worldToLonLat=S⁻¹二重(+10km) はどちらも ?ell=1 で直下点が 10km 飛ぶ（8/15・9/21）
 	const eyeAltM = (len - 1) * EARTH_M;   // eye の海抜[m]（軌道は sea-level 球なので len-1 がそのまま高度）
 	const UG_TIMEOUT = Symbol("ug-timeout");
-	Promise.race([Promise.resolve(getHeight(lon, lat, cam.zoom, { wait: true })), new Promise(r => setTimeout(r, UG_WAIT_MS, UG_TIMEOUT))])
+	// 外来の DEM（setTerrain・Cesium の地形）がある地図は描いている地形と同じ出どころ（heightAt＝外来が先）と誇張で測る。旧＝既定の DTM だけ＝
+	// グランドキャニオンの谷の中・エベレストの際の目（Cesium の公式例 high-dynamic-range ほか）が既定の DTM の山に埋まった扱いで全面灰色（2026-10-29）
+	const ground = demMain ? heightAt(lon, lat).then(h => h * TERR_EXAG) : Promise.resolve(getHeight!(lon, lat, cam.zoom, { wait: true }));
+	Promise.race([ground, new Promise(r => setTimeout(r, UG_WAIT_MS, UG_TIMEOUT))])
 		.then(h => {
 			if (h === UG_TIMEOUT) { ugBusy = false; return; }   // ローダ無応答＝今の不透明度を据え置き（次の契機で再挑戦）
 			if (clipFor("terrain") && clipDistanceM(clipFor("terrain")!, lon, lat, eyeAltM) < 0) return done(0, Infinity);   // 断面（#111）＝目が地形の面で切られた側（周りに地面が無い）＝地中でない
