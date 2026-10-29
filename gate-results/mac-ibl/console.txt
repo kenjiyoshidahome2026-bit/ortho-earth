@@ -1,0 +1,5 @@
+== image-based-lighting backend=webgpu
+== gltf-pbr-extensions backend=webgpu
+== pbr-lighting-dev backend=webgpu
+== 3d-models backend=webgpu
+== 3d-models-coloring backend=webgpu

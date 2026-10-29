@@ -1,0 +1,174 @@
+{
+ "at": "2026-10-29T09:07:42.673Z",
+ "cesium": "1.146.0",
+ "n": 5,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 3,
+  "3": 2,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 3,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 3,
+   "examples": [
+    "3d-models",
+    "3d-models-coloring",
+    "gltf-pbr-extensions"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-models",
+   "level": 2,
+   "reasons": [
+    "picture: colour 94% · edges 99% of the cells match · a patch of 139 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2885,
+    "n": 3072,
+    "colour": 0.9446614583333334,
+    "edge": 0.9908854166666666,
+    "blob": 139
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-models-coloring",
+   "level": 2,
+   "reasons": [
+    "picture: colour 95% · edges 99% of the cells match · a patch of 119 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2896,
+    "n": 3072,
+    "colour": 0.9469401041666666,
+    "edge": 0.9918619791666666,
+    "blob": 119
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "gltf-pbr-extensions",
+   "level": 2,
+   "reasons": [
+    "picture: colour 74% · edges 80% of the cells match · a patch of 710 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2211,
+    "n": 3072,
+    "colour": 0.7353515625,
+    "edge": 0.8001302083333334,
+    "blob": 710
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "image-based-lighting",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2825,
+    "n": 3072,
+    "colour": 0.939453125,
+    "edge": 0.958984375,
+    "blob": 17
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "pbr-lighting-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2888,
+    "n": 3072,
+    "colour": 0.9967447916666666,
+    "edge": 0.9427083333333334,
+    "blob": 1
+   },
+   "dev": true,
+   "ion": true
+  }
+ ]
+}
