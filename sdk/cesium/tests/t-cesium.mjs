@@ -7,6 +7,8 @@ import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
 import { gltfSphere } from "../src/gltf.ts";
 import { sphereOfVolume } from "../src/tileset.ts";
 import { clippingOriginOf, clipSpecOf } from "../src/clipping.ts";
+import { pntsSphere } from "../src/timepoints.ts";
+import { readFileSync, existsSync } from "node:fs";
 import { extentOfLayerJson, unionExtents } from "../src/i3s.ts";
 import { rasterSourceOf, mercatorRows, adjustPaint } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
@@ -448,6 +450,16 @@ for (const g of [
 	ok("clipping: kept below 50 m + 20 m, cut above", Math.abs(at(60) - 10) < 1e-3 && Math.abs(at(80) + 10) < 1e-3);
 	ok("clipping: the models only, edge 1 px white, no caps", spec.targets.join() === "models" && spec.edge.width === 1 && spec.edge.color.join() === "1,1,1" && spec.cap === false);
 	ok("clipping: a disabled collection clips nothing", clipSpecOf({ ...coll, enabled: false }, Matrix4.IDENTITY).spec === null);
+}
+
+// TimeDynamicPointCloud: a .pnts frame's sphere = its points + RTC_CENTER (what zoomTo frames)
+{
+	const f = new URL("../../../.cache/csexamples/1.146.0/SampleData/Cesium3DTiles/PointCloud/PointCloudTimeDynamic/0.pnts", import.meta.url);
+	if (existsSync(f)) {
+		const b = readFileSync(f), s = pntsSphere(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+		ok("pnts sphere: centred on RTC_CENTER, the 5 m cube's half diagonal", !!s && Math.abs(s.center.x - 1215012.88) < 1 && Math.abs(s.radius - 4.33) < 0.05);
+	}
+	ok("pnts sphere: not a pnts", pntsSphere(new ArrayBuffer(40)) === null);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
