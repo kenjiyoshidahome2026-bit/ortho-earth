@@ -111,7 +111,7 @@ void main() {
 	o = vec4(float(v_id & 255u), float((v_id >> 8) & 255u), float((v_id >> 16) & 255u), float((v_id >> 24) & 255u)) / 255.0;
 }`;
 // Eye Dome Lighting（3D Tiles の点群の pointShading・Cesium の PointCloudEyeDomeLighting と同じ式）：点を不透明の丸で色と奥行き（cpos.w）の 2 枚へ描き（深度テスト付き）、
-// 合成で上下左右 4 画素の奥行きの log2 の段差 Σmax(0, log2 d − log2 dn)／4 を exp(−段差×300×強さ) で暗くする（距離＝半径 px）
+// 合成で上下左右 4 画素の奥行きの log2 の段差 Σmax(0, log2 d − log2 dn)／（有る隣の数） を exp(−段差×300×強さ) で暗くする（距離＝半径 px）
 const FS_EDL = `#version 300 es
 precision highp float;
 in vec4 v_col;
@@ -132,17 +132,18 @@ precision highp float;
 uniform sampler2D u_col; uniform sampler2D u_dep; uniform vec2 u_texel; uniform vec2 u_distStr;
 in vec2 v_uv;
 out vec4 o;
-float nb(float l2, vec2 off) {
+vec2 nb(float l2, vec2 off) {   // (response, 1) or (0, 0) when the neighbour is empty: averaged over the neighbours present, as Cesium does
 	float dist = u_distStr.x;
 	float d0 = texture(u_dep, v_uv + off * floor(dist)).r, d1 = texture(u_dep, v_uv + off * ceil(dist)).r;
-	if (d0 <= 0.0 || d1 <= 0.0) return 0.0;
-	return max(0.0, l2 - log2(mix(d0, d1, fract(dist))));
+	if (d0 <= 0.0 || d1 <= 0.0) return vec2(0.0);
+	return vec2(max(0.0, l2 - log2(mix(d0, d1, fract(dist)))), 1.0);
 }
 void main() {
 	float d = texture(u_dep, v_uv).r;
 	if (d <= 0.0) discard;
 	float l2 = log2(d);
-	float r = (nb(l2, vec2(-u_texel.x, 0.0)) + nb(l2, vec2(u_texel.x, 0.0)) + nb(l2, vec2(0.0, -u_texel.y)) + nb(l2, vec2(0.0, u_texel.y))) / 4.0;
+	vec2 rc = nb(l2, vec2(-u_texel.x, 0.0)) + nb(l2, vec2(u_texel.x, 0.0)) + nb(l2, vec2(0.0, -u_texel.y)) + nb(l2, vec2(0.0, u_texel.y));
+	float r = rc.y > 0.0 ? rc.x / rc.y : 0.0;
 	o = vec4(texture(u_col, v_uv).rgb * exp(-r * 300.0 * u_distStr.y), 1.0);
 }`;
 // 読んだ窓（RGBA8・side×side・GL の並び＝下の行が先）から中心に一番近い 0 でない番号を選ぶ（純関数・node の検定 tests/pick.mjs が読む）
