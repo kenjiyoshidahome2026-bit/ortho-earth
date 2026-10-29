@@ -19,6 +19,7 @@ import { I3SDataProvider } from "./i3s.ts";
 import { syncImagery } from "./imagery.ts";
 import { skyBoxLayer } from "./skybox.ts";
 import { syncLighting } from "./lighting.ts";
+import { TimePointsDrawer, isTimeDynamicPointCloud } from "./timepoints.ts";
 import { PrimitiveDrawer, isGeometryPrimitive, isDebugAxes, debugAxesPrimitive } from "./primitives.ts";
 import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
 import { ParticleDrawer, isParticleSystem } from "./particles.ts";
@@ -142,8 +143,9 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	const particles = new ParticleDrawer(host);
 	this._orthoParticles = particles;
 	const cloudsDr = new CloudDrawer(host);
+	const timePoints = new TimePointsDrawer(host);
 	this._orthoClouds = cloudsDr;
-	scene.preRender.addEventListener((_s: Any, time: Any) => { prims.update(); colls.update(); voxels.update(); particles.update(time ?? this._clock.currentTime); cloudsDr.update(); });
+	scene.preRender.addEventListener((_s: Any, time: Any) => { prims.update(); colls.update(); voxels.update(); particles.update(time ?? this._clock.currentTime); cloudsDr.update(); timePoints.update(time ?? this._clock.currentTime); });
 	(scene as Any).__tilesets = tilesets;
 	const debugAxes = new Map<Any, Any>();
 	const onAdd = (p: Any) => {
@@ -155,10 +157,11 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		else if (isVoxelPrimitive(p)) voxels.add(p);
 		else if (isParticleSystem(p)) particles.add(p);   // ParticleSystem (particles.ts): Cesium steps it, the globe's sprites overlay draws it
 		else if (isCloudCollection(p)) cloudsDr.add(p);   // CloudCollection (clouds.ts): Cesium's cloud shader in the sprites overlay
+		else if (isTimeDynamicPointCloud(p)) timePoints.add(p);   // TimeDynamicPointCloud (timepoints.ts): one .pnts tileset per interval, shown by the clock
 		else if (p && typeof p.add === "function" && typeof p.get === "function" && p.primitiveAdded) { for (let i = 0; i < p.length; i++) onAdd(p.get(i)); p.primitiveAdded.addEventListener(onAdd); p.primitiveRemoved.addEventListener(onRemove); }
 		else unsupported(`scene.primitives.add(${p?.constructor?.name ?? typeof p})`);
 	};
-	const onRemove = (p: Any) => { prims.remove(debugAxes.get(p) ?? p); debugAxes.delete(p); colls.remove(p); voxels.remove(p); particles.remove(p); cloudsDr.remove(p); if (p instanceof I3SDataProvider) p.__detach(); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
+	const onRemove = (p: Any) => { prims.remove(debugAxes.get(p) ?? p); debugAxes.delete(p); colls.remove(p); voxels.remove(p); particles.remove(p); cloudsDr.remove(p); timePoints.remove(p); if (p instanceof I3SDataProvider) p.__detach(); if (p instanceof Cesium3DTileset) { const i = tilesets.indexOf(p); if (i >= 0) tilesets.splice(i, 1); p.__detach(); } };
 	scene.primitives.primitiveAdded.addEventListener(onAdd); scene.primitives.primitiveRemoved.addEventListener(onRemove);
 	scene.groundPrimitives.primitiveAdded.addEventListener(onAdd);
 
