@@ -1,0 +1,18 @@
+== aec-tileset-metadata-filtering backend=webgpu
+   1× pageerror: tileset.metadata.getProperty is not a function
+== billboardclamptoground-dev backend=webgpu
+   1× error: TypeError: scene.updateHeight is not a function |     at Billboard._updateClamping (http://localhost:5460/node_modules/.vite/deps/engine-qwtEOhEZ.js?v=b1b7795a:120510:36)
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 2,0 3,0 0,1 1,1 2,1 3,1 (1/5)
+== elevation-band-material backend=webgpu
+== ground-polyline-material-dev backend=webgpu
+   1× error: DeveloperError
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 2,0 3,0 0,1 1,1 2,1 3,1 (1/5)
+== polylines-on-terrain-dev backend=webgpu
+   1× error: DeveloperError
+== shadows-dev backend=webgpu
+   1× pageerror: DeveloperError
+== terrain-exaggeration backend=webgpu
+   1× error: TypeError: scene.getHeight is not a function |     at TerrainOffsetProperty._updateClamping (http://localhost:5460/node_modules/.vite/deps/engine-qwtEOhEZ.js?v=b1b7795a:77448:23)
+== volumecloud backend=webgpu
+   1× error: DeveloperError
+== high-dynamic-range backend=webgpu
