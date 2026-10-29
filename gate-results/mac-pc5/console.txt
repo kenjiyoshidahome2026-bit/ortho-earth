@@ -1,0 +1,66 @@
+== 3d-tiles-1.1-cdb-yemen backend=webgpu
+== 3d-tiles-1.1-photogrammetry backend=webgpu
+== 3d-tiles-1.1-photogrammetry-classification backend=webgpu
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+== 3d-tiles-1.1-s2-globe backend=webgpu
+== 3d-tiles-adjust-height backend=webgpu
+== 3d-tiles-batch-table-hierarchy backend=webgpu
+== 3d-tiles-bim backend=webgpu
+== 3d-tiles-clipping-planes backend=webgpu
+== 3d-tiles-compare backend=webgpu
+== 3d-tiles-edge-visibility backend=webgpu
+== 3d-tiles-feature-picking backend=webgpu
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+== 3d-tiles-feature-styling backend=webgpu
+== 3d-tiles-formats backend=webgpu
+== 3d-tiles-gaussian-splats-with-lod backend=webgpu
+   1× warning: [tiles3d] t1: KHR_gaussian_splatting drawn as points (22178+); map.use(splatPlugin()) from @ortho-earth/splat to draw Gaussian splats
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+== 3d-tiles-gaussian-splatting backend=webgpu
+   1× warning: [tiles3d] t1: KHR_gaussian_splatting drawn as points (51887+); map.use(splatPlugin()) from @ortho-earth/splat to draw Gaussian splats
+== 3d-tiles-interactivity backend=webgpu
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+== 3d-tiles-interior backend=webgpu
+== 3d-tiles-photogrammetry backend=webgpu
+== 3d-tiles-photogrammetry-classification backend=webgpu
+== 3d-tiles-point-cloud backend=webgpu
+== 3d-tiles-point-cloud-classification backend=webgpu
+== 3d-tiles-point-cloud-shading backend=webgpu
+== 3d-tiles-point-cloud-styling backend=webgpu
+== 3d-tiles-property-lod-river backend=webgpu
+== 3d-tiles-terrain-classification backend=webgpu
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/4/8/5.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/3/4/2.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/2/2/1.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/5/17/11.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/6/34/22.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/8/139/88.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/9/279/177.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/7/69/44.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/10/558/355.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/10/559/355.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/10/558/354.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/10/559/354.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/11/1117/710.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/11/1117/709.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/11/1116/709.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/11/1116/710.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/11/1118/710.vctr?v=1 unknown tile content "vctr"
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/5737/11/1118/709.vctr?v=1 unknown tile content "vctr"
+== 3d-tiles-vertical-exaggeration backend=webgpu
+== aec-tileset-metadata-filtering backend=webgpu
+== cesium-osm-buildings backend=webgpu
+== custom-shaders-3d-tiles backend=webgpu
+== czml-3d-tiles backend=webgpu
+== drape-imagery-on-3d-tiles backend=webgpu
+   1× warning: This tileset JSON uses the "content.url" property which has been deprecated. Use "content.uri" instead.
+   1× warning: [csshim] unsupported: scene.primitives.add(Cesium3DTileset)
+== globe-materials-3d-tiles-terrain backend=webgpu
+== google-photorealistic-3d-tiles backend=webgpu
+== google-photorealistic-3d-tiles-with-building-insert backend=webgpu
+== japan-buildings backend=webgpu
+== montreal-point-cloud backend=webgpu
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 (1/5)
+== polylines-on-3d-tiles backend=webgpu
+== sample-height-from-3d-tiles backend=webgpu
+== voxels-in-3d-tiles backend=webgpu
