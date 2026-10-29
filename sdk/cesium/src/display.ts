@@ -813,7 +813,7 @@ export class EntityDisplay {
 			if (!m) {
 				const mm = { h: null as Any, loading: true, uri: d.uri, scale: d.scale, dead: false };
 				this.#models.set(e, mm);
-				map.gadget.model(d.uri, { at: d.at, altitude: d.altitude, lift: d.lift, heading: d.heading, rot: d.rot, scale: d.scale, slot: `cesium:${e.id}`, name: String(e.name ?? e.id), fit: false, gizmo: false })
+				map.gadget.model(d.uri, { at: d.at, altitude: d.altitude, lift: d.lift, ground: "origin", heading: d.heading, rot: d.rot, scale: d.scale, slot: `cesium:${e.id}`, name: String(e.name ?? e.id), fit: false, gizmo: false })
 					.then((h: Any) => { mm.loading = false; if (mm.dead) { h.clear(); return; } mm.h = h; this.#syncAnim(h, d.anim); this.invalidate(); }, (err: unknown) => { mm.loading = false; console.warn("[csshim] model", d.uri, err); });
 				continue;
 			}

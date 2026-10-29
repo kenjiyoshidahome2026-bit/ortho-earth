@@ -351,7 +351,7 @@ export class PrimitiveDrawer {
 			p._initialRadius ??= sph.radius;
 			p._boundingSphere ??= new BoundingSphere();
 		});
-		map.gadget.model(url, { at: pl.at, altitude: pl.altitude, lift: false, heading: pl.heading, rot: pl.rot, scale: pl.scale, slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true })   // the matrix's height is absolute (ellipsoid): not lifted onto the terrain
+		map.gadget.model(url, { at: pl.at, altitude: pl.altitude, lift: false, ground: "origin", heading: pl.heading, rot: pl.rot, scale: pl.scale, slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true })   // the matrix's height is absolute (ellipsoid): not lifted onto the terrain
 			.then(async (h: Any) => {
 				it.loading = false;
 				if (it.dead) { h.clear(); return; }

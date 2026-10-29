@@ -2413,6 +2413,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
 		//   z-fight の元＝重複面は worker 側の頂点3つ組 dedup で断つ。
 		// バッチ単位でフラスタムカリング＝区全体(数百万tris)のうち画面に掛かるバッチだけ頂点処理へ流す。
+		// 球体が半透明（Cesium の globe.translucency）＝地面の深度を捨ててから模型を描く＝地下の模型（坑道）が地面越しに見える（地面どうしの前後は深度で済ませた後）
+		if (meshes.size && globeA < 1 && terrainActive) gl.clear(gl.DEPTH_BUFFER_BIT);
 		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
 			bldStencil(true);   // 建物メッシュも建物＝bit7 を刻む
 			gl.useProgram(meshProg);
