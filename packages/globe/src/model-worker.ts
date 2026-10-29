@@ -22,12 +22,12 @@ interface ModelJob {
 	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts;
 }
 /** transfer を集める束（模型・3D Tiles・I3S・押し出しの batches） */
-type XferBatch = { mesh: MeshOut; features?: { ids?: ArrayBufferView | null; tblV?: ArrayLike<number> | null } | null; tex?: TexOut | null; texMR?: TexOut | null; texN?: TexOut | null; texOcc?: TexOut | null; texEm?: TexOut | null ; skin?: Array<{ P: ArrayBufferView; N?: ArrayBufferView | null; J: ArrayBufferView; W: ArrayBufferView }> | null };
+type XferBatch = { mesh: MeshOut; features?: { ids?: ArrayBufferView | null; tblV?: ArrayLike<number> | null } | null; tex?: TexOut | null; texMR?: TexOut | null; texN?: TexOut | null; texOcc?: TexOut | null; texEm?: TexOut | null; meta?: { texs: (TexOut | null)[] } | null; skin?: Array<{ P: ArrayBufferView; N?: ArrayBufferView | null; J: ArrayBufferView; W: ArrayBufferView }> | null };
 
 const TEX_KEYS = ["tex", "texMR", "texN", "texOcc", "texEm"] as const;   // 模型のテクスチャ（baseColor＋#46 段 2 の材質 4 枚）＝transfer の対象
 const transferOf = (batches: XferBatch[]): Transferable[] => {   // skin の区間（P/N/J/W・2026-10-28）も transfer
 	const tr = new Set<Transferable>();
-	for (const b of batches) { for (const k of ["pos", "nrm", "idx", "uv", "col", "mc"] as const) if (b.mesh[k]?.buffer) tr.add(b.mesh[k]!.buffer as ArrayBuffer); if (b.features?.ids) tr.add(b.features.ids.buffer as ArrayBuffer); for (const sg of b.skin || []) for (const a of [sg.P, sg.N, sg.J, sg.W]) if (a?.buffer) tr.add(a.buffer as ArrayBuffer); if (b.features?.tblV) tr.add((b.features.tblV as Int16Array).buffer as ArrayBuffer); for (const k of TEX_KEYS) { if (b[k]?.bitmap) tr.add(b[k]!.bitmap!); if (b[k]?.rgba) tr.add(b[k]!.rgba!.buffer as ArrayBuffer); } }
+	for (const b of batches) { for (const t of b.meta?.texs || []) { if (t?.bitmap) tr.add(t.bitmap); if (t?.rgba) tr.add(t.rgba.buffer as ArrayBuffer); } for (const k of ["pos", "nrm", "idx", "uv", "col", "mc", "uvm"] as const) if (b.mesh[k]?.buffer) tr.add(b.mesh[k]!.buffer as ArrayBuffer); if (b.features?.ids) tr.add(b.features.ids.buffer as ArrayBuffer); for (const sg of b.skin || []) for (const a of [sg.P, sg.N, sg.J, sg.W]) if (a?.buffer) tr.add(a.buffer as ArrayBuffer); if (b.features?.tblV) tr.add((b.features.tblV as Int16Array).buffer as ArrayBuffer); for (const k of TEX_KEYS) { if (b[k]?.bitmap) tr.add(b[k]!.bitmap!); if (b[k]?.rgba) tr.add(b[k]!.rgba!.buffer as ArrayBuffer); } }
 	return [...tr];
 };
 

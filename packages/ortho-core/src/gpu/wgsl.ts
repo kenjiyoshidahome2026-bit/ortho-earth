@@ -1583,21 +1583,21 @@ export function meshCustomWGSL(spec: CsSpec): { code: string; textures: string[]
 	], "csLitM");
 	const code = deriveWgsl(MESH_TEX_WGSL, [
 		["@group(3) @binding(5) var texEm: texture_2d<f32>;\n", "@group(3) @binding(5) var texEm: texture_2d<f32>;\n" + w.decl + csLitM],
-		["\t@location(5) col: vec4f,\n};", "\t@location(5) col: vec4f,\n\t@location(9) mc: vec4f,\n};"],
+		["\t@location(5) col: vec4f,\n};", "\t@location(5) col: vec4f,\n\t@location(9) mc: vec4f,\n\t@location(10) uvm: vec2f,\n};"],
 		["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n",
-		 "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f, @location(4) a_mc: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n\to.mc = a_mc;\n"],
+		 "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f, @location(4) a_mc: vec4f, @location(5) a_uvm: vec2f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n\to.mc = a_mc; o.uvm = a_uvm;\n"],
 		["\tlet ap = select(a_pos, B.xf * a_pos + B.xt.xyz, B.xt.w > 0.5);   // バッチの剛体変換（W4）＝原点相対のまま\n",
 		 "\tvar ap = select(a_pos, B.xf * a_pos + B.xt.xyz, B.xt.w > 0.5);   // バッチの剛体変換（W4）＝原点相対のまま\n"
 		 + (w.hasVs ? "\tcsVi.attributes = csAttrsOf(a_mc.xyz, B.meshOrigin.xyz + ap, CU.V * (ap - B.eyeRel.xyz) * 6378137.0, select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5), a_uv, a_col, a_mc.w);\n"
-			+ "\tcsVi.featureIds.featureId_0 = i32(a_mc.w + 0.5); csVi.metadata = csMetaOf();\n\tcsVo.positionMC = a_mc.xyz; csVo.pointSize = 1.0;\n\tvertexMain();\n"
+			+ "\tcsVi.featureIds.featureId_0 = i32(a_mc.w + 0.5); csVi.metadata = csMetaOf(a_uvm);\n\tcsVo.positionMC = a_mc.xyz; csVo.pointSize = 1.0;\n\tvertexMain();\n"
 			+ "\tap += CU.J * (csVo.positionMC - a_mc.xyz);\n\to.mc = vec4f(csVo.positionMC, a_mc.w);\n" : "")],
 		["\tif (B.csL.w > 1.5) { lit = srgbEncode(tx.rgb); }",
 		 "\tlet csMet = clamp(B.pbr0.x * mr.b, 0.0, 1.0);\n"
 		 + "\tcsM.baseColor = tx; csM.diffuse = tx.rgb * (1.0 - csMet); csM.alpha = tx.a; csM.specular = mix(vec3f(0.04), tx.rgb, csMet); csM.roughness = clamp(B.pbr0.y * mr.g, 0.04, 1.0);\n"
 		 + "\tcsM.normalEC = normalize(CU.V * n); csM.occlusion = mix(1.0, oc.r, B.pbr0.w); csM.emissive = B.emis.rgb * em.rgb;\n"
-		 + (w.hasFs ? "\tcsFi.attributes = csAttrsOf(in.mc.xyz, F.eye - in.toEye, CU.V * (-in.toEye) * 6378137.0, n, in.uv, in.col, in.mc.w);\n\tcsFi.featureIds.featureId_0 = i32(in.mc.w + 0.5); csFi.metadata = csMetaOf();\n\tfragmentMain();\n" : "")
+		 + (w.hasFs ? "\tcsFi.attributes = csAttrsOf(in.mc.xyz, F.eye - in.toEye, CU.V * (-in.toEye) * 6378137.0, n, in.uv, in.col, in.mc.w);\n\tcsFi.featureIds.featureId_0 = i32(in.mc.w + 0.5); csFi.metadata = csMetaOf(in.uvm);\n\tfragmentMain();\n" : "")
 		 + "\tlet csN = normalize(transpose(CU.V) * csM.normalEC);\n\tvar csA = a;\n"
-		 + "\tif (CU.misc.z > 0.5 || B.csL.w > 1.5) { lit = czm_linearToSrgb3(csM.diffuse); }   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ）\n"
+		 + "\tif (CU.misc.z > 0.5 || (B.csL.w > 1.5 && CU.misc.z > -0.5)) { lit = czm_linearToSrgb3(csM.diffuse); }   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ）\n"
 		 + "\telse if (B.csL.w > 0.5) { var ci: CsIn; ci.base = csM.diffuse; ci.n = csN; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = 0.0; ci.rough = csM.roughness; ci.ao = csM.occlusion; ci.emissive = csM.emissive; ci.sunK = sunK; lit = csLitM(ci, csM.specular, B.sh, B.csL, B.csC, B.csI); }\n"
 		 + "\telse { lit = czm_linearToSrgb3(csM.diffuse) * d; }\n"
 		 + "\tif (CU.misc.w > 0.5) { csA = clamp(csM.alpha, 0.0, 1.0); }\n"

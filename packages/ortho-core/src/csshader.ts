@@ -12,8 +12,32 @@ export interface CsSpec {
 	vs?: string | null;
 	fs?: string | null;
 	uniforms?: Record<string, CsUType>;
-	/** fsInput.metadata の性質＝名 → GLSL の型（property texture・EXT_structural_metadata） */
-	metadata?: Record<string, string> | null;
+	/** fsInput.metadata の性質＝名 → GLSL の型、または property texture（EXT_structural_metadata）から読む物（CsMeta） */
+	metadata?: Record<string, string | CsMeta> | null;
+}
+/** property texture の性質 1 つ＝tex 枚目（csmt_k）の channels を小さい桁から bytes 毎に組んだ整数（norm＝0..1・float＝float32 のビット）・offset/scale は Cesium と同じ後掛け */
+export interface CsMeta { type: string; tex: number; ch: number[]; bytes: number; norm?: boolean; float?: boolean; offset?: number | null; scale?: number | null }
+const metaType = (m: string | CsMeta): string => typeof m === "string" ? m : m.type;
+/** property texture の枚数（csmt_0..） */
+export const csMetaTexN = (spec: CsSpec): number => Math.max(0, ...Object.values(spec.metadata || {}).map(m => typeof m === "string" ? -1 : m.tex)) + 1;
+/** csMetaOf の 1 性質の式（GLSL・WGSL 共通の形を w で切替）：成分ごとに channels を bytes 個ずつ取り整数へ */
+function metaExpr(m: CsMeta, w: boolean): string {
+	const t = m.type, n = /vec([234])/.test(t) ? +RegExp.$1 : 1, base = t.startsWith("u") ? "u" : t.startsWith("i") ? "i" : "f";
+	const comp = (c: number): string => {
+		const parts: string[] = [];
+		for (let b = 0; b < m.bytes; b++) { const ch = m.ch[c * m.bytes + b] ?? 0; parts.push(`${w ? "u32" : "uint"}(px[${ch}] * 255.0 + 0.5)${b ? ` << ${8 * b}u` : ""}`); }
+		const raw = parts.length > 1 ? `(${parts.join(" | ")})` : parts[0];
+		let v: string;
+		if (m.float) v = w ? `bitcast<f32>(${raw})` : `uintBitsToFloat(${raw})`;
+		else if (m.norm) v = `${w ? "f32" : "float"}(${raw}) / ${(2 ** (8 * m.bytes) - 1).toFixed(1)}`;
+		else if (base === "f") v = `${w ? "f32" : "float"}(${raw})`;
+		else if (base === "i") v = w ? `bitcast<i32>(${raw} << ${32 - 8 * m.bytes}u) >> ${32 - 8 * m.bytes}u` : `(int(${raw} << ${32 - 8 * m.bytes}u) >> ${32 - 8 * m.bytes})`;   // 符号を伸ばす
+		else v = raw;
+		if (base === "f" && (m.scale != null || m.offset != null)) v = `(${v}) * ${(m.scale ?? 1).toFixed(9)} + ${(m.offset ?? 0).toFixed(9)}`;
+		return v;
+	};
+	const comps = Array.from({ length: n }, (_, c) => comp(c));
+	return n === 1 ? comps[0] : w ? `${wgslType(t)}(${comps.join(", ")})` : `${t}(${comps.join(", ")})`;
 }
 
 // ── 字句 ───────────────────────────────────────────────────────────────
@@ -253,7 +277,7 @@ const CZM_CONST: Record<string, [string, string]> = {
 	czm_epsilon1: ["float", "0.1"], czm_epsilon2: ["float", "0.01"], czm_epsilon3: ["float", "0.001"], czm_epsilon4: ["float", "0.0001"], czm_epsilon5: ["float", "0.00001"], czm_epsilon6: ["float", "0.000001"], czm_epsilon7: ["float", "0.0000001"],
 };
 const structFieldsOf = (spec: CsSpec): Record<string, [string, string][]> => {
-	const meta = Object.entries(spec.metadata || {}).map(([n, t]) => [n, t] as [string, string]);
+	const meta = Object.entries(spec.metadata || {}).map(([n, t]) => [n, metaType(t)] as [string, string]);
 	return {
 		Attributes: CS_ATTRS, czm_modelMaterial: MATERIAL, czm_modelVertexOutput: VSOUT, FeatureIds: FIDS, Metadata: meta.length ? meta : [["_none", "float"]],
 		FragmentInput: [["attributes", "Attributes"], ["featureIds", "FeatureIds"], ["metadata", "Metadata"]],
@@ -291,7 +315,10 @@ export function csGlslPrelude(spec: CsSpec, stage: "vs" | "fs"): string {
 	s += `Attributes csAttrsOf(vec3 mc, vec3 pw, vec3 ec, vec3 nw, vec2 uv, vec4 col, float fid, mat3 J, mat3 V) {\n\tAttributes a;\n${CS_ATTRS.map(([f, t]) => `\ta.${f} = ${t === "float" ? "0.0" : `${t}(0.0)`};\n`).join("")}`
 		+ "\ta.positionMC = mc; a.positionWC = vec3(pw.x, pw.z, pw.y) * 6378137.0; a.positionEC = ec;\n\tvec3 nm = transpose(J) * nw; a.normalMC = dot(nm, nm) > 0.0 ? normalize(nm) : vec3(0.0, 0.0, 1.0);\n"
 		+ "\ta.normalEC = normalize(V * nw); a.texCoord_0 = uv; a.texCoord_1 = uv; a.color_0 = col; a.featureId_0 = fid;\n\treturn a;\n}\n";
-	s += `Metadata csMetaOf() {\n\tMetadata m;\n${structFieldsOf(spec).Metadata.map(([f, t]) => `\tm.${f} = ${t}(0);\n`).join("")}\treturn m;\n}\n`;
+	// fsInput.metadata＝property texture（FS だけ・VS は 0）を uvm（その texCoord）で読む
+	const MT = stage === "fs" ? csMetaTexN(spec) : 0;
+	for (let k = 0; k < MT; k++) s += `uniform sampler2D csmt_${k};\n`;
+	s += `Metadata csMetaOf(vec2 uvm) {\n\tMetadata m;\n${MT ? "\tvec4 px;\n" : ""}${structFieldsOf(spec).Metadata.map(([f, t]) => { const m = spec.metadata?.[f]; return MT && m && typeof m !== "string" ? `\tpx = texture(csmt_${m.tex}, uvm);\n\tm.${f} = ${metaExpr(m, false)};\n` : `\tm.${f} = ${t}(0);\n`; }).join("")}\treturn m;\n}\n`;
 	return s + czmLibFor(spec);
 }
 /** 利用者の GLSL を GL へ（uniform の名だけ改名・字句を書き戻す） */
@@ -366,7 +393,9 @@ export function csWgsl(spec: CsSpec, group: number, binding0: number): CsWgsl {
 	out += `fn csAttrsOf(mc: vec3f, pw: vec3f, ec: vec3f, nw: vec3f, uv: vec2f, col: vec4f, fid: f32) -> Attributes {\n\tvar a: Attributes;\n`
 		+ "\ta.positionMC = mc; a.positionWC = vec3f(pw.x, pw.z, pw.y) * 6378137.0; a.positionEC = ec;\n\tlet nm = transpose(CU.J) * nw; a.normalMC = select(vec3f(0.0, 0.0, 1.0), normalize(nm), dot(nm, nm) > 0.0);\n"
 		+ "\ta.normalEC = normalize(CU.V * nw); a.texCoord_0 = uv; a.texCoord_1 = uv; a.color_0 = col; a.featureId_0 = fid;\n\treturn a;\n}\n";
-	out += `fn csMetaOf() -> Metadata {\n\tvar m: Metadata;\n\treturn m;\n}\n`;
+	const MT = csMetaTexN(spec), mb0 = binding0 + 1 + layout.textures.length * 2;   // property texture＝利用者のテクスチャの後ろに sampler＋texture の組
+	for (let k = 0; k < MT; k++) out += `@group(${group}) @binding(${mb0 + k * 2}) var css_csmt_${k}: sampler;\n@group(${group}) @binding(${mb0 + 1 + k * 2}) var cst_csmt_${k}: texture_2d<f32>;\n`;
+	out += `fn csMetaOf(uvm: vec2f) -> Metadata {\n\tvar m: Metadata;\n${MT ? "\tvar px: vec4f;\n" : ""}${Object.entries(spec.metadata || {}).map(([f, m]) => typeof m === "string" || !MT ? "" : `\tpx = textureSampleLevel(cst_csmt_${m.tex}, css_csmt_${m.tex}, uvm, 0.0);\n\tm.${f} = ${metaExpr(m, true)};\n`).join("")}\treturn m;\n}\n`;
 	let hasVs = false, hasFs = false;
 	const srcs = [czmLibFor(spec), spec.vs, spec.fs].filter(Boolean) as string[];
 	let tmpN = 0;
