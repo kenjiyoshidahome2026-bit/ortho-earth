@@ -277,7 +277,7 @@ fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> ve
 	let l = normalize(csL.xyz); let h = normalize(i.v + l);
 	let M = pbrLocal(i.pos);
 	let nl3 = transpose(M) * i.n; let rl3 = transpose(M) * reflect(-i.v, i.n);
-	let nC = vec3f(nl3.x, nl3.z, -nl3.y); let rC = vec3f(rl3.x, rl3.z, -rl3.y);
+	let nC = vec3f(-nl3.x, nl3.z, -nl3.y); let rC = vec3f(-rl3.x, rl3.z, -rl3.y);   // cube-map frame (x east, y up, z south): pbrLocal's first column points west (the world axes are mirrored)
 	let diffuse = i.base * (1.0 - i.metallic); let f0 = mix(vec3f(0.04), i.base, i.metallic);
 	let VdotH = clamp(dot(i.v, h), 0.0, 1.0); let NdotL = clamp(dot(i.n, l), 0.001, 1.0); let NdotV = clamp(dot(i.n, i.v), 0.0, 1.0); let NdotH = clamp(dot(i.n, h), 0.0, 1.0);
 	let f90 = vec3f(clamp(max(f0.r, max(f0.g, f0.b)) * 25.0, 0.0, 1.0));
@@ -298,7 +298,7 @@ fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> ve
 	color += (csSH(sh, nC) * (FmsEms + (vec3f(1.0) - FssEss - FmsEms) * diffuse) * csI.x + select(csSH(sh, rC) * csC.w, textureSampleLevel(csEnvTex, csEnvSamp, rC, i.rough * csI.w).rgb, csI.z > 0.5) * FssEss * csI.y) * i.ao;
 	if (i.cc.x > 0.0) {   // KHR_materials_clearcoat (Cesium's clearcoat layer): GGX with f0 0.04 on the geometric normal, its Fresnel taking from the base under it
 		let cn = i.ncc; let cNdotL = clamp(dot(cn, l), 0.001, 1.0); let cNdotV = clamp(dot(cn, i.v), 0.0, 1.0); let cNdotH = clamp(dot(cn, h), 0.0, 1.0);
-		let crl = transpose(M) * reflect(-i.v, cn); let crC = vec3f(crl.x, crl.z, -crl.y);
+		let crl = transpose(M) * reflect(-i.v, cn); let crC = vec3f(-crl.x, crl.z, -crl.y);
 		let cr = clamp(i.cc.y, 0.0, 1.0); let ca = cr * cr; let ca2 = ca * ca; let cF = 0.04 + 0.96 * pow(1.0 - VdotH, 5.0);
 		let cGGX = cNdotL * sqrt(cNdotV * cNdotV * (1.0 - ca2) + ca2) + cNdotV * sqrt(cNdotL * cNdotL * (1.0 - ca2) + ca2); let cG = select(0.0, 0.5 / cGGX, cGGX > 0.0);
 		let cf = (cNdotH * ca2 - cNdotH) * cNdotH + 1.0; let cD = ca2 / (PBR_PI * cf * cf);
