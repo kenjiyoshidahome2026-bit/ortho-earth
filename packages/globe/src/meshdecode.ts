@@ -31,7 +31,7 @@ export interface TexTransform { texCoord?: number; rotation?: number; scale?: nu
 export interface GltfTexRef { texture?: GltfTexture | null; index?: number; texCoord?: number; scale?: number; strength?: number; extensions?: { KHR_texture_transform?: TexTransform } | null }
 export interface GltfMaterial {
 	pbrMetallicRoughness?: { baseColorFactor?: number[]; baseColorTexture?: GltfTexRef; metallicRoughnessTexture?: GltfTexRef; metallicFactor?: number; roughnessFactor?: number } | null;
-	extensions?: { KHR_materials_pbrSpecularGlossiness?: { diffuseFactor?: number[]; diffuseTexture?: GltfTexRef } | null; KHR_materials_emissive_strength?: { emissiveStrength?: number } | null; KHR_materials_unlit?: Record<string, never> | null } | null;
+	extensions?: { KHR_materials_pbrSpecularGlossiness?: { diffuseFactor?: number[]; diffuseTexture?: GltfTexRef } | null; KHR_materials_emissive_strength?: { emissiveStrength?: number } | null; KHR_materials_clearcoat?: { clearcoatFactor?: number; clearcoatRoughnessFactor?: number } | null; KHR_materials_unlit?: Record<string, never> | null } | null;
 	normalTexture?: GltfTexRef; occlusionTexture?: GltfTexRef; emissiveTexture?: GltfTexRef; emissiveFactor?: number[];
 	alphaMode?: string; alphaCutoff?: number;
 	/** loaders.gl が KHR_materials_unlit を畳んだ印（拡張は material から外される） */ unlit?: boolean;
@@ -67,7 +67,7 @@ export interface TexOut { bitmap?: ImageBitmap; rgba?: Uint8Array; w?: number; h
 /** 模型の束（decodeModel の batches の 1 件） */
 export interface ModelBatchOut {
 	mesh: MeshOut; tex: TexOut | null; texMR: TexOut | null; texN: TexOut | null; texOcc: TexOut | null; texEm: TexOut | null;
-	pbr: { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[]; unlit: boolean };   // unlit＝KHR_materials_unlit か法線無し（Cesium はどちらも照明を掛けない）
+	pbr: { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[]; unlit: boolean; clearcoat?: number[] | null };   // unlit＝KHR_materials_unlit か法線無し（Cesium はどちらも照明を掛けない）
 	alphaMode: string; alphaCutoff: number; node: number; features: (MeshFeatures & { table: number | null; tblV: Int16Array | null }) | null;
 	/** スキンされた区間（2026-10-28）＝main が時計のたびに頂点を焼き直す（gltf-anim.skinBatch）。無ければ無し */
 	skin?: SkinSeg[] | null;
@@ -788,11 +788,12 @@ const baseColorOf = (mat: GltfMaterial | null, gltf: GltfDoc) => {
 };
 const pbrOf = (mat: GltfMaterial | null, gltf: GltfDoc) => {   // 材質の数値と 4 枚のテクスチャ参照（無ければ null＝renderer が 1×1 の既定で埋める）
 	const mr = mat?.pbrMetallicRoughness, sg = mat?.extensions?.KHR_materials_pbrSpecularGlossiness;
-	const es = mat?.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1, ef = mat?.emissiveFactor || [0, 0, 0];
+	const es = mat?.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1, ef = mat?.emissiveFactor || [0, 0, 0], cc = mat?.extensions?.KHR_materials_clearcoat;
 	return {
 		metallic: sg ? 0 : (mr?.metallicFactor ?? 1), roughness: sg ? 1 : (mr?.roughnessFactor ?? 1),
 		normalScale: mat?.normalTexture?.scale ?? 1, occlusion: mat?.occlusionTexture?.strength ?? 1,
 		emissive: [ef[0] * es, ef[1] * es, ef[2] * es],
+		clearcoat: cc && (cc.clearcoatFactor ?? 0) > 0 ? [cc.clearcoatFactor ?? 0, cc.clearcoatRoughnessFactor ?? 0] : null,   // KHR_materials_clearcoat (factors; its textures are not read)
 		texMR: sg ? null : texRef(mr?.metallicRoughnessTexture, gltf), texN: texRef(mat?.normalTexture, gltf), texOcc: texRef(mat?.occlusionTexture, gltf), texEm: texRef(mat?.emissiveTexture, gltf),
 	};
 };
@@ -1235,7 +1236,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		const [texMR, texN, texOcc, texEm] = textures ? await Promise.all([pb.texMR, pb.texN, pb.texOcc, pb.texEm].map(t => textureOf(t, imgCache))) : [null, null, null, null];
 		const ftex = g.ft && fids ? await featureTexOf(g.ft, gltf, imgCache) : null;   // 画素ごとの地物の番号（featureId.texture）
 		const meta = g.pt && textures ? { props: g.pt.props, texs: await Promise.all(g.pt.texIdx.map(i => textureOf(texRef({ index: i }, gltf), imgCache))) } : null;   // property texture の画像（同じ画像は複製で 1 回だけ）
-		batches.push({ ...(meta && { meta }), mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive, unlit: !!g.mat?.unlit || !!g.mat?.extensions?.KHR_materials_unlit || g.noNrm },
+		batches.push({ ...(meta && { meta }), mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive, clearcoat: pb.clearcoat, unlit: !!g.mat?.unlit || !!g.mat?.extensions?.KHR_materials_unlit || g.noNrm },
 			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5, node: g.node ?? -1, ...(skinSegs.length && rig ? { skin: skinSegs } : {}),   // skin の区間＝rig（アニメ）がある時だけ main へ（静止の模型は焼いた物で足りる）
 			features: fids ? { ids: fids, table: tbls.length === 1 ? tbls[0] : null, tblV, ...(ftex && { tex: ftex }) } : null, ...(mcV ? { mcJ: mcJOf(g.lin0, g.e0, minH) } : {}) });   // features（W7）＝頂点ごとの地物の番号（NO_FEATURE＝無し）と property table の番号   // α の扱い＝renderer が cut/blend に畳む。node＝アニメするノード（−1＝動かない束）
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);

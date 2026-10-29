@@ -160,7 +160,7 @@ interface RawEntry { buf: GPUBuffer; bg: GPUBindGroup; bytes: number; kind: numb
 interface ResampleRes { pipe: GPURenderPipeline; bgl: GPUBindGroupLayout; ubuf: GPUBuffer; u32: Uint32Array; f32: Float32Array; slot: number }
 interface MeshTex { tex: GPUTexture; view: GPUTextureView }
 type MeshTexSrc = { bitmap: ImageBitmap } | { bitmap?: undefined; w: number; h: number; rgba: Uint8Array };
-interface MeshPbr { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[] }
+interface MeshPbr { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[]; clearcoat?: number[] | null }   // clearcoat＝KHR_materials_clearcoat [factor, roughness]
 /** set("meshSet") の入力（建物メッシュ・模型のバッチ） */
 export interface MeshSetData {
 	pos?: Float32Array; nrm?: Int8Array | ArrayLike<number> | null; idx?: Uint32Array; uv?: Float32Array | null; col?: Uint8Array | null;
@@ -3318,6 +3318,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				} else plBatchCPU[o + 227] = 0;
 				plBatchCPU[o + 244] = p.tint ? p.tint[4] : -1; if (p.tint) plBatchCPU.set(p.tint.subarray(0, 4), o + 240); plBatchCPU[o + 246] = p.paint ? p.paintB ?? 0 : -1;   // tintB.z＝塗る絵の混ぜ方（−1＝無し）   // tint/tintB＝Cesium の Model.color（−1＝無し）
 				plBatchCPU[o + 247] = p.split ? Math.sign(p.split) * (1 + splitPos) : 0;   // tintB.w＝Cesium splitDirection
+				plBatchCPU[o + 252] = pb?.clearcoat?.[0] ?? 0; plBatchCPU[o + 253] = pb?.clearcoat?.[1] ?? 0;   // cc.xy＝KHR_materials_clearcoat（float 252〜253）
 				if (p.sil) { plBatchCPU[o + 245] = p.sil[4]; plBatchCPU.set(p.sil.subarray(0, 4), o + 248); }   // tintB.y＝輪郭線の太さ・sil＝色
 				plBatchCPU[o + 236] = st.eye[0] - p.origin[0]; plBatchCPU[o + 237] = st.eye[1] - p.origin[1]; plBatchCPU[o + 238] = st.eye[2] - p.origin[2];   // eyeRel＝目 − 原点（double）＝toEye の錨（近接の裏面判定）
 				plBatchCPU[o + 221] = p.textured || p.two ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ・橋梁 two は点けない）・cs.z＝窓の印を α に（夜の色 grade の間）

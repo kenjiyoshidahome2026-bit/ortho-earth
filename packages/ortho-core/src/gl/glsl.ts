@@ -329,6 +329,7 @@ uniform vec3  u_csIbl;       // (拡散の係数, 鏡面の係数, 一様な環�
 uniform samplerCube u_csEnvMap;   // the model's specular environment (ImageBasedLighting.specularEnvironmentMaps: a prefiltered KTX2 cube, mip = roughness)
 uniform vec2  u_csEnv;       // (1 = u_csEnvMap is set, its largest mip level)
 uniform vec2  u_csMR;        // バッチの材質（metallic, roughness）＝glTF の係数（GL は材質テクスチャを持たない）
+uniform vec2  u_csCC;        // KHR_materials_clearcoat (factor, roughness); factor 0 = none
 in vec3  v_n;
 in vec3  v_toEye;
 in float v_front;
@@ -397,6 +398,16 @@ vec3 csLit(vec3 base, vec3 n) {   // base＝リニアの基本色・n＝表向�
 	vec3 avgF = f0 + (1.0 - f0) / 21.0; float Ems = 1.0 - AB.x - AB.y;
 	vec3 FmsEms = FssEss * avgF * Ems / (1.0 - avgF * Ems);
 	color += csSH(nC) * (FmsEms + (1.0 - FssEss - FmsEms) * diffuse) * u_csIbl.x + (u_csEnv.x > 0.5 ? textureLod(u_csEnvMap, rC, roughness * u_csEnv.y).rgb : csSH(rC) * u_csIbl.z) * FssEss * u_csIbl.y;
+	if (u_csCC.x > 0.0) {   // KHR_materials_clearcoat (Cesium's clearcoat layer): GGX with f0 0.04 on the geometric normal, its Fresnel taking from the base under it
+		float cr = clamp(u_csCC.y, 0.0, 1.0), ca = cr * cr, ca2 = ca * ca, cvs = 1.0 - VdotH, cF = 0.04 + 0.96 * cvs * cvs * cvs * cvs * cvs;
+		float cGGX = NdotL * sqrt(NdotV * NdotV * (1.0 - ca2) + ca2) + NdotV * sqrt(NdotL * NdotL * (1.0 - ca2) + ca2), cG = cGGX > 0.0 ? 0.5 / cGGX : 0.0;
+		float cf = (NdotH * ca2 - NdotH) * NdotH + 1.0, cD = ca2 / (3.14159265 * cf * cf);
+		vec4 crr = cr * vec4(-1.0, -0.0275, -0.572, 0.022) + vec4(1.0, 0.0425, 1.04, -0.04);
+		float ca004 = min(crr.x * crr.x, exp2(-9.28 * NdotV)) * crr.x + crr.y; vec2 cAB = vec2(-1.04, 1.04) * ca004 + crr.zw;
+		float cvn = 1.0 - NdotV, cFv = 0.04 + 0.96 * cvn * cvn * cvn * cvn * cvn;
+		vec3 cEnv = u_csEnv.x > 0.5 ? textureLod(u_csEnvMap, rC, cr * u_csEnv.y).rgb : csSH(rC) * u_csIbl.z;
+		color = color * (1.0 - u_csCC.x * cFv) + u_csCC.x * (cF * cG * cD * NdotL * u_csColor + cEnv * (0.04 * cAB.x + cAB.y) * u_csIbl.y);
+	}
 	return pow(max(csTonemap(color), 0.0), vec3(1.0 / 2.2));
 }
 uniform vec2 u_split;   // Cesium splitDirection: x = 0 off, else sign = side kept (-1 left, +1 right) and |x| - 1 = the split as a fraction of the width; y = the width (device px)
