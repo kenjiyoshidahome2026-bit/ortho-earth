@@ -72,6 +72,13 @@ export interface ModelHandle {
 	 *  skin／morph は描かない（plugin が onAnimation で合図を受けて自前で動かせる） */
 	setAnimation(spec: AnimationSpec | string | number | true | null): ModelHandle;
 	getAnimation(): AnimationState | null;
+	/** 模型の色（Cesium の Model.color／colorBlendMode／colorBlendAmount）。color＝リニアの [r,g,b,a]（0〜1）・blend＝"highlight"（既定＝掛ける）／"replace"（置き換え）／"mix"（amount で混ぜる）。
+	 *  a<1 で半透明。null＝外す */
+	setColor(c: { color: number[]; blend?: "highlight" | "replace" | "mix"; amount?: number } | null): ModelHandle;
+	/** setMeshLighting（Cesium の照明）の環境光（SH9＝27 値・Cesium の並び）をこの模型だけ替える。null＝setMeshLighting の物へ戻す */
+	setEnvironment(sh: ArrayLike<number> | null): ModelHandle;
+	/** 輪郭線（Cesium の Model.silhouetteColor／silhouetteSize）。color＝[r,g,b,a]（0〜1）・size＝太さ（CSS px）。null＝外す */
+	setSilhouette(s: { color: number[]; size: number } | null): ModelHandle;
 	play(nameOrSpec?: string | AnimationSpec): ModelHandle;
 	stop(): ModelHandle;
 	/** 再生の時刻での束（マテリアル×アニメするノード）ごとの剛体変換＝[Float32Array(12)（L 3x3 列優先＋原点相対の平行移動）| null]。time 省略＝今の時刻。アニメが無ければ null */

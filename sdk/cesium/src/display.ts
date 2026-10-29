@@ -12,7 +12,8 @@ import * as engine from "@cesium/engine";
 import { CustomDataSource, HorizontalOrigin, LabelStyle, SceneTransforms, VerticalOrigin, HeightReference, Transforms, ClassificationType } from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { cesiumSphereOf } from "./spheres.ts";
-import { gltfSphere } from "./gltf.ts";
+import { gltfSphere, modelSilOf, modelTintOf } from "./gltf.ts";
+import { modelEnvSH } from "./lighting.ts";
 import { Cesium3DTileset } from "./tileset.ts";
 import { PrimitiveDrawer } from "./primitives.ts";
 import { runClustering } from "./clusters.ts";
@@ -222,7 +223,7 @@ interface Desc {
 	/** ground shapes and clamped polylines classifying the 3D Tiles and models (classificationType CESIUM_3D_TILE or BOTH): a classification volume in their colour
 	 *  (the terrain part stays a fill / line layer); a polyline's width is its pixel width at the entity's distance, in metres */
 	classify: Array<{ geom: Any; color: string; opacity: number; width?: number }>;
-	model: { uri: string; scale: number; at: [number, number]; altitude: number; lift: boolean; heading: number; rot?: number[] | null; anim: boolean; minPx?: number; maxScale?: number | null; c?: number[] } | null;
+	model: { uri: string; scale: number; at: [number, number]; altitude: number; lift: boolean; heading: number; rot?: number[] | null; anim: boolean; tint?: ReturnType<typeof modelTintOf>; sil?: ReturnType<typeof modelSilOf>; minPx?: number; maxScale?: number | null; c?: number[] } | null;
 	sphere: { c: number[]; r: number } | null;
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
 	solids: { fill: Any[]; outline: Any[]; width: number } | null;
@@ -235,7 +236,7 @@ export class EntityDisplay {
 	readonly scene: OrthoScene;
 	readonly host: Host;
 	#recs = new Map<Any, Rec>();
-	#ov: Any = null; #layers = new Set<string>(); #models = new Map<Any, { h: Any; loading: boolean; uri: string; scale: number; dead?: boolean }>();
+	#ov: Any = null; #layers = new Set<string>(); #models = new Map<Any, { h: Any; loading: boolean; uri: string; scale: number; dead?: boolean; tk?: string; sk?: string; env?: Float32Array | null }>();
 	#lastTracks = ""; #lastLines = ""; #lastShapes = ""; #pats = new Map<string, { n: number; z: number; ready: boolean }>(); #patGen = 0;
 	#cls = new Map<string, Any>();   // classification volumes on the map (key = outline + colour → handle)
 	#gsph = new Map<string, { center: number[]; radius: number } | null | "pending">();
@@ -525,8 +526,9 @@ export class EntityDisplay {
 				// terrain arriving later cannot move it. CLAMP_TO_GROUND = on the terrain; RELATIVE_TO_GROUND = the terrain plus the height
 				const href = val(mo.heightReference, t, HeightReference.NONE);
 				d.model = { uri: u, scale: val(mo.scale, t, 1), at: [ll[0], ll[1]], altitude: href === HeightReference.CLAMP_TO_GROUND ? 0 : ll[2], lift: href !== HeightReference.NONE, heading: headingOf(val(e.orientation, t), pos), rot: enuRotOf(val(e.orientation, t), pos), anim: val(mo.runAnimations, t, true),
-					minPx: val(mo.minimumPixelSize, t, 0), maxScale: val(mo.maximumScale, t, null), c: [pos.x, pos.y, pos.z] };
-				dyn(mo.minimumPixelSize, mo.maximumScale);
+					minPx: val(mo.minimumPixelSize, t, 0), maxScale: val(mo.maximumScale, t, null), c: [pos.x, pos.y, pos.z],
+					tint: modelTintOf(val(mo.color, t), val(mo.colorBlendMode, t), val(mo.colorBlendAmount, t)), sil: modelSilOf(val(mo.silhouetteColor, t), val(mo.silhouetteSize, t, 0)) };
+				dyn(mo.minimumPixelSize, mo.maximumScale, mo.color, mo.colorBlendMode, mo.colorBlendAmount, mo.silhouetteColor, mo.silhouetteSize);
 				sphPts.push(pos);
 			}
 		}
@@ -812,10 +814,12 @@ export class EntityDisplay {
 				const mm = { h: null as Any, loading: true, uri: d.uri, scale: d.scale, dead: false };
 				this.#models.set(e, mm);
 				map.gadget.model(d.uri, { at: d.at, altitude: d.altitude, lift: d.lift, heading: d.heading, rot: d.rot, scale: d.scale, slot: `cesium:${e.id}`, name: String(e.name ?? e.id), fit: false, gizmo: false })
-					.then((h: Any) => { mm.loading = false; if (mm.dead) { h.clear(); return; } mm.h = h; this.#syncAnim(h, d.anim); }, (err: unknown) => { mm.loading = false; console.warn("[csshim] model", d.uri, err); });
+					.then((h: Any) => { mm.loading = false; if (mm.dead) { h.clear(); return; } mm.h = h; this.#syncAnim(h, d.anim); this.invalidate(); }, (err: unknown) => { mm.loading = false; console.warn("[csshim] model", d.uri, err); });
 				continue;
 			}
-			if (m.h) { m.h.setTransform({ at: d.at, altitude: d.altitude, heading: d.heading, rot: d.rot ?? null, scale: d.scale }); this.#syncAnim(m.h, d.anim); }   // the model's scale (absolute: the globe keeps the scale it loaded with as the base)
+			if (m.h) { m.h.setTransform({ at: d.at, altitude: d.altitude, heading: d.heading, rot: d.rot ?? null, scale: d.scale }); this.#syncAnim(m.h, d.anim); const tk = JSON.stringify(d.tint ?? null); if (m.tk !== tk) { m.tk = tk; m.h.setColor?.(d.tint ?? null); }
+				const sk = JSON.stringify(d.sil ?? null); if (m.sk !== sk) { m.sk = sk; m.h.setSilhouette?.(d.sil ?? null); }
+				const env = d.c ? modelEnvSH(this.scene, d.c) : null; if (m.env !== env) { m.env = env; m.h.setEnvironment?.(env); } }   // Cesium lights each model by the environment around its own position   // the model's scale (absolute: the globe keeps the scale it loaded with as the base)
 		}
 	}
 	/** a model's animation ⇄ the clock: play (keeping its time) while the clock animates and the entity runs animations, stop otherwise */

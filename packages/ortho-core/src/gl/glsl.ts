@@ -436,10 +436,25 @@ export const MESH_TEX_VS = derive(MESH_VS, [
 	["\tv_n = a_normal;\n", "\tv_n = a_normal;\n\tv_uv = a_uv; v_col = a_col;\n"],
 ], "MESH_TEX_VS");
 export const MESH_TEX_FS = derive(MESH_FS, [
-	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nin vec2 v_uv;\nin vec4 v_col;"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
+	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nuniform vec4 u_tint;\nuniform float u_tintB;\nin vec2 v_uv;\nin vec4 v_col;\nvec3 tintC(vec3 c) { if (u_tintB < -0.5) return c; c = mix(c, u_tint.rgb, u_tintB); return c * mix(u_tint.rgb, vec3(1.0), ceil(u_tintB)); }"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
 	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n"],
-	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 base = tx.rgb * d;\n\tif (u_csOn > 1.5) base = tx.rgb; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(txr.rgb) * v_col.rgb, n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c * a, a);\n}"],
+	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat ta = u_tintB < -0.5 ? 1.0 : u_tint.a;\n\tfloat a = (u_blend > 1.5 ? 1.0 : u_blend > 0.5 ? tx.a : 1.0) * (u_blend > 0.5 ? ta : 1.0);\n\tvec3 base = tintC(tx.rgb) * d;\n\tif (u_csOn > 1.5) base = tintC(tx.rgb); else if (u_csOn > 0.5) base = csLit(tintC(csSrgbToLinear(txr.rgb) * v_col.rgb), n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c * a, a);\n}"],
 ], "MESH_TEX_FS");
+// 模型の輪郭線（Cesium の Model.silhouetteColor／silhouetteSize・2026-10-29）＝同じ頂点を画面上で法線の向きへ u_silPx（device px）押し出した殻を色で塗る。
+// 模型の前に深度を書かずに描く＝模型が自分の上を塗り直し、外へはみ出した縁だけ残る（Cesium のステンシルの輪郭と同じ見え方）。gpu/wgsl.ts MESH_SIL_WGSL と対
+export const MESH_SIL_VS = derive(MESH_TEX_VS, [
+	["uniform vec3 u_eyeRel;", "uniform vec3 u_eyeRel;\nuniform float u_silPx;"],
+	["\tapplyLogDepth();\n}", "\tapplyLogDepth();\n\tvec2 cn = (u_mvp * vec4(v_n, 0.0)).xy;\n\tif (dot(cn, cn) > 1e-30) gl_Position.xy += normalize(cn) * u_silPx * 2.0 / u_viewport * gl_Position.w;\n}"],
+], "MESH_SIL_VS");
+export const MESH_SIL_FS = `#version 300 es
+precision highp float;
+uniform vec4 u_silColor;
+in float v_front;
+out vec4 fragColor;
+void main() {
+	if (v_front < 0.0) discard;
+	fragColor = vec4(u_silColor.rgb * u_silColor.a, u_silColor.a);
+}`;
 
 // 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝
 // VS の標高フェッチを5回/頂点（変位1+中央差分勾配4）→1回に削減（格子236万頂点＝毎フレーム~950万フェッチの削減）。

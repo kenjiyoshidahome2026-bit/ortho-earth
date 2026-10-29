@@ -3059,7 +3059,10 @@ const modelCtlGet = async (): Promise<ModelLive> => {
 	modelCtl = dbgHost.__model = m.createModel(map, {   // __model＝検証窓（t-model・押し出し）
 		setMeshXf: (name, data) => { wPost({ type: "set", cmd: "meshXf", data, prop: name }); requestDraw(); },   // バッチの剛体変換（glTF の rigid アニメ・W4）＝Float32Array(12)｜null
 		setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); requestDraw(); },   // feature state の色（W7）＝頂点色の列（RGBA8）
-		setMeshPos: (name, data) => { wPost({ type: "set", cmd: "meshPos", data, prop: name }, [data.pos.buffer, data.nrm.buffer]); requestDraw(); },   // skin（2026-10-28）＝焼き直した頂点（原点相対の pos と法線）
+		setMeshPos: (name, data) => { wPost({ type: "set", cmd: "meshPos", data, prop: name }, [data.pos.buffer, data.nrm.buffer]); requestDraw(); },
+		setMeshTint: (name, data) => { wPost({ type: "set", cmd: "meshTint", data, prop: name }); requestDraw(); },   // Cesium の Model.color＝[r,g,b,a, blend]｜null
+		setMeshSil: (name, data) => { wPost({ type: "set", cmd: "meshSil", data, prop: name }); requestDraw(); },   // 模型の輪郭線＝[r,g,b,a, 太さ device px]｜null
+		setMeshEnv: (name, data) => { wPost({ type: "set", cmd: "meshEnv", data, prop: name }); requestDraw(); },   // 模型ごとの環境光（Cesium の照明の SH9・27 値）｜null   // skin（2026-10-28）＝焼き直した頂点（原点相対の pos と法線）
 		pickEnv: meshPickEnv,   // 当たり（W7）＝画面の点 → 三角形と地物の番号
 		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [(data[k] as TileTex | undefined)?.bitmap, (data[k] as TileTex | undefined)?.rgba?.buffer])].filter(Boolean) as Transferable[])] : []); requestDraw(); },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
 		fit: bb => {   // 模型へ寄る＝loadUserFile の fit と同じ視野幅逆解き。ただしチルト 55°（建物メッシュは真俯瞰 pitch<0.02 では描かない＝寄って何も無いを避ける）
@@ -3184,6 +3187,7 @@ const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); ret
 	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [(data[k] as TileTex | undefined)?.bitmap, (data[k] as TileTex | undefined)?.rgba?.buffer])].filter(Boolean) as Transferable[])] : []); },   // 描き直しは worker が転送を当てた時に決める（伏せた区への転送は描かない＝main から同じカメラの描き直しを頼まない・2026-10-19）
 	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); },   // 同上＝worker が切替を当てた時（変わった時だけ）描き直す
 	setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); requestDraw(); },   // feature state の色（W7）
+	setMeshCut: (name, cut) => { wPost({ type: "set", cmd: "meshCut", data: cut, prop: name }); requestDraw(); },   // 不透明の束を MASK に（feature state の show:false）
 	pickEnv: meshPickEnv,   // 当たり（W7）
 	setAttribution: (id, text) => setSrcAttr("t3d:" + id, text ? sanitizeHTML(String(text)) : null),   // tileset の出典（W8・opts.attribution）＝出典の欄（#attr）へ
 }) as T3dLive; };

@@ -113,7 +113,7 @@ type MdMsg = Extract<ScenePortMessage, { type: "up" | "grow" | "dl" }>;
 /** 基図の場面（slot ごとに最新だけ・noFade＝動いている間の差し替え） */
 type SceneRec = MergedScene & { noFade?: boolean };
 /** 建物メッシュの列（plateau worker の直結ポート・set の meshSet/meshVis/meshXf/meshCol） */
-type MeshItem = { name?: string; port?: MessagePort; vis?: boolean; xf?: unknown; col?: unknown; posData?: unknown; meshData?: { pos?: ArrayBufferView; nrm?: ArrayBufferView; idx?: ArrayBufferView } | null };
+type MeshItem = { name?: string; port?: MessagePort; vis?: boolean; xf?: unknown; tint?: unknown; env?: unknown; sil?: unknown; cut?: unknown; col?: unknown; posData?: unknown; meshData?: { pos?: ArrayBufferView; nrm?: ArrayBufferView; idx?: ArrayBufferView } | null };
 /** worker の self に置く計器の窓 */
 interface RwSelf { __gintStats?: () => GintStats | null; __perfElev?: boolean; __perfScene?: boolean; __perfHitch?: Record<string, number> }
 /** 非標準の JS ヒープ計器（Chromium） */
@@ -552,6 +552,10 @@ const dispatch = (e: { data: RwMsg }) => {
 			else if (m.cmd === "meshVis") meshInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
 			else if (m.cmd === "meshXf") meshInbox.push({ xf: m.data, name: m.prop });      // 剛体変換（W4）も同じ列＝バッチの到着前に届いた変換が捨てられない（雲の風・2026-10-12）
 			else if (m.cmd === "meshCol") meshInbox.push({ col: m.data, name: m.prop });
+			else if (m.cmd === "meshTint") meshInbox.push({ tint: m.data, name: m.prop });
+			else if (m.cmd === "meshEnv") meshInbox.push({ env: m.data, name: m.prop });   // 模型ごとの環境光（SH9）も同じ列
+			else if (m.cmd === "meshSil") meshInbox.push({ sil: m.data, name: m.prop });   // 模型の輪郭線も同じ列
+			else if (m.cmd === "meshCut") meshInbox.push({ cut: m.data, name: m.prop });   // 束の α の切り（MASK）も同じ列   // Cesium の Model.color も同じ列＝バッチの到着の後に効く
 			else if (m.cmd === "meshPos") meshInbox.push({ posData: m.data, name: m.prop });   // skin の頂点の焼き直し（2026-10-28）も同じ列      // 頂点色の書き換え（W7）も同じ列＝バッチの到着より先に効いて捨てられない
 			else if (m.cmd === "noBld") { noBld = !!m.data; dirty = true; }   // 基図の建物の押し出しを伏せる（層 "building-extrusion" の出し入れ＝?nobld=1 の旗を実行時に・2026-09-27）
 			else if (m.cmd === "rasterAdd") { raster?.add(m.prop!, (m.data as RasterAddMsg).spec, (m.data as RasterAddMsg).opts).catch(() => {}); }   // 画像タイル層の追加（spec＝url/pmtiles/port・失敗は rasterError で main へ）
@@ -892,6 +896,10 @@ function drainUploads0() {
 			continue;
 		}
 		if ("xf" in item) { renderer.set("meshXf", item.xf, item.name); dirty = true; continue; }   // 変換＝フラグだけ＝同フレームで続けて消化
+		if ("cut" in item) { renderer.set("meshCut", item.cut, item.name); dirty = true; continue; }
+		if ("sil" in item) { renderer.set("meshSil", item.sil, item.name); dirty = true; continue; }
+		if ("env" in item) { renderer.set("meshEnv", item.env, item.name); dirty = true; continue; }
+		if ("tint" in item) { renderer.set("meshTint", item.tint, item.name); dirty = true; continue; }
 		if ("col" in item) { renderer.set("meshCol", item.col, item.name); dirty = true; continue; }
 		if ("posData" in item) { renderer.set("meshPos", item.posData, item.name); dirty = true; continue; }
 		const { meshData, name } = item;
