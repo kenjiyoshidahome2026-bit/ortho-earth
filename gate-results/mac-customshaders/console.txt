@@ -1,0 +1,6 @@
+== custom-shaders-models backend=webgpu
+== custom-shaders-3d-tiles backend=webgpu
+== custom-shaders-property-textures backend=webgpu
+== 3d-tiles-1.1-photogrammetry-classification backend=webgpu
+== 3d-tiles-nga-gpm-visualization backend=webgpu
+== 3d-tiles-1.1-s2-globe backend=webgpu
