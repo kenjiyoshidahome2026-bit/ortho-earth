@@ -32,7 +32,8 @@ export class Cesium3DTileset {
 	clippingPlanes: Any = undefined; clippingPolygons: Any = undefined; imageBasedLighting: Any = undefined; customShader: Any = undefined;
 	backFaceCulling = true; enableCollision = false; preloadWhenHidden = false; preloadFlightDestinations = true; skipLevelOfDetail = false;
 	dynamicScreenSpaceError = true; foveatedScreenSpaceError = true; cullRequestsWhileMoving = true; cullWithChildrenBounds = true;
-	splitDirection = 0; showOutline = true; outlineColor = Color.clone(Color.BLACK); pointCloudShading: Any = { attenuation: false, eyeDomeLighting: false };
+	splitDirection = 0; showOutline = true; outlineColor = Color.clone(Color.BLACK); pointCloudShading: Any = { attenuation: false, geometricErrorScale: 1, maximumAttenuation: undefined, baseResolution: undefined, eyeDomeLighting: true, eyeDomeLightingStrength: 1, eyeDomeLightingRadius: 1, backFaceCulling: false, normalShading: true };   // PointCloudShading's defaults
+	#shadeKey = "";
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere;
 	#opts: Any;
 
@@ -44,6 +45,7 @@ export class Cesium3DTileset {
 		if (opts.featureIdLabel != null) this.featureIdLabel = opts.featureIdLabel;
 		const bs = sphereOfVolume(json?.root?.boundingVolume, json?.root?.transform) ?? new BoundingSphere(Cartesian3.ZERO, 6378137);
 		this.#sphere = BoundingSphere.transform(bs, this.modelMatrix, new BoundingSphere());
+		if (opts.pointCloudShading) Object.assign(this.pointCloudShading, opts.pointCloudShading);
 		if (opts.clippingPlanes != null) this.clippingPlanes = opts.clippingPlanes;   // drawn by the scene (clipping.ts)
 		for (const k of ["clippingPolygons", "customShader"]) if (opts[k] != null) { (this as Any)[k] = opts[k]; unsupported(`Cesium3DTileset option ${k}`); }
 	}
@@ -106,14 +108,25 @@ export class Cesium3DTileset {
 				return { url: x.href, ...(headers && { headers }) };
 			} : undefined;
 			try {
-				const ps = pointSizeOf(this.#style);
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, ...(ps && { pointSize: ps }), ...(requestTransform && { requestTransform }), ...(this.#style && { style: styleOf(this.#style) }), pickable: true });
+				const ps = pointSizeOf(this.#style), sent = this.#style;
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true });
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
+				if (this.#style !== sent) h.setStyle(styleOf(this.#style));   // the style set while the tileset was being added
 				if (!this.#show) h.setVisible(false);
 				this.initialTilesLoaded.raiseEvent(); this.allTilesLoaded.raiseEvent();
 			} catch (e) { this.tileFailed.raiseEvent({ url: this.url, message: String((e as Error)?.message || e) }); console.warn("[csshim] 3D Tiles", this.url, e); }
 		});
+	}
+	/** each frame (scene.render): pointCloudShading → the globe's point shading (the examples change it after the tileset is added). Cesium lights the
+	 *  eye dome only while attenuation is on */
+	__sync() {
+		if (!this.#h) return;
+		const s = this.pointCloudShading ?? {}, att = !!s.attenuation;
+		const spec = att ? { attenuation: true, geometricErrorScale: s.geometricErrorScale ?? 1, ...(s.maximumAttenuation != null && { maximumAttenuation: s.maximumAttenuation }), ...(s.baseResolution != null && { baseResolution: s.baseResolution }),
+			eyeDomeLighting: !!s.eyeDomeLighting, edlStrength: s.eyeDomeLightingStrength ?? 1, edlRadius: s.eyeDomeLightingRadius ?? 1 } : null;
+		const key = JSON.stringify(spec);
+		if (key !== this.#shadeKey) { this.#shadeKey = key; this.#h.setOptions({ pointShading: spec }); }
 	}
 	__detach() { this.#host = null; this.#h?.remove(); this.#h = null; }
 	/** the feature under a screen point (scene.pick) */
@@ -138,10 +151,11 @@ const statsOf = (h: Any) => new Proxy({ numberOfLoadedTilesTotal: h?.stats?.load
 	selected: h?.stats?.shown ?? 0, numberOfTrianglesSelected: h?.stats?.triangles ?? 0, numberOfPointsSelected: h?.stats?.points ?? 0 } as Any, { get: (t, k) => (k in t ? t[k] : 0) });   // selected／triangles＝描いている物（公式例の門の「答え」＝足した物が実際に描けたか）
 
 /** a Cesium3DTileStyle (or its JSON) → the globe's Tiles3DStyle (it reads Cesium's styling language as is) */
-/** a style's constant pointSize (px) for the globe's point clouds (an expression that varies per point is not followed): undefined = none */
-export function pointSizeOf(s: Any): number | undefined {
+/** the globe's point radius (CSS px) for a style's constant pointSize: Cesium's pointSize is the point's width in pixels and defaults to 1
+ *  (ModelVS; the canvas is at CSS resolution as useBrowserRecommendedResolution asks). An expression that varies per point is not followed */
+export function pointSizeOf(s: Any): number {
 	const v = styleOf(s)?.pointSize, n = typeof v === "number" ? v : typeof v === "string" && /^\s*[\d.]+\s*$/.test(v) ? +v : NaN;
-	return Number.isFinite(n) && n > 0 ? n : undefined;
+	return (Number.isFinite(n) && n > 0 ? n : 1) / 2;
 }
 export function styleOf(s: Any): Any {
 	if (!s) return null;
@@ -159,7 +173,7 @@ export class Cesium3DTileFeature {
 	get color() { return this.#color ?? Color.WHITE; }
 	set color(c: Color) { this.#color = c; this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: c ? c.toCssColorString() : null }); }
 	get show() { return this.#show; }
-	set show(v: boolean) { this.#show = !!v; if (!v) unsupported("Cesium3DTileFeature.show = false"); }
+	set show(v: boolean) { this.#show = !!v; this.tileset.orthoHandle?.setFeatureState(this.featureId, { show: v ? undefined : false }); }   // the globe cuts a hidden feature out (alpha 0 on a MASK batch)
 	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#p.properties || {}).filter(k => !k.startsWith("__"))); return result; }
 	/** the batch table hierarchy (the globe puts the class in __class and the class with its ancestors in __classes) */
 	getExactClassName() { return this.#p.properties?.__class ?? undefined; }

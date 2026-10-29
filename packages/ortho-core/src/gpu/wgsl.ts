@@ -422,7 +422,7 @@ struct FillOut {
 	p.z = logDepthZ(p.w);
 	o.pos = p;
 	o.color = a_color;
-	o.front = dot(dir, F.eye) - 1.0;
+	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(dir);
 	o.ll = ll;
 	o.cuv = F.cogP.xy + dLL * F.cogP.zw;
@@ -764,7 +764,7 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	o.guv2 = F.gnd2.xy + a_uv * F.gnd2.zw;
 	o.guv3 = F.gnd3.xy + a_uv * F.gnd3.zw;
 	let relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線
-	o.front = dot(dir, F.eye) - 1.0;
+	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(F.originPt + relW);
 	o.csFog = csFogV(F.eye * CS_R, (F.originPt + relW) * CS_R, F.farP.w, F.cg.xyz, select(-1.0, 1.0, F.cg.w > 0.5 && F.cgP.w >= 0.0));
 	var p = F.clipT + F.mvp * vec4f(relW, 0.0);
@@ -861,7 +861,7 @@ struct BldOut {
 	let h = base + a_pos.z;                              // 地形標高 + 建物高さ
 	let relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線
 	o.shade = a_shade;
-	o.front = dot(dir, F.eye) - 1.0;
+	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(F.originPt + relW);
 	// ⚠絶対経緯度を varying で運ばない：f32 ulp≈1.4m(経度139°)がマスクセル境界の画素ジッタ＝深ズームの点描ゴースト。
 	// 原点相対の小値を渡し、大きい定数部は MaskP 側（CPU f64 前計算の off）に持たせる（glsl.js BUILDING_VS と同文）。
@@ -905,7 +905,7 @@ struct BldOut {
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
 ${CS_ATMO_WGSL}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f, eyeRel: vec4f };   // eyeRel＝F.eye − meshOrigin（CPU double・float 236〜238）＝toEye を原点相対で組む（近接の裏面判定）   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 0, 0)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f, eyeRel: vec4f, tint: vec4f, tintB: vec4f, sil: vec4f };   // tint/tintB＝Cesium の Model.color（float 240〜245）：tint＝色 rgba・tintB.x＝混ぜ方（−1 無し・0 HIGHLIGHT・1 REPLACE・間 MIX の量）・tintB.y＝輪郭線の太さ（device px）・sil＝輪郭線の色 rgba（float 248〜251・Model.silhouetteColor）   // eyeRel＝F.eye − meshOrigin（CPU double・float 236〜238）＝toEye を原点相対で組む（近接の裏面判定）   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 0, 0)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
@@ -925,7 +925,7 @@ struct PlOut {
 	o.wl = ap * 6371000.0;   // 原点相対＝f32 でも mm 級（絶対位置の f32 は 0.4m 刻み＝窓の格子が揺れる）
 	o.n = select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5);
 	o.toEye = B.eyeRel.xyz - ap;                      // ＝F.eye − wp を原点相対で（≈1 同士の差は float32 で 0.4 m 級の誤差＝数 m まで寄った 1 m 級の模型で裏面判定が乱れた・2026-10-28）
-	o.front = dot(dir, F.eye) - 1.0;
+	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(wp);
 	o.csFog = csFogV(F.eye * CS_R, wp * CS_R, F.farP.w, F.cg.xyz, select(-1.0, 1.0, F.cg.w > 0.5 && F.cgP.w >= 0.0));
 	// 接地リフト（DTM 保証域 P.p0=liftBounds 内だけ・境界 0.05° smoothstep）。域外/bounds無しは h=0（r=1 接地）
@@ -1243,6 +1243,8 @@ struct Globe {
 	gm: vec4f,           // 地面の材質（setGroundMaterial・2026-10-28）＝terrain の P.tr/P.lx/P.dashP と同形（GM_WGSL）
 	gmC: vec4f,
 	gmP: vec4f,
+	ugC: vec4f,          // 地下から見た球の裏面（Cesium の globe.undergroundColor）：rgb＋α・α<0＝切
+	ugNF: vec4f,         // その α の距離 (near, nearValue, far, farValue)・距離は世界単位
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert。
@@ -1387,7 +1389,10 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);   // #65：視線は CPU f64 の基底・交点は桁落ちなし
 	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let cc = h.cc;
 	let aDotd = bb * 0.5; let tstar = -aDotd / aa;
-	let t = h.t;
+	var t = h.t;
+	var ug = false;   // 目が球の中（地下）＝前方の遠い根＝球の裏面（Cesium の globe.undergroundColor・gl と同じ）
+	let disc = bb * bb - 4.0 * aa * cc;
+	if (t < 0.0 && G.ugC.a >= 0.0 && cc < 0.0 && disc >= 0.0) { t = (-bb + sqrt(disc)) / (2.0 * aa); ug = true; }
 	// 地面の材質の等高線用 fwidth(標高)＝ここ（空の return より前＝一様な制御の流れ）で。WGSL の掟：微分は画素ごとの分岐の後では呼べず、
 	// Tint が 'fwidth' must only be called from uniform control flow でパイプラインごと落とす（Metal の実 WebGPU で地球が真っ黒）。naga は見逃す
 	var gmDe = 0.0;
@@ -1479,6 +1484,11 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
 	var colC = col;
 	if (G.misc.z > 0.5) { let night = select(-1.0, G.cgP.w, G.cg.w > 0.5); colC = csFogL(csGroundL(base, A * CS_R, Pt * CS_R, G.misc.y, G.cg.xyz, night), A * CS_R, Pt * CS_R, G.farP.z, G.cg.xyz, night); }   // Cesium の地面の大気（遠くから）と霧（800 km より下・farP.z＝濃さ）＝従来の霞の代わり
+	if (ug) {   // 裏面：霞・大気は掛けない＝床の色に undergroundColor を距離の α で重ねる（gl と同じ）
+		let kd = clamp((t * sqrt(aa) - G.ugNF.x) / max(G.ugNF.z - G.ugNF.x, 1e-12), 0.0, 1.0);
+		let ua = G.ugC.a * mix(G.ugNF.y, G.ugNF.w, kd);
+		colC = G.ugC.rgb * ua + base * (1.0 - ua);
+	}
 	var outC = vec4f(colC * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（gl と同じ）
 	if (G.misc.z > 0.5 && G.misc.w > 0.5 && G.misc.x < 1.0) { let cs = csSky2(A * CS_R, normalize(d), select(1.0, 2.0, G.misc.x > 0.0)); outC += cs * (1.0 - outC.a); }
@@ -1547,12 +1557,12 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 type WgslPair = readonly [string, string];
 const deriveWgsl = (src: string, pairs: readonly WgslPair[], label: string): string => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
 export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
-	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n@group(3) @binding(2) var texMR: texture_2d<f32>;\n@group(3) @binding(3) var texN: texture_2d<f32>;\n@group(3) @binding(4) var texOcc: texture_2d<f32>;\n@group(3) @binding(5) var texEm: texture_2d<f32>;\n"],
+	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\nfn tintW(c: vec3f) -> vec3f { if (B.tintB.x < -0.5) { return c; } let m = mix(c, B.tint.rgb, B.tintB.x); return m * mix(B.tint.rgb, vec3f(1.0), ceil(B.tintB.x)); }   // Cesium の ModelColorStage（diffuse はリニア）\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n@group(3) @binding(2) var texMR: texture_2d<f32>;\n@group(3) @binding(3) var texN: texture_2d<f32>;\n@group(3) @binding(4) var texOcc: texture_2d<f32>;\n@group(3) @binding(5) var texEm: texture_2d<f32>;\n"],
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
 	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {\n\tvar o: PlOut;\n", "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n"],
-	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet txT = textureSample(texT, texS, in.uv);   // uniform control flow（discard より前）\n\tlet tx = vec4f(txT.rgb * select(in.col.rgb, srgbDecode(in.col.rgb), B.cs.x > 0.5), txT.a * in.col.a);   // cs.x＝頂点色が sRGB（押し出し）＝リニアへ戻してから掛ける＝出口の srgbEncode で元の色（gl と同じ絵・2026-10-13）\n\tlet mr = textureSample(texMR, texS, in.uv); let nm = textureSample(texN, texS, in.uv); let oc = textureSample(texOcc, texS, in.uv); let em = textureSample(texEm, texS, in.uv);   // #46 段 2＝材質 4 枚（無い物は 1×1 の既定）\n\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n"],
+	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet txT = textureSample(texT, texS, in.uv);   // uniform control flow（discard より前）\n\tlet tx = vec4f(tintW(txT.rgb * select(in.col.rgb, srgbDecode(in.col.rgb), B.cs.x > 0.5)), txT.a * in.col.a);   // cs.x＝頂点色が sRGB（押し出し）＝リニアへ戻してから掛ける＝出口の srgbEncode で元の色（gl と同じ絵・2026-10-13）\n\tlet mr = textureSample(texMR, texS, in.uv); let nm = textureSample(texN, texS, in.uv); let oc = textureSample(texOcc, texS, in.uv); let em = textureSample(texEm, texS, in.uv);   // #46 段 2＝材質 4 枚（無い物は 1×1 の既定）\n\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n"],
 	["\tvar ltBase = P.p1.rgb;   // 局所の光源（W2）", "\tvar ltBase = srgbEncode(tx.rgb);   // 局所の光源（W2）"],
-	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）＝tx はリニア（srgb ビュー）・陰影 d は表示空間\n"],
+	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, select(tx.a, 1.0, B.alpha.y > 1.5) * select(1.0, B.tint.a, B.tintB.x > -0.5), B.alpha.y > 0.5);   // alpha.y＝1 BLEND・2 Model.color の α だけで半透明\n\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）＝tx はリニア（srgb ビュー）・陰影 d は表示空間\n"],
 	["\t\tvar pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));\n",
 	 "\t\t// normal map via screen-space tangents (no TANGENT attribute; degenerate = plain normal). default 1x1 (128,128,255) = identity\n\t\tlet nmv = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);\n\t\tlet dp1 = -dpx; let dp2 = -dpy;\n\t\tlet dp2p = cross(dp2, n); let dp1p = cross(n, dp1);\n\t\tlet T = dp2p * dux.x + dp1p * duy.x; let Bt = dp2p * dux.y + dp1p * duy.y;\n\t\tlet mx = max(dot(T, T), dot(Bt, Bt));\n\t\tvar nn = n;\n\t\tif (mx > 1e-20) { let im = inverseSqrt(mx); nn = normalize(T * im * nmv.x + Bt * im * nmv.y + n * max(nmv.z, 0.05)); }\n\t\tvar pi: PbrIn; pi.base = tx.rgb; pi.n = nn; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); pi.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); pi.ao = mix(1.0, oc.r, B.pbr0.w); pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh) + B.emis.rgb * em.rgb, vec3f(1.0)));   // emissive (srgb view = linear) added as is\n"],
 	["\tif (B.csL.w > 1.5) { lit = P.p1.rgb; }", "\tif (B.csL.w > 1.5) { lit = srgbEncode(tx.rgb); }"],   // unlit＝テクスチャの素の色
@@ -1560,6 +1570,11 @@ export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	 "\t\tlet cnm = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);   // 法線マップ（fx.pbr の経路と同じ接線）\n\t\tlet cdp1 = -dpx; let cdp2 = -dpy; let cdp2p = cross(cdp2, n); let cdp1p = cross(n, cdp1);\n\t\tlet cT = cdp2p * dux.x + cdp1p * duy.x; let cB = cdp2p * dux.y + cdp1p * duy.y; let cmx = max(dot(cT, cT), dot(cB, cB));\n\t\tvar cn = n; if (cmx > 1e-20) { let im = inverseSqrt(cmx); cn = normalize(cT * im * cnm.x + cB * im * cnm.y + n * max(cnm.z, 0.05)); }\n\t\tvar ci: CsIn; ci.base = tx.rgb; ci.n = cn; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); ci.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); ci.ao = mix(1.0, oc.r, B.pbr0.w); ci.emissive = B.emis.rgb * em.rgb; ci.sunK = sunK;\n"],
 	["\tc = mix(c, in.csFog.rgb, in.csFog.a);   // Cesium の霧\n\treturn vec4f(c, 1.0 - wm);\n}\n", "\tc = mix(c, in.csFog.rgb, in.csFog.a);   // Cesium の霧\n\treturn vec4f(c * a, a);\n}\n"],
 ], "MESH_TEX_WGSL");
+// 模型の輪郭線（Cesium の Model.silhouetteColor／silhouetteSize・2026-10-29）＝同じ頂点を画面上で法線の向きへ tintB.y px 押し出して色で塗る殻。
+// 模型の前に深度を書かずに描く＝模型が自分の上を塗り直し、外へはみ出した縁だけ残る（Cesium のステンシルの輪郭と同じ見え方）
+export const MESH_SIL_WGSL = deriveWgsl(MESH_TEX_WGSL, [
+	["\to.pos = p;\n\treturn o;\n}\n", "\tlet cn = (F.mvp * vec4f(o.n, 0.0)).xy;\n\tif (dot(cn, cn) > 1e-30) { p = vec4f(p.xy + normalize(cn) * B.tintB.y * 2.0 / F.viewport * p.w, p.zw); }\n\to.pos = p;\n\treturn o;\n}\n@fragment fn fsSil(in: PlOut) -> @location(0) vec4f {\n\tif (in.front < 0.0) { discard; }\n\treturn vec4f(B.sil.rgb * B.sil.a, B.sil.a);\n}\n"],
+], "MESH_SIL_WGSL");
 
 
 // 画像タイル層のアトラス合成（raster.js・RTT ドレープ・2026-09-21）＝gl/glsl.js RASTER_ATLAS_VS/FS と対。

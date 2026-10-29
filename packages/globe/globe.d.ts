@@ -72,6 +72,13 @@ export interface ModelHandle {
 	 *  skin／morph は描かない（plugin が onAnimation で合図を受けて自前で動かせる） */
 	setAnimation(spec: AnimationSpec | string | number | true | null): ModelHandle;
 	getAnimation(): AnimationState | null;
+	/** 模型の色（Cesium の Model.color／colorBlendMode／colorBlendAmount）。color＝リニアの [r,g,b,a]（0〜1）・blend＝"highlight"（既定＝掛ける）／"replace"（置き換え）／"mix"（amount で混ぜる）。
+	 *  a<1 で半透明。null＝外す */
+	setColor(c: { color: number[]; blend?: "highlight" | "replace" | "mix"; amount?: number } | null): ModelHandle;
+	/** setMeshLighting（Cesium の照明）の環境光（SH9＝27 値・Cesium の並び）をこの模型だけ替える。null＝setMeshLighting の物へ戻す */
+	setEnvironment(sh: ArrayLike<number> | null): ModelHandle;
+	/** 輪郭線（Cesium の Model.silhouetteColor／silhouetteSize）。color＝[r,g,b,a]（0〜1）・size＝太さ（CSS px）。null＝外す */
+	setSilhouette(s: { color: number[]; size: number } | null): ModelHandle;
 	play(nameOrSpec?: string | AnimationSpec): ModelHandle;
 	stop(): ModelHandle;
 	/** 再生の時刻での束（マテリアル×アニメするノード）ごとの剛体変換＝[Float32Array(12)（L 3x3 列優先＋原点相対の平行移動）| null]。time 省略＝今の時刻。アニメが無ければ null */
@@ -935,7 +942,10 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
 	/** heights＝tileset の高さの基準：既定 "orthometric"＝そのまま（この地図の標高はジオイド基準）。"ellipsoidal"＝WGS84 の楕円体高（Cesium の物・Google の写実 3D Tiles
 	 *  など）＝根の中心の EGM96 の N を引いて載せる（ニューヨークで +33 m・日本で −37 m 前後）。heightOffset はその上に足す */
 	heights?: "ellipsoidal" | "orthometric";
-	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
+	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number;
+	/** 点群の陰影（Cesium の PointCloudShading）：attenuation＝点の幅をタイルの geometricError（×geometricErrorScale・baseResolution が有ればそれ・m）の画面の px に（上限 maximumAttenuation px・既定 maxSSE）。
+	 *  eyeDomeLighting＝点の奥行きの段差で縁を暗く（edlStrength・edlRadius px）。既定は全部切 */
+	pointShading?: { attenuation?: boolean; geometricErrorScale?: number; maximumAttenuation?: number; baseResolution?: number; eyeDomeLighting?: boolean; edlStrength?: number; edlRadius?: number } | null; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/splat の SplatOptions）。
 	 *  描き手＝splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
 	splat?: Record<string, unknown> | null;

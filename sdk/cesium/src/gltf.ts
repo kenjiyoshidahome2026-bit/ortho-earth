@@ -61,3 +61,23 @@ export function gltfSphere(url: string): Promise<{ center: V3; radius: number } 
 export async function gltfNodeNames(url: string): Promise<string[]> {
 	try { const g = await gltfJson(url); return (g.nodes ?? []).map((n: any, i: number) => n.name ?? `node${i}`); } catch { return []; }
 }
+
+/** Model.color / colorBlendMode / colorBlendAmount as the globe's ModelHandle.setColor takes them (Cesium's ModelColorPipelineStage:
+ *  HIGHLIGHT multiplies the diffuse by the colour, REPLACE takes the colour, MIX blends by the amount; alpha multiplies). null = no colour
+ *  (undefined, or white HIGHLIGHT: Cesium's look unchanged) */
+export function modelTintOf(color: any, mode: any, amount: any): { color: number[]; blend: "highlight" | "replace" | "mix"; amount: number } | null {
+	if (!color || !Number.isFinite(color.red)) return null;
+	const blend = mode === 1 ? "replace" : mode === 2 ? "mix" : "highlight";   // ColorBlendMode: HIGHLIGHT 0, REPLACE 1, MIX 2
+	const a = Number.isFinite(amount) ? amount : 0.5;
+	const c = [color.red, color.green, color.blue, color.alpha ?? 1];
+	if (blend === "highlight" && c.every(v => v === 1)) return null;
+	if (blend === "mix" && a <= 0 && c[3] === 1) return null;
+	return { color: c, blend, amount: a };
+}
+
+/** Model.silhouetteColor / silhouetteSize as ModelHandle.setSilhouette takes them (size in CSS px; 0 or a transparent colour = none) */
+export function modelSilOf(color: any, size: any): { color: number[]; size: number } | null {
+	if (!(size > 0)) return null;
+	const c = color && Number.isFinite(color.red) ? [color.red, color.green, color.blue, color.alpha ?? 1] : [1, 0, 0, 1];   // Cesium's default silhouetteColor is RED
+	return c[3] > 0 ? { color: c, size } : null;
+}

@@ -205,7 +205,7 @@ void main() {
 	float h = base + a_pos.z;                  // 地形標高 + 建物高さ
 	vec3 relW = rel + h * liftDir(ll, dir);    // (dir*(1+h)) − 原点3D を相殺なしで（地形の上に建物を積む。楕円体＝測地法線）
 	v_shade = a_shade;
-	v_front = dot(dir, u_eye) - 1.0;
+	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(u_originPt + relW);
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
 	gl_PointSize = 7.0;   // GL_POINTS 描画時のみ有効（線/面描画では無視）＝draped の点データ用
@@ -280,7 +280,7 @@ void main() {
 	v_n = a_normal;
 	if (u_xfOn > 0.5) v_n = u_xfL * a_normal;
 	v_toEye = u_eyeRel - ap;                                     // ＝u_eye − wp を原点相対で：u_eye − wp（≈1 同士の差）は float32 で 0.4 m 級の誤差＝目が数 m まで寄った 1 m 級の模型（Cesium Man）で FS の面法線（dFdx）と裏面判定が乱れ裏側の三角形が透けた（2026-10-28）
-	v_front = dot(dir, u_eye) - 1.0;
+	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
 	v_csFog = csFogV(u_eye * CS_R, wp * CS_R, u_csFogD, u_csFogL.xyz, u_csFogL.w);
 	// 接地リフト（DTM 化で解禁・746b48a の続き）：メッシュは単位球接地(r=1)で焼き込み済み＝頂点位置の
@@ -436,10 +436,25 @@ export const MESH_TEX_VS = derive(MESH_VS, [
 	["\tv_n = a_normal;\n", "\tv_n = a_normal;\n\tv_uv = a_uv; v_col = a_col;\n"],
 ], "MESH_TEX_VS");
 export const MESH_TEX_FS = derive(MESH_FS, [
-	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nin vec2 v_uv;\nin vec4 v_col;"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
+	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nuniform vec4 u_tint;\nuniform float u_tintB;\nin vec2 v_uv;\nin vec4 v_col;\nvec3 tintC(vec3 c) { if (u_tintB < -0.5) return c; c = mix(c, u_tint.rgb, u_tintB); return c * mix(u_tint.rgb, vec3(1.0), ceil(u_tintB)); }"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
 	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n"],
-	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 base = tx.rgb * d;\n\tif (u_csOn > 1.5) base = tx.rgb; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(txr.rgb) * v_col.rgb, n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c * a, a);\n}"],
+	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat ta = u_tintB < -0.5 ? 1.0 : u_tint.a;\n\tfloat a = (u_blend > 1.5 ? 1.0 : u_blend > 0.5 ? tx.a : 1.0) * (u_blend > 0.5 ? ta : 1.0);\n\tvec3 base = tintC(tx.rgb) * d;\n\tif (u_csOn > 1.5) base = tintC(tx.rgb); else if (u_csOn > 0.5) base = csLit(tintC(csSrgbToLinear(txr.rgb) * v_col.rgb), n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c * a, a);\n}"],
 ], "MESH_TEX_FS");
+// 模型の輪郭線（Cesium の Model.silhouetteColor／silhouetteSize・2026-10-29）＝同じ頂点を画面上で法線の向きへ u_silPx（device px）押し出した殻を色で塗る。
+// 模型の前に深度を書かずに描く＝模型が自分の上を塗り直し、外へはみ出した縁だけ残る（Cesium のステンシルの輪郭と同じ見え方）。gpu/wgsl.ts MESH_SIL_WGSL と対
+export const MESH_SIL_VS = derive(MESH_TEX_VS, [
+	["uniform vec3 u_eyeRel;", "uniform vec3 u_eyeRel;\nuniform float u_silPx;"],
+	["\tapplyLogDepth();\n}", "\tapplyLogDepth();\n\tvec2 cn = (u_mvp * vec4(v_n, 0.0)).xy;\n\tif (dot(cn, cn) > 1e-30) gl_Position.xy += normalize(cn) * u_silPx * 2.0 / u_viewport * gl_Position.w;\n}"],
+], "MESH_SIL_VS");
+export const MESH_SIL_FS = `#version 300 es
+precision highp float;
+uniform vec4 u_silColor;
+in float v_front;
+out vec4 fragColor;
+void main() {
+	if (v_front < 0.0) discard;
+	fragColor = vec4(u_silColor.rgb * u_silColor.a, u_silColor.a);
+}`;
 
 // 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝
 // VS の標高フェッチを5回/頂点（変位1+中央差分勾配4）→1回に削減（格子236万頂点＝毎フレーム~950万フェッチの削減）。
@@ -486,7 +501,7 @@ void main() {
 	v_h = h;
 	v_ll = a_ll;
 	vec3 relW = rel + (h * u_elevScale) * liftDir(a_ll, dir);   // (dir*(1+h*scale)) − 原点3D を相殺なしで（楕円体＝測地法線）
-	v_front = dot(dir, u_eye) - 1.0;
+	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(u_originPt + relW);
 	v_csFog = csFogV(u_eye * CS_R, (u_originPt + relW) * CS_R, u_csFogD, u_csFogL.xyz, u_csFogL.w);
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
@@ -865,12 +880,16 @@ float cgLambert(vec2 ll, vec2 gEN, float mode) {
 	return mix(1.0, diff, u_cgP.z);
 }
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
+uniform vec4 u_ugC;    // 地下から見た球の裏面（Cesium の globe.undergroundColor）：rgb＋α・α<0＝切（目が地面の下の時だけ renderer が点ける）
+uniform vec4 u_ugNF;   // undergroundColorAlphaByDistance＝(near, nearValue, far, farValue)・距離は世界単位
 void main() {
 	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
 	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = u_rayC;
 	float disc = bb * bb - 4.0 * aa * cc;
 	float aDotd = bb * 0.5, tstar = -aDotd / aa;
 	float t = sphereT(bb, disc);   // 近い根を桁落ちなしで（disc<0 か後ろ向き＝−1）
+	bool ug = false;   // 目が球の中（地下）＝前方の遠い根＝球の裏面（Cesium は裏面を undergroundColor で塗る）
+	if (t < 0.0 && u_ugC.a >= 0.0 && cc < 0.0 && disc >= 0.0) { t = (-bb + sqrt(disc)) / (2.0 * aa); ug = true; }
 	if (t < 0.0) {                                 // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続に減衰
 		if (u_csAtm.x > 0.5) {   // Cesium の空の大気（殻の奥の面で計る・星の上に α で重なる）
 			if (u_csAtm.z < 0.5) discard;
@@ -958,6 +977,11 @@ void main() {
 		float night = u_cg.w > 0.5 ? u_cgP.w : -1.0;
 		vec3 cs = csGroundL(g.rgb / max(g.a, 1e-4), A * CS_R, P * CS_R, u_csAtm.y, u_cg.xyz, night);
 		col = csFogL(cs, A * CS_R, P * CS_R, u_csAtm.w, u_cg.xyz, night) * g.a;
+	}
+	if (ug) {   // 裏面：霞・大気は掛けない（面の裏から見る）＝床の色に undergroundColor を距離の α で重ねる（Cesium GlobeFS の alphaBlend）
+		float k = clamp((t * sqrt(aa) - u_ugNF.x) / max(u_ugNF.z - u_ugNF.x, 1e-12), 0.0, 1.0);
+		float ua = u_ugC.a * mix(u_ugNF.y, u_ugNF.w, k);
+		col = u_ugC.rgb * ua * g.a + g.rgb * (1.0 - ua);
 	}
 	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（SkyAtmosphere は地面を知らない＝殻の奥の面）
@@ -1326,7 +1350,7 @@ void main() {
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog 用＝粗くて可）
 	v_color = u_pz.x > 0.5 ? u_pzC : a_color;   // ズーム連続の色（V-Ph3＝S-P1-2）
-	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
+	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
 	v_fog = fogOf(dir);
 	gl_Position = u_clipT + u_mvp * vec4(rel, 0.0);   // RTE：mvp*[w,1] を相殺なしで（海抜0の球面）
 	applyLogDepth();   // 深度テストOFF（2D）では無害
@@ -1855,7 +1879,7 @@ const DISCARD = "\tif (clipMin(v_cdA, v_cdB) < 0.0) discard;\n";
 type Pairs = readonly (readonly [string, string])[];
 const clipGL = (src: string, pairs: Pairs, label: string): string => withClip(derive(src, pairs, label));
 // 地形（帯は最後に＝この後に地面アトラスの texture がある）
-const TERR_VS_C: Pairs = [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + VS_OUT], ["\tv_front = dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);", `\t${CD_SET("relW")}\n\tv_front = dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);`]];
+const TERR_VS_C: Pairs = [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + VS_OUT], ["\tv_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);", `\t${CD_SET("relW")}\n\tv_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);`]];
 export const TERRAIN_CLIP_VS = clipGL(TERRAIN_VS, TERR_VS_C, "TERRAIN_CLIP_VS");
 export const TERRAIN_CLIP_FS = clipGL(TERRAIN_FS, [
 	["in float v_h;\n", "in float v_h;\n" + FS_IN],
@@ -2050,7 +2074,7 @@ const SH_REL = "(u_originPt - SH.anchor.xyz)";
 /** 影の受け手の派生（fam＝描く物の族・src＝本体か切る派生の文字列） */
 export type ShadowFam = "terrain" | "fill" | "line" | "bld" | "mesh" | "meshTex" | "globe";
 const SH_VS: Record<ShadowFam, Pairs> = {
-	terrain: [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + SC_OUT], ["\tv_front = dot(dir, u_eye) - 1.0;\n", `\tv_sc = shClip(relW + ${SH_REL});\n\tv_front = dot(dir, u_eye) - 1.0;\n`]],
+	terrain: [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + SC_OUT], ["\tv_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;\n", `\tv_sc = shClip(relW + ${SH_REL});\n\tv_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;\n`]],
 	fill: [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + SC_OUT], ["\tgl_Position = u_clipT + u_mvp * vec4(rel, 0.0);", `\tv_sc = shClip(rel + ${SH_REL});\n\tgl_Position = u_clipT + u_mvp * vec4(rel, 0.0);`]],
 	line: [["out float v_fog;\n", "out float v_fog;\n" + SC_OUT], ["\tv_fog = fogOf((wa + wb) * 0.5);\n", `\tv_fog = fogOf((wa + wb) * 0.5);\n\tv_sc = shClip((corner.x < 0.5 ? relWa : relWb) + ${SH_REL});\n`]],
 	bld: [["out vec2  v_ll;", SC_OUT + "out vec2  v_ll;"], ["\tv_shade = a_shade;\n", `\tv_sc = shClip(relW + ${SH_REL});\n\tv_shade = a_shade;\n`]],

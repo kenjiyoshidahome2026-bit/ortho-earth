@@ -75,6 +75,48 @@ export function sunPositionWC(t: Any): number[] {
 	return [sunWC.x, sunWC.y, sunWC.z];
 }
 
+/** cesiumEnvSH's options from the scene's atmosphere (dir = the light, sun = the sun, both unit vectors in the fixed frame) */
+function envOptions(scene: Any, at: Cartesian3, dir: Any, sun: Any): Parameters<typeof cesiumEnvSH>[1] {
+	const atmo = scene.atmosphere, dyn = atmo?.dynamicLighting ?? 0, bg = scene.backgroundColor, ell = scene.ellipsoid ?? scene.globe?.ellipsoid ?? Ellipsoid.WGS84;
+	const s = ell.scaleToGeodeticSurface(at, surf);
+	return {
+		radius: s ? Cartesian3.magnitude(s) : ell.maximumRadius, dynamicLighting: dyn, lightDirWC: [dir.x, dir.y, dir.z], sunDirWC: [sun.x, sun.y, sun.z],
+		lightIntensity: atmo?.lightIntensity, rayleighCoefficient: c3(atmo?.rayleighCoefficient), mieCoefficient: c3(atmo?.mieCoefficient),
+		rayleighScaleHeight: atmo?.rayleighScaleHeight, mieScaleHeight: atmo?.mieScaleHeight, mieAnisotropy: atmo?.mieAnisotropy,
+		backgroundColor: bg ? [bg.red, bg.green, bg.blue] : undefined,
+	};
+}
+const envKeyOf = (scene: Any, at: ArrayLike<number>, dir: Any): string => {
+	const atmo = scene.atmosphere, dyn = atmo?.dynamicLighting ?? 0, bg = scene.backgroundColor;
+	return `${Math.round(at[0] / 1000)},${Math.round(at[1] / 1000)},${Math.round(at[2] / 1000)}|${dyn}${dyn ? `|${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)}` : ""}|${atmo?.lightIntensity ?? 10}|${bg ? `${bg.red},${bg.green},${bg.blue}` : ""}`;
+};
+/** the light and sun directions (fixed frame) at time t, as UniformState computes them */
+function lightDirs(scene: Any, t: Any): { dir: Cartesian3; sun: Cartesian3 } {
+	const light = scene.light ?? null, isSun = !light || light instanceof SunLight;
+	Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(t, sunPos);
+	const m = CelestialFrameTransforms.computeIcrfToCentralBodyFixedMatrix(t, icrf) ?? CelestialFrameTransforms.computeTemeToPseudoFixedMatrix(t, teme);   // the ICRF data may not be loaded yet: TEME is within a fraction of a degree
+	const sun = Cartesian3.normalize(Matrix3.multiplyByVector(m, sunPos, sunPos), sunPos);
+	return { dir: isSun ? sun : Cartesian3.normalize(Cartesian3.negate(light.direction, neg), neg), sun };
+}
+const modelEnvCache = new Map<string, Float32Array>();
+const modelPos = new Cartesian3();
+/** Cesium's environment of a model at posWC (its DynamicEnvironmentMapManager builds the map around the model's own position, kept within
+ *  1 km): the SH9 for ModelHandle.setEnvironment, or null when a custom ImageBasedLighting replaces the procedural environment */
+export function modelEnvSH(scene: Any, posWC: ArrayLike<number>): Float32Array | null {
+	if (customIbl(scene.primitives)) return null;
+	const t = scene.frameState?.time ?? scene.lastRenderTime;
+	if (!t) return null;
+	const { dir, sun } = lightDirs(scene, t);
+	const key = envKeyOf(scene, posWC, dir);
+	let sh = modelEnvCache.get(key);
+	if (!sh) {
+		if (modelEnvCache.size > 64) modelEnvCache.clear();
+		sh = cesiumEnvSH(posWC, envOptions(scene, Cartesian3.fromArray(posWC as number[], 0, modelPos), dir, sun));
+		modelEnvCache.set(key, sh);
+	}
+	return sh;
+}
+
 export function syncLighting(scene: Any, map: Any): (time: Any) => void {
 	let envKey = "", sh: Float32Array | null = null, sent = "";
 	const shadowLast = { sig: "" };
@@ -84,11 +126,7 @@ export function syncLighting(scene: Any, map: Any): (time: Any) => void {
 		const t = time ?? scene.frameState?.time ?? scene.lastRenderTime;
 		if (!t) return;
 		// the light's direction in the fixed frame (UniformState.update): the sun, or the DirectionalLight turned around
-		const light = scene.light ?? null, isSun = !light || light instanceof SunLight;
-		Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(t, sunPos);
-		const m = CelestialFrameTransforms.computeIcrfToCentralBodyFixedMatrix(t, icrf) ?? CelestialFrameTransforms.computeTemeToPseudoFixedMatrix(t, teme);   // the ICRF data may not be loaded yet: TEME is within a fraction of a degree
-		const sun = Cartesian3.normalize(Matrix3.multiplyByVector(m, sunPos, sunPos), sunPos);
-		const dir = isSun ? sun : Cartesian3.normalize(Cartesian3.negate(light.direction, neg), neg);
+		const light = scene.light ?? null, { dir, sun } = lightDirs(scene, t);
 		const c = light?.color ?? { red: 1, green: 1, blue: 1 }, k = light?.intensity ?? 2;
 		const color = [c.red * k, c.green * k, c.blue * k];
 		// the environment around the point in view: where the view ray meets the ellipsoid, else the ground under the camera
@@ -96,17 +134,10 @@ export function syncLighting(scene: Any, map: Any): (time: Any) => void {
 		ray.origin = cam.positionWC; ray.direction = cam.directionWC;
 		const iv = IntersectionTests.rayEllipsoid(ray, ell);
 		const at = iv && iv.start >= 0 ? Ray.getPoint(ray, iv.start, hit) : (ell.scaleToGeodeticSurface(cam.positionWC, hit) ?? Cartesian3.clone(cam.positionWC, hit));
-		const atmo = scene.atmosphere, dyn = atmo?.dynamicLighting ?? 0, bg = scene.backgroundColor;
-		const key = `${Math.round(at.x / 1000)},${Math.round(at.y / 1000)},${Math.round(at.z / 1000)}|${dyn}${dyn ? `|${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)}` : ""}|${atmo?.lightIntensity ?? 10}|${bg ? `${bg.red},${bg.green},${bg.blue}` : ""}`;
+		const key = envKeyOf(scene, [at.x, at.y, at.z], dir);
 		if (key !== envKey) {
 			envKey = key;
-			const s = ell.scaleToGeodeticSurface(at, surf);
-			sh = cesiumEnvSH([at.x, at.y, at.z], {
-				radius: s ? Cartesian3.magnitude(s) : ell.maximumRadius, dynamicLighting: dyn, lightDirWC: [dir.x, dir.y, dir.z], sunDirWC: [sun.x, sun.y, sun.z],
-				lightIntensity: atmo?.lightIntensity, rayleighCoefficient: c3(atmo?.rayleighCoefficient), mieCoefficient: c3(atmo?.mieCoefficient),
-				rayleighScaleHeight: atmo?.rayleighScaleHeight, mieScaleHeight: atmo?.mieScaleHeight, mieAnisotropy: atmo?.mieAnisotropy,
-				backgroundColor: bg ? [bg.red, bg.green, bg.blue] : undefined,
-			});
+			sh = cesiumEnvSH([at.x, at.y, at.z], envOptions(scene, at, dir, sun));
 		}
 		groundLighting(scene, map, dir, color);
 		const custom = customIbl(scene.primitives);

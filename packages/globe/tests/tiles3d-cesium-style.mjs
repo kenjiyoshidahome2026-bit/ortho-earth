@@ -41,6 +41,10 @@ const def = { defines: { tall: "${height} * 2", veryTall: "${tall} > 100" }, col
 ok("defines（defines から defines）", JSON.stringify(col(def, { height: 60 })) === "[255,0,0,255]" && JSON.stringify(col(def, { height: 30 })) === "[0,0,255,255]" && show(def, { height: 2 }) === false && show(def, { height: 6 }) === true);
 ok("defines の循環＝例外", throws(() => cesiumToSpec({ defines: { a: "${b}", b: "${a}" }, show: "${a}" }), /cycle/));
 ok("show＝真偽そのまま", cesiumToSpec({ show: false }).show === false && show({ show: "${kind} !== 'tree'" }, { kind: "tree" }) === false);
+// pointSize（点群の点の幅）＝数・文字列の式・conditions
+const psOf = (st, props = {}) => compileStyle(cesiumToSpec(st)).pointSize({ props, id: 0, state: null });
+ok("pointSize＝数と式", psOf({ pointSize: 5 }) === 5 && psOf({ pointSize: "${t} * 10" }, { t: 0.5 }) === 5 && psOf({ color: "color('red')", pointSize: "3" }) === 3);
+ok("pointSize だけでも Cesium 形", isCesiumStyle({ pointSize: "${t}" }) && psOf({ pointSize: { conditions: [["${t} > 1", "8"], ["true", "2"]] } }, { t: 0 }) === 2);
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ tiles3d-cesium-style 全 PASS");
 process.exit(fail ? 1 : 0);

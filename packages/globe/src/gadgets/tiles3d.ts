@@ -33,6 +33,7 @@ import { isCesiumStyle, cesiumToSpec } from "../tiles3d-cesium-style.ts";   // C
 import { cameraState, ellipsoidOn, loadGeoid, geoidHeight } from "@ortho-earth/core";
 import type { Bbox, OverlayHandle, Tiles3DHandle, Tiles3DOptions, Tiles3DRequestTransform, Tiles3DStyle } from "../../globe.d.ts";
 import type { MeshFeatures } from "../mesh-features.ts";
+import type { PointsFeat } from "../tiles3d-decode.ts";
 import type { BoundingVolume, ImplicitTiling, ImplicitTilingJson, Subtree, TileCoord } from "../tiles3d-implicit.ts";
 import type { MetadataEntity, MetadataEntityJson, MetadataSchema } from "../tiles3d-metadata.ts";
 import type { CompiledStyle, StyleSpec } from "../tiles3d-style.ts";
@@ -68,7 +69,7 @@ export interface TileBatch {
 /** worker（tile3d・i3sContent）の答え */
 interface TileReply {
 	batches: TileBatch[];
-	points: Array<{ n: number; pos: Float32Array<ArrayBuffer>; rgba: Uint8Array<ArrayBuffer>; origin: number[] }>;
+	points: Array<{ n: number; pos: Float32Array<ArrayBuffer>; rgba: Uint8Array<ArrayBuffer>; origin: number[]; feat?: PointsFeat | null }>;
 	splats?: TileSplat[];
 	voxels?: TileVoxel[];
 	stats: { triangles: number; points: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bytes?: number; copyright?: string[] | null };
@@ -104,7 +105,7 @@ interface T3dNode {
 	paint?: PaintPart[] | null;
 	/** 複数 content＝2 個目からの content の節点（タイルと一緒に読み・出す）／owner＝content の節点が付くタイル */
 	extra?: T3dNode[] | null; owner?: T3dNode;
-	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; /** main のヒープに持つ写しの量（当たり・塗り直し・地物の番号）＝予算に数える（2026-10-20） */ mainBytes: number; pts: string[] | null; splat?: SplatLayer[] | null; voxel?: SplatLayer[] | null; on: boolean; used: number; err: number;
+	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; /** main のヒープに持つ写しの量（当たり・塗り直し・地物の番号）＝予算に数える（2026-10-20） */ mainBytes: number; pts: string[] | null; /** 点群の点の地物（スタイルで塗り直す元・pts と同じ並び） */ ptsFeat?: (PointsFeat | null | undefined)[] | null; splat?: SplatLayer[] | null; voxel?: SplatLayer[] | null; on: boolean; used: number; err: number;
 	pick?: PickPart[] | null; copyright?: string[] | null; meshN?: number; bbox?: number[] | null;
 }
 /** add／addI3S の opts（既定を補った物） */
@@ -112,7 +113,7 @@ type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token
 /** 1 つの tileset（3D Tiles か I3S＝kind "i3s"）。asset 等は 3D Tiles だけ・states は両方（I3S は手綱に setFeatureState が無い＝常に空） */
 interface T3dSet {
 	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; splats: number; voxels: number; bytes: number; subtrees: number; complete: boolean };
-	states: Map<number, Record<string, unknown>>; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean; releaseT?: number; splatWarned?: boolean; voxelWarned?: boolean; voxDecl?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null;
+	states: Map<number, Record<string, unknown>>; /** feature state の show:false が一度でも来た＝不透明の束も MASK で上げる（地物を α 0 で抜く） */ maskAll?: boolean; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean; releaseT?: number; splatWarned?: boolean; voxelWarned?: boolean; voxDecl?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null;
 	asset?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null; extras?: Record<string, unknown> | null; extensionsUsed?: string[]; extensionsRequired?: string[];
 	name?: string | null; copyright?: string | null; ellipsoidal?: boolean;
 	root: T3dNode; ready: Set<T3dNode>; scope?: T3dScope; style?: CompiledStyle | null; styleSpec?: Tiles3DStyle | null; metaBase?: Record<string, unknown>; loaded: () => T3dNode[]; copyrights?: string[]; attrText?: string | null;
@@ -128,6 +129,8 @@ export interface Tiles3DEnv {
 	setMesh(name: string, data: MeshSetData | null): void;
 	meshVis(ward: string, on: boolean): void;
 	setMeshCol?: ((name: string, data: Uint8Array) => void) | null;
+	/** 不透明の束を MASK に（α がこれ未満を抜く）＝feature state の show:false */
+	setMeshCut?: ((name: string, cut: number) => void) | null;
 	pickEnv?: (() => MeshPickEnv | null) | null;
 	setAttribution?: ((id: string, text: string | null) => void) | null;
 	lowMem?: boolean; signal?: AbortSignal; requester?: Requester | null; ell?: boolean;
@@ -199,7 +202,7 @@ let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;
 const cssRGB = (c: string): number[] | null => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB!.fillStyle = "#000"; ctxRGB!.fillStyle = c; const f = ctxRGB!.fillStyle as string, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshCut = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -404,7 +407,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const pk = set.opts.pickable ?? "auto", geom = pk === true || (pk === "auto" && !lowMem);
 			n.pick = pk === false ? null : r.batches.map((b, k) => (pk === true || b.features) ? { k, pos: geom ? b.mesh.pos.slice() : null, idx: geom ? b.mesh.idx.slice() : null, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : null).filter(Boolean) as PickPart[];
 			const sty = set.style, opaque = (b: TileBatch) => (b.alphaMode ?? "OPAQUE") === "OPAQUE";
-			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: !!sty.show && opaque(b) } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
+			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: (!!sty.show || !!set.maskAll) && opaque(b) } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
 			// main に残る写しの量＝当たりの頂点・index・元の頂点色＋塗り直しの元の頂点色＋地物の番号（ids・tblV＝束ごとに 1 回）。属性の表（文字列の配列）は数えない
 			n.mainBytes = 0;
 			const featBytes = (f: MeshFeatures | null) => f ? f.ids.byteLength + ((f.tblV as ArrayBufferView | null)?.byteLength || 0) : 0;
@@ -412,7 +415,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			for (const p of n.paint || []) n.mainBytes += p.col0.byteLength + (n.pick?.some(q => q.k === p.k) ? 0 : featBytes(p.features));
 			if (r.batches.length) meshVis(n.ward, false);   // 伏せてから上げる（同じ列＝転送より先に効く）＝出すかは次の update が決める（兄弟が揃う前に出さない）
 			r.batches.forEach((b, k) => {
-				const m = b.mesh, mask = !!sty?.show && opaque(b);   // show で抜く＝OPAQUE を MASK に（見える地物は α 255）
+				const m = b.mesh, mask = (!!sty?.show || (!!set.maskAll && !!b.features)) && opaque(b);   // show（スタイル・feature state）で抜く＝OPAQUE を MASK に（見える地物は α 255）
 				n.bytes += (m.pos?.byteLength || 0) + (m.nrm?.byteLength || 0) + (m.idx?.byteLength || 0) + (m.uv?.byteLength || 0) + (m.col?.byteLength || 0) + (b.tex?.rgba?.byteLength || (b.tex?.bitmap ? b.tex.bitmap.width * b.tex.bitmap.height * 4 : 0));
 				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0 });   // pbr＋材質 4 枚＝#46 段 2
 			});
@@ -421,8 +424,14 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			n.meshN = r.batches.length; n.bbox = r.batches[0]?.mesh.bbox?.map(v => +v.toFixed(5)) ?? null;
 			if (r.points.length) {
 				set.pts ??= map.overlay({ builtin: "points" }, { name: `tiles3d:${set.id}` });
-				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1] });
-				n.pts = r.points.map((p, k) => { const q = `${n.id}:${k}`; n.bytes += p.pos.byteLength + p.rgba.byteLength; set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba: p.rgba, origin: p.origin }, [p.pos.buffer, p.rgba.buffer]); return q; });
+				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1], edl: edlOf(set) });
+				n.ptsFeat = r.points.map(p => p.feat);
+				n.pts = r.points.map((p, k) => {
+					const q = `${n.id}:${k}`, sp = p.feat ? stylePoints(set, p.feat, p.n) : null, rgba = sp?.rgba ?? p.rgba;
+					n.bytes += p.pos.byteLength + p.rgba.byteLength; if (p.feat) n.mainBytes += p.feat.local.byteLength + p.feat.rgba.byteLength;
+					set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba, origin: p.origin, ...(sp?.size && { size: sp.size }), att: attOf(set, n) }, [p.pos.buffer, rgba.buffer, ...(sp?.size ? [sp.size.buffer] : [])]);
+					return q;
+				});
 			}
 			if (r.splats?.length) {   // Gaussian splat＝タイルごとに splat の層（crs "local"＋transform・絶対高さ）。spz＝bytes＋format で読み手へ
 				n.splat = [];
@@ -468,8 +477,46 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const paintNode = (n: T3dNode) => {
 		if (n.paint) return paintStyled(n);
 		if (!setMeshCol || !n.ward || !n.pick) return;
-		const set = n.set, colorOf = (id: number) => { const c = set.states.get(id)?.color; const v = c ? cssRGB(String(c)) : null; return v; };
+		const set = n.set, colorOf = (id: number) => {
+			const st = set.states.get(id), c = st?.color ? cssRGB(String(st.color)) : null, hide = st?.show === false;
+			return hide ? [c?.[0] ?? NaN, c?.[1] ?? NaN, c?.[2] ?? NaN, 0] : c;   // show:false＝α 0（MASK の束で抜ける）・NaN＝元の色のまま
+		};
 		for (const p of n.pick) if (p.col0 && p.features) setMeshCol(`${n.ward}#${p.k}`, tintColors(p.col0, p.features.ids, colorOf));
+	};
+	// 点群の陰影（pointShading・Cesium の PointCloudShading）：attenuation＝層（タイル）ごとに [誤差（世界単位）, 上限 px]＝点の層が距離で幅を決める。
+	// 誤差＝baseResolution か geometricError×geometricErrorScale（0＝Cesium は中身の体積から見積もる＝ここでは減衰しない）
+	const attOf = (set: T3dSet, n: T3dNode): [number, number] | null => {
+		const o = set.opts.pointShading; if (!o?.attenuation) return null;
+		const ge = o.baseResolution ?? n.ge * (o.geometricErrorScale ?? 1);
+		return ge > 0 ? [ge / EARTH_M, o.maximumAttenuation ?? set.opts.maxSSE ?? 16] : null;
+	};
+	const edlOf = (set: T3dSet): [number, number] | null => { const o = set.opts.pointShading; return o?.eyeDomeLighting ? [o.edlStrength ?? 1, o.edlRadius ?? 1] : null; };
+	const setPointShading = (set: T3dSet) => {
+		if (!set.pts) return;
+		set.pts.post({ type: "style", edl: edlOf(set) });
+		for (const n of set.loaded()) if (n.state === "ready" && n.pts) for (const q of n.pts) set.pts.post({ type: "att", q, att: attOf(set, n) });
+	};
+	// 点群のスタイル（color・show・pointSize）＝点ごとに元の色から。点の属性＝batch table の行（BATCH_ID か点の番号）＋POSITION（局所）＋COLOR（元の色）。
+	// 引く属性（["get", 名]）の値の組で結果を覚える（分類のように値の種類が少ない列なら式は数回しか回らない）。pointSize は幅 px → 点の層の半径（CSS px）
+	const stylePoints = (set: T3dSet, f: PointsFeat, n: number): { rgba: Uint8Array; size: Float32Array | null } | null => {
+		const sty = set.style; if (!sty) return null;
+		const refs = [...new Set(JSON.stringify(set.styleSpec && (isCesiumStyle(set.styleSpec) ? cesiumToSpec(set.styleSpec) : set.styleSpec)).match(/\["get","([^"]+)"/g) ?? [])].map(m => m.slice(8, -1));
+		const rgba = new Uint8Array(f.rgba), size = sty.pointSize ? new Float32Array(n) : null, cols = f.table?.columns ?? {}, cache = new Map<string, [number[] | null, boolean, number | null]>();
+		const valOf = (r: string, i: number, id: number) => r === "POSITION" ? [f.local[i * 3], f.local[i * 3 + 1], f.local[i * 3 + 2]] : r === "COLOR" ? `rgba(${f.rgba[i * 4]},${f.rgba[i * 4 + 1]},${f.rgba[i * 4 + 2]},${f.rgba[i * 4 + 3] / 255})` : cols[r]?.[id];
+		for (let i = 0; i < n; i++) {
+			const id = f.ids ? f.ids[i] : i, vals = refs.map(r => valOf(r, i, id)), key = JSON.stringify(vals);
+			let e = cache.get(key);
+			if (!e) {
+				const props: Record<string, unknown> = {}; refs.forEach((r, k) => { props[r] = vals[k]; });
+				const x = { props, id, state: null };
+				e = [sty.color?.(x) ?? null, sty.show ? sty.show(x) : true, sty.pointSize?.(x) ?? null]; cache.set(key, e);
+			}
+			const [c, shown, ps] = e;
+			if (c) { rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = c[3]; }
+			if (!shown) rgba[i * 4 + 3] = 0;
+			if (size) size[i] = (ps ?? 1) / 2;
+		}
+		return { rgba, size };
 	};
 	// スタイル（＋feature state の色）＝束ごとに元の頂点色から塗り直す。属性＝tileset ＜ group ＜ tile ＜ content の metadata ＜ 地物の属性
 	const paintStyled = (n: T3dNode) => {
@@ -487,7 +534,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				let c: number[] = [NaN, NaN, NaN, NaN];
 				const sc = sty?.color?.(x); if (sc) c = [sc[0], sc[1], sc[2], NaN];
 				const st = state?.color ? cssRGB(String(state.color)) : null; if (st) c = [st[0], st[1], st[2], NaN];   // feature state の色が勝つ
-				const shown = sty?.show ? sty.show(x) : true;
+				const shown = (sty?.show ? sty.show(x) : true) && state?.show !== false;   // feature state の show:false も抜く
 				c[3] = !shown ? 0 : p.mask ? 255 : NaN;
 				const out = c.every(v => Number.isNaN(v)) ? null : c;
 				cache.set(key, out); return out;
@@ -502,6 +549,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		set.styleSpec = spec ?? null; set.style = st;
 		const sty = set.style;
 		for (const n of set.loaded()) {
+			if (n.state === "ready" && n.pts && n.ptsFeat) n.ptsFeat.forEach((f, k) => { if (!f) return; const sp = stylePoints(set, f, f.rgba.length >> 2); set.pts?.post({ type: "paint", q: n.pts![k], rgba: sp?.rgba ?? new Uint8Array(f.rgba), size: sp?.size ?? null }); });
 			if (n.state !== "ready" || !n.ward) continue;
 			if ((sty && !n.paint) || (sty?.show && n.paint?.some(p => p.alpha0 === "OPAQUE" && !p.mask))) unload(n);
 			else paintNode(n);
@@ -512,7 +560,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const pickSet = (set: T3dSet, x: number, y: number) => {
 		const env = pickEnv?.(); if (!env) return null;
 		const onGround = set.opts.ground === "terrain", items: PickItem[] = [], refs: Array<[T3dNode, PickPart]> = [];
-		for (const n of set.loaded()) if (n.on && n.pick) for (const p of n.pick) { if (!p.pos || !p.idx) continue; items.push({ pos: p.pos, idx: p.idx, origin: p.origin, features: p.features, lift: env.lift(p.origin, onGround ? "drape" : "plane") }); refs.push([n, p]); }
+		const skip = set.maskAll ? (id: number) => set.states.get(id)?.show === false : null;   // feature state で隠した地物は当てない
+		for (const n of set.loaded()) if (n.on && n.pick) for (const p of n.pick) { if (!p.pos || !p.idx) continue; items.push({ pos: p.pos, idx: p.idx, origin: p.origin, features: p.features, lift: env.lift(p.origin, onGround ? "drape" : "plane"), skip }); refs.push([n, p]); }
 		const h = pickMeshes(items, env.view, x, y); if (!h) return null;
 		const [n, p] = refs[h.item], f = p.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f!.tables?.[tIdx] : null;
 		return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx!, name: table.name, class: table.class } : null,
@@ -709,14 +758,21 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
 				get schema() { return (set.scope?.schema ?? null) as Record<string, unknown> | null; }, get tilesetMetadata() { return entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema); }, get groups() { return [...(set.scope?.groups || [])]; }, get extras() { return set.extras!; }, get extensionsUsed() { return [...set.extensionsUsed!]; }, get extensionsRequired() { return [...set.extensionsRequired!]; },   // root の見出し（F5）
 				remove: () => ctl.remove(id), setVisible: v => setHidden(set, !v),
-				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); schedule(); },
+				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); if ("pointShading" in o) setPointShading(set); schedule(); },
 				/** スタイル（地物ごとの color・show を MapLibre の式で）。null で外す */
 				setStyle(style) { setStyle(set, style); return this; }, get style() { return set.styleSpec ?? null; },
 				// 当たりと feature state（W7）＝EXT_mesh_features／_BATCHID の番号。色は { color } を頂点色へ（他の鍵は保つだけ）。状態は tileset ごと（タイルを跨いで同じ番号＝同じ地物）
 				pick: (x, y) => pickSet(set, x, y),
 				/** 表示しているタイルの出典（glTF asset.copyright・多い順・W8） */
 				get copyrights() { return [...(set.copyrights || [])]; },
-				setFeatureState(fid, state) { if (fid == null) return this; const nx = state == null ? {} : { ...(set.states.get(+fid) || {}), ...state }; if (Object.keys(nx).length) set.states.set(+fid, nx); else set.states.delete(+fid); for (const n of set.loaded()) paintNode(n); return this; },
+				setFeatureState(fid, state) {
+					if (fid == null) return this; const nx = state == null ? {} : { ...(set.states.get(+fid) || {}), ...state }; if (Object.keys(nx).length) set.states.set(+fid, nx); else set.states.delete(+fid);
+					if (nx.show === false && !set.maskAll) {   // 初めての show:false＝不透明のまま上げた束は抜けない＝上げてある束を MASK に切り替える（以後に読む束は MASK で上げる）
+						set.maskAll = true;
+						for (const n of set.loaded()) if (n.state === "ready" && n.ward && n.pick) for (const p of n.pick) if (p.features) setMeshCut?.(`${n.ward}#${p.k}`, 0.5);
+					}
+					for (const n of set.loaded()) paintNode(n); return this;
+				},
 				getFeatureState: fid => ({ ...(set.states.get(+fid) || {}) }),
 				removeFeatureState(fid) { if (fid == null) set.states.clear(); else set.states.delete(+fid); for (const n of set.loaded()) paintNode(n); return this; } } satisfies T3dHandle;
 		},

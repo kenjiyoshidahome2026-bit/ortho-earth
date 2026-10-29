@@ -123,7 +123,7 @@ function clearOfGround(st: CameraState, lon: number, lat: number, radius: number
 	const u = [cb * Math.cos(a), sb, cb * Math.sin(a)], E = st.eye, m = st.mvp;
 	const P = R_AX === 1 ? [u[0] * radius, u[1] * radius, u[2] * radius] : ((n: number[]) => [u[0] + (radius - 1) * n[0], u[1] + (radius - 1) * n[1], u[2] + (radius - 1) * n[2]])(ellNormal3D(lon, lat));
 	const c3 = m[3] * P[0] + m[7] * P[1] + m[11] * P[2] + m[15];
-	if (c3 <= 1e-6) return false;   // カメラの後ろ
+	if (c3 <= 1e-10) return false;   // カメラの後ろ
 	const d = [P[0] - E[0], P[1] - E[1], P[2] - E[2]], dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
 	const t = dd > 0 ? Math.max(0, Math.min(1, -(E[0] * d[0] + E[1] * d[1] + E[2] * d[2]) / dd)) : 0;
 	if (Math.hypot(E[0] + t * d[0], E[1] + t * d[1], E[2] + t * d[2]) < 1) return false;   // 線分が海面の球に入る＝地平線の向こう
@@ -312,7 +312,7 @@ export function projectInto<T extends { [i: number]: number }>(state: CameraStat
 	const m = state.mvp, E = state.eye;
 	const c3 = m[3] * w0 + m[7] * w1 + m[11] * w2 + m[15] * 1;
 	const frontHemi = u0 * E[0] + u1 * E[1] + u2 * E[2] - radius;     // >0 手前半球（半径 radius の球の上の点＝持ち上がった地面は海面の地平線の向こうでも映る・旧＝海面球固定＝リフト隅が地平線で捨てられタイル選抜が遠景で止まった 2026-10-27）
-	if (c3 <= 1e-6 || frontHemi < 0) {
+	if (c3 <= 1e-10 || frontHemi < 0) {   // clip w は世界単位（1＝地球半径）＝1e-6 は 6 m：目の 6 m 先の物まで「カメラの後ろ」になった（ポーン 5 体が 1 体・2026-10-29）
 		const r = projectClamped(state, lon, lat, radius); out[0] = r[0]; out[1] = r[1]; out[2] = r[2];
 		if (Array.isArray(out)) { if (r.length > 3) { out[3] = r[3]; out[4] = r[4]; out[5] = r[5]; } else out.length = 3; }   // 写らない点の同次座標（project の新しい配列だけが運ぶ＝作業域の型付き配列は 3 要素のまま）
 		return out;
@@ -333,7 +333,7 @@ function projectClamped(state: CameraState, lon: number, lat: number, radius: nu
 	const w = liftedPos(u, lon, lat, radius);
 	const c = mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
 	const frontHemi = mat.dot(u, state.eye) - 1;
-	if (frontHemi >= 0 && c[3] <= 1e-6) return homPx(state, c);   // 手前半球だがカメラ後方＝地平円へ寄せない（寄せ先は別の場所）＝写らない点
+	if (frontHemi >= 0 && c[3] <= 1e-10) return homPx(state, c);   // 手前半球だがカメラ後方＝地平円へ寄せない（寄せ先は別の場所）＝写らない点
 	{
 		// 見えない点（地平線の向こう＝dot(u,E)<1・カメラ後方）は捨てずに、可視キャップの縁（地平円：中心 E/|E|²・半径 √(1−1/|E|²)）
 		// の少し内側へ射影クランプして写す＝符号は負のまま（呼び手は符号で可視判定＝従来どおり）、x,y は「地平線上の最寄り点」。
@@ -349,7 +349,7 @@ function projectClamped(state: CameraState, lon: number, lat: number, radius: nu
 		const ch = Math.cos(hor) / el, sh = Math.sin(hor);
 		const P = [E[0] * ch + t[0] * sh, E[1] * ch + t[1] * sh, E[2] * ch + t[2] * sh];
 		const c2 = mat.transform(state.mvp, [P[0], P[1], P[2], 1]);
-		if (c2[3] <= 1e-6) return homPx(state, c2);   // 地平円の寄せ先もカメラ後方＝写らない点
+		if (c2[3] <= 1e-10) return homPx(state, c2);   // 地平円の寄せ先もカメラ後方＝写らない点
 		return [(c2[0] / c2[3] * 0.5 + 0.5) * state.W, (1 - (c2[1] / c2[3] * 0.5 + 0.5)) * state.H, Math.min(frontHemi, -1e-9)];
 	}
 	// TODO(ts): 上の block は常に return する＝ここから下は到達しない（従来のまま残す）
