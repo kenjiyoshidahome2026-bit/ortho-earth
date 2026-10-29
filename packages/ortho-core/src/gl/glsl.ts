@@ -484,13 +484,13 @@ export function meshCustomGLSL(spec: CsSpec): { vs: string; fs: string } {
 		["uniform float u_cullBack;", "uniform float u_cullBack;\nin vec4 v_mc;\nin vec2 v_uvm;\nuniform mat3 u_csJ;\nuniform mat3 u_csV;\nuniform vec2 u_csMode;   // x＝UNLIT・y＝材質の α で半透明（TRANSLUCENT）"],
 		["void main() {\n", csGlslPrelude(spec, "fs") + fsUser + "\n" + csLitMOf(MESH_FS) + "void main() {\n"],
 		["\tif (u_csOn > 1.5) base = tintC(tx.rgb); else if (u_csOn > 0.5) base = csLit(",
-		 "\tvec3 csB = tintC(csSrgbToLinear(txr.rgb) * v_col.rgb);\n"
-		 + "\tczm_modelMaterial csM; csM.baseColor = vec4(csB, tx.a); csM.diffuse = csB * (1.0 - u_csMR.x); csM.alpha = tx.a; csM.specular = mix(vec3(0.04), csB, u_csMR.x); csM.roughness = u_csMR.y;\n"
+		 "\tvec3 csB = tintC(csSrgbToLinear(txr.rgb) * v_col.rgb);\n\tbool csUnlit = u_csMode.x > 0.5 || (u_csOn > 1.5 && u_csMode.x > -0.5);\n\tfloat csMet = csUnlit ? 0.0 : u_csMR.x;\n"
+		 + "\tczm_modelMaterial csM; csM.baseColor = vec4(csB, tx.a); csM.diffuse = csB * (1.0 - csMet); csM.alpha = tx.a; csM.specular = mix(vec3(0.04), csB, csMet); csM.roughness = u_csMR.y;\n"
 		 + "\tcsM.normalEC = normalize(u_csV * n); csM.occlusion = 1.0; csM.emissive = vec3(0.0);\n"
 		 + (spec.fs ? "\tFragmentInput csFi; csFi.attributes = csAttrsOf(v_mc.xyz, u_eye - v_toEye, u_csV * (-v_toEye) * 6378137.0, n, v_uv, v_col, v_mc.w, u_csJ, u_csV);\n"
 			+ "\tcsFi.featureIds.featureId_0 = int(v_mc.w + 0.5); csFi.featureIds.featureId_1 = 0; csFi.metadata = csMetaOf(v_uvm);\n\tfragmentMain(csFi, csM);\n" : "")
 		 + "\tvec3 csN = normalize(transpose(u_csV) * csM.normalEC);\n"
-		 + "\tbase = u_csMode.x > 0.5 || (u_csOn > 1.5 && u_csMode.x > -0.5) ? pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) : u_csOn > 0.5 ? csLitM(csM, csN) : pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) * d;   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ・トーンマップ無し）\n"
+		 + "\tbase = csUnlit ? pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) : u_csOn > 0.5 ? csLitM(csM, csN) : pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) * d;   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ・トーンマップ無し）\n"
 		 + "\tif (u_csMode.y > 0.5) a = clamp(csM.alpha, 0.0, 1.0);\n"
 		 + "\tif (false) base = csLit("],
 	], "MESH_CS_FS");
