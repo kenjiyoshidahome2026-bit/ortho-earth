@@ -1,0 +1,14 @@
+main high-dynamic-range ?nearterr=0 #1 GREY {"inline":"1","computed":"1","display":"block"} 102,102,102 102,102,102 102,102,102 102,102,102
+main terrain ?nearterr=0 #1 GREY {"inline":"1","computed":"1","display":"block"} 102,102,102 102,102,102 102,102,102 102,102,102
+deac4758 high-dynamic-range default #1 drawn {"inline":"0","computed":"0","display":"block"} 128,126,117 68,69,129 150,149,141 145,146,140
+deac4758 high-dynamic-range default #2 drawn {"inline":"0","computed":"0","display":"block"} 128,126,117 68,69,129 150,149,141 145,146,140
+deac4758 high-dynamic-range default #3 drawn {"inline":"0","computed":"0","display":"block"} 128,126,117 68,69,129 150,149,141 145,146,140
+deac4758 high-dynamic-range ?nearterr=0 #1 drawn {"inline":"0","computed":"0","display":"block"} 183,180,166 66,67,124 139,139,135 166,165,161
+deac4758 elevation-band-material default #1 drawn {"inline":"0","computed":"0","display":"block"} 187,187,200 146,150,162 114,114,134 115,115,140
+deac4758 elevation-band-material default #2 drawn {"inline":"0","computed":"0","display":"block"} 187,187,200 146,150,162 114,114,134 115,115,140
+deac4758 elevation-band-material default #3 drawn {"inline":"0","computed":"0","display":"block"} 187,187,200 146,150,162 114,114,134 115,115,140
+deac4758 elevation-band-material ?nearterr=0 #1 drawn {"inline":"0","computed":"0","display":"block"} 187,187,200 146,150,162 114,114,134 115,115,140
+deac4758 terrain default #1 drawn {"inline":"0","computed":"0","display":"block"} 75,75,75 9,12,10 69,69,68 72,72,70
+deac4758 terrain default #2 drawn {"inline":"0","computed":"0","display":"block"} 75,75,75 9,12,10 69,69,68 72,72,70
+deac4758 terrain default #3 drawn {"inline":"0","computed":"0","display":"block"} 75,75,75 9,12,10 69,69,68 72,72,70
+deac4758 terrain ?nearterr=0 #1 drawn {"inline":"0","computed":"0","display":"block"} 75,75,75 9,12,10 69,69,68 72,72,70
