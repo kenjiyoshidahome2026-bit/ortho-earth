@@ -305,7 +305,23 @@ for (const g of [
 	const r2 = postChainOf(coll([user]));
 	ok("post: a user stage carries its GLSL and uniforms (Cartesian4/Color/number/boolean), textures are skipped", r2.chain.length === 1 && r2.chain[0].type === "glsl" && r2.chain[0].src === "void main(){}" && JSON.stringify(r2.chain[0].uniforms) === JSON.stringify({ fogByDistance: [10, 0, 200, 1], fogColor: [0, 0, 0, 1], k: 2, on: true }) && r2.skipped.includes("postProcessStages texture uniforms"));
 	const r3 = postChainOf(coll([stage("czm_silhouette", { color: Color.RED, length: 0.5 }, { selected: [{}] }), stage("czm_depth_of_field", {}), stage("czm_ambient_occlusion", {})], { bloom: { enabled: true, uniforms: { contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5 } }, ambientOcclusion: { enabled: false } }));
-	ok("post: per-feature (selected) and depth of field are skipped, ambient occlusion sets the flag, bloom comes from its uniforms", r3.chain.length === 1 && r3.chain[0].type === "bloom" && r3.ao && r3.skipped.length === 2, JSON.stringify(r3));
+	ok("post: per-feature (selected) is skipped, depth of field is drawn, ambient occlusion sets the flag, bloom comes from its uniforms", r3.chain.length === 2 && r3.chain[0].type === "bloom" && r3.chain[1].type === "depthOfField" && r3.ao && r3.skipped.length === 1, JSON.stringify(r3));
+	// lens flare and depth of field (2026-10-28): the sun and the earth projected with the frame's camera (LensFlare.glsl getNDCFromWC), Cesium's uniforms carried
+	{
+		const { lensFlareFrame } = await import("../src/postprocess.ts");
+		// the eye 2e7 m out on +x looking at the earth's centre (view = translate by −2e7 along the eye's −z), a 90° square frustum
+		const view = [0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -2e7, 1];   // columns: x→(0,0,1)… = world x is the eye's +z (behind); y→x, z→y
+		const n = 1, fa = 1e10, proj = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -(fa + n) / (fa - n), -1, 0, 0, -2 * fa * n / (fa - n), 0];
+		const fr = { view, proj, eye: [2e7, 0, 0], sun: [-1.5e11, 1.5e10, 0], near: 1, far: 5e8, radius: 6378137 };
+		const lf = lensFlareFrame(fr, 6378137);
+		ok("post: lens flare frame: the earth at the centre, its widened edge at R·1.5/2e7, the sun behind the earth near the centre, in space", near(lf.earth[0], 0, 1e-12) && near(lf.earth[1], 0, 1e-12) && near(lf.earth[2], 6378137 * 1.5 / 2e7, 1e-9) && near(lf.sun[0], 1.5e10 / (1.5e11 + 2e7), 1e-9) && lf.space && lf.camrot === view[2] + view[5], JSON.stringify(lf));
+		const r4 = postChainOf(coll([stage("czm_lens_flare", { intensity: 3, distortion: 10, ghostDispersal: 0.4, haloWidth: 0.4, dirtAmount: 0.4, earthRadius: 6378137, dirtTexture: "a/DirtMask.jpg", starTexture: "a/StarBurst.jpg" }),
+			{ name: "czm_depth_of_field", enabled: true, uniforms: { focalDistance: 87, delta: 1, sigma: 3.78, stepSize: 2.46 }, length: 2, get: () => null }]), fr);
+		const [l, d] = r4.chain;
+		ok("post: lens flare carries Cesium's uniforms and textures", l.type === "lensFlare" && l.intensity === 3 && l.dirt === "a/DirtMask.jpg" && l.star === "a/StarBurst.jpg" && l.space === true, JSON.stringify(l));
+		ok("post: depth of field carries its uniforms, the frustum and the earth's sphere in eye space", d.type === "depthOfField" && d.focalDistance === 87 && d.sigma === 3.78 && d.far === 5e8 && d.earth[2] === -2e7 && d.earth[3] === 6378137 && d.tan[0] === 1, JSON.stringify(d));
+		ok("post: lens flare without a camera is skipped", postChainOf(coll([stage("czm_lens_flare", {})])).skipped.includes("postProcessStages lens flare (no camera)"));
+	}
 	const b = bloomOf({ contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5 });
 	ok("post: bloom threshold from contrast/brightness, radius from sigma×stepSize", near(b.threshold, 0.5 - 0.5 / ((259 * 383) / (255 * 131)) + 0.3, 1e-9) && b.radius === 4 && b.strength === 1, JSON.stringify(b));
 	ok("post: uniformValue shapes", JSON.stringify([uniformValue(1), uniformValue(false), uniformValue(() => 3), uniformValue({ x: 1, y: 2 }), uniformValue("s")]) === "[1,false,3,[1,2],null]");

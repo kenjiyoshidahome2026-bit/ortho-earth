@@ -66,6 +66,15 @@ function shadows(scene: Any, map: Any, last: { sig: string }) {
 	map.setShadows(on ? { on: true, darkness } : false);
 }
 
+/** czm_sunPositionWC: the sun in the fixed frame (m) at time t, as UniformState computes it */
+const sunWC = new Cartesian3(), icrf2 = Matrix3.clone(Matrix3.IDENTITY), teme2 = new Matrix3();
+export function sunPositionWC(t: Any): number[] {
+	Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(t, sunWC);
+	const m = CelestialFrameTransforms.computeIcrfToCentralBodyFixedMatrix(t, icrf2) ?? CelestialFrameTransforms.computeTemeToPseudoFixedMatrix(t, teme2);
+	Matrix3.multiplyByVector(m, sunWC, sunWC);
+	return [sunWC.x, sunWC.y, sunWC.z];
+}
+
 export function syncLighting(scene: Any, map: Any): (time: Any) => void {
 	let envKey = "", sh: Float32Array | null = null, sent = "";
 	const shadowLast = { sig: "" };

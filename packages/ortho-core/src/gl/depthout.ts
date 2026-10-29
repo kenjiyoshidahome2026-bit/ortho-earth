@@ -223,7 +223,7 @@ export function createDepthOutGL(gl: WebGL2RenderingContext, canvas: { width: nu
 		const b = post!.bloom, v = post!.vignette, t = post!.tonemap, lutOn = !!(post!.lut && L && L.ready && L.url === post!.lut.url);
 		ensureP(W, H);
 		const stages = post!.stages?.length ? post!.stages : null;   // 画面の段（Cesium の postProcessStages 相当）＝固定の鎖の出力を的に描き、段を順に掛けて最後の段が画面へ
-		if (stages) S ??= createPostStagesGL(gl, realBind, vao);
+		if (stages) S ??= createPostStagesGL(gl, realBind, vao, requestDraw);
 		const stageIn = stages && S!.drawable(stages) ? S!.target(W, H) : null;
 		gl.activeTexture(gl.TEXTURE1); const prevTex1 = gl.getParameter(gl.TEXTURE_BINDING_2D);
 		gl.activeTexture(gl.TEXTURE2); const prevTex2 = gl.getParameter(gl.TEXTURE_BINDING_2D); gl.activeTexture(gl.TEXTURE0);
