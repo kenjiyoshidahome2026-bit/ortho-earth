@@ -1,0 +1,5 @@
+     3d-tiles-feature-picking | now L3 c94.5 e95.0 b9 | prev(mac-pc7) L2 c84.6 e87.0 b40 | 
+     gltf-pbr-extensions | now L2 c74.3 e80.5 b694 | prev(mac-ibl2) L2 c73.5 e80.0 b710 | picture: colour 74% · edges 81% of the cells match · a patch of 694 cells differs
+     ground-polyline-material-dev | now L2 c83.3 e81.4 b22 | prev(mac-pc7) L1 c83.3 e81.4 b22 | picture: colour 83% · edges 81% of the cells match · a patch of 22 cells differs
+DOWN image-based-lighting | now L2 c94.1 e95.6 b24 | prev(mac-ibl2) L3 c93.9 e95.9 b17 | picture: colour 94% · edges 96% of the cells match · a patch of 24 cells differs
+     pbr-lighting-dev | now L3 c99.6 e94.3 b1 | prev(mac-ibl2) L3 c99.8 e94.4 b0 | 
