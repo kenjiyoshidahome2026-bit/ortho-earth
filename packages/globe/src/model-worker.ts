@@ -16,7 +16,7 @@ import type { MeshOut, TexOut, VoxelTileOpts } from "./meshdecode.ts";
 /** main からの仕事（kind 省略＝模型の glTF/GLB） */
 interface ModelJob {
 	id: number; kind?: "extrude" | "viewshed" | "sunshadow" | "i3sOpen" | "i3sNodes" | "i3sContent" | "tile3d";
-	ab?: ArrayBuffer; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number;
+	ab?: ArrayBuffer; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number; mc?: boolean;
 	polys?: ExtrudeInPoly[]; refine?: number; transcoders?: unknown; opts?: Record<string, unknown>;
 	url?: string; token?: string; ids?: Array<number | string>; nodeId?: number | string; baseH?: number; groundMode?: string;
 	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts;
@@ -27,7 +27,7 @@ type XferBatch = { mesh: MeshOut; features?: { ids?: ArrayBufferView | null; tbl
 const TEX_KEYS = ["tex", "texMR", "texN", "texOcc", "texEm"] as const;   // 模型のテクスチャ（baseColor＋#46 段 2 の材質 4 枚）＝transfer の対象
 const transferOf = (batches: XferBatch[]): Transferable[] => {   // skin の区間（P/N/J/W・2026-10-28）も transfer
 	const tr = new Set<Transferable>();
-	for (const b of batches) { for (const k of ["pos", "nrm", "idx", "uv", "col"] as const) if (b.mesh[k]?.buffer) tr.add(b.mesh[k]!.buffer as ArrayBuffer); if (b.features?.ids) tr.add(b.features.ids.buffer as ArrayBuffer); for (const sg of b.skin || []) for (const a of [sg.P, sg.N, sg.J, sg.W]) if (a?.buffer) tr.add(a.buffer as ArrayBuffer); if (b.features?.tblV) tr.add((b.features.tblV as Int16Array).buffer as ArrayBuffer); for (const k of TEX_KEYS) { if (b[k]?.bitmap) tr.add(b[k]!.bitmap!); if (b[k]?.rgba) tr.add(b[k]!.rgba!.buffer as ArrayBuffer); } }
+	for (const b of batches) { for (const k of ["pos", "nrm", "idx", "uv", "col", "mc"] as const) if (b.mesh[k]?.buffer) tr.add(b.mesh[k]!.buffer as ArrayBuffer); if (b.features?.ids) tr.add(b.features.ids.buffer as ArrayBuffer); for (const sg of b.skin || []) for (const a of [sg.P, sg.N, sg.J, sg.W]) if (a?.buffer) tr.add(a.buffer as ArrayBuffer); if (b.features?.tblV) tr.add((b.features.tblV as Int16Array).buffer as ArrayBuffer); for (const k of TEX_KEYS) { if (b[k]?.bitmap) tr.add(b[k]!.bitmap!); if (b[k]?.rgba) tr.add(b[k]!.rgba!.buffer as ArrayBuffer); } }
 	return [...tr];
 };
 
@@ -82,7 +82,7 @@ async function work(e: MessageEvent<ModelJob>) {
 				if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
 				buf = await res.arrayBuffer();
 			}
-			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, splats: !!e.data.splats, voxels: e.data.voxels ?? false, fetchOpts: headers || credentials ? { headers: headers ?? null, credentials: credentials ?? null } : null });
+			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, mc: !!e.data.mc, splats: !!e.data.splats, voxels: e.data.voxels ?? false, fetchOpts: headers || credentials ? { headers: headers ?? null, credentials: credentials ?? null } : null });
 			if (!r) { self.postMessage({ id, batches: [], points: [], splats: [], voxels: [], stats: { triangles: 0, points: 0, splats: 0, splatPoints: 0, voxels: 0, voxelsSkipped: 0, bytes: buf.byteLength } }); return; }
 			r.stats.bytes = buf.byteLength;
 			const tr = transferOf(r.batches); for (const p of r.points) tr.push(p.pos.buffer, p.rgba.buffer);
@@ -91,7 +91,7 @@ async function work(e: MessageEvent<ModelJob>) {
 			self.postMessage({ id, batches: r.batches, points: r.points, splats: r.splats, voxels: r.voxels, stats: r.stats }, tr);
 			return;
 		}
-		const r = await decodeModel(ab!, { at, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0 });
+		const r = await decodeModel(ab!, { at, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0, mc: !!e.data.mc });
 		if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
 		self.postMessage({ id, batches: r.batches, mask: r.mask, stats: r.stats, rig: r.rig || null, place: r.place || null }, transferOf(r.batches));   // rig/place＝rigid アニメ（W4）
 	} catch (err) { self.postMessage({ id, error: (err as Error)?.message || String(err) }); }

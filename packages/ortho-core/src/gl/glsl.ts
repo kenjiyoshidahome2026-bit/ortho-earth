@@ -1,4 +1,5 @@
 import { CS_ATMO_GLSL } from "../csatmo.ts";
+import { csGlslPrelude, csGlslUser, type CsSpec } from "../csshader.ts";
 // 透視カメラ（チルト対応）。経緯度→単位球3D→u_mvp でクリップ座標へ。
 // 頂点はシーン原点(u_origin)からの経緯度差分。fill は clip 直行、line/capsule はスクリーン空間で幅付け。
 
@@ -455,6 +456,46 @@ void main() {
 	if (v_front < 0.0) discard;
 	fragColor = vec4(u_silColor.rgb * u_silColor.a, u_silColor.a);
 }`;
+
+// 利用者のシェーダ（Cesium の CustomShader・2026-10-29）＝模型の派生（MESH_TEX）に利用者の GLSL を差し込む。csshader.ts が前置き（構造体・uniform・czm_）と
+// uniform の改名を作り、ここは呼び出しの継ぎ目だけ：頂点＝vertexMain の positionMC の差分を J（MC → 世界の線形部）で世界へ戻して ap に足す・
+// 画素＝材質（czm_modelMaterial）を Cesium の MaterialStageFS と同じに組み（diffuse＝base×(1−金属)・specular＝f0）、fragmentMain の後の材質で照らす
+// （UNLIT＝diffuse を sRGB に・PBR＝csLit と同じ式を材質から＝csLitM）。a_mc＝(positionMC, 地物の番号)・u_csJ／u_csV＝バッチの J・目の回転（m 単位の目の座標）。
+// gpu/wgsl.ts meshCustomWGSL と対
+const csLitMOf = (fs: string): string => {   // MESH_FS の csLit を材質を取る形に（式は 1 字も写し替えない）
+	const i = fs.indexOf("vec3 csLit(vec3 base, vec3 n) {"), j = fs.indexOf("\n}\n", i);
+	return derive(fs.slice(i, j + 3), [
+		["vec3 csLit(vec3 base, vec3 n) {", "vec3 csLitM(czm_modelMaterial m, vec3 n) {"],
+		["\tfloat metallic = u_csMR.x, roughness = u_csMR.y;\n\tvec3 diffuse = base * (1.0 - metallic), f0 = mix(vec3(0.04), base, metallic);\n", "\tfloat roughness = m.roughness;\n\tvec3 diffuse = m.diffuse, f0 = m.specular;\n"],
+		["\treturn pow(max(csTonemap(color)", "\tcolor += m.emissive;\n\treturn pow(max(csTonemap(color)"],
+	], "csLitM");
+};
+export function meshCustomGLSL(spec: CsSpec): { vs: string; fs: string } {
+	const vsUser = spec.vs ? csGlslUser(spec.vs, spec) : "", fsUser = spec.fs ? csGlslUser(spec.fs, spec) : "";
+	const vs = derive(MESH_TEX_VS, [
+		["in vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\n", "in vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\nin vec4 a_mc;\nout vec4 v_mc;\nuniform mat3 u_csJ;\nuniform mat3 u_csV;\n"],
+		["void main() {\n\tvec3 ap = u_xfOn > 0.5 ? u_xfL * a_pos + u_xfT : a_pos;      // バッチの剛体変換（W4）＝原点相対のまま\n",
+		 csGlslPrelude(spec, "vs") + vsUser + "\nvoid main() {\n\tvec3 ap = u_xfOn > 0.5 ? u_xfL * a_pos + u_xfT : a_pos;      // バッチの剛体変換（W4）＝原点相対のまま\n\tv_mc = a_mc;\n"
+		 + (spec.vs ? "\t{\n\t\tVertexInput csVi; csVi.attributes = csAttrsOf(a_mc.xyz, u_meshOrigin + ap, u_csV * (ap - u_eyeRel) * 6378137.0, (u_xfOn > 0.5 ? u_xfL * a_normal : a_normal), a_uv, a_col, a_mc.w, u_csJ, u_csV);\n"
+			+ "\t\tcsVi.featureIds.featureId_0 = int(a_mc.w + 0.5); csVi.featureIds.featureId_1 = 0; csVi.metadata = csMetaOf();\n"
+			+ "\t\tczm_modelVertexOutput csVo; csVo.positionMC = a_mc.xyz; csVo.pointSize = 1.0;\n\t\tvertexMain(csVi, csVo);\n\t\tap += u_csJ * (csVo.positionMC - a_mc.xyz);\n\t\tv_mc.xyz = csVo.positionMC;\n\t}\n" : "")],
+	], "MESH_CS_VS");
+	const fs = derive(MESH_TEX_FS, [
+		["uniform float u_cullBack;", "uniform float u_cullBack;\nin vec4 v_mc;\nuniform mat3 u_csJ;\nuniform mat3 u_csV;\nuniform vec2 u_csMode;   // x＝UNLIT・y＝材質の α で半透明（TRANSLUCENT）"],
+		["void main() {\n\t// 面の幾何法線", csGlslPrelude(spec, "fs") + fsUser + "\n" + csLitMOf(MESH_FS) + "void main() {\n\t// 面の幾何法線"],
+		["\tif (u_csOn > 1.5) base = tintC(tx.rgb); else if (u_csOn > 0.5) base = csLit(",
+		 "\tvec3 csB = tintC(csSrgbToLinear(txr.rgb) * v_col.rgb);\n"
+		 + "\tczm_modelMaterial csM; csM.baseColor = vec4(csB, tx.a); csM.diffuse = csB * (1.0 - u_csMR.x); csM.alpha = tx.a; csM.specular = mix(vec3(0.04), csB, u_csMR.x); csM.roughness = u_csMR.y;\n"
+		 + "\tcsM.normalEC = normalize(u_csV * n); csM.occlusion = 1.0; csM.emissive = vec3(0.0);\n"
+		 + (spec.fs ? "\tFragmentInput csFi; csFi.attributes = csAttrsOf(v_mc.xyz, u_eye - v_toEye, u_csV * (-v_toEye) * 6378137.0, n, v_uv, v_col, v_mc.w, u_csJ, u_csV);\n"
+			+ "\tcsFi.featureIds.featureId_0 = int(v_mc.w + 0.5); csFi.featureIds.featureId_1 = 0; csFi.metadata = csMetaOf();\n\tfragmentMain(csFi, csM);\n" : "")
+		 + "\tvec3 csN = normalize(transpose(u_csV) * csM.normalEC);\n"
+		 + "\tbase = u_csMode.x > 0.5 || u_csOn > 1.5 ? pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) : u_csOn > 0.5 ? csLitM(csM, csN) : pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) * d;   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ・トーンマップ無し）\n"
+		 + "\tif (u_csMode.y > 0.5) a = clamp(csM.alpha, 0.0, 1.0);\n"
+		 + "\tif (false) base = csLit("],
+	], "MESH_CS_FS");
+	return { vs, fs };
+}
 
 // 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝
 // VS の標高フェッチを5回/頂点（変位1+中央差分勾配4）→1回に削減（格子236万頂点＝毎フレーム~950万フェッチの削減）。

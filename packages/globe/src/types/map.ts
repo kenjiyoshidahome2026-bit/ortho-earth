@@ -30,6 +30,15 @@ import type {
 
 /** createGlobe() が返す map。installer ごとに 1 つの interface＝メンバーを足せるのは、その interface を持つ installer だけ
  *  （installer の受ける map の型＝src/types/install.ts の Installing<XApi>）。 */
+/** map.setCustomShader の spec（Cesium の CustomShader の写し） */
+export interface CustomShaderSpec {
+	/** GLSL：void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput) */ vs?: string | null;
+	/** GLSL：void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) */ fs?: string | null;
+	/** uniform の GLSL の型（float・vec2・…・mat4・sampler2D） */ uniforms?: Record<string, string>;
+	/** uniform の値（数・数の列＝Cartesian／Matrix を平らにした物・bool） */ values?: Record<string, number | number[] | boolean>;
+	/** fsInput.metadata の性質＝名 → GLSL の型 */ metadata?: Record<string, string> | null;
+	lighting?: "pbr" | "unlit"; translucency?: "inherit" | "opaque" | "translucent";
+}
 export type GlobeMap = GlobeCoreApi & CameraApi & OverlaysApi & TerrainApi & RasterApi & GadgetsApi & ShadowsApi
 	& DataApi & IntakeApi & ImagesApi & StyleApi & QueryApi & ToolsApi;
 /** @deprecated SDK 以来の名前＝2.0 の間は GlobeMap の別名として残す */
@@ -197,6 +206,10 @@ export interface GlobeCoreApi {
 	setGlobeOpacity(alpha: number): GlobeMap;
 	/** the globe's underside seen from below the ground (Cesium globe.undergroundColor): color rgba 0..1, nf = its alpha by distance [near m, nearValue, far m, farValue]; null = off */
 	setUnderground(u: { color: number[]; nf: number[] } | null): GlobeMap;
+	/** a user shader for models and 3D Tiles (Cesium CustomShader): GLSL vertexMain/fragmentMain, uniform types and values, lighting, translucency. Same id again = new values (no rebuild when the GLSL is the same). WebGPU translates the GLSL to WGSL. null = remove */
+	setCustomShader(id: string, spec: CustomShaderSpec | null): GlobeMap;
+	/** a sampler2D uniform of a user shader: tex = ImageBitmap or raw RGBA (rgba, w, h); nearest = NEAREST filtering; null = remove */
+	setCustomShaderTexture(id: string, name: string, tex: { bitmap: ImageBitmap } | { rgba: Uint8Array; w: number; h: number } | null, opts?: { nearest?: boolean; repeat?: boolean }): GlobeMap;
 	/** 中心の可動域。null で解除。west>east＝±180 跨ぎ。入力・飛行・URL 復元のどれで動いても締まる */
 	setMaxBounds(bounds: Bbox | [LonLat, LonLat] | null): GlobeMap;   // globe.js:2618
 	getMaxBounds(): Bbox | null;   // globe.js:2623
