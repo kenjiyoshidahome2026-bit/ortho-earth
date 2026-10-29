@@ -2,13 +2,19 @@
 import { normPass, normPostChain, POST_TYPES } from "../src/postchain.ts";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const J = v => JSON.stringify(v);
-ok("types", POST_TYPES.join() === "bloom,vignette,fxaa,smaa,tonemap,lut,dof,ssr,silhouette,grey,brightness,nightVision,glsl");
+ok("types", POST_TYPES.join() === "bloom,vignette,fxaa,smaa,tonemap,lut,dof,ssr,silhouette,grey,brightness,nightVision,glsl,lensFlare,depthOfField");
 // 画面の段（Cesium の postProcessStages 相当・2026-10-28）＝既定・並び順・renderer へは stages として・glsl の uniforms の選別・src の無い glsl は落ちる
 {
 	const st = normPostChain([{ type: "silhouette", color: [1, 1, 0], length: 0.5 }, { type: "grey", gradations: 3 }, { type: "brightness" }, { type: "nightVision", enabled: false }, { type: "glsl", src: "void main(){}", uniforms: { a: 1, b: [1, 2], c: true, d: "x", "1e": 2 } }]);
 	ok("stage.defaults", J(st.passes[0]) === J({ type: "silhouette", enabled: true, color: [1, 1, 0, 1], length: 0.5 }) && st.passes[2].value === 0.5);
 	ok("stage.toRenderer", J(st.post.stages) === J([{ type: "silhouette", color: [1, 1, 0, 1], length: 0.5 }, { type: "grey", gradations: 3 }, { type: "brightness", value: 0.5 }, { type: "glsl", src: "void main(){}", uniforms: { a: 1, b: [1, 2], c: true } }]) && st.post.bloom === null);
 	ok("stage.glslNoSrc", normPass({ type: "glsl" }) === null && normPostChain([{ type: "nightVision", enabled: false }]).post === null);
+}
+// レンズフレア・被写界深度（2026-10-28）＝既定・URL・数の並びの形
+{
+	const st = normPostChain([{ type: "lensFlare", sun: [0.1, 0.2], earth: [0, 0, 0.4], camrot: 1, dirt: "d.jpg", star: "" }, { type: "depthOfField", focalDistance: 87, sigma: 3.78, earth: [0, 0, -2e7, 6378137], tan: [1, 1, 1] }]).post.stages;
+	ok("stage.lensFlare", J(st[0]) === J({ type: "lensFlare", intensity: 2, distortion: 10, ghostDispersal: 0.4, haloWidth: 0.4, dirtAmount: 0.4, sun: [0.1, 0.2], earth: [0, 0, 0.4], space: true, camrot: 1, dirt: "d.jpg" }), J(st[0]));
+	ok("stage.depthOfField", J(st[1]) === J({ type: "depthOfField", focalDistance: 87, delta: 1, sigma: 3.78, stepSize: 1, near: 1, far: 5e8, earth: [0, 0, -2e7, 6378137] }), J(st[1]));
 }
 ok("legacy", J(normPostChain({ bloom: true, vignette: { strength: 0.3 } })) === J({ passes: [{ type: "bloom", enabled: true, threshold: 0.75, strength: 0.5, radius: 1 }, { type: "vignette", enabled: true, strength: 0.3, radius: 0.8, softness: 0.5 }], post: { bloom: { threshold: 0.75, strength: 0.5, radius: 1 }, vignette: { strength: 0.3, radius: 0.8, softness: 0.5 } } }), J(normPostChain({ bloom: true, vignette: { strength: 0.3 } })));
 ok("null", J(normPostChain(null)) === J({ passes: [], post: null }) && normPostChain([]).post === null);
