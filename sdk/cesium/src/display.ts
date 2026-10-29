@@ -374,7 +374,12 @@ export class EntityDisplay {
 		}
 		this.#placeSolids(solids);
 		for (const l of this.#solids.lines) lines.push(l);
-		for (const l of this.extra.lines()) lines.push(l);
+		this.extra.lines().forEach((l: Any, i: number) => {
+			if (!l.ground) { lines.push(l); return; }
+			const c = Color.fromCssColorString(l.color) ?? Color.WHITE, [lc, lo] = rgbAlpha(c), coords: number[][] = [];
+			for (let k = 0; k + 2 < l.p.length; k += 3) { const q = llOf(new Cartesian3(l.p[k], l.p[k + 1], l.p[k + 2])); if (q) coords.push([q[0], q[1]]); }
+			if (coords.length > 1) shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: { _id: `cesium-ground-line:${i}`, _k: "line", _lc: lc, _lo: lo, _lw: l.width } });
+		});
 		if (!map) return true;
 		this.#ov ??= map.overlay({ builtin: "czml" }, { name: "cesium-entities" });
 		const tk = tracksKey(tracks);
