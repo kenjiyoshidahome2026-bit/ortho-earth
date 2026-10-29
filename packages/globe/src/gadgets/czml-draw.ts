@@ -165,17 +165,22 @@ const imageSlot = (src: string, img: ImageBitmap) => {
 };
 // 札＝白抜きの縁（3px）と字を canvas2D で一度だけ焼く。pad＝字の左端・縦の中心までの片寄り（置く側が引く）
 const LABEL_PAD = 2;
-function labelSlot(text: string, px: number, color: string, outline: string, dpr: number) {
-	const k = `t:${px * dpr}|${color}|${outline}|${text}`; if (slots.has(k)) return slots.get(k)!;
+// 改行（"\n"）＝行を重ねる（Cesium の Label と同じく各行を align で揃える・行の間隔＝字の高さ×1.2）。縦の中心＝全行の中心
+function labelSlot(text: string, px: number, color: string, outline: string, dpr: number, align = "left") {
+	const k = `t:${px * dpr}|${color}|${outline}|${align}|${text}`; if (slots.has(k)) return slots.get(k)!;
 	bake ??= new OffscreenCanvas(64, 64); bctx ??= bake.getContext("2d")!;
-	const font = `${px * dpr}px ${FONT}`, ow = 3 * dpr; bctx.font = font;
-	const tw = Math.ceil(bctx.measureText(text).width), w = Math.ceil(tw + ow + LABEL_PAD * 2), h = Math.ceil(px * dpr * 1.5 + ow + LABEL_PAD * 2);
+	const font = `${px * dpr}px ${FONT}`, ow = 3 * dpr, rows = text.split("\n"), lh = px * dpr * 1.2; bctx.font = font;
+	const tws = rows.map(r => bctx!.measureText(r).width), tw = Math.ceil(Math.max(...tws));
+	const w = Math.ceil(tw + ow + LABEL_PAD * 2), h = Math.ceil(px * dpr * 1.5 + lh * (rows.length - 1) + ow + LABEL_PAD * 2);
 	if (bake.width < w || bake.height < h) { bake.width = Math.max(bake.width, w); bake.height = Math.max(bake.height, h); }
 	bctx.clearRect(0, 0, bake.width, bake.height);
 	bctx.font = font; bctx.textBaseline = "middle"; bctx.textAlign = "left";
-	const x = LABEL_PAD + ow / 2, y = h / 2;
-	bctx.lineWidth = ow; bctx.strokeStyle = outline; bctx.strokeText(text, x, y);
-	bctx.fillStyle = color; bctx.fillText(text, x, y);
+	const x = LABEL_PAD + ow / 2, y0 = h / 2 - lh * (rows.length - 1) / 2;
+	rows.forEach((r, i) => {
+		const xi = x + (align === "right" ? tw - tws[i] : align === "center" ? (tw - tws[i]) / 2 : 0), y = y0 + lh * i;
+		bctx!.lineWidth = ow; bctx!.strokeStyle = outline; bctx!.strokeText(r, xi, y);
+		bctx!.fillStyle = color; bctx!.fillText(r, xi, y);
+	});
 	const img = bctx.getImageData(0, 0, w, h);
 	return place(k, img, w, h);
 }
@@ -341,7 +346,7 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		const lb = st.label, la = lb?.tbd ? nearFar(lb.tbd, dM) : 1;
 		if (lb && la > 0 && boolAt(lb.show, ms, true) && lb.text) {
 			const k = lb.sbd ? nearFar(lb.sbd, dM) : 1;
-			const L = labelSlot(lb.text, lb.px * k, lb.color, lb.outline || "rgba(0,0,0,0.85)", dpr);
+			const L = labelSlot(lb.text, lb.px * k, lb.color, lb.outline || "rgba(0,0,0,0.85)", dpr, lb.text.includes("\n") ? lb.align : "left");
 			if (L) {
 				const x = P[0] + lb.offset[0] * k * dpr, y = P[1] + lb.offset[1] * k * dpr, ink = L.w - LABEL_PAD * 2 - 3 * dpr;   // ink＝字の幅
 				const x0 = lb.align === "left" ? x - LABEL_PAD - 1.5 * dpr : lb.align === "right" ? x - ink - LABEL_PAD - 1.5 * dpr : x - L.w / 2;

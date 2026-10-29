@@ -105,7 +105,7 @@ export function bboxVisible(st: CameraState, bbox: ArrayLike<number>, center: Ar
 	const q = [0, 0, 0];
 	for (const [lon, lat] of pts) {
 		projectInto(st, lon, lat, radius, q);
-		if (q[2] < 0) continue;
+		if (q[2] < 0 && !(radius > 1 && clearOfGround(st, lon, lat, radius, q))) continue;
 		nf++;
 		if (q[0] < minx) minx = q[0]; if (q[0] > maxx) maxx = q[0];
 		if (q[1] < miny) miny = q[1]; if (q[1] > maxy) maxy = q[1];
@@ -113,6 +113,23 @@ export function bboxVisible(st: CameraState, bbox: ArrayLike<number>, center: Ar
 	if (!nf) return false;   // 全点が裏半球/カメラ背後
 	if (nf < pts.length) return true;   // 目の面（か地平線）を跨ぐ＝画面矩形では縛れない
 	return !(maxx < -pad || minx > st.W + pad || maxy < -pad || miny > st.H + pad);
+}
+// projectInto の「手前半球」（u·E ≥ radius）は目より高い物を地平線の向こうと見なす（目の高さ 5000 m・5 km 先の 5500 m の模型が消えた＝
+// Cesium の localtofixedframe 2026-10-29）。地面より上の点は、目から点への線分が海面の球に当たらず、カメラの前なら見える＝画面の位置を q に入れて true
+function clearOfGround(st: CameraState, lon: number, lat: number, radius: number, q: number[]): boolean {
+	const a = lon * D2R, b = lat * D2R;
+	let sb = Math.sin(b), cb = Math.cos(b);
+	if (R_AX !== 1) { const w = Math.hypot(cb, R_AX * sb); sb = R_AX * sb / w; cb = cb / w; }
+	const u = [cb * Math.cos(a), sb, cb * Math.sin(a)], E = st.eye, m = st.mvp;
+	const P = R_AX === 1 ? [u[0] * radius, u[1] * radius, u[2] * radius] : ((n: number[]) => [u[0] + (radius - 1) * n[0], u[1] + (radius - 1) * n[1], u[2] + (radius - 1) * n[2]])(ellNormal3D(lon, lat));
+	const c3 = m[3] * P[0] + m[7] * P[1] + m[11] * P[2] + m[15];
+	if (c3 <= 1e-6) return false;   // カメラの後ろ
+	const d = [P[0] - E[0], P[1] - E[1], P[2] - E[2]], dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+	const t = dd > 0 ? Math.max(0, Math.min(1, -(E[0] * d[0] + E[1] * d[1] + E[2] * d[2]) / dd)) : 0;
+	if (Math.hypot(E[0] + t * d[0], E[1] + t * d[1], E[2] + t * d[2]) < 1) return false;   // 線分が海面の球に入る＝地平線の向こう
+	q[0] = ((m[0] * P[0] + m[4] * P[1] + m[8] * P[2] + m[12]) / c3 * 0.5 + 0.5) * st.W;
+	q[1] = (1 - ((m[1] * P[0] + m[5] * P[1] + m[9] * P[2] + m[13]) / c3 * 0.5 + 0.5)) * st.H;
+	return true;
 }
 /** a batch's bbox where its rigid transform (meshXf: L 3x3 + xt, origin-relative) has moved it: the bbox around the moved origin, wide enough
  *  for any turn about it (a model driven along a track by setTransform was culled by the box it was loaded in = it vanished once it left that box,

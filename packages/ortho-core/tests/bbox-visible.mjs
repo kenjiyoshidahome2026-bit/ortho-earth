@@ -36,6 +36,15 @@ ok("tile beyond the horizon culled", !bboxVisible(st, [cam.center[0] + 20, cam.c
 	const k2 = movedBbox(box, org, [2, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0]);
 	ok("movedBbox grows with the scale", k2[3] - k2[1] >= 2 * (box[3] - box[1]) * 0.99);
 }
+// 目より高い物（2026-10-29・Cesium の localtofixedframe：目 5000 m・5 km 先の 5500 m の模型が消えた）＝projectInto の手前半球は u·E ≥ radius
+{
+	const eyeR = Math.hypot(...st.eye), high = eyeR + 500 / R;
+	const cam2 = { ...cam, zoom: 11, pitch: 89 * Math.PI / 180 }, st2 = cameraState(cam2, W, H), f2 = betaToLonLat(st2.eye), h2 = Math.hypot(...st2.eye) + 500 / R;
+	const ahead = (distM, sizeM) => { const c = Math.cos(f2[1] * Math.PI / 180), cx = f2[0] + distM * Math.sin(cam.bearing) / (111320 * c), cy = f2[1] + distM * Math.cos(cam.bearing) / 111320, dl = sizeM / 2 / (111320 * c), dp = sizeM / 2 / 111320; return [cx - dl, cy - dp, cx + dl, cy + dp]; };
+	ok("a model 500 m above a level camera's eye, 5 km ahead, visible", bboxVisible(st2, ahead(5000, 30), cam2.center, null, pad, h2));
+	ok("a model 500 m above the eye beyond the horizon culled", !bboxVisible(st, [cam.center[0] + 20, cam.center[1], cam.center[0] + 20.001, cam.center[1] + 0.001], cam.center, foot, pad, high));
+	ok("a model 500 m above the eye behind the camera culled", !bboxVisible(st, tile(-2000, 20), cam.center, foot, pad, high));
+}
 const o = lonlatTo3D(foot[0], foot[1]).map(v => v * ground);
 ok("betaRadiusOf(centroid) = radius", Math.abs(betaRadiusOf(o) - ground) < 1e-9, String(betaRadiusOf(o)));
 }

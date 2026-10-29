@@ -5,7 +5,7 @@
 // features. Line geometries (outlines, SimplePolylineGeometry, PolylineGeometry, GroundPolylineGeometry) go to the entity overlay's 3D lines.
 // Stripe, Checkerboard, Grid and Image materials are painted into a texture over the geometry's st (materials.ts); other materials draw in
 // their colour (else white). Not drawn: per-vertex polyline colours (the first one is used).
-import { BoundingSphere, Cartesian3, Color, Ellipsoid, Event, Matrix3, Matrix4, PolylineGeometry, PolylinePipeline, Quaternion } from "@cesium/core";
+import { ArcType, BoundingSphere, Cartesian3, Color, Ellipsoid, Event, GeometryInstance, Matrix3, Matrix4, PolylineGeometry, PolylinePipeline, Quaternion } from "@cesium/core";
 import * as engine from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { enuRotOf, headingOf } from "./display.ts";
@@ -30,6 +30,13 @@ interface Item {
 }
 
 /** a primitive this module draws */
+/** DebugModelMatrixPrimitive: the x (red), y (green) and z (blue) axes of its model matrix, length × the unit vectors, as the Primitive it builds */
+export const isDebugAxes = (p: Any) => !!(engine as Any).DebugModelMatrixPrimitive && p instanceof (engine as Any).DebugModelMatrixPrimitive;
+export function debugAxesPrimitive(p: Any): Any {
+	const M = Matrix4.multiplyByUniformScale(p.modelMatrix ?? Matrix4.IDENTITY, p.length ?? 10000000, new Matrix4());
+	const axis = (to: Cartesian3, c: Color) => new GeometryInstance({ geometry: new PolylineGeometry({ positions: [Cartesian3.ZERO, to], width: p.width ?? 2, colors: [c, c], arcType: ArcType.NONE }), modelMatrix: M, id: p.id });
+	return new Primitive({ geometryInstances: [axis(Cartesian3.UNIT_X, Color.RED), axis(Cartesian3.UNIT_Y, Color.GREEN), axis(Cartesian3.UNIT_Z, Color.BLUE)], appearance: { material: undefined }, asynchronous: false, show: p.show !== false });
+}
 export const isGeometryPrimitive = (p: Any) => !!p && [Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model].some(C => C && p instanceof C);
 
 const instancesOf = (p: Any): Any[] => { const g = p.geometryInstances; return g == null ? [] : Array.isArray(g) ? g : [g]; };
@@ -128,6 +135,8 @@ export class PrimitiveDrawer {
 	#items = new Map<Any, Item>();
 	/** 3D lines for the entity overlay (EntityDisplay adds them to its own) */
 	lines: PrimLine[] = [];
+	/** the scene (the camera for minimumPixelSize) */
+	scene: Any = null;
 	constructor(host: Host) { this.host = host; }
 	/** the globe's model handles of the primitives (primitive → ModelHandle | null while loading or with no triangles) */
 	get orthoModels() { return new Map([...this.#items].map(([p, it]) => [p, it.h])); }
@@ -153,9 +162,10 @@ export class PrimitiveDrawer {
 			const show = p.show !== false;
 			if ((it as Any).shown !== show) { (it as Any).shown = show; linesChanged = true; }
 			if (!show) { if (it.h) { it.h.clear(); it.h = null; it.built = false; } continue; }   // hidden: off the globe, built again when shown
-			const mk = Matrix4.toArray(p.modelMatrix ?? Matrix4.IDENTITY).join(",") + (Model && p instanceof Model ? `|${p.scale}` : "");
-			if (Model && p instanceof Model && it.h) this.#syncAnim(it);
-			if (Model && p instanceof Model) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; const pl = placeOf(p); if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, rot: pl.rot, scale: pl.scale }); } continue; }
+			const isModel = Model && p instanceof Model, pl = isModel ? this.#placeOf(p) : null;
+			const mk = Matrix4.toArray(p.modelMatrix ?? Matrix4.IDENTITY).join(",") + (pl ? `|${pl.scale.toPrecision(3)}` : "");
+			if (isModel && it.h) this.#syncAnim(it);
+			if (isModel) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, rot: pl.rot, scale: pl.scale }); } continue; }
 			if (!it.built || (it as Any).mk !== mk) { (it as Any).mk = mk; this.#build(map, it); linesChanged = true; }
 		}
 		if (linesChanged) this.#collectLines();
@@ -206,10 +216,12 @@ export class PrimitiveDrawer {
 			const g = inst.geometry, col = it.colors[i];
 			const W = Matrix4.multiply(M, inst.modelMatrix ?? Matrix4.IDENTITY, new Matrix4());
 			if (lineGeometry(g)) {   // wide polylines: the input positions, not the screen-space triangles
-				const ps: Cartesian3[] = g._positions, width = g._width ?? g.width ?? 1;
+				const width = g._width ?? g.width ?? 1, moved = !Matrix4.equals(W, Matrix4.IDENTITY);
+				const ps: Cartesian3[] = moved ? g._positions.map((q: Cartesian3) => Matrix4.multiplyByPoint(W, q, new Cartesian3())) : g._positions;
 				const pc = g._colors?.[0] ? toBytes(g._colors[0]) : col;
 				let pts: number[] = [];
-				try { pts = Array.from(PolylinePipeline.generateArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84), granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { pts = ps.flatMap(q => [q.x, q.y, q.z]); }
+				if (g._arcType === ArcType.NONE) pts = ps.flatMap(q => [q.x, q.y, q.z]);   // straight in space (DebugModelMatrixPrimitive's axes)
+				else try { pts = Array.from(PolylinePipeline.generateArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84), granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { pts = ps.flatMap(q => [q.x, q.y, q.z]); }
 				lines.push({ p: pts, color: css(pc), width });
 				return;
 			}
@@ -290,10 +302,20 @@ export class PrimitiveDrawer {
 		if (!playing) { if (cur?.playing) h.stop(); return; }
 		if (!cur?.playing || cur.speed !== speed || (a!.name != null && cur.name !== a!.name)) h.play({ ...(cur || {}), ...(a!.name != null ? { name: a!.name } : {}), speed });
 	}
+	/** placeOf with Cesium's minimumPixelSize (a far model is enlarged to that many pixels across: Model's scaleInPixels) and maximumScale */
+	#placeOf(p: Any): ReturnType<typeof placeOf> {
+		const pl = placeOf(p), minPx = p.minimumPixelSize ?? 0, r0 = p._initialRadius, cam = this.scene?.camera;
+		if (!pl || !(minPx > 0) || !(r0 > 0) || !cam) return pl;
+		const c = Matrix4.getTranslation(p.modelMatrix ?? Matrix4.IDENTITY, new Cartesian3()), r = r0 * pl.scale;
+		const mpp = cam.getPixelSize(new BoundingSphere(c, r), this.scene.drawingBufferWidth, this.scene.drawingBufferHeight);
+		let k = pl.scale;
+		if (Number.isFinite(mpp) && mpp > 0 && (2 * r) / mpp < minPx) k = (minPx * mpp) / (2 * r0);
+		return { ...pl, scale: p.maximumScale != null ? Math.min(k, p.maximumScale) : k };
+	}
 	/** a Model (Model.fromGltfAsync): the globe loads the same glTF where the model matrix puts it */
 	#loadModel(map: Any, it: Item) {
 		const p = it.p, url: string | undefined = p._resource?.url ?? p._resource?._url;
-		const pl = placeOf(p);
+		const pl = this.#placeOf(p);
 		if (!url || !pl) { unsupported("Model without a URL (a glTF given as JSON or a buffer)"); return; }
 		if (p.color && !Color.equals(p.color, Color.WHITE)) unsupported("Model color");
 		if (p.silhouetteSize) unsupported("Model silhouette");
