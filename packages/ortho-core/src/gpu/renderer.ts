@@ -330,7 +330,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		...(reqFeats.length ? { requiredFeatures: reqFeats } : {}),
 		requiredLimits: { maxTextureDimension2D: AL.maxTextureDimension2D || 8192,
 			...(AL.maxStorageBufferBindingSize ? { maxStorageBufferBindingSize: AL.maxStorageBufferBindingSize } : {}),
-			...(AL.maxBufferSize ? { maxBufferSize: AL.maxBufferSize } : {}) },
+			...(AL.maxBufferSize ? { maxBufferSize: AL.maxBufferSize } : {}),
+			// 1 段のテクスチャ・標本器の数＝既定 16 は模型（材質 5 枚＋塗る絵＋group(0) の地面・標高・鏡面の環境）に利用者のシェーダの property texture が載ると越える（Apple＝48）
+			...(AL.maxSampledTexturesPerShaderStage ? { maxSampledTexturesPerShaderStage: AL.maxSampledTexturesPerShaderStage } : {}),
+			...(AL.maxSamplersPerShaderStage ? { maxSamplersPerShaderStage: AL.maxSamplersPerShaderStage } : {}) },
 	});
 	const ctx = (canvas as { getContext(id: "webgpu"): GPUCanvasContext | null }).getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
