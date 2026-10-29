@@ -79,6 +79,8 @@ export interface ModelHandle {
 	setEnvironment(sh: ArrayLike<number> | null): ModelHandle;
 	/** 輪郭線（Cesium の Model.silhouetteColor／silhouetteSize）。color＝[r,g,b,a]（0〜1）・size＝太さ（CSS px）。null＝外す */
 	setSilhouette(s: { color: number[]; size: number } | null): ModelHandle;
+	/** 利用者のシェーダ（Cesium の Model.customShader）＝map.setCustomShader の名。null＝外す */
+	setCustomShader(id: string | null): ModelHandle;
 	play(nameOrSpec?: string | AnimationSpec): ModelHandle;
 	stop(): ModelHandle;
 	/** 再生の時刻での束（マテリアル×アニメするノード）ごとの剛体変換＝[Float32Array(12)（L 3x3 列優先＋原点相対の平行移動）| null]。time 省略＝今の時刻。アニメが無ければ null */
@@ -493,7 +495,7 @@ export interface Gadgets {
 	 */
 	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
 	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地。マテリアル＝baseColor の factor×頂点色×テクスチャ・マテリアルごとに 1 バッチ）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
-	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean; /** 当たりの写しを持つか（W7・既定 true） */ pickable?: boolean; /** EXT_mesh_features の何組目の番号で当てるか（W7・既定 0） */ featureIdSet?: number;
+	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean; /** 当たりの写しを持つか（W7・既定 true） */ pickable?: boolean; /** EXT_mesh_features の何組目の番号で当てるか（W7・既定 0） */ featureIdSet?: number; /** 利用者のシェーダ（map.setCustomShader の名） */ customShader?: string | null; /** positionMC（glTF の POSITION）を頂点ごとに持つ（customShader があれば既定で持つ） */ mc?: boolean;
 		/** 置き場（既定 "default"）＝同じ slot は置き換え・別の slot は並ぶ（複数の模型） */ slot?: string; /** 地面からの高さ（m） */ altitude?: number; /** 置き方の取っ手を出す（"auto"＝錨で置いた模型だけ＝ドロップの既定） */ gizmo?: boolean | "auto"; /** 真俯瞰（pitch 0）でも描く（既定 false＝建物と同じく傾けた時だけ） */ keep2d?: boolean; /** "globe"＝setMeshLighting があっても globe の固定光で描く（Cesium の entity geometry の見た目） */ lighting?: "globe" }): Promise<ModelHandle>;
 	/** 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当）。src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF・File・URL。
 	 *  height＝列名 | 定数 | (props)=>メートル（省略＝height / building:height / measuredHeight / 高さ … を自動・階数だけなら ×3m）。
@@ -946,6 +948,8 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
 	/** 点群の陰影（Cesium の PointCloudShading）：attenuation＝点の幅をタイルの geometricError（×geometricErrorScale・baseResolution が有ればそれ・m）の画面の px に（上限 maximumAttenuation px・既定 maxSSE）。
 	 *  eyeDomeLighting＝点の奥行きの段差で縁を暗く（edlStrength・edlRadius px）。既定は全部切 */
 	pointShading?: { attenuation?: boolean; geometricErrorScale?: number; maximumAttenuation?: number; baseResolution?: number; eyeDomeLighting?: boolean; edlStrength?: number; edlRadius?: number } | null; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
+	/** 利用者のシェーダ（Cesium の tileset.customShader）＝map.setCustomShader の名（setOptions で替えられる）・mc＝positionMC を頂点ごとに持つ（読む前に） */
+	customShader?: string | null; mc?: boolean;
 	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/splat の SplatOptions）。
 	 *  描き手＝splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
 	splat?: Record<string, unknown> | null;
@@ -1104,7 +1108,7 @@ export interface PostProcessOptions {
 // ここは名前を通すだけ（OrthoJapanMap は 2.0 まで GlobeMap の別名）。各 *Api は installer（src/api/*.ts）が付ける口の束
 import type { GlobeMap } from "./src/types/map.ts";
 export type {
-	GlobeMap, OrthoJapanMap, GlobeCoreApi, CameraApi, OverlaysApi, TerrainApi, RasterApi, GadgetsApi, ShadowsApi,
+	CustomShaderSpec, GlobeMap, OrthoJapanMap, GlobeCoreApi, CameraApi, OverlaysApi, TerrainApi, RasterApi, GadgetsApi, ShadowsApi,
 	DataApi, IntakeApi, ImagesApi, StyleApi, QueryApi, ToolsApi,
 } from "./src/types/map.ts";
 

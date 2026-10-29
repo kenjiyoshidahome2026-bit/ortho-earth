@@ -17,6 +17,7 @@ import type { MatDesc } from "./materials.ts";
 import type { Host } from "./scene.ts";
 
 type Any = any;
+import { customShaderId } from "./custom-shader.ts";
 const { Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model } = engine as Any;
 const TRIANGLES = 4, LINES = 1;
 
@@ -176,6 +177,7 @@ export class PrimitiveDrawer {
 			const mk = Matrix4.toArray(p.modelMatrix ?? Matrix4.IDENTITY).join(",") + (pl ? `|${pl.scale.toPrecision(3)}` : "");
 			if (isModel && it.h) { this.#syncAnim(it); const tk = JSON.stringify(modelTintOf(p.color, p.colorBlendMode, p.colorBlendAmount)); if ((it as Any).tk !== tk) { (it as Any).tk = tk; it.h.setColor?.(JSON.parse(tk)); }   // Model.color / colorBlendMode / colorBlendAmount
 				const sk = JSON.stringify(modelSilOf(p.silhouetteColor, p.silhouetteSize)); if ((it as Any).sk !== sk) { (it as Any).sk = sk; it.h.setSilhouette?.(JSON.parse(sk)); }   // Model.silhouetteColor / silhouetteSize
+				const cid = customShaderId(map, p.customShader); if ((it as Any).cid !== cid) { (it as Any).cid = cid; it.h.setCustomShader?.(cid); }   // Model.customShader
 				const mm = p.modelMatrix ?? Matrix4.IDENTITY, env = this.scene ? modelEnvSH(this.scene, [mm[12], mm[13], mm[14]]) : null; if ((it as Any).env !== env) { (it as Any).env = env; it.h.setEnvironment?.(env); } }   // the environment around the model's own position
 			if (isModel) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, rot: pl.rot, scale: pl.scale }); } continue; }
 			if (!it.built || (it as Any).mk !== mk) { (it as Any).mk = mk; this.#build(map, it); linesChanged = true; }
@@ -351,7 +353,8 @@ export class PrimitiveDrawer {
 			p._initialRadius ??= sph.radius;
 			p._boundingSphere ??= new BoundingSphere();
 		});
-		map.gadget.model(url, { at: pl.at, altitude: pl.altitude, lift: false, ground: "origin", heading: pl.heading, rot: pl.rot, scale: pl.scale, slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true })   // the matrix's height is absolute (ellipsoid): not lifted onto the terrain
+		const cid = customShaderId(map, p.customShader); (it as Any).cid = cid;   // Model.customShader: positionMC is kept for every model (a shader set later still sees it)
+		map.gadget.model(url, { at: pl.at, altitude: pl.altitude, lift: false, ground: "origin", heading: pl.heading, rot: pl.rot, scale: pl.scale, slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true, customShader: cid, mc: true })   // the matrix's height is absolute (ellipsoid): not lifted onto the terrain
 			.then(async (h: Any) => {
 				it.loading = false;
 				if (it.dead) { h.clear(); return; }
