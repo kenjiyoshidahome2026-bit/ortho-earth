@@ -2832,7 +2832,7 @@ map.setGlobeOpacity = a => { const v = Number.isFinite(a) ? Math.max(0, Math.min
 // 同じ名で送り直すと値だけ替わる（GLSL が同じなら作り直さない）。模型・3D Tiles は手綱の setCustomShader(id)／setOptions({ customShader }) で名を指す。WebGPU は GLSL を WGSL へ写す（ortho-core csshader.ts）
 map.setCustomShader = (id, spec) => { renderer.set("customShader", spec ? { ...spec } : null, String(id)); requestDraw(); return map; };
 // 模型の鏡面の環境（Cesium の ImageBasedLighting.specularEnvironmentMaps・KTX2 の前処理済み立方体図）：levels[mip]＝6 面（+X −X +Y −Y +Z −Z・各 size>>mip 四方）の RGBA16F を並べた物。mip＝粗さ×最大 mip で引く。null＝反射の向きの SH9 に戻す
-map.setMeshEnvironmentMap = e => { const data = e && e.size > 0 && e.levels?.length ? { size: e.size | 0, levels: e.levels.map(l => new Uint16Array(l)) } : null; wPost({ type: "set", cmd: "meshEnv", data }, data ? data.levels.map(l => l.buffer) : []); requestDraw(); return map; };
+map.setMeshEnvironmentMap = e => { const data = e && e.size > 0 && e.levels?.length ? { size: e.size | 0, levels: e.levels.map(l => new Uint16Array(l)) } : null; wPost({ type: "set", cmd: "meshSpecEnv", data }, data ? data.levels.map(l => l.buffer) : []); requestDraw(); return map; };
 map.setCustomShaderTexture = (id, name, tex, opts = {}) => { const bm = (tex as { bitmap?: ImageBitmap } | null)?.bitmap, rg = (tex as { rgba?: Uint8Array } | null)?.rgba; wPost({ type: "set", cmd: "customShaderTex", data: { name, tex, ...opts }, prop: String(id) }, [bm, rg?.buffer].filter(Boolean) as Transferable[]); requestDraw(); return map; };
 map.setUnderground = u => { renderer.set("view", { underground: u && Array.isArray(u.color) && Array.isArray(u.nf) ? { color: [...u.color], nf: [...u.nf] } : null }); requestDraw(); return map; };   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
 map.setMaxBounds = b => {

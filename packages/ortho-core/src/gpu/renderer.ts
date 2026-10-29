@@ -3623,7 +3623,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "lights":  lights = data && (data as NonNullable<typeof lights>).n > 0 && (data as NonNullable<typeof lights>).data ? data as NonNullable<typeof lights> : null; break;   // 局所の光源（W2）＝メッシュの陰影に足す
 			case "groundLight": groundLight = data && Array.isArray((data as NonNullable<typeof groundLight>).dir) ? data as NonNullable<typeof groundLight> : null; break;   // 地面の照明（@ortho-earth/cesium の setGroundLighting）
 			case "groundMaterial": setGroundMat(data as typeof groundMat); break;   // 地面の材質（@ortho-earth/cesium の globe.material → setGroundMaterial）
-			case "meshEnv": {   // Cesium の ImageBasedLighting.specularEnvironmentMaps（KTX2 の前処理済み立方体図）＝levels[mip] に 6 面（+X −X +Y −Y +Z −Z）の RGBA16F
+			case "meshSpecEnv": {   // Cesium の ImageBasedLighting.specularEnvironmentMaps（KTX2 の前処理済み立方体図）＝levels[mip] に 6 面（+X −X +Y −Y +Z −Z）の RGBA16F
 				const e = data as { size: number; levels: Uint16Array[] } | null;
 				envTex?.destroy(); envTex = null; envView = dummyCubeView; envLod = 0;
 				if (e && e.size > 0 && e.levels?.length) {
