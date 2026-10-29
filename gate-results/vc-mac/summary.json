@@ -1,0 +1,48 @@
+{
+ "at": "2026-10-29T22:07:55.670Z",
+ "cesium": "1.146.0",
+ "n": 1,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [],
+ "graded": [
+  {
+   "name": "volumecloud",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3023,
+    "n": 3072,
+    "colour": 1,
+    "edge": 0.9840494791666666,
+    "blob": 0
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
