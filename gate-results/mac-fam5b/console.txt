@@ -1,0 +1,27 @@
+== b3fe1b10 plane
+== b3fe1b10 3d-tiles-clipping-planes
+== b3fe1b10 many-clipping-planes-dev
+== b3fe1b10 terrain-clipping-planes
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 0,1 (1/5)
+== b3fe1b10 i3s-3d-object-layer
+   1× warning: [csshim] unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+== b3fe1b10 i3s-building-scene-layer
+   1× warning: [csshim] unsupported: I3SDataProvider.filterByAttributes
+   1× error: [csshim] I3S https://tiles.arcgis.com/tiles/cFEFS0EWrhfDeVw9/arcgis/rest/services/Turanga_Library/SceneServer Error: I3S: only node-page layers (I3S 1.6+) are supported |     at w.onmessage (http://localhost:5460/src/worker-rpc.ts:11:20)
+== b3fe1b10 i3s-feature-picking
+   1× warning: [csshim] unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 1,1 (1/5)
+== b3fe1b10 i3s-integratedmesh-layer
+   1× warning: [csshim] unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 0,1 1,1 (1/5)
+== b3fe1b10 localtofixedframe
+== b3fe1b10 time-dynamic-point-cloud
+== b3fe1b10 panorama
+== b3fe1b10 volumes-dev
+   1× warning: [csshim] unsupported: material RimLighting (drawn in its colour)
+== b3fe1b10 3d-models
+== b3fe1b10 labels
+== b3fe1b10 3d-tiles-point-cloud
+   1× warning: [tiles3d] tile https://assets.ion.cesium.com/ap-northeast-1/16421/0/0.pnts?v=1 Invalid typed array length: 408504
+== b3fe1b10 3d-tiles-point-cloud-styling

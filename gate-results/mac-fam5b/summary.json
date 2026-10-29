@@ -1,0 +1,568 @@
+{
+ "at": "2026-10-29T02:24:22.935Z",
+ "cesium": "1.146.0",
+ "n": 16,
+ "levels": {
+  "0": 0,
+  "1": 7,
+  "2": 6,
+  "3": 3,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 6,
+  "2": 5,
+  "3": 3,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 6,
+   "examples": [
+    "3d-models",
+    "3d-tiles-point-cloud-styling",
+    "labels",
+    "localtofixedframe",
+    "many-clipping-planes-dev",
+    "terrain-clipping-planes"
+   ]
+  },
+  {
+   "blocker": "unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)",
+   "n": 3,
+   "examples": [
+    "i3s-3d-object-layer",
+    "i3s-feature-picking",
+    "i3s-integratedmesh-layer"
+   ]
+  },
+  {
+   "blocker": "3D Tiles draw nothing",
+   "n": 1,
+   "examples": [
+    "3d-tiles-point-cloud"
+   ]
+  },
+  {
+   "blocker": "drawn camera differs",
+   "n": 1,
+   "examples": [
+    "plane"
+   ]
+  },
+  {
+   "blocker": "unsupported: I3SDataProvider.filterByAttributes",
+   "n": 1,
+   "examples": [
+    "i3s-building-scene-layer"
+   ]
+  },
+  {
+   "blocker": "unsupported: material RimLighting (drawn in its colour)",
+   "n": 1,
+   "examples": [
+    "volumes-dev"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-models",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 94% of the cells match · a patch of 155 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2775,
+    "n": 3072,
+    "colour": 0.9215494791666666,
+    "edge": 0.939453125,
+    "blob": 155
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-tiles-clipping-planes",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2961,
+    "n": 3072,
+    "colour": 0.9993489583333334,
+    "edge": 0.9645182291666666,
+    "blob": 0
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-point-cloud",
+   "level": 1,
+   "reasons": [
+    "3D Tiles drawn 1/0"
+   ],
+   "blockers": [
+    "3D Tiles draw nothing"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": false
+   },
+   "picture": {
+    "ok": 1062,
+    "n": 3072,
+    "colour": 0.4524739583333333,
+    "edge": 0.6380208333333334,
+    "blob": 454
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-point-cloud-styling",
+   "level": 2,
+   "reasons": [
+    "picture: colour 98% · edges 99% of the cells match · a patch of 48 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 3009,
+    "n": 3072,
+    "colour": 0.9840494791666666,
+    "edge": 0.9895833333333334,
+    "blob": 48
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "i3s-3d-object-layer",
+   "level": 1,
+   "reasons": [
+    "unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)"
+   ],
+   "blockers": [
+    "unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)"
+   ],
+   "unsupported": [
+    {
+     "what": "I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)",
+     "n": 1
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3026,
+    "n": 3072,
+    "colour": 0.9892578125,
+    "edge": 0.9928385416666666,
+    "blob": 4
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "i3s-building-scene-layer",
+   "level": 1,
+   "reasons": [
+    "unsupported: I3SDataProvider.filterByAttributes"
+   ],
+   "blockers": [
+    "unsupported: I3SDataProvider.filterByAttributes"
+   ],
+   "unsupported": [
+    {
+     "what": "I3SDataProvider.filterByAttributes",
+     "n": 1
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2576,
+    "n": 3072,
+    "colour": 0.8893229166666666,
+    "edge": 0.9254557291666666,
+    "blob": 19
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "i3s-feature-picking",
+   "level": 1,
+   "reasons": [
+    "unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)"
+   ],
+   "blockers": [
+    "unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)"
+   ],
+   "unsupported": [
+    {
+     "what": "I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)",
+     "n": 1
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2947,
+    "n": 3072,
+    "colour": 0.9635416666666666,
+    "edge": 0.9918619791666666,
+    "blob": 3
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "i3s-integratedmesh-layer",
+   "level": 1,
+   "reasons": [
+    "unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)"
+   ],
+   "blockers": [
+    "unsupported: I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)"
+   ],
+   "unsupported": [
+    {
+     "what": "I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)",
+     "n": 1
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2642,
+    "n": 3072,
+    "colour": 0.9501953125,
+    "edge": 0.8968098958333334,
+    "blob": 4
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "labels",
+   "level": 2,
+   "reasons": [
+    "picture: colour 98% · edges 99% of the cells match · a patch of 27 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3013,
+    "n": 3072,
+    "colour": 0.984375,
+    "edge": 0.9873046875,
+    "blob": 27
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "localtofixedframe",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 88% of the cells match · a patch of 65 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2626,
+    "n": 3072,
+    "colour": 0.9244791666666666,
+    "edge": 0.8834635416666666,
+    "blob": 65
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "many-clipping-planes-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 95% of the cells match · a patch of 64 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2797,
+    "n": 3072,
+    "colour": 0.9248046875,
+    "edge": 0.9537760416666666,
+    "blob": 64
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "panorama",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2935,
+    "n": 3072,
+    "colour": 0.9899088541666666,
+    "edge": 0.9593098958333334,
+    "blob": 6
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "plane",
+   "level": 1,
+   "reasons": [
+    "drawn camera (Δangle 15.2° from the Cesium pose)"
+   ],
+   "blockers": [
+    "drawn camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": false
+   },
+   "picture": {
+    "ok": 2997,
+    "n": 3072,
+    "colour": 0.984375,
+    "edge": 0.9912109375,
+    "blob": 1
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "terrain-clipping-planes",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 84% of the cells match · a patch of 134 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2461,
+    "n": 3072,
+    "colour": 0.9225260416666666,
+    "edge": 0.8421223958333334,
+    "blob": 134
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "time-dynamic-point-cloud",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3012,
+    "n": 3072,
+    "colour": 0.9912109375,
+    "edge": 0.984375,
+    "blob": 7
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "volumes-dev",
+   "level": 1,
+   "reasons": [
+    "unsupported: material RimLighting (drawn in its colour)"
+   ],
+   "blockers": [
+    "unsupported: material RimLighting (drawn in its colour)"
+   ],
+   "unsupported": [
+    {
+     "what": "material RimLighting (drawn in its colour)",
+     "n": 1
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3052,
+    "n": 3072,
+    "colour": 0.9954427083333334,
+    "edge": 0.998046875,
+    "blob": 0
+   },
+   "dev": true,
+   "ion": false
+  }
+ ]
+}
