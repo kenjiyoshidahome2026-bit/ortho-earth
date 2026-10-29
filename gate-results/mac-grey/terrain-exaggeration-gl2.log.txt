@@ -1,0 +1,30 @@
+== terrain-exaggeration gl2 {"memBackend":"webgl2","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=64,38,26 67,50,28 22,24,27 83,110,70
+page log: [boot] hi-tier device = PLATEAU wide lanes (cores=18, bldCap=3, tileConc=16, decPool)
+page log: [geo] world=WGS84 ellipsoid (beta-sphere x S) (opts.ellipsoid=true; ?ell=1 / ?ell=0 to override; measurement always WGS84)
+page log: [geopbf] 📥 ml/__cs-shapes (2,814 bytes) 66.38 msec
+page log: [geopbf] 📥 ml/__cs-shapes (2,814 bytes) 52.39 msec
+page info: [extrude] 10 polygons, 1180 tris [86.81484989883094, 27.436058780820364, 86.82290110078563, 27.44324212647695]
+page log: [geopbf] 📥 ml/__cs-shapes (2,814 bytes) 75.65 msec
+worker(worker.ts?worker_file&type=module) log: [render] multi_draw enabled (tiles GPU-resident)
+page log: [render] multi_draw enabled (tiles GPU-resident)
+worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+page log: [terrain] DTM declared: none (no ground lift)
+worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+worker(worker.ts?worker_file&type=ignore) log: [scene] multi_draw enabled (tiles resident on GPU, max 128 draw/call)
+page log: [scene] multi_draw enabled (tiles resident on GPU, max 128 draw/call)
+worker(worker.ts?worker_file&type=module) debug: [gint] edges=%d chunks=%d ck0=%s 400 1 [2668148500,1174360590,2668229010,1174432420]
+page debug: [gint] edges=%d chunks=%d ck0=%s 400 1 [2668148500,1174360590,2668229010,1174432420]
+worker(worker.ts?worker_file&type=module) debug: [gint] boundary edges=%d (%.1f%%) 400 100
+page debug: [gint] boundary edges=%d (%.1f%%) 400 100
+page info: [extrude] 10 polygons, 1180 tris [86.81484989883094, 27.436058780820364, 86.82290110078563, 27.44324212647695]
+page log: [boot] frame1 received backend=webgl2
+worker(worker.ts?worker_file&type=module) info: [gint] idFill caps: %s (float_blend=%s) RGBA32F true
+page info: [gint] idFill caps: %s (float_blend=%s) RGBA32F true
+page log: [altpbf]  📥 R10N020E080 (2400 x 2400) 632.30 msec
+page log: [mesh] catalog loaded -> 0 municipalities
+page log: [mesh] storage persist: denied
+worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 8.6ms) = idle near-detail allowed
+page log: [render] GPU tier fast (map-normalized 8.6ms) = idle near-detail allowed
+page log: [altpbf]  📥 R01N027E086 (3600 x 3600) 5910.74 msec
+page warning: Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
