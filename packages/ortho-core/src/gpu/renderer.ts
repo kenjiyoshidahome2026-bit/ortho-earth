@@ -96,7 +96,7 @@ interface ShadowMods { terr: GPUShaderModule; fill: GPUShaderModule; line: GPUSh
 interface ShadowPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; terrain: GPURenderPipeline;
 	bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; globe: GPURenderPipeline }
 interface CastPipes { bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; terr: GPURenderPipeline }
-interface ShBG0Key { v: GPUTextureView; fv: GPUTextureView; cv: GPUTextureView; nv: GPUTextureView }
+interface ShBG0Key { v: GPUTextureView; fv: GPUTextureView; cv: GPUTextureView; nv: GPUTextureView; ev: GPUTextureView }
 /** 落とす側の深度パスが描いた物の数（影の計器・解析の統計） */
 interface CastCount { bldTris: number; meshBatches: number; meshTris: number; terrTris: number }
 /** 建物の影の資源（点けている間だけ） */
@@ -184,10 +184,11 @@ interface MeshBatch {
 	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; csLit: string; count: number; origin: number[]; bbox: number[]; ward: string;
 	lodH: number[] | null; lodCounts: number[] | null; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
+	paint?: MeshTex | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝Cesium の模型ごとの環境の SH9・27 値）＝meshLight.sh より勝つ
 	custom?: string | null; mcJ?: Float32Array | null; mcbo?: GPUBuffer | null;   // Cesium の CustomShader（set "meshCustom"）の id・J・positionMC の頂点バッファ（location 4）
-	cs?: { id: string; rev: number; bgl: GPUBindGroupLayout; cub: GPUBuffer; bg: GPUBindGroup; cpu: ArrayBuffer } | null;   // その束の CU（uniform）と group(3)
+	cs?: { id: string; rev: number; bgl: GPUBindGroupLayout; cub: GPUBuffer; bg: GPUBindGroup; cpu: ArrayBuffer; paint: MeshTex | null } | null;   // その束の CU（uniform）と group(3)
 	uvmbo?: GPUBuffer | null; meta?: { props: Record<string, CsMeta>; sig: string; texs: MeshTex[] } | null;   // property texture の texCoord（location 5）・読み方・画像
 }
 interface MeshMask { ward: string; rev: number; tex: GPUTexture; view: GPUTextureView; bbox: number[]; n: number; bytes: Uint8Array }
@@ -247,6 +248,7 @@ const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から 
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, mesh: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10, user: 11 };   // fade*=クロスフェード中の新シーン用（p0.w=α）・user＝利用者の vector の層（基図の濃さに従わない＝p0.w=1・段 8⑤）
 const N_ROLES = 12;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
+const PAINT_BINDING = 99;   // group(3) の塗る絵（meshPaint）＝利用者のシェーダの束縛（6〜）と重ならない番号
 const PL_BATCH_SLOT = 1024; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）＋xf/xt（196〜211）＋sl0/sl1/cs（212〜223・style の light と頂点色の色空間）＋csL/csC/csI（224〜235）＋eyeRel（236〜239）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
 const MAX_MESH_MASKS = 4;
@@ -328,7 +330,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		...(reqFeats.length ? { requiredFeatures: reqFeats } : {}),
 		requiredLimits: { maxTextureDimension2D: AL.maxTextureDimension2D || 8192,
 			...(AL.maxStorageBufferBindingSize ? { maxStorageBufferBindingSize: AL.maxStorageBufferBindingSize } : {}),
-			...(AL.maxBufferSize ? { maxBufferSize: AL.maxBufferSize } : {}) },
+			...(AL.maxBufferSize ? { maxBufferSize: AL.maxBufferSize } : {}),
+			// 1 段のテクスチャ・標本器の数＝既定 16 は模型（材質 5 枚＋塗る絵＋group(0) の地面・標高・鏡面の環境）に利用者のシェーダの property texture が載ると越える（Apple＝48）
+			...(AL.maxSampledTexturesPerShaderStage ? { maxSampledTexturesPerShaderStage: AL.maxSampledTexturesPerShaderStage } : {}),
+			...(AL.maxSamplersPerShaderStage ? { maxSamplersPerShaderStage: AL.maxSamplersPerShaderStage } : {}) },
 	});
 	const ctx = (canvas as { getContext(id: "webgpu"): GPUCanvasContext | null }).getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
@@ -436,6 +441,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },     // アトラスのサンプラ（mips・異方性・clamp）
 		{ binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・4 段目（前景あり時）
 		{ binding: 12, visibility: VF, texture: { sampleType: "float" } },   // 近景層（near）アトラス（順 1a）。elev() が静的参照＝far と同じく全レイアウトに必須
+		{ binding: 13, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },   // Cesium の模型の鏡面の環境（setMeshEnvironmentMap・csLit だけが引く・無ければ dummy の立方体）
+		{ binding: 14, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
 	] });
 	// group(1)＝DrawP＋塗りの模様（S-P1-4/5・FILL_WGSL だけが binding 1/2 を宣言＝他のシェーダは余分な束縛を無視する）
 	const PAT_ENTRIES: GPUBindGroupLayoutEntry[] = [{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }];
@@ -457,7 +464,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const plLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch] });
 	// 模型（glb 直読み・2026-09-20）＝メッシュ派生パイプライン。group(3)=サンプラ＋テクスチャ（バッチごと）
 	const bglPlTex = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }] });   // ラスタのアトラス合成が流用（サンプラ＋1 枚）
-	const bglPlTex5 = device.createBindGroupLayout({ entries: [0, 1, 2, 3, 4, 5].map(b => b === 0 ? { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } } : { binding: b, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }) });   // 模型＝baseColor＋MR＋法線＋AO＋発光（#46 段 2）
+	const PAINT_ENTRY: GPUBindGroupLayoutEntry = { binding: PAINT_BINDING, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } };   // 塗る絵＝textureLoad で読む（標本器なし）
+	const bglPlTex5 = device.createBindGroupLayout({ entries: [...[0, 1, 2, 3, 4, 5].map(b => b === 0 ? { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" as const } } : { binding: b, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" as const } }), PAINT_ENTRY] });   // 模型＝baseColor＋MR＋法線＋AO＋発光（#46 段 2）
 	const plTexLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch, bglPlTex5] });
 
 	const fillMod = mkMod(FILL_WGSL, "fill");
@@ -828,15 +836,15 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	function shadowBG0(L: ShadowLayer, which: "bg0" | "bg0T" = "bg0"): GPUBindGroup {   // 影を落とす側の group(0)＝bg0.bld と同じ素材で Frame だけ太陽の正射影（bg0＝段の frameB・bg0T＝地形の frameT）
 		const v = (elev.has && elevTexView) ? elevTexView : dummyView, fv = (far.has && farTexView) ? farTexView : dummyView, cv = cogTexView || dummyView, nv = (near.has && nearTexView) ? nearTexView : dummyView;
 		const c = (L as unknown as Bag)[which + "K"] as ShBG0Key | undefined;
-		if (L[which] && c && c.v === v && c.fv === fv && c.cv === cv && c.nv === nv) return L[which]!;
-		(L as unknown as Bag)[which + "K"] = { v, fv, cv, nv };
+		if (L[which] && c && c.v === v && c.fv === fv && c.cv === cv && c.nv === nv && c.ev === envView) return L[which]!;
+		(L as unknown as Bag)[which + "K"] = { v, fv, cv, nv, ev: envView };
 		return (L[which] = device.createBindGroup({ layout: bgl0, entries: [
 			{ binding: 0, resource: { buffer: which === "bg0T" ? L.frameT : L.frameB, offset: 0, size: FRAME_SLOT } },
 			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv },
 			{ binding: 4, resource: cv }, { binding: 5, resource: { buffer: cogBuf } },
 			{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
 			{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler }, { binding: 11, resource: dummyView },
-			{ binding: 12, resource: nv },
+			{ binding: 12, resource: nv }, { binding: 13, resource: envView }, { binding: 14, resource: envSampler },
 		] }));
 	}
 
@@ -1550,6 +1558,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const elevSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	const dummyTex = device.createTexture({ size: [1, 1], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyView = dummyTex.createView();
+	// Cesium の模型の鏡面の環境（setMeshEnvironmentMap・ImageBasedLighting.specularEnvironmentMaps）＝rgba16float の立方体図（mip＝粗さ×最大 mip）。無い間は 1×1 の dummy
+	const envSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", addressModeW: "clamp-to-edge" });
+	const dummyCubeView = device.createTexture({ size: [1, 1, 6], format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST }).createView({ dimension: "cube" });
+	let envTex: GPUTexture | null = null, envView: GPUTextureView = dummyCubeView, envLod = 0;
 	// 気候場テクスチャ（全球ハイプソ cross-blend・view.worldHypso.clim の URL から一度だけ取得）。
 	// 未着の間はシェーダが緯度近似へフォールバック（hasClim=0）＝1-2フレームの色ズレのみ。
 	// 地面の材質（setGroundMaterial・Cesium の globe.material・2026-10-28）＝ランプ n×1 の rgba8 テクスチャ（globe binding 13・terrain group(2) binding 3）と小物（terrain P.tr/lx/dashP・Globe gm/gmC/gmP）
@@ -1650,7 +1662,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ binding: 4, resource: cogTexView || dummyView }, { binding: 5, resource: { buffer: cogBuf } },
 				{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
 				{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler }, { binding: 11, resource: dummyView },
-				{ binding: 12, resource: nearView },
+				{ binding: 12, resource: nearView }, { binding: 13, resource: envView }, { binding: 14, resource: envSampler },
 			],
 		});
 		for (const [name, idx] of Object.entries(SLOT)) bg0[name] = device.createBindGroup({
@@ -1667,7 +1679,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ binding: 9, resource: { buffer: gndPBuf } },
 				{ binding: 10, resource: rasSampler },
 				{ binding: 11, resource: gnd.w[3] ? gnd.w[3].view : dummyView },
-				{ binding: 12, resource: nearView },
+				{ binding: 12, resource: nearView }, { binding: 13, resource: envView }, { binding: 14, resource: envSampler },
 			],
 		});
 		// globe（全球ハイプソ＝標高+気候）と terrain group(2)（気候）も同じ素材に依存＝一緒に作り直す
@@ -1954,8 +1966,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		else device.queue.writeTexture({ texture: tex }, t.rgba, { bytesPerRow: w * 4, rowsPerImage: h }, [w, h]);
 		return { tex, view: tex.createView() };
 	}
-	function meshTexBG(texs: (MeshTex | null)[]): GPUBindGroup {   // 5 枚（無い所は既定）→ group(3)
-		return device.createBindGroup({ layout: bglPlTex5, entries: [{ binding: 0, resource: texSampler }, ...texs.map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view }))] });
+	function meshTexBG(texs: (MeshTex | null)[], paint: MeshTex | null = null): GPUBindGroup {   // 5 枚（無い所は既定）＋塗る絵 → group(3)
+		return device.createBindGroup({ layout: bglPlTex5, entries: [{ binding: 0, resource: texSampler }, ...texs.map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view })), { binding: PAINT_BINDING, resource: (paint || mrTex1).view }] });
 	}
 	// ── 地面アトラス（RTT ドレープ・2026-09-21）＝ラスタ基図 → ベクタ塗り（3D 時）→ ラスタ重ね を 3 段窓（近/中/遠）へ合成し、地形・球・塗りの
 	// FS が gndMix0 で画素標本化する（gl/renderer.js と対）。合成は鍵（窓・ラスタ rev・シーン rev・ゲート）が変わった時だけ＝別エンコーダで
@@ -2202,7 +2214,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		for (const k of [...meshes.keys()]) {
 			if (k !== ward && !k.startsWith(ward + "#")) continue;
 			const p = meshes.get(k)!;
-			p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.mcbo?.destroy(); p.cs?.cub.destroy(); p.uvmbo?.destroy(); for (const t of p.meta?.texs || []) if (t !== mrTex1) t.tex.destroy(); for (const t of p.texs || []) t?.tex.destroy();
+			p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.mcbo?.destroy(); p.cs?.cub.destroy(); p.uvmbo?.destroy(); for (const t of p.meta?.texs || []) if (t !== mrTex1) t.tex.destroy(); p.paint?.tex.destroy(); for (const t of p.texs || []) t?.tex.destroy();
 			meshes.delete(k);
 		}
 		const m = meshMasks.get(ward);
@@ -3300,11 +3312,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (meshLight) {   // Cesium の模型の照明（csL/csC/csI＝float 224〜235）・sh[9] の xyz には Cesium の係数
 					plBatchCPU[o + 224] = meshLight.dir[0]; plBatchCPU[o + 225] = meshLight.dir[1]; plBatchCPU[o + 226] = meshLight.dir[2]; plBatchCPU[o + 227] = p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1;   // csL.w：1＝csLit・2＝素の色（unlit）・0＝固定光（entity geometry）
 					plBatchCPU[o + 228] = meshLight.color[0]; plBatchCPU[o + 229] = meshLight.color[1]; plBatchCPU[o + 230] = meshLight.color[2]; plBatchCPU[o + 231] = meshLight.invL00;
-					plBatchCPU[o + 232] = meshLight.ibl[0]; plBatchCPU[o + 233] = meshLight.ibl[1]; plBatchCPU[o + 234] = 0; plBatchCPU[o + 235] = 0;
+					plBatchCPU[o + 232] = meshLight.ibl[0]; plBatchCPU[o + 233] = meshLight.ibl[1]; plBatchCPU[o + 234] = envTex ? 1 : 0; plBatchCPU[o + 235] = envLod;   // csI.zw＝鏡面の環境の立方体図あり・その最大 mip
 					const sh = p.sh ?? meshLight.sh;   // 模型ごとの環境（meshEnv）が勝つ
 					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = sh[i * 3]; plBatchCPU[o + 25 + i * 4] = sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = sh[i * 3 + 2]; }
 				} else plBatchCPU[o + 227] = 0;
-				plBatchCPU[o + 244] = p.tint ? p.tint[4] : -1; if (p.tint) plBatchCPU.set(p.tint.subarray(0, 4), o + 240);   // tint/tintB＝Cesium の Model.color（−1＝無し）
+				plBatchCPU[o + 244] = p.tint ? p.tint[4] : -1; if (p.tint) plBatchCPU.set(p.tint.subarray(0, 4), o + 240); plBatchCPU[o + 246] = p.paint ? p.paintB ?? 0 : -1;   // tintB.z＝塗る絵の混ぜ方（−1＝無し）   // tint/tintB＝Cesium の Model.color（−1＝無し）
 				if (p.sil) { plBatchCPU[o + 245] = p.sil[4]; plBatchCPU.set(p.sil.subarray(0, 4), o + 248); }   // tintB.y＝輪郭線の太さ・sil＝色
 				plBatchCPU[o + 236] = st.eye[0] - p.origin[0]; plBatchCPU[o + 237] = st.eye[1] - p.origin[1]; plBatchCPU[o + 238] = st.eye[2] - p.origin[2];   // eyeRel＝目 − 原点（double）＝toEye の錨（近接の裏面判定）
 				plBatchCPU[o + 221] = p.textured || p.two ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ・橋梁 two は点けない）・cs.z＝窓の印を α に（夜の色 grade の間）
@@ -3489,6 +3501,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		v.bgl = device.createBindGroupLayout({ entries: [
 			...[0, 1, 2, 3, 4, 5].map(b => b === 0 ? { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" as const } } : { binding: b, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" as const } }),   // bglPlTex5 と同じ（模型の材質 5 枚）
 			{ binding: 6, visibility: VF, buffer: { type: "uniform" as const } },   // CU
+			PAINT_ENTRY,   // 塗る絵（MESH_TEX_WGSL の texP）
 			...v.textures.flatMap((_, k) => pair(7 + k * 2)),   // 利用者のテクスチャ
 			...Array.from({ length: v.nMeta }, (_, k) => pair(7 + v!.textures.length * 2 + k * 2)).flat(),   // property texture（csshader csWgsl と同じ並び）
 		] });
@@ -3514,15 +3527,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		return null;
 	}
 	function csBind(p: MeshBatch, id: string, e: CsEntryG, v: CsVarG): NonNullable<MeshBatch["cs"]> {   // その束の CU と group(3)（材質 5 枚＋CU＋利用者のテクスチャ＋property texture）
-		if (p.cs && p.cs.id === id && p.cs.rev === e.rev && p.cs.bgl === v.bgl) return p.cs;
+		if (p.cs && p.cs.id === id && p.cs.rev === e.rev && p.cs.bgl === v.bgl && p.cs.paint === (p.paint ?? null)) return p.cs;
 		p.cs?.cub.destroy();
 		const cub = device.createBuffer({ size: v.cuSize, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		const m0 = 7 + v.textures.length * 2, nearClamp = csSampler(true, false);
 		const bg = device.createBindGroup({ layout: v.bgl!, entries: [{ binding: 0, resource: texSampler }, ...(p.texs || [null, null, null, null, null]).map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view })),
-			{ binding: 6, resource: { buffer: cub } },
+			{ binding: 6, resource: { buffer: cub } }, { binding: PAINT_BINDING, resource: (p.paint || mrTex1).view },
 			...v.textures.flatMap((n, k) => { const x = e.tex.get(n); return [{ binding: 7 + k * 2, resource: x ? x.samp : csSampler(false, true) }, { binding: 8 + k * 2, resource: (x ? x.t : mrTex1).view }]; }),
 			...Array.from({ length: v.nMeta }, (_, k) => [{ binding: m0 + k * 2, resource: nearClamp }, { binding: m0 + 1 + k * 2, resource: (p.meta?.texs[k] ?? mrTex1).view }]).flat()] });
-		return p.cs = { id, rev: e.rev, bgl: v.bgl!, cub, bg, cpu: new ArrayBuffer(v.cuSize) };
+		return p.cs = { id, rev: e.rev, bgl: v.bgl!, cub, bg, cpu: new ArrayBuffer(v.cuSize), paint: p.paint ?? null };
 	}
 	function csWrite(p: MeshBatch, e: CsEntryG, V: Float32Array): void {   // 毎フレームの CU：J・V（mat3x3f＝列 16 B）・misc（frame, 0, UNLIT, TRANSLUCENT）・利用者の値
 		const c = p.cs!, f = new Float32Array(c.cpu), J = p.mcJ ?? Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1);
@@ -3617,6 +3630,17 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "lights":  lights = data && (data as NonNullable<typeof lights>).n > 0 && (data as NonNullable<typeof lights>).data ? data as NonNullable<typeof lights> : null; break;   // 局所の光源（W2）＝メッシュの陰影に足す
 			case "groundLight": groundLight = data && Array.isArray((data as NonNullable<typeof groundLight>).dir) ? data as NonNullable<typeof groundLight> : null; break;   // 地面の照明（@ortho-earth/cesium の setGroundLighting）
 			case "groundMaterial": setGroundMat(data as typeof groundMat); break;   // 地面の材質（@ortho-earth/cesium の globe.material → setGroundMaterial）
+			case "meshSpecEnv": {   // Cesium の ImageBasedLighting.specularEnvironmentMaps（KTX2 の前処理済み立方体図）＝levels[mip] に 6 面（+X −X +Y −Y +Z −Z）の RGBA16F
+				const e = data as { size: number; levels: Uint16Array[] } | null;
+				envTex?.destroy(); envTex = null; envView = dummyCubeView; envLod = 0;
+				if (e && e.size > 0 && e.levels?.length) {
+					envTex = device.createTexture({ size: [e.size, e.size, 6], mipLevelCount: e.levels.length, format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+					e.levels.forEach((lv, m) => { const w = Math.max(1, e.size >> m); device.queue.writeTexture({ texture: envTex!, mipLevel: m }, lv, { bytesPerRow: w * 8, rowsPerImage: w }, [w, w, 6]); });
+					envView = envTex.createView({ dimension: "cube" }); envLod = e.levels.length - 1;
+				}
+				rebuildBG0();   // group(0) が立方体図を掴み直す（影の bg0 は shadowBG0 が envView の替わりを見て作り直す）
+				break;
+			}
 			case "meshLight": meshLight = data && Array.isArray((data as NonNullable<typeof meshLight>).dir) && (data as NonNullable<typeof meshLight>).sh ? data as NonNullable<typeof meshLight> : null; break;   // Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting）
 			case "light":   light = data && Array.isArray((data as NonNullable<typeof light>).dir) ? data as NonNullable<typeof light> : null; break;   // style の light（B3・MapLibre の setLight）＝メッシュの陰影（PB の sl0/sl1・gl は u_light*）。fx.pbr の経路は太陽＋環境光のまま（#46 段 2）
 			case "sea":     sea = { ...sea, ...(data as Partial<typeof sea>) }; break;
@@ -3647,6 +3671,18 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "elevAtlasNearOff": clearElevationNear(); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "meshSet": setMeshSet(prop as string, data as MeshSetData | null); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
+			case "meshPaint": {   // 画素ごとの地物の番号から塗った絵＝{ w, h, rgba（α 0＝元の色）, blend }｜null（tiles3d の paintTexel）
+				const p = meshes.get(prop as string), d = data as { w: number; h: number; rgba: Uint8Array; blend: number } | null;
+				if (!p?.textured || !p.texs) break;
+				p.paint?.tex.destroy(); p.paint = null;
+				if (d && d.w > 0 && d.h > 0 && d.rgba?.length >= d.w * d.h * 4) {
+					const tex = device.createTexture({ size: [d.w, d.h], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+					device.queue.writeTexture({ texture: tex }, d.rgba, { bytesPerRow: d.w * 4, rowsPerImage: d.h }, [d.w, d.h]);
+					p.paint = { tex, view: tex.createView() }; p.paintB = d.blend;
+				}
+				p.texBG = meshTexBG(p.texs, p.paint);   // 利用者のシェーダの group(3) は csBind が p.paint の替わりを見て作り直す
+				break;
+			}
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.cbo && (data as Uint8Array | null)?.length && (data as Uint8Array).byteLength <= p.cbo.size) device.queue.writeBuffer(p.cbo, 0, (data as Uint8Array).buffer, (data as Uint8Array).byteOffset, (data as Uint8Array).byteLength); break; }   // 頂点色だけ書き換える（feature state の色・W7）
 			case "meshPos": {   // skin の頂点の焼き直し（2026-10-28）＝pos（原点相対・Float32・3n）と法線（Int8・4n）を同じ頂点数のまま書き換える（大きさが違えば捨てる）。影の深度も描き直す
 				const p = meshes.get(prop as string), d = data as { pos?: Float32Array; nrm?: Int8Array } | null;
@@ -3691,7 +3727,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
 		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); disposeGintBld();
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
-		for (const p of meshes.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); for (const t of p.texs || []) t?.tex.destroy(); }
+		for (const p of meshes.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); for (const t of p.texs || []) t?.tex.destroy(); p.paint?.tex.destroy(); }
 		meshes.clear();
 		for (const m of meshMasks.values()) m.tex.destroy();
 		meshMasks.clear(); meshHidden.clear();
