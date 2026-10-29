@@ -3202,7 +3202,8 @@ const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); ret
 	setMeshPaint: (name, data) => { wPost({ type: "set", cmd: "meshPaint", data, prop: name }, data ? [data.rgba.buffer] : []); requestDraw(); },   // 画素ごとの地物の番号から塗った絵（photogrammetry の分類）
 	setMeshCut: (name, cut) => { wPost({ type: "set", cmd: "meshCut", data: cut, prop: name }); requestDraw(); },
 	setMeshSplit: (name, side) => { wPost({ type: "set", cmd: "meshSplit", data: side, prop: name }); requestDraw(); },   // Cesium splitDirection（-1 left / +1 right / 0）
-	setMeshEnv: (name, sh) => { wPost({ type: "set", cmd: "meshEnv", data: sh ? Array.from(sh) : null, prop: name }); requestDraw(); },   // タイルセットの環境光（Cesium の tileset の DynamicEnvironmentMapManager）＝SH9｜null
+	setMeshEnv: (name, sh) => { wPost({ type: "set", cmd: "meshEnv", data: sh ? Array.from(sh) : null, prop: name }); requestDraw(); },
+	setMeshOutline: (name, c) => { wPost({ type: "set", cmd: "meshOutline", data: c ? Array.from(c) : null, prop: name }); requestDraw(); },   // CESIUM_primitive_outline colour (Cesium tileset.showOutline / outlineColor)   // タイルセットの環境光（Cesium の tileset の DynamicEnvironmentMapManager）＝SH9｜null
 	setMeshCustom: (name, id) => { wPost({ type: "set", cmd: "meshCustom", data: id, prop: name }); requestDraw(); },   // 利用者のシェーダ（tileset.customShader）   // 不透明の束を MASK に（feature state の show:false）
 	setClassify: (name, data) => { wPost({ type: "set", cmd: "classify", prop: name, data }, data ? [data.pos.buffer, data.idx.buffer] : []); requestDraw(); },   // 分類の立体（.geom・classificationType）＝分類の柱
 	pickEnv: meshPickEnv,   // 当たり（W7）
