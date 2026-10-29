@@ -68,7 +68,19 @@ export class Cesium3DTileset {
 	get properties() { return this.json?.properties; }
 	get extras() { return this.json?.extras; }
 	get extensions() { return this.json?.extensions; }
-	get metadata() { return this.json?.metadata; }
+	// TilesetMetadata (a MetadataEntity): the JSON values, with the class defaults from an inline schema
+	get metadata() {
+		const m = this.json?.metadata; if (!m) return undefined;
+		const props: Record<string, unknown> = m.properties ?? {}, cls = this.json?.schema?.classes?.[m.class], def = (id: string) => cls?.properties?.[id]?.default;
+		const get = (id: string) => id in props ? props[id] : def(id);
+		const bySem = (sem: string) => { const id = Object.keys(cls?.properties ?? {}).find(k => cls.properties[k].semantic === sem) ?? Object.keys(props).find(k => k === sem); return id == null ? undefined : get(id); };
+		return { class: cls ? { id: m.class, ...cls } : undefined, extras: m.extras, extensions: m.extensions,
+			hasProperty: (id: string) => get(id) !== undefined, hasPropertyBySemantic: (sem: string) => bySem(sem) !== undefined,
+			getPropertyIds: (out: string[] = []) => { for (const k of new Set([...Object.keys(props), ...Object.keys(cls?.properties ?? {})])) out.push(k); return out; },
+			getProperty: get, getPropertyBySemantic: bySem,
+			setProperty: (id: string, v: unknown) => { if (!(id in props) && def(id) === undefined) return false; props[id] = v; return true; },
+			setPropertyBySemantic: () => false };
+	}
 	get geometricError() { return this.json?.geometricError; }
 	get root() {
 		const t = this.json?.root?.transform?.length === 16 ? Matrix4.unpack(this.json.root.transform) : Matrix4.clone(Matrix4.IDENTITY);

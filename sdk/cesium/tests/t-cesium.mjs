@@ -5,7 +5,8 @@
 import { Cartesian3, Ellipsoid, Matrix4, Rectangle } from "@cesium/core";
 import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
 import { gltfSphere, modelTintOf, modelSilOf } from "../src/gltf.ts";
-import { sphereOfVolume } from "../src/tileset.ts";
+import { sphereOfVolume, Cesium3DTileset } from "../src/tileset.ts";
+import { Resource } from "@cesium/engine";
 import { clippingOriginOf, clipSpecOf } from "../src/clipping.ts";
 import { pntsSphere } from "../src/timepoints.ts";
 import { readFileSync, existsSync } from "node:fs";
@@ -517,6 +518,16 @@ for (const g of [
 	const d = parseKtx2Cube(b.buf);
 	ok("ktx2 cube: RGBA32F → halves", d && d.levels[0][0] === 0x3e00 && d.levels[0][1] === 0xc000);
 	ok("ktx2 cube: other formats are refused", parseKtx2Cube(ktx(37, 1, 2, 1).buf) === null);
+}
+
+// tileset.metadata is a MetadataEntity (aec-tileset-metadata-filtering reads parallel arrays with getProperty)
+{
+	const t = new Cesium3DTileset(new Resource({ url: "https://x.test/tileset.json" }), { asset: { version: "1.1" }, schema: { classes: { c: { properties: { a: { type: "SCALAR" }, b: { type: "STRING", default: "d" }, s: { semantic: "NAME", type: "STRING" } } } } }, metadata: { class: "c", properties: { a: [1, 2], s: "n" } }, root: { geometricError: 1, boundingVolume: { sphere: [0, 0, 0, 1] } } }, {});
+	const m = t.metadata;
+	ok("tileset metadata: getProperty", JSON.stringify(m.getProperty("a")) === "[1,2]");
+	ok("tileset metadata: class default", m.getProperty("b") === "d");
+	ok("tileset metadata: by semantic", m.getPropertyBySemantic("NAME") === "n");
+	ok("tileset metadata: hasProperty", m.hasProperty("a") && !m.hasProperty("z"));
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");

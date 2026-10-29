@@ -93,7 +93,7 @@ async function decodePnts(ab: ArrayBuffer, M: Xf3, baseH: number): Promise<Point
 	if (!P) { P = ftValue(J, bin, "POSITION_QUANTIZED", n, Uint16Array); qo = J.QUANTIZED_VOLUME_OFFSET; qs = J.QUANTIZED_VOLUME_SCALE; }
 	if (!P) return null;
 	const RGBA = D ? D.RGBA : ftValue(J, bin, "RGBA", n, Uint8Array, 4), RGB = RGBA ? null : D ? D.RGB : ftValue(J, bin, "RGB", n, Uint8Array, 3), R565 = RGBA || RGB ? null : ftValue(J, bin, "RGB565", n, Uint16Array, 1);
-	const K = J.CONSTANT_RGBA || [221, 221, 221, 255];
+	const K = J.CONSTANT_RGBA || [169, 169, 169, 255];   // 色の無い点＝Cesium の既定（Color.DARKGRAY）
 	const geo = new Float64Array(n * 3), rgba = new Uint8Array(n * 4);
 	for (let i = 0; i < n; i++) {
 		let x = P[i*3], y = P[i*3+1], z = P[i*3+2];

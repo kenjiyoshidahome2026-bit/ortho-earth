@@ -43,6 +43,20 @@ function controllerOf(host: Host): any {
 	});
 }
 
+
+// Cesium's ContextLimits are filled only when a GL Context is made, which this facade never does: left at 0, any RenderState with
+// lineWidth 1 (GroundPolylinePrimitive, ShadowMap) or a Texture3D throws from the constructor. Fill them with common WebGL2 limits.
+let limitsSet = false;
+function fillContextLimits() {
+	if (limitsSet) return; limitsSet = true;
+	const L = (engine as unknown as { ContextLimits?: Record<string, number | boolean> }).ContextLimits;
+	if (!L || (L._maximumTextureSize as number) > 0) return;
+	Object.assign(L, { _maximumCombinedTextureImageUnits: 32, _maximumCubeMapSize: 16384, _maximumFragmentUniformVectors: 1024, _maximumTextureImageUnits: 16, _maximumRenderbufferSize: 16384,
+		_maximumTextureSize: 16384, _maximum3DTextureSize: 2048, _maximumVaryingVectors: 30, _maximumVertexAttributes: 16, _maximumVertexTextureImageUnits: 16, _maximumVertexUniformVectors: 1024,
+		_minimumAliasedLineWidth: 1, _maximumAliasedLineWidth: 1, _minimumAliasedPointSize: 1, _maximumAliasedPointSize: 1024, _maximumViewportWidth: 16384, _maximumViewportHeight: 16384,
+		_maximumTextureFilterAnisotropy: 16, _maximumDrawBuffers: 8, _maximumColorAttachments: 8, _maximumSamples: 4, _highpFloatSupported: true, _highpIntSupported: true });
+}
+
 export class OrthoScene {
 	readonly host: Host;
 	readonly canvas: HTMLCanvasElement;
@@ -86,6 +100,7 @@ export class OrthoScene {
 	#destroyed = false;
 
 	constructor(host: Host, canvas: HTMLCanvasElement, o: { scene3DOnly?: boolean; globe?: unknown } = {}) {
+		fillContextLimits();
 		this.host = host; this.canvas = canvas; this.scene3DOnly = !!o.scene3DOnly;
 		this.frameState = { mode: SceneMode.SCENE3D, mapProjection: this.mapProjection, useLogDepth: false, frameNumber: 0, time: undefined, camera: null, context: this.context, pixelRatio: 1, verticalExaggeration: 1 };
 		this.screenSpaceCameraController = controllerOf(host);
@@ -284,6 +299,14 @@ export class OrthoScene {
 		if (Number.isFinite(h)) return h;
 		const t = map?.queryTerrainElevation?.(position.longitude * R2D, position.latitude * R2D);
 		return Number.isFinite(t) ? t : undefined;
+	}
+	// Billboard/Label/PointPrimitive clamping (private Cesium API): the globe clamps the drawn marks itself, so answer once with the height
+	// known now and hand back the remover Cesium expects
+	getHeight(cartographic: Cartographic) { return this.sampleHeight(cartographic); }
+	updateHeight(cartographic: Cartographic, callback: (c: Cartographic) => void) {
+		const h = this.sampleHeight(cartographic);
+		if (h != null) callback(new Cartographic(cartographic.longitude, cartographic.latitude, h));
+		return () => {};
 	}
 	clampToHeight(cartesian: Cartesian3, _objectsToExclude?: unknown, _width?: number, result?: Cartesian3) {
 		const c = Ellipsoid.WGS84.cartesianToCartographic(cartesian);
