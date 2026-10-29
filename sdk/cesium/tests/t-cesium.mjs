@@ -4,7 +4,7 @@
 // The browser part (Viewer, entities, the widgets) is the examples gate: packages/globe/tests/csexamples/run.mjs
 import { Cartesian3, Ellipsoid, Matrix4, Rectangle } from "@cesium/core";
 import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
-import { gltfSphere } from "../src/gltf.ts";
+import { gltfSphere, modelTintOf, modelSilOf } from "../src/gltf.ts";
 import { sphereOfVolume } from "../src/tileset.ts";
 import { clippingOriginOf, clipSpecOf } from "../src/clipping.ts";
 import { pntsSphere } from "../src/timepoints.ts";
@@ -309,6 +309,14 @@ for (const g of [
 	ok("post: a user stage carries its GLSL and uniforms (Cartesian4/Color/number/boolean), textures are skipped", r2.chain.length === 1 && r2.chain[0].type === "glsl" && r2.chain[0].src === "void main(){}" && JSON.stringify(r2.chain[0].uniforms) === JSON.stringify({ fogByDistance: [10, 0, 200, 1], fogColor: [0, 0, 0, 1], k: 2, on: true }) && r2.skipped.includes("postProcessStages texture uniforms"));
 	const r3 = postChainOf(coll([stage("czm_silhouette", { color: Color.RED, length: 0.5 }, { selected: [{}] }), stage("czm_depth_of_field", {}), stage("czm_ambient_occlusion", {})], { bloom: { enabled: true, uniforms: { contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5 } }, ambientOcclusion: { enabled: false } }));
 	ok("post: per-feature (selected) is skipped, depth of field is drawn, ambient occlusion sets the flag, bloom comes from its uniforms", r3.chain.length === 2 && r3.chain[0].type === "bloom" && r3.chain[1].type === "depthOfField" && r3.ao && r3.skipped.length === 1, JSON.stringify(r3));
+	const r3e = postChainOf(coll([stage("czm_silhouette", { color: Color.RED, length: 0.5 }, { selected: [] })], {}));
+	ok("post: an empty selection draws nothing and is not reported", r3e.chain.length === 0 && r3e.skipped.length === 0, JSON.stringify(r3e));
+	const comp = (name, stages, extra = {}) => ({ name, enabled: true, uniforms: {}, length: stages.length, get: i => stages[i], ...extra });
+	const silOf = (...edges) => comp("czm_silhouette", [comp("czm_edge_detection_composite", edges), stage("czm_silhouette_color_edges", {})]);
+	const r3s = postChainOf(coll([silOf(stage("czm_edge_detection_1", { color: Color.BLUE, length: 0.01 }, { selected: [] }), stage("czm_edge_detection_2", { color: Color.LIME, length: 0.01 }, { selected: [] }))], {}));
+	ok("post: createSilhouetteStage with empty selections draws nothing (feature picking before a pick)", r3s.chain.length === 0 && r3s.skipped.length === 0, JSON.stringify(r3s));
+	const r3a = postChainOf(coll([silOf(stage("czm_edge_detection_1", { color: Color.BLUE, length: 0.01 }))], {}));
+	ok("post: createSilhouetteStage takes the edge stage's colour and length", r3a.chain.length === 1 && r3a.chain[0].color[2] === 1 && r3a.chain[0].length === 0.01, JSON.stringify(r3a));
 	// lens flare and depth of field (2026-10-28): the sun and the earth projected with the frame's camera (LensFlare.glsl getNDCFromWC), Cesium's uniforms carried
 	{
 		const { lensFlareFrame } = await import("../src/postprocess.ts");
@@ -460,6 +468,15 @@ for (const g of [
 		ok("pnts sphere: centred on RTC_CENTER, the 5 m cube's half diagonal", !!s && Math.abs(s.center.x - 1215012.88) < 1 && Math.abs(s.radius - 4.33) < 0.05);
 	}
 	ok("pnts sphere: not a pnts", pntsSphere(new ArrayBuffer(40)) === null);
+}
+
+// ── Model.color / silhouette → ModelHandle.setColor / setSilhouette ──
+{
+	const red = { red: 1, green: 0, blue: 0, alpha: 1 }, white = { red: 1, green: 1, blue: 1, alpha: 1 };
+	ok("model tint: red HIGHLIGHT", JSON.stringify(modelTintOf(red, 0, 0.5)) === JSON.stringify({ color: [1, 0, 0, 1], blend: "highlight", amount: 0.5 }));
+	ok("model tint: white HIGHLIGHT and no colour are none", modelTintOf(white, 0, 0.5) === null && modelTintOf(undefined, 0, 0.5) === null);
+	ok("model tint: REPLACE / MIX", modelTintOf(white, 1, 0.5)?.blend === "replace" && modelTintOf(red, 2, 0.3)?.amount === 0.3);
+	ok("model silhouette: size 0 is none, default colour red", modelSilOf(red, 0) === null && JSON.stringify(modelSilOf(undefined, 2)) === JSON.stringify({ color: [1, 0, 0, 1], size: 2 }));
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");

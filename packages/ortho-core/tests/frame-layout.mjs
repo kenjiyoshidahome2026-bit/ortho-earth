@@ -32,7 +32,7 @@ assert.equal(F.f32, 140, "Frame の大きさ＝FRAME_F32");
 const G = layout(GLOBE_WGSL, "Globe");
 // globe の g[]（gpu/renderer.ts）
 const GLOBE_AT = { rayF: 0, land: 16, atmo: 20, elevBounds: 24, whP: 28, seaC: 32, farBounds: 36, farP: 40, misc: 44, sun: 48, anc: 52, anc2: 56, eyeO: 60,
-	atmP: 64, cogOff: 68, gndOff0: 72, gndOff3: 84, elevOff: 88, cg: 92, cgP: 96, cgC: 100, gm: 104, gmC: 108, gmP: 112 };   // gm*＝地面の材質（packGroundMat(g, 104)）
+	atmP: 64, cogOff: 68, gndOff0: 72, gndOff3: 84, elevOff: 88, cg: 92, cgP: 96, cgC: 100, gm: 104, gmC: 108, gmP: 112, ugC: 116, ugNF: 120 };   // gm*＝地面の材質（packGroundMat(g, 104)）・ug*＝地下から見た球の裏面（g.set(…, 116)）
 for (const [k, v] of Object.entries(GLOBE_AT)) assert.equal(G.off[k], v, `Globe.${k} は g[${v}]`);
-assert.equal(G.f32, 116, "Globe の大きさ＝g の Float32Array(116)");
+assert.equal(G.f32, 124, "Globe の大きさ＝g の Float32Array(124)");
 console.log("✓ frame-layout 全項目 PASS");

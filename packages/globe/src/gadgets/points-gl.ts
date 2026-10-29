@@ -4,6 +4,7 @@
 //   message { type:"layer", q, n, pos: Float32Array(n*3), rgba?: Uint8Array(n*4), size?: Float32Array(n), origin?: [x,y,z] }（同じ q は置き換え・rgba＝点ごとの色＝属性で色分け・size＝点ごとの半径 CSS px＝map.addData の getRadius・PR-4）
 //           origin＝pos の原点（原点相対＝RTE・3D Tiles の点群 #41）＝絶対座標を float32 に通さない（寄ると 0.4m 級のガタつき）。
 //           mvp×平行移動(origin) は倍精度で掛けてから float32 へ＝原点付近の精度が桁で戻る
+//           ／{ type:"paint", q, rgba?, size? }（点の色と半径だけ差し替え＝位置はそのまま・3D Tiles の点群のスタイル。size:null＝層の既定の大きさへ）
 //           ／{ type:"remove", q }／{ type:"vis", q, on }（表示だけ切替）／{ type:"style", size, color:[r,g,b,a] }（rgba の無い層の色）／{ type:"clear" }
 //           検定用の { type:"probe", id }＝次の frame の後に自分の画素を host.post（{ type:"pixels", … }・t-ellparity）。描画には関与しない。
 //           deck.gl 差分 PR-6（2026-10-12）：layer に f（Float32Array n＝フィルタの値）と transition（{ duration } ms＝前の層（同じ q・同じ n）から位置・色・半径を混ぜる）、
@@ -21,13 +22,17 @@ interface Layer {
 	n: number; buf: WebGLBuffer; cbuf: WebGLBuffer | null; sbuf: WebGLBuffer | null; fbuf: WebGLBuffer | null; vao: WebGLVertexArrayObject | null;
 	perPoint: boolean; perSize: boolean; hasF: boolean; origin: ArrayLike<number> | null; on: boolean; pos: Float32Array; base: number;
 	filter: number[] | null; trans: Trans | null; bufs0: WebGLBuffer[]; keep?: Set<WebGLBuffer> | null;
+	/** 距離で幅を決める（3D Tiles の点群の attenuation）：[誤差（世界単位）, 上限（CSS px）]＝幅＝誤差÷奥行き×画面の焦点距離（px） */
+	att?: [number, number] | null;
 }
 /** message(d) の形 */
 type Msg =
 	| { type: "probe"; id: unknown }
-	| { type: "layer"; q: string; n: number; pos: Float32Array; rgba?: Uint8Array; size?: Float32Array; f?: Float32Array; origin?: ArrayLike<number> | null; transition?: { duration: number } | null }
+	| { type: "layer"; q: string; n: number; pos: Float32Array; rgba?: Uint8Array; size?: Float32Array; f?: Float32Array; origin?: ArrayLike<number> | null; transition?: { duration: number } | null; att?: [number, number] | null }
 	| { type: "remove"; q: string } | { type: "vis"; q: string; on: unknown } | { type: "clear" }
-	| { type: "style"; size?: number; color?: number[] }
+	| { type: "style"; size?: number; color?: number[]; edl?: [number, number] | null }
+	| { type: "att"; q: string; att: [number, number] | null }
+	| { type: "paint"; q: string; rgba?: Uint8Array | null; size?: Float32Array | null }
 	| { type: "filter"; q?: string | null; range: ArrayLike<number> | null }
 	| { type: "brush"; x?: number | null; y: number; r: number }
 	| { type: "mask"; bbox: number[]; w: number; h: number; data: ArrayBufferView | null };
@@ -48,6 +53,8 @@ uniform vec3 u_origin;      // 層の原点
 uniform vec3 u_eyeRel;      // eye − origin（倍精度で引いてから f32）
 uniform float u_oe;         // dot(origin, eye − origin)（倍精度）
 uniform float u_size;      // 半径（device px）
+uniform vec2 u_att;        // 距離で幅（x＝誤差・世界単位・0＝切／y＝幅の上限 device px）
+uniform float u_focal;     // 焦点距離（device px）＝P[1][1]×画面の高さの半分
 uniform vec4 u_color;
 uniform float u_perPoint;  // 1＝a_rgba を使う
 uniform vec2 u_filter; uniform float u_filterOn;          // 範囲フィルタ（DataFilterExtension 相当）
@@ -58,6 +65,7 @@ uniform float u_t; uniform float u_trans;                  // トランジショ
 uniform vec3 u_dOrigin;                                    // 前の層の原点 − 今の原点（倍精度で引く）＝a_pos0 は前の原点相対
 out vec4 v_col;
 out float v_size;
+out float v_w;   // 奥行き（世界単位・EDL）
 void main() {
 	vec3 pos = u_trans > 0.5 ? mix(a_pos0 + u_dOrigin, a_pos, u_t) : a_pos;
 	vec4 col = u_perPoint > 0.5 ? (u_trans > 0.5 ? mix(a_rgba0, a_rgba, u_t) : a_rgba) : u_color;
@@ -75,6 +83,8 @@ void main() {
 	vec4 cpos = u_mvp * vec4(pos, 1.0);
 	if (cpos.w <= 0.0) { gl_Position = off; gl_PointSize = 0.0; return; }
 	if (u_brush.z > 0.0) { vec2 scr = vec2((cpos.x / cpos.w + 1.0) * u_half.x, (1.0 - cpos.y / cpos.w) * u_half.y); if (distance(scr, u_brush.xy) > u_brush.z) { gl_Position = off; gl_PointSize = 0.0; return; } }
+	if (u_att.x > 0.0 && u_perSize < 0.5) v_size = min(u_maxPt * 0.5 - 1.0, max(0.5, min(u_att.x / cpos.w * u_focal, u_att.y) * 0.5));   // Cesium の attenuation＝min(誤差／奥行き×焦点, 上限) が幅
+	v_w = cpos.w;
 	gl_PointSize = v_size * 2.0 + 2.0;
 	gl_Position = cpos;
 }`;
@@ -100,6 +110,41 @@ void main() {
 	if (length(p) > v_size + 0.5) discard;
 	o = vec4(float(v_id & 255u), float((v_id >> 8) & 255u), float((v_id >> 16) & 255u), float((v_id >> 24) & 255u)) / 255.0;
 }`;
+// Eye Dome Lighting（3D Tiles の点群の pointShading・Cesium の PointCloudEyeDomeLighting と同じ式）：点を不透明の丸で色と奥行き（cpos.w）の 2 枚へ描き（深度テスト付き）、
+// 合成で上下左右 4 画素の奥行きの log2 の段差 Σmax(0, log2 d − log2 dn)／4 を exp(−段差×300×強さ) で暗くする（距離＝半径 px）
+const FS_EDL = `#version 300 es
+precision highp float;
+in vec4 v_col;
+in float v_size;
+in float v_w;
+layout(location = 0) out vec4 o;
+layout(location = 1) out vec4 o_d;
+void main() {
+	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (v_size + 1.0);
+	if (length(p) > v_size + 0.5 || v_col.a < 0.5) discard;
+	o = vec4(v_col.rgb, 1.0); o_d = vec4(v_w, 0.0, 0.0, 1.0);
+}`;
+const EDL_VS = `#version 300 es
+out vec2 v_uv;
+void main() { vec2 q = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) * 2.0; v_uv = q; gl_Position = vec4(q * 2.0 - 1.0, 0.0, 1.0); }`;
+const EDL_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_col; uniform sampler2D u_dep; uniform vec2 u_texel; uniform vec2 u_distStr;
+in vec2 v_uv;
+out vec4 o;
+float nb(float l2, vec2 off) {
+	float dist = u_distStr.x;
+	float d0 = texture(u_dep, v_uv + off * floor(dist)).r, d1 = texture(u_dep, v_uv + off * ceil(dist)).r;
+	if (d0 <= 0.0 || d1 <= 0.0) return 0.0;
+	return max(0.0, l2 - log2(mix(d0, d1, fract(dist))));
+}
+void main() {
+	float d = texture(u_dep, v_uv).r;
+	if (d <= 0.0) discard;
+	float l2 = log2(d);
+	float r = (nb(l2, vec2(-u_texel.x, 0.0)) + nb(l2, vec2(u_texel.x, 0.0)) + nb(l2, vec2(0.0, -u_texel.y)) + nb(l2, vec2(0.0, u_texel.y))) / 4.0;
+	o = vec4(texture(u_col, v_uv).rgb * exp(-r * 300.0 * u_distStr.y), 1.0);
+}`;
 // 読んだ窓（RGBA8・side×side・GL の並び＝下の行が先）から中心に一番近い 0 でない番号を選ぶ（純関数・node の検定 tests/pick.mjs が読む）
 export const decodeId = (r: number, g: number, b: number, a: number): number => (r | (g << 8) | (b << 16) | (a << 24)) >>> 0;
 export function nearestId(data: ArrayLike<number>, side: number, flipY = true) {
@@ -123,7 +168,28 @@ export function create() {
 	const layers = new Map<string, Layer>();   // q → { n, buf, cbuf, sbuf, vao, perPoint, perSize, pos, origin, base }
 	// 層ごとの番号の底（1 から・層の点数ぶん連続）＝層が増減した時に振り直す
 	function rebase() { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
-	let style = { size: 3, color: [0.9, 0.3, 0.2, 0.85] };
+	let style: { size: number; color: number[]; edl?: [number, number] | null } = { size: 3, color: [0.9, 0.3, 0.2, 0.85] };
+	let edlProg: WebGLProgram | null = null, edlUni: Uniforms = {}, edlCmp: WebGLProgram | null = null, edlCmpUni: Uniforms = {}, edlFbo: WebGLFramebuffer | null = null, edlTex: WebGLTexture[] = [], edlRb: WebGLRenderbuffer | null = null, edlW = 0, edlH = 0, edlOk = true;
+	// EDL の 2 枚（色 RGBA8・奥行き R32F）＋深度＝寸法が変わった時だけ作り直す。R32F に描けない（EXT_color_buffer_float 無し）なら EDL は諦める
+	function edlTargets(w: number, h: number): boolean {
+		if (!edlOk) return false;
+		if (!edlProg) {
+			if (!gl!.getExtension("EXT_color_buffer_float")) { edlOk = false; console.warn("[points] eye dome lighting needs EXT_color_buffer_float"); return false; }
+			try { ({ p: edlProg, u: edlUni } = compile(VS, FS_EDL)); ({ p: edlCmp, u: edlCmpUni } = compile(EDL_VS, EDL_FS)); } catch (e) { edlOk = false; console.warn("[points] eye dome lighting", (e as Error)?.message); return false; }
+		}
+		if (edlFbo && edlW === w && edlH === h) return true;
+		for (const t of edlTex) gl!.deleteTexture(t); if (edlFbo) gl!.deleteFramebuffer(edlFbo); if (edlRb) gl!.deleteRenderbuffer(edlRb);
+		const tex = (fmt: GLenum) => { const t = gl!.createTexture()!; gl!.bindTexture(gl!.TEXTURE_2D, t); gl!.texStorage2D(gl!.TEXTURE_2D, 1, fmt, w, h); for (const k of [gl!.TEXTURE_MIN_FILTER, gl!.TEXTURE_MAG_FILTER]) gl!.texParameteri(gl!.TEXTURE_2D, k, gl!.NEAREST); for (const k of [gl!.TEXTURE_WRAP_S, gl!.TEXTURE_WRAP_T]) gl!.texParameteri(gl!.TEXTURE_2D, k, gl!.CLAMP_TO_EDGE); return t; };
+		edlTex = [tex(gl!.RGBA8), tex(gl!.R32F)];
+		edlRb = gl!.createRenderbuffer(); gl!.bindRenderbuffer(gl!.RENDERBUFFER, edlRb); gl!.renderbufferStorage(gl!.RENDERBUFFER, gl!.DEPTH_COMPONENT24, w, h);
+		edlFbo = gl!.createFramebuffer(); gl!.bindFramebuffer(gl!.FRAMEBUFFER, edlFbo);
+		gl!.framebufferTexture2D(gl!.FRAMEBUFFER, gl!.COLOR_ATTACHMENT0, gl!.TEXTURE_2D, edlTex[0], 0); gl!.framebufferTexture2D(gl!.FRAMEBUFFER, gl!.COLOR_ATTACHMENT1, gl!.TEXTURE_2D, edlTex[1], 0);
+		gl!.framebufferRenderbuffer(gl!.FRAMEBUFFER, gl!.DEPTH_ATTACHMENT, gl!.RENDERBUFFER, edlRb);
+		gl!.drawBuffers([gl!.COLOR_ATTACHMENT0, gl!.COLOR_ATTACHMENT1]);
+		if (gl!.checkFramebufferStatus(gl!.FRAMEBUFFER) !== gl!.FRAMEBUFFER_COMPLETE) { edlOk = false; gl!.bindFramebuffer(gl!.FRAMEBUFFER, null); console.warn("[points] eye dome lighting: framebuffer incomplete"); return false; }
+		edlW = w; edlH = h;
+		return true;
+	}
 	let brush: { x: number; y: number; r: number } | null = null;                 // { x, y, r }（CSS px）
 	let mask: { bbox: number[]; w: number; h: number } | null = null, maskTex: WebGLTexture | null = null;  // { bbox, w, h }・R8 の texture
 	let host: OverlayHost | null = null;
@@ -170,12 +236,22 @@ export function create() {
 			} else { gl.disableVertexAttribArray(4); gl.disableVertexAttribArray(5); gl.disableVertexAttribArray(6); }
 			gl.bindVertexArray(null);
 			drop(prev);
-			layers.set(d.q, { n: d.n, buf, cbuf, sbuf, fbuf, vao, perPoint: !!d.rgba, perSize: !!d.size, hasF: !!d.f, origin: d.origin || null, on: true, pos: d.pos, base: 0, filter: prev?.filter ?? null, trans, bufs0: trans ? bufs0.filter(b => b !== cbuf && b !== sbuf) : [] });
+			layers.set(d.q, { n: d.n, buf, cbuf, sbuf, fbuf, vao, perPoint: !!d.rgba, perSize: !!d.size, hasF: !!d.f, origin: d.origin || null, on: true, pos: d.pos, base: 0, filter: prev?.filter ?? null, trans, bufs0: trans ? bufs0.filter(b => b !== cbuf && b !== sbuf) : [], att: d.att ?? null });
 			rebase(); host?.requestDraw?.();
 		} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); }
 		else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
 		else if (d.type === "clear") { layers.forEach(drop); layers.clear(); rebase(); }
 		else if (d.type === "style") { style = { ...style, ...d }; }
+		else if (d.type === "att") { const L = layers.get(d.q); if (L) { L.att = d.att; host?.requestDraw?.(); } }
+		else if (d.type === "paint") {
+			const L = layers.get(d.q); if (!L || !L.vao) return;
+			gl.bindVertexArray(L.vao);
+			const put = (loc: number, b: WebGLBuffer | null, arr: ArrayBufferView, size: number, type: GLenum, norm: boolean) => { const B = b ?? gl!.createBuffer()!; gl!.bindBuffer(gl!.ARRAY_BUFFER, B); gl!.bufferData(gl!.ARRAY_BUFFER, arr, gl!.STATIC_DRAW); gl!.enableVertexAttribArray(loc); gl!.vertexAttribPointer(loc, size, type, norm, 0, 0); return B; };
+			if (d.rgba) { L.cbuf = put(1, L.cbuf, d.rgba, 4, gl.UNSIGNED_BYTE, true); L.perPoint = true; }
+			if (d.size) { L.sbuf = put(2, L.sbuf, d.size, 1, gl.FLOAT, false); L.perSize = true; }
+			else if (d.size === null && L.sbuf) { gl.deleteBuffer(L.sbuf); L.sbuf = null; gl.disableVertexAttribArray(2); L.perSize = false; }
+			gl.bindVertexArray(null); host?.requestDraw?.();
+		}
 		else if (d.type === "filter") { const r = d.range ? [+d.range[0], +d.range[1]] : null; if (d.q != null) { const L = layers.get(d.q); if (L) L.filter = r; } else for (const L of layers.values()) L.filter = r; host?.requestDraw?.(); }
 		else if (d.type === "brush") { brush = d.x != null && d.r > 0 ? { x: d.x, y: d.y, r: d.r } : null; host?.requestDraw?.(); }
 		else if (d.type === "mask") {
@@ -205,8 +281,24 @@ export function create() {
 		gl.viewport(0, 0, w, h);
 		gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 		if (!layers.size) return false;
+		const dpr = cam.dpr || 1;
+		if (style.edl && edlTargets(w, h)) {   // EDL：2 枚へ不透明に描いてから合成
+			gl.bindFramebuffer(gl.FRAMEBUFFER, edlFbo);
+			gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]); gl.clearBufferfv(gl.COLOR, 1, [0, 0, 0, 0]); gl.clearBufferfv(gl.DEPTH, 0, [1]);
+			gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS);
+			drawLayers(edlProg, edlUni, s, dpr, false, w, h);
+			gl.disable(gl.DEPTH_TEST);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			gl.useProgram(edlCmp);
+			gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, edlTex[0]); gl.uniform1i(edlCmpUni.u_col, 1);
+			gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, edlTex[1]); gl.uniform1i(edlCmpUni.u_dep, 2);
+			gl.uniform2f(edlCmpUni.u_texel, 1 / w, 1 / h); gl.uniform2f(edlCmpUni.u_distStr, style.edl[1] * dpr, style.edl[0]);
+			gl.bindVertexArray(null); gl.drawArrays(gl.TRIANGLES, 0, 3);
+			gl.activeTexture(gl.TEXTURE0);
+			return false;
+		}
 		gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-		drawLayers(prog, uni, s, cam.dpr || 1, false, w, h);
+		drawLayers(prog, uni, s, dpr, false, w, h);
 		return false;
 	}
 	// 本番（P＝prog）と当たり判定（P＝pickProg・u_base を層ごとに）で同じ層を同じ行列で描く
@@ -214,7 +306,7 @@ export function create() {
 		gl!.useProgram(P);
 		const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M), E = s.eye, now = performance.now();
 		gl!.uniform1f(U.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr)); gl!.uniform1f(U.u_dpr, dpr); gl!.uniform1f(U.u_maxPt, maxPt);
-		gl!.uniform2f(U.u_half, w / 2, h / 2);
+		gl!.uniform2f(U.u_half, w / 2, h / 2); gl!.uniform1f(U.u_focal, s.projection[5] * h / 2);
 		if (brush) gl!.uniform3f(U.u_brush, brush.x * dpr, brush.y * dpr, brush.r * dpr); else gl!.uniform3f(U.u_brush, 0, 0, 0);
 		if (mask && maskTex) { gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, maskTex); gl!.uniform1i(U.u_mask, 0); gl!.uniform1f(U.u_maskOn, 1); gl!.uniform4f(U.u_maskBox, mask.bbox[0], mask.bbox[1], mask.bbox[2], mask.bbox[3]); gl!.uniform1f(U.u_rAx, rAxNow || 1); } else { gl!.uniform1f(U.u_maskOn, 0); gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, null); }   // マスク無し＝unit 0 を空に（pick の FBO の texture が残っていると「読みながら書く」＝描画が黙って捨てられる）
 		if (!idMode) gl!.uniform4fv(U.u_color, new Float32Array(style.color));
@@ -236,6 +328,7 @@ export function create() {
 			}
 			if (L.trans) { const t = Math.min(1, (now - L.trans.start) / L.trans.dur); gl!.uniform1f(U.u_t, t); gl!.uniform1f(U.u_trans, 1); gl!.uniform3f(U.u_dOrigin, L.trans.dOrigin[0], L.trans.dOrigin[1], L.trans.dOrigin[2]); }
 			else { gl!.uniform1f(U.u_trans, 0); gl!.uniform1f(U.u_t, 1); }
+			if (L.att) gl!.uniform2f(U.u_att, L.att[0], L.att[1] * dpr); else gl!.uniform2f(U.u_att, 0, 0);
 			gl!.uniform1f(U.u_perPoint, L.perPoint ? 1 : 0); gl!.uniform1f(U.u_perSize, L.perSize ? 1 : 0); gl!.bindVertexArray(L.vao); gl!.drawArrays(gl!.POINTS, 0, L.n);
 		}
 		gl!.bindVertexArray(null);

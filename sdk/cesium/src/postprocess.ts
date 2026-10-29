@@ -9,7 +9,7 @@
 //     a PostProcessStage with fragmentShader → { type: "glsl", src, uniforms } (numbers, booleans, Cartesian2/3/4, Color; textures are not carried) — GL2 only
 //     czm_lens_flare                    → { type: "lensFlare", … } with the sun and the earth projected on the screen here (the frame's camera, PostFrame)
 //     czm_depth_of_field                → { type: "depthOfField", focalDistance, delta, sigma, stepSize, near, far }
-//     stages with `selected` (per-feature) → not drawn (the unsupported report says so)
+//     stages with `selected` (per-feature) → not drawn (an empty selection draws nothing in Cesium either; a non-empty one is reported unsupported)
 //   Pure: no DOM, no engine import (tests: sdk/cesium/tests/t-cesium.mjs "post:").
 type Any = any;
 export type PostPass = Record<string, unknown> & { type: string };
@@ -61,9 +61,20 @@ export function lensFlareFrame(f: PostFrame, earthRadius: number): { sun: number
 const urlOf = (v: Any): string | undefined => (typeof v === "string" && v ? v : v && typeof v === "object" && typeof v.url === "string" ? v.url : undefined);   // a uniform texture: a URL or a Resource
 function stagePasses(s: Any, out: PostChainOut, depth: number, f?: PostFrame | null): void {
 	if (!s || s.enabled === false || depth > 4) return;
-	const sel = s.selected; if (Array.isArray(sel) && sel.length) { out.skipped.push("postProcessStages per-feature (selected)"); return; }
+	const sel = s.selected; if (Array.isArray(sel)) { if (sel.length) out.skipped.push("postProcessStages per-feature (selected)"); return; }   // a stage with a selection applies to the selected features only: none selected = nothing drawn
 	const name = String(s.name || ""), u = s.uniforms || {};
-	if (name === "czm_silhouette" || /^czm_edge_detection/.test(name)) { out.chain.push({ type: "silhouette", color: colorOf(u.color, [0, 0, 0, 1]), length: num(u.length, 0.25) }); return; }
+	if (name === "czm_silhouette" || /^czm_edge_detection/.test(name)) {   // createSilhouetteStage(edgeStages) = a composite of the edge detection stages (each with its own colour, length and selection) and the colouring
+		const edges: Any[] = [], walk = (x: Any, d: number) => { if (!x || x.enabled === false || d > 4) return; if (typeof x.length === "number" && typeof x.get === "function") { for (let i = 0; i < x.length; i++) walk(x.get(i), d + 1); } else if (/^czm_edge_detection/.test(String(x.name || ""))) edges.push(x); };
+		walk(s, 0);
+		if (!edges.length) edges.push(s);
+		for (const e of edges) {
+			const es = e.selected;
+			if (Array.isArray(es)) { if (es.length) out.skipped.push("postProcessStages per-feature (selected)"); continue; }   // none selected = nothing drawn
+			const eu = e.uniforms || {};
+			out.chain.push({ type: "silhouette", color: colorOf(eu.color, [0, 0, 0, 1]), length: num(eu.length, 0.25) });
+		}
+		return;
+	}
 	if (name === "czm_black_and_white") { out.chain.push({ type: "grey", gradations: num(u.gradations, 5) }); return; }
 	if (name === "czm_brightness") { out.chain.push({ type: "brightness", value: num(u.brightness, 0.5) }); return; }
 	if (name === "czm_night_vision") { out.chain.push({ type: "nightVision" }); return; }

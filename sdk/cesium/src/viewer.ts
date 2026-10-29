@@ -179,7 +179,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
-		let base = "", atm = "", gop = -1;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
+		let base = "", atm = "", gop = -1, ugKey = "";   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
 		const lighting = syncLighting(scene, map);   // scene.light + Cesium's environment map → the globe's mesh lighting (lighting.ts)
 		scene.postRender.addEventListener((_s: unknown, time: Any) => {
 			lighting(time);
@@ -197,6 +197,15 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 			}
 			op = Math.round(op * 100) / 100;
 			if (op !== gop) { gop = op; map.setGlobeOpacity?.(op); }
+			// the globe's underside seen from a camera below the ellipsoid (globe.undergroundColor and its alpha by distance; undefined = the
+			// underside's imagery alone). Above the ellipsoid it is off: the globe's floor is the sea-level sphere under the terrain
+			const ch = scene.camera.positionCartographic?.height;
+			let ug = "";
+			if (gb && gb.show !== false && Number.isFinite(ch) && ch < 0) {
+				const uc = gb.undergroundColor, ub = gb.undergroundColorAlphaByDistance;
+				ug = JSON.stringify({ color: uc ? [uc.red, uc.green, uc.blue, uc.alpha] : [0, 0, 0, 0], nf: ub ? [ub.near, ub.nearValue, ub.far, ub.farValue] : [6378.137, 0, 1275627.4, 1] });
+			}
+			if (ug !== ugKey) { ugKey = ug; map.setUnderground?.(ug ? JSON.parse(ug) : null); }
 			const c = scene.globe?.baseColor?.toCssColorString?.() ?? "rgb(0,0,255)";
 			if (c !== base) { base = c; map.setPaintProperty?.("__cs-base", "background-color", c); }
 			// Cesium's atmosphere (the ground atmosphere seen from afar, the sky atmosphere): the globe draws them with Cesium's own formulas

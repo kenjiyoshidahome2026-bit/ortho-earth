@@ -35,7 +35,7 @@ export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, foc
 	const ft = focus ? Cartesian3.dot(Cartesian3.subtract(focus, pos, v2), ray.direction) : 0;
 	if (focus && ft > 0 && ft < ground && Cartesian3.distance(Ray.getPoint(ray, ft, v3), focus) < ft * 1e-3 && (Ellipsoid.WGS84.cartesianToCartographic(focus, new Cartographic())?.height ?? 0) > 0) t = ft;
 	else if (hit && hit.start > 0) t = hit.start;
-	else if (hit && hit.stop > 0) t = hit.stop;   // inside the ellipsoid (below sea level)
+	else if (hit && hit.stop > 0) t = Math.min(hit.stop, Math.max(1000, -c.height * 10));   // inside the ellipsoid (below sea level): a point ahead, not the far side of the earth (an underground camera had its target 2200 km away: no imagery, the near models cut, underground-color 2026-10-29)
 	else t = Math.max(1000, c.height);   // sky: a target along the ray as far as the camera is high
 	if (terrainAt && !(focus && t === ft)) {
 		const m = terrainHit(terrainAt, hit && hit.start > 0 ? hit.start : horizonDistance(c.height));

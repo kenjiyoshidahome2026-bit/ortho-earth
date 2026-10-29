@@ -128,6 +128,12 @@ export interface ModelEnv {
 	setMeshCol?: ((name: string, data: Uint8Array) => void) | null;
 	/** スキン（2026-10-28）＝焼き直した頂点（原点相対の pos と量子化法線）。無ければスキンのアニメは動かない（静止姿勢のまま） */
 	setMeshPos?: ((name: string, data: { pos: Float32Array; nrm: Int8Array }) => void) | null;
+	/** 模型の色（Cesium の Model.color）＝[r,g,b,a, blend]｜null（renderer の meshTint） */
+	setMeshTint?: ((name: string, tint: number[] | null) => void) | null;
+	/** 模型の輪郭線＝[r,g,b,a, 太さ device px]｜null（renderer の meshSil） */
+	setMeshSil?: ((name: string, sil: number[] | null) => void) | null;
+	/** 模型ごとの環境光（Cesium の照明の SH9・27 値）｜null（renderer の meshEnv） */
+	setMeshEnv?: ((name: string, sh: number[] | null) => void) | null;
 	pickEnv?: (() => MeshPickEnv | null) | null;
 	/** 模型・押し出しへ寄る */
 	fit?: ((bbox: Bbox) => void) | null;
@@ -317,7 +323,7 @@ export function composeXf(m: Float32Array | null, a: Float32Array | null): Float
 	return o;
 }
 
-export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshCol = null, setMeshPos = null, pickEnv = null, fit, center, ell = false, signal }: ModelEnv = {} as ModelEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshCol = null, setMeshPos = null, setMeshTint = null, setMeshEnv = null, setMeshSil = null, pickEnv = null, fit, center, ell = false, signal }: ModelEnv = {} as ModelEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const t = tr();
 	let seq = 0;   // seq＝模型・押し出しの名前の連番
 	const models = new Map<string, ModelItem>();   // slot → 模型（置いた順）
@@ -447,6 +453,25 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 			get gltf() { return it.stats.gltf ? { ...it.stats.gltf, animations: h.animations } : null; },
 			setAnimation(spec) { if (!live(it)) throw new Error("setAnimation: no model loaded"); it.animation = normAnimation(spec, it.stats.gltf?.animations || []); syncAnim(it); for (const f of animListeners) { try { f(it.animation, h); } catch (e) { console.warn("[model] animation listener", e); } } return h; },
 			getAnimation() { return it.animation ? { ...it.animation } : null; },
+			setColor(c) {   // Cesium の ModelColorStage：blend＝0 HIGHLIGHT・1 REPLACE・MIX＝amount（0〜1）
+				if (!live(it) || !setMeshTint) return h;
+				const t = c && Array.isArray(c.color) ? [c.color[0], c.color[1], c.color[2], c.color[3] ?? 1, c.blend === "replace" ? 1 : c.blend === "mix" ? Math.min(1, Math.max(0, c.amount ?? 0.5)) : 0] : null;
+				it.batches.forEach((_, k) => setMeshTint(`${it.name}#${k}`, t));
+				return h;
+			},
+			setSilhouette(s) {   // Cesium の Model.silhouetteColor／silhouetteSize＝size は CSS px（Cesium は czm_pixelRatio を掛ける）
+				if (!live(it) || !setMeshSil) return h;
+				const dpr = (globalThis as { devicePixelRatio?: number }).devicePixelRatio || 1;
+				const v = s && Array.isArray(s.color) && s.size > 0 && (s.color[3] ?? 1) > 0 ? [s.color[0], s.color[1], s.color[2], s.color[3] ?? 1, s.size * dpr] : null;
+				it.batches.forEach((_, k) => setMeshSil(`${it.name}#${k}`, v));
+				return h;
+			},
+			setEnvironment(sh) {   // Cesium の照明（setMeshLighting）の環境光をこの模型だけ替える（Cesium は模型の位置で環境を作る）
+				if (!live(it) || !setMeshEnv) return h;
+				const v = sh && sh.length >= 27 ? Array.from(sh).slice(0, 27) : null;
+				it.batches.forEach((_, k) => setMeshEnv(`${it.name}#${k}`, v));
+				return h;
+			},
 			play(nameOrSpec) { return h.setAnimation(typeof nameOrSpec === "object" && nameOrSpec ? { ...nameOrSpec, playing: true } : { name: nameOrSpec ?? undefined, playing: true }); },
 			stop() { if (it.animation) { it.animation = { ...it.animation, playing: false }; stopLoop(it); } return h; },
 			// 再生の時刻での束ごとの剛体変換（検定・台本の口）：time 省略＝今の spec の時刻。[Float32Array(12)|null]（L 3x3 列優先＋原点相対の平行移動）｜null（アニメ無し）
@@ -503,6 +528,9 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		get gltf() { return curH()?.gltf || null; },
 		setAnimation(spec) { if (!cur) throw new Error("setAnimation: no model loaded"); cur.handle.setAnimation(spec); return ctl; },
 		getAnimation() { return curH()?.getAnimation() || null; },
+		setColor(c) { curH()?.setColor(c); return ctl; },
+		setEnvironment(sh) { curH()?.setEnvironment(sh); return ctl; },
+		setSilhouette(s) { curH()?.setSilhouette(s); return ctl; },
 		play(nameOrSpec) { return ctl.setAnimation(typeof nameOrSpec === "object" && nameOrSpec ? { ...nameOrSpec, playing: true } : { name: nameOrSpec ?? undefined, playing: true }); },
 		stop() { curH()?.stop(); return ctl; },
 		pose(time) { return curH()?.pose(time) ?? null; },

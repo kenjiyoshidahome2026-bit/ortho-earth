@@ -21,7 +21,7 @@ import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハ�
 import * as mat from "../mat.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
-import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
+import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, MESH_SIL_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
 	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL,
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
@@ -70,6 +70,7 @@ export interface RenderFx { atmosphere: boolean; pbr: boolean; ao: boolean }
 export interface RenderView {
 	clear?: number[] | null; /** clear の α を合成に使う（利用者が clearColor に透明を明示した時だけ＝下の canvas が透ける・Cesium の facade の星空） */ clearAlpha?: boolean; land?: number[] | null; atmo?: number[] | null; bldColor?: number[] | null; sea?: number[] | null;
 	fog?: boolean; worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
+	underground?: { color: number[]; nf: number[] } | null;   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
 	globeAlpha?: number; baseAlpha?: number; skySolar?: boolean; clock?: ClockAnchor | null; showConst?: boolean; night?: boolean; graticule?: boolean;
 	showRail?: boolean; showContour?: boolean; hypso?: { color: number[]; amount?: number; max?: number } | null; distColor?: number[] | null;
 	contourColor?: number[] | null; contourAlpha?: number; gintSub?: boolean; gintFarPivot?: boolean;
@@ -169,6 +170,9 @@ interface MeshBatch {
 	vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer; textured: boolean; blend: boolean; cut: number; uvbo: GPUBuffer | null; cbo: GPUBuffer | null;
 	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; csLit: string; count: number; origin: number[]; bbox: number[]; ward: string;
 	lodH: number[] | null; lodCounts: number[] | null; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
+	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
+	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
+	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝Cesium の模型ごとの環境の SH9・27 値）＝meshLight.sh より勝つ
 }
 interface MeshMask { ward: string; rev: number; tex: GPUTexture; view: GPUTextureView; bbox: number[]; n: number; bytes: Uint8Array }
 interface RasterTexH { kind: "tex"; tex: GPUTexture; bg: GPUBindGroup; bgN: GPUBindGroup | null; bytes: number; w: number; h: number; bgOf?: (nearest: boolean) => GPUBindGroup }
@@ -449,6 +453,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const contMod = mkMod(CONTOUR_WGSL, "contour");
 	const plMod = mkMod(MESH_WGSL, "mesh");
 	const plTexMod = mkMod(MESH_TEX_WGSL, "meshTex");
+	const plSilMod = mkMod(MESH_SIL_WGSL, "meshSil");
 	// 画像タイル層（raster.js・2026-09-21・RTT ドレープ）：アトラス合成パイプライン＝group(0)=per-tile UBO（dynamic offset）・group(1)=サンプラ＋テクスチャ（bglPlTex 流用）
 	const rasAtlasMod = mkMod(RASTER_ATLAS_WGSL, "rasterAtlas");
 	const bglRasP = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
@@ -601,6 +606,12 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
 			], dsWriteBldNoZ, "fs", plTexLayout),
+			meshSil: pipe(plSilMod, [   // 模型の輪郭線（Model.silhouette）＝押し出した殻・深度書き込み無し・模型の前に描く
+				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
+				{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
+			], dsWriteBldNoZ, "fsSil", plTexLayout),
 			contour: pipe(contMod, undefined, dsOff),
 			alphaOne: device.createRenderPipeline({ layout: "auto", vertex: { module: alphaOneMod, entryPoint: "vs" },   // 夜の色の間＝main パスの終わりに建物の画素（stencil bit7）以外の α を 1 に（窓の印だけが α<1 で残る・writeMask 0x8＝ALPHA）
 				fragment: { module: alphaOneMod, entryPoint: "fs", targets: [{ format, writeMask: 0x8 }] }, primitive: { topology: "triangle-list" }, depthStencil: dsNotBld, multisample: ms }),
@@ -2839,7 +2850,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
 		if (!flat2d) {
-			const g = new Float32Array(116);   // +gm/gmC/gmP（地面の材質 2026-10-28）   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
+			const g = new Float32Array(124);   // +ugC/ugNF（地下から見た球の裏面 2026-10-29）   // +gm/gmC/gmP（地面の材質 2026-10-28）   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
 			packRays(g, 0, st);   // 視線の基底（#65・旧 invMvp の枠）
 			g[16] = land[0]; g[17] = land[1]; g[18] = land[2]; g[19] = land[3];
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
@@ -2870,6 +2881,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}
 			packGroundLight(g, 92, st);   // 地面の照明（cg/cgP/cgC）
 			packGroundMat(g, 104, cam.dpr || 1);   // 地面の材質（gm/gmC/gmP）
+			{ const ug = view.underground; g.set(ug ? [ug.color[0], ug.color[1], ug.color[2], ug.color[3], ug.nf[0] / 6378137, ug.nf[1], ug.nf[2] / 6378137, ug.nf[3]] : [0, 0, 0, -1, 0, 1, 1, 1], 116); }   // 地下から見た球の裏面（gl と同じ）
 			g[64] = view.atmSun ?? 20; g[65] = view.atmExposure ?? 1; g[66] = view.atmGround ?? 0.5; g[67] = view.atmScale ?? 4;   // 太陽の強さ・露出・床の空気遠近の強さ・帯の幅 k（本人裁定 4）（診断と調律のノブ＝公開面には出さない）
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
@@ -2925,7 +2937,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				stencilLoadOp: "clear", stencilStoreOp: "store",                      // bit7=建物マスク（bld/mesh が刻み gint パスが load で読む）
 			},
 		};
-		let pass;
+		let pass: GPURenderPassEncoder;
 		try { pass = enc.beginRenderPass(passDesc); }
 		catch (err) {   // timestampWrites 非対応の環境＝TQ を畳んで同フレームを無計測で続行（絵は止めない）
 			if (!tq) throw err;
@@ -3213,6 +3225,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// ⚠skipMain では消さない（GL 867 と同等）：skipMain＝ズームアウト滑走中の「古いタイルシーン退場」であり、
 		// 建物メッシュは別ソース＝退場対象でない。移植時にここへ !skipMain を発明していた＝滑走中に街ごと消える
 		// 「シーン抜け」（gpu単独・東京駅〜丸の内で実測）の正体。基図退場中も街は立ち続けるのが GL の挙動。
+		// 球体が半透明（Cesium の globe.translucency）＝地面の深度を捨ててから模型を描く＝地下の模型（坑道）が地面越しに見える（gl/renderer.ts と同じ）。
+		// パスの途中で深度だけは消せない＝パスを切り直す（色・ステンシルは load）
+		if (meshes.size && (view.globeAlpha ?? 1) < 1 && terrainActive) {
+			pass.end();
+			pass = enc.beginRenderPass({ colorAttachments: [{ view: colorView, loadOp: "load", storeOp: "store" }],
+				depthStencilAttachment: { view: t.depthView, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store", stencilLoadOp: "load", stencilStoreOp: "store" } });
+			pass.setStencilReference(0x80);
+		}
 		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
 			const pad = 0.5 * Math.max(st.W, st.H);   // 高層ビルの頭のはみ出し余白（半画面）
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);   // 画面1pxが何m（LOD打ち切りの物差し）
@@ -3237,7 +3257,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で
 				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.two || p.noCull ? 0 : 1;   // meshOrigin.xyz + cullBack（noCull＝面の向きが揃っていない建物＝両面・間引きは残す）
 				plBatchCPU[o + 4] = cM[0]; plBatchCPU[o + 5] = cM[1]; plBatchCPU[o + 6] = cM[2]; plBatchCPU[o + 7] = cM[3];   // clipMesh
-				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = p.blend ? 1 : 0; plBatchCPU[o + 10] = p.noLift ? 1 : 0; plBatchCPU[o + 11] = p.drape ? 1 : 0;   // alpha.xy（模型の派生 PB だけが読む）・.z＝noLift・.w＝drape（素も派生も読む）
+				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = blendOf(p); plBatchCPU[o + 10] = p.noLift ? 1 : 0; plBatchCPU[o + 11] = p.drape ? 1 : 0;   // alpha.xy（模型の派生 PB だけが読む）・.z＝noLift・.w＝drape（素も派生も読む）
 				// #46 段 2：pbr0（材質の数値）・emis（発光＋fx.pbr の旗）・lp（太陽の強さ・固定光の重み）・sh[9]（空の環境光・sh[0].w＝fill）＝skyEnv はフレームで一度
 				const pb = p.pbr;
 				plBatchCPU[o + 12] = pb ? pb.metallic : 0; plBatchCPU[o + 13] = pb ? pb.roughness : 1; plBatchCPU[o + 14] = pb ? pb.normalScale : 1; plBatchCPU[o + 15] = pb ? pb.occlusion : 1;
@@ -3252,8 +3272,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					plBatchCPU[o + 224] = meshLight.dir[0]; plBatchCPU[o + 225] = meshLight.dir[1]; plBatchCPU[o + 226] = meshLight.dir[2]; plBatchCPU[o + 227] = p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1;   // csL.w：1＝csLit・2＝素の色（unlit）・0＝固定光（entity geometry）
 					plBatchCPU[o + 228] = meshLight.color[0]; plBatchCPU[o + 229] = meshLight.color[1]; plBatchCPU[o + 230] = meshLight.color[2]; plBatchCPU[o + 231] = meshLight.invL00;
 					plBatchCPU[o + 232] = meshLight.ibl[0]; plBatchCPU[o + 233] = meshLight.ibl[1]; plBatchCPU[o + 234] = 0; plBatchCPU[o + 235] = 0;
-					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = meshLight.sh[i * 3]; plBatchCPU[o + 25 + i * 4] = meshLight.sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = meshLight.sh[i * 3 + 2]; }
+					const sh = p.sh ?? meshLight.sh;   // 模型ごとの環境（meshEnv）が勝つ
+					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = sh[i * 3]; plBatchCPU[o + 25 + i * 4] = sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = sh[i * 3 + 2]; }
 				} else plBatchCPU[o + 227] = 0;
+				plBatchCPU[o + 244] = p.tint ? p.tint[4] : -1; if (p.tint) plBatchCPU.set(p.tint.subarray(0, 4), o + 240);   // tint/tintB＝Cesium の Model.color（−1＝無し）
+				if (p.sil) { plBatchCPU[o + 245] = p.sil[4]; plBatchCPU.set(p.sil.subarray(0, 4), o + 248); }   // tintB.y＝輪郭線の太さ・sil＝色
 				plBatchCPU[o + 236] = st.eye[0] - p.origin[0]; plBatchCPU[o + 237] = st.eye[1] - p.origin[1]; plBatchCPU[o + 238] = st.eye[2] - p.origin[2];   // eyeRel＝目 − 原点（double）＝toEye の錨（近接の裏面判定）
 				plBatchCPU[o + 221] = p.textured || p.two ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ・橋梁 two は点けない）・cs.z＝窓の印を α に（夜の色 grade の間）
 				if (clipOPt) { plBatchCPU[o + 60] = p.origin[0] - clipOPt[0]; plBatchCPU[o + 61] = p.origin[1] - clipOPt[1]; plBatchCPU[o + 62] = p.origin[2] - clipOPt[2]; }   // clipO＝バッチ原点 − main 原点（f64 で引く・断面の派生だけが読む）
@@ -3266,7 +3289,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const ex = st.eye, d2 = (p: MeshBatch) => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
 				const meshPipe = PX.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
-				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && !d.p.blend)], [TX.meshTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
+				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && !blendOf(d.p))], [TX.meshTexBlend, draws.filter(d => d.p.textured && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]];
+				const sils = draws.filter(d => d.p.textured && d.p.sil && !blendOf(d.p));   // 半透明の束は殻を出さない
+				if (sils.length) {   // 模型の輪郭線（Model.silhouette）＝模型より先に・深度を書かずに押し出した殻を塗る（模型が内側を塗り直す）。素の束縛（PB だけの group(2)）
+					pass.setPipeline(P.meshSil); pass.setBindGroup(0, bg0.bld); pass.setBindGroup(1, paramBG[ROLE.mesh]);
+					for (const { p, count, slot } of sils) {
+						pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);
+						pass.setVertexBuffer(0, p.vbo); pass.setVertexBuffer(1, p.nbo); pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setBindGroup(3, p.texBG);
+						pass.setIndexBuffer(p.ibo, "uint32"); pass.drawIndexed(count);
+					}
+				}
 				for (const [pipeline, list] of lists) {
 					const tx = pipeline !== meshPipe;
 					if (!list.length) continue;
@@ -3379,6 +3411,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	let dOut: DepthOutGPU | null = null, lastDepth: (DepthOutFrame & { logCoef: number }) | null = null, dOutFailed = false;
 	let ao: AoGPU | null = null;   // AO（#46 段 3）＝fx.ao の間だけ
 	let groundLight: { dir: number[]; color: number[]; lambert: number[]; normal: string; fade: number[] | null; night: number[] | null } | null = null;   // 地面の照明（setGroundLighting・Cesium の globe.enableLighting）＝Frame.cg*／Globe.cg*
+	const blendOf = (p: MeshBatch): number => p.blend ? 1 : p.tint && p.tint[3] < 1 ? 2 : 0;   // 2＝Model.color の α だけで半透明（OPAQUE の材質＝テクスチャの α は無視）
 	let meshLight: { dir: number[]; color: number[]; sh: Float32Array; ibl: number[]; invL00: number } | null = null;   // Cesium の模型の照明（setMeshLighting）＝PB の csL/csC/csI と sh[9]
 	let light: { dir: number[]; color?: number[] | null; intensity?: number } | null = null;    // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）
 	let lights: { n: number; data: Float32Array } | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }｜null（light.js localLightsPayload）＝PB の ln/lt に写す
@@ -3491,6 +3524,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}
 			case "classify": classify.set(prop as string, data as Parameters<typeof classify.set>[1]); break;   // 面の貼り付け（分類・2026-10-25）＝柱一式（null＝外す）
 			case "classifyStyle": classify.style(prop as string, data as Parameters<typeof classify.style>[1]); break;
+			case "meshCut": { const p = meshes.get(prop as string); if (p && p.textured && !p.blend && typeof data === "number") p.cut = data; break; }   // 不透明の束を MASK に（feature state の show:false＝α 0 の地物を抜く・読み直さない）
+			case "meshSil": { const p = meshes.get(prop as string); if (p) p.sil = data && (data as ArrayLike<number>).length >= 5 && (data as ArrayLike<number>)[4] > 0 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // Cesium の Model.silhouette＝[r,g,b,a, size px]｜null
+			case "meshEnv": { const p = meshes.get(prop as string); if (p) p.sh = data && (data as ArrayLike<number>).length >= 27 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // その模型の環境光（Cesium の模型ごとの DynamicEnvironmentMapManager）＝SH9（27 値）｜null
+			case "meshTint": { const p = meshes.get(prop as string); if (p) p.tint = data && (data as ArrayLike<number>).length >= 5 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // Cesium の Model.color＝[r,g,b,a, blend]（blend＝0 HIGHLIGHT／1 REPLACE／間＝MIX の量）｜null
 			case "meshXf": { const p = meshes.get(prop as string); if (p) { p.xf = data && (data as ArrayLike<number>).length >= 12 ? data as ArrayLike<number> : null; castRev++; } break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshVis":  setMeshVis(prop as string, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
 			case "stars":       stars = setStarBuf(stars, data as ArrayLike<number> | null, 8); break;         // data=Float32Array [cel.xyz,rgba,size]×n

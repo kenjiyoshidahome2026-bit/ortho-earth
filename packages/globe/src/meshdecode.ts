@@ -935,6 +935,17 @@ function voxelPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 // tile＝3D Tiles のタイルとして置く（#41・2026-09-23）＝{ places:[{ L:列優先3x3, t:[x,y,z] }]（タイル変換×インスタンス・ECEF）, rtc:[x,y,z]|null, baseH:m, points:true }。
 //   頂点 ECEF = L·(rtc + Y2Z·W·p) + t（仕様どおり glTF の Y-up→Z-up はノード変換の後・RTC とタイル変換の前）。
 //   baseH＝高さの基準（接地しない＝絶対高さ − baseH をそのまま持つ・呼び手は noLift で置く）。points＝点のプリミティブ（mode 0）を別に返す。
+// Draco の属性の名（KHR_draco_mesh_compression.attributes）＝loaders.gl は glTF の既定の意味を持たない属性（_BATCHID・_FEATURE_ID_n 等）を
+// CUSTOM_ATTRIBUTE_<unique id> と名付け、拡張を消してしまう＝生の json の対応で元の名を戻す（NYC の b3dm＝Draco 圧縮の _BATCHID・2026-10-29）
+function dracoNames(gltf: GltfDoc, raw: unknown): void {
+	const rm = (raw as { meshes?: Array<{ primitives?: Array<{ extensions?: { KHR_draco_mesh_compression?: { attributes?: Record<string, number> } } }> }> } | null)?.meshes;
+	if (!rm) return;
+	(gltf.meshes || []).forEach((m, i) => (m.primitives || []).forEach((pr, j) => {
+		const map = rm[i]?.primitives?.[j]?.extensions?.KHR_draco_mesh_compression?.attributes, at = pr.attributes;
+		if (!map || !at) return;
+		for (const [name, id] of Object.entries(map)) if (!at[name] && at[`CUSTOM_ATTRIBUTE_${id}`]) at[name] = at[`CUSTOM_ATTRIBUTE_${id}`];
+	}));
+}
 export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
 	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
@@ -947,6 +958,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		console.warn("[model] parse with images failed = retry without textures:", (e as Error | null)?.message);
 		textures = false; gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(false))) as GltfDoc;
 	}
+	dracoNames(gltf, raw);
 	const ktx2 = textures ? await transcodeBasisu(gltf, raw, baseUri, f) : { textures: 0, transcoded: 0, failed: 0 };   // KTX2/Basis の texture を変換器で素の RGBA に（W5・無ければ fallback の画像）
 	// シーン木を根から歩き、mesh を持つノードごとに world 行列（Y-up ローカル）を確定。scene 無しの glb は「親を持たないノード」を根とみなす
 	const nodes = gltf.nodes || [];
@@ -1133,6 +1145,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		}
 	}
 	if (tile && tile.baseH != null) minH = tile.baseH;   // 3D Tiles＝接地しない（絶対高さ − baseH）
+	else if (ground === "origin" && mode === "anchor") minH = 0;   // 錨（模型の原点）を高さの基準に＝最低点で接地しない（Cesium の Model＝原点が position。坑道の模型は原点の 94 m 上から始まる・2026-10-29）
 	if (!nTri) return pts?.geo.length || splats.length || voxels.length || nVoxSkip ? { batches: [], mask: null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts ? pts.geo.length / 3 : 0, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), gltf: gltfMeta(raw ?? gltf.json ?? gltf) } } : null;
 	// マテリアル束ごとに後段（接地＝模型全体の最低点 minH で揃える＝束が違っても一体で沈む/浮く）。テクスチャは同じ画像を 1 回だけ
 	const imgCache = new Map<GltfImage, TexOut | null>();

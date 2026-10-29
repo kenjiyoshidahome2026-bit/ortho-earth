@@ -9,7 +9,7 @@ import type { MeshFeatures } from "./mesh-features.ts";
 import type { MeshPickEnv } from "./types/install.ts";
 
 /** 当てる束（原点相対の頂点・xf＝剛体変換（L 9＋xt 3）・lift＝原点の向きへの持ち上げ（世界単位））。_aabb・_up は pickMeshes が書く写し */
-export interface PickItem { pos: ArrayLike<number>; idx: ArrayLike<number>; origin: ArrayLike<number>; xf?: ArrayLike<number> | null; lift?: number; features?: Pick<MeshFeatures, "ids"> | null; hidden?: boolean; _aabb?: number[]; _up?: number[] }
+export interface PickItem { pos: ArrayLike<number>; idx: ArrayLike<number>; origin: ArrayLike<number>; xf?: ArrayLike<number> | null; lift?: number; features?: Pick<MeshFeatures, "ids"> | null; hidden?: boolean; /** 当てない地物（feature state の show:false） */ skip?: ((featureId: number) => boolean) | null; _aabb?: number[]; _up?: number[] }
 /** 一番手前の当たり（item＝束の番号・w＝奥行き（clip の w）・vertex＝一番近い頂点・world＝当たった点の世界座標） */
 export interface MeshPickHit { item: number; tri: number; w: number; featureId: number | null; vertex: number; world: number[] }
 // 束の局所の箱（原点相対）＝画面で外れる束を素早く捨てる
@@ -64,6 +64,7 @@ export function pickMeshes(items: Array<PickItem | null>, view: MeshPickEnv["vie
 			const P = [p0[0]*g0 + p1[0]*g1 + p2[0]*g2, p0[1]*g0 + p1[1]*g1 + p2[1]*g2, p0[2]*g0 + p1[2]*g1 + p2[2]*g2];
 			const pl = Math.hypot(P[0], P[1], P[2]); if ((P[0]*E[0] + P[1]*E[1] + P[2]*E[2]) / pl - 1 < 0) continue;
 			const ids = it.features?.ids, gs = [g0, g1, g2], vs = [i0, i1, i2], m = gs.indexOf(Math.max(g0, g1, g2)), fid = ids ? ids[vs[m]] : NO_FEATURE;   // 番号＝一番近い頂点の番号（三角形の中で番号が揃っていなくても迷わない）
+			if (fid !== NO_FEATURE && it.skip?.(fid)) continue;   // 隠した地物は当てない（Cesium の hidden feature は pick されない）
 			best = { item: k, tri: t / 3, w, featureId: fid === NO_FEATURE ? null : fid, vertex: vs[m], world: P };
 		}
 	}
@@ -120,7 +121,8 @@ export function tintColors(col0: Uint8Array, ids: ArrayLike<number> | null | und
 		const id = ids[i]; if (id === NO_FEATURE) continue;
 		const c = id === last ? lastC : (lastC = colorOf(id), last = id, lastC);
 		if (!c) continue;
-		out[i*4] = c[0]; out[i*4+1] = c[1]; out[i*4+2] = c[2]; if (c.length > 3 && c[3] != null) out[i*4+3] = c[3];
+		if (c[0] === c[0]) { out[i*4] = c[0]; out[i*4+1] = c[1]; out[i*4+2] = c[2]; }   // NaN＝元の色のまま（feature state の show:false だけ）
+		if (c.length > 3 && c[3] != null && c[3] === c[3]) out[i*4+3] = c[3];
 	}
 	return out;
 }
