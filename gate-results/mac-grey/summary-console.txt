@@ -1,0 +1,84 @@
+== high-dynamic-range default {"memBackend":"webgpu","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":true} px=27,30,36 60,61,135 14,18,26 109,164,222
+    page error: Failed to load resource: the server responded with a status of 404 (Not Found)
+    worker(worker.ts?worker_file&type=module) log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+    page log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+    worker(worker.ts?worker_file&type=module) log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+    page log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+    worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+    page log: [terrain] DTM declared: none (no ground lift)
+    worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 9.3ms) = idle near-detail allowed
+    page log: [render] GPU tier fast (map-normalized 9.3ms) = idle near-detail allowed
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier slow (map-normalized 24.6ms) = near-detail off
+== high-dynamic-range gl2 {"memBackend":"webgl2","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":true} px=102,102,102 102,102,102 23,27,34 102,102,102
+    worker(worker.ts?worker_file&type=module) log: [render] multi_draw enabled (tiles GPU-resident)
+    page log: [render] multi_draw enabled (tiles GPU-resident)
+    worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+    page log: [terrain] DTM declared: none (no ground lift)
+    worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 12.5ms) = idle near-detail allowed
+    page log: [render] GPU tier fast (map-normalized 12.5ms) = idle near-detail allowed
+== elevation-band-material default {"memBackend":"webgpu","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=102,102,102 102,102,102 23,27,34 102,102,102
+    worker(worker.ts?worker_file&type=module) log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+    page log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+    worker(worker.ts?worker_file&type=module) log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+    page log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+    worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+    page log: [terrain] DTM declared: none (no ground lift)
+    worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 1.2ms) = idle near-detail allowed
+    page log: [render] GPU tier fast (map-normalized 1.2ms) = idle near-detail allowed
+    worker(worker.ts?worker_file&type=module) warning: [terrain] audit: refetching unwritten cells 0,0 (1/5)
+    page warning: [terrain] audit: refetching unwritten cells 0,0 (1/5)
+== elevation-band-material gl2 {"memBackend":"webgl2","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=102,102,102 102,102,102 23,27,34 102,102,102
+    worker(worker.ts?worker_file&type=module) log: [render] multi_draw enabled (tiles GPU-resident)
+    page log: [render] multi_draw enabled (tiles GPU-resident)
+    worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+    page log: [terrain] DTM declared: none (no ground lift)
+    worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 6.8ms) = idle near-detail allowed
+    page log: [render] GPU tier fast (map-normalized 6.8ms) = idle near-detail allowed
+== terrain default {"memBackend":"webgpu","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=102,102,102 102,102,102 23,27,34 31,32,35
+    worker(worker.ts?worker_file&type=module) log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+    page log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+    worker(worker.ts?worker_file&type=module) log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+    page log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+    worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+    page log: [terrain] DTM declared: none (no ground lift)
+    worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 4.9ms) = idle near-detail allowed
+    page log: [render] GPU tier fast (map-normalized 4.9ms) = idle near-detail allowed
+== terrain gl2 {"memBackend":"webgl2","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=102,102,102 102,102,102 23,27,34 31,32,35
+    worker(worker.ts?worker_file&type=module) log: [render] multi_draw enabled (tiles GPU-resident)
+    page log: [render] multi_draw enabled (tiles GPU-resident)
+    worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+    page log: [terrain] DTM declared: none (no ground lift)
+    worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 10.5ms) = idle near-detail allowed
+    page log: [render] GPU tier fast (map-normalized 10.5ms) = idle near-detail allowed
+== terrain-exaggeration default {"memBackend":"webgpu","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=64,38,26 50,39,22 22,24,27 81,109,69
+    worker(worker.ts?worker_file&type=module) log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+    page log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+    worker(worker.ts?worker_file&type=module) log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+    page log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+    worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+    page log: [terrain] DTM declared: none (no ground lift)
+    worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 4.4ms) = idle near-detail allowed
+    page log: [render] GPU tier fast (map-normalized 4.4ms) = idle near-detail allowed
+== terrain-exaggeration gl2 {"memBackend":"webgl2","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=64,38,26 67,50,28 22,24,27 83,110,70
+    worker(worker.ts?worker_file&type=module) log: [render] multi_draw enabled (tiles GPU-resident)
+    page log: [render] multi_draw enabled (tiles GPU-resident)
+    worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+    page log: [terrain] DTM declared: none (no ground lift)
+    worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+    worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 8.6ms) = idle near-detail allowed
+    page log: [render] GPU tier fast (map-normalized 8.6ms) = idle near-detail allowed

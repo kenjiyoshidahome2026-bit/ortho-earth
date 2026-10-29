@@ -1,0 +1,40 @@
+== elevation-band-material default {"memBackend":"webgpu","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=102,102,102 102,102,102 23,27,34 102,102,102
+page log: [boot] hi-tier device = PLATEAU wide lanes (cores=18, bldCap=3, tileConc=16, decPool)
+page log: [geo] world=WGS84 ellipsoid (beta-sphere x S) (opts.ellipsoid=true; ?ell=1 / ?ell=0 to override; measurement always WGS84)
+worker(worker.ts?worker_file&type=module) log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+page log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+worker(worker.ts?worker_file&type=module) log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+page log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+page log: [terrain] DTM declared: none (no ground lift)
+worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+worker(worker.ts?worker_file&type=ignore) log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+page log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+page log: [boot] frame1 received backend=webgpu
+page log: [altpbf]  📥 R10N020E080 (2400 x 2400) 1166.78 msec
+page log: [boot] WebGPU present verified (pixels 256/256)
+worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 1.2ms) = idle near-detail allowed
+page log: [render] GPU tier fast (map-normalized 1.2ms) = idle near-detail allowed
+page log: [mesh] catalog loaded -> 0 municipalities
+page log: [mesh] storage persist: denied
+worker(worker.ts?worker_file&type=module) log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.01GB)
+page log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.01GB)
+worker(worker.ts?worker_file&type=module) log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.01GB)
+page log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.01GB)
+worker(worker.ts?worker_file&type=module) log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+worker(worker.ts?worker_file&type=module) log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+worker(worker.ts?worker_file&type=module) log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.01GB)
+page log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.01GB)
+worker(worker.ts?worker_file&type=module) log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+worker(worker.ts?worker_file&type=module) log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.01GB)
+page log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.01GB)
+worker(worker.ts?worker_file&type=module) log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+worker(worker.ts?worker_file&type=module) warning: [terrain] audit: refetching unwritten cells 0,0 (1/5)
+page warning: [terrain] audit: refetching unwritten cells 0,0 (1/5)
+page log: [altpbf]  📥 R01N027E087 (3600 x 3600) 2187.51 msec
+page warning: Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently

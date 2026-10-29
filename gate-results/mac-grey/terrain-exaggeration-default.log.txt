@@ -1,0 +1,28 @@
+== terrain-exaggeration default {"memBackend":"webgpu","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":false} px=64,38,26 50,39,22 22,24,27 81,109,69
+page log: [boot] hi-tier device = PLATEAU wide lanes (cores=18, bldCap=3, tileConc=16, decPool)
+page log: [geo] world=WGS84 ellipsoid (beta-sphere x S) (opts.ellipsoid=true; ?ell=1 / ?ell=0 to override; measurement always WGS84)
+page log: [geopbf] 📥 ml/__cs-shapes (2,814 bytes) 64.36 msec
+page log: [geopbf] 📥 ml/__cs-shapes (2,814 bytes) 50.26 msec
+page info: [extrude] 10 polygons, 1180 tris [86.81484989883094, 27.436058780820364, 86.82290110078563, 27.44324212647695]
+page log: [geopbf] 📥 ml/__cs-shapes (2,814 bytes) 80.07 msec
+worker(worker.ts?worker_file&type=module) log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+page log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+worker(worker.ts?worker_file&type=module) log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+page log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+page log: [terrain] DTM declared: none (no ground lift)
+worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+worker(worker.ts?worker_file&type=ignore) log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+page log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+worker(worker.ts?worker_file&type=module) debug: [gint/gpu] edges=%d chunks=%d 400 1
+page debug: [gint/gpu] edges=%d chunks=%d 400 1
+page info: [extrude] 10 polygons, 1180 tris [86.81484989883094, 27.436058780820364, 86.82290110078563, 27.44324212647695]
+page log: [boot] frame1 received backend=webgpu
+page log: [boot] WebGPU present verified (pixels 256/256)
+page log: [mesh] catalog loaded -> 0 municipalities
+page log: [mesh] storage persist: denied
+worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 4.4ms) = idle near-detail allowed
+page log: [render] GPU tier fast (map-normalized 4.4ms) = idle near-detail allowed
+page log: [altpbf]  📥 R10N020E080 (2400 x 2400) 1542.27 msec
+page warning: Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently

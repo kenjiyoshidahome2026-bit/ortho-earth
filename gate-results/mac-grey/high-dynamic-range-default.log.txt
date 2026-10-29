@@ -1,0 +1,56 @@
+== high-dynamic-range default {"memBackend":"webgpu","perfBackend":null,"globe":{"show":true,"tilesLoaded":true,"baseColor":"#000080","tp":"CesiumTerrainProvider"},"imagery":1,"skyBox":true,"skyAtmo":true,"hdr":true} px=27,30,36 60,61,135 14,18,26 109,164,222
+page error: Failed to load resource: the server responded with a status of 404 (Not Found)
+page log: [boot] hi-tier device = PLATEAU wide lanes (cores=18, bldCap=3, tileConc=16, decPool)
+page log: [geo] world=WGS84 ellipsoid (beta-sphere x S) (opts.ellipsoid=true; ?ell=1 / ?ell=0 to override; measurement always WGS84)
+page log: [boot] hi-tier device = PLATEAU wide lanes (cores=18, bldCap=3, tileConc=16, decPool)
+page log: [geo] world=WGS84 ellipsoid (beta-sphere x S) (opts.ellipsoid=true; ?ell=1 / ?ell=0 to override; measurement always WGS84)
+worker(worker.ts?worker_file&type=module) log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+page log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+worker(worker.ts?worker_file&type=module) log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+page log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+page log: [terrain] DTM declared: none (no ground lift)
+worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+worker(worker.ts?worker_file&type=ignore) log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+page log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+page log: [boot] frame1 received backend=webgpu
+page log: [boot] hi-tier device = PLATEAU wide lanes (cores=18, bldCap=3, tileConc=16, decPool)
+page log: [geo] world=WGS84 ellipsoid (beta-sphere x S) (opts.ellipsoid=true; ?ell=1 / ?ell=0 to override; measurement always WGS84)
+worker(worker.ts?worker_file&type=module) log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+page log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+worker(worker.ts?worker_file&type=module) log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+page log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+worker(worker.ts?worker_file&type=module) log: [terrain] DTM declared: none (no ground lift)
+page log: [terrain] DTM declared: none (no ground lift)
+worker(worker.ts?worker_file&type=module) log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+page log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+worker(worker.ts?worker_file&type=ignore) log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+page log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+page log: [boot] frame1 received backend=webgpu
+page info: [model] ../../SampleData/models/DracoCompressed/CesiumMilkTruck.gltf: 3624 tris, 3594 verts, 3 instances, 5 materials (3 textured, 0 blended), placed by anchor [-111.8211678515563, 36.22451222084958, -111.82058031752551, 36.22482427619026]
+page log: [mesh] catalog loaded -> 0 municipalities
+page log: [mesh] storage persist: denied
+worker(worker.ts?worker_file&type=module) log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+page log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+worker(worker.ts?worker_file&type=module) log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+worker(worker.ts?worker_file&type=module) log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+page log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+worker(worker.ts?worker_file&type=module) log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+worker(worker.ts?worker_file&type=module) log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+page log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+worker(worker.ts?worker_file&type=module) log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+worker(worker.ts?worker_file&type=module) log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+page log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+worker(worker.ts?worker_file&type=module) log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+page log: [boot] WebGPU present verified (pixels 256/256)
+page log: [altpbf]  📥 R10N030W120 (2400 x 2400) 1999.34 msec
+worker(worker.ts?worker_file&type=module) log: [render] GPU tier fast (map-normalized 9.3ms) = idle near-detail allowed
+page log: [render] GPU tier fast (map-normalized 9.3ms) = idle near-detail allowed
+worker(worker.ts?worker_file&type=module) log: [render] GPU tier slow (map-normalized 24.6ms) = near-detail off
+page log: [render] GPU tier slow (map-normalized 24.6ms) = near-detail off
+page warning: Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
