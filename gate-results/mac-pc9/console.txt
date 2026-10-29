@@ -1,0 +1,10 @@
+== gltf-pbr-extensions backend=webgpu
+== image-based-lighting backend=webgpu
+== pbr-lighting-dev backend=webgpu
+== 3d-models backend=webgpu
+== 3d-models-coloring backend=webgpu
+== time-dynamic-wheels backend=webgpu
+== cesium-osm-buildings backend=webgpu
+== 3d-tiles-feature-styling backend=webgpu
+== high-dynamic-range backend=webgpu
+== 3d-tiles-photogrammetry backend=webgpu

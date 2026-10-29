@@ -1,0 +1,10 @@
+     3d-models | now L3 c99.6 e99.4 b4 | prev(mac-ug) L3 c99.5 e99.1 b3 | 
+     3d-models-coloring | now L3 c99.5 e99.5 b1 | prev(mac-ibl2) L3 c99.8 e99.3 b1 | 
+DOWN 3d-tiles-feature-styling | now L2 c83.2 e87.2 b62 | prev(mac-pc6) L3 c85.0 e93.8 b8 | picture: colour 83% · edges 87% of the cells match · a patch of 62 cells differs
+     3d-tiles-photogrammetry | now L3 c99.3 e97.9 b2 | prev(mac-pc6) L3 c99.3 e97.9 b2 | 
+     cesium-osm-buildings | now L2 c78.6 e90.7 b329 | prev(mac-pc7) L2 c78.6 e90.6 b335 | picture: colour 79% · edges 91% of the cells match · a patch of 329 cells differs
+     gltf-pbr-extensions | now L3 c92.5 e95.1 b6 | prev(mac-pc8) L2 c74.3 e80.5 b694 | 
+     high-dynamic-range | now L2 c69.6 e66.6 b228 | prev(mac-pc7) L2 c69.6 e66.6 b228 | picture: colour 70% · edges 67% of the cells match · a patch of 228 cells differs
+     image-based-lighting | now L3 c97.4 e97.8 b14 | prev(mac-pc8) L2 c94.1 e95.6 b24 | 
+     pbr-lighting-dev | now L3 c99.6 e94.3 b1 | prev(mac-pc8) L3 c99.6 e94.3 b1 | 
+DOWN time-dynamic-wheels | now L2 c89.5 e94.3 b237 | prev(mac-p2-main) L2 c91.3 e95.1 b186 | picture: colour 90% · edges 94% of the cells match · a patch of 237 cells differs
