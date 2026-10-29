@@ -1626,7 +1626,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 			gl.enableVertexAttribArray(l);
 			gl.vertexAttribPointer(l, 3, gl.BYTE, true, 4, 0);
 			const lo = gl.getAttribLocation(prog, "a_ol");   // the 4th byte: CESIUM_primitive_outline's coordinates (3 bits)
-			if (lo >= 0 && data.outline) { gl.enableVertexAttribArray(lo); gl.vertexAttribPointer(lo, 1, gl.BYTE, true, 4, 3); }
+			if (lo >= 0) { gl.enableVertexAttribArray(lo); gl.vertexAttribPointer(lo, 1, gl.BYTE, true, 4, 3); }
 		} else attrib(gl, prog, "a_normal", nbo, 3);   // 旧 float32（同セッション内の残骸互換）
 		let tex: WebGLTexture | null = null; const bufs = [vbo, nbo, ibo];
 		if (textured) {
@@ -2690,6 +2690,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 			case "meshCut": { const p = meshes.get(prop as string); if (p && p.textured && !p.blend && typeof data === "number") p.cut = data; break; }   // 不透明の束を MASK に（feature state の show:false＝α 0 の地物を抜く・読み直さない）
 			case "meshSil": { const p = meshes.get(prop as string); if (p) p.sil = data && (data as ArrayLike<number>).length >= 5 && (data as ArrayLike<number>)[4] > 0 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // Cesium の Model.silhouette＝[r,g,b,a, size px]｜null
 			case "meshEnv": { const p = meshes.get(prop as string); if (p) p.sh = data && (data as ArrayLike<number>).length >= 27 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // その模型の環境光（Cesium の模型ごとの環境）＝SH9（27 値）｜null
+			case "meshOutline": { const p = meshes.get(prop as string); if (p) p.ol = data && (data as ArrayLike<number>).length >= 4 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // CESIUM_primitive_outline colour rgba | null (tileset.showOutline / outlineColor)
 			case "meshTint": { const p = meshes.get(prop as string); if (p) p.tint = data && (data as ArrayLike<number>).length >= 5 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // Cesium の Model.color＝[r,g,b,a, blend]（blend＝0 HIGHLIGHT／1 REPLACE／間＝MIX の量）｜null
 			case "customShader": setCustomShader(String(prop), data as CsEntry["spec"] | null); break;   // Cesium の CustomShader＝{vs, fs, uniforms, values, lighting, translucency}｜null（id＝prop）
 			case "customShaderTex": { const e = customs.get(String(prop)), t = data as CsTexIn | null; if (e && t?.name && t.tex) { const o = e.tex.get(t.name); if (o) gl.deleteTexture(o); e.tex.set(t.name, csTexture(t)); } break; }   // TextureUniform＝{name, tex:{bitmap}|{rgba,w,h}, nearest, repeat}
