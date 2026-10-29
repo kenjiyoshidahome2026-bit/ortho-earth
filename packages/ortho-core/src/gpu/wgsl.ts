@@ -1026,11 +1026,11 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 }
 @fragment fn fs(in: PlOut) -> @location(0) vec4f {
 	let wlx = dpdx(in.wl); let wly = dpdy(in.wl);   // 街明かりの窓の画素幅（discard より前＝一様制御フロー）
+	olV = in.ol; olW = fwidth(in.ol);   // the outline's screen-space width (uniform control flow: before any discard)
+	let olPk = u32(B.cc.w); olC = vec4f(f32((olPk >> 16u) & 255u), f32((olPk >> 8u) & 255u), f32(olPk & 255u), 255.0 * B.cc.z) / 255.0;   // cc.z = alpha, cc.w = rgb packed 8 bits each
 	// 面の幾何法線＝スクリーン微分（FS冒頭＝uniform control flow・discard より前＝fwidth の轍と同じ掟）。
 	// toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号相殺＝位置微分の面法線と等価（varying追加不要）。
 	let gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));
-	olV = in.ol; olW = fwidth(in.ol);   // the outline's screen-space width (uniform control flow: before any discard)
-	let olPk = u32(B.cc.w); olC = vec4f(f32((olPk >> 16u) & 255u), f32((olPk >> 8u) & 255u), f32(olPk & 255u), 255.0 * B.cc.z) / 255.0;   // cc.z = alpha, cc.w = rgb packed 8 bits each
 	if (in.front < 0.0) { discard; }
 	if (B.tintB.w != 0.0 && sign(B.tintB.w) * (in.pos.x - (abs(B.tintB.w) - 1.0) * F.viewport.x) < 0.0) { discard; }   // Cesium splitDirection (tintB.w: sign = side kept, |w| - 1 = the split as a fraction of the width)
 	var n = normalize(in.n);
