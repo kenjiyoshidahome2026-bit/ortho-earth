@@ -389,7 +389,8 @@ vec3 csLit(vec3 base, vec3 n) {   // base＝リニアの基本色・n＝表向�
 	float D = a2 / (3.14159265 * f * f);
 	vec3 color = ((1.0 - F) * diffuse / 3.14159265 + F * G * D) * NdotL * u_csColor;
 	// 環境光：拡散＝SH9（Cesium の係数＝散乱の強さ込み）・鏡面＝反射の向きの SH9 を放射輝度に戻した物（立方体図の mip の代わり）
-	vec3 nC = vec3(dot(n, east), dot(n, up), -dot(n, north)), r = reflect(-v, n), rC = vec3(dot(r, east), dot(r, up), -dot(r, north));
+	// the cube-map frame (x east, y up, z south); the world axes are mirrored (y the pole, z at 90E), so cross(pole, up) above points west
+	vec3 nC = vec3(-dot(n, east), dot(n, up), -dot(n, north)), r = reflect(-v, n), rC = vec3(-dot(r, east), dot(r, up), -dot(r, north));
 	vec4 rr = roughness * vec4(-1.0, -0.0275, -0.572, 0.022) + vec4(1.0, 0.0425, 1.04, -0.04);
 	float a004 = min(rr.x * rr.x, exp2(-9.28 * NdotV)) * rr.x + rr.y;
 	vec2 AB = vec2(-1.04, 1.04) * a004 + rr.zw;
