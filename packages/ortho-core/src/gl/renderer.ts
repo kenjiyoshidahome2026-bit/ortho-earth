@@ -56,6 +56,8 @@ type GLCamState = CameraState & { mvp32: Float32Array; fogDist?: number };
 interface GLView {
 	clear: number[] | null; land: number[] | null; atmo: number[] | null; bldColor: number[] | null;
 	fog?: boolean; sea?: number[] | null; baseAlpha?: number; globeAlpha?: number;
+	/** 地下から見た球の裏面（Cesium の globe.undergroundColor）：color＝rgba（0..1）・nf＝α の距離 [near m, nearValue, far m, farValue] */
+	underground?: { color: number[]; nf: number[] } | null;
 	worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
 	clock?: ClockAnchor | null; showConst?: boolean; skySolar?: boolean; showRail?: boolean; showContour?: boolean; graticule?: boolean; night?: boolean;
 	contourAlpha?: number; contourColor?: number[]; distColor?: number[]; hypso?: { color: number[]; max?: number; amount?: number } | null;
@@ -1956,6 +1958,11 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 				gl.uniform4f(loc(gl, globeProg, "u_skyBlend"), sky.skyHorizonBlend, sky.horizonFogBlend, sky.atmosphereBlend, 0);
 			}
 			gl.uniform1f(loc(gl, globeProg, "u_globeAlpha"), globeA);
+			{   // 地下から見た球の裏面（Cesium の globe.undergroundColor）：距離は m → 世界単位
+				const ug = view.underground;
+				gl.uniform4f(loc(gl, globeProg, "u_ugC"), ug ? ug.color[0] : 0, ug ? ug.color[1] : 0, ug ? ug.color[2] : 0, ug ? ug.color[3] : -1);
+				gl.uniform4f(loc(gl, globeProg, "u_ugNF"), ug ? ug.nf[0] / 6378137 : 0, ug ? ug.nf[1] : 1, ug ? ug.nf[2] / 6378137 : 1, ug ? ug.nf[3] : 1);
+			}
 			{   // 地面の照明（setGroundLighting・Cesium の globe.enableLighting）：距離のフェードと夜側の明るさは CPU で（camDist＝単位球からの高さ）
 				const gl_ = groundLight, dM = Math.hypot(st.eye[0], st.eye[1], st.eye[2]) * 6378137;   // Cesium の cameraDist＝地球中心からの距離
 				const fk = (f: number[] | null | undefined, lo: number) => f ? Math.max(lo, Math.min(1, (dM - f[0]) / (f[1] - f[0]))) : 1;

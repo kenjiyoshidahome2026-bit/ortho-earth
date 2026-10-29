@@ -195,6 +195,8 @@ export interface GlobeCoreApi {
 	setClearColor(color: string | null): GlobeMap;   // globe.js:2617
 	/** 球（地面・地形・湖・夜面・塗り）の不透明度（1.17.0〜）。0＝地面を描かない（3D Tiles や点群だけの眺め）・1＝既定。星空・外部の 3D Tiles・注記はそのまま */
 	setGlobeOpacity(alpha: number): GlobeMap;
+	/** the globe's underside seen from below the ground (Cesium globe.undergroundColor): color rgba 0..1, nf = its alpha by distance [near m, nearValue, far m, farValue]; null = off */
+	setUnderground(u: { color: number[]; nf: number[] } | null): GlobeMap;
 	/** 中心の可動域。null で解除。west>east＝±180 跨ぎ。入力・飛行・URL 復元のどれで動いても締まる */
 	setMaxBounds(bounds: Bbox | [LonLat, LonLat] | null): GlobeMap;   // globe.js:2618
 	getMaxBounds(): Bbox | null;   // globe.js:2623
