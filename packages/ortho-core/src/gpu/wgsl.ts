@@ -1592,12 +1592,12 @@ export function meshCustomWGSL(spec: CsSpec): { code: string; textures: string[]
 			+ "\tcsVi.featureIds.featureId_0 = i32(a_mc.w + 0.5); csVi.metadata = csMetaOf(a_uvm);\n\tcsVo.positionMC = a_mc.xyz; csVo.pointSize = 1.0;\n\tvertexMain();\n"
 			+ "\tap += CU.J * (csVo.positionMC - a_mc.xyz);\n\to.mc = vec4f(csVo.positionMC, a_mc.w);\n" : "")],
 		["\tif (B.csL.w > 1.5) { lit = srgbEncode(tx.rgb); }",
-		 "\tlet csMet = clamp(B.pbr0.x * mr.b, 0.0, 1.0);\n"
+		 "\tlet csUnlit = CU.misc.z > 0.5 || (B.csL.w > 1.5 && CU.misc.z > -0.5);\n\tlet csMet = select(clamp(B.pbr0.x * mr.b, 0.0, 1.0), 0.0, csUnlit);\n"
 		 + "\tcsM.baseColor = tx; csM.diffuse = tx.rgb * (1.0 - csMet); csM.alpha = tx.a; csM.specular = mix(vec3f(0.04), tx.rgb, csMet); csM.roughness = clamp(B.pbr0.y * mr.g, 0.04, 1.0);\n"
 		 + "\tcsM.normalEC = normalize(CU.V * n); csM.occlusion = mix(1.0, oc.r, B.pbr0.w); csM.emissive = B.emis.rgb * em.rgb;\n"
 		 + (w.hasFs ? "\tcsFi.attributes = csAttrsOf(in.mc.xyz, F.eye - in.toEye, CU.V * (-in.toEye) * 6378137.0, n, in.uv, in.col, in.mc.w);\n\tcsFi.featureIds.featureId_0 = i32(in.mc.w + 0.5); csFi.metadata = csMetaOf(in.uvm);\n\tfragmentMain();\n" : "")
 		 + "\tlet csN = normalize(transpose(CU.V) * csM.normalEC);\n\tvar csA = a;\n"
-		 + "\tif (CU.misc.z > 0.5 || (B.csL.w > 1.5 && CU.misc.z > -0.5)) { lit = czm_linearToSrgb3(csM.diffuse); }   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ）\n"
+		 + "\tif (csUnlit) { lit = czm_linearToSrgb3(csM.diffuse); }   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ）\n"
 		 + "\telse if (B.csL.w > 0.5) { var ci: CsIn; ci.base = csM.diffuse; ci.n = csN; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = 0.0; ci.rough = csM.roughness; ci.ao = csM.occlusion; ci.emissive = csM.emissive; ci.sunK = sunK; lit = csLitM(ci, csM.specular, B.sh, B.csL, B.csC, B.csI); }\n"
 		 + "\telse { lit = czm_linearToSrgb3(csM.diffuse) * d; }\n"
 		 + "\tif (CU.misc.w > 0.5) { csA = clamp(csM.alpha, 0.0, 1.0); }\n"
