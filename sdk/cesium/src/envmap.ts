@@ -16,10 +16,12 @@ export interface CesiumEnvOptions {
 	sunDirWC?: ArrayLike<number>;
 	/** the ellipsoid's radius under the position (|scaleToGeodeticSurface|), m */
 	radius?: number;
+	/** the camera's eye-to-world rotation when the map is rendered (right, up, back: 9 numbers). ComputeRadianceMapFS's ground test,
+	 *  czm_rayEllipsoidIntersectionInterval, passes the fixed-frame ray through czm_inverseModelView as if it were in eye coordinates, so the
+	 *  ellipsoid it meets is turned by this rotation: the horizon drops, the rays just below it see sky and the ground rays run longer */
+	viewRotation?: ArrayLike<number>;
 	/** DynamicEnvironmentMapManager: atmosphereScatteringIntensity 2, groundColor #717145, groundAlbedo 0.31, brightness/saturation/gamma 1 */
 	atmosphereScatteringIntensity?: number; groundColor?: ArrayLike<number>; groundAlbedo?: number; brightness?: number; saturation?: number; gamma?: number;
-	/** scene.backgroundColor (what shows through the sky where the atmosphere is thin), rgb */
-	backgroundColor?: ArrayLike<number>;
 	/** scene.atmosphere: lightIntensity 10, rayleighCoefficient, mieCoefficient, rayleighScaleHeight 10000, mieScaleHeight 3200, mieAnisotropy 0.9 */
 	lightIntensity?: number; rayleighCoefficient?: ArrayLike<number>; mieCoefficient?: ArrayLike<number>; rayleighScaleHeight?: number; mieScaleHeight?: number; mieAnisotropy?: number;
 }
@@ -75,14 +77,41 @@ function atmosphereColor(o: V3, d: V3, rayLength: number, L: V3, inner: number, 
 	return out;
 }
 
+/** czm_rayEllipsoidIntersectionInterval of a ray from the position (in its east-north-up frame) against the WGS84 ellipsoid turned by
+ *  viewRotation (the translation of czm_inverseModelView cancels), or null without one. A turned position inside the ellipsoid gives every
+ *  ray length 0, which czm_computeScattering divides by (NaN on some GPUs, a plain map on others): that case is left to the plain sphere */
+function turnedEllipsoid(positionWC: ArrayLike<number>, o: CesiumEnvOptions): ((d: V3) => [number, number] | null) | null {
+	const R = o.viewRotation;
+	if (!R) return null;
+	const height = Math.hypot(positionWC[0], positionWC[1], positionWC[2]) || 1, inner = o.radius ?? 6371e3;
+	const k = (Math.max(height - inner, 0) + inner) / height;
+	const up = norm([positionWC[0], positionWC[1], positionWC[2]]);
+	const e0: V3 = [-up[1], up[0], 0], le = Math.hypot(e0[0], e0[1]), east: V3 = le > 1e-9 ? [e0[0] / le, e0[1] / le, 0] : [0, 1, 0];
+	const north: V3 = [up[1] * east[2] - up[2] * east[1], up[2] * east[0] - up[0] * east[2], up[0] * east[1] - up[1] * east[0]];
+	const inv = [1 / 6378137, 1 / 6378137, 1 / 6356752.314245179];
+	const turn = (v: ArrayLike<number>): V3 => [0, 1, 2].map(i => (v[0] * R[i] + v[1] * R[3 + i] + v[2] * R[6 + i]) * inv[i]) as V3;
+	const q = turn([positionWC[0] * k, positionWC[1] * k, positionWC[2] * k]), q2 = q[0] * q[0] + q[1] * q[1] + q[2] * q[2];
+	if (q2 <= 1) return null;
+	return (d: V3) => {
+		const w = turn([east[0] * d[0] + north[0] * d[1] + up[0] * d[2], east[1] * d[0] + north[1] * d[1] + up[1] * d[2], east[2] * d[0] + north[2] * d[1] + up[2] * d[2]]);
+		const qw = q[0] * w[0] + q[1] * w[1] + q[2] * w[2];
+		if (qw >= 0) return null;   // looking outward
+		const w2 = w[0] * w[0] + w[1] * w[1] + w[2] * w[2], diff = q2 - 1, product = w2 * diff;
+		if (qw * qw < product) return null;
+		const temp = -qw + Math.sqrt(qw * qw - product), r0 = temp / w2, r1 = diff / temp;
+		return r0 < r1 ? [r0, r1] : [r1, r0];
+	};
+}
+
 /** ComputeRadianceMapFS for one cube direction (in the east-north-up frame of the position): the colour Cesium stores in its environment map */
-export function cesiumEnvRadiance(positionWC: ArrayLike<number>, dirENU: ArrayLike<number>, o: CesiumEnvOptions = {}): V3 {
+export function cesiumEnvRadiance(positionWC: ArrayLike<number>, dirENU: ArrayLike<number>, o: CesiumEnvOptions = {}, turned: ((d: V3) => [number, number] | null) | null = turnedEllipsoid(positionWC, o)): V3 {
 	const height = Math.hypot(positionWC[0], positionWC[1], positionWC[2]);
 	const inner = o.radius ?? 6371e3, outer = inner * 1.025, atmosphereHeight = outer - inner;
 	const ellipsoidHeight = Math.max(height - inner, 0);
 	const pos: V3 = [0, 0, ellipsoidHeight + inner];   // the local frame: x east, y north, z up; the position on the up axis
 	const d = norm([dirENU[0], dirENU[1], dirENU[2]]);
-	const hit = sphere(pos, d, inner);
+	let hit = sphere(pos, d, inner);
+	if (hit && hit[1] >= 0 && turned) hit = turned(d);   // !czm_isEmpty: the (turned) ellipsoid decides
 	const onEllipsoid = !!hit && hit[0] >= 0;
 	const rayLength = onEllipsoid ? hit![0] : outer;
 	const skyPos: V3 = [pos[0] + d[0] * rayLength, pos[1] + d[1] * rayLength, pos[2] + d[2] * rayLength];
@@ -110,8 +139,9 @@ export function cesiumEnvRadiance(positionWC: ArrayLike<number>, dirENU: ArrayLi
 	} else {
 		let skyAlpha = Math.max(0, Math.min(1, (1 - ellipsoidHeight / atmosphereHeight) * atm[3]));
 		if (Math.hypot(atm[0], atm[1], atm[2]) <= 1e-7) skyAlpha = 0;
-		const bg = o.backgroundColor ?? [0, 0, 0];
-		color = [0, 1, 2].map(c => bg[c] + (atm[c] * intensity - bg[c]) * skyAlpha) as V3;
+		// mix(czm_backgroundColor, sky box, its alpha): czm_environmentMap is frameState.environmentMap = scene.skyBox._cubeMap, which SkyBox no
+		// longer has (it draws a CubeMapPanorama), so it is always the context's default cube: opaque white, whatever backgroundColor says
+		color = [0, 1, 2].map(c => 1 + (atm[c] * intensity - 1) * skyAlpha) as V3;
 	}
 	const brightness = o.brightness ?? 1, saturation = o.saturation ?? 1, gamma = o.gamma ?? 1;
 	if (brightness !== 1 || saturation !== 1) {   // ENVIRONMENT_COLOR_CORRECT: mix(0, c, brightness) then czm_saturation
@@ -151,11 +181,11 @@ const HAMMERSLEY: { d: V3; sinTheta: number }[] = (() => {
 
 /** the environment's 9 SH coefficients (27 floats, Cesium's order, the cube's y-up frame) for a model at positionWC, exactly as Cesium's irradiance pass sums them */
 export function cesiumEnvSH(positionWC: ArrayLike<number>, o: CesiumEnvOptions = {}): Float32Array {
-	const sh = new Float32Array(27);
+	const sh = new Float32Array(27), turned = turnedEllipsoid(positionWC, o);
 	for (const { d, sinTheta } of HAMMERSLEY) {
 		// the cube lookup (-d.x, -d.y, d.z); GL reads Cesium's faces so that a cube direction r returns the colour rendered for the ENU direction (r.x, -r.z, r.y)
 		const r: V3 = [-d[0], -d[1], d[2]];
-		const c = cesiumEnvRadiance(positionWC, [r[0], -r[2], r[1]], o);
+		const c = cesiumEnvRadiance(positionWC, [r[0], -r[2], r[1]], o, turned).map(v => Math.max(0, Math.min(1, v)));   // the radiance cube is RGBA8: the sun's glow clips at 1
 		const w = sinTheta / SAMPLES;
 		for (let i = 0; i < 9; i++) { const y = shBasis(i, d) * w; sh[i * 3] += y * c[0]; sh[i * 3 + 1] += y * c[1]; sh[i * 3 + 2] += y * c[2]; }
 	}

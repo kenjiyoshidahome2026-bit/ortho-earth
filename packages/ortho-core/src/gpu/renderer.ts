@@ -169,7 +169,7 @@ export interface MeshSetData {
 	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexSrc | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
-	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
+	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number; sh?: ArrayLike<number> | null;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 /** set("customShader", spec, id) の登録＝モジュールとパイプラインは初めて描く時に非同期で組む（出来るまで・失敗は素の模型で描く） */
 interface CsEntryG {
@@ -2260,7 +2260,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
-				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
+				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのに建物メッシュが無い」

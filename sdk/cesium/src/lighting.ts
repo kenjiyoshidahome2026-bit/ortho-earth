@@ -75,20 +75,21 @@ export function sunPositionWC(t: Any): number[] {
 	return [sunWC.x, sunWC.y, sunWC.z];
 }
 
-/** cesiumEnvSH's options from the scene's atmosphere (dir = the light, sun = the sun, both unit vectors in the fixed frame) */
+/** cesiumEnvSH's options from the scene's atmosphere (dir = the light, sun = the sun, both unit vectors in the fixed frame) and the camera of the
+ *  frame the map is rendered in (its ground test turns with it) */
 function envOptions(scene: Any, at: Cartesian3, dir: Any, sun: Any): Parameters<typeof cesiumEnvSH>[1] {
-	const atmo = scene.atmosphere, dyn = atmo?.dynamicLighting ?? 0, bg = scene.backgroundColor, ell = scene.ellipsoid ?? scene.globe?.ellipsoid ?? Ellipsoid.WGS84;
-	const s = ell.scaleToGeodeticSurface(at, surf);
+	const atmo = scene.atmosphere, dyn = atmo?.dynamicLighting ?? 0, ell = scene.ellipsoid ?? scene.globe?.ellipsoid ?? Ellipsoid.WGS84;
+	const s = ell.scaleToGeodeticSurface(at, surf), cam = scene.camera, r = cam?.rightWC, u = cam?.upWC, d = cam?.directionWC;
 	return {
+		...(r && u && d && { viewRotation: [r.x, r.y, r.z, u.x, u.y, u.z, -d.x, -d.y, -d.z] }),
 		radius: s ? Cartesian3.magnitude(s) : ell.maximumRadius, dynamicLighting: dyn, lightDirWC: [dir.x, dir.y, dir.z], sunDirWC: [sun.x, sun.y, sun.z],
 		lightIntensity: atmo?.lightIntensity, rayleighCoefficient: c3(atmo?.rayleighCoefficient), mieCoefficient: c3(atmo?.mieCoefficient),
 		rayleighScaleHeight: atmo?.rayleighScaleHeight, mieScaleHeight: atmo?.mieScaleHeight, mieAnisotropy: atmo?.mieAnisotropy,
-		backgroundColor: bg ? [bg.red, bg.green, bg.blue] : undefined,
 	};
 }
 const envKeyOf = (scene: Any, at: ArrayLike<number>, dir: Any): string => {
-	const atmo = scene.atmosphere, dyn = atmo?.dynamicLighting ?? 0, bg = scene.backgroundColor;
-	return `${Math.round(at[0] / 1000)},${Math.round(at[1] / 1000)},${Math.round(at[2] / 1000)}|${dyn}${dyn ? `|${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)}` : ""}|${atmo?.lightIntensity ?? 10}|${bg ? `${bg.red},${bg.green},${bg.blue}` : ""}`;
+	const atmo = scene.atmosphere, dyn = atmo?.dynamicLighting ?? 0;
+	return `${Math.round(at[0] / 1000)},${Math.round(at[1] / 1000)},${Math.round(at[2] / 1000)}|${dyn}${dyn ? `|${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)}` : ""}|${atmo?.lightIntensity ?? 10}`;
 };
 /** the light and sun directions (fixed frame) at time t, as UniformState computes them */
 function lightDirs(scene: Any, t: Any): { dir: Cartesian3; sun: Cartesian3 } {
@@ -113,6 +114,25 @@ export function modelEnvSH(scene: Any, posWC: ArrayLike<number>): Float32Array |
 		if (modelEnvCache.size > 64) modelEnvCache.clear();
 		sh = cesiumEnvSH(posWC, envOptions(scene, Cartesian3.fromArray(posWC as number[], 0, modelPos), dir, sun));
 		modelEnvCache.set(key, sh);
+	}
+	return sh;
+}
+
+const tilesetEnvCache = new Map<string, Float32Array>();
+/** Cesium's environment of a tileset: Cesium3DTileset's own DynamicEnvironmentMapManager sits at boundingSphere.center and renders its map with
+ *  (the Earth's centre for a whole-planet tileset: under dynamic sunlight that is not the view's environment). null = the scene's lighting
+ *  (a custom ImageBasedLighting) */
+export function tilesetEnvSH(scene: Any, centerWC: Cartesian3): Float32Array | null {
+	if (customIbl(scene.primitives)) return null;
+	const t = scene.frameState?.time ?? scene.lastRenderTime;
+	if (!t) return null;
+	const { dir, sun } = lightDirs(scene, t);
+	const key = envKeyOf(scene, [centerWC.x, centerWC.y, centerWC.z], dir);
+	let sh = tilesetEnvCache.get(key);
+	if (!sh) {
+		if (tilesetEnvCache.size > 64) tilesetEnvCache.clear();
+		sh = cesiumEnvSH([centerWC.x, centerWC.y, centerWC.z], envOptions(scene, centerWC, dir, sun));
+		tilesetEnvCache.set(key, sh);
 	}
 	return sh;
 }
