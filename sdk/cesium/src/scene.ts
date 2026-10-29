@@ -76,7 +76,7 @@ export class OrthoScene {
 	highDynamicRange = false; gamma = 2.2; sphericalHarmonicCoefficients: unknown = undefined; specularEnvironmentMaps: unknown = undefined;
 	splitPosition = 0; minimumDisableDepthTestDistance = 0; logarithmicDepthBuffer = true; msaaSamples = 4; focalLength: unknown = undefined; eyeSeparation: unknown = undefined;
 	readonly pickPositionSupported = true; readonly sampleHeightSupported = true; readonly clampToHeightSupported = true; readonly invertClassificationSupported = false;
-	readonly specularEnvironmentMapsSupported = false; readonly highDynamicRangeSupported = false; readonly msaaSupported = true; readonly orderIndependentTranslucency = true;
+	readonly specularEnvironmentMapsSupported = true; readonly highDynamicRangeSupported = false; readonly msaaSupported = true; readonly orderIndependentTranslucency = true;
 	readonly maximumAliasedLineWidth = 1; readonly maximumCubeMapSize = 16384; readonly id = "ortho-scene";
 	pixelRatio = 1;
 	lastRenderTime: any = undefined;

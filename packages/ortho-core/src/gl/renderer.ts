@@ -73,6 +73,8 @@ interface GLView {
 interface GLSky { sky: number[]; horizon: number[]; fog: number[]; groundBlend: number; horizonFogBlend: number; skyHorizonBlend: number; atmosphereBlend: number }
 /** style の light（B3） */
 interface GLLight { dir: number[]; color?: number[] | null; intensity?: number }
+/** Cesium の模型の鏡面の環境（setMeshEnvironmentMap）＝size は 0 段の一辺・levels[mip] は 6 面ぶんの RGBA16F（半精度の 16 bit） */
+export interface GLMeshEnv { size: number; levels: Uint16Array[] }
 /** Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting・2026-10-26）＝dir は世界系の単位ベクトル・color は HDR・sh は Cesium の並びの 27 値 */
 interface GLMeshLight { dir: number[]; color: number[]; sh: Float32Array; ibl: number[]; invL00: number }
 /** 地面の照明（setGroundLighting・Cesium の globe.enableLighting）：dir＝光へ向く単位ベクトル（世界）・lambert＝[倍率, 足す値]・fade/night＝[消える距離, 全開の距離]（m・中心から・null＝常に全開/暗くしない） */
@@ -429,6 +431,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const SH_N = rOpts.lowMem ? 1024 : 2048, SH_LAYERS = rOpts.lowMem ? 2 : 3;
 	const SH_UNIT = 18, SH_RAW_UNIT = 19;   // 0〜17 は埋まっている（PAT_UNIT 16・PT_UNIT 17）
 	const NEAR_UNIT = 20;   // 近景層の標高（ELEV を持つ全プログラムが参照＝far の unit8 と同じ常時結合）
+	const ENV_UNIT = 22;   // Cesium の模型の鏡面の環境（立方体図・setMeshEnvironmentMap）＝u_csEnvMap。samplerCube は既定の unit 0 に置くと 2D と衝突する＝全プログラムでここへ向ける
 	const SH_PEN_K = 0.018, SH_SEARCH = 4, SH_FADE_R0 = 0.7;   // 半影の係数・遮る物を探す半径（texel）・基の窓の縁のフェード（WebGPU と同値）
 	let shadow: { on: boolean; time?: number; darkness?: number } = { on: false };
 	let shGL: { tex: WebGLTexture; fbos: WebGLFramebuffer[]; sampC: WebGLSampler; sampR: WebGLSampler; ubo: WebGLBuffer; cpu: Float32Array; cast: Map<string, WebGLProgram> } | null = null;
@@ -998,6 +1001,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	}
 	const blendOf = (p: MeshBatch): number => p.blend ? 1 : p.tint && p.tint[3] < 1 ? 2 : csOf(p)?.spec.translucency === "TRANSLUCENT" ? 2 : 0;   // CustomShader の TRANSLUCENT＝半透明の束として奥から描く   // 2＝Model.color の α だけで半透明（OPAQUE の材質＝テクスチャの α は無視）
 	let meshLight: GLMeshLight | null = null;   // Cesium の模型の照明（setMeshLighting）＝有れば固定光・style の light の代わりに Cesium の式（csLit）で描く
+	let envTex: WebGLTexture | null = null, envLod = 0;   // Cesium の模型の鏡面の環境（setMeshEnvironmentMap）＝RGBA16F の立方体図・mip＝粗さ×envLod
 	let light: GLLight | null = null;   // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）。メッシュ（押し出し・glTF・LOD2）の陰影に効く
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
@@ -1880,6 +1884,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		gl.uniform1f(loc(gl, prog, "u_hasFar"), far.has);
 		gl.uniform1f(loc(gl, prog, "u_farEdgeFade"), far.edgeFade || 0);
 		gl.uniform1i(loc(gl, prog, "u_nearElevTex"), NEAR_UNIT);   // 近景層（順 1a）
+		gl.uniform1i(loc(gl, prog, "u_csEnvMap"), ENV_UNIT);   // 模型の鏡面の環境（無ければ null の立方体＝u_csEnv.x=0 で不使用）
 		gl.uniform4f(loc(gl, prog, "u_nearBounds"), near.bounds[0], near.bounds[1], near.bounds[2], near.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_hasNear"), near.has);
 		gl.uniform1f(loc(gl, prog, "u_nearEdgeFade"), near.edgeFade || 0);
@@ -2067,6 +2072,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null);
 		gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, (far.has && farTex) ? farTex : null);   // 遠景層（null＝incomplete=黒。u_hasFar=0 ガードで不使用）
 		gl.activeTexture(gl.TEXTURE0 + NEAR_UNIT); gl.bindTexture(gl.TEXTURE_2D, (near.has && nearTex) ? nearTex : null);   // 近景層（同）
+		gl.activeTexture(gl.TEXTURE0 + ENV_UNIT); gl.bindTexture(gl.TEXTURE_CUBE_MAP, envTex);   // 模型の鏡面の環境（null＝incomplete＝黒・u_csEnv.x=0 で不使用）
 		gl.activeTexture(gl.TEXTURE0);
 		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);   // 傾き時のみ地形あり。noTerrain=全球ビューでは矩形アトラスを描かない
 		// ここから深度あり（建物同士の前後関係を共有）
@@ -2564,7 +2570,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					common.add(pg); setCommonUniforms(pg, st, [0, 0], land); gl.uniform3f(loc(gl, pg, "u_bldColor"), c[0], c[1], c[2]);
 					gl.uniform1f(loc(gl, pg, "u_lightOn"), light ? 1 : 0);   // style の light（B3）＝無ければ従来の固定光
 					if (light) { gl.uniform3f(loc(gl, pg, "u_lightDir"), light.dir[0], light.dir[1], light.dir[2]); gl.uniform1f(loc(gl, pg, "u_lightI"), light.intensity ?? 0.5); const lc = light.color || [1, 1, 1]; gl.uniform3f(loc(gl, pg, "u_lightColor"), lc[0], lc[1], lc[2]); }
-					if (meshLight) { gl.uniform3f(loc(gl, pg, "u_csDir"), meshLight.dir[0], meshLight.dir[1], meshLight.dir[2]); gl.uniform3f(loc(gl, pg, "u_csColor"), meshLight.color[0], meshLight.color[1], meshLight.color[2]); gl.uniform3f(loc(gl, pg, "u_csIbl"), meshLight.ibl[0], meshLight.ibl[1], meshLight.invL00); }
+					if (meshLight) { gl.uniform3f(loc(gl, pg, "u_csDir"), meshLight.dir[0], meshLight.dir[1], meshLight.dir[2]); gl.uniform3f(loc(gl, pg, "u_csColor"), meshLight.color[0], meshLight.color[1], meshLight.color[2]); gl.uniform3f(loc(gl, pg, "u_csIbl"), meshLight.ibl[0], meshLight.ibl[1], meshLight.invL00); gl.uniform2f(loc(gl, pg, "u_csEnv"), envTex ? 1 : 0, envLod); }
 					gl.uniform1i(loc(gl, pg, "u_lightN"), lights ? lights.n : 0);   // 局所の光源（W2）＝4 本の vec4[8] をそのまま流す
 					if (lights) { const d = lights.data; for (let i = 0; i < 4; i++) { const a = new Float32Array(32); for (let k = 0; k < 8; k++) a.set(d.subarray(k * 16 + i * 4, k * 16 + i * 4 + 4), k * 4); gl.uniform4fv(loc(gl, pg, ["u_lA", "u_lB", "u_lC", "u_lD"][i]), a); } }
 				}
@@ -2621,6 +2627,20 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "patImage":  setPatImage(data as Parameters<typeof setPatImage>[0]); break;                       // fill-pattern の画像（S-P1-4/5・render worker が記号帳の写しを回す）                                            // data={clear,land,atmo,bldColor}
 			case "groundLight": groundLight = data && Array.isArray((data as GLGroundLight).dir) ? data as GLGroundLight : null; break;   // 地面の照明（@ortho-earth/cesium の setGroundLighting）
 			case "groundMaterial": setGroundMat(data as GLGroundMat | null); break;   // 地面の材質（@ortho-earth/cesium の globe.material → setGroundMaterial）
+			case "meshEnv": {   // Cesium の ImageBasedLighting.specularEnvironmentMaps（KTX2 の前処理済み立方体図）＝levels[mip] に 6 面（+X −X +Y −Y +Z −Z）の RGBA16F を並べた物
+				if (envTex) { gl.deleteTexture(envTex); envTex = null; }
+				const e = data as GLMeshEnv | null;
+				if (e && e.size > 0 && e.levels?.length) {
+					envTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_CUBE_MAP, envTex);
+					gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+					e.levels.forEach((lv, m) => { const w = Math.max(1, e.size >> m), n = w * w * 4; for (let f = 0; f < 6; f++) gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, m, gl.RGBA16F, w, w, 0, gl.RGBA, gl.HALF_FLOAT, lv.subarray(f * n, (f + 1) * n)); });
+					gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_BASE_LEVEL, 0); gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, e.levels.length - 1);
+					gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+					for (const w of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_CUBE_MAP, w, gl.CLAMP_TO_EDGE);
+					gl.bindTexture(gl.TEXTURE_CUBE_MAP, null); envLod = e.levels.length - 1;
+				}
+				break;
+			}
 			case "meshLight": meshLight = data && Array.isArray((data as GLMeshLight).dir) && (data as GLMeshLight).sh ? data as GLMeshLight : null; break;   // Cesium の模型の照明（@ortho-earth/cesium の setMeshLighting）
 			case "light":     light = data && Array.isArray((data as GLLight).dir) ? data as GLLight : null; break;      // style の light（B3・MapLibre の setLight）
 			case "lights":    lights = data && (data as GLLocalLights).n > 0 && (data as GLLocalLights).data ? data as GLLocalLights : null; break;      // 局所の光源（W2・light.js localLightsPayload）

@@ -14,6 +14,7 @@ import { rasterSourceOf, mercatorRows, adjustPaint } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
 import { glbOf } from "../src/primitives.ts";
 import { gridOf, placementOf } from "../src/voxels.ts";
+import { parseKtx2Cube } from "../src/specular-env.ts";
 import { cesiumSphereOf } from "../src/spheres.ts";
 import { cesiumEnvSH, cesiumEvalSH, cesiumEnvRadiance, CESIUM_SH_UNIFORM_L00 } from "../src/envmap.ts";
 import { Entity, JulianDate as EJulianDate } from "@cesium/engine";
@@ -496,6 +497,26 @@ for (const g of [
 	await Promise.resolve();
 	ok("custom shader: setUniform re-sends once per task", calls.length === 2 && calls[1][1].values.u_time === 3);
 	ok("custom shader: none is null", customShaderId(map, undefined) === null);
+}
+
+// specularEnvironmentMaps: a KTX2 cube (6 faces, 2 mips) read as RGBA16F levels; RGBA32F converted to halves; other formats refused
+{
+	const ktx = (vk, bpc, size, mips) => {
+		const lv = []; for (let m = 0; m < mips; m++) { const s = Math.max(1, size >> m); lv.push(s * s * 4 * 6 * bpc); }
+		let off = 80 + mips * 24; const offs = lv.map(n => { const o = off; off += n; return o; });
+		const buf = new ArrayBuffer(off), dv = new DataView(buf);
+		new Uint8Array(buf).set([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a]);
+		dv.setUint32(12, vk, true); dv.setUint32(16, bpc, true); dv.setUint32(20, size, true); dv.setUint32(24, size, true); dv.setUint32(36, 6, true); dv.setUint32(40, mips, true);
+		lv.forEach((n, m) => { dv.setBigUint64(80 + m * 24, BigInt(offs[m]), true); dv.setBigUint64(88 + m * 24, BigInt(n), true); dv.setBigUint64(96 + m * 24, BigInt(n), true); });
+		return { buf, dv, offs };
+	};
+	const a = ktx(97, 2, 4, 2); a.dv.setUint16(a.offs[1], 0x3c00, true);
+	const c = parseKtx2Cube(a.buf);
+	ok("ktx2 cube: RGBA16F levels", c && c.size === 4 && c.levels.length === 2 && c.levels[0].length === 4 * 4 * 4 * 6 && c.levels[1].length === 2 * 2 * 4 * 6 && c.levels[1][0] === 0x3c00);
+	const b = ktx(109, 4, 2, 1); b.dv.setFloat32(b.offs[0], 1.5, true); b.dv.setFloat32(b.offs[0] + 4, -2, true);
+	const d = parseKtx2Cube(b.buf);
+	ok("ktx2 cube: RGBA32F → halves", d && d.levels[0][0] === 0x3e00 && d.levels[0][1] === 0xc000);
+	ok("ktx2 cube: other formats are refused", parseKtx2Cube(ktx(37, 1, 2, 1).buf) === null);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
