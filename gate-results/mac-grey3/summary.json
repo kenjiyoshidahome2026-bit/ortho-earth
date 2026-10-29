@@ -1,0 +1,318 @@
+{
+ "at": "2026-10-29T17:37:28.338Z",
+ "cesium": "1.146.0",
+ "n": 9,
+ "levels": {
+  "0": 0,
+  "1": 1,
+  "2": 3,
+  "3": 5,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 3,
+  "3": 4,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 3,
+   "examples": [
+    "high-dynamic-range",
+    "terrain",
+    "terrain-exaggeration"
+   ]
+  },
+  {
+   "blocker": "unsupported: material PolylineDash (drawn in its colour)",
+   "n": 1,
+   "examples": [
+    "ground-polyline-material-dev"
+   ]
+  },
+  {
+   "blocker": "unsupported: material PolylineGlow (drawn in its colour)",
+   "n": 1,
+   "examples": [
+    "ground-polyline-material-dev"
+   ]
+  },
+  {
+   "blocker": "unsupported: material PolylineOutline (drawn in its colour)",
+   "n": 1,
+   "examples": [
+    "ground-polyline-material-dev"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "cesium-world-terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2926,
+    "n": 3072,
+    "colour": 0.9876302083333334,
+    "edge": 0.9612630208333334,
+    "blob": 4
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "elevation-band-material",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2850,
+    "n": 3072,
+    "colour": 0.9583333333333334,
+    "edge": 0.9573567708333334,
+    "blob": 11
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-translucency",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2791,
+    "n": 3072,
+    "colour": 0.9235026041666666,
+    "edge": 0.9781901041666666,
+    "blob": 5
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ground-polyline-material-dev",
+   "level": 1,
+   "reasons": [
+    "unsupported: material PolylineGlow (drawn in its colour), material PolylineDash (drawn in its colour), material PolylineOutline (drawn in its colour)"
+   ],
+   "blockers": [
+    "unsupported: material PolylineGlow (drawn in its colour)",
+    "unsupported: material PolylineDash (drawn in its colour)",
+    "unsupported: material PolylineOutline (drawn in its colour)"
+   ],
+   "unsupported": [
+    {
+     "what": "material PolylineGlow (drawn in its colour)",
+     "n": 1
+    },
+    {
+     "what": "material PolylineDash (drawn in its colour)",
+     "n": 1
+    },
+    {
+     "what": "material PolylineOutline (drawn in its colour)",
+     "n": 1
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2066,
+    "n": 3072,
+    "colour": 0.81640625,
+    "edge": 0.7998046875,
+    "blob": 42
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "high-dynamic-range",
+   "level": 2,
+   "reasons": [
+    "picture: colour 64% · edges 67% of the cells match · a patch of 388 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1652,
+    "n": 3072,
+    "colour": 0.6448567708333334,
+    "edge": 0.6656901041666666,
+    "blob": 388
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "polylines-on-terrain-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2995,
+    "n": 3072,
+    "colour": 0.9860026041666666,
+    "edge": 0.9837239583333334,
+    "blob": 5
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 93% · edges 95% of the cells match · a patch of 136 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2790,
+    "n": 3072,
+    "colour": 0.9313151041666666,
+    "edge": 0.9466145833333334,
+    "blob": 136
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain-exaggeration",
+   "level": 2,
+   "reasons": [
+    "picture: colour 85% · edges 93% of the cells match · a patch of 57 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2495,
+    "n": 3072,
+    "colour": 0.8466796875,
+    "edge": 0.9283854166666666,
+    "blob": 57
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "underground-color",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2919,
+    "n": 3072,
+    "colour": 0.9947916666666666,
+    "edge": 0.9505208333333334,
+    "blob": 3
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
