@@ -482,7 +482,7 @@ export function meshCustomGLSL(spec: CsSpec): { vs: string; fs: string } {
 	], "MESH_CS_VS");
 	const fs = derive(MESH_TEX_FS, [
 		["uniform float u_cullBack;", "uniform float u_cullBack;\nin vec4 v_mc;\nin vec2 v_uvm;\nuniform mat3 u_csJ;\nuniform mat3 u_csV;\nuniform vec2 u_csMode;   // x＝UNLIT・y＝材質の α で半透明（TRANSLUCENT）"],
-		["void main() {\n\t// 面の幾何法線", csGlslPrelude(spec, "fs") + fsUser + "\n" + csLitMOf(MESH_FS) + "void main() {\n\t// 面の幾何法線"],
+		["void main() {\n", csGlslPrelude(spec, "fs") + fsUser + "\n" + csLitMOf(MESH_FS) + "void main() {\n"],
 		["\tif (u_csOn > 1.5) base = tintC(tx.rgb); else if (u_csOn > 0.5) base = csLit(",
 		 "\tvec3 csB = tintC(csSrgbToLinear(txr.rgb) * v_col.rgb);\n"
 		 + "\tczm_modelMaterial csM; csM.baseColor = vec4(csB, tx.a); csM.diffuse = csB * (1.0 - u_csMR.x); csM.alpha = tx.a; csM.specular = mix(vec3(0.04), csB, u_csMR.x); csM.roughness = u_csMR.y;\n"
