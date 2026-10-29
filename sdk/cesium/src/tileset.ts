@@ -38,7 +38,7 @@ export class Cesium3DTileset {
 	dynamicScreenSpaceError = true; foveatedScreenSpaceError = true; cullRequestsWhileMoving = true; cullWithChildrenBounds = true;
 	splitDirection = 0; showOutline = true; outlineColor = Color.clone(Color.BLACK); pointCloudShading: Any = { attenuation: false, geometricErrorScale: 1, maximumAttenuation: undefined, baseResolution: undefined, eyeDomeLighting: true, eyeDomeLightingStrength: 1, eyeDomeLightingRadius: 1, backFaceCulling: false, normalShading: true };   // PointCloudShading's defaults
 	#shadeKey = ""; #csId: string | null = null; #blendKey = "";
-	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null;
+	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null; #olKey = "";
 	#opts: Any;
 	#split: string | null = null;
 	#loaded = 0;
@@ -54,6 +54,8 @@ export class Cesium3DTileset {
 		if (opts.pointCloudShading) Object.assign(this.pointCloudShading, opts.pointCloudShading);
 		if (opts.clippingPlanes != null) this.clippingPlanes = opts.clippingPlanes;   // drawn by the scene (clipping.ts)
 		if (opts.clippingPolygons != null) { this.clippingPolygons = opts.clippingPolygons; unsupported("Cesium3DTileset option clippingPolygons"); }
+		if (opts.showOutline === false) this.showOutline = false;
+		if (opts.outlineColor) this.outlineColor = Color.clone(opts.outlineColor);
 		if (opts.customShader != null) this.customShader = opts.customShader;   // drawn by the globe (custom-shader.ts), followed in __sync
 	}
 	static async fromUrl(url: Any, options: Any = {}): Promise<Cesium3DTileset> {
@@ -131,7 +133,7 @@ export class Cesium3DTileset {
 			try {
 				const ps = pointSizeOf(this.#style), sent = this.#style;
 				const cid = customShaderId(map, this.customShader); this.#csId = cid;
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, outline: this.showOutline !== false ? [this.outlineColor.red, this.outlineColor.green, this.outlineColor.blue, this.outlineColor.alpha] : null, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
 				if (this.#style !== sent) h.setStyle(styleOf(this.#style));   // the style set while the tileset was being added
@@ -151,6 +153,8 @@ export class Cesium3DTileset {
 		if (key !== this.#shadeKey) { this.#shadeKey = key; this.#h.setOptions({ pointShading: spec }); }
 		const env = scene ? tilesetEnvSH(scene, this.#sphere.center) : null;   // the tileset's own environment map (DynamicEnvironmentMapManager at boundingSphere.center)
 		if (env !== this.#env) { this.#env = env; this.#h.setOptions({ environment: env }); }
+		const oc = this.outlineColor, ol = this.showOutline !== false && oc ? [oc.red, oc.green, oc.blue, oc.alpha] : null, ok = String(ol);   // CESIUM_primitive_outline: showOutline / outlineColor
+		if (ok !== this.#olKey) { this.#olKey = ok; this.#h.setOptions({ outline: ol }); }
 		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
 		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
 		const nl = this.#h.stats?.loaded ?? 0;   // tileLoad / tileUnload: the globe loads tiles on its own, so the count's change is raised once a frame (the examples read statistics in the handler)

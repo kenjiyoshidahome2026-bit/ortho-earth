@@ -272,13 +272,22 @@ fn csTonemap(c0: vec3f) -> vec3f {
 	let g = 1.0 - 1.0 / (0.15 * (peak - newPeak) + 1.0);
 	return mix(color, vec3f(newPeak), g);
 }
+// CESIUM_primitive_outline (PrimitiveOutlineStageFS): an edge coordinate within 0.75 px of 1 takes the outline colour; Cesium's mip-mapped lookup
+// fades the line as the coordinate's footprint grows past 1/16 (cf. glsl MESH_FS olMix). The mesh FS sets these (olC.a = 0: none)
+var<private> olV: vec3f; var<private> olW: vec3f; var<private> olC: vec4f;
+fn olMix(b: vec3f) -> vec3f {
+	if (olC.a <= 0.0) { return b; }
+	let t = max(olW, vec3f(1.0 / 4096.0));
+	let o = 0.753 * clamp((olV - 1.0) / t + 1.5, vec3f(0.0), vec3f(1.0)) * min(vec3f(1.0), 1.0 / (16.0 * t));
+	return mix(b, olC.rgb, olC.a * max(o.x, max(o.y, o.z)));
+}
 struct CsIn { base: vec3f, n: vec3f, pos: vec3f, v: vec3f, metallic: f32, rough: f32, ao: f32, emissive: vec3f, sunK: f32, cc: vec2f, ncc: vec3f };   // cc＝KHR_materials_clearcoat (factor, roughness)・ncc＝its normal (the geometric one)
 fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {   // base＝リニア。戻り＝表示空間（sRGB）
 	let l = normalize(csL.xyz); let h = normalize(i.v + l);
 	let M = pbrLocal(i.pos);
 	let nl3 = transpose(M) * i.n; let rl3 = transpose(M) * reflect(-i.v, i.n);
 	let nC = vec3f(-nl3.x, nl3.z, -nl3.y); let rC = vec3f(-rl3.x, rl3.z, -rl3.y);   // cube-map frame (x east, y up, z south): pbrLocal's first column points west (the world axes are mirrored)
-	let diffuse = i.base * (1.0 - i.metallic); let f0 = mix(vec3f(0.04), i.base, i.metallic);
+	let diffuse = olMix(i.base * (1.0 - i.metallic)); let f0 = mix(vec3f(0.04), i.base, i.metallic);
 	let VdotH = clamp(dot(i.v, h), 0.0, 1.0); let NdotL = clamp(dot(i.n, l), 0.001, 1.0); let NdotV = clamp(dot(i.n, i.v), 0.0, 1.0); let NdotH = clamp(dot(i.n, h), 0.0, 1.0);
 	let f90 = vec3f(clamp(max(f0.r, max(f0.g, f0.b)) * 25.0, 0.0, 1.0));
 	let vs = 1.0 - VdotH; let F = f0 + (f90 - f0) * vs * vs * vs * vs * vs;
@@ -930,6 +939,7 @@ struct PlOut {
 	@location(1) toEye: vec3f,
 	@location(2) front: f32,
 	@location(13) csFog: vec4f,   // Cesium の霧（頂点で色と量・csFogV）＝派生（uv/col 4〜5・影 4/6・切り抜き 5〜8・wl 12・cw 15）と重ならない番号
+	@location(14) ol: vec3f,     // CESIUM_primitive_outline の辺の座標（法線の 4 バイト目の 3 bit）
 	@location(3) fog: f32,
 };
 @vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {
@@ -939,6 +949,8 @@ struct PlOut {
 	let dir = normalize(wp);
 	o.wl = ap * 6371000.0;   // 原点相対＝f32 でも mm 級（絶対位置の f32 は 0.4m 刻み＝窓の格子が揺れる）
 	o.n = select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5);
+	let olK = floor(a_normal.w * 127.0 + 0.5);
+	o.ol = vec3f(olK % 2.0, floor(olK / 2.0) % 2.0, floor(olK / 4.0));
 	o.toEye = B.eyeRel.xyz - ap;                      // ＝F.eye − wp を原点相対で（≈1 同士の差は float32 で 0.4 m 級の誤差＝数 m まで寄った 1 m 級の模型で裏面判定が乱れた・2026-10-28）
 	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(wp);
@@ -1017,6 +1029,8 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	// 面の幾何法線＝スクリーン微分（FS冒頭＝uniform control flow・discard より前＝fwidth の轍と同じ掟）。
 	// toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号相殺＝位置微分の面法線と等価（varying追加不要）。
 	let gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));
+	olV = in.ol; olW = fwidth(in.ol);   // the outline's screen-space width (uniform control flow: before any discard)
+	let olPk = u32(B.cc.w); olC = vec4f(f32((olPk >> 16u) & 255u), f32((olPk >> 8u) & 255u), f32(olPk & 255u), 255.0 * B.cc.z) / 255.0;   // cc.z = alpha, cc.w = rgb packed 8 bits each
 	if (in.front < 0.0) { discard; }
 	if (B.tintB.w != 0.0 && sign(B.tintB.w) * (in.pos.x - (abs(B.tintB.w) - 1.0) * F.viewport.x) < 0.0) { discard; }   // Cesium splitDirection (tintB.w: sign = side kept, |w| - 1 = the split as a fraction of the width)
 	var n = normalize(in.n);
@@ -1594,7 +1608,7 @@ export function meshCustomWGSL(spec: CsSpec): { code: string; textures: string[]
 	const s = MESH_TEX_WGSL, i = s.indexOf("fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {"), j = s.indexOf("\n}\n", i);
 	const csLitM = deriveWgsl(s.slice(i, j + 3), [
 		["fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {", "fn csLitM(i: CsIn, f0m: vec3f, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {"],
-		["let diffuse = i.base * (1.0 - i.metallic); let f0 = mix(vec3f(0.04), i.base, i.metallic);", "let diffuse = i.base; let f0 = f0m;"],
+		["let diffuse = olMix(i.base * (1.0 - i.metallic)); let f0 = mix(vec3f(0.04), i.base, i.metallic);", "let diffuse = olMix(i.base); let f0 = f0m;"],
 	], "csLitM");
 	const code = deriveWgsl(MESH_TEX_WGSL, [
 		["@group(3) @binding(5) var texEm: texture_2d<f32>;\n", "@group(3) @binding(5) var texEm: texture_2d<f32>;\n" + w.decl + csLitM],
