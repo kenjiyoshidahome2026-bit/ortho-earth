@@ -1,0 +1,269 @@
+{
+ "at": "2026-10-28T23:16:33.924Z",
+ "cesium": "1.146.0",
+ "n": 8,
+ "levels": {
+  "0": 0,
+  "1": 1,
+  "2": 4,
+  "3": 3,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 1,
+  "2": 4,
+  "3": 3,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 4,
+   "examples": [
+    "elevation-band-material",
+    "globe-materials",
+    "sample-height-from-3d-tiles",
+    "terrain"
+   ]
+  },
+  {
+   "blocker": "drawn camera differs",
+   "n": 1,
+   "examples": [
+    "underground-color"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "bathymetry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2463,
+    "n": 3072,
+    "colour": 0.9840494791666666,
+    "edge": 0.8069661458333334,
+    "blob": 8
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "cesium-world-terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2940,
+    "n": 3072,
+    "colour": 0.9915364583333334,
+    "edge": 0.9651692708333334,
+    "blob": 4
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "elevation-band-material",
+   "level": 2,
+   "reasons": [
+    "picture: colour 45% · edges 58% of the cells match · a patch of 1259 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1148,
+    "n": 3072,
+    "colour": 0.4495442708333333,
+    "edge": 0.5774739583333334,
+    "blob": 1259
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-materials",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 100% of the cells match · a patch of 95 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2643,
+    "n": 3072,
+    "colour": 0.86328125,
+    "edge": 0.9964192708333334,
+    "blob": 95
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-translucency",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2788,
+    "n": 3072,
+    "colour": 0.9319661458333334,
+    "edge": 0.9716796875,
+    "blob": 3
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "sample-height-from-3d-tiles",
+   "level": 2,
+   "reasons": [
+    "picture: colour 42% · edges 50% of the cells match · a patch of 534 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 833,
+    "n": 3072,
+    "colour": 0.4182942708333333,
+    "edge": 0.4970703125,
+    "blob": 534
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 93% · edges 95% of the cells match · a patch of 137 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2803,
+    "n": 3072,
+    "colour": 0.93359375,
+    "edge": 0.9505208333333334,
+    "blob": 137
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "underground-color",
+   "level": 1,
+   "reasons": [
+    "drawn camera (Δangle 27.2° from the Cesium pose)"
+   ],
+   "blockers": [
+    "drawn camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": false
+   },
+   "picture": {
+    "ok": 511,
+    "n": 3072,
+    "colour": 0.17024739583333334,
+    "edge": 0.8043619791666666,
+    "blob": 2273
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
