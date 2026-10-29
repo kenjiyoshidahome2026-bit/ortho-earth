@@ -57,7 +57,7 @@ interface TilesetJson {
 /** I3S の節の見出し（worker の答え）＝c＝[lon,lat,h]・r＝境界球の半径（m）・thr＝子へ降りる直径（px）・kids＝子の id・mesh＝中身を持つ */
 interface I3SNodeMsg { id: number | string; c: number[]; r: number; thr: number; kids: Array<number | string>; mesh: boolean }
 /** ECEF の境界球 */
-interface Sphere { c: number[]; r: number }
+interface Sphere { c: number[]; r: number; /** a box volume's centre and half axes (ECEF): the SSE distance is to the box, as in Cesium (the sphere is far looser for a flat tile) */ obb?: number[][] }
 /** worker が解いたメッシュの束（meshdecode の形・中身は renderer の meshSet へそのまま） */
 export interface TileMesh { pos: Float32Array<ArrayBuffer>; nrm: Float32Array<ArrayBuffer>; idx: Uint32Array<ArrayBuffer>; uv?: Float32Array<ArrayBuffer>; col?: Uint8Array<ArrayBuffer>; mc?: Float32Array<ArrayBuffer>; origin?: number[]; bbox?: number[] }
 /** 画像（素の RGBA か ImageBitmap） */
@@ -173,12 +173,25 @@ const worldOf = (e: ArrayLike<number>, baseH: number, ell: boolean, EW: number) 
 	return [horiz * Math.cos(lon), RAX * sp / w + hr * sp / RAX, horiz * Math.sin(lon)];
 };
 
+// distance (world units) from the eye to a box volume: the box's half axes mapped to world by central differences, d = box centre − eye
+// (Cesium's TileOrientedBoundingBox.distanceToCamera; the mapping is affine enough over one tile)
+const obbDist = (b: number[][], baseH: number, d: number[], ell: boolean, EW: number) => {
+	let s = 0;
+	for (let k = 1; k <= 3; k++) {
+		const a = b[k], p = worldOf([b[0][0] + a[0], b[0][1] + a[1], b[0][2] + a[2]], baseH, ell, EW), q = worldOf([b[0][0] - a[0], b[0][1] - a[1], b[0][2] - a[2]], baseH, ell, EW);
+		const ax = [(p[0] - q[0]) / 2, (p[1] - q[1]) / 2, (p[2] - q[2]) / 2], L = len(ax);
+		if (L < 1e-15) continue;
+		const t = Math.abs(d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2]) / L, e = t - L;
+		if (e > 0) s += e * e;
+	}
+	return Math.sqrt(s);
+};
 // 境界体積 → ECEF の球 { c, r }
 export function sphereOf(bv: BoundingVolume | undefined, M: ArrayLike<number>): Sphere | null {
 	if (bv?.box) {
 		const b = bv.box, c = m4pt(M, [b[0], b[1], b[2]]);
 		const u = m4vec(M, [b[3], b[4], b[5]]), v = m4vec(M, [b[6], b[7], b[8]]), w = m4vec(M, [b[9], b[10], b[11]]);
-		return { c, r: Math.sqrt(len(u) ** 2 + len(v) ** 2 + len(w) ** 2) };
+		return { c, r: Math.sqrt(len(u) ** 2 + len(v) ** 2 + len(w) ** 2), obb: [c, u, v, w] };
 	}
 	if (bv?.region) {
 		// 角だけでなく経緯の中間も測る（2026-10-28・clouds 例）：OSM Buildings の根は全球の region＝旧は 8 角だけで半径を出し、経度 0 中心の
@@ -763,7 +776,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				// 地平線の向こう（球の裏側）＝地平面（接点の面 dot(X,E)=1）より向こうに境界球ごと居る
 				const d = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], dl = len(d), el = len(eye);
 				if (el > 1 && (c[0] * eye[0] + c[1] * eye[1] + c[2] * eye[2]) / el + r < 1 / el) return { ok: false };
-				return { ok: true, dist: Math.max(1e-9, dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
+				return { ok: true, dist: Math.max(1e-9, n.sphere.obb ? obbDist(n.sphere.obb, -liftOf(set, n), d, ell, EARTH_M) : dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
 			};
 			const walk = (n: T3dNode, out: T3dNode[], gp = Infinity, sib = false): boolean => {   // 戻り＝描くべき物が全部揃ったか。gp＝親の SSE（読む順の塊の優先度）。sib＝親が中身を持つ REPLACE（この塊がそろうまで親が受け持つ）
 				const g = n.parent?.id ?? 0;
