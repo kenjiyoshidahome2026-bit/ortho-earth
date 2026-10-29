@@ -1,0 +1,15 @@
+== aec-tileset-metadata-filtering {"globe":{"show":true,"tilesLoaded":true},"prims":[{"c":"Cesium3DTileset","show":true,"tilesLoaded":true,"stats":{"inflight":0,"complete":true,"loaded":18}}]}
+== billboardclamptoground-dev {"globe":{"show":true,"tilesLoaded":true},"prims":[]}
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 2,0 3,0 0,1 1,1 2,1 3,1 (1/5)
+== ground-polyline-material-dev {"globe":{"show":true,"tilesLoaded":true},"prims":[]}
+   1× warning: [csshim] unsupported: material PolylineGlow (drawn in its colour)
+   1× warning: [csshim] unsupported: material PolylineDash (drawn in its colour)
+   1× warning: [csshim] unsupported: material PolylineOutline (drawn in its colour)
+== polylines-on-terrain-dev {"globe":{"show":true,"tilesLoaded":true},"prims":[]}
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 (1/5)
+== shadows-dev {"globe":{"show":true,"tilesLoaded":true},"prims":[]}
+== elevation-band-material {"globe":{"show":true,"tilesLoaded":true},"prims":[]}
+== terrain-exaggeration {"globe":{"show":true,"tilesLoaded":true},"prims":[]}
+== high-dynamic-range {"globe":{"show":true,"tilesLoaded":true},"prims":[]}
+== 3d-tiles-point-cloud-shading {"globe":{"show":true,"tilesLoaded":true},"prims":[{"c":"Cesium3DTileset","show":true,"tilesLoaded":true,"stats":{"inflight":0,"complete":true,"loaded":5}}]}
+== 3d-tiles-point-cloud {"globe":{"show":true,"tilesLoaded":true},"prims":[{"c":"Cesium3DTileset","show":true,"tilesLoaded":true,"stats":{"inflight":0,"complete":true,"loaded":1}}]}
