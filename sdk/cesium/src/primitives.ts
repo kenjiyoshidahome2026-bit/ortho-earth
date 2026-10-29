@@ -54,6 +54,8 @@ const instancesOf = (p: Any): Any[] => { const g = p.geometryInstances; return g
 const toBytes = (c: Color) => Uint8Array.of(Math.round(c.red * 255), Math.round(c.green * 255), Math.round(c.blue * 255), Math.round(c.alpha * 255));
 const css = (b: Uint8Array) => `rgba(${b[0]},${b[1]},${b[2]},${(b[3] / 255).toFixed(3)})`;
 
+/** the polyline materials the display draws on a ground line (outline under, glow, dash, arrow) */
+const GROUND_LINE_MATERIALS = new Set(["PolylineOutline", "PolylineGlow", "PolylineDash", "PolylineArrow"]);
 /** the colour an instance is drawn in: its colour attribute, else the appearance's material colour, else white */
 function colorOf(inst: Any, appearance: Any): Uint8Array {
 	const c = inst.attributes?.color?.value;
@@ -62,7 +64,8 @@ function colorOf(inst: Any, appearance: Any): Uint8Array {
 	if (matOfMaterial(m)) return Uint8Array.of(255, 255, 255, 255);   // painted into a texture (the texture carries the colours)
 	const main = u?.color ?? u?.evenColor ?? u?.lightColor ?? u?.baseWaterColor;   // Color, Water: their first colour
 	if (main instanceof Color) {
-		if (m.type && m.type !== "Color") unsupported(`material ${m.type} (drawn in its colour)`);
+		const drawn = GroundPolylineGeometry && inst.geometry instanceof GroundPolylineGeometry && GROUND_LINE_MATERIALS.has(m.type);
+		if (m.type && m.type !== "Color" && !drawn) unsupported(`material ${m.type} (drawn in its colour)`);
 		return toBytes(main);
 	}
 	if (m?.type) unsupported(`material ${m.type} (drawn white)`);
