@@ -7,7 +7,8 @@ import * as engine from "@cesium/engine";
 const { TweenCollection } = engine as any;   // a runtime export the d.ts leaves out
 import { globeCamOf, poseOfGlobeCam, poseKey, sameKey, sameGlobeCam, setCameraWorldPose, type GlobeCam } from "./camera.ts";
 import { unsupported } from "./report.ts";
-import { postChainOf } from "./postprocess.ts";
+import { postChainOf, type PostFrame } from "./postprocess.ts";
+import { sunPositionWC } from "./lighting.ts";
 import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
 
 /** the globe and what the facade hangs on it (filled when createGlobe resolves) */
@@ -125,10 +126,25 @@ export class OrthoScene {
 	}
 
 	// postProcessStages (Cesium's real collection; the examples add stages to it) → map.setPostChain each frame when it changed (順 4 · postprocess.ts)
+	// the frame the lens flare and the depth of field are drawn for (only when such a stage is in the collection: the sun costs a little)
+	#postFrame(): PostFrame | null {
+		const c = this.postProcessStages as any, n = c?.length ?? 0;
+		let want = false;
+		for (let i = 0; i < n && !want; i++) { const s = c.get(i); want = !!s && s.enabled !== false && (s.name === "czm_lens_flare" || s.name === "czm_depth_of_field"); }
+		if (!want) return null;
+		const cam = this.camera as any, fr = cam.frustum, p = cam.positionWC;
+		const t = this.lastRenderTime ?? (this as any).frameState?.time;
+		let sun: number[] | null = null;
+		try { sun = t ? sunPositionWC(t) : null; } catch { sun = null; }
+		// czm_currentFrustum: Cesium's near/far fit the drawn commands, clamped to frustum.near/far; the sun and the moon are commands too (the moon at
+		// 3.8e8 m), so the far is frustum.far (5e8) in practice (depth-of-field: the ground behind the focus stays almost sharp, as in Cesium)
+		return { view: Array.from(cam.viewMatrix as ArrayLike<number>), proj: Array.from(fr.projectionMatrix as ArrayLike<number>), eye: [p.x, p.y, p.z], sun, near: Math.max(fr.near ?? 1, 1e-3), far: Math.max(fr.far ?? 5e8, 1000),
+			radius: Math.hypot(p.x, p.y, p.z) - (cam.positionCartographic?.height ?? 0) };
+	}
 	#syncPost() {
 		const map = this.host.map; if (!map?.setPostChain) return;
 		let r: ReturnType<typeof postChainOf>;
-		try { r = postChainOf(this.postProcessStages); } catch { return; }
+		try { r = postChainOf(this.postProcessStages, this.#postFrame()); } catch { return; }
 		const key = JSON.stringify(r.chain) + (r.ao ? "|ao" : "");
 		if (key === this.#postKey) return;
 		this.#postKey = key;

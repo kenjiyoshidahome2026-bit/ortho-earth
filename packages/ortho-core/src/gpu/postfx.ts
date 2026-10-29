@@ -170,7 +170,7 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 	function encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): void {
 		ensure(W, H);
 		const stages = post.stages?.length && sf ? post.stages : null;
-		if (stages) SG ??= createPostStagesGPU(device, format); else if (SG) { SG.dispose(); SG = null; }
+		if (stages) SG ??= createPostStagesGPU(device, format, requestDraw); else if (SG) { SG.dispose(); SG = null; }
 		const stageOn = !!(stages && SG!.drawable(stages));
 		const b = post.bloom, v = post.vignette, t = post.tonemap, g = post.grade;
 		gr = g && g.length >= 3 ? [g[0], g[1], g[2], 1] : [1, 1, 1, 0];
