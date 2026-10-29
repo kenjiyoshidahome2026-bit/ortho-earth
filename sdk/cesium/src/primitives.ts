@@ -21,7 +21,7 @@ import { customShaderId } from "./custom-shader.ts";
 const { Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model } = engine as Any;
 const TRIANGLES = 4, LINES = 1;
 
-export interface PrimLine { p: number[]; color: string; width: number }
+export interface PrimLine { p: number[]; color: string; width: number; ground?: boolean }   // ground: a GroundPolylinePrimitive's line, draped on the terrain (p = its input positions)
 interface Item {
 	p: Any; key: string; built: boolean; h: Any; loading: boolean; dead: boolean;
 	lines: PrimLine[]; ids: Any[]; colors: Uint8Array[]; shows: boolean[];
@@ -234,6 +234,7 @@ export class PrimitiveDrawer {
 				const ps: Cartesian3[] = moved ? g._positions.map((q: Cartesian3) => Matrix4.multiplyByPoint(W, q, new Cartesian3())) : g._positions;
 				const pc = g._colors?.[0] ? toBytes(g._colors[0]) : col;
 				let pts: number[] = [];
+				if (GroundPolylineGeometry && g instanceof GroundPolylineGeometry) { lines.push({ p: ps.flatMap(q => [q.x, q.y, q.z]), color: css(pc), width, ground: true }); return; }   // draped on the ground, as Cesium draws it
 				if (g._arcType === ArcType.NONE) pts = ps.flatMap(q => [q.x, q.y, q.z]);   // straight in space (DebugModelMatrixPrimitive's axes)
 				else try { pts = Array.from(PolylinePipeline.generateArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84), granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { pts = ps.flatMap(q => [q.x, q.y, q.z]); }
 				lines.push({ p: pts, color: css(pc), width });
