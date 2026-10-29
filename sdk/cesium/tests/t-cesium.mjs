@@ -19,6 +19,8 @@ import { cesiumEnvSH, cesiumEvalSH, cesiumEnvRadiance, CESIUM_SH_UNIFORM_L00 } f
 import { Entity, JulianDate as EJulianDate } from "@cesium/engine";
 import { bandRamp, groundMaterialOf, materialKey, createElevationBandMaterial } from "../src/globe-material.ts";
 import { Color, Material } from "@cesium/engine";
+import { CustomShader, UniformType, LightingModel, CustomShaderTranslucencyMode, TextureUniform } from "@cesium/engine";
+import { customShaderId } from "../src/custom-shader.ts";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -477,6 +479,23 @@ for (const g of [
 	ok("model tint: white HIGHLIGHT and no colour are none", modelTintOf(white, 0, 0.5) === null && modelTintOf(undefined, 0, 0.5) === null);
 	ok("model tint: REPLACE / MIX", modelTintOf(white, 1, 0.5)?.blend === "replace" && modelTintOf(red, 2, 0.3)?.amount === 0.3);
 	ok("model silhouette: size 0 is none, default colour red", modelSilOf(red, 0) === null && JSON.stringify(modelSilOf(undefined, 2)) === JSON.stringify({ color: [1, 0, 0, 1], size: 2 }));
+}
+
+// ── CustomShader → map.setCustomShader / setCustomShaderTexture（setUniform は値を送り直す） ──
+{
+	const calls = [], texs = [], map = { setCustomShader: (id, spec) => calls.push([id, spec]), setCustomShaderTexture: (id, name, tex, opts) => texs.push([id, name, tex, opts]) };
+	const cs = new CustomShader({ lightingModel: LightingModel.UNLIT, translucencyMode: CustomShaderTranslucencyMode.TRANSLUCENT,
+		uniforms: { u_time: { type: UniformType.FLOAT, value: 0 }, u_drag: { type: UniformType.VEC2, value: new Cartesian3(1, 2, 0) }, u_t: { type: UniformType.SAMPLER_2D, value: new TextureUniform({ typedArray: new Uint8Array([255, 0, 0, 0, 255, 0]), width: 2, height: 1, pixelFormat: 6407 }) } },
+		fragmentShaderText: "void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) { material.diffuse = vec3(u_time); }" });
+	const id = customShaderId(map, cs), id2 = customShaderId(map, cs);
+	const spec = calls[0]?.[1];
+	ok("custom shader: one id per shader and map", id && id === id2 && calls.length === 1);
+	ok("custom shader: spec (types, values, UNLIT, TRANSLUCENT)", spec.uniforms.u_t === "sampler2D" && spec.values.u_time === 0 && spec.values.u_drag.join() === "1,2,0" && spec.lighting === "UNLIT" && spec.translucency === "TRANSLUCENT" && !("u_t" in spec.values));
+	ok("custom shader: RGB typed array → RGBA", texs.length === 1 && Array.from(texs[0][2].rgba).join() === "255,0,0,255,0,255,0,255" && texs[0][3].repeat === true);
+	cs.setUniform("u_time", 2.5); cs.setUniform("u_time", 3);
+	await Promise.resolve();
+	ok("custom shader: setUniform re-sends once per task", calls.length === 2 && calls[1][1].values.u_time === 3);
+	ok("custom shader: none is null", customShaderId(map, undefined) === null);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");

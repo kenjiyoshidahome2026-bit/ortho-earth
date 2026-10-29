@@ -24,7 +24,7 @@ import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォー�
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { csViewMat, csGlUniform } from "../csshader.ts";   // Cesium の CustomShader（利用者の GLSL を模型の FS/VS に差し込む）
-import type { CsSpec, CsUType } from "../csshader.ts";
+import type { CsSpec, CsUType, CsMeta } from "../csshader.ts";
 import { meshCustomGLSL } from "./glsl.ts";
 import { createDepthOutGL } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
 import { createClassifyGL } from "./classify.ts";   // 面の貼り付け（分類・2026-10-25）＝柱（体積）を深度に当てて地形・3D Tiles の面だけ塗る
@@ -134,6 +134,7 @@ interface MeshIn {
 	origin?: number[] | null; alphaMode?: string; alphaCutoff?: number; bbox?: number[] | null; ward?: string; pbr?: { metallic: number; roughness: number } | null; csLit?: string;
 	lodH?: ArrayLike<number> | null; lodCounts?: ArrayLike<number> | null; twoSided?: boolean; noCull?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	mask?: ArrayLike<number> | null; maskCells?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[] | null;
+	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexIn | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
 	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 interface MeshBatch {
@@ -146,11 +147,12 @@ interface MeshBatch {
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝SH9・27 値）＝meshLight.sh より勝つ
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
 	custom?: string | null; mcJ?: Float32Array | null; mc?: boolean;   // Cesium の CustomShader（set "meshCustom"）の id・J・a_mc の有無
+	uvm?: boolean; meta?: { props: Record<string, CsMeta>; sig: string; texs: WebGLTexture[] } | null;   // property texture（a_uvm の有無・読み方・画像）
 }
 /** set("customShader", spec, id) の登録＝プログラムは初めて描く時に作る（失敗＝err＝素の模型で描く） */
-interface CsEntry { spec: CsSpec & { values?: Record<string, unknown>; lighting?: string; translucency?: string }; prog: WebGLProgram | null; err: boolean; tex: Map<string, WebGLTexture> }
+interface CsEntry { spec: CsSpec & { values?: Record<string, unknown>; lighting?: string; translucency?: string }; progs: Map<string, WebGLProgram | null>; tex: Map<string, WebGLTexture> }   // progs＝束の property texture の形（sig）ごと（null＝組めない）
 interface CsTexIn { name: string; tex: MeshTexIn; nearest?: boolean; repeat?: boolean }
-const MC_LOC = 6, CS_TEX_UNIT = 24;   // a_mc の属性番号（a_pos/a_normal/a_uv/a_col の後）・利用者のテクスチャの最初のユニット（0..20 は描き手が使う）
+const MC_LOC = 6, UVM_LOC = 7, CS_TEX_UNIT = 24;   // a_mc の属性番号（a_pos/a_normal/a_uv/a_col の後）・利用者のテクスチャの最初のユニット（0..20 は描き手が使う）
 interface MeshMask { tex: WebGLTexture; bbox: number[]; n: number; bytes: Uint8Array }
 /** overlay 系の入力（buildGeoJSONOverlay のシーン） */
 interface OverlaySceneIn { fanPos: Float32Array; P1: Float32Array; P2: Float32Array; lineCol: Float32Array | Uint8Array; lineHalf?: Float32Array | null; origin: ArrayLike<number>; minZoom?: number; feats?: OverlayRange[] | null }
@@ -963,13 +965,17 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const customs = new Map<string, CsEntry>();
 	let csFrame = 0;   // czm_frameNumber
 	const csOf = (p: MeshBatch): CsEntry | null => p.textured && p.custom ? customs.get(p.custom) ?? null : null;
-	function csProg(e: CsEntry): WebGLProgram | null {   // 初めて描く時に組む（GLSL はそのまま・失敗は 1 度だけ告げて素の模型で描く）
-		if (e.prog || e.err) return e.prog;
-		try { const { vs, fs } = meshCustomGLSL(e.spec); e.prog = programBound(gl, vs, fs, { ...Object.fromEntries(["a_pos", "a_normal", "a_uv", "a_col"].map(n => [n, gl.getAttribLocation(meshTexProg0, n)])), a_mc: MC_LOC }); }
-		catch (err) { e.err = true; console.warn("[customShader] compile failed = drawn without it:", (err as Error).message.split("\n")[0]); }
-		return e.prog;
+	function csProg(e: CsEntry, p: MeshBatch): WebGLProgram | null {   // 初めて描く時に組む（GLSL はそのまま・失敗は 1 度だけ告げて素の模型で描く）。束の property texture の形ごとに 1 つ
+		const sig = p.meta?.sig ?? "";
+		if (e.progs.has(sig)) return e.progs.get(sig)!;
+		let prog: WebGLProgram | null = null;
+		try { const { vs, fs } = meshCustomGLSL(p.meta ? { ...e.spec, metadata: { ...e.spec.metadata, ...p.meta.props } } : e.spec); prog = programBound(gl, vs, fs, { ...Object.fromEntries(["a_pos", "a_normal", "a_uv", "a_col"].map(n => [n, gl.getAttribLocation(meshTexProg0, n)])), a_mc: MC_LOC, a_uvm: UVM_LOC }); }
+		catch (err) { console.warn("[customShader] compile failed = drawn without it:", (err as Error).message.split("\n")[0]); }
+		e.progs.set(sig, prog);
+		return prog;
 	}
-	function csFree(e: CsEntry): void { if (e.prog) gl.deleteProgram(e.prog); for (const t of e.tex.values()) gl.deleteTexture(t); }
+	function csFree(e: CsEntry): void { for (const p of e.progs.values()) if (p) gl.deleteProgram(p); for (const t of e.tex.values()) gl.deleteTexture(t); }
+	function metaFree(p: MeshBatch): void { for (const t of p.meta?.texs || []) if (t !== whiteTex) gl.deleteTexture(t); }
 	function csTexture(t: CsTexIn): WebGLTexture {   // 利用者のテクスチャ（TextureUniform）＝NEAREST／LINEAR・REPEAT／CLAMP は Cesium の sampler から
 		const tex = gl.createTexture()!, src = t.tex;
 		gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -987,8 +993,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		if (!spec) { if (old) { csFree(old); customs.delete(id); } return; }
 		const same = old && old.spec.vs === spec.vs && old.spec.fs === spec.fs && JSON.stringify(old.spec.uniforms) === JSON.stringify(spec.uniforms) && JSON.stringify(old.spec.metadata) === JSON.stringify(spec.metadata);
 		if (old && same) { old.spec = spec; return; }   // 値（setUniform）・照明・半透明だけ＝組み直さない
-		if (old && old.prog) gl.deleteProgram(old.prog);
-		customs.set(id, { spec, prog: null, err: false, tex: old ? old.tex : new Map() });
+		if (old) for (const p of old.progs.values()) if (p) gl.deleteProgram(p);
+		customs.set(id, { spec, progs: new Map(), tex: old ? old.tex : new Map() });
 	}
 	const blendOf = (p: MeshBatch): number => p.blend ? 1 : p.tint && p.tint[3] < 1 ? 2 : csOf(p)?.spec.translucency === "TRANSLUCENT" ? 2 : 0;   // CustomShader の TRANSLUCENT＝半透明の束として奥から描く   // 2＝Model.color の α だけで半透明（OPAQUE の材質＝テクスチャの α は無視）
 	let meshLight: GLMeshLight | null = null;   // Cesium の模型の照明（setMeshLighting）＝有れば固定光・style の light の代わりに Cesium の式（csLit）で描く
@@ -1592,7 +1598,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			for (const k of [...meshes.keys()]) {
 				if (k !== key && !k.startsWith(key + "#")) continue;
 				const p = meshes.get(k)!;
-				gl.deleteVertexArray(p.vao); for (const b of p.bufs) gl.deleteBuffer(b); if (p.tex && p.tex !== whiteTex) gl.deleteTexture(p.tex);
+				gl.deleteVertexArray(p.vao); for (const b of p.bufs) gl.deleteBuffer(b); if (p.tex && p.tex !== whiteTex) gl.deleteTexture(p.tex); metaFree(p);
 				meshes.delete(k);
 			}
 			const m = meshMasks.get(key);
@@ -1601,7 +1607,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			return;
 		}
 		const old = meshes.get(key);
-		if (old) { gl.deleteVertexArray(old.vao); for (const b of old.bufs) gl.deleteBuffer(b); if (old.tex && old.tex !== whiteTex) gl.deleteTexture(old.tex); meshes.delete(key); }
+		if (old) { gl.deleteVertexArray(old.vao); for (const b of old.bufs) gl.deleteBuffer(b); if (old.tex && old.tex !== whiteTex) gl.deleteTexture(old.tex); metaFree(old); meshes.delete(key); }
 		if (!data.pos?.length || !data.idx?.length) return;
 		const textured = !!(data.uv && data.col), prog = textured ? meshTexProg : meshProg;   // 模型（glb 直読み）＝uv＋頂点色＋テクスチャ
 		const vao = gl.createVertexArray()!, vbo = buffer(gl, data.pos), nbo = buffer(gl, data.nrm), ibo = gl.createBuffer()!;
@@ -1619,6 +1625,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			attrib(gl, prog, "a_uv", uvbo, 2); attrib(gl, prog, "a_col", cbo, 4, null, true);
 			tex = meshTexture(data.tex);
 			if (data.mc?.length) { const mbo = buffer(gl, data.mc); bufs.push(mbo); gl.bindBuffer(gl.ARRAY_BUFFER, mbo); gl.enableVertexAttribArray(MC_LOC); gl.vertexAttribPointer(MC_LOC, 4, gl.FLOAT, false, 0, 0); }   // CustomShader の positionMC（＋地物番号）
+			if (data.uvm?.length) { const ubo = buffer(gl, data.uvm); bufs.push(ubo); gl.bindBuffer(gl.ARRAY_BUFFER, ubo); gl.enableVertexAttribArray(UVM_LOC); gl.vertexAttribPointer(UVM_LOC, 2, gl.FLOAT, false, 0, 0); }   // property texture の texCoord
 		}
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
@@ -1627,7 +1634,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length });   // 影を落とさない（WebGPU と同じ）   // noCull＝裏面を捨てない（面の向きが揃っていない建物・間引きは残す）／noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
+			meta: textured && data.meta?.props && data.meta.texs?.length ? { props: data.meta.props, sig: JSON.stringify(data.meta.props), texs: data.meta.texs.map(t => t ? csTexture({ name: "", tex: t, nearest: true, repeat: false }) : whiteTex) } : null });   // 影を落とさない（WebGPU と同じ）   // noCull＝裏面を捨てない（面の向きが揃っていない建物・間引きは残す）／noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
 		if (data.ward && (data.maskCells || data.mask) && (data.maskN! | 0) > 0 && data.maskBbox) {
@@ -2521,22 +2529,24 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			let csV: Float32Array | null = null;   // CustomShader の世界→目（EC）の回転＝フレームに 1 度
 			if (customs.size) csFrame++;
 			for (const { p, count } of order) {
-				const cse = csOf(p), csp = cse ? csProg(cse) : null;
+				const cse = csOf(p), csp = cse ? csProg(cse, p) : null;
 				const pg = csp ?? (p.textured ? meshTexProg : meshProg);   // 模型（uv＋頂点色＋テクスチャ）は派生プログラム＝切替は模型の分だけ・CustomShader は束ごとのプログラム
 				if (pg !== curProg) { gl.useProgram(pg); curProg = pg; }
 				if (cse && csp) {   // Cesium の CustomShader：J・V・照明／半透明の型・czm_frameNumber・利用者の uniform とテクスチャ
 					if (!csV) { const r = st.invMvp ? viewRays(st.mvp, st.invMvp) : null; csV = r ? csViewMat(r.F, r.X, r.Y) : Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1); }
 					gl.uniformMatrix3fv(loc(gl, pg, "u_csJ"), false, p.mcJ ?? Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1));
 					gl.uniformMatrix3fv(loc(gl, pg, "u_csV"), false, csV);
-					gl.uniform2f(loc(gl, pg, "u_csMode"), cse.spec.lighting === "UNLIT" ? 1 : 0, cse.spec.translucency === "TRANSLUCENT" ? 1 : 0);
+					gl.uniform2f(loc(gl, pg, "u_csMode"), cse.spec.lighting === "UNLIT" ? 1 : cse.spec.lighting === "PBR" ? -1 : 0, cse.spec.translucency === "TRANSLUCENT" ? 1 : 0);
 					gl.uniform1f(loc(gl, pg, "u_czmFrame"), csFrame);
 					let unit = CS_TEX_UNIT;
 					for (const [name, t] of Object.entries(cse.spec.uniforms || {}) as [string, CsUType][]) {
 						if (t === "sampler2D") { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, cse.tex.get(name) ?? whiteTex); gl.uniform1i(loc(gl, pg, "cu_" + name), unit++); continue; }
 						csGlUniform(gl, loc(gl, pg, "cu_" + name), t, cse.spec.values?.[name]);
 					}
+					(p.meta?.texs || []).forEach((t, k) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(loc(gl, pg, "csmt_" + k), unit++); });   // property texture（fsInput.metadata）
 					gl.activeTexture(gl.TEXTURE0);
 					if (!p.mc) gl.vertexAttrib4f(MC_LOC, 0, 0, 0, 0);   // positionMC の無い束（読み込み後に差した）＝0
+					if (!p.uvm) gl.vertexAttrib2f(UVM_LOC, 0, 0);
 				}
 				if (clipOn) {   // 模型（textured）＝models・建物メッシュ＝buildings。面は main 原点から・u_clO＝メッシュ原点 − main 原点（f64）
 					const O = lonlatTo3D(...((scenes.main.origin || [0, 0]) as [number, number]));

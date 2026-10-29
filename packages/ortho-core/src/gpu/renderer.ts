@@ -21,7 +21,7 @@ import { seaFbReal, dashIntervals, chopDash } from "../scene.ts";   // dashInter
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { csViewMat, csPackUniforms, CS_CU_HEAD } from "../csshader.ts";   // Cesium の CustomShader（GLSL を WGSL に訳して模型の FS/VS に差し込む）
-import type { CsSpec } from "../csshader.ts";
+import type { CsSpec, CsMeta } from "../csshader.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, MESH_SIL_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
@@ -168,15 +168,16 @@ export interface MeshSetData {
 	pbr?: MeshPbr | null; csLit?: string; alphaMode?: string; alphaCutoff?: number; origin?: number[]; bbox?: number[]; ward?: string; lodH?: number[] | null; lodCounts?: number[] | null;
 	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
+	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexSrc | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
 	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 /** set("customShader", spec, id) の登録＝モジュールとパイプラインは初めて描く時に非同期で組む（出来るまで・失敗は素の模型で描く） */
 interface CsEntryG {
 	spec: CsSpec & { values?: Record<string, unknown>; lighting?: string; translucency?: string };
 	tex: Map<string, { t: MeshTex; samp: GPUSampler }>; rev: number;   // 利用者のテクスチャ（TextureUniform）・rev＝束の bind group の作り直し
-	bgl: GPUBindGroupLayout | null; textures: string[]; cuSize: number; code: string | null;
-	pipes: Map<number, { op: GPURenderPipeline; bl: GPURenderPipeline } | "pending">; err: boolean;
+	vars: Map<string, CsVarG>;   // 束の property texture の形（sig）ごと
 }
+interface CsVarG { code: string | null; bgl: GPUBindGroupLayout | null; textures: string[]; nMeta: number; cuSize: number; pipes: Map<number, { op: GPURenderPipeline; bl: GPURenderPipeline } | "pending">; err: boolean }
 interface CsTexInG { name: string; tex: MeshTexSrc; nearest?: boolean; repeat?: boolean }
 interface MeshBatch {
 	vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer; textured: boolean; blend: boolean; cut: number; uvbo: GPUBuffer | null; cbo: GPUBuffer | null;
@@ -186,7 +187,8 @@ interface MeshBatch {
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝Cesium の模型ごとの環境の SH9・27 値）＝meshLight.sh より勝つ
 	custom?: string | null; mcJ?: Float32Array | null; mcbo?: GPUBuffer | null;   // Cesium の CustomShader（set "meshCustom"）の id・J・positionMC の頂点バッファ（location 4）
-	cs?: { id: string; rev: number; cub: GPUBuffer; bg: GPUBindGroup; cpu: ArrayBuffer } | null;   // その束の CU（uniform）と group(3)
+	cs?: { id: string; rev: number; bgl: GPUBindGroupLayout; cub: GPUBuffer; bg: GPUBindGroup; cpu: ArrayBuffer } | null;   // その束の CU（uniform）と group(3)
+	uvmbo?: GPUBuffer | null; meta?: { props: Record<string, CsMeta>; sig: string; texs: MeshTex[] } | null;   // property texture の texCoord（location 5）・読み方・画像
 }
 interface MeshMask { ward: string; rev: number; tex: GPUTexture; view: GPUTextureView; bbox: number[]; n: number; bytes: Uint8Array }
 interface RasterTexH { kind: "tex"; tex: GPUTexture; bg: GPUBindGroup; bgN: GPUBindGroup | null; bytes: number; w: number; h: number; bgOf?: (nearest: boolean) => GPUBindGroup }
@@ -1944,6 +1946,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (levels > 1) genMips(tex, levels);
 		return { tex, view: tex.createView(srgb ? SRGB_VIEW : undefined) };
 	}
+	function metaTexture(t: MeshTexSrc | null): MeshTex {   // property texture＝値の画像（mip 無し・リニアのまま・NEAREST で読む）
+		if (!t) return mrTex1;
+		const w = t.bitmap ? t.bitmap.width : t.w, h = t.bitmap ? t.bitmap.height : t.h;
+		const tex = device.createTexture({ size: [w, h], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+		if (t.bitmap) device.queue.copyExternalImageToTexture({ source: t.bitmap }, { texture: tex }, [w, h]);
+		else device.queue.writeTexture({ texture: tex }, t.rgba, { bytesPerRow: w * 4, rowsPerImage: h }, [w, h]);
+		return { tex, view: tex.createView() };
+	}
 	function meshTexBG(texs: (MeshTex | null)[]): GPUBindGroup {   // 5 枚（無い所は既定）→ group(3)
 		return device.createBindGroup({ layout: bglPlTex5, entries: [{ binding: 0, resource: texSampler }, ...texs.map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view }))] });
 	}
@@ -2192,7 +2202,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		for (const k of [...meshes.keys()]) {
 			if (k !== ward && !k.startsWith(ward + "#")) continue;
 			const p = meshes.get(k)!;
-			p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.mcbo?.destroy(); p.cs?.cub.destroy(); for (const t of p.texs || []) t?.tex.destroy();
+			p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.mcbo?.destroy(); p.cs?.cub.destroy(); p.uvmbo?.destroy(); for (const t of p.meta?.texs || []) if (t !== mrTex1) t.tex.destroy(); for (const t of p.texs || []) t?.tex.destroy();
 			meshes.delete(k);
 		}
 		const m = meshMasks.get(ward);
@@ -2209,7 +2219,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		castRev++;
 		if (!data) { freeMeshWard(key); return; }   // key=区名：全バッチ+マスク解放
 		const old = meshes.get(key);
-		if (old) { old.vbo.destroy(); old.nbo.destroy(); old.ibo.destroy(); old.uvbo?.destroy(); old.cbo?.destroy(); old.mcbo?.destroy(); old.cs?.cub.destroy(); for (const t of old.texs || []) t?.tex.destroy(); meshes.delete(key); }
+		if (old) { old.vbo.destroy(); old.nbo.destroy(); old.ibo.destroy(); old.uvbo?.destroy(); old.cbo?.destroy(); old.mcbo?.destroy(); old.cs?.cub.destroy(); old.uvmbo?.destroy(); for (const t of old.meta?.texs || []) if (t !== mrTex1) t.tex.destroy(); for (const t of old.texs || []) t?.tex.destroy(); meshes.delete(key); }
 		if (data.pos?.length && data.idx?.length) {
 			const nrm = data.nrm instanceof Int8Array ? data.nrm : Int8Array.from(data.nrm || new Int8Array(data.pos.length / 3 * 4));
 			const vbo = device.createBuffer({ size: (data.pos.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -2229,13 +2239,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}
 			let mcbo: GPUBuffer | null = null;   // CustomShader の positionMC（＋地物番号）
 			if (textured && data.mc?.length) { mcbo = device.createBuffer({ size: (data.mc.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }); device.queue.writeBuffer(mcbo, 0, data.mc.buffer, data.mc.byteOffset, data.mc.byteLength); }
+			let uvmbo: GPUBuffer | null = null;   // property texture の texCoord
+			if (textured && data.uvm?.length) { uvmbo = device.createBuffer({ size: (data.uvm.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }); device.queue.writeBuffer(uvmbo, 0, data.uvm.buffer, data.uvm.byteOffset, data.uvm.byteLength); }
+			const meta = textured && data.meta?.props && data.meta.texs?.length ? { props: data.meta.props, sig: JSON.stringify(data.meta.props), texs: data.meta.texs.map(t => metaTexture(t)) } : null;
 			const pb = data.pbr || null;   // 材質の数値（metallic, roughness, normalScale, occlusion, emissive[3]）＝無ければ既定（金属 0・粗さ 1）
 			// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
-				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
+				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのに建物メッシュが無い」
@@ -3326,15 +3339,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					if (!tx && grp("buildings")) pass.setBindGroup(3, grp("buildings"));   // 素の建物メッシュ＝建物の対象（模型は group(2) に models の面）
 					let cur = pipeline;
 					for (const { p, count, slot } of list) {
-						const cse = tx ? csOf(p) : null, csp = cse ? csPipes(cse, S) : null;
-						if (cse && csp) {   // Cesium の CustomShader＝束ごとのパイプライン（影・断面の受け手は無し＝素の PB）
+						const cse = tx ? csOf(p) : null, csv = cse ? csVar(cse, p) : null, csp = csv ? csPipes(csv, S) : null;
+						if (csp) {   // Cesium の CustomShader＝束ごとのパイプライン（影・断面の受け手は無し＝素の PB）
 							const pl = pipeline === TX.meshTexBlend ? csp.bl : csp.op;
 							if (cur !== pl) { pass.setPipeline(pl); cur = pl; }
 							if (!csV) { const r = st.invMvp ? viewRays(st.mvp, st.invMvp) : null; csV = r ? csViewMat(r.F, r.X, r.Y) : Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1); }
-							const c = csBind(p, p.custom!, cse); csWrite(p, cse, csV);
+							const c = csBind(p, p.custom!, cse!, csv!); csWrite(p, cse!, csV);
 							if (!p.mcbo) { p.mcbo = device.createBuffer({ size: Math.max(16, p.vbo.size / 12 * 16), usage: GPUBufferUsage.VERTEX }); }   // positionMC の無い束（読み込み後に差した）＝0
+							if (!p.uvmbo) { p.uvmbo = device.createBuffer({ size: Math.max(8, p.vbo.size / 12 * 8), usage: GPUBufferUsage.VERTEX }); }   // property texture の無い束＝0
 							pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);
-							pass.setVertexBuffer(0, p.vbo); pass.setVertexBuffer(1, p.nbo); pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setVertexBuffer(4, p.mcbo);
+							pass.setVertexBuffer(0, p.vbo); pass.setVertexBuffer(1, p.nbo); pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setVertexBuffer(4, p.mcbo); pass.setVertexBuffer(5, p.uvmbo);
 							pass.setBindGroup(3, c.bg);
 							pass.setIndexBuffer(p.ibo, "uint32"); pass.drawIndexed(count);
 							continue;
@@ -3454,6 +3468,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },
 		{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
 		{ arrayStride: 16, attributes: [{ shaderLocation: 4, offset: 0, format: "float32x4" }] },   // a_mc＝positionMC＋地物番号
+		{ arrayStride: 8, attributes: [{ shaderLocation: 5, offset: 0, format: "float32x2" }] },   // a_uvm＝property texture の texCoord
 	];
 	const csSamps = new Map<string, GPUSampler>();
 	const csSampler = (nearest: boolean, repeat: boolean): GPUSampler => {   // TextureUniform の sampler（NEAREST／LINEAR・REPEAT／CLAMP）
@@ -3461,49 +3476,59 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!x) { const fl: GPUFilterMode = nearest ? "nearest" : "linear", ad: GPUAddressMode = repeat ? "repeat" : "clamp-to-edge"; x = device.createSampler({ magFilter: fl, minFilter: fl, mipmapFilter: nearest ? "nearest" : "linear", addressModeU: ad, addressModeV: ad }); csSamps.set(k, x); }
 		return x;
 	};
+	/** 束の property texture の形（sig）ごとの訳と束縛の形 */
+	function csVar(e: CsEntryG, p: MeshBatch): CsVarG | null {
+		const sig = p.meta?.sig ?? "";
+		let v = e.vars.get(sig);
+		if (v) return v.err ? null : v;
+		v = { code: null, bgl: null, textures: [], nMeta: p.meta?.texs.length ?? 0, cuSize: 0, pipes: new Map(), err: false };
+		e.vars.set(sig, v);
+		try { const w = meshCustomWGSL(p.meta ? { ...e.spec, metadata: { ...e.spec.metadata, ...p.meta.props } } : e.spec); v.code = w.code; v.textures = w.textures; v.cuSize = Math.max(CS_CU_HEAD * 16 + 16, (w.cuSize + 15) & ~15); }
+		catch (err) { v.err = true; console.warn("[customShader] cannot translate to WGSL = drawn without it:", (err as Error).message); return null; }
+		const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, pair = (b: number): GPUBindGroupLayoutEntry[] => [{ binding: b, visibility: VF, sampler: { type: "filtering" } }, { binding: b + 1, visibility: VF, texture: { sampleType: "float" } }];
+		v.bgl = device.createBindGroupLayout({ entries: [
+			...[0, 1, 2, 3, 4, 5].map(b => b === 0 ? { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" as const } } : { binding: b, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" as const } }),   // bglPlTex5 と同じ（模型の材質 5 枚）
+			{ binding: 6, visibility: VF, buffer: { type: "uniform" as const } },   // CU
+			...v.textures.flatMap((_, k) => pair(7 + k * 2)),   // 利用者のテクスチャ
+			...Array.from({ length: v.nMeta }, (_, k) => pair(7 + v!.textures.length * 2 + k * 2)).flat(),   // property texture（csshader csWgsl と同じ並び）
+		] });
+		return v;
+	}
 	/** そのサンプル数のパイプライン（無ければ非同期で組み始めて null）。訳せない・組めない＝err＝素の模型 */
-	function csPipes(e: CsEntryG, sc: number): { op: GPURenderPipeline; bl: GPURenderPipeline } | null {
-		if (e.err) return null;
-		const got = e.pipes.get(sc);
+	function csPipes(v: CsVarG, sc: number): { op: GPURenderPipeline; bl: GPURenderPipeline } | null {
+		if (v.err) return null;
+		const got = v.pipes.get(sc);
 		if (got) return got === "pending" ? null : got;
-		if (!e.code) {
-			try { const w = meshCustomWGSL(e.spec); e.code = w.code; e.textures = w.textures; e.cuSize = Math.max(CS_CU_HEAD * 16 + 16, (w.cuSize + 15) & ~15); }
-			catch (err) { e.err = true; console.warn("[customShader] cannot translate to WGSL = drawn without it:", (err as Error).message); return null; }
-			e.bgl = device.createBindGroupLayout({ entries: [
-				...[0, 1, 2, 3, 4, 5].map(b => b === 0 ? { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" as const } } : { binding: b, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" as const } }),   // bglPlTex5 と同じ（模型の材質 5 枚）
-				{ binding: 6, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" as const } },   // CU
-				...e.textures.flatMap((_, k) => [{ binding: 7 + k * 2, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, sampler: { type: "filtering" as const } }, { binding: 8 + k * 2, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, texture: { sampleType: "float" as const } }]),
-			] });
-		}
-		let code = e.code!;
+		let code = v.code!;
 		if (rOpts.gndFast === false) code = gndMixSlow(code);
 		if (fragDepthOn) code = fragDepthWgsl(code, "meshTex");   // 模型と同じ深度の書き方（対数深度を FS で）
 		device.pushErrorScope("validation");   // 訳した WGSL の誤り＝描き手の誤りに数えない（素の模型で描く）
 		const mod = device.createShaderModule({ code });
-		const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch, e.bgl!] });
+		const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch, v.bgl!] });
 		const mk = (ds: GPUDepthStencilState) => device.createRenderPipelineAsync({ layout, vertex: { module: mod, entryPoint: "vs", buffers: CS_BUFS }, fragment: { module: mod, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: { count: sc } });
-		e.pipes.set(sc, "pending"); csPending++;
-		const code0 = e.code;
+		v.pipes.set(sc, "pending"); csPending++;
 		const pr = Promise.all([mk(dsWriteBld), mk(dsWriteBldNoZ)]);
 		device.popErrorScope().then(er => { if (er) console.warn("[customShader] WGSL:", er.message.split("\n")[0]); }).catch(() => {});
-		pr.then(([op, bl]) => { csPending--; if (e.code === code0) e.pipes.set(sc, { op, bl }); })
-			.catch(async err => { csPending--; const info = await mod.getCompilationInfo().catch(() => null); const m = info?.messages.find(x => x.type === "error"); e.err = true; console.warn("[customShader] WGSL pipeline failed = drawn without it:", m ? `${m.lineNum}:${m.linePos} ${m.message}` : (err as Error).message); });
+		pr.then(([op, bl]) => { csPending--; v.pipes.set(sc, { op, bl }); })
+			.catch(async err => { csPending--; const info = await mod.getCompilationInfo().catch(() => null); const m = info?.messages.find(x => x.type === "error"); v.err = true; console.warn("[customShader] WGSL pipeline failed = drawn without it:", m ? `${m.lineNum}:${m.linePos} ${m.message}` : (err as Error).message); });
 		return null;
 	}
-	function csBind(p: MeshBatch, id: string, e: CsEntryG): NonNullable<MeshBatch["cs"]> {   // その束の CU と group(3)（材質 5 枚＋CU＋利用者のテクスチャ）
-		if (p.cs && p.cs.id === id && p.cs.rev === e.rev && p.cs.cpu.byteLength === e.cuSize) return p.cs;
+	function csBind(p: MeshBatch, id: string, e: CsEntryG, v: CsVarG): NonNullable<MeshBatch["cs"]> {   // その束の CU と group(3)（材質 5 枚＋CU＋利用者のテクスチャ＋property texture）
+		if (p.cs && p.cs.id === id && p.cs.rev === e.rev && p.cs.bgl === v.bgl) return p.cs;
 		p.cs?.cub.destroy();
-		const cub = device.createBuffer({ size: e.cuSize, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-		const bg = device.createBindGroup({ layout: e.bgl!, entries: [{ binding: 0, resource: texSampler }, ...(p.texs || [null, null, null, null, null]).map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view })),
+		const cub = device.createBuffer({ size: v.cuSize, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+		const m0 = 7 + v.textures.length * 2, nearClamp = csSampler(true, false);
+		const bg = device.createBindGroup({ layout: v.bgl!, entries: [{ binding: 0, resource: texSampler }, ...(p.texs || [null, null, null, null, null]).map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view })),
 			{ binding: 6, resource: { buffer: cub } },
-			...e.textures.flatMap((n, k) => { const x = e.tex.get(n); return [{ binding: 7 + k * 2, resource: x ? x.samp : csSampler(false, true) }, { binding: 8 + k * 2, resource: (x ? x.t : mrTex1).view }]; })] });
-		return p.cs = { id, rev: e.rev, cub, bg, cpu: new ArrayBuffer(e.cuSize) };
+			...v.textures.flatMap((n, k) => { const x = e.tex.get(n); return [{ binding: 7 + k * 2, resource: x ? x.samp : csSampler(false, true) }, { binding: 8 + k * 2, resource: (x ? x.t : mrTex1).view }]; }),
+			...Array.from({ length: v.nMeta }, (_, k) => [{ binding: m0 + k * 2, resource: nearClamp }, { binding: m0 + 1 + k * 2, resource: (p.meta?.texs[k] ?? mrTex1).view }]).flat()] });
+		return p.cs = { id, rev: e.rev, bgl: v.bgl!, cub, bg, cpu: new ArrayBuffer(v.cuSize) };
 	}
 	function csWrite(p: MeshBatch, e: CsEntryG, V: Float32Array): void {   // 毎フレームの CU：J・V（mat3x3f＝列 16 B）・misc（frame, 0, UNLIT, TRANSLUCENT）・利用者の値
 		const c = p.cs!, f = new Float32Array(c.cpu), J = p.mcJ ?? Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1);
 		csPackUniforms(e.spec, e.spec.values || {}, c.cpu);
 		for (let k = 0; k < 3; k++) for (let r = 0; r < 3; r++) { f[k * 4 + r] = J[k * 3 + r]; f[12 + k * 4 + r] = V[k * 3 + r]; }
-		f[24] = csFrame; f[25] = 0; f[26] = e.spec.lighting === "UNLIT" ? 1 : 0; f[27] = e.spec.translucency === "TRANSLUCENT" ? 1 : 0;
+		f[24] = csFrame; f[25] = 0; f[26] = e.spec.lighting === "UNLIT" ? 1 : e.spec.lighting === "PBR" ? -1 : 0;   // −1＝PBR を明示（unlit の材質でも照らす） f[27] = e.spec.translucency === "TRANSLUCENT" ? 1 : 0;
 		device.queue.writeBuffer(c.cub, 0, c.cpu);
 	}
 	function setCustomShader(id: string, spec: CsEntryG["spec"] | null): void {
@@ -3511,7 +3536,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!spec) { if (old) { for (const x of old.tex.values()) x.t.tex.destroy(); customs.delete(id); } return; }
 		const same = old && old.spec.vs === spec.vs && old.spec.fs === spec.fs && JSON.stringify(old.spec.uniforms) === JSON.stringify(spec.uniforms) && JSON.stringify(old.spec.metadata) === JSON.stringify(spec.metadata);
 		if (old && same) { old.spec = spec; return; }   // 値（setUniform）・照明・半透明だけ＝組み直さない
-		customs.set(id, { spec, tex: old ? old.tex : new Map(), rev: (old?.rev ?? 0) + 1, bgl: null, textures: [], cuSize: 0, code: null, pipes: new Map(), err: false });
+		customs.set(id, { spec, tex: old ? old.tex : new Map(), rev: (old?.rev ?? 0) + 1, vars: new Map() });
 	}
 	function setCustomShaderTex(id: string, t: CsTexInG | null): void {
 		const e = customs.get(id);

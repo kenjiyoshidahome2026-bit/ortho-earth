@@ -473,24 +473,24 @@ const csLitMOf = (fs: string): string => {   // MESH_FS の csLit を材質を�
 export function meshCustomGLSL(spec: CsSpec): { vs: string; fs: string } {
 	const vsUser = spec.vs ? csGlslUser(spec.vs, spec) : "", fsUser = spec.fs ? csGlslUser(spec.fs, spec) : "";
 	const vs = derive(MESH_TEX_VS, [
-		["in vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\n", "in vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\nin vec4 a_mc;\nout vec4 v_mc;\nuniform mat3 u_csJ;\nuniform mat3 u_csV;\n"],
+		["in vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\n", "in vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\nin vec4 a_mc;\nout vec4 v_mc;\nin vec2 a_uvm;\nout vec2 v_uvm;\nuniform mat3 u_csJ;\nuniform mat3 u_csV;\n"],
 		["void main() {\n\tvec3 ap = u_xfOn > 0.5 ? u_xfL * a_pos + u_xfT : a_pos;      // バッチの剛体変換（W4）＝原点相対のまま\n",
-		 csGlslPrelude(spec, "vs") + vsUser + "\nvoid main() {\n\tvec3 ap = u_xfOn > 0.5 ? u_xfL * a_pos + u_xfT : a_pos;      // バッチの剛体変換（W4）＝原点相対のまま\n\tv_mc = a_mc;\n"
+		 csGlslPrelude(spec, "vs") + vsUser + "\nvoid main() {\n\tvec3 ap = u_xfOn > 0.5 ? u_xfL * a_pos + u_xfT : a_pos;      // バッチの剛体変換（W4）＝原点相対のまま\n\tv_mc = a_mc; v_uvm = a_uvm;\n"
 		 + (spec.vs ? "\t{\n\t\tVertexInput csVi; csVi.attributes = csAttrsOf(a_mc.xyz, u_meshOrigin + ap, u_csV * (ap - u_eyeRel) * 6378137.0, (u_xfOn > 0.5 ? u_xfL * a_normal : a_normal), a_uv, a_col, a_mc.w, u_csJ, u_csV);\n"
-			+ "\t\tcsVi.featureIds.featureId_0 = int(a_mc.w + 0.5); csVi.featureIds.featureId_1 = 0; csVi.metadata = csMetaOf();\n"
+			+ "\t\tcsVi.featureIds.featureId_0 = int(a_mc.w + 0.5); csVi.featureIds.featureId_1 = 0; csVi.metadata = csMetaOf(a_uvm);\n"
 			+ "\t\tczm_modelVertexOutput csVo; csVo.positionMC = a_mc.xyz; csVo.pointSize = 1.0;\n\t\tvertexMain(csVi, csVo);\n\t\tap += u_csJ * (csVo.positionMC - a_mc.xyz);\n\t\tv_mc.xyz = csVo.positionMC;\n\t}\n" : "")],
 	], "MESH_CS_VS");
 	const fs = derive(MESH_TEX_FS, [
-		["uniform float u_cullBack;", "uniform float u_cullBack;\nin vec4 v_mc;\nuniform mat3 u_csJ;\nuniform mat3 u_csV;\nuniform vec2 u_csMode;   // x＝UNLIT・y＝材質の α で半透明（TRANSLUCENT）"],
+		["uniform float u_cullBack;", "uniform float u_cullBack;\nin vec4 v_mc;\nin vec2 v_uvm;\nuniform mat3 u_csJ;\nuniform mat3 u_csV;\nuniform vec2 u_csMode;   // x＝UNLIT・y＝材質の α で半透明（TRANSLUCENT）"],
 		["void main() {\n\t// 面の幾何法線", csGlslPrelude(spec, "fs") + fsUser + "\n" + csLitMOf(MESH_FS) + "void main() {\n\t// 面の幾何法線"],
 		["\tif (u_csOn > 1.5) base = tintC(tx.rgb); else if (u_csOn > 0.5) base = csLit(",
 		 "\tvec3 csB = tintC(csSrgbToLinear(txr.rgb) * v_col.rgb);\n"
 		 + "\tczm_modelMaterial csM; csM.baseColor = vec4(csB, tx.a); csM.diffuse = csB * (1.0 - u_csMR.x); csM.alpha = tx.a; csM.specular = mix(vec3(0.04), csB, u_csMR.x); csM.roughness = u_csMR.y;\n"
 		 + "\tcsM.normalEC = normalize(u_csV * n); csM.occlusion = 1.0; csM.emissive = vec3(0.0);\n"
 		 + (spec.fs ? "\tFragmentInput csFi; csFi.attributes = csAttrsOf(v_mc.xyz, u_eye - v_toEye, u_csV * (-v_toEye) * 6378137.0, n, v_uv, v_col, v_mc.w, u_csJ, u_csV);\n"
-			+ "\tcsFi.featureIds.featureId_0 = int(v_mc.w + 0.5); csFi.featureIds.featureId_1 = 0; csFi.metadata = csMetaOf();\n\tfragmentMain(csFi, csM);\n" : "")
+			+ "\tcsFi.featureIds.featureId_0 = int(v_mc.w + 0.5); csFi.featureIds.featureId_1 = 0; csFi.metadata = csMetaOf(v_uvm);\n\tfragmentMain(csFi, csM);\n" : "")
 		 + "\tvec3 csN = normalize(transpose(u_csV) * csM.normalEC);\n"
-		 + "\tbase = u_csMode.x > 0.5 || u_csOn > 1.5 ? pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) : u_csOn > 0.5 ? csLitM(csM, csN) : pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) * d;   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ・トーンマップ無し）\n"
+		 + "\tbase = u_csMode.x > 0.5 || (u_csOn > 1.5 && u_csMode.x > -0.5) ? pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) : u_csOn > 0.5 ? csLitM(csM, csN) : pow(max(csM.diffuse, 0.0), vec3(1.0 / 2.2)) * d;   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ・トーンマップ無し）\n"
 		 + "\tif (u_csMode.y > 0.5) a = clamp(csM.alpha, 0.0, 1.0);\n"
 		 + "\tif (false) base = csLit("],
 	], "MESH_CS_FS");
