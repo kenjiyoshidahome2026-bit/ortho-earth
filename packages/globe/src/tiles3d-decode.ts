@@ -55,17 +55,31 @@ const ftValue = (ftJ: FeatureTableJson, ftBin: Uint8Array, key: string, n: numbe
 	return new T(ftBin.buffer, off, n * comps);
 };
 
+// Draco で圧した点群（3DTILES_draco_point_compression）：特徴表の POSITION／RGB(A) は Draco の塊の中＝解いて差し替える。
+// 位置は量子化を戻した値（POSITION_QUANTIZED でも QUANTIZED_VOLUME_* を掛けた後と同じ空間＝RTC_CENTER 相対）・色は 8bit
+async function dracoPnts(J: FeatureTableJson, bin: Uint8Array): Promise<{ P: ArrayLike<number>; RGB: ArrayLike<number> | null; RGBA: ArrayLike<number> | null } | null> {
+	const ext = (J as { extensions?: Record<string, { properties?: Record<string, number>; byteOffset?: number; byteLength?: number }> }).extensions?.["3DTILES_draco_point_compression"];
+	if (!ext) return null;
+	const { loadParse, DracoLoader } = await import("./mesh-loaders.ts");   // loaders.gl の Draco worker で解く（この model worker は module worker＝importScripts で復号器を読めない）
+	const at = bin.byteOffset + (ext.byteOffset || 0), buf = bin.buffer.slice(at, at + (ext.byteLength || 0)) as ArrayBuffer;
+	const mesh = await loadParse(buf, DracoLoader) as { attributes: Record<string, { value: ArrayLike<number>; size: number }> };
+	const A = mesh.attributes, P = A.POSITION?.value, C = A.COLOR_0;
+	if (!P) return null;
+	return { P, RGB: C && C.size === 3 ? C.value : null, RGBA: C && C.size === 4 ? C.value : null };
+}
+
 // 点群（pnts）
-function decodePnts(ab: ArrayBuffer, M: Xf3, baseH: number): PointsOut | null {
+async function decodePnts(ab: ArrayBuffer, M: Xf3, baseH: number): Promise<PointsOut | null> {
 	const dv = new DataView(ab), ftJ = dv.getUint32(12, true), ftB = dv.getUint32(16, true);
 	const J = jsonAt(ab, 28, ftJ), bin = new Uint8Array(ab, 28 + ftJ, ftB);
 	const n = J.POINTS_LENGTH! | 0;
 	if (!n) return null;
 	const rtc = J.RTC_CENTER || [0, 0, 0];
-	let P = ftValue(J, bin, "POSITION", n), qo: number[] | null | undefined = null, qs: number[] | null | undefined = null;
+	const D = await dracoPnts(J, bin);
+	let P = D ? D.P : ftValue(J, bin, "POSITION", n), qo: number[] | null | undefined = null, qs: number[] | null | undefined = null;
 	if (!P) { P = ftValue(J, bin, "POSITION_QUANTIZED", n, Uint16Array); qo = J.QUANTIZED_VOLUME_OFFSET; qs = J.QUANTIZED_VOLUME_SCALE; }
 	if (!P) return null;
-	const RGBA = ftValue(J, bin, "RGBA", n, Uint8Array, 4), RGB = RGBA ? null : ftValue(J, bin, "RGB", n, Uint8Array, 3), R565 = RGBA || RGB ? null : ftValue(J, bin, "RGB565", n, Uint16Array, 1);
+	const RGBA = D ? D.RGBA : ftValue(J, bin, "RGBA", n, Uint8Array, 4), RGB = RGBA ? null : D ? D.RGB : ftValue(J, bin, "RGB", n, Uint8Array, 3), R565 = RGBA || RGB ? null : ftValue(J, bin, "RGB565", n, Uint16Array, 1);
 	const K = J.CONSTANT_RGBA || [221, 221, 221, 255];
 	const geo = new Float64Array(n * 3), rgba = new Uint8Array(n * 4);
 	for (let i = 0; i < n; i++) {
@@ -161,7 +175,7 @@ export async function decodeTile3D(ab: ArrayBuffer, { transform, baseUri, baseH 
 			const batchTable = BT ? { json: BT, bin: btB ? new Uint8Array(buf, 28 + ftJ + ftB + btJ, btB) : null, count: nB } : null;
 			merge(await decodeModel(glb, { baseUri, textures, fetchOpts, ...gOpt, featureIdSet, tile: { places: [M], rtc: J.RTC_CENTER || null, baseH: bH, points: true, splats, voxels, batchTable } }));
 		} else if (magic === "i3dm") merge(await decodeI3dm(buf, M, { baseUri, textures, baseH: bH, gOpt, fetchOpts }, maxInstances));   // ground も b3dm と同じく（旧＝渡さず terrain でも絶対高さ＝地形の上に浮いた）
-		else if (magic === "pnts") merge(decodePnts(buf, M, baseH));
+		else if (magic === "pnts") merge(await decodePnts(buf, M, baseH));
 		else if (magic === "cmpt") {
 			const dv = new DataView(buf), nT = dv.getUint32(12, true);
 			let off = 16;
