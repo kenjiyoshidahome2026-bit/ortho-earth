@@ -439,8 +439,8 @@ export const MESH_TEX_VS = derive(MESH_VS, [
 	["\tv_n = a_normal;\n", "\tv_n = a_normal;\n\tv_uv = a_uv; v_col = a_col;\n"],
 ], "MESH_TEX_VS");
 export const MESH_TEX_FS = derive(MESH_FS, [
-	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nuniform vec4 u_tint;\nuniform float u_tintB;\nin vec2 v_uv;\nin vec4 v_col;\nvec3 tintC(vec3 c) { if (u_tintB < -0.5) return c; c = mix(c, u_tint.rgb, u_tintB); return c * mix(u_tint.rgb, vec3(1.0), ceil(u_tintB)); }"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
-	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n"],
+	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nuniform vec4 u_tint;\nuniform float u_tintB;\nuniform sampler2D u_paint;\nuniform float u_paintB;\nin vec2 v_uv;\nin vec4 v_col;\nvec3 tintC(vec3 c) { if (u_tintB < -0.5) return c; c = mix(c, u_tint.rgb, u_tintB); return c * mix(u_tint.rgb, vec3(1.0), ceil(u_tintB)); }\n// the style colour of the feature under this texel (feature ID texture, nearest texel; alpha 0 = no colour), blended like tintC (Cesium colorBlendMode)\nvec4 paintT(vec4 c) { if (u_paintB < -0.5) return c; ivec2 sz = textureSize(u_paint, 0); vec4 p = texelFetch(u_paint, clamp(ivec2(floor(v_uv * vec2(sz))), ivec2(0), sz - 1), 0); if (p.a < 0.5) return c; return vec4(mix(c.rgb, p.rgb, u_paintB) * mix(p.rgb, vec3(1.0), ceil(u_paintB)), c.a); }"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
+	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 txr = paintT(texture(u_tex, v_uv)); vec4 tx = txr * v_col;\n"],
 	["\tvec3 base = u_bldColor * d;\n\tif (u_csOn > 1.5) base = u_bldColor; else if (u_csOn > 0.5) base = csLit(csSrgbToLinear(u_bldColor), n);   // Cesium の照明（@ortho-earth/cesium）・2＝unlit＝素の色\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat ta = u_tintB < -0.5 ? 1.0 : u_tint.a;\n\tfloat a = (u_blend > 1.5 ? 1.0 : u_blend > 0.5 ? tx.a : 1.0) * (u_blend > 0.5 ? ta : 1.0);\n\tvec3 base = tintC(tx.rgb) * d;\n\tif (u_csOn > 1.5) base = tintC(tx.rgb); else if (u_csOn > 0.5) base = csLit(tintC(csSrgbToLinear(txr.rgb) * v_col.rgb), n);   // Cesium の照明＝テクスチャは sRGB・頂点色（baseColorFactor×COLOR_0）はリニア\n\tvec3 c = mix(base, u_fogColor, v_fog);\n\tc = mix(c, v_csFog.rgb, v_csFog.a);   // Cesium の霧（影の後）\n\tfragColor = vec4(c * a, a);\n}"],
 ], "MESH_TEX_FS");
 // 模型の輪郭線（Cesium の Model.silhouetteColor／silhouetteSize・2026-10-29）＝同じ頂点を画面上で法線の向きへ u_silPx（device px）押し出した殻を色で塗る。
@@ -1952,7 +1952,7 @@ export const MESH_CLIP_FS = clipGL(MESH_FS, [
 ], "MESH_CLIP_FS");
 export const MESH_TEX_CLIP_FS = clipGL(MESH_TEX_FS, [
 	["in float v_fog;\n", "in float v_fog;\n" + FS_IN],
-	["\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n", "\tvec4 txr = texture(u_tex, v_uv); vec4 tx = txr * v_col;\n" + EDGE_HEAD],   // 標本は discard より前（ミップの微分）
+	["\tvec4 txr = paintT(texture(u_tex, v_uv)); vec4 tx = txr * v_col;\n", "\tvec4 txr = paintT(texture(u_tex, v_uv)); vec4 tx = txr * v_col;\n" + EDGE_HEAD],   // 標本は discard より前（ミップの微分）
 	MESH_CAP,
 ], "MESH_TEX_CLIP_FS");
 // 基図の塗りと線（シーンの原点ごと）

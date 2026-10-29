@@ -147,6 +147,7 @@ interface MeshBatch {
 	csLit: string;   // Cesium の照明の掛け方："pbr"（既定）／"unlit"＝素の色（KHR_materials_unlit・法線無し）／"off"＝固定光（entity geometry）
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝SH9・27 値）＝meshLight.sh より勝つ
+	paint?: WebGLTexture | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
 	custom?: string | null; mcJ?: Float32Array | null; mc?: boolean;   // Cesium の CustomShader（set "meshCustom"）の id・J・a_mc の有無
 	uvm?: boolean; meta?: { props: Record<string, CsMeta>; sig: string; texs: WebGLTexture[] } | null;   // property texture（a_uvm の有無・読み方・画像）
@@ -431,7 +432,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const SH_N = rOpts.lowMem ? 1024 : 2048, SH_LAYERS = rOpts.lowMem ? 2 : 3;
 	const SH_UNIT = 18, SH_RAW_UNIT = 19;   // 0〜17 は埋まっている（PAT_UNIT 16・PT_UNIT 17）
 	const NEAR_UNIT = 20;   // 近景層の標高（ELEV を持つ全プログラムが参照＝far の unit8 と同じ常時結合）
-	const ENV_UNIT = 22;   // Cesium の模型の鏡面の環境（立方体図・setMeshEnvironmentMap）＝u_csEnvMap。samplerCube は既定の unit 0 に置くと 2D と衝突する＝全プログラムでここへ向ける
+	const ENV_UNIT = 22;
+const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模型の鏡面の環境（立方体図・setMeshEnvironmentMap）＝u_csEnvMap。samplerCube は既定の unit 0 に置くと 2D と衝突する＝全プログラムでここへ向ける
 	const SH_PEN_K = 0.018, SH_SEARCH = 4, SH_FADE_R0 = 0.7;   // 半影の係数・遮る物を探す半径（texel）・基の窓の縁のフェード（WebGPU と同値）
 	let shadow: { on: boolean; time?: number; darkness?: number } = { on: false };
 	let shGL: { tex: WebGLTexture; fbos: WebGLFramebuffer[]; sampC: WebGLSampler; sampR: WebGLSampler; ubo: WebGLBuffer; cpu: Float32Array; cast: Map<string, WebGLProgram> } | null = null;
@@ -978,7 +980,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		return prog;
 	}
 	function csFree(e: CsEntry): void { for (const p of e.progs.values()) if (p) gl.deleteProgram(p); for (const t of e.tex.values()) gl.deleteTexture(t); }
-	function metaFree(p: MeshBatch): void { for (const t of p.meta?.texs || []) if (t !== whiteTex) gl.deleteTexture(t); }
+	function metaFree(p: MeshBatch): void { for (const t of p.meta?.texs || []) if (t !== whiteTex) gl.deleteTexture(t); if (p.paint) gl.deleteTexture(p.paint); p.paint = null; }
 	function csTexture(t: CsTexIn): WebGLTexture {   // 利用者のテクスチャ（TextureUniform）＝NEAREST／LINEAR・REPEAT／CLAMP は Cesium の sampler から
 		const tex = gl.createTexture()!, src = t.tex;
 		gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -2563,6 +2565,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 					gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, p.tex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_tex"), 7);   // unit 7＝未使用（1=elev 2..5=mask 6=line 8=far 9=cog 12=clim）
 					gl.uniform1f(loc(gl, pg, "u_alphaCut"), p.cut); gl.uniform1f(loc(gl, pg, "u_blend"), blendOf(p));
 					gl.uniform1f(loc(gl, pg, "u_tintB"), p.tint ? p.tint[4] : -1); if (p.tint) gl.uniform4f(loc(gl, pg, "u_tint"), p.tint[0], p.tint[1], p.tint[2], p.tint[3]);   // Cesium の Model.color（-1＝無し）
+					gl.activeTexture(gl.TEXTURE0 + PAINT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.paint ?? whiteTex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_paint"), PAINT_UNIT); gl.uniform1f(loc(gl, pg, "u_paintB"), p.paint ? p.paintB ?? 0 : -1);   // 塗る絵（-1＝無し）
 				}
 				const bl = p.textured && !!blendOf(p);
 				if (bl !== zOff) { zOff = bl; gl.depthMask(!zOff); }   // 半透明＝深度を書かない（後ろの半透明が消えない）
@@ -2688,6 +2691,18 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "customShaderTex": { const e = customs.get(String(prop)), t = data as CsTexIn | null; if (e && t?.name && t.tex) { const o = e.tex.get(t.name); if (o) gl.deleteTexture(o); e.tex.set(t.name, csTexture(t)); } break; }   // TextureUniform＝{name, tex:{bitmap}|{rgba,w,h}, nearest, repeat}
 			case "meshCustom": { const p = meshes.get(prop as string); if (p) p.custom = data != null && data !== "" ? String(data) : null; break; }   // 束に差し込むシェーダの id｜null
 			case "meshXf": { const p = meshes.get(prop as string); if (p) p.xf = data && (data as Float32Array).length >= 12 ? data as Float32Array : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
+			case "meshPaint": {   // 画素ごとの地物の番号から塗った絵＝{ w, h, rgba（α 0＝元の色）, blend }｜null（tiles3d の paintTexel）
+				const p = meshes.get(prop as string), d = data as { w: number; h: number; rgba: Uint8Array; blend: number } | null;
+				if (!p?.textured) break;
+				if (p.paint) gl.deleteTexture(p.paint); p.paint = null;
+				if (d && d.w > 0 && d.h > 0 && d.rgba?.length >= d.w * d.h * 4) {
+					const t = gl.createTexture()!; gl.activeTexture(gl.TEXTURE0 + PAINT_UNIT); gl.bindTexture(gl.TEXTURE_2D, t);
+					gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, d.w, d.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, d.rgba); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+					for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+					gl.activeTexture(gl.TEXTURE0); p.paint = t; p.paintB = d.blend;
+				}
+				break;
+			}
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.textured && (data as Uint8Array | null | undefined)?.length && p.bufs[4]) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[4]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data as Uint8Array); gl.bindBuffer(gl.ARRAY_BUFFER, null); } break; }   // 頂点色だけ書き換える（feature state の色・W7）＝Uint8Array RGBA×頂点（長さは meshSet と同じ）
 			case "meshPos": {   // skin の頂点の焼き直し（2026-10-28）＝pos（原点相対・Float32・3n）と法線（Int8・4n）を同じ頂点数のまま書き換える（大きさが違えば捨てる）
 				const p = meshes.get(prop as string), d = data as { pos?: Float32Array; nrm?: Int8Array } | null;

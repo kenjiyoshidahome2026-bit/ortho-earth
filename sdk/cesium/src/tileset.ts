@@ -34,7 +34,7 @@ export class Cesium3DTileset {
 	backFaceCulling = true; enableCollision = false; preloadWhenHidden = false; preloadFlightDestinations = true; skipLevelOfDetail = false;
 	dynamicScreenSpaceError = true; foveatedScreenSpaceError = true; cullRequestsWhileMoving = true; cullWithChildrenBounds = true;
 	splitDirection = 0; showOutline = true; outlineColor = Color.clone(Color.BLACK); pointCloudShading: Any = { attenuation: false, geometricErrorScale: 1, maximumAttenuation: undefined, baseResolution: undefined, eyeDomeLighting: true, eyeDomeLightingStrength: 1, eyeDomeLightingRadius: 1, backFaceCulling: false, normalShading: true };   // PointCloudShading's defaults
-	#shadeKey = ""; #csId: string | null = null;
+	#shadeKey = ""; #csId: string | null = null; #blendKey = "";
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere;
 	#opts: Any;
 
@@ -132,6 +132,8 @@ export class Cesium3DTileset {
 		if (key !== this.#shadeKey) { this.#shadeKey = key; this.#h.setOptions({ pointShading: spec }); }
 		const cid = customShaderId(this.#host?.map, this.customShader);   // tileset.customShader = … (or null)
 		if (cid !== this.#csId) { this.#csId = cid; this.#h.setOptions({ customShader: cid }); }
+		const mode = (["highlight", "replace", "mix"] as const)[this.colorBlendMode | 0] ?? "highlight", bk = `${mode}:${this.colorBlendAmount}`;   // Cesium3DTileColorBlendMode HIGHLIGHT 0 / REPLACE 1 / MIX 2
+		if (bk !== this.#blendKey) { this.#blendKey = bk; this.#h.setOptions({ colorBlend: { mode, amount: this.colorBlendAmount } }); }
 	}
 	__detach() { this.#host = null; this.#h?.remove(); this.#h = null; }
 	/** the feature under a screen point (scene.pick) */
