@@ -1,7 +1,8 @@
 // 地物の番号と属性（第 3 波 W7・2026-10-12）＝glTF の EXT_mesh_features（feature ID）と EXT_structural_metadata（property table）、
 // 3D Tiles 1.0 の b3dm（_BATCHID＋batch table の JSON）を、模型・タイルの当たり（src/meshpick.js）と feature state の色に使える形へ。
 //   番号＝頂点ごとの Uint32（NO_FEATURE＝地物なし・nullFeatureId もこれ）。番号の出どころ＝attribute（_FEATURE_ID_n）か implicit（頂点番号）。
-//   texture の番号（featureId.texture）は読まない（capabilities "gltf.featureIds.texture"＝spec）。
+//   texture の番号（featureId.texture）＝頂点には載らない（全部 NO_FEATURE）。meshdecode が画像を画素ごとの番号（MeshFeatures.tex）にして、
+//   スタイルの色は main がその番号から塗る絵（setMeshPaint）にする（photogrammetry の分類・2026-10-29）。
 //   property table＝列ごとの素の配列（行＝地物の番号）。型＝SCALAR・VECn・MATn（数の並び）・STRING・BOOLEAN・ENUM、固定長／可変長の配列。
 //   offset／scale／normalized（数の型）は掛けた値。表に無い列（class の既定値 default）はその値。読めない列は落として理由を warnings に。
 export const NO_FEATURE = 0xFFFFFFFF;
@@ -11,14 +12,18 @@ interface TypedCtor { new (buffer: ArrayBufferLike, byteOffset?: number, length?
 /** glTF のプリミティブ（postProcessGLTF 後）の読む欄＝attributes の value・EXT_mesh_features の featureIds */
 export interface FeaturePrimitive {
 	attributes?: Record<string, { value?: ArrayLike<number | bigint> | null } | undefined> | null;
-	extensions?: { EXT_mesh_features?: { featureIds?: Array<{ attribute?: number | null; texture?: unknown; featureCount?: number; nullFeatureId?: number | null; propertyTable?: number | null; label?: string | null } | null> } | null; [k: string]: unknown } | null;
+	extensions?: { EXT_mesh_features?: { featureIds?: Array<{ attribute?: number | null; texture?: FeatureIdTexture | null; featureCount?: number; nullFeatureId?: number | null; propertyTable?: number | null; label?: string | null } | null> } | null; [k: string]: unknown } | null;
 }
+/** featureId.texture（glTF の textureInfo＋channels） */
+export interface FeatureIdTexture { index: number; texCoord?: number; channels?: number[] }
 /** プリミティブの feature ID の組（featureSetOf の戻り） */
-export interface FeatureSet { attribute: ArrayLike<number | bigint> | null; implicit: boolean; texture: boolean; featureCount: number; nullFeatureId: number | null; propertyTable: number | null; label: string | null; batchId?: boolean }
+export interface FeatureSet { attribute: ArrayLike<number | bigint> | null; implicit: boolean; texture: boolean; texInfo?: FeatureIdTexture | null; featureCount: number; nullFeatureId: number | null; propertyTable: number | null; label: string | null; batchId?: boolean }
 /** property table（EXT_structural_metadata）か batch table の 1 枚＝列の名前 → 行ごとの値 */
 export interface PropertyTable { name: string | null; class: string | null; count: number; columns: Record<string, unknown[]> }
-/** 束の地物の番号（worker の答え）＝ids＝頂点ごとの番号・tblV＝頂点ごとの property table の番号（無ければ table＝束で 1 つ） */
-export interface MeshFeatures { ids: Uint32Array; tblV?: ArrayLike<number> | null; table?: number | null; tables?: PropertyTable[] | null }
+/** 画素ごとの地物の番号（featureId.texture）＝w×h・NO_FEATURE＝無し。uv は束の baseColor の uv（同じ texCoord の時だけ作る） */
+export interface FeatureTexture { w: number; h: number; ids: Uint32Array }
+/** 束の地物の番号（worker の答え）＝ids＝頂点ごとの番号・tblV＝頂点ごとの property table の番号（無ければ table＝束で 1 つ）・tex＝画素ごとの番号 */
+export interface MeshFeatures { ids: Uint32Array; tblV?: ArrayLike<number> | null; table?: number | null; tables?: PropertyTable[] | null; tex?: FeatureTexture | null }
 /** EXT_structural_metadata の class の property（読む欄） */
 interface ClassProperty { type?: string; componentType?: string; enumType?: string; array?: boolean; count?: number; normalized?: boolean; offset?: number | number[]; scale?: number | number[]; default?: unknown; noData?: unknown }
 /** property table の property（読む欄）＝values 等は bufferView の番号 */
@@ -66,12 +71,12 @@ export function featureSetOf(pr: FeaturePrimitive | null | undefined, set = 0): 
 		const f = fs[Math.min(Math.max(0, set | 0), fs.length - 1)];
 		if (!f) return null;
 		const attr = f.attribute != null ? pr!.attributes?.[`_FEATURE_ID_${f.attribute}`]?.value || null : null;
-		return { attribute: attr, implicit: f.attribute == null && f.texture == null, texture: f.texture != null, featureCount: f.featureCount! | 0, nullFeatureId: f.nullFeatureId ?? null, propertyTable: f.propertyTable ?? null, label: f.label ?? null };
+		return { attribute: attr, implicit: f.attribute == null && f.texture == null, texture: f.texture != null, texInfo: f.texture ?? null, featureCount: f.featureCount! | 0, nullFeatureId: f.nullFeatureId ?? null, propertyTable: f.propertyTable ?? null, label: f.label ?? null };
 	}
 	const bid = pr?.attributes?._BATCHID?.value || pr?.attributes?.BATCHID?.value || null;   // b3dm（glTF 1.0 系の名も）
 	return bid ? { attribute: bid, implicit: false, texture: false, featureCount: 0, nullFeatureId: null, propertyTable: 0, label: "_BATCHID", batchId: true } : null;
 }
-// 頂点 n 個の番号の列（Uint32・NO_FEATURE＝無し）。texture の番号＝読まない＝全部 NO_FEATURE
+// 頂点 n 個の番号の列（Uint32・NO_FEATURE＝無し）。texture の番号＝頂点には無い＝全部 NO_FEATURE（画素の番号は featureTextureOf）
 export function featureIdsOf(fset: FeatureSet | null | undefined, n: number): Uint32Array {
 	const out = new Uint32Array(n).fill(NO_FEATURE);
 	if (!fset || fset.texture) return out;
@@ -82,6 +87,15 @@ export function featureIdsOf(fset: FeatureSet | null | undefined, n: number): Ui
 		out[i] = v;
 	}
 	return out;
+}
+// featureId.texture の画像（RGBA 8bit・w×h）→ 画素ごとの番号。channels の順に 8 bit ずつ下位から（spec）・nullFeatureId は NO_FEATURE（featureCount は数＝番号の上限ではない）
+export function featureTextureOf(rgba: ArrayLike<number>, w: number, h: number, info: FeatureIdTexture, nullFeatureId: number | null): FeatureTexture {
+	const ch = info.channels?.length ? info.channels.slice(0, 4) : [0], ids = new Uint32Array(w * h);
+	for (let i = 0; i < w * h; i++) {
+		let v = 0; for (let k = 0; k < ch.length; k++) v += rgba[i * 4 + (ch[k] & 3)] * 2 ** (8 * k);
+		ids[i] = v === nullFeatureId ? NO_FEATURE : v;
+	}
+	return { w, h, ids };
 }
 // バイト列の切り出し（読める型の配列へ・揃っていなければ複写）
 const typed = (u8: Uint8Array, T: TypedCtor, count: number): AnyTyped => {

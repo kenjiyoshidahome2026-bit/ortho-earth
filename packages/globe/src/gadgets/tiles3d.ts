@@ -23,7 +23,7 @@
 //   main がタイルごとに map.addData({ crs: "local", transform, … }, { kind: "splat" }) の層にする（描き手＝@ortho-earth/splat・タイルの出し入れ＝setVisible／remove）。
 //   plugin が無い（registry.dataKinds に "splat" が無い）時は worker に splats:false を渡す＝仕様の fallback どおり点として描き、tileset ごとに一度だけ warn。opts.splat＝層に渡す opts（lod・shDegree・opacity…）
 import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.ts";   // 当たりと feature state の色（W7）
-import { featureProperties } from "../mesh-features.ts";
+import { featureProperties, NO_FEATURE } from "../mesh-features.ts";
 import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝タイルの glb の KTX2 も変換器で
 import { implicitOf, contentsOf, isAvailable, indexIn, childSubtreeIndex, childCoord, expandUri, geometricErrorAt, volumeAt, parseSubtree, rankOf, cylinderOf, cylinderFrame } from "../tiles3d-implicit.ts";   // implicit tiling（3D Tiles 1.1）
@@ -130,6 +130,8 @@ export interface Tiles3DEnv {
 	setMesh(name: string, data: MeshSetData | null): void;
 	meshVis(ward: string, on: boolean): void;
 	setMeshCol?: ((name: string, data: Uint8Array) => void) | null;
+	/** 画素ごとの地物の番号から塗った絵（renderer の "meshPaint"）＝{ w, h, rgba（α 0＝元の色のまま）, blend（tintB と同じ：0 掛ける・1 置き換え・間 mix の量）}｜null */
+	setMeshPaint?: ((name: string, data: { w: number; h: number; rgba: Uint8Array; blend: number } | null) => void) | null;
 	/** 不透明の束を MASK に（α がこれ未満を抜く）＝feature state の show:false */
 	setMeshCut?: ((name: string, cut: number) => void) | null;
 	/** 利用者のシェーダの名（map.setCustomShader）｜null（renderer の meshCustom） */
@@ -205,7 +207,7 @@ let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;
 const cssRGB = (c: string): number[] | null => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB!.fillStyle = "#000"; ctxRGB!.fillStyle = c; const f = ctxRGB!.fillStyle as string, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshCut = null, setMeshCustom = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -413,7 +415,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: (!!sty.show || !!set.maskAll) && opaque(b) } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
 			// main に残る写しの量＝当たりの頂点・index・元の頂点色＋塗り直しの元の頂点色＋地物の番号（ids・tblV＝束ごとに 1 回）。属性の表（文字列の配列）は数えない
 			n.mainBytes = 0;
-			const featBytes = (f: MeshFeatures | null) => f ? f.ids.byteLength + ((f.tblV as ArrayBufferView | null)?.byteLength || 0) : 0;
+			const featBytes = (f: MeshFeatures | null) => f ? f.ids.byteLength + ((f.tblV as ArrayBufferView | null)?.byteLength || 0) + (f.tex?.ids.byteLength || 0) : 0;
 			for (const p of n.pick || []) n.mainBytes += (p.pos?.byteLength || 0) + (p.idx?.byteLength || 0) + (p.col0?.byteLength || 0) + featBytes(p.features);
 			for (const p of n.paint || []) n.mainBytes += p.col0.byteLength + (n.pick?.some(q => q.k === p.k) ? 0 : featBytes(p.features));
 			if (r.batches.length) meshVis(n.ward, false);   // 伏せてから上げる（同じ列＝転送より先に効く）＝出すかは次の update が決める（兄弟が揃う前に出さない）
@@ -543,7 +545,29 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				cache.set(key, out); return out;
 			};
 			setMeshCol(`${n.ward}#${p.k}`, paintBatch(p.col0, f?.ids, i => f ? (f.tblV ? f.tblV[i] : f.table ?? null) : null, rgbaOf));
+			if (f?.tex && setMeshPaint) setMeshPaint(`${n.ward}#${p.k}`, paintTexel(f.tex, f.table ?? null, rgbaOf, blendOf(set)));
 		}
+	};
+	// 画素ごとの地物の番号（featureId.texture）→ 塗る絵（RGBA・α 255＝その色で・0＝元の色のまま）。番号ごとに色を 1 度だけ引く。何も塗らなければ null
+	const paintTexel = (t: NonNullable<MeshFeatures["tex"]>, table: number | null, rgbaOf: (id: number | null, t: number | null) => number[] | null, blend: number) => {
+		if (blend < 0) return null;
+		const lut = new Map<number, number[] | null>(), rgba = new Uint8Array(t.w * t.h * 4);
+		let any = false;
+		for (let i = 0; i < t.ids.length; i++) {
+			const id = t.ids[i]; if (id === NO_FEATURE) continue;
+			let c = lut.get(id); if (c === undefined) { const r = rgbaOf(id, table); c = r && !Number.isNaN(r[0]) ? r : null; lut.set(id, c); }
+			if (!c) continue;
+			rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 255; any = true;
+		}
+		return any ? { w: t.w, h: t.h, rgba, blend } : null;
+	};
+	// colorBlend → renderer の混ぜ方（tintB と同じ数：0 掛ける・1 置き換え・間 mix の量・−1 塗らない）
+	const blendOf = (set: T3dSet) => {
+		const b = set.opts.colorBlend, m = b?.mode ?? "highlight";
+		if (m === "replace") return 1;
+		if (m !== "mix") return 0;
+		const a = Math.max(0, Math.min(1, b?.amount ?? 0.5));
+		return a <= 0 ? -1 : a >= 1 ? 1 : a;
 	};
 	// スタイルを差し替え＝上げてあるタイルは塗り直す（元の色を持っていない・show に MASK が要るのに無い＝読み直す）
 	const styleOf = (spec: Tiles3DStyle | null | undefined) => compileStyle(isCesiumStyle(spec) ? cesiumToSpec(spec) : spec as StyleSpec | null | undefined);   // Cesium 形は訳す（訳せなければ例外）
@@ -761,7 +785,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
 				get schema() { return (set.scope?.schema ?? null) as Record<string, unknown> | null; }, get tilesetMetadata() { return entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema); }, get groups() { return [...(set.scope?.groups || [])]; }, get extras() { return set.extras!; }, get extensionsUsed() { return [...set.extensionsUsed!]; }, get extensionsRequired() { return [...set.extensionsRequired!]; },   // root の見出し（F5）
 				remove: () => ctl.remove(id), setVisible: v => setHidden(set, !v),
-				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); if ("customShader" in o && setMeshCustom) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshCustom(`${n.ward}#${k}`, o.customShader ?? null); if ("pointShading" in o) setPointShading(set); schedule(); },
+				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); if ("customShader" in o && setMeshCustom) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshCustom(`${n.ward}#${k}`, o.customShader ?? null); if ("pointShading" in o) setPointShading(set); if ("colorBlend" in o && set.style) for (const n of set.loaded()) if (n.state === "ready" && n.paint) paintStyled(n); schedule(); },
 				/** スタイル（地物ごとの color・show を MapLibre の式で）。null で外す */
 				setStyle(style) { setStyle(set, style); return this; }, get style() { return set.styleSpec ?? null; },
 				// 当たりと feature state（W7）＝EXT_mesh_features／_BATCHID の番号。色は { color } を頂点色へ（他の鍵は保つだけ）。状態は tileset ごと（タイルを跨いで同じ番号＝同じ地物）

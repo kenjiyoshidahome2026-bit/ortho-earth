@@ -1,5 +1,5 @@
 // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm の batch table・画面の当たり・feature state の色（DOM 無し）
-import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, featureProperties, NO_FEATURE, ncompOf } from "../src/mesh-features.ts";
+import { featureSetOf, featureIdsOf, featureTextureOf, decodePropertyTables, batchTableOf, featureProperties, NO_FEATURE, ncompOf } from "../src/mesh-features.ts";
 import { pickMeshes, tintColors, lngLatOfWorld } from "../src/meshpick.ts";
 import { decodeModel } from "../src/meshdecode.ts";
 globalThis.self ??= globalThis;
@@ -54,6 +54,12 @@ const strs = list => { const bs = list.map(enc), all = new Uint8Array(bs.reduce(
 	ok("fid.implicit", s0.implicit && J([...featureIdsOf(s0, 4)]) === J([0, 1, 2, 3]));
 	ok("fid.attrNull", s1.propertyTable === 2 && J([...featureIdsOf(s1, 4)]) === J([0, 3, NO_FEATURE, 2]));
 	ok("fid.texture", s2.texture && featureIdsOf(s2, 4).every(v => v === NO_FEATURE));
+	ok("fid.texInfo", J(s2.texInfo) === J({ index: 0 }));
+	// 画素ごとの番号（photogrammetry の分類）：既定の channels＝[0]（r）・nullFeatureId は無し・channels は下位から 8 bit ずつ
+	const px = Uint8Array.of(3, 9, 9, 255, 12, 0, 0, 255, 0, 7, 0, 255, 1, 2, 0, 255);
+	const t1 = featureTextureOf(px, 2, 2, { index: 1 }, 12), t2 = featureTextureOf(px, 2, 2, { index: 1, channels: [1, 0] }, null);
+	ok("fidTex.r", t1.w === 2 && t1.h === 2 && J([...t1.ids]) === J([3, NO_FEATURE, 0, 1]), J([...t1.ids]));
+	ok("fidTex.channels", J([...t2.ids]) === J([9 + 3 * 256, 0 + 12 * 256, 7, 2 + 256]), J([...t2.ids]));
 	const b = featureSetOf({ attributes: { _BATCHID: { value: Uint16Array.of(1, 1, 0) } } });
 	ok("fid.batchId", b.batchId && b.propertyTable === 0 && J([...featureIdsOf(b, 3)]) === J([1, 1, 0]) && featureSetOf({ attributes: {} }) === null);
 	const bt = batchTableOf({ name: ["x", "y"], height: { byteOffset: 0, componentType: "FLOAT", type: "SCALAR" }, extras: {} }, B(Float32Array.of(3, 4)), 2);

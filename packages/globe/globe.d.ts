@@ -950,6 +950,9 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
 	pointShading?: { attenuation?: boolean; geometricErrorScale?: number; maximumAttenuation?: number; baseResolution?: number; eyeDomeLighting?: boolean; edlStrength?: number; edlRadius?: number } | null; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** 利用者のシェーダ（Cesium の tileset.customShader）＝map.setCustomShader の名（setOptions で替えられる）・mc＝positionMC を頂点ごとに持つ（読む前に） */
 	customShader?: string | null; mc?: boolean;
+	/** スタイルの色と元の色の混ぜ方（Cesium の tileset.colorBlendMode／colorBlendAmount）：highlight＝掛ける（既定）・replace＝置き換える・mix＝amount（0〜1・既定 0.5）で混ぜる。
+	 *  いまは地物の番号が画素ごと（EXT_mesh_features の featureId.texture＝photogrammetry の分類）の束だけ（頂点ごとの番号の束は掛ける） */
+	colorBlend?: { mode?: "highlight" | "replace" | "mix"; amount?: number } | null;
 	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/splat の SplatOptions）。
 	 *  描き手＝splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
 	splat?: Record<string, unknown> | null;
