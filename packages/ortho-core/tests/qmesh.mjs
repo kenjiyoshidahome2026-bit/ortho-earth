@@ -125,5 +125,23 @@ console.log("― 海底のセル（seafloor）：R10＝z8・無い段は親で�
 	ok(at(cellX + 1, cellY + 1) === -5000 && at(cellX + 5.1, cellY + 5.1) === -6000, `親（-5000）の上に細かい段（-6000）が勝つ（${at(cellX + 1, cellY + 1)} / ${at(cellX + 5.1, cellY + 5.1)}）`);
 }
 
+console.log("― 近景層の窓（range < 1）：陸でも無い段は親で埋める ―");
+{
+	// CWT はフランスなどで z14 止まり＝1/64° の窓（z15）は全部 404。親の z14 で埋まらないと近景層が焼けず、目の足元の地面が落ちた（2026-10-29）
+	const asked = [];
+	globalThis.fetch = async (u) => {
+		const url = String(u);
+		if (url.endsWith("layer.json")) return { ok: true, json: async () => ({ format: "quantized-mesh-1.0", tiles: ["{z}/{x}/{y}.terrain"], maxzoom: 18, extensions: ["metadata"], metadataAvailability: 10 }) };
+		const [z] = url.split("/").slice(-3).map(v => parseInt(v)); asked.push(z);
+		if (z <= 14) { const b = makeTile([0, 0, 1, 1], 5, () => 412).ab; return { ok: true, arrayBuffer: async () => b }; }
+		return { ok: false, status: 404 };
+	};
+	const { createQmeshSource } = await import("../src/qmesh-src.ts");
+	const src = createQmeshSource({ url: "https://n.test/layer.json", heights: "orthometric" });
+	const c = await src.cell(2.917969, 46.380859, 1 / 64, 65);
+	ok(asked.includes(15) && asked.includes(14), `窓の段 z15 を試してから親の z14 へ（取った段 ${[...new Set(asked)].sort((a, b) => a - b).join(",")}）`);
+	ok(c && c.valid === 1 && c.data[32 * 65 + 32] === 412, `z15 が無くても z14 で穴が無い（valid ${c?.valid}・中央 ${c?.data[32 * 65 + 32]}）`);
+}
+
 if (fails) { console.error(`FAIL ${fails}`); process.exit(1); }
 console.log("PASS qmesh");

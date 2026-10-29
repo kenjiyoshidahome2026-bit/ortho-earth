@@ -40,5 +40,27 @@ ok(!writes.some(w => w.v === -1), `古い取得は新しい窓に書かれない
 ok(T.debug().atlasKey === k1, "窓の鍵は変わらない");
 const e = T.sampleElev(150.5, 30.5);
 ok(e === 2000, `標高のキャッシュは新しい中身（${e}）`);
+
+// 外来の DEM が全画素そろうセルは既定のタイルを待たない（2026-10-29）：バケット未収録の R01（フランス）は JAXA の 5° zip の取り寄せで
+// 1 分前後かかり、その間 CWT の標高も書かれず地面が 0 m だった
+{
+	const { encodeQuantizedMesh } = await import("../src/qmesh.ts");
+	const G = 5, verts = [], tris = [];
+	for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) verts.push([Math.round(i / (G - 1) * 32767), Math.round(j / (G - 1) * 32767), 777]);
+	const order = [], seen = new Map(), mapI = i => { if (!seen.has(i)) { seen.set(i, order.length); order.push(i); } return seen.get(i); };   // 高水位の順（qmesh.mjs の makeTile と同じ）
+	for (let j = 0; j < G - 1; j++) for (let i = 0; i < G - 1; i++) { const a = j * G + i; tris.push([a, a + 1, a + G].map(mapI), [a + 1, a + G + 1, a + G].map(mapI)); }
+	const ab = encodeQuantizedMesh({ verts: order.map(i => verts[i]), tris, minH: 777, maxH: 777 });
+	globalThis.fetch = async (u) => String(u).endsWith("layer.json")
+		? { ok: true, json: async () => ({ format: "quantized-mesh-1.0", tiles: ["{z}/{x}/{y}.terrain"], maxzoom: 14 }) }
+		: { ok: true, arrayBuffer: async () => ab.slice(0) };
+	const asked = [], w2 = [];
+	const slow = Object.assign((lng, lat, range) => { asked.push(range); return new Promise(() => {}); }, { byName: () => Promise.resolve(null) });   // 既定のタイルは届かない
+	const T2 = createTerrain({ renderer: { set(slot, data) { if (/^elevCell/.test(slot)) w2.push(data instanceof Float32Array ? data[0] : data?.tile?.data?.[0]); } }, requestDraw() {}, exag: 1, earthM: 6371000, tileLoader: slow, noMixed: true, noFar: true, noNear: true });
+	T2.setDem({ type: "quantized-mesh", url: "https://d.test/layer.json", heights: "orthometric" });
+	T2.ensure(cam, size);
+	for (let i = 0; i < 50 && !w2.length; i++) await sleep(20);
+	ok(w2.length > 0 && w2.every(v => Math.abs(v - 777) < 1), `外来の DEM の標高が書かれる（${w2.length} 枚・${w2[0]}）`);
+	ok(!asked.includes(10), `全画素そろう R10 のセルは既定のタイルを取りに行かない（取った段 ${[...new Set(asked)].join(",") || "無し"}）`);
+}
 console.log(fails ? `FAIL ${fails}` : "PASS");
 process.exit(fails ? 1 : 0);
