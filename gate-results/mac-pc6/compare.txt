@@ -1,0 +1,15 @@
+     3d-tiles-1.1-photogrammetry | now L1 c53.3 e58.5 b239 | prev(mac-pc6) L1 c45.8 e54.9 b897 | camera (Δ 316 m · Δangle 0.0°)
+     3d-tiles-compare | now L3 c90.1 e91.4 b15 | prev(mac-pc6) L2 c77.5 e92.2 b491 | 
+     3d-tiles-feature-picking | now L2 c84.6 e87.0 b40 | prev(mac-pc6) L2 c84.8 e86.9 b40 | picture: colour 85% · edges 87% of the cells match · a patch of 40 cells differs
+     3d-tiles-gaussian-splatting-comparison | now L2 c89.3 e82.6 b65 | prev(none) - | picture: colour 89% · edges 83% of the cells match · a patch of 65 cells differs
+     cesium-osm-buildings | now L2 c78.6 e90.6 b335 | prev(mac-pc6) L2 c77.4 e91.2 b335 | picture: colour 79% · edges 91% of the cells match · a patch of 335 cells differs
+     clamp-entities-to-ground | now L2 c80.5 e88.5 b127 | prev(none) - | picture: colour 81% · edges 88% of the cells match · a patch of 127 cells differs
+     classification-types | now L2 c93.4 e97.4 b172 | prev(none) - | picture: colour 93% · edges 97% of the cells match · a patch of 172 cells differs
+     czml-polyline | now L1 c99.3 e99.9 b3 | prev(none) - | drawn camera (Δangle 21.9° from the Cesium pose)
+     drawing-on-terrain | now L2 c86.3 e84.6 b22 | prev(mac-p4-main) L2 c86.3 e84.6 b22 | picture: colour 86% · edges 85% of the cells match · a patch of 22 cells differs
+     ground-polyline-material-dev | now L1 c83.3 e81.4 b22 | prev(mac-grey3) L1 c81.6 e80.0 b42 | unsupported: material PolylineGlow (drawn in its colour), material PolylineDash (drawn in 
+     high-dynamic-range | now L2 c69.6 e66.6 b228 | prev(mac-grey3) L2 c64.5 e66.6 b388 | picture: colour 70% · edges 67% of the cells match · a patch of 228 cells differs
+     montreal-point-cloud | now L3 c95.9 e98.1 b5 | prev(mac-pc6) L3 c95.9 e98.1 b5 | 
+     polyline | now L1 c99.3 e99.9 b3 | prev(none) - | drawn camera (Δangle 21.9° from the Cesium pose)
+     polylines-on-terrain-dev | now L3 c99.2 e99.1 b5 | prev(mac-grey3) L3 c98.6 e98.4 b5 | 
+     terrain | now L2 c93.4 e95.1 b136 | prev(mac-grey3) L2 c93.1 e94.7 b136 | picture: colour 93% · edges 95% of the cells match · a patch of 136 cells differs
