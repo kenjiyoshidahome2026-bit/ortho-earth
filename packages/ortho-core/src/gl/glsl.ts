@@ -205,7 +205,7 @@ void main() {
 	float h = base + a_pos.z;                  // 地形標高 + 建物高さ
 	vec3 relW = rel + h * liftDir(ll, dir);    // (dir*(1+h)) − 原点3D を相殺なしで（地形の上に建物を積む。楕円体＝測地法線）
 	v_shade = a_shade;
-	v_front = dot(dir, u_eye) - 1.0;
+	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(u_originPt + relW);
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
 	gl_PointSize = 7.0;   // GL_POINTS 描画時のみ有効（線/面描画では無視）＝draped の点データ用
@@ -280,7 +280,7 @@ void main() {
 	v_n = a_normal;
 	if (u_xfOn > 0.5) v_n = u_xfL * a_normal;
 	v_toEye = u_eyeRel - ap;                                     // ＝u_eye − wp を原点相対で：u_eye − wp（≈1 同士の差）は float32 で 0.4 m 級の誤差＝目が数 m まで寄った 1 m 級の模型（Cesium Man）で FS の面法線（dFdx）と裏面判定が乱れ裏側の三角形が透けた（2026-10-28）
-	v_front = dot(dir, u_eye) - 1.0;
+	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
 	v_csFog = csFogV(u_eye * CS_R, wp * CS_R, u_csFogD, u_csFogL.xyz, u_csFogL.w);
 	// 接地リフト（DTM 化で解禁・746b48a の続き）：メッシュは単位球接地(r=1)で焼き込み済み＝頂点位置の
@@ -501,7 +501,7 @@ void main() {
 	v_h = h;
 	v_ll = a_ll;
 	vec3 relW = rel + (h * u_elevScale) * liftDir(a_ll, dir);   // (dir*(1+h*scale)) − 原点3D を相殺なしで（楕円体＝測地法線）
-	v_front = dot(dir, u_eye) - 1.0;
+	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(u_originPt + relW);
 	v_csFog = csFogV(u_eye * CS_R, (u_originPt + relW) * CS_R, u_csFogD, u_csFogL.xyz, u_csFogL.w);
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
@@ -880,12 +880,16 @@ float cgLambert(vec2 ll, vec2 gEN, float mode) {
 	return mix(1.0, diff, u_cgP.z);
 }
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
+uniform vec4 u_ugC;    // 地下から見た球の裏面（Cesium の globe.undergroundColor）：rgb＋α・α<0＝切（目が地面の下の時だけ renderer が点ける）
+uniform vec4 u_ugNF;   // undergroundColorAlphaByDistance＝(near, nearValue, far, farValue)・距離は世界単位
 void main() {
 	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
 	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = u_rayC;
 	float disc = bb * bb - 4.0 * aa * cc;
 	float aDotd = bb * 0.5, tstar = -aDotd / aa;
 	float t = sphereT(bb, disc);   // 近い根を桁落ちなしで（disc<0 か後ろ向き＝−1）
+	bool ug = false;   // 目が球の中（地下）＝前方の遠い根＝球の裏面（Cesium は裏面を undergroundColor で塗る）
+	if (t < 0.0 && u_ugC.a >= 0.0 && cc < 0.0 && disc >= 0.0) { t = (-bb + sqrt(disc)) / (2.0 * aa); ug = true; }
 	if (t < 0.0) {                                 // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続に減衰
 		if (u_csAtm.x > 0.5) {   // Cesium の空の大気（殻の奥の面で計る・星の上に α で重なる）
 			if (u_csAtm.z < 0.5) discard;
@@ -973,6 +977,11 @@ void main() {
 		float night = u_cg.w > 0.5 ? u_cgP.w : -1.0;
 		vec3 cs = csGroundL(g.rgb / max(g.a, 1e-4), A * CS_R, P * CS_R, u_csAtm.y, u_cg.xyz, night);
 		col = csFogL(cs, A * CS_R, P * CS_R, u_csAtm.w, u_cg.xyz, night) * g.a;
+	}
+	if (ug) {   // 裏面：霞・大気は掛けない（面の裏から見る）＝床の色に undergroundColor を距離の α で重ねる（Cesium GlobeFS の alphaBlend）
+		float k = clamp((t * sqrt(aa) - u_ugNF.x) / max(u_ugNF.z - u_ugNF.x, 1e-12), 0.0, 1.0);
+		float ua = u_ugC.a * mix(u_ugNF.y, u_ugNF.w, k);
+		col = u_ugC.rgb * ua * g.a + g.rgb * (1.0 - ua);
 	}
 	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（SkyAtmosphere は地面を知らない＝殻の奥の面）
@@ -1341,7 +1350,7 @@ void main() {
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog 用＝粗くて可）
 	v_color = u_pz.x > 0.5 ? u_pzC : a_color;   // ズーム連続の色（V-Ph3＝S-P1-2）
-	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
+	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
 	v_fog = fogOf(dir);
 	gl_Position = u_clipT + u_mvp * vec4(rel, 0.0);   // RTE：mvp*[w,1] を相殺なしで（海抜0の球面）
 	applyLogDepth();   // 深度テストOFF（2D）では無害
@@ -1870,7 +1879,7 @@ const DISCARD = "\tif (clipMin(v_cdA, v_cdB) < 0.0) discard;\n";
 type Pairs = readonly (readonly [string, string])[];
 const clipGL = (src: string, pairs: Pairs, label: string): string => withClip(derive(src, pairs, label));
 // 地形（帯は最後に＝この後に地面アトラスの texture がある）
-const TERR_VS_C: Pairs = [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + VS_OUT], ["\tv_front = dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);", `\t${CD_SET("relW")}\n\tv_front = dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);`]];
+const TERR_VS_C: Pairs = [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + VS_OUT], ["\tv_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);", `\t${CD_SET("relW")}\n\tv_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;\n\tv_fog = fogOf(u_originPt + relW);`]];
 export const TERRAIN_CLIP_VS = clipGL(TERRAIN_VS, TERR_VS_C, "TERRAIN_CLIP_VS");
 export const TERRAIN_CLIP_FS = clipGL(TERRAIN_FS, [
 	["in float v_h;\n", "in float v_h;\n" + FS_IN],
@@ -2065,7 +2074,7 @@ const SH_REL = "(u_originPt - SH.anchor.xyz)";
 /** 影の受け手の派生（fam＝描く物の族・src＝本体か切る派生の文字列） */
 export type ShadowFam = "terrain" | "fill" | "line" | "bld" | "mesh" | "meshTex" | "globe";
 const SH_VS: Record<ShadowFam, Pairs> = {
-	terrain: [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + SC_OUT], ["\tv_front = dot(dir, u_eye) - 1.0;\n", `\tv_sc = shClip(relW + ${SH_REL});\n\tv_front = dot(dir, u_eye) - 1.0;\n`]],
+	terrain: [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + SC_OUT], ["\tv_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;\n", `\tv_sc = shClip(relW + ${SH_REL});\n\tv_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;\n`]],
 	fill: [["out vec2 v_guv3;\n", "out vec2 v_guv3;\n" + SC_OUT], ["\tgl_Position = u_clipT + u_mvp * vec4(rel, 0.0);", `\tv_sc = shClip(rel + ${SH_REL});\n\tgl_Position = u_clipT + u_mvp * vec4(rel, 0.0);`]],
 	line: [["out float v_fog;\n", "out float v_fog;\n" + SC_OUT], ["\tv_fog = fogOf((wa + wb) * 0.5);\n", `\tv_fog = fogOf((wa + wb) * 0.5);\n\tv_sc = shClip((corner.x < 0.5 ? relWa : relWb) + ${SH_REL});\n`]],
 	bld: [["out vec2  v_ll;", SC_OUT + "out vec2  v_ll;"], ["\tv_shade = a_shade;\n", `\tv_sc = shClip(relW + ${SH_REL});\n\tv_shade = a_shade;\n`]],

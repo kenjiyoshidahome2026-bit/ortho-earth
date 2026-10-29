@@ -422,7 +422,7 @@ struct FillOut {
 	p.z = logDepthZ(p.w);
 	o.pos = p;
 	o.color = a_color;
-	o.front = dot(dir, F.eye) - 1.0;
+	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(dir);
 	o.ll = ll;
 	o.cuv = F.cogP.xy + dLL * F.cogP.zw;
@@ -764,7 +764,7 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	o.guv2 = F.gnd2.xy + a_uv * F.gnd2.zw;
 	o.guv3 = F.gnd3.xy + a_uv * F.gnd3.zw;
 	let relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線
-	o.front = dot(dir, F.eye) - 1.0;
+	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(F.originPt + relW);
 	o.csFog = csFogV(F.eye * CS_R, (F.originPt + relW) * CS_R, F.farP.w, F.cg.xyz, select(-1.0, 1.0, F.cg.w > 0.5 && F.cgP.w >= 0.0));
 	var p = F.clipT + F.mvp * vec4f(relW, 0.0);
@@ -861,7 +861,7 @@ struct BldOut {
 	let h = base + a_pos.z;                              // 地形標高 + 建物高さ
 	let relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線
 	o.shade = a_shade;
-	o.front = dot(dir, F.eye) - 1.0;
+	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(F.originPt + relW);
 	// ⚠絶対経緯度を varying で運ばない：f32 ulp≈1.4m(経度139°)がマスクセル境界の画素ジッタ＝深ズームの点描ゴースト。
 	// 原点相対の小値を渡し、大きい定数部は MaskP 側（CPU f64 前計算の off）に持たせる（glsl.js BUILDING_VS と同文）。
@@ -925,7 +925,7 @@ struct PlOut {
 	o.wl = ap * 6371000.0;   // 原点相対＝f32 でも mm 級（絶対位置の f32 は 0.4m 刻み＝窓の格子が揺れる）
 	o.n = select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5);
 	o.toEye = B.eyeRel.xyz - ap;                      // ＝F.eye − wp を原点相対で（≈1 同士の差は float32 で 0.4 m 級の誤差＝数 m まで寄った 1 m 級の模型で裏面判定が乱れた・2026-10-28）
-	o.front = dot(dir, F.eye) - 1.0;
+	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(wp);
 	o.csFog = csFogV(F.eye * CS_R, wp * CS_R, F.farP.w, F.cg.xyz, select(-1.0, 1.0, F.cg.w > 0.5 && F.cgP.w >= 0.0));
 	// 接地リフト（DTM 保証域 P.p0=liftBounds 内だけ・境界 0.05° smoothstep）。域外/bounds無しは h=0（r=1 接地）
@@ -1243,6 +1243,8 @@ struct Globe {
 	gm: vec4f,           // 地面の材質（setGroundMaterial・2026-10-28）＝terrain の P.tr/P.lx/P.dashP と同形（GM_WGSL）
 	gmC: vec4f,
 	gmP: vec4f,
+	ugC: vec4f,          // 地下から見た球の裏面（Cesium の globe.undergroundColor）：rgb＋α・α<0＝切
+	ugNF: vec4f,         // その α の距離 (near, nearValue, far, farValue)・距離は世界単位
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert。
@@ -1387,7 +1389,10 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);   // #65：視線は CPU f64 の基底・交点は桁落ちなし
 	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let cc = h.cc;
 	let aDotd = bb * 0.5; let tstar = -aDotd / aa;
-	let t = h.t;
+	var t = h.t;
+	var ug = false;   // 目が球の中（地下）＝前方の遠い根＝球の裏面（Cesium の globe.undergroundColor・gl と同じ）
+	let disc = bb * bb - 4.0 * aa * cc;
+	if (t < 0.0 && G.ugC.a >= 0.0 && cc < 0.0 && disc >= 0.0) { t = (-bb + sqrt(disc)) / (2.0 * aa); ug = true; }
 	// 地面の材質の等高線用 fwidth(標高)＝ここ（空の return より前＝一様な制御の流れ）で。WGSL の掟：微分は画素ごとの分岐の後では呼べず、
 	// Tint が 'fwidth' must only be called from uniform control flow でパイプラインごと落とす（Metal の実 WebGPU で地球が真っ黒）。naga は見逃す
 	var gmDe = 0.0;
@@ -1479,6 +1484,11 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
 	var colC = col;
 	if (G.misc.z > 0.5) { let night = select(-1.0, G.cgP.w, G.cg.w > 0.5); colC = csFogL(csGroundL(base, A * CS_R, Pt * CS_R, G.misc.y, G.cg.xyz, night), A * CS_R, Pt * CS_R, G.farP.z, G.cg.xyz, night); }   // Cesium の地面の大気（遠くから）と霧（800 km より下・farP.z＝濃さ）＝従来の霞の代わり
+	if (ug) {   // 裏面：霞・大気は掛けない＝床の色に undergroundColor を距離の α で重ねる（gl と同じ）
+		let kd = clamp((t * sqrt(aa) - G.ugNF.x) / max(G.ugNF.z - G.ugNF.x, 1e-12), 0.0, 1.0);
+		let ua = G.ugC.a * mix(G.ugNF.y, G.ugNF.w, kd);
+		colC = G.ugC.rgb * ua + base * (1.0 - ua);
+	}
 	var outC = vec4f(colC * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（gl と同じ）
 	if (G.misc.z > 0.5 && G.misc.w > 0.5 && G.misc.x < 1.0) { let cs = csSky2(A * CS_R, normalize(d), select(1.0, 2.0, G.misc.x > 0.0)); outC += cs * (1.0 - outC.a); }
