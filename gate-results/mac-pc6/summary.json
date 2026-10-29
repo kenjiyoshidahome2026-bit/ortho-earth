@@ -1,0 +1,533 @@
+{
+ "at": "2026-10-29T18:54:33.632Z",
+ "cesium": "1.146.0",
+ "n": 15,
+ "levels": {
+  "0": 0,
+  "1": 4,
+  "2": 8,
+  "3": 3,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 3,
+  "2": 8,
+  "3": 2,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 8,
+   "examples": [
+    "3d-tiles-feature-picking",
+    "3d-tiles-gaussian-splatting-comparison",
+    "cesium-osm-buildings",
+    "clamp-entities-to-ground",
+    "classification-types",
+    "drawing-on-terrain",
+    "high-dynamic-range",
+    "terrain"
+   ]
+  },
+  {
+   "blocker": "drawn camera differs",
+   "n": 2,
+   "examples": [
+    "czml-polyline",
+    "polyline"
+   ]
+  },
+  {
+   "blocker": "camera differs",
+   "n": 1,
+   "examples": [
+    "3d-tiles-1.1-photogrammetry"
+   ]
+  },
+  {
+   "blocker": "unsupported: material PolylineDash (drawn in its colour)",
+   "n": 1,
+   "examples": [
+    "ground-polyline-material-dev"
+   ]
+  },
+  {
+   "blocker": "unsupported: material PolylineGlow (drawn in its colour)",
+   "n": 1,
+   "examples": [
+    "ground-polyline-material-dev"
+   ]
+  },
+  {
+   "blocker": "unsupported: material PolylineOutline (drawn in its colour)",
+   "n": 1,
+   "examples": [
+    "ground-polyline-material-dev"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-1.1-photogrammetry",
+   "level": 1,
+   "reasons": [
+    "camera (Δ 316 m · Δangle 0.0°)"
+   ],
+   "blockers": [
+    "camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": false,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1171,
+    "n": 3072,
+    "colour": 0.533203125,
+    "edge": 0.5849609375,
+    "blob": 239
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-compare",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2567,
+    "n": 3072,
+    "colour": 0.9007161458333334,
+    "edge": 0.9140625,
+    "blob": 15
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-feature-picking",
+   "level": 2,
+   "reasons": [
+    "picture: colour 85% · edges 87% of the cells match · a patch of 40 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2366,
+    "n": 3072,
+    "colour": 0.8463541666666666,
+    "edge": 0.8697916666666666,
+    "blob": 40
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-gaussian-splatting-comparison",
+   "level": 2,
+   "reasons": [
+    "picture: colour 89% · edges 83% of the cells match · a patch of 65 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2390,
+    "n": 3072,
+    "colour": 0.8929036458333334,
+    "edge": 0.826171875,
+    "blob": 65
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cesium-osm-buildings",
+   "level": 2,
+   "reasons": [
+    "picture: colour 79% · edges 91% of the cells match · a patch of 335 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2263,
+    "n": 3072,
+    "colour": 0.7864583333333334,
+    "edge": 0.9055989583333334,
+    "blob": 335
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "clamp-entities-to-ground",
+   "level": 2,
+   "reasons": [
+    "picture: colour 81% · edges 88% of the cells match · a patch of 127 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2310,
+    "n": 3072,
+    "colour": 0.8050130208333334,
+    "edge": 0.884765625,
+    "blob": 127
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "classification-types",
+   "level": 2,
+   "reasons": [
+    "picture: colour 93% · edges 97% of the cells match · a patch of 172 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2795,
+    "n": 3072,
+    "colour": 0.93359375,
+    "edge": 0.9739583333333334,
+    "blob": 172
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "czml-polyline",
+   "level": 1,
+   "reasons": [
+    "drawn camera (Δangle 21.9° from the Cesium pose)"
+   ],
+   "blockers": [
+    "drawn camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": false
+   },
+   "picture": {
+    "ok": 3048,
+    "n": 3072,
+    "colour": 0.9925130208333334,
+    "edge": 0.9993489583333334,
+    "blob": 3
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "drawing-on-terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 85% of the cells match · a patch of 22 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2295,
+    "n": 3072,
+    "colour": 0.86328125,
+    "edge": 0.8463541666666666,
+    "blob": 22
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ground-polyline-material-dev",
+   "level": 1,
+   "reasons": [
+    "unsupported: material PolylineGlow (drawn in its colour), material PolylineDash (drawn in its colour), material PolylineOutline (drawn in its colour)"
+   ],
+   "blockers": [
+    "unsupported: material PolylineGlow (drawn in its colour)",
+    "unsupported: material PolylineDash (drawn in its colour)",
+    "unsupported: material PolylineOutline (drawn in its colour)"
+   ],
+   "unsupported": [
+    {
+     "what": "material PolylineGlow (drawn in its colour)",
+     "n": 1
+    },
+    {
+     "what": "material PolylineDash (drawn in its colour)",
+     "n": 1
+    },
+    {
+     "what": "material PolylineOutline (drawn in its colour)",
+     "n": 1
+    }
+   ],
+   "checks": {
+    "unsupported": false,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2117,
+    "n": 3072,
+    "colour": 0.8326822916666666,
+    "edge": 0.814453125,
+    "blob": 22
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "high-dynamic-range",
+   "level": 2,
+   "reasons": [
+    "picture: colour 70% · edges 67% of the cells match · a patch of 228 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1662,
+    "n": 3072,
+    "colour": 0.6962890625,
+    "edge": 0.6663411458333334,
+    "blob": 228
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "montreal-point-cloud",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2902,
+    "n": 3072,
+    "colour": 0.958984375,
+    "edge": 0.9814453125,
+    "blob": 5
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "polyline",
+   "level": 1,
+   "reasons": [
+    "drawn camera (Δangle 21.9° from the Cesium pose)"
+   ],
+   "blockers": [
+    "drawn camera differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": false
+   },
+   "picture": {
+    "ok": 3049,
+    "n": 3072,
+    "colour": 0.9928385416666666,
+    "edge": 0.9993489583333334,
+    "blob": 3
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "polylines-on-terrain-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3018,
+    "n": 3072,
+    "colour": 0.9915364583333334,
+    "edge": 0.9905598958333334,
+    "blob": 5
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 93% · edges 95% of the cells match · a patch of 136 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2803,
+    "n": 3072,
+    "colour": 0.93359375,
+    "edge": 0.9505208333333334,
+    "blob": 136
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
