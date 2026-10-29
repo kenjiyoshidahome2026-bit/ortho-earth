@@ -1,0 +1,172 @@
+[
+ {
+  "ex": "3d-tiles-1.1-photogrammetry-classification",
+  "uniforms": {},
+  "metadata": {},
+  "fs": "void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {}"
+ },
+ {
+  "ex": "3d-tiles-1.1-photogrammetry-classification",
+  "uniforms": {},
+  "metadata": {},
+  "fs": "\n      const int WINDOW = 0;\n      const int FRAME = 1;\n      const int WALL = 2;\n      const int ROOF = 3;\n      const int SKYLIGHT = 4;\n      const int AIR_CONDITIONER_WHITE = 5;\n      const int AIR_CONDITIONER_BLACK = 6;\n      const int AIR_CONDITIONER_TALL = 7;\n      const int CLOCK = 8;\n      const int PILLARS = 9;\n      const int STREET_LIGHT = 10;\n      const int TRAFFIC_LIGHT = 11;\n\n      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {\n        int featureId = fsInput.featureIds.featureId_0;\n\n        if (featureId == CLOCK) {\n          // Shiny brass\n          material.specular = vec3(0.98, 0.90, 0.59);\n          material.roughness = 0.1;\n        } else if (\n          featureId == STREET_LIGHT ||\n          featureId == AIR_CONDITIONER_BLACK ||\n          featureId == AIR_CONDITIONER_WHITE ||\n          featureId == AIR_CONDITIONER_TALL ||\n          featureId == ROOF\n        ) {\n          // dull aluminum\n          material.specular = vec3(0.91, 0.92, 0.92);\n          material.roughness = 0.5;\n        } else if (featureId == WINDOW || featureId == SKYLIGHT) {\n          // make translucent, but also set an orange emissive color so it looks like\n          // it's lit from inside\n          material.emissive = vec3(1.0, 0.3, 0.0);\n          material.alpha = 0.5;\n        } else if (featureId == WALL || featureId == FRAME || featureId == PILLARS) {\n          // paint the walls and pillars white to contrast the brass clock\n          material.diffuse = mix(material.diffuse, vec3(1.0), 0.8);\n          material.roughness = 0.9;\n        } else {\n          // brighten everything else\n          material.diffuse += 0.05;\n          material.roughness = 0.9;\n        }\n      }\n      "
+ },
+ {
+  "ex": "3d-tiles-1.1-photogrammetry-classification",
+  "uniforms": {
+   "u_selectedFeature": "int"
+  },
+  "metadata": {},
+  "fs": "\n      const int NOTHING_SELECTED = 12;\n      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {\n        int featureId = fsInput.featureIds.featureId_0;\n\n        if (u_selectedFeature < NOTHING_SELECTED && featureId == u_selectedFeature) {\n          material.specular = vec3(1.00, 0.85, 0.57);\n          material.roughness = 0.1;\n        }\n      }\n      "
+ },
+ {
+  "ex": "3d-tiles-1.1-photogrammetry-classification",
+  "uniforms": {
+   "u_selectedFeature": "float"
+  },
+  "metadata": {},
+  "fs": "\n      const int IDS0_WINDOW = 0;\n      const int IDS1_FACADE = 2;\n      const int IDS1_ROOF = 3;\n      const vec3 PURPLE = vec3(0.5, 0.0, 1.0);\n      const vec3 YELLOW = vec3(1.0, 1.0, 0.0);\n      const vec3 NO_TINT = vec3(1.0);\n\n      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {\n        int featureId0 = fsInput.featureIds.featureId_0; // fine features\n        int featureId1 = fsInput.featureIds.featureId_1; // coarse features\n\n        // use both feature ID sets to determine where the features are\n        float isWindow = float(featureId0 == IDS0_WINDOW);\n        float isFacade = float(featureId1 == IDS1_FACADE);\n        float isRoof = float(featureId1 == IDS1_ROOF);\n\n        // Tint the roof windows yellow and facade windows purple\n        vec3 tint = NO_TINT;\n        tint = mix(tint, YELLOW, isWindow * isRoof);\n        tint = mix(tint, PURPLE, isWindow * isFacade);\n        material.diffuse *= tint;\n      }\n      "
+ },
+ {
+  "ex": "3d-tiles-1.1-s2-globe",
+  "uniforms": {
+   "u_time": "float"
+  },
+  "metadata": {},
+  "fs": "\n            void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n            {\n              int featureId = fsInput.featureIds.featureId_0;\n              // Use cartesian coordinates but scale to be roughly [-1, 1]\n              vec3 positionWC = fsInput.attributes.positionWC / 6.3e6;\n              if (featureId == 60)\n              {\n                // Something like FM synthesis to make irregularly spaced waves\n                float wave = sin(14.0 * positionWC.z - u_time);\n                wave = 0.5 + 0.5 * sin(10.0 * wave * positionWC.z - u_time);\n                // mix in an over-saturated version of the diffuse to make shimmering bands of color\n                material.diffuse = mix(material.diffuse, material.diffuse * 3.0, wave);\n              }\n            }\n            "
+ },
+ {
+  "ex": "3d-tiles-nga-gpm-visualization",
+  "uniforms": {},
+  "metadata": {},
+  "fs": "\n                void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n                {\n                  float value = float(fsInput.metadata.${propertyName});\n                  float range = float(${sourceMax}) - float(${sourceMin});\n                  float brightness = (value - float(${sourceMin})) / range;\n\n                  if (value < float(${sourceMax})) {\n                    material.diffuse = vec3(brightness);\n                  }\n                }\n              "
+ },
+ {
+  "ex": "3d-tiles-nga-gpm-visualization",
+  "uniforms": {},
+  "metadata": {},
+  "fs": "\n                void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n                {\n                  float value0 = float(fsInput.metadata.${propertyName0});\n                  float range0 = float(${sourceMax0}) - float(${sourceMin0});\n                  float brightness0 = (value0 - float(${sourceMin0})) / range0;\n\n                  float value1 = float(fsInput.metadata.${propertyName1});\n                  float range1 = float(${sourceMax1}) - float(${sourceMin1});\n                  float brightness1 = (value1 - float(${sourceMin1})) / range1;\n\n                  if (value0 < float(${sourceMax0}) && value1 < float(${sourceMax1})) {\n                    material.diffuse = vec3(brightness0, brightness1, 0.0);\n                  }\n                }\n              "
+ },
+ {
+  "ex": "3d-tiles-nga-gpm-visualization",
+  "uniforms": {
+   "u_textureThreshold": "float"
+  },
+  "metadata": {},
+  "fs": "\n                void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n                {\n                  float value = float(fsInput.metadata.${propertyName});\n                  float range = float(${sourceMax}) - float(${sourceMin});\n                  float brightness = (value - float(${sourceMin})) / range;\n\n                  if (value < float(${sourceMax}) && value > u_textureThreshold) {\n                    material.diffuse = vec3(1.0, 1.0, 0.0);\n                  } else {\n                    vec3 diffuseHsl = czm_RGBToHSL(material.diffuse);\n                    diffuseHsl.y *= 0.25;\n                    diffuseHsl.z *= 0.25;\n                    material.diffuse = czm_HSLToRGB(diffuseHsl);\n                  }\n                }\n              "
+ },
+ {
+  "ex": "3d-tiles-nga-gpm-visualization",
+  "uniforms": {
+   "u_textureThreshold": "float"
+  },
+  "metadata": {},
+  "fs": "\n                void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n                {\n                  float value0 = float(fsInput.metadata.${propertyName0});\n                  float range0 = float(${sourceMax0}) - float(${sourceMin0});\n                  float brightness0 = (value0 - float(${sourceMin0})) / range0;\n\n                  float value1 = float(fsInput.metadata.${propertyName1});\n                  float range1 = float(${sourceMax1}) - float(${sourceMin1});\n                  float brightness1 = (value1 - float(${sourceMin1})) / range1;\n\n                  vec3 diffuseHsl = czm_RGBToHSL(material.diffuse);\n                  diffuseHsl.y *= 0.25;\n                  diffuseHsl.z *= 0.25;\n                  vec3 diffuseResult = czm_HSLToRGB(diffuseHsl);\n\n                  if (value0 < float(${sourceMax0}) && value0 > u_textureThreshold) {\n                    diffuseResult.x = 1.0;\n                    diffuseResult.y = 1.0;\n                  }\n                  if (value1 < float(${sourceMax1}) && value1 > u_textureThreshold) {\n                    diffuseResult.x = 1.0;\n                    diffuseResult.z = 1.0;\n                  }\n                  material.diffuse = diffuseResult;\n                }\n              "
+ },
+ {
+  "ex": "custom-shaders-3d-tiles",
+  "uniforms": {},
+  "metadata": {},
+  "fs": "\n            // Color tiles by distance to the camera\n            void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n            {\n                material.diffuse = vec3(0.0, 0.0, 1.0);\n                material.diffuse.g = -fsInput.attributes.positionEC.z / 1.0e4;\n            }"
+ },
+ {
+  "ex": "custom-shaders-3d-tiles",
+  "uniforms": {
+   "u_time": "float",
+   "u_stripes": "sampler2D"
+  },
+  "metadata": {},
+  "fs": "\n                  void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n                  {\n                      vec2 texCoord = vec2(fsInput.attributes.positionMC.y / 100., 0.) + 0.01 * vec2(czm_frameNumber, 0.0);\n                      material.diffuse = texture(u_stripes, texCoord).rgb;\n                  }"
+ },
+ {
+  "ex": "custom-shaders-models",
+  "uniforms": {
+   "u_drag": "vec2"
+  },
+  "metadata": {},
+  "vs": "\n            // If the mouse is dragged to the right, the model grows\n            // If the mouse is dragged to the left, the model shrinks\n            void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput)\n            {\n                vsOutput.positionMC += 0.01 * u_drag.x * vsInput.attributes.normalMC;\n            }\n            "
+ },
+ {
+  "ex": "custom-shaders-models",
+  "uniforms": {
+   "u_time": "float",
+   "u_stripes": "sampler2D"
+  },
+  "metadata": {},
+  "fs": "\n            void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n            {\n                vec2 texCoord = fsInput.attributes.texCoord_0 + 0.1 * vec2(u_time, 0.0);\n                material.diffuse = texture(u_stripes, texCoord).rgb;\n            }\n            "
+ },
+ {
+  "ex": "custom-shaders-models",
+  "uniforms": {
+   "u_checkerboard": "sampler2D"
+  },
+  "metadata": {},
+  "fs": "\n            void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n            {\n                vec2 texCoord = fsInput.attributes.texCoord_0;\n                vec4 checkerboard = texture(u_checkerboard, texCoord);\n                material.diffuse = mix(material.diffuse, vec3(0.0), checkerboard.r);\n            }\n            "
+ },
+ {
+  "ex": "custom-shaders-models",
+  "uniforms": {
+   "u_checkerboard": "sampler2D"
+  },
+  "metadata": {},
+  "fs": "\n            void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n            {\n                vec2 texCoord = fsInput.attributes.texCoord_0;\n                vec4 checkerboard = texture(u_checkerboard, texCoord);\n                material.diffuse = checkerboard.rgb;\n                material.alpha = checkerboard.a;\n            }\n            "
+ },
+ {
+  "ex": "custom-shaders-models",
+  "uniforms": {
+   "u_checkerboard": "sampler2D"
+  },
+  "metadata": {},
+  "fs": "\n            void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n            {\n                vec2 texCoord = fsInput.attributes.texCoord_0;\n                vec4 checkerboard = texture(u_checkerboard, texCoord);\n                if (checkerboard.r > 0.0) {\n                    discard;\n                }\n            }\n            "
+ },
+ {
+  "ex": "custom-shaders-models",
+  "uniforms": {
+   "u_gradient": "sampler2D"
+  },
+  "metadata": {},
+  "fs": "\n            void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n            {\n                material.diffuse = texture(u_gradient, fsInput.attributes.texCoord_0).rgb;\n            }\n            "
+ },
+ {
+  "ex": "custom-shaders-models",
+  "uniforms": {
+   "u_drag": "vec2"
+  },
+  "metadata": {},
+  "fs": "\n            // Click and drag to vary the PBR values\n            void fragmentMain(FragmentInput vsInput, inout czm_modelMaterial material)\n            {\n                float dragDistance = length(u_drag);\n                float variation = smoothstep(0.0, 300.0, dragDistance);\n            // variation adds an golden tint to the specular highlights\n                material.specular = mix(material.specular, vec3(0.8, 0.5, 0.1), variation);\n            // variation makes the material glossier\n                material.roughness = clamp(1.0 - variation, 0.01, 1.0);\n            // variation mixes some red into the diffuse color\n                material.diffuse += vec3(0.5, 0.0, 0.0) * variation;\n            }\n            "
+ },
+ {
+  "ex": "custom-shaders-models",
+  "uniforms": {
+   "u_time": "float"
+  },
+  "metadata": {},
+  "vs": "\n            void vertexMain(VertexInput vsInput, inout czm_modelVertexOutput vsOutput)\n            {\n            // This model's x and y coordinates are in the range [0, 1], which\n            // conveniently doubles as UV coordinates.\n                vec2 uv = vsInput.attributes.positionMC.xy;\n            // Make the point cloud undulate in a complex wave that varies in\n            // both space and time. The amplitude is based on the original shape\n            // of the point cloud (which already is a wavy surface). The wave\n            // is computed relative to the center of the model, hence the\n            // transformations from [0, 1] -> [-1, 1] -> [0, 1]\n                float amplitude = 2.0 * vsInput.attributes.positionMC.z - 1.0;\n                float wave = amplitude * sin(2.0 * czm_pi * uv.x - 2.0 * u_time) * sin(u_time);\n                vsOutput.positionMC.z = 0.5 + 0.5 * wave;\n            // Make the points pulse in and out by changing their size\n                vsOutput.pointSize = 10.0 + 5.0 * sin(u_time);\n            }\n            ",
+  "fs": "\n            void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n            {\n            // Make the points circular instead of square\n                float distance = length(gl_PointCoord - 0.5);\n                if (distance > 0.5) {\n                    discard;\n                }\n            // Make a sinusoid color palette that moves in the general direction\n            // of the wave, but at a different speed.\n            // Coefficients were chosen arbitrarily\n                vec2 uv = fsInput.attributes.positionMC.xy;\n                material.diffuse = 0.2 * fsInput.attributes.color_0.rgb;\n                material.diffuse += vec3(0.2, 0.3, 0.4) + vec3(0.2, 0.3, 0.4) * sin(2.0 * czm_pi * vec3(3.0, 2.0, 1.0) * uv.x - 3.0 * u_time);\n            }\n            "
+ },
+ {
+  "ex": "custom-shaders-property-textures",
+  "uniforms": {},
+  "metadata": {
+   "r3dm_uncertainty_ce90sum": "uint"
+  },
+  "fs": "\n        void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n        {\n          uint horizontalUncertainty = fsInput.metadata.r3dm_uncertainty_ce90sum;\n          material.diffuse = vec3(float(horizontalUncertainty) / 255.0);\n        }\n      "
+ },
+ {
+  "ex": "custom-shaders-property-textures",
+  "uniforms": {},
+  "metadata": {
+   "r3dm_uncertainty_le90sum": "uint"
+  },
+  "fs": "\n        void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n        {\n          uint verticalUncertainty = fsInput.metadata.r3dm_uncertainty_le90sum;\n          material.diffuse = vec3(float(verticalUncertainty) / 255.0);\n        }\n      "
+ },
+ {
+  "ex": "custom-shaders-property-textures",
+  "uniforms": {},
+  "metadata": {
+   "r3dm_uncertainty_ce90sum": "uint",
+   "r3dm_uncertainty_le90sum": "uint"
+  },
+  "fs": "\n        void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)\n        {\n          uint uncertainty = fsInput.metadata.r3dm_uncertainty_ce90sum + fsInput.metadata.r3dm_uncertainty_le90sum;\n          material.diffuse = vec3(float(uncertainty) / 255.0);\n        }\n      "
+ }
+]

@@ -64,6 +64,8 @@ export interface ModelLoadOptions {
 	at?: LonLat | null; heading?: number; scale?: number; name?: string | null; fit?: boolean; textures?: boolean;
 	/** "each"＝連結成分ごとに接地・既定 "batch"＝一体で接地 */
 	ground?: string; mask?: boolean; pickable?: boolean; featureIdSet?: number;
+	/** 利用者のシェーダ（Cesium の CustomShader）＝map.setCustomShader の名・mc＝positionMC（glTF の POSITION）を頂点ごとに持つ */
+	customShader?: string | null; mc?: boolean;
 	/** 置き場（既定 "default"）＝同じ slot は置き換え・別の slot は並ぶ（2026-10-18） */
 	slot?: string;
 	/** 地面からの高さ（m・既定 0）＝置いた後も setAltitude で変えられる */
@@ -134,6 +136,8 @@ export interface ModelEnv {
 	setMeshSil?: ((name: string, sil: number[] | null) => void) | null;
 	/** 模型ごとの環境光（Cesium の照明の SH9・27 値）｜null（renderer の meshEnv） */
 	setMeshEnv?: ((name: string, sh: number[] | null) => void) | null;
+	/** 利用者のシェーダの名（map.setCustomShader）｜null（renderer の meshCustom） */
+	setMeshCustom?: ((name: string, id: string | null) => void) | null;
 	pickEnv?: (() => MeshPickEnv | null) | null;
 	/** 模型・押し出しへ寄る */
 	fit?: ((bbox: Bbox) => void) | null;
@@ -323,7 +327,7 @@ export function composeXf(m: Float32Array | null, a: Float32Array | null): Float
 	return o;
 }
 
-export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshCol = null, setMeshPos = null, setMeshTint = null, setMeshEnv = null, setMeshSil = null, pickEnv = null, fit, center, ell = false, signal }: ModelEnv = {} as ModelEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshCol = null, setMeshPos = null, setMeshTint = null, setMeshEnv = null, setMeshSil = null, setMeshCustom = null, pickEnv = null, fit, center, ell = false, signal }: ModelEnv = {} as ModelEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const t = tr();
 	let seq = 0;   // seq＝模型・押し出しの名前の連番
 	const models = new Map<string, ModelItem>();   // slot → 模型（置いた順）
@@ -472,6 +476,11 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				it.batches.forEach((_, k) => setMeshEnv(`${it.name}#${k}`, v));
 				return h;
 			},
+			setCustomShader(id) {   // 利用者のシェーダ（Cesium の Model.customShader）＝map.setCustomShader の名・null＝外す
+				if (!live(it) || !setMeshCustom) return h;
+				it.batches.forEach((_, k) => setMeshCustom(`${it.name}#${k}`, id ?? null));
+				return h;
+			},
 			play(nameOrSpec) { return h.setAnimation(typeof nameOrSpec === "object" && nameOrSpec ? { ...nameOrSpec, playing: true } : { name: nameOrSpec ?? undefined, playing: true }); },
 			stop() { if (it.animation) { it.animation = { ...it.animation, playing: false }; stopLoop(it); } return h; },
 			// 再生の時刻での束ごとの剛体変換（検定・台本の口）：time 省略＝今の spec の時刻。[Float32Array(12)|null]（L 3x3 列優先＋原点相対の平行移動）｜null（アニメ無し）
@@ -531,6 +540,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		setColor(c) { curH()?.setColor(c); return ctl; },
 		setEnvironment(sh) { curH()?.setEnvironment(sh); return ctl; },
 		setSilhouette(s) { curH()?.setSilhouette(s); return ctl; },
+		setCustomShader(id) { curH()?.setCustomShader(id); return ctl; },
 		play(nameOrSpec) { return ctl.setAnimation(typeof nameOrSpec === "object" && nameOrSpec ? { ...nameOrSpec, playing: true } : { name: nameOrSpec ?? undefined, playing: true }); },
 		stop() { curH()?.stop(); return ctl; },
 		pose(time) { return curH()?.pose(time) ?? null; },
@@ -595,7 +605,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
 		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
 		// slot＝置き場（既定 "default"＝置き換え・別名＝並ぶ）。altitude＝地面からの高さ（m）。gizmo＝置き方の取っ手（true／"auto"＝錨で置いた時だけ）
-		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, slot = "default", altitude = 0, lift = true, gizmo = false, keep2d = false, lighting = undefined, rot = null } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
+		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0, customShader = null, mc = false, slot = "default", altitude = 0, lift = true, gizmo = false, keep2d = false, lighting = undefined, rot = null } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
 			let ab: ArrayBuffer, baseUri: string | null = null;
 			if (typeof src === "string") {
 				const r = await fetch(src, { credentials: "omit" });
@@ -610,7 +620,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				name ??= src.name || "model.glb";
 			}
 			const anchor = at || center?.() || null;
-			const r = await rpc<LoadReply>({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask, featureIdSet, transcoders: transcodersOf(map) }, [ab]).catch(err => {
+			const r = await rpc<LoadReply>({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask, featureIdSet, mc: mc || !!customShader, transcoders: transcodersOf(map) }, [ab]).catch(err => {
 				if (err.message === "no-triangles") throw new Error(t("3D model has no triangles"));
 				throw err;
 			});
@@ -624,7 +634,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				xfM: null, animRaf: 0, animLast: null, handle: null as unknown as ModelHandle, gizmo: null, gizmoAuto: gizmo === "auto" || gizmo === true, tfListeners: new Set(), noLift: lift === false };
 			it.handle = makeHandle(it);
 			models.set(slot, it); cur = it;
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: customShader ?? null }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (altitude || (rot && r.stats.mode === "anchor")) setTransform(it, { altitude, ...(rot && r.stats.mode === "anchor" ? { rot } : {}) });   // rot＝姿勢を丸ごと（pitch・roll も）
 			if (gizmo === true || (gizmo === "auto" && r.stats.mode === "anchor")) gizmoOf(it, true);

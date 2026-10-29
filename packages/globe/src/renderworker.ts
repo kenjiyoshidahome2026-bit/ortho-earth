@@ -113,7 +113,7 @@ type MdMsg = Extract<ScenePortMessage, { type: "up" | "grow" | "dl" }>;
 /** 基図の場面（slot ごとに最新だけ・noFade＝動いている間の差し替え） */
 type SceneRec = MergedScene & { noFade?: boolean };
 /** 建物メッシュの列（plateau worker の直結ポート・set の meshSet/meshVis/meshXf/meshCol） */
-type MeshItem = { name?: string; port?: MessagePort; vis?: boolean; xf?: unknown; tint?: unknown; env?: unknown; sil?: unknown; cut?: unknown; col?: unknown; posData?: unknown; meshData?: { pos?: ArrayBufferView; nrm?: ArrayBufferView; idx?: ArrayBufferView } | null };
+type MeshItem = { name?: string; port?: MessagePort; vis?: boolean; xf?: unknown; tint?: unknown; env?: unknown; sil?: unknown; custom?: unknown; cut?: unknown; col?: unknown; posData?: unknown; meshData?: { pos?: ArrayBufferView; nrm?: ArrayBufferView; idx?: ArrayBufferView } | null };
 /** worker の self に置く計器の窓 */
 interface RwSelf { __gintStats?: () => GintStats | null; __perfElev?: boolean; __perfScene?: boolean; __perfHitch?: Record<string, number> }
 /** 非標準の JS ヒープ計器（Chromium） */
@@ -554,7 +554,8 @@ const dispatch = (e: { data: RwMsg }) => {
 			else if (m.cmd === "meshCol") meshInbox.push({ col: m.data, name: m.prop });
 			else if (m.cmd === "meshTint") meshInbox.push({ tint: m.data, name: m.prop });
 			else if (m.cmd === "meshEnv") meshInbox.push({ env: m.data, name: m.prop });   // 模型ごとの環境光（SH9）も同じ列
-			else if (m.cmd === "meshSil") meshInbox.push({ sil: m.data, name: m.prop });   // 模型の輪郭線も同じ列
+			else if (m.cmd === "meshSil") meshInbox.push({ sil: m.data, name: m.prop });
+			else if (m.cmd === "meshCustom") meshInbox.push({ custom: m.data, name: m.prop });   // 利用者のシェーダの名も同じ列＝バッチの到着の後に効く   // 模型の輪郭線も同じ列
 			else if (m.cmd === "meshCut") meshInbox.push({ cut: m.data, name: m.prop });   // 束の α の切り（MASK）も同じ列   // Cesium の Model.color も同じ列＝バッチの到着の後に効く
 			else if (m.cmd === "meshPos") meshInbox.push({ posData: m.data, name: m.prop });   // skin の頂点の焼き直し（2026-10-28）も同じ列      // 頂点色の書き換え（W7）も同じ列＝バッチの到着より先に効いて捨てられない
 			else if (m.cmd === "noBld") { noBld = !!m.data; dirty = true; }   // 基図の建物の押し出しを伏せる（層 "building-extrusion" の出し入れ＝?nobld=1 の旗を実行時に・2026-09-27）
@@ -898,6 +899,7 @@ function drainUploads0() {
 		if ("xf" in item) { renderer.set("meshXf", item.xf, item.name); dirty = true; continue; }   // 変換＝フラグだけ＝同フレームで続けて消化
 		if ("cut" in item) { renderer.set("meshCut", item.cut, item.name); dirty = true; continue; }
 		if ("sil" in item) { renderer.set("meshSil", item.sil, item.name); dirty = true; continue; }
+		if ("custom" in item) { renderer.set("meshCustom", item.custom, item.name); dirty = true; continue; }
 		if ("env" in item) { renderer.set("meshEnv", item.env, item.name); dirty = true; continue; }
 		if ("tint" in item) { renderer.set("meshTint", item.tint, item.name); dirty = true; continue; }
 		if ("col" in item) { renderer.set("meshCol", item.col, item.name); dirty = true; continue; }

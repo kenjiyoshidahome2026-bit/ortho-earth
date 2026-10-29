@@ -1,4 +1,5 @@
 import { CS_ATMO_WGSL } from "../csatmo.ts";
+import { csWgsl, type CsSpec } from "../csshader.ts";
 // WebGPU(WGSL) シェーダ＝gl/glsl.js の忠実移植。
 // Phase 1: globe / fill / line（基図コア）。Phase 2: 標高（elev）・地形サーフェス・深度・建物押し出し・等高線。
 // 数学は GLSL 版と1:1（sinP テイラー・deltaToRel の桁落ち回避 RTE・capsule SDF・対数深度・hillshade）。
@@ -1570,6 +1571,41 @@ export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	 "\t\tlet cnm = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);   // 法線マップ（fx.pbr の経路と同じ接線）\n\t\tlet cdp1 = -dpx; let cdp2 = -dpy; let cdp2p = cross(cdp2, n); let cdp1p = cross(n, cdp1);\n\t\tlet cT = cdp2p * dux.x + cdp1p * duy.x; let cB = cdp2p * dux.y + cdp1p * duy.y; let cmx = max(dot(cT, cT), dot(cB, cB));\n\t\tvar cn = n; if (cmx > 1e-20) { let im = inverseSqrt(cmx); cn = normalize(cT * im * cnm.x + cB * im * cnm.y + n * max(cnm.z, 0.05)); }\n\t\tvar ci: CsIn; ci.base = tx.rgb; ci.n = cn; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); ci.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); ci.ao = mix(1.0, oc.r, B.pbr0.w); ci.emissive = B.emis.rgb * em.rgb; ci.sunK = sunK;\n"],
 	["\tc = mix(c, in.csFog.rgb, in.csFog.a);   // Cesium の霧\n\treturn vec4f(c, 1.0 - wm);\n}\n", "\tc = mix(c, in.csFog.rgb, in.csFog.a);   // Cesium の霧\n\treturn vec4f(c * a, a);\n}\n"],
 ], "MESH_TEX_WGSL");
+// 利用者のシェーダ（Cesium の CustomShader・2026-10-29）＝MESH_TEX_WGSL に、利用者の GLSL を WGSL へ写した物（csshader.ts csWgsl）を差し込む（gl/glsl.ts meshCustomGLSL と対）。
+// group(3) の binding 6＝CU（J・V・misc＝(czm_frameNumber, 0, UNLIT, TRANSLUCENT)・利用者の uniform）・7〜＝利用者のテクスチャ（sampler と texture の対）。a_mc＝location 4・mc＝location 9。
+// 材質は Cesium の MaterialStageFS と同じに組む（diffuse＝base×(1−金属)・specular＝f0・occlusion・emissive は材質 4 枚から）・照明は csLit を材質から取る形（csLitM）
+export function meshCustomWGSL(spec: CsSpec): { code: string; textures: string[]; cuSize: number; layout: ReturnType<typeof csWgsl>["layout"] } {
+	const w = csWgsl(spec, 3, 6);
+	const s = MESH_TEX_WGSL, i = s.indexOf("fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {"), j = s.indexOf("\n}\n", i);
+	const csLitM = deriveWgsl(s.slice(i, j + 3), [
+		["fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {", "fn csLitM(i: CsIn, f0m: vec3f, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {"],
+		["let diffuse = i.base * (1.0 - i.metallic); let f0 = mix(vec3f(0.04), i.base, i.metallic);", "let diffuse = i.base; let f0 = f0m;"],
+	], "csLitM");
+	const code = deriveWgsl(MESH_TEX_WGSL, [
+		["@group(3) @binding(5) var texEm: texture_2d<f32>;\n", "@group(3) @binding(5) var texEm: texture_2d<f32>;\n" + w.decl + csLitM],
+		["\t@location(5) col: vec4f,\n};", "\t@location(5) col: vec4f,\n\t@location(9) mc: vec4f,\n\t@location(10) uvm: vec2f,\n};"],
+		["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n",
+		 "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f, @location(4) a_mc: vec4f, @location(5) a_uvm: vec2f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n\to.mc = a_mc; o.uvm = a_uvm;\n"],
+		["\tlet ap = select(a_pos, B.xf * a_pos + B.xt.xyz, B.xt.w > 0.5);   // バッチの剛体変換（W4）＝原点相対のまま\n",
+		 "\tvar ap = select(a_pos, B.xf * a_pos + B.xt.xyz, B.xt.w > 0.5);   // バッチの剛体変換（W4）＝原点相対のまま\n"
+		 + (w.hasVs ? "\tcsVi.attributes = csAttrsOf(a_mc.xyz, B.meshOrigin.xyz + ap, CU.V * (ap - B.eyeRel.xyz) * 6378137.0, select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5), a_uv, a_col, a_mc.w);\n"
+			+ "\tcsVi.featureIds.featureId_0 = i32(a_mc.w + 0.5); csVi.metadata = csMetaOf(a_uvm);\n\tcsVo.positionMC = a_mc.xyz; csVo.pointSize = 1.0;\n\tvertexMain();\n"
+			+ "\tap += CU.J * (csVo.positionMC - a_mc.xyz);\n\to.mc = vec4f(csVo.positionMC, a_mc.w);\n" : "")],
+		["\tif (B.csL.w > 1.5) { lit = srgbEncode(tx.rgb); }",
+		 "\tlet csMet = clamp(B.pbr0.x * mr.b, 0.0, 1.0);\n"
+		 + "\tcsM.baseColor = tx; csM.diffuse = tx.rgb * (1.0 - csMet); csM.alpha = tx.a; csM.specular = mix(vec3f(0.04), tx.rgb, csMet); csM.roughness = clamp(B.pbr0.y * mr.g, 0.04, 1.0);\n"
+		 + "\tcsM.normalEC = normalize(CU.V * n); csM.occlusion = mix(1.0, oc.r, B.pbr0.w); csM.emissive = B.emis.rgb * em.rgb;\n"
+		 + (w.hasFs ? "\tcsFi.attributes = csAttrsOf(in.mc.xyz, F.eye - in.toEye, CU.V * (-in.toEye) * 6378137.0, n, in.uv, in.col, in.mc.w);\n\tcsFi.featureIds.featureId_0 = i32(in.mc.w + 0.5); csFi.metadata = csMetaOf(in.uvm);\n\tfragmentMain();\n" : "")
+		 + "\tlet csN = normalize(transpose(CU.V) * csM.normalEC);\n\tvar csA = a;\n"
+		 + "\tif (CU.misc.z > 0.5 || (B.csL.w > 1.5 && CU.misc.z > -0.5)) { lit = czm_linearToSrgb3(csM.diffuse); }   // UNLIT＝Cesium の lightingStage（diffuse を sRGB へ）\n"
+		 + "\telse if (B.csL.w > 0.5) { var ci: CsIn; ci.base = csM.diffuse; ci.n = csN; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = 0.0; ci.rough = csM.roughness; ci.ao = csM.occlusion; ci.emissive = csM.emissive; ci.sunK = sunK; lit = csLitM(ci, csM.specular, B.sh, B.csL, B.csC, B.csI); }\n"
+		 + "\telse { lit = czm_linearToSrgb3(csM.diffuse) * d; }\n"
+		 + "\tif (CU.misc.w > 0.5) { csA = clamp(csM.alpha, 0.0, 1.0); }\n"
+		 + "\tif (true) { }"],   // 元の else if（csLit）・else を飲む
+		["\treturn vec4f(c * a, a);\n}\n", "\treturn vec4f(c * csA, csA);\n}\n"],
+	], "MESH_CS_WGSL");
+	return { code, textures: w.textures, cuSize: w.layout.size, layout: w.layout };
+}
 // 模型の輪郭線（Cesium の Model.silhouetteColor／silhouetteSize・2026-10-29）＝同じ頂点を画面上で法線の向きへ tintB.y px 押し出して色で塗る殻。
 // 模型の前に深度を書かずに描く＝模型が自分の上を塗り直し、外へはみ出した縁だけ残る（Cesium のステンシルの輪郭と同じ見え方）
 export const MESH_SIL_WGSL = deriveWgsl(MESH_TEX_WGSL, [
