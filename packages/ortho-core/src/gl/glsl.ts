@@ -264,6 +264,8 @@ uniform float u_xfOn;        // バッチの剛体変換（glTF の rigid アニ
 uniform mat3 u_xfL;
 uniform vec3 u_xfT;
 uniform vec3 u_eyeRel;       // u_eye − u_meshOrigin（CPU double）＝視線ベクトルを原点相対で組む（下の v_toEye）
+in float a_ol;      // CESIUM_primitive_outline: the normal's 4th byte = 3 bits, which outline coordinates are 1 at this vertex (unset = 0 = none)
+out vec3 v_ol;
 ${PROJECT}
 // Cesium の霧（csatmo.ts csFogV・頂点で色と量）：u_csFogD＝濃さ（0＝なし）・u_csFogL＝xyz 光へ向く単位ベクトル・w 照明あり 1／なし −1
 uniform float u_csFogD;
@@ -280,6 +282,8 @@ void main() {
 	vec3 dir = normalize(wp);
 	v_n = a_normal;
 	if (u_xfOn > 0.5) v_n = u_xfL * a_normal;
+	float olK = floor(a_ol * 127.0 + 0.5);
+	v_ol = vec3(mod(olK, 2.0), mod(floor(olK / 2.0), 2.0), floor(olK / 4.0));
 	v_toEye = u_eyeRel - ap;                                     // ＝u_eye − wp を原点相対で：u_eye − wp（≈1 同士の差）は float32 で 0.4 m 級の誤差＝目が数 m まで寄った 1 m 級の模型（Cesium Man）で FS の面法線（dFdx）と裏面判定が乱れ裏側の三角形が透けた（2026-10-28）
 	v_front = dot(u_eye, u_eye) < 1.0 ? 1.0 : dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
@@ -330,6 +334,17 @@ uniform samplerCube u_csEnvMap;   // the model's specular environment (ImageBase
 uniform vec2  u_csEnv;       // (1 = u_csEnvMap is set, its largest mip level)
 uniform vec2  u_csMR;        // バッチの材質（metallic, roughness）＝glTF の係数（GL は材質テクスチャを持たない）
 uniform vec2  u_csCC;        // KHR_materials_clearcoat (factor, roughness); factor 0 = none
+uniform vec4  u_olC;         // CESIUM_primitive_outline: the outline colour and its alpha (0 = none)
+in vec3  v_ol;
+vec3 olW;   // fwidth(v_ol), taken at the top of main
+// Cesium's PrimitiveOutlineStageFS: diffuse = mix(diffuse, colour, alpha * outlineness), outlineness = the brightest of the 3 coordinates looked up in a
+// mip-mapped strip whose last texel is 192/255 (an outline 0.75 px wide, halved per level once the strip is under 16 texels). w = fwidth(v_ol)
+vec3 olMix(vec3 b, vec3 w) {
+	if (u_olC.a <= 0.0) return b;
+	vec3 t = max(w, vec3(1.0 / 4096.0));
+	vec3 o = 0.753 * clamp((v_ol - 1.0) / t + 1.5, 0.0, 1.0) * min(vec3(1.0), 1.0 / (16.0 * t));
+	return mix(b, u_olC.rgb, u_olC.a * max(o.x, max(o.y, o.z)));
+}
 in vec3  v_n;
 in vec3  v_toEye;
 in float v_front;
@@ -379,6 +394,7 @@ vec3 csLit(vec3 base, vec3 n) {   // base＝リニアの基本色・n＝表向�
 	vec3 east = dot(e0, e0) < 1e-12 ? vec3(1.0, 0.0, 0.0) : normalize(e0); vec3 north = cross(up, east);
 	float metallic = u_csMR.x, roughness = u_csMR.y;
 	vec3 diffuse = base * (1.0 - metallic), f0 = mix(vec3(0.04), base, metallic);
+	diffuse = olMix(diffuse, olW);   // CESIUM_primitive_outline
 	float VdotH = clamp(dot(v, h), 0.0, 1.0), NdotL = clamp(dot(n, l), 0.001, 1.0), NdotV = clamp(dot(n, v), 0.0, 1.0), NdotH = clamp(dot(n, h), 0.0, 1.0);
 	vec3 f90 = vec3(clamp(max(f0.r, max(f0.g, f0.b)) * 25.0, 0.0, 1.0));
 	float vs = 1.0 - VdotH; vec3 F = f0 + (f90 - f0) * vs * vs * vs * vs * vs;
@@ -416,6 +432,7 @@ void main() {
 	// 面の幾何法線＝スクリーン微分（discard より前＝隣接ヘルパー画素が生きているうちに取る）。
 	// v_toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号が相殺し位置微分の面法線と等価＝varying追加不要。
 	vec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));
+	olW = fwidth(v_ol);   // the outline's pixel footprint (before any discard)
 	if (v_front < 0.0) discard;                                   // 裏半球
 	if (u_split.x != 0.0 && sign(u_split.x) * (gl_FragCoord.x - (abs(u_split.x) - 1.0) * u_split.y) < 0.0) discard;   // the other side of the split
 	vec3 n = normalize(v_n);                                      // glTF 実法線（陰影用＝従来のまま）
