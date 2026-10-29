@@ -56,7 +56,7 @@ const STATE = () => {
 		out.drawn = { tilesets, tiles, triangles };
 	} catch (e) { out.countsError = String(e?.message || e); }
 	// ours: the camera the globe really drew with (the camera above is the Cesium-side pose; a wrong conversion, such as roll 180 looking straight down, only shows here)
-	try { const g = v.orthoMap?.getCamera?.(); if (g) out.globeCam = { heading: g.heading, pitch: g.pitch - 90, roll: g.roll, distance: g.distance }; } catch (e) { out.globeCamError = String(e?.message || e); }
+	try { const g = v.orthoMap?.getCamera?.(); if (g) out.globeCam = { heading: g.heading, pitch: g.pitch - 90, roll: g.roll, distance: g.distance, lng: g.lng, lat: g.lat }; } catch (e) { out.globeCamError = String(e?.message || e); }
 	return out;
 };
 
