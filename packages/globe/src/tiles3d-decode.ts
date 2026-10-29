@@ -6,6 +6,7 @@
 import { decodeModel, ecef2geo, geoWorld, earthW, fetchFor } from "./meshdecode.ts";
 import { batchTableOf } from "./mesh-features.ts";
 import type { PropertyTable } from "./mesh-features.ts";
+import { decodeGeom, type GeomOut } from "./geom-tile.ts";
 import type { ModelBatchOut, ModelOut, ModelPoints, SplatPrimOut, VoxelPrimOut, VoxelTileOpts, FetchOpts } from "./meshdecode.ts";
 
 /** 点（points-gl の層に渡す形）＝原点相対の float32・RGBA8 */
@@ -14,7 +15,7 @@ export interface PointsOut { pos: Float32Array; origin: number[]; rgba: Uint8Arr
  *  table＝batch table（行＝地物）・local＝局所の位置（RTC 相対・量子化を戻した物）・rgba＝元の色（スタイルで塗り直す元） */
 export interface PointsFeat { ids: ArrayLike<number> | null; table: PropertyTable | null; local: Float32Array; rgba: Uint8Array }
 /** decodeTile3D の戻り（null＝描く物なし） */
-export interface Tile3DOut { batches: ModelBatchOut[]; points: PointsOut[]; splats: SplatPrimOut[]; voxels: VoxelPrimOut[]; stats: { triangles: number; points: number; splats: number; splatPoints: number; voxels: number; voxelsSkipped: number; copyright?: string[]; bytes?: number } }   // bytes＝model-worker が足す（タイルの本体の大きさ）・splats＝Gaussian splat（KHR_gaussian_splatting・局所＋transform）・splatPoints＝splat を点として描いた個数（plugin が無い時）
+export interface Tile3DOut { batches: ModelBatchOut[]; points: PointsOut[]; splats: SplatPrimOut[]; voxels: VoxelPrimOut[]; /** Geometry タイル（.geom）の分類の立体 */ volumes?: GeomOut[]; stats: { triangles: number; points: number; splats: number; splatPoints: number; voxels: number; voxelsSkipped: number; copyright?: string[]; bytes?: number } }   // bytes＝model-worker が足す（タイルの本体の大きさ）・splats＝Gaussian splat（KHR_gaussian_splatting・局所＋transform）・splatPoints＝splat を点として描いた個数（plugin が無い時）
 /** decodeTile3D の opts（transform＝列優先 4x4・baseH＝高さの基準（m）・ground＝"terrain"｜"absolute"・splats＝KHR_gaussian_splatting を splat として返す（false＝点として描く）） */
 export interface Tile3DOpts { transform?: ArrayLike<number> | null; baseUri?: string; baseH?: number; textures?: boolean; maxInstances?: number; ground?: string; featureIdSet?: number; /** 利用者のシェーダの positionMC と J（meshdecode の mc） */ mc?: boolean; splats?: boolean; /** EXT_primitive_voxels を voxel として返す（false＝飛ばす・VoxelTileOpts＝属性名・tileset の宣言・タイルの境界体積） */ voxels?: boolean | VoxelTileOpts; /** タイル本体を取った headers／credentials＝同じ origin の外部画像・glTF にも（ion の Bearer） */ fetchOpts?: FetchOpts | null }
 /** 3D Tiles の変換（L＝列優先 3x3・t＝平行移動） */
@@ -210,8 +211,9 @@ export async function decodeTile3D(ab: ArrayBuffer, { transform, baseUri, baseH 
 			let off = 16;
 			for (let k = 0; k < nT && off + 12 <= buf.byteLength; k++) { const len = new DataView(buf, off).getUint32(8, true); await one(buf.slice(off, off + len)); off += len; }
 		} else if (magic === "glTF" || new Uint8Array(buf, 0, 1)[0] === 0x7b) merge(await decodeModel(buf, { baseUri, textures, fetchOpts, ...gOpt, featureIdSet, tile: { places: [M], rtc: null, baseH: bH, points: true, splats, voxels } }));   // glb / glTF(JSON)＝3D Tiles 1.1
+		else if (magic === "geom") { const g = decodeGeom(buf, transform); if (g) (out.volumes ??= []).push(g); }   // 分類用の立体（箱・円柱・楕円体・球）＝描くのは main（分類の柱）
 		else throw new Error(`unknown tile content "${magic}"`);
 	};
 	await one(ab);
-	return out.batches.length || out.points.length || out.splats.length || out.voxels.length || out.stats.voxelsSkipped ? out : null;   // voxelsSkipped＝飛ばした格子だけのタイルも「描く物なし」で返す＝main が一度 warn する
+	return out.batches.length || out.points.length || out.splats.length || out.voxels.length || out.volumes?.length || out.stats.voxelsSkipped ? out : null;   // voxelsSkipped＝飛ばした格子だけのタイルも「描く物なし」で返す＝main が一度 warn する
 }

@@ -88,7 +88,8 @@ async function work(e: MessageEvent<ModelJob>) {
 			const tr = transferOf(r.batches); for (const p of r.points) tr.push(p.pos.buffer, p.rgba.buffer);
 			for (const s of r.splats) { for (const a of [s.positions, s.scales, s.rotations, s.colors, s.sh, s.spz]) if (a && a.byteLength && !tr.includes(a.buffer as ArrayBuffer)) tr.push(a.buffer as ArrayBuffer); }   // splat の配列も transfer（spz＝bufferView の写し）
 			for (const v of r.voxels) if (!tr.includes(v.values.buffer as ArrayBuffer)) tr.push(v.values.buffer as ArrayBuffer);   // voxel の値も transfer
-			self.postMessage({ id, batches: r.batches, points: r.points, splats: r.splats, voxels: r.voxels, stats: r.stats }, tr);
+			for (const g of r.volumes || []) for (const q of g.parts) tr.push(q.pos.buffer as ArrayBuffer, q.idx.buffer as ArrayBuffer);   // 分類の立体（.geom）
+			self.postMessage({ id, batches: r.batches, points: r.points, splats: r.splats, voxels: r.voxels, volumes: r.volumes, stats: r.stats }, tr);
 			return;
 		}
 		const r = await decodeModel(ab!, { at, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0, mc: !!e.data.mc });

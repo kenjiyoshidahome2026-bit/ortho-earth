@@ -21,6 +21,8 @@ export function sphereOfVolume(bv: Any, transform?: number[]): BoundingSphere | 
 import { customShaderId } from "./custom-shader.ts";
 export interface TilesetHost { map: Any | null; ready: Promise<Any> }
 
+const clsOf = (t: unknown) => (["terrain", "tiles3d", "both"] as const)[t as number] ?? null;   // ClassificationType → the globe's classificationType
+
 /** the facade's Cesium3DTileset */
 export class Cesium3DTileset {
 	readonly resource: Any; readonly json: Any;
@@ -78,6 +80,8 @@ export class Cesium3DTileset {
 	get tilesLoaded() { const st = this.#h?.stats; return !!st && st.complete !== false && (st.inflight ?? 0) === 0; }   // complete＝今の視点の分が揃った（inflight 0 だけだと最初に巡る前・次の段を投げる前の一瞬に true になる）
 	get totalMemoryUsageInBytes() { return this.#h?.stats?.bytes ?? 0; }
 	get ellipsoid() { return undefined; }
+	/** ClassificationType (TERRAIN 0 / CESIUM_3D_TILE 1 / BOTH 2) or undefined: the tileset's volumes (.geom) paint what is inside them instead of being drawn */
+	get classificationType() { return this.#opts.classificationType; }
 	get show() { return this.#show; }
 	set show(v: boolean) { this.#show = !!v; this.#h?.setVisible(this.#show); }
 	get style() { return this.#style; }
@@ -112,7 +116,7 @@ export class Cesium3DTileset {
 			try {
 				const ps = pointSizeOf(this.#style), sent = this.#style;
 				const cid = customShaderId(map, this.customShader); this.#csId = cid;
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, customShader: cid, mc: !!cid });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, customShader: cid, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
 				if (this.#style !== sent) h.setStyle(styleOf(this.#style));   // the style set while the tileset was being added

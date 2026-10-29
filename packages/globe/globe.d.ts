@@ -962,7 +962,10 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
 	/** 出典（W8）＝文字列か、表示しているタイルの glTF asset.copyright の列（「;」で割り・多い順）→ 文字列 の関数。出典の欄（#attr）に出る（HTML は消毒される）。無ければ何も足さない */
 	attribution?: string | ((copyrights: string[]) => string | null);
 	/** スタイル（3D Tiles 1.1・地物ごとの color と show）。setStyle と同じ */
-	style?: Tiles3DStyle | null }
+	style?: Tiles3DStyle | null;
+	/** 分類（Cesium の Cesium3DTileset の classificationType）：Geometry タイル（.geom＝箱・円柱・楕円体・球）の立体の内側にある面を、地物ごとのスタイルの色で塗る。
+	 *  "tiles3d"＝3D Tiles・模型だけ・"terrain"＝地形だけ・"both"（既定）。立体そのものは描かない（スタイルの色が無い地物は白） */
+	classificationType?: "both" | "terrain" | "tiles3d" }
 /** 3D Tiles のスタイル。color・show＝MapLibre の式（["get", 名] は 地物の属性 ＞ content ＞ tile ＞ group ＞ tileset の metadata の順に引く・["id"]＝地物の番号・["feature-state", 名]）。
  *  color の結果＝CSS 色か [r,g,b,a]（0..1）・show の結果＝真偽（false で抜く）。feature state の color はスタイルの色より勝つ。点群（pnts）には効かない。
  *  Cesium の 3D Tiles Styling（"${height} > 50 ? color('red') : color('white')"・{ conditions: [[条件, 色], …] }・defines）もそのまま渡せる（MapLibre の式に訳す・訳せない式は例外） */
