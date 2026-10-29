@@ -19,6 +19,7 @@ export function sphereOfVolume(bv: Any, transform?: number[]): BoundingSphere | 
 }
 
 import { customShaderId } from "./custom-shader.ts";
+import { tilesetEnvSH } from "./lighting.ts";
 export interface TilesetHost { map: Any | null; ready: Promise<Any> }
 
 const clsOf = (t: unknown) => (["terrain", "tiles3d", "both"] as const)[t as number] ?? null;   // ClassificationType → the globe's classificationType
@@ -37,7 +38,7 @@ export class Cesium3DTileset {
 	dynamicScreenSpaceError = true; foveatedScreenSpaceError = true; cullRequestsWhileMoving = true; cullWithChildrenBounds = true;
 	splitDirection = 0; showOutline = true; outlineColor = Color.clone(Color.BLACK); pointCloudShading: Any = { attenuation: false, geometricErrorScale: 1, maximumAttenuation: undefined, baseResolution: undefined, eyeDomeLighting: true, eyeDomeLightingStrength: 1, eyeDomeLightingRadius: 1, backFaceCulling: false, normalShading: true };   // PointCloudShading's defaults
 	#shadeKey = ""; #csId: string | null = null; #blendKey = "";
-	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere;
+	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null;
 	#opts: Any;
 	#split: string | null = null;
 	#loaded = 0;
@@ -141,13 +142,15 @@ export class Cesium3DTileset {
 	}
 	/** each frame (scene.render): pointCloudShading → the globe's point shading (the examples change it after the tileset is added). Cesium lights the
 	 *  eye dome only while attenuation is on */
-	__sync() {
+	__sync(scene?: Any) {
 		if (!this.#h) return;
 		const s = this.pointCloudShading ?? {}, att = !!s.attenuation;
 		const spec = att ? { attenuation: true, geometricErrorScale: s.geometricErrorScale ?? 1, ...(s.maximumAttenuation != null && { maximumAttenuation: s.maximumAttenuation }), ...(s.baseResolution != null && { baseResolution: s.baseResolution }),
 			eyeDomeLighting: !!s.eyeDomeLighting, edlStrength: s.eyeDomeLightingStrength ?? 1, edlRadius: s.eyeDomeLightingRadius ?? 1 } : null;
 		const key = JSON.stringify(spec);
 		if (key !== this.#shadeKey) { this.#shadeKey = key; this.#h.setOptions({ pointShading: spec }); }
+		const env = scene ? tilesetEnvSH(scene, this.#sphere.center) : null;   // the tileset's own environment map (DynamicEnvironmentMapManager at boundingSphere.center)
+		if (env !== this.#env) { this.#env = env; this.#h.setOptions({ environment: env }); }
 		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
 		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
 		const nl = this.#h.stats?.loaded ?? 0;   // tileLoad / tileUnload: the globe loads tiles on its own, so the count's change is raised once a frame (the examples read statistics in the handler)

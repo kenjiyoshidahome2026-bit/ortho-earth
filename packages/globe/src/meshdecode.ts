@@ -10,6 +10,7 @@
 let _loaders: Promise<typeof import("./mesh-loaders.ts")> | null = null;
 const loaders = () => _loaders ??= import("./mesh-loaders.ts");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
 import { weldMesh } from "./meshq.ts";
+import { primitiveOutline } from "./outline.ts";
 import { gltfMeta, rawGltfJson } from "./gltf-meta.ts";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
 import { rigFromGltf, skinsFromGltf, jointMatrices, skinVertices, I4 as I4_ } from "./gltf-anim.ts";   // skin（2026-10-28）＝静止姿勢で焼く・区間の表を main へ   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す
 import { featureSetOf, featureIdsOf, featureTextureOf, decodePropertyTables, batchTableOf, NO_FEATURE, type FeatureSet, type FeatureTexture } from "./mesh-features.ts";   // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm
@@ -979,6 +980,34 @@ function voxelPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 //   baseH＝高さの基準（接地しない＝絶対高さ − baseH をそのまま持つ・呼び手は noLift で置く）。points＝点のプリミティブ（mode 0）を別に返す。
 // Draco の属性の名（KHR_draco_mesh_compression.attributes）＝loaders.gl は glTF の既定の意味を持たない属性（_BATCHID・_FEATURE_ID_n 等）を
 // CUSTOM_ATTRIBUTE_<unique id> と名付け、拡張を消してしまう＝生の json の対応で元の名を戻す（NYC の b3dm＝Draco 圧縮の _BATCHID・2026-10-29）
+/** the line indices of a primitive's CESIUM_primitive_outline (the accessor resolved by loaders.gl, or its index), or null */
+function outlineEdgesOf(pr: GltfPrimitive, gltf: GltfDoc): ArrayLike<number> | null {
+	const ext = (pr.extensions as Record<string, { indices?: unknown }> | undefined)?.CESIUM_primitive_outline;
+	if (!ext) return null;
+	const a = ext.indices as { value?: ArrayLike<number> } | number | undefined;
+	const v = typeof a === "number" ? (gltf as { accessors?: { value?: ArrayLike<number> }[] }).accessors?.[a]?.value : a?.value;
+	return v && v.length >= 2 ? v : null;
+}
+/** a primitive's vertices copied where CesiumJS copies them and the outline coordinates packed into the normal's 4th byte (bits 0..2) */
+function withOutline(seg: { geo: Float64Array; nrm: Int8Array; idx: Uint32Array; uv: Float32Array; col: Uint8Array; fid: Uint32Array | null; mc: Float32Array | null; uvm: Float32Array | null }, edges: ArrayLike<number>, n: number, base: number): void {
+	const local = new Uint32Array(seg.idx.length);
+	for (let k = 0; k < local.length; k++) local[k] = seg.idx[k] - base;
+	const { idx, extra, bits } = primitiveOutline(local, edges, n);
+	const grow = <T extends Float64Array | Float32Array | Int8Array | Uint8Array | Uint32Array>(a: T, c: number): T => {
+		if (!extra.length) return a;
+		const out = new (a.constructor as new (len: number) => T)((n + extra.length) * c);
+		out.set(a);
+		for (let i = 0; i < extra.length; i++) for (let j = 0; j < c; j++) out[(n + i) * c + j] = a[extra[i] * c + j];
+		return out;
+	};
+	seg.geo = grow(seg.geo, 3); seg.nrm = grow(seg.nrm, 4); seg.uv = grow(seg.uv, 2); seg.col = grow(seg.col, 4);
+	if (seg.fid) seg.fid = grow(seg.fid, 1);
+	if (seg.mc) seg.mc = grow(seg.mc, 4);
+	if (seg.uvm) seg.uvm = grow(seg.uvm, 2);
+	for (let v = 0; v < bits.length; v++) seg.nrm[v * 4 + 3] = bits[v];
+	for (let k = 0; k < idx.length; k++) idx[k] += base;
+	seg.idx = idx;
+}
 function dracoNames(gltf: GltfDoc, raw: unknown): void {
 	const rm = (raw as { meshes?: Array<{ primitives?: Array<{ extensions?: { KHR_draco_mesh_compression?: { attributes?: Record<string, number> } } }> }> } | null)?.meshes;
 	if (!rm) return;
@@ -1198,8 +1227,12 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			// 地物の番号（W7）＝EXT_mesh_features の attribute／implicit、無ければ _BATCHID（b3dm）。texture の番号は頂点に無い（NO_FEATURE）＝束の ft で画素ごとに
 			if (fset) { nFid++; if (fset.texture) nFidTex++; }
 			if (mc && !g.lin0 && n) { g.lin0 = lin; g.e0 = [ecef[0], ecef[1], ecef[2]]; }   // 束の J の素（最初の primitive の置き方・頂点）
-			g.segs.push({ geo: geoSeg, nrm: nrmSeg, idx: idxSeg, uv: uvSeg, col: colSeg, fid: fset ? featureIdsOf(fset, n) : null, tbl: fset ? fset.propertyTable : null, skin: skinIn ? skinIn.seg : null, mc: mcSeg, uvm: uvmSeg });
-			g.totalV += n; g.totalI += idxSeg.length; nVert += n; nTri += idxSeg.length / 3;
+			const seg = { geo: geoSeg, nrm: nrmSeg, idx: idxSeg, uv: uvSeg, col: colSeg, fid: fset ? featureIdsOf(fset, n) : null, tbl: fset ? fset.propertyTable : null, skin: skinIn ? skinIn.seg : null, mc: mcSeg, uvm: uvmSeg };
+			const olE = mode4 === 4 && !skinIn ? outlineEdgesOf(pr, gltf) : null;
+			if (olE) withOutline(seg, olE, n, base);   // CESIUM_primitive_outline＝頂点を写し足して法線の 4 バイト目に輪郭の座標（3 bit）
+			const nv = seg.geo.length / 3;
+			g.segs.push(seg);
+			g.totalV += nv; g.totalI += seg.idx.length; nVert += nv; nTri += seg.idx.length / 3;
 		}
 	}
 	if (tile && tile.baseH != null) minH = tile.baseH;   // 3D Tiles＝接地しない（絶対高さ − baseH）

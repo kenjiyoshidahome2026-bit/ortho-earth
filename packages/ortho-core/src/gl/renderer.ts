@@ -137,7 +137,7 @@ interface MeshIn {
 	lodH?: ArrayLike<number> | null; lodCounts?: ArrayLike<number> | null; twoSided?: boolean; noCull?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	mask?: ArrayLike<number> | null; maskCells?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[] | null;
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexIn | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
-	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
+	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number; sh?: ArrayLike<number> | null; outline?: ArrayLike<number> | null;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 interface MeshBatch {
 	vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; tex: WebGLTexture | null; textured: boolean; blend: boolean; cut: number; count: number;
@@ -149,13 +149,13 @@ interface MeshBatch {
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝SH9・27 値）＝meshLight.sh より勝つ
 	paint?: WebGLTexture | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
-	custom?: string | null; mcJ?: Float32Array | null; mc?: boolean; split?: number;   // Cesium の CustomShader（set "meshCustom"）の id・J・a_mc の有無
+	custom?: string | null; mcJ?: Float32Array | null; mc?: boolean; split?: number; ol?: Float32Array | null;   // Cesium の CustomShader（set "meshCustom"）の id・J・a_mc の有無
 	uvm?: boolean; meta?: { props: Record<string, CsMeta>; sig: string; texs: WebGLTexture[] } | null;   // property texture（a_uvm の有無・読み方・画像）
 }
 /** set("customShader", spec, id) の登録＝プログラムは初めて描く時に作る（失敗＝err＝素の模型で描く） */
 interface CsEntry { spec: CsSpec & { values?: Record<string, unknown>; lighting?: string; translucency?: string }; progs: Map<string, WebGLProgram | null>; tex: Map<string, WebGLTexture> }   // progs＝束の property texture の形（sig）ごと（null＝組めない）
 interface CsTexIn { name: string; tex: MeshTexIn; nearest?: boolean; repeat?: boolean }
-const MC_LOC = 6, UVM_LOC = 7, CS_TEX_UNIT = 24;   // a_mc の属性番号（a_pos/a_normal/a_uv/a_col の後）・利用者のテクスチャの最初のユニット（0..20 は描き手が使う）
+const MC_LOC = 6, UVM_LOC = 7, CS_TEX_UNIT = 24, OL_NONE = new Float32Array(4);   // a_mc の属性番号（a_pos/a_normal/a_uv/a_col の後）・利用者のテクスチャの最初のユニット（0..20 は描き手が使う）
 interface MeshMask { tex: WebGLTexture; bbox: number[]; n: number; bytes: Uint8Array }
 /** overlay 系の入力（buildGeoJSONOverlay のシーン） */
 interface OverlaySceneIn { fanPos: Float32Array; P1: Float32Array; P2: Float32Array; lineCol: Float32Array | Uint8Array; lineHalf?: Float32Array | null; origin: ArrayLike<number>; minZoom?: number; feats?: OverlayRange[] | null }
@@ -974,7 +974,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 		const sig = p.meta?.sig ?? "";
 		if (e.progs.has(sig)) return e.progs.get(sig)!;
 		let prog: WebGLProgram | null = null;
-		try { const { vs, fs } = meshCustomGLSL(p.meta ? { ...e.spec, metadata: { ...e.spec.metadata, ...p.meta.props } } : e.spec); prog = programBound(gl, vs, fs, { ...Object.fromEntries(["a_pos", "a_normal", "a_uv", "a_col"].map(n => [n, gl.getAttribLocation(meshTexProg0, n)])), a_mc: MC_LOC, a_uvm: UVM_LOC }); }
+		try { const { vs, fs } = meshCustomGLSL(p.meta ? { ...e.spec, metadata: { ...e.spec.metadata, ...p.meta.props } } : e.spec); prog = programBound(gl, vs, fs, { ...Object.fromEntries(["a_pos", "a_normal", "a_uv", "a_col"].map(n => [n, gl.getAttribLocation(meshTexProg0, n)])), a_mc: MC_LOC, a_uvm: UVM_LOC, a_ol: gl.getAttribLocation(meshTexProg0, "a_ol") }); }
 		catch (err) { console.warn("[customShader] compile failed = drawn without it:", (err as Error).message.split("\n")[0]); }
 		e.progs.set(sig, prog);
 		return prog;
@@ -1625,6 +1625,8 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 			gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
 			gl.enableVertexAttribArray(l);
 			gl.vertexAttribPointer(l, 3, gl.BYTE, true, 4, 0);
+			const lo = gl.getAttribLocation(prog, "a_ol");   // the 4th byte: CESIUM_primitive_outline's coordinates (3 bits)
+			if (lo >= 0 && data.outline) { gl.enableVertexAttribArray(lo); gl.vertexAttribPointer(lo, 1, gl.BYTE, true, 4, 3); }
 		} else attrib(gl, prog, "a_normal", nbo, 3);   // 旧 float32（同セッション内の残骸互換）
 		let tex: WebGLTexture | null = null; const bufs = [vbo, nbo, ibo];
 		if (textured) {
@@ -1641,7 +1643,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, split: data.split ?? 0, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
 			meta: textured && data.meta?.props && data.meta.texs?.length ? { props: data.meta.props, sig: JSON.stringify(data.meta.props), texs: data.meta.texs.map(t => t ? csTexture({ name: "", tex: t, nearest: true, repeat: false }) : whiteTex) } : null });   // 影を落とさない（WebGPU と同じ）   // noCull＝裏面を捨てない（面の向きが揃っていない建物・間引きは残す）／noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
@@ -2582,7 +2584,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 				const lb = p.noLift ? null : p.drape ? DRAPE_ALL : elev.liftBounds;   // DTM保証域（無ければ全0＝リフトなし）・noLift＝持ち上げない（平面の統計）・drape＝全域で持ち上げる
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
 				gl.uniform1f(loc(gl, pg, "u_csOn"), !meshLight || p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1);   // Cesium の模型の照明（setMeshLighting）：1＝csLit・2＝素の色・0＝固定光
-				if (meshLight) { gl.uniform2f(loc(gl, pg, "u_csMR"), p.pbr ? p.pbr.metallic : 0, p.pbr ? p.pbr.roughness : 1); gl.uniform2f(loc(gl, pg, "u_csCC"), p.pbr?.clearcoat?.[0] ?? 0, p.pbr?.clearcoat?.[1] ?? 0); gl.uniform3fv(loc(gl, pg, "u_csSH"), p.sh ?? meshLight.sh); }   // バッチの材質と環境光（模型ごとの meshEnv が勝つ）   // バッチの材質（Cesium の照明）
+				if (meshLight) { gl.uniform2f(loc(gl, pg, "u_csMR"), p.pbr ? p.pbr.metallic : 0, p.pbr ? p.pbr.roughness : 1); gl.uniform2f(loc(gl, pg, "u_csCC"), p.pbr?.clearcoat?.[0] ?? 0, p.pbr?.clearcoat?.[1] ?? 0); gl.uniform3fv(loc(gl, pg, "u_csSH"), p.sh ?? meshLight.sh); gl.uniform4fv(loc(gl, pg, "u_olC"), p.ol ?? OL_NONE); }   // バッチの材質と環境光（模型ごとの meshEnv が勝つ）   // バッチの材質（Cesium の照明）
 				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two || p.noCull ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
 				gl.uniform3f(loc(gl, pg, "u_eyeRel"), st.eye[0] - p.origin[0], st.eye[1] - p.origin[1], st.eye[2] - p.origin[2]);   // 目 − 原点（double）＝v_toEye の錨（近接の裏面判定）

@@ -218,7 +218,7 @@ export class OrthoScene {
 			this.controllerHost.update(this, time);   // as Scene.render: the registered controllers move the camera before it is pushed to the globe
 			this.#pushCamera();
 			this.globe?.__orthoSyncMaterial?.();   // globe.material → the globe's ground material (after preRender: the examples set its uniforms there)
-			for (const t of (this as any).__tilesets ?? []) t.__sync?.();   // tileset pointCloudShading → the globe
+			for (const t of (this as any).__tilesets ?? []) t.__sync?.(this);   // tileset pointCloudShading → the globe
 			this.#syncClip();   // tileset clippingPlanes → the globe's clipping (the examples move the plane in preRender / on drag)
 			this.#syncPost();   // postProcessStages → the globe's post chain (the examples flip enabled/uniforms in preRender and the knockout bindings)
 			this.camera._updateCameraChanged?.();
