@@ -4,6 +4,7 @@
 import { BoundingSphere, Cartesian3, Color, Event, Matrix3, Matrix4, OrientedBoundingBox, Rectangle } from "@cesium/core";
 import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, IonResource, Resource } from "@cesium/engine";
 import { unsupported } from "./report.ts";
+import { clippingOriginOf } from "./clipping.ts";
 
 type Any = any;
 
@@ -43,7 +44,8 @@ export class Cesium3DTileset {
 		if (opts.featureIdLabel != null) this.featureIdLabel = opts.featureIdLabel;
 		const bs = sphereOfVolume(json?.root?.boundingVolume, json?.root?.transform) ?? new BoundingSphere(Cartesian3.ZERO, 6378137);
 		this.#sphere = BoundingSphere.transform(bs, this.modelMatrix, new BoundingSphere());
-		for (const k of ["clippingPlanes", "clippingPolygons", "customShader"]) if (opts[k] != null) { (this as Any)[k] = opts[k]; unsupported(`Cesium3DTileset option ${k}`); }
+		if (opts.clippingPlanes != null) this.clippingPlanes = opts.clippingPlanes;   // drawn by the scene (clipping.ts)
+		for (const k of ["clippingPolygons", "customShader"]) if (opts[k] != null) { (this as Any)[k] = opts[k]; unsupported(`Cesium3DTileset option ${k}`); }
 	}
 	static async fromUrl(url: Any, options: Any = {}): Promise<Cesium3DTileset> {
 		const res = (Resource as Any).createIfNeeded(await url);
@@ -62,7 +64,11 @@ export class Cesium3DTileset {
 	get extensions() { return this.json?.extensions; }
 	get metadata() { return this.json?.metadata; }
 	get geometricError() { return this.json?.geometricError; }
-	get root() { return { boundingVolume: { boundingVolume: this.#sphere, boundingSphere: this.#sphere }, boundingSphere: this.#sphere, transform: Matrix4.IDENTITY, children: [], content: undefined }; }
+	get root() {
+		const t = this.json?.root?.transform?.length === 16 ? Matrix4.unpack(this.json.root.transform) : Matrix4.clone(Matrix4.IDENTITY);
+		return { boundingVolume: { boundingVolume: this.#sphere, boundingSphere: this.#sphere }, boundingSphere: this.#sphere, transform: t, computedTransform: Matrix4.multiply(this.modelMatrix, t, new Matrix4()), children: [], content: undefined };
+	}
+	get clippingPlanesOriginMatrix() { return clippingOriginOf(this.json, this.modelMatrix); }
 	get boundingSphere() { return this.#sphere; }
 	get ready() { return true; }
 	get tilesLoaded() { const st = this.#h?.stats; return !!st && st.complete !== false && (st.inflight ?? 0) === 0; }   // complete＝今の視点の分が揃った（inflight 0 だけだと最初に巡る前・次の段を投げる前の一瞬に true になる）
@@ -100,7 +106,8 @@ export class Cesium3DTileset {
 				return { url: x.href, ...(headers && { headers }) };
 			} : undefined;
 			try {
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, ...(requestTransform && { requestTransform }), ...(this.#style && { style: styleOf(this.#style) }), pickable: true });
+				const ps = pointSizeOf(this.#style);
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, ...(ps && { pointSize: ps }), ...(requestTransform && { requestTransform }), ...(this.#style && { style: styleOf(this.#style) }), pickable: true });
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
 				if (!this.#show) h.setVisible(false);
@@ -131,7 +138,12 @@ const statsOf = (h: Any) => new Proxy({ numberOfLoadedTilesTotal: h?.stats?.load
 	selected: h?.stats?.shown ?? 0, numberOfTrianglesSelected: h?.stats?.triangles ?? 0, numberOfPointsSelected: h?.stats?.points ?? 0 } as Any, { get: (t, k) => (k in t ? t[k] : 0) });   // selected／triangles＝描いている物（公式例の門の「答え」＝足した物が実際に描けたか）
 
 /** a Cesium3DTileStyle (or its JSON) → the globe's Tiles3DStyle (it reads Cesium's styling language as is) */
-function styleOf(s: Any): Any {
+/** a style's constant pointSize (px) for the globe's point clouds (an expression that varies per point is not followed): undefined = none */
+export function pointSizeOf(s: Any): number | undefined {
+	const v = styleOf(s)?.pointSize, n = typeof v === "number" ? v : typeof v === "string" && /^\s*[\d.]+\s*$/.test(v) ? +v : NaN;
+	return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+export function styleOf(s: Any): Any {
 	if (!s) return null;
 	if (s instanceof Cesium3DTileStyle) return (s as Any).style ?? (s as Any)._style ?? null;
 	return s;
