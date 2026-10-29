@@ -104,4 +104,12 @@ t("代打：粗くなった枠が未着なら常駐の子孫で覆う・何も�
 	const b = mgr(), r = b.update({ ...cam, center: [135.5, 34.7] }, 960, 600, {});
 	assert.equal(r.order.length, 0); assert.ok(!r.covered);
 });
+t("地下の目（海面球の内側・Cesium の underground）でも裏から見る地面のタイルを選ぶ（旧＝標本が全部空振り＝0 枚）", () => {
+	const cam = { center: [-3.83, 53.12], centerAlt: -600, zoom: 16, pitch: 1.45, bearing: 1.97, dpr: 1 };
+	const sel = selectLOD(cam, 800, 600, { tilePx: 400, maxZ: 18 });
+	assert.ok(sel.length > 0, "no tiles");
+	const lon2 = (x, z) => x / (1 << z) * 360 - 180;
+	for (const q of sel) assert.ok(Math.abs(lon2(q.x + 0.5, q.z) + 3.83) < 20, `far tile ${q.z}/${q.x}/${q.y}`);   // 地球の裏側（UNDER_REACH の外）は選ばない
+	assert.ok(Math.max(...sel.map(q => q.z)) >= 12, "near tiles are fine");
+});
 console.log(`tilemanager-lod: ${n} 件 OK`);
