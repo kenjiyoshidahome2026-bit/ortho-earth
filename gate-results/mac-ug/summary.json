@@ -1,0 +1,198 @@
+{
+ "at": "2026-10-29T10:05:49.406Z",
+ "cesium": "1.146.0",
+ "n": 6,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 4,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 4,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 2,
+   "examples": [
+    "3d-tiles-1.1-photogrammetry-classification",
+    "globe-translucency"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-models",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 3042,
+    "n": 3072,
+    "colour": 0.9954427083333334,
+    "edge": 0.9908854166666666,
+    "blob": 3
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-tiles-1.1-photogrammetry-classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 61% · edges 74% of the cells match · a patch of 403 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1612,
+    "n": 3072,
+    "colour": 0.6051432291666666,
+    "edge": 0.7428385416666666,
+    "blob": 403
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "custom-shaders-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2978,
+    "n": 3072,
+    "colour": 0.9817708333333334,
+    "edge": 0.9755859375,
+    "blob": 18
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "custom-shaders-property-textures",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2882,
+    "n": 3072,
+    "colour": 0.9847005208333334,
+    "edge": 0.9401041666666666,
+    "blob": 3
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-translucency",
+   "level": 2,
+   "reasons": [
+    "picture: colour 83% · edges 96% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2475,
+    "n": 3072,
+    "colour": 0.8274739583333334,
+    "edge": 0.9622395833333334,
+    "blob": 16
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "underground-color",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2911,
+    "n": 3072,
+    "colour": 0.9944661458333334,
+    "edge": 0.9482421875,
+    "blob": 3
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
