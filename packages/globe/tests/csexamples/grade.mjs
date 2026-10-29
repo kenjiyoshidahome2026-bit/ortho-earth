@@ -68,11 +68,16 @@ export function camDist(a, b) {
 }
 const angDiff = (a, b) => { const d = ((a - b) % 360 + 540) % 360 - 180; return Math.abs(d); };
 // the view ray and the up of a heading / pitch / roll (degrees, Cesium's sense: pitch < 0 looks down) in the local east-north-up frame
-const poseVecs = (h, p, r) => {
+// lng/lat given: the vectors in the Earth's frame (east, north, up of that point), so that two poses taken at different points compare
+const poseVecs = (h, p, r, lng = null, lat = null) => {
 	h *= D2R; p *= D2R; r *= D2R;
 	const d = [Math.cos(p) * Math.sin(h), Math.cos(p) * Math.cos(h), Math.sin(p)], l = [-Math.sin(p) * Math.sin(h), -Math.sin(p) * Math.cos(h), Math.cos(p)];
 	const x = [d[1] * l[2] - d[2] * l[1], d[2] * l[0] - d[0] * l[2], d[0] * l[1] - d[1] * l[0]];   // d × level
-	return { d, u: l.map((v, i) => v * Math.cos(r) + x[i] * Math.sin(r)) };
+	const u = l.map((v, i) => v * Math.cos(r) + x[i] * Math.sin(r));
+	if (lng == null || lat == null) return { d, u };
+	const lo = lng * D2R, la = lat * D2R, E = [-Math.sin(lo), Math.cos(lo), 0], N = [-Math.sin(la) * Math.cos(lo), -Math.sin(la) * Math.sin(lo), Math.cos(la)], U = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)];
+	const ecef = v => [0, 1, 2].map(i => v[0] * E[i] + v[1] * N[i] + v[2] * U[i]);
+	return { d: ecef(d), u: ecef(u) };
 };
 const vecAng = (a, b) => Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) / D2R;
 
@@ -119,7 +124,8 @@ export function grade(R, O, T = THRESH) {
 	// the camera the globe really drew with must agree with the Cesium-side pose (heading loose looking straight down; roll counts: a 180 turned the whole picture, 3d-tiles-formats)
 	if (O.camera && O.globeCam) {
 		// compared as the view ray and the up, not as three angles: a hair past straight down, heading 180 + roll 180 is the same pose as heading 0 + roll 0
-		const g = O.globeCam, c = poseVecs(O.camera.heading, O.camera.pitch, O.camera.roll), w = poseVecs(g.heading, g.pitch, g.roll), da = Math.max(vecAng(c.d, w.d), vecAng(c.u, w.u));
+		// the globe's heading/pitch are at the point it looks at, Cesium's at the eye: far from the ground (a whole-globe view) the two frames differ by the arc between them
+		const g = O.globeCam, at = g.lng != null && O.camera.lng != null, c = poseVecs(O.camera.heading, O.camera.pitch, O.camera.roll, at ? O.camera.lng : null, at ? O.camera.lat : null), w = poseVecs(g.heading, g.pitch, g.roll, at ? g.lng : null, at ? g.lat : null), da = Math.max(vecAng(c.d, w.d), vecAng(c.u, w.u));
 		checks.drawnCamera = da <= T.angDeg;
 		if (!checks.drawnCamera) { why.push(`drawn camera (Δangle ${da.toFixed(1)}° from the Cesium pose)`); out.blockers.push("drawn camera differs"); }
 	}

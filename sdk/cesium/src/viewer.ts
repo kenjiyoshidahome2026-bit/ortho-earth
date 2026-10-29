@@ -175,12 +175,12 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	// the globe
 	const gopts = globeOptions(options, element);
 	(host as Any).flatStart = gopts.terrain === false;   // the globe started flat: a terrain provider set later brings a DEM (scene.ts)
-	const ready = createGlobe(gopts).then((map: Any) => {
+	const ready = createGlobe(gopts).then(async (map: Any) => {
 		host.map = map;
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
-		let base = "", atm = "", gop = -1, ugKey = "";   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
+		let base = "", atm = "", gop = -1, ugKey = "", gsp = NaN;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
 		const lighting = syncLighting(scene, map);   // scene.light + Cesium's environment map → the globe's mesh lighting (lighting.ts)
 		const specular = syncSpecularEnv(scene, map);   // ImageBasedLighting.specularEnvironmentMaps → the globe's specular cube (specular-env.ts)
 		scene.postRender.addEventListener((_s: unknown, time: Any) => {
@@ -200,6 +200,8 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 			}
 			op = Math.round(op * 100) / 100;
 			if (op !== gop) { gop = op; map.setGlobeOpacity?.(op); }
+			const sp = scene.splitPosition;   // where the tilesets with a splitDirection part
+			if (sp !== gsp) { gsp = sp; map.setSplitPosition?.(sp); }
 			// the globe's underside seen from a camera below the ellipsoid (globe.undergroundColor and its alpha by distance; undefined = the
 			// underside's imagery alone). Above the ellipsoid it is off: the globe's floor is the sea-level sphere under the terrain
 			const ch = scene.camera.positionCartographic?.height;
@@ -216,6 +218,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 			if (`${ground}${sky}` !== atm) { atm = `${ground}${sky}`; map.setAtmosphere?.({ model: "cesium", ground, sky }); }
 		});
 		this._forceResize = true;
+		await useKtx2(map);   // before anything loads: a tile decoded without the transcoder keeps its fallback (white) for good
 		resolveReady(map);
 		return map;
 	});
@@ -227,6 +230,13 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	this.targetFrameRate = options.targetFrameRate;
 	this._onRenderError = (_s: unknown, error: unknown) => { console.error("[csshim] render error", error); };
 	scene.renderError.addEventListener(this._onRenderError);
+}
+// Cesium transcodes KHR_texture_basisu (KTX2) textures itself: the globe needs the @ortho-earth/ktx2 plugin for that (the WASM loads on first use)
+async function useKtx2(map: Any) {
+	const reg = map.registry?.textureTranscoders;
+	if (!reg || reg.get("ktx2")) return;
+	try { const { ktx2Plugin } = await import("@ortho-earth/ktx2"); if (!reg.get("ktx2")) map.use(ktx2Plugin()); }
+	catch (e) { console.warn("[csshim] @ortho-earth/ktx2 unavailable: KTX2 textures keep their fallback image", e); }
 }
 CesiumWidget.prototype = Object.create(RealWidget.prototype, { constructor: { value: CesiumWidget, writable: true, configurable: true } });
 Object.setPrototypeOf(CesiumWidget, RealWidget);

@@ -59,12 +59,13 @@ export function lensFlareFrame(f: PostFrame, earthRadius: number): { sun: number
 	return { sun: f.sun ? sun : [9, 9], earth: [earth[0], earth[1], edge[0]], space, camrot: v[2] + v[5] };
 }
 const urlOf = (v: Any): string | undefined => (typeof v === "string" && v ? v : v && typeof v === "object" && typeof v.url === "string" ? v.url : undefined);   // a uniform texture: a URL or a Resource
+const EDGE_STAGE = /^czm_edge_detection(?!_(combine|composite|multiple)$)/;   // createEdgeDetectionStage's czm_edge_detection_<guid>, not createSilhouetteStage's composite passes
 function stagePasses(s: Any, out: PostChainOut, depth: number, f?: PostFrame | null): void {
 	if (!s || s.enabled === false || depth > 4) return;
 	const sel = s.selected; if (Array.isArray(sel)) { if (sel.length) out.skipped.push("postProcessStages per-feature (selected)"); return; }   // a stage with a selection applies to the selected features only: none selected = nothing drawn
 	const name = String(s.name || ""), u = s.uniforms || {};
 	if (name === "czm_silhouette" || /^czm_edge_detection/.test(name)) {   // createSilhouetteStage(edgeStages) = a composite of the edge detection stages (each with its own colour, length and selection) and the colouring
-		const edges: Any[] = [], walk = (x: Any, d: number) => { if (!x || x.enabled === false || d > 4) return; if (typeof x.length === "number" && typeof x.get === "function") { for (let i = 0; i < x.length; i++) walk(x.get(i), d + 1); } else if (/^czm_edge_detection/.test(String(x.name || ""))) edges.push(x); };
+		const edges: Any[] = [], walk = (x: Any, d: number) => { if (!x || x.enabled === false || d > 4) return; if (typeof x.length === "number" && typeof x.get === "function") { for (let i = 0; i < x.length; i++) walk(x.get(i), d + 1); } else if (EDGE_STAGE.test(String(x.name || ""))) edges.push(x); };   // the edge detection stages themselves, not the composite's combine pass (it has no selection of its own)
 		walk(s, 0);
 		if (!edges.length) edges.push(s);
 		for (const e of edges) {

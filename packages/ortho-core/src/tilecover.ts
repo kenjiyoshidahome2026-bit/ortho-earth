@@ -40,8 +40,10 @@ interface LODNode extends TileXYZ { s?: number[] | null }
 export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, farR = groundR, zOf = null }: SelectLODOptions = {}): TileXYZ[] {
 	const st = cameraState(cam, W, H);
 	const samples: [number, number][] = [];
+	const eyeInFar = farR > groundR && mat.dot(st.eye, st.eye) < farR * farR;   // a low camera among ground higher than the target's (a canyon): that ground can be anywhere along each ray
 	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
 		const ll = unproject(st, ix / grid * W, iy / grid * H); if (ll) samples.push(ll);
+		if (eyeInFar) liftSamples(st, ix / grid * W, iy / grid * H, farR, samples);
 		if (groundR !== 1) {
 			const lg = unproject(st, ix / grid * W, iy / grid * H, groundR);
 			if (lg) {
@@ -185,9 +187,10 @@ function liftSamples(st: CameraState, sx: number, sy: number, R: number, out: [n
 	const d1 = b * b - (ee - 1);
 	if (d1 > 0 && -b - Math.sqrt(d1) > 0) tb = Math.min(tb, -b - Math.sqrt(d1));   // 海面に当たる＝その先は隠れる
 	if (!(tb > ta)) return false;
-	for (let k = 1; k <= 4; k++) {
-		const t = ta + (tb - ta) * k / 4, x = E[0] + d[0] * t, y = E[1] + d[1] * t, z = E[2] + d[2] * t, r = Math.hypot(x, y, z);
-		out.push([Math.atan2(z, x) * 180 / Math.PI, geodeticOf(Math.asin(Math.max(-1, Math.min(1, y / r))) * 180 / Math.PI)]);
-	}
+	const at = (t: number) => { const x = E[0] + d[0] * t, y = E[1] + d[1] * t, z = E[2] + d[2] * t, r = Math.hypot(x, y, z); out.push([Math.atan2(z, x) * 180 / Math.PI, geodeticOf(Math.asin(Math.max(-1, Math.min(1, y / r))) * 180 / Math.PI)]); };
+	for (let k = 1; k <= 4; k++) at(ta + (tb - ta) * k / 4);
+	// the eye inside the sphere (a low camera among higher ground): the ground this ray can meet starts at the eye, and near the eye the
+	// distance changes fastest across the screen = geometric steps toward it (a cliff a few hundred metres away was left to the base colour)
+	if (ta === 0) for (let k = 3; k <= 8; k++) at(tb / (1 << k));
 	return true;
 }

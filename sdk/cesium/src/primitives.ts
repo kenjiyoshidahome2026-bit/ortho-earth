@@ -21,7 +21,7 @@ import { customShaderId } from "./custom-shader.ts";
 const { Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model } = engine as Any;
 const TRIANGLES = 4, LINES = 1;
 
-export interface PrimLine { p: number[]; color: string; width: number; ground?: boolean }   // ground: a GroundPolylinePrimitive's line, draped on the terrain (p = its input positions)
+export interface PrimLine { p: number[]; color: string; width: number; ground?: boolean; material?: { type: string; uniforms: Any } | null }   // material: a ground line's appearance material (Glow, Dash, Outline), drawn by the display   // ground: a GroundPolylinePrimitive's line, draped on the terrain (p = its input positions)
 interface Item {
 	p: Any; key: string; built: boolean; h: Any; loading: boolean; dead: boolean;
 	lines: PrimLine[]; ids: Any[]; colors: Uint8Array[]; shows: boolean[];
@@ -54,6 +54,8 @@ const instancesOf = (p: Any): Any[] => { const g = p.geometryInstances; return g
 const toBytes = (c: Color) => Uint8Array.of(Math.round(c.red * 255), Math.round(c.green * 255), Math.round(c.blue * 255), Math.round(c.alpha * 255));
 const css = (b: Uint8Array) => `rgba(${b[0]},${b[1]},${b[2]},${(b[3] / 255).toFixed(3)})`;
 
+/** the polyline materials the display draws on a ground line (outline under, glow, dash, arrow) */
+const GROUND_LINE_MATERIALS = new Set(["PolylineOutline", "PolylineGlow", "PolylineDash", "PolylineArrow"]);
 /** the colour an instance is drawn in: its colour attribute, else the appearance's material colour, else white */
 function colorOf(inst: Any, appearance: Any): Uint8Array {
 	const c = inst.attributes?.color?.value;
@@ -62,7 +64,8 @@ function colorOf(inst: Any, appearance: Any): Uint8Array {
 	if (matOfMaterial(m)) return Uint8Array.of(255, 255, 255, 255);   // painted into a texture (the texture carries the colours)
 	const main = u?.color ?? u?.evenColor ?? u?.lightColor ?? u?.baseWaterColor;   // Color, Water: their first colour
 	if (main instanceof Color) {
-		if (m.type && m.type !== "Color") unsupported(`material ${m.type} (drawn in its colour)`);
+		const drawn = GroundPolylineGeometry && inst.geometry instanceof GroundPolylineGeometry && GROUND_LINE_MATERIALS.has(m.type);
+		if (m.type && m.type !== "Color" && !drawn) unsupported(`material ${m.type} (drawn in its colour)`);
 		return toBytes(main);
 	}
 	if (m?.type) unsupported(`material ${m.type} (drawn white)`);
@@ -234,7 +237,7 @@ export class PrimitiveDrawer {
 				const ps: Cartesian3[] = moved ? g._positions.map((q: Cartesian3) => Matrix4.multiplyByPoint(W, q, new Cartesian3())) : g._positions;
 				const pc = g._colors?.[0] ? toBytes(g._colors[0]) : col;
 				let pts: number[] = [];
-				if (GroundPolylineGeometry && g instanceof GroundPolylineGeometry) { lines.push({ p: ps.flatMap(q => [q.x, q.y, q.z]), color: css(pc), width, ground: true }); return; }   // draped on the ground, as Cesium draws it
+				if (GroundPolylineGeometry && g instanceof GroundPolylineGeometry) { const gm = p.appearance?.material; lines.push({ p: ps.flatMap(q => [q.x, q.y, q.z]), color: css(pc), width, ground: true, material: gm?.type ? { type: gm.type, uniforms: gm.uniforms ?? {} } : null }); return; }   // draped on the ground, as Cesium draws it
 				if (g._arcType === ArcType.NONE) pts = ps.flatMap(q => [q.x, q.y, q.z]);   // straight in space (DebugModelMatrixPrimitive's axes)
 				else try { pts = Array.from(PolylinePipeline.generateArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84), granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { pts = ps.flatMap(q => [q.x, q.y, q.z]); }
 				lines.push({ p: pts, color: css(pc), width });

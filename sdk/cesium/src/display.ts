@@ -193,6 +193,25 @@ function styledLines(p: number[], m: Any, t: JulianDate, col: Color, width: numb
 	return [{ p, color: css(col), width }];
 }
 
+/** a ground polyline with its material → line features of the ground line layers: styledLines' lines (outline under, glow's fading widths, the
+ *  core), dashes in a layer of their own per pattern (line-dasharray is in line widths and the same for a whole layer) */
+function groundLineFeatures(id: string, coords: number[][], m: Any, t: JulianDate, col: Color, width: number): Any[] {
+	return (styledLines([], m, t, col, width) ?? []).map((l: Any, k: number) => {
+		const [lc, lo] = rgbAlpha(Color.fromCssColorString(l.color) ?? Color.WHITE), props: Any = { _id: k ? `${id}#${k}` : id, _k: "line", _lc: lc, _lo: lo, _lw: l.width };
+		if (l.dash) { props._k = "dash"; props._dk = `${l.width}|${l.dash.len}|${l.dash.pattern}`; }
+		return { type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: props };
+	});
+}
+/** Cesium's PolylineDash: 16 bits of the pattern along dashLength pixels, bit 0 first → line-dasharray in line widths (it starts with a dash) */
+function dashArrayOf(key: string): number[] {
+	const [w, len, pat] = key.split("|").map(Number), px = (len || 16) / 16 / Math.max(0.5, w || 1), runs: number[] = [];
+	let on = true, n = 0;
+	for (let i = 0; i < 16; i++) { const b = ((pat >> i) & 1) === 1; if (b === on) n++; else { runs.push(n * px); on = b; n = 1; } }
+	runs.push(n * px);
+	if (runs.length % 2) { if (runs.length > 1) { runs[0] += runs.pop()!; } else runs.push(0); }   // an odd count: the last run joins the first (same state)
+	return runs;
+}
+
 /** a corridor's outline as Cesium makes it (CorridorOutlineGeometry: the corners rounded, mitered or beveled) → lon/lat ring; the simple ring if that fails */
 function cesiumCorridorRing(ps: Cartesian3[], width: number, cornerType: number | undefined): number[][] {
 	try {
@@ -376,9 +395,10 @@ export class EntityDisplay {
 		for (const l of this.#solids.lines) lines.push(l);
 		this.extra.lines().forEach((l: Any, i: number) => {
 			if (!l.ground) { lines.push(l); return; }
-			const c = Color.fromCssColorString(l.color) ?? Color.WHITE, [lc, lo] = rgbAlpha(c), coords: number[][] = [];
+			const c = Color.fromCssColorString(l.color) ?? Color.WHITE, coords: number[][] = [];
 			for (let k = 0; k + 2 < l.p.length; k += 3) { const q = llOf(new Cartesian3(l.p[k], l.p[k + 1], l.p[k + 2])); if (q) coords.push([q[0], q[1]]); }
-			if (coords.length > 1) shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: { _id: `cesium-ground-line:${i}`, _k: "line", _lc: lc, _lo: lo, _lw: l.width } });
+			const mt = l.material, mp = mt ? { getType: () => mt.type, getValue: () => mt.uniforms } : null;   // a Material as the MaterialProperty styledLines reads
+			if (coords.length > 1) shapes.push(...groundLineFeatures(`cesium-ground-line:${i}`, coords, mp, time, mt?.uniforms?.color ?? c, l.width));
 		});
 		if (!map) return true;
 		this.#ov ??= map.overlay({ builtin: "czml" }, { name: "cesium-entities" });
@@ -677,7 +697,7 @@ export class EntityDisplay {
 					const coords = ps.map(p => llOf(p)).filter(Boolean).map(q => [q![0], q![1]]);
 					// on the 3D Tiles too (classificationType CESIUM_3D_TILE / BOTH): a band of the line's pixel width at its distance (Cesium's ground polyline keeps its pixel width)
 					if (cls === ClassificationType.CESIUM_3D_TILE || cls === ClassificationType.BOTH) d.classify.push({ geom: { type: "LineString", coordinates: coords }, color: lc, opacity: lo, width: Math.max(0.5, width * this.#metresPerPixel(ps)) });
-					if (cls !== ClassificationType.CESIUM_3D_TILE) d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: width } });
+					if (cls !== ClassificationType.CESIUM_3D_TILE) d.shapes.push(...groundLineFeatures(id, coords, pl.material, t, col, width));
 				} else {
 					const at = val(pl.arcType, t, ArcType.GEODESIC);
 					const pts = at === ArcType.NONE ? ps : at === ArcType.RHUMB ? PolylinePipeline.generateCartesianRhumbArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84) }) : PolylinePipeline.generateCartesianArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84) });   // the heights go along (Cesium's PolylineGeometry passes them so)
@@ -735,9 +755,11 @@ export class EntityDisplay {
 		const ops = new Set<number>();
 		for (const s of shapes) if (s.properties._k === "ext") ops.add(Math.round(s.properties._fo * 10) / 10);
 		for (const o of ops) want.add(`__cs-ext-${o}`);
+		for (const s of shapes) if (s.properties._k === "dash") want.add(`__cs-dash-${s.properties._dk}`);
 		for (const id of want) {
 			if (this.#layers.has(id)) continue;
 			if (id === "__cs-fill") map.addLayer({ id, type: "fill", source: SRC, filter: ["==", ["get", "_k"], "fill"], paint: { "fill-color": ["get", "_fc"], "fill-opacity": ["get", "_fo"] } });
+			else if (id.startsWith("__cs-dash-")) { const k = id.slice(10); map.addLayer({ id, type: "line", source: SRC, filter: ["all", ["==", ["get", "_k"], "dash"], ["==", ["get", "_dk"], k]], paint: { "line-color": ["get", "_lc"], "line-opacity": ["get", "_lo"], "line-width": ["get", "_lw"], "line-dasharray": dashArrayOf(k) } }); }
 			else if (id === "__cs-line") map.addLayer({ id, type: "line", source: SRC, filter: ["==", ["get", "_k"], "line"], paint: { "line-color": ["get", "_lc"], "line-opacity": ["get", "_lo"], "line-width": ["get", "_lw"] } });
 			else { const o = +id.slice(9); map.addLayer({ id, type: "fill-extrusion", source: SRC, filter: ["all", ["==", ["get", "_k"], "ext"], [">=", ["get", "_fo"], o - 0.05], ["<", ["get", "_fo"], o + 0.05]], paint: { "fill-extrusion-color": ["get", "_fc"], "fill-extrusion-opacity": Math.max(0.05, o), "fill-extrusion-height": ["get", "_h"], "fill-extrusion-base": ["get", "_b"] } }); }
 			this.#layers.add(id);

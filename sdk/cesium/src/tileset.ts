@@ -39,6 +39,8 @@ export class Cesium3DTileset {
 	#shadeKey = ""; #csId: string | null = null; #blendKey = "";
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere;
 	#opts: Any;
+	#split: string | null = null;
+	#loaded = 0;
 
 	constructor(resource: Any, json: Any, opts: Any = {}) {
 		this.resource = resource; this.json = json; this.#opts = opts;
@@ -128,7 +130,7 @@ export class Cesium3DTileset {
 			try {
 				const ps = pointSizeOf(this.#style), sent = this.#style;
 				const cid = customShaderId(map, this.customShader); this.#csId = cid;
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, customShader: cid, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
 				if (this.#style !== sent) h.setStyle(styleOf(this.#style));   // the style set while the tileset was being added
@@ -146,6 +148,10 @@ export class Cesium3DTileset {
 			eyeDomeLighting: !!s.eyeDomeLighting, edlStrength: s.eyeDomeLightingStrength ?? 1, edlRadius: s.eyeDomeLightingRadius ?? 1 } : null;
 		const key = JSON.stringify(spec);
 		if (key !== this.#shadeKey) { this.#shadeKey = key; this.#h.setOptions({ pointShading: spec }); }
+		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
+		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
+		const nl = this.#h.stats?.loaded ?? 0;   // tileLoad / tileUnload: the globe loads tiles on its own, so the count's change is raised once a frame (the examples read statistics in the handler)
+		if (nl !== this.#loaded) { const ev = nl > this.#loaded ? this.tileLoad : this.tileUnload; this.#loaded = nl; if (ev.numberOfListeners) ev.raiseEvent(this.root); }
 		const cid = customShaderId(this.#host?.map, this.customShader);   // tileset.customShader = … (or null)
 		if (cid !== this.#csId) { this.#csId = cid; this.#h.setOptions({ customShader: cid }); }
 		const mode = (["highlight", "replace", "mix"] as const)[this.colorBlendMode | 0] ?? "highlight", bk = `${mode}:${this.colorBlendAmount}`;   // Cesium3DTileColorBlendMode HIGHLIGHT 0 / REPLACE 1 / MIX 2

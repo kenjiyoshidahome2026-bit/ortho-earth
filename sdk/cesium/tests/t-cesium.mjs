@@ -316,7 +316,7 @@ for (const g of [
 	const r3e = postChainOf(coll([stage("czm_silhouette", { color: Color.RED, length: 0.5 }, { selected: [] })], {}));
 	ok("post: an empty selection draws nothing and is not reported", r3e.chain.length === 0 && r3e.skipped.length === 0, JSON.stringify(r3e));
 	const comp = (name, stages, extra = {}) => ({ name, enabled: true, uniforms: {}, length: stages.length, get: i => stages[i], ...extra });
-	const silOf = (...edges) => comp("czm_silhouette", [comp("czm_edge_detection_composite", edges), stage("czm_silhouette_color_edges", {})]);
+	const silOf = (...edges) => comp("czm_silhouette", [comp("czm_edge_detection_composite", [comp("czm_edge_detection_multiple", edges), stage("czm_edge_detection_combine", {})]), stage("czm_silhouette_color_edges", {})]);   // as createSilhouetteStage builds it (the combine pass has no selection)
 	const r3s = postChainOf(coll([silOf(stage("czm_edge_detection_1", { color: Color.BLUE, length: 0.01 }, { selected: [] }), stage("czm_edge_detection_2", { color: Color.LIME, length: 0.01 }, { selected: [] }))], {}));
 	ok("post: createSilhouetteStage with empty selections draws nothing (feature picking before a pick)", r3s.chain.length === 0 && r3s.skipped.length === 0, JSON.stringify(r3s));
 	const r3a = postChainOf(coll([silOf(stage("czm_edge_detection_1", { color: Color.BLUE, length: 0.01 }))], {}));

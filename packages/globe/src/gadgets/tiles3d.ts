@@ -57,7 +57,7 @@ interface TilesetJson {
 /** I3S の節の見出し（worker の答え）＝c＝[lon,lat,h]・r＝境界球の半径（m）・thr＝子へ降りる直径（px）・kids＝子の id・mesh＝中身を持つ */
 interface I3SNodeMsg { id: number | string; c: number[]; r: number; thr: number; kids: Array<number | string>; mesh: boolean }
 /** ECEF の境界球 */
-interface Sphere { c: number[]; r: number }
+interface Sphere { c: number[]; r: number; /** a box volume's centre and half axes (ECEF): the SSE distance is to the box, as in Cesium (the sphere is far looser for a flat tile) */ obb?: number[][] }
 /** worker が解いたメッシュの束（meshdecode の形・中身は renderer の meshSet へそのまま） */
 export interface TileMesh { pos: Float32Array<ArrayBuffer>; nrm: Float32Array<ArrayBuffer>; idx: Uint32Array<ArrayBuffer>; uv?: Float32Array<ArrayBuffer>; col?: Uint8Array<ArrayBuffer>; mc?: Float32Array<ArrayBuffer>; origin?: number[]; bbox?: number[] }
 /** 画像（素の RGBA か ImageBitmap） */
@@ -112,6 +112,7 @@ interface T3dNode {
 	pick?: PickPart[] | null; copyright?: string[] | null; meshN?: number; bbox?: number[] | null;
 	/** 分類の立体（.geom）と、いま renderer に出している柱の名・点群の内外の判定（β 空間） */ vols?: GeomOut[] | null; volKeys?: string[] | null; volTests?: VolTest[] | null;
 	/** 点群の写し（分類の立体がある時だけ）＝点ごとに内側の立体の色を混ぜ直す元（pos・origin＝β・base＝スタイル後の色） */ ptsSrc?: Array<{ pos: Float32Array; origin: number[]; base: Uint8Array; tinted: boolean }> | null;
+	/** 点の層ごとの間隔の見積もり（世界単位・attenuation の誤差が無いタイルの代わり） */ ptsSp?: number[];
 }
 /** 分類の立体 1 つの内外の判定（β 空間）：単位の形の座標 u＝Q·(β−bc)＋q0（Q＝列優先 3x3）・r2＝β の外接球の半径²・color＝0..1（α＝混ぜる量） */
 interface VolTest { shape: number; Q: Float64Array; q0: number[]; bc: number[]; r2: number; color: number[] }
@@ -142,6 +143,8 @@ export interface Tiles3DEnv {
 	setMeshCut?: ((name: string, cut: number) => void) | null;
 	/** 利用者のシェーダの名（map.setCustomShader）｜null（renderer の meshCustom） */
 	setMeshCustom?: ((name: string, id: string | null) => void) | null;
+	/** Cesium splitDirection of a mesh: -1 left / +1 right of map.setSplitPosition / 0 both (renderer meshSplit) */
+	setMeshSplit?: ((name: string, side: number) => void) | null;
 	/** 分類の柱（renderer の "classify"）＝{ pos・idx（β の原点相対・閉じた三角形）・origin・color（0..1・直の α）・type（0 両方・1 地形・2 3D）}｜null＝外す */
 	setClassify?: ((name: string, data: { pos: Float32Array; idx: Uint32Array; origin: number[]; color: number[]; type: number } | null) => void) | null;
 	pickEnv?: (() => MeshPickEnv | null) | null;
@@ -172,12 +175,25 @@ const worldOf = (e: ArrayLike<number>, baseH: number, ell: boolean, EW: number) 
 	return [horiz * Math.cos(lon), RAX * sp / w + hr * sp / RAX, horiz * Math.sin(lon)];
 };
 
+// distance (world units) from the eye to a box volume: the box's half axes mapped to world by central differences, d = box centre − eye
+// (Cesium's TileOrientedBoundingBox.distanceToCamera; the mapping is affine enough over one tile)
+const obbDist = (b: number[][], baseH: number, d: number[], ell: boolean, EW: number) => {
+	let s = 0;
+	for (let k = 1; k <= 3; k++) {
+		const a = b[k], p = worldOf([b[0][0] + a[0], b[0][1] + a[1], b[0][2] + a[2]], baseH, ell, EW), q = worldOf([b[0][0] - a[0], b[0][1] - a[1], b[0][2] - a[2]], baseH, ell, EW);
+		const ax = [(p[0] - q[0]) / 2, (p[1] - q[1]) / 2, (p[2] - q[2]) / 2], L = len(ax);
+		if (L < 1e-15) continue;
+		const t = Math.abs(d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2]) / L, e = t - L;
+		if (e > 0) s += e * e;
+	}
+	return Math.sqrt(s);
+};
 // 境界体積 → ECEF の球 { c, r }
 export function sphereOf(bv: BoundingVolume | undefined, M: ArrayLike<number>): Sphere | null {
 	if (bv?.box) {
 		const b = bv.box, c = m4pt(M, [b[0], b[1], b[2]]);
 		const u = m4vec(M, [b[3], b[4], b[5]]), v = m4vec(M, [b[6], b[7], b[8]]), w = m4vec(M, [b[9], b[10], b[11]]);
-		return { c, r: Math.sqrt(len(u) ** 2 + len(v) ** 2 + len(w) ** 2) };
+		return { c, r: Math.sqrt(len(u) ** 2 + len(v) ** 2 + len(w) ** 2), obb: [c, u, v, w] };
 	}
 	if (bv?.region) {
 		// 角だけでなく経緯の中間も測る（2026-10-28・clouds 例）：OSM Buildings の根は全球の region＝旧は 8 角だけで半径を出し、経度 0 中心の
@@ -215,7 +231,7 @@ let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;
 const cssRGB = (c: string): number[] | null => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB!.fillStyle = "#000"; ctxRGB!.fillStyle = c; const f = ctxRGB!.fillStyle as string, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setMeshSplit = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -430,7 +446,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			r.batches.forEach((b, k) => {
 				const m = b.mesh, mask = (!!sty?.show || (!!set.maskAll && !!b.features)) && opaque(b);   // show（スタイル・feature state）で抜く＝OPAQUE を MASK に（見える地物は α 255）
 				n.bytes += (m.pos?.byteLength || 0) + (m.nrm?.byteLength || 0) + (m.idx?.byteLength || 0) + (m.uv?.byteLength || 0) + (m.col?.byteLength || 0) + (b.tex?.rgba?.byteLength || (b.tex?.bitmap ? b.tex.bitmap.width * b.tex.bitmap.height * 4 : 0));
-				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
+				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null, split: splitOf(set) });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
 			});
 			if (set.states.size || n.paint) paintNode(n);   // feature state の色とスタイルは後から読んだタイルにも
 			n.copyright = r.stats?.copyright || null;   // glTF の asset.copyright（W8）＝出典の欄へ
@@ -438,7 +454,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			if (r.volumes?.length) { n.vols = r.volumes; for (const g of r.volumes) for (const q of g.parts) n.mainBytes += q.pos.byteLength + q.idx.byteLength; }   // 分類の立体（.geom）＝出すのは setOn（見える時だけ柱を上げる）
 			if (r.points.length) {
 				set.pts ??= map.overlay({ builtin: "points" }, { name: `tiles3d:${set.id}` });
-				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1], edl: edlOf(set) });
+				set.pts.post({ type: "style", size: set.opts.pointSize ?? 1.5, color: [0.85, 0.85, 0.85, 1], edl: edlOf(set), square: set.opts.pointShape === "square" });
 				n.ptsFeat = r.points.map(p => p.feat);
 				const keep = classifying();   // 分類の立体のある地図＝点の写しを持つ（内側の点に立体の色を混ぜる）
 				n.ptsSrc = keep ? [] : null;
@@ -446,7 +462,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 					const q = `${n.id}:${k}`, sp = p.feat ? stylePoints(set, p.feat, p.n) : null, rgba = sp?.rgba ?? p.rgba;
 					if (keep) { n.ptsSrc!.push({ pos: p.pos.slice(), origin: [...p.origin], base: rgba.slice(), tinted: false }); n.mainBytes += p.pos.byteLength + rgba.byteLength; }
 					n.bytes += p.pos.byteLength + p.rgba.byteLength; if (p.feat) n.mainBytes += p.feat.local.byteLength + p.feat.rgba.byteLength;
-					set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba, origin: p.origin, ...(sp?.size && { size: sp.size }), att: attOf(set, n) }, [p.pos.buffer, rgba.buffer, ...(sp?.size ? [sp.size.buffer] : [])]);
+					(n.ptsSp ??= [])[k] = spacingOf(p.pos, p.n);
+					set.pts!.post({ type: "layer", q, n: p.n, pos: p.pos, rgba, origin: p.origin, ...(sp?.size && { size: sp.size }), att: attOf(set, n, k) }, [p.pos.buffer, rgba.buffer, ...(sp?.size ? [sp.size.buffer] : [])]);
 					return q;
 				});
 			}
@@ -503,16 +520,25 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	};
 	// 点群の陰影（pointShading・Cesium の PointCloudShading）：attenuation＝層（タイル）ごとに [誤差（世界単位）, 上限 px]＝点の層が距離で幅を決める。
 	// 誤差＝baseResolution か geometricError×geometricErrorScale（0＝Cesium は中身の体積から見積もる＝ここでは減衰しない）
-	const attOf = (set: T3dSet, n: T3dNode): [number, number] | null => {
+	//   Cesium の順：タイルの geometricError（>0）→ baseResolution → 点の間隔の見積もり cbrt(箱の体積／点の数)（葉のタイルは geometricError 0 が多い）。どれにも geometricErrorScale を掛ける
+	const attOf = (set: T3dSet, n: T3dNode, k: number): [number, number] | null => {
 		const o = set.opts.pointShading; if (!o?.attenuation) return null;
-		const ge = o.baseResolution ?? n.ge * (o.geometricErrorScale ?? 1);
-		return ge > 0 ? [ge / EARTH_M, o.maximumAttenuation ?? set.opts.maxSSE ?? 16] : null;
+		const ge = (n.ge > 0 ? n.ge / EARTH_M : o.baseResolution != null ? o.baseResolution / EARTH_M : n.ptsSp?.[k] ?? 0) * (o.geometricErrorScale ?? 1);
+		return ge > 0 ? [ge, o.maximumAttenuation ?? set.opts.maxSSE ?? 16] : null;
 	};
+	// 点の層の間隔（世界単位）＝cbrt(箱の体積／点の数)。平らな層（体積 0）は 0＝減衰しない
+	const spacingOf = (pos: Float32Array, cnt: number) => {
+		let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+		for (let i = 0; i < pos.length; i += 3) { const x = pos[i], y = pos[i + 1], z = pos[i + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+		const v = (x1 - x0) * (y1 - y0) * (z1 - z0);
+		return cnt > 0 && v > 0 ? Math.cbrt(v / cnt) : 0;
+	};
+	const splitOf = (set: T3dSet) => set.opts.splitDirection === "left" ? -1 : set.opts.splitDirection === "right" ? 1 : 0;
 	const edlOf = (set: T3dSet): [number, number] | null => { const o = set.opts.pointShading; return o?.eyeDomeLighting ? [o.edlStrength ?? 1, o.edlRadius ?? 1] : null; };
 	const setPointShading = (set: T3dSet) => {
 		if (!set.pts) return;
 		set.pts.post({ type: "style", edl: edlOf(set) });
-		for (const n of set.loaded()) if (n.state === "ready" && n.pts) for (const q of n.pts) set.pts.post({ type: "att", q, att: attOf(set, n) });
+		for (const n of set.loaded()) if (n.state === "ready" && n.pts) n.pts.forEach((q, k) => set.pts!.post({ type: "att", q, att: attOf(set, n, k) }));
 	};
 	// 点群のスタイル（color・show・pointSize）＝点ごとに元の色から。点の属性＝batch table の行（BATCH_ID か点の番号）＋POSITION（局所）＋COLOR（元の色）。
 	// 引く属性（["get", 名]）の値の組で結果を覚える（分類のように値の種類が少ない列なら式は数回しか回らない）。pointSize は幅 px → 点の層の半径（CSS px）
@@ -753,7 +779,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				// 地平線の向こう（球の裏側）＝地平面（接点の面 dot(X,E)=1）より向こうに境界球ごと居る
 				const d = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], dl = len(d), el = len(eye);
 				if (el > 1 && (c[0] * eye[0] + c[1] * eye[1] + c[2] * eye[2]) / el + r < 1 / el) return { ok: false };
-				return { ok: true, dist: Math.max(1e-9, dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
+				return { ok: true, dist: Math.max(1e-9, n.sphere.obb ? obbDist(n.sphere.obb, -liftOf(set, n), d, ell, EARTH_M) : dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
 			};
 			const walk = (n: T3dNode, out: T3dNode[], gp = Infinity, sib = false): boolean => {   // 戻り＝描くべき物が全部揃ったか。gp＝親の SSE（読む順の塊の優先度）。sib＝親が中身を持つ REPLACE（この塊がそろうまで親が受け持つ）
 				const g = n.parent?.id ?? 0;
@@ -886,7 +912,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
 				get schema() { return (set.scope?.schema ?? null) as Record<string, unknown> | null; }, get tilesetMetadata() { return entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema); }, get groups() { return [...(set.scope?.groups || [])]; }, get extras() { return set.extras!; }, get extensionsUsed() { return [...set.extensionsUsed!]; }, get extensionsRequired() { return [...set.extensionsRequired!]; },   // root の見出し（F5）
 				remove: () => ctl.remove(id), setVisible: v => setHidden(set, !v),
-				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); if ("customShader" in o && setMeshCustom) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshCustom(`${n.ward}#${k}`, o.customShader ?? null); if ("pointShading" in o) setPointShading(set); if ("colorBlend" in o && set.style) for (const n of set.loaded()) if (n.state === "ready" && n.paint) paintStyled(n); schedule(); },
+				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); if ("customShader" in o && setMeshCustom) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshCustom(`${n.ward}#${k}`, o.customShader ?? null); if ("splitDirection" in o && setMeshSplit) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshSplit(`${n.ward}#${k}`, splitOf(set)); if ("pointShading" in o) setPointShading(set); if ("colorBlend" in o && set.style) for (const n of set.loaded()) if (n.state === "ready" && n.paint) paintStyled(n); schedule(); },
 				/** スタイル（地物ごとの color・show を MapLibre の式で）。null で外す */
 				setStyle(style) { setStyle(set, style); return this; }, get style() { return set.styleSpec ?? null; },
 				// 当たりと feature state（W7）＝EXT_mesh_features／_BATCHID の番号。色は { color } を頂点色へ（他の鍵は保つだけ）。状態は tileset ごと（タイルを跨いで同じ番号＝同じ地物）

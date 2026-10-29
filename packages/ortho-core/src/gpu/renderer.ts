@@ -160,7 +160,7 @@ interface RawEntry { buf: GPUBuffer; bg: GPUBindGroup; bytes: number; kind: numb
 interface ResampleRes { pipe: GPURenderPipeline; bgl: GPUBindGroupLayout; ubuf: GPUBuffer; u32: Uint32Array; f32: Float32Array; slot: number }
 interface MeshTex { tex: GPUTexture; view: GPUTextureView }
 type MeshTexSrc = { bitmap: ImageBitmap } | { bitmap?: undefined; w: number; h: number; rgba: Uint8Array };
-interface MeshPbr { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[] }
+interface MeshPbr { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[]; clearcoat?: number[] | null }   // clearcoat＝KHR_materials_clearcoat [factor, roughness]
 /** set("meshSet") の入力（建物メッシュ・模型のバッチ） */
 export interface MeshSetData {
 	pos?: Float32Array; nrm?: Int8Array | ArrayLike<number> | null; idx?: Uint32Array; uv?: Float32Array | null; col?: Uint8Array | null;
@@ -169,7 +169,7 @@ export interface MeshSetData {
 	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexSrc | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
-	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
+	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 /** set("customShader", spec, id) の登録＝モジュールとパイプラインは初めて描く時に非同期で組む（出来るまで・失敗は素の模型で描く） */
 interface CsEntryG {
@@ -187,7 +187,7 @@ interface MeshBatch {
 	paint?: MeshTex | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝Cesium の模型ごとの環境の SH9・27 値）＝meshLight.sh より勝つ
-	custom?: string | null; mcJ?: Float32Array | null; mcbo?: GPUBuffer | null;   // Cesium の CustomShader（set "meshCustom"）の id・J・positionMC の頂点バッファ（location 4）
+	custom?: string | null; mcJ?: Float32Array | null; mcbo?: GPUBuffer | null; split?: number;   // Cesium の CustomShader（set "meshCustom"）の id・J・positionMC の頂点バッファ（location 4）
 	cs?: { id: string; rev: number; bgl: GPUBindGroupLayout; cub: GPUBuffer; bg: GPUBindGroup; cpu: ArrayBuffer; paint: MeshTex | null } | null;   // その束の CU（uniform）と group(3)
 	uvmbo?: GPUBuffer | null; meta?: { props: Record<string, CsMeta>; sig: string; texs: MeshTex[] } | null;   // property texture の texCoord（location 5）・読み方・画像
 }
@@ -2260,7 +2260,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
-				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
+				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのに建物メッシュが無い」
@@ -3317,6 +3317,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = sh[i * 3]; plBatchCPU[o + 25 + i * 4] = sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = sh[i * 3 + 2]; }
 				} else plBatchCPU[o + 227] = 0;
 				plBatchCPU[o + 244] = p.tint ? p.tint[4] : -1; if (p.tint) plBatchCPU.set(p.tint.subarray(0, 4), o + 240); plBatchCPU[o + 246] = p.paint ? p.paintB ?? 0 : -1;   // tintB.z＝塗る絵の混ぜ方（−1＝無し）   // tint/tintB＝Cesium の Model.color（−1＝無し）
+				plBatchCPU[o + 247] = p.split ? Math.sign(p.split) * (1 + splitPos) : 0;   // tintB.w＝Cesium splitDirection
+				plBatchCPU[o + 252] = pb?.clearcoat?.[0] ?? 0; plBatchCPU[o + 253] = pb?.clearcoat?.[1] ?? 0;   // cc.xy＝KHR_materials_clearcoat（float 252〜253）
 				if (p.sil) { plBatchCPU[o + 245] = p.sil[4]; plBatchCPU.set(p.sil.subarray(0, 4), o + 248); }   // tintB.y＝輪郭線の太さ・sil＝色
 				plBatchCPU[o + 236] = st.eye[0] - p.origin[0]; plBatchCPU[o + 237] = st.eye[1] - p.origin[1]; plBatchCPU[o + 238] = st.eye[2] - p.origin[2];   // eyeRel＝目 − 原点（double）＝toEye の錨（近接の裏面判定）
 				plBatchCPU[o + 221] = p.textured || p.two ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ・橋梁 two は点けない）・cs.z＝窓の印を α に（夜の色 grade の間）
@@ -3559,6 +3561,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		e.tex.set(t.name, { t: m, samp: csSampler(!!t.nearest, t.repeat !== false) }); e.rev++;
 	}
 	const blendOf = (p: MeshBatch): number => p.blend ? 1 : p.tint && p.tint[3] < 1 ? 2 : csOf(p)?.spec.translucency === "TRANSLUCENT" ? 2 : 0;   // CustomShader の TRANSLUCENT＝半透明の束として奥から描く   // 2＝Model.color の α だけで半透明（OPAQUE の材質＝テクスチャの α は無視）
+	let splitPos = 0.5;   // scene.splitPosition (set "splitPos") for the meshes with a split side
 	let meshLight: { dir: number[]; color: number[]; sh: Float32Array; ibl: number[]; invL00: number } | null = null;   // Cesium の模型の照明（setMeshLighting）＝PB の csL/csC/csI と sh[9]
 	let light: { dir: number[]; color?: number[] | null; intensity?: number } | null = null;    // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）
 	let lights: { n: number; data: Float32Array } | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }｜null（light.js localLightsPayload）＝PB の ln/lt に写す
@@ -3699,7 +3702,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "meshEnv": { const p = meshes.get(prop as string); if (p) p.sh = data && (data as ArrayLike<number>).length >= 27 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // その模型の環境光（Cesium の模型ごとの DynamicEnvironmentMapManager）＝SH9（27 値）｜null
 			case "customShader": setCustomShader(String(prop), data as CsEntryG["spec"] | null); break;   // Cesium の CustomShader＝{vs, fs, uniforms, values, lighting, translucency}｜null（id＝prop）
 			case "customShaderTex": setCustomShaderTex(String(prop), data as CsTexInG | null); break;   // TextureUniform＝{name, tex:{bitmap}|{rgba,w,h}, nearest, repeat}
-			case "meshCustom": { const p = meshes.get(prop as string); if (p) p.custom = data != null && data !== "" ? String(data) : null; break; }   // 束に差し込むシェーダの id｜null
+			case "meshCustom": { const p = meshes.get(prop as string); if (p) p.custom = data != null && data !== "" ? String(data) : null; break; }
+			case "meshSplit": { const p = meshes.get(prop as string); if (p) p.split = typeof data === "number" ? data : 0; break; }   // Cesium splitDirection: -1 left / +1 right of splitPos / 0 both
+			case "splitPos": { splitPos = typeof data === "number" ? Math.max(0, Math.min(1, data)) : 0.5; break; }   // scene.splitPosition (fraction of the width)   // 束に差し込むシェーダの id｜null
 			case "meshTint": { const p = meshes.get(prop as string); if (p) p.tint = data && (data as ArrayLike<number>).length >= 5 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // Cesium の Model.color＝[r,g,b,a, blend]（blend＝0 HIGHLIGHT／1 REPLACE／間＝MIX の量）｜null
 			case "meshXf": { const p = meshes.get(prop as string); if (p) { p.xf = data && (data as ArrayLike<number>).length >= 12 ? data as ArrayLike<number> : null; castRev++; } break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshVis":  setMeshVis(prop as string, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）

@@ -133,23 +133,23 @@ type MeshTexIn = { bitmap: ImageBitmap } | { bitmap?: null; rgba: Uint8Array; w:
 /** set("meshSet", data, key) の data（建物メッシュ・模型） */
 interface MeshIn {
 	pos: Float32Array; idx: Uint32Array; nrm: Int8Array | Float32Array; uv?: Float32Array | null; col?: Uint8Array | null; tex?: MeshTexIn | null;
-	origin?: number[] | null; alphaMode?: string; alphaCutoff?: number; bbox?: number[] | null; ward?: string; pbr?: { metallic: number; roughness: number } | null; csLit?: string;
+	origin?: number[] | null; alphaMode?: string; alphaCutoff?: number; bbox?: number[] | null; ward?: string; pbr?: { metallic: number; roughness: number; clearcoat?: number[] | null } | null; csLit?: string;
 	lodH?: ArrayLike<number> | null; lodCounts?: ArrayLike<number> | null; twoSided?: boolean; noCull?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	mask?: ArrayLike<number> | null; maskCells?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[] | null;
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexIn | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
-	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
+	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 interface MeshBatch {
 	vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; tex: WebGLTexture | null; textured: boolean; blend: boolean; cut: number; count: number;
 	origin: ArrayLike<number>; bbox: number[]; ward: string; lodH: ArrayLike<number> | null; lodCounts: ArrayLike<number> | null;
 	two: number; noCull: boolean; noLift: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: Float32Array | null;
-	pbr: { metallic: number; roughness: number } | null;   // 材質の係数（Cesium の照明が読む）
+	pbr: { metallic: number; roughness: number; clearcoat: number[] | null } | null;   // 材質の係数（Cesium の照明が読む）・clearcoat＝KHR_materials_clearcoat [factor, roughness]
 	csLit: string;   // Cesium の照明の掛け方："pbr"（既定）／"unlit"＝素の色（KHR_materials_unlit・法線無し）／"off"＝固定光（entity geometry）
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝SH9・27 値）＝meshLight.sh より勝つ
 	paint?: WebGLTexture | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
-	custom?: string | null; mcJ?: Float32Array | null; mc?: boolean;   // Cesium の CustomShader（set "meshCustom"）の id・J・a_mc の有無
+	custom?: string | null; mcJ?: Float32Array | null; mc?: boolean; split?: number;   // Cesium の CustomShader（set "meshCustom"）の id・J・a_mc の有無
 	uvm?: boolean; meta?: { props: Record<string, CsMeta>; sig: string; texs: WebGLTexture[] } | null;   // property texture（a_uvm の有無・読み方・画像）
 }
 /** set("customShader", spec, id) の登録＝プログラムは初めて描く時に作る（失敗＝err＝素の模型で描く） */
@@ -1002,6 +1002,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 		customs.set(id, { spec, progs: new Map(), tex: old ? old.tex : new Map() });
 	}
 	const blendOf = (p: MeshBatch): number => p.blend ? 1 : p.tint && p.tint[3] < 1 ? 2 : csOf(p)?.spec.translucency === "TRANSLUCENT" ? 2 : 0;   // CustomShader の TRANSLUCENT＝半透明の束として奥から描く   // 2＝Model.color の α だけで半透明（OPAQUE の材質＝テクスチャの α は無視）
+	let splitPos = 0.5;   // scene.splitPosition (set "splitPos") for the meshes with a split side
 	let meshLight: GLMeshLight | null = null;   // Cesium の模型の照明（setMeshLighting）＝有れば固定光・style の light の代わりに Cesium の式（csLit）で描く
 	let envTex: WebGLTexture | null = null, envLod = 0;   // Cesium の模型の鏡面の環境（setMeshEnvironmentMap）＝RGBA16F の立方体図・mip＝粗さ×envLod
 	let light: GLLight | null = null;   // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）。メッシュ（押し出し・glTF・LOD2）の陰影に効く
@@ -1640,7 +1641,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, split: data.split ?? 0, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
 			meta: textured && data.meta?.props && data.meta.texs?.length ? { props: data.meta.props, sig: JSON.stringify(data.meta.props), texs: data.meta.texs.map(t => t ? csTexture({ name: "", tex: t, nearest: true, repeat: false }) : whiteTex) } : null });   // 影を落とさない（WebGPU と同じ）   // noCull＝裏面を捨てない（面の向きが揃っていない建物・間引きは残す）／noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
@@ -2567,6 +2568,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 					gl.uniform1f(loc(gl, pg, "u_tintB"), p.tint ? p.tint[4] : -1); if (p.tint) gl.uniform4f(loc(gl, pg, "u_tint"), p.tint[0], p.tint[1], p.tint[2], p.tint[3]);   // Cesium の Model.color（-1＝無し）
 					gl.activeTexture(gl.TEXTURE0 + PAINT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.paint ?? whiteTex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_paint"), PAINT_UNIT); gl.uniform1f(loc(gl, pg, "u_paintB"), p.paint ? p.paintB ?? 0 : -1);   // 塗る絵（-1＝無し）
 				}
+				gl.uniform2f(loc(gl, pg, "u_split"), p.split ? Math.sign(p.split) * (1 + splitPos) : 0, canvas.width);   // Cesium splitDirection
 				const bl = p.textured && !!blendOf(p);
 				if (bl !== zOff) { zOff = bl; gl.depthMask(!zOff); }   // 半透明＝深度を書かない（後ろの半透明が消えない）
 				if (!common.has(pg)) {
@@ -2580,7 +2582,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 				const lb = p.noLift ? null : p.drape ? DRAPE_ALL : elev.liftBounds;   // DTM保証域（無ければ全0＝リフトなし）・noLift＝持ち上げない（平面の統計）・drape＝全域で持ち上げる
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
 				gl.uniform1f(loc(gl, pg, "u_csOn"), !meshLight || p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1);   // Cesium の模型の照明（setMeshLighting）：1＝csLit・2＝素の色・0＝固定光
-				if (meshLight) { gl.uniform2f(loc(gl, pg, "u_csMR"), p.pbr ? p.pbr.metallic : 0, p.pbr ? p.pbr.roughness : 1); gl.uniform3fv(loc(gl, pg, "u_csSH"), p.sh ?? meshLight.sh); }   // バッチの材質と環境光（模型ごとの meshEnv が勝つ）   // バッチの材質（Cesium の照明）
+				if (meshLight) { gl.uniform2f(loc(gl, pg, "u_csMR"), p.pbr ? p.pbr.metallic : 0, p.pbr ? p.pbr.roughness : 1); gl.uniform2f(loc(gl, pg, "u_csCC"), p.pbr?.clearcoat?.[0] ?? 0, p.pbr?.clearcoat?.[1] ?? 0); gl.uniform3fv(loc(gl, pg, "u_csSH"), p.sh ?? meshLight.sh); }   // バッチの材質と環境光（模型ごとの meshEnv が勝つ）   // バッチの材質（Cesium の照明）
 				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two || p.noCull ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
 				gl.uniform3f(loc(gl, pg, "u_eyeRel"), st.eye[0] - p.origin[0], st.eye[1] - p.origin[1], st.eye[2] - p.origin[2]);   // 目 − 原点（double）＝v_toEye の錨（近接の裏面判定）
@@ -2689,7 +2691,9 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 			case "meshTint": { const p = meshes.get(prop as string); if (p) p.tint = data && (data as ArrayLike<number>).length >= 5 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // Cesium の Model.color＝[r,g,b,a, blend]（blend＝0 HIGHLIGHT／1 REPLACE／間＝MIX の量）｜null
 			case "customShader": setCustomShader(String(prop), data as CsEntry["spec"] | null); break;   // Cesium の CustomShader＝{vs, fs, uniforms, values, lighting, translucency}｜null（id＝prop）
 			case "customShaderTex": { const e = customs.get(String(prop)), t = data as CsTexIn | null; if (e && t?.name && t.tex) { const o = e.tex.get(t.name); if (o) gl.deleteTexture(o); e.tex.set(t.name, csTexture(t)); } break; }   // TextureUniform＝{name, tex:{bitmap}|{rgba,w,h}, nearest, repeat}
-			case "meshCustom": { const p = meshes.get(prop as string); if (p) p.custom = data != null && data !== "" ? String(data) : null; break; }   // 束に差し込むシェーダの id｜null
+			case "meshCustom": { const p = meshes.get(prop as string); if (p) p.custom = data != null && data !== "" ? String(data) : null; break; }
+			case "meshSplit": { const p = meshes.get(prop as string); if (p) p.split = typeof data === "number" ? data : 0; break; }   // Cesium splitDirection: -1 left / +1 right of splitPos / 0 both
+			case "splitPos": { splitPos = typeof data === "number" ? Math.max(0, Math.min(1, data)) : 0.5; break; }   // scene.splitPosition (fraction of the width)   // 束に差し込むシェーダの id｜null
 			case "meshXf": { const p = meshes.get(prop as string); if (p) p.xf = data && (data as Float32Array).length >= 12 ? data as Float32Array : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshPaint": {   // 画素ごとの地物の番号から塗った絵＝{ w, h, rgba（α 0＝元の色）, blend }｜null（tiles3d の paintTexel）
 				const p = meshes.get(prop as string), d = data as { w: number; h: number; rgba: Uint8Array; blend: number } | null;

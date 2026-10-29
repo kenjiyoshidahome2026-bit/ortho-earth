@@ -30,7 +30,7 @@ type Msg =
 	| { type: "probe"; id: unknown }
 	| { type: "layer"; q: string; n: number; pos: Float32Array; rgba?: Uint8Array; size?: Float32Array; f?: Float32Array; origin?: ArrayLike<number> | null; transition?: { duration: number } | null; att?: [number, number] | null }
 	| { type: "remove"; q: string } | { type: "vis"; q: string; on: unknown } | { type: "clear" }
-	| { type: "style"; size?: number; color?: number[]; edl?: [number, number] | null }
+	| { type: "style"; size?: number; color?: number[]; edl?: [number, number] | null; square?: boolean }
 	| { type: "att"; q: string; att: [number, number] | null }
 	| { type: "paint"; q: string; rgba?: Uint8Array | null; size?: Float32Array | null }
 	| { type: "filter"; q?: string | null; range: ArrayLike<number> | null }
@@ -92,10 +92,11 @@ const FS = `#version 300 es
 precision highp float;
 in vec4 v_col;   // premultiplied でない RGBA
 in float v_size;
+uniform float u_square;   // 1 = square points (Cesium draws gl_PointSize squares)
 out vec4 o;
 void main() {
 	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (v_size + 1.0);
-	float cov = clamp(v_size + 0.5 - length(p), 0.0, 1.0);
+	float cov = u_square > 0.5 ? step(max(abs(p.x), abs(p.y)), v_size) : clamp(v_size + 0.5 - length(p), 0.0, 1.0);   // squares are hard-edged and exactly 2*v_size wide, like Cesium's gl_PointSize
 	if (cov <= 0.0) discard;
 	float a = v_col.a * cov;
 	o = vec4(v_col.rgb * a, a);
@@ -104,10 +105,11 @@ const FS_PICK = `#version 300 es
 precision highp float;
 flat in highp uint v_id;
 in float v_size;
+uniform float u_square;
 out vec4 o;
 void main() {
 	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (v_size + 1.0);
-	if (length(p) > v_size + 0.5) discard;
+	if ((u_square > 0.5 ? max(abs(p.x), abs(p.y)) + 0.5 : length(p)) > v_size + 0.5) discard;
 	o = vec4(float(v_id & 255u), float((v_id >> 8) & 255u), float((v_id >> 16) & 255u), float((v_id >> 24) & 255u)) / 255.0;
 }`;
 // Eye Dome Lighting（3D Tiles の点群の pointShading・Cesium の PointCloudEyeDomeLighting と同じ式）：点を不透明の丸で色と奥行き（cpos.w）の 2 枚へ描き（深度テスト付き）、
@@ -117,11 +119,12 @@ precision highp float;
 in vec4 v_col;
 in float v_size;
 in float v_w;
+uniform float u_square;
 layout(location = 0) out vec4 o;
 layout(location = 1) out vec4 o_d;
 void main() {
 	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (v_size + 1.0);
-	if (length(p) > v_size + 0.5 || v_col.a < 0.5) discard;
+	if ((u_square > 0.5 ? max(abs(p.x), abs(p.y)) + 0.5 : length(p)) > v_size + 0.5 || v_col.a < 0.5) discard;
 	o = vec4(v_col.rgb, 1.0); o_d = vec4(v_w, 0.0, 0.0, 1.0);
 }`;
 const EDL_VS = `#version 300 es
@@ -169,7 +172,7 @@ export function create() {
 	const layers = new Map<string, Layer>();   // q → { n, buf, cbuf, sbuf, vao, perPoint, perSize, pos, origin, base }
 	// 層ごとの番号の底（1 から・層の点数ぶん連続）＝層が増減した時に振り直す
 	function rebase() { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
-	let style: { size: number; color: number[]; edl?: [number, number] | null } = { size: 3, color: [0.9, 0.3, 0.2, 0.85] };
+	let style: { size: number; color: number[]; edl?: [number, number] | null; square?: boolean } = { size: 3, color: [0.9, 0.3, 0.2, 0.85] };
 	let edlProg: WebGLProgram | null = null, edlUni: Uniforms = {}, edlCmp: WebGLProgram | null = null, edlCmpUni: Uniforms = {}, edlFbo: WebGLFramebuffer | null = null, edlTex: WebGLTexture[] = [], edlRb: WebGLRenderbuffer | null = null, edlW = 0, edlH = 0, edlOk = true;
 	// EDL の 2 枚（色 RGBA8・奥行き R32F）＋深度＝寸法が変わった時だけ作り直す。R32F に描けない（EXT_color_buffer_float 無し）なら EDL は諦める
 	function edlTargets(w: number, h: number): boolean {
@@ -306,7 +309,7 @@ export function create() {
 	function drawLayers(P: WebGLProgram | null, U: Uniforms, s: CameraState, dpr: number, idMode: boolean, w: number, h: number) {
 		gl!.useProgram(P);
 		const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M), E = s.eye, now = performance.now();
-		gl!.uniform1f(U.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr)); gl!.uniform1f(U.u_dpr, dpr); gl!.uniform1f(U.u_maxPt, maxPt);
+		gl!.uniform1f(U.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr)); gl!.uniform1f(U.u_dpr, dpr); gl!.uniform1f(U.u_maxPt, maxPt); gl!.uniform1f(U.u_square, style.square ? 1 : 0);
 		gl!.uniform2f(U.u_half, w / 2, h / 2); gl!.uniform1f(U.u_focal, s.projection[5] * h / 2);
 		if (brush) gl!.uniform3f(U.u_brush, brush.x * dpr, brush.y * dpr, brush.r * dpr); else gl!.uniform3f(U.u_brush, 0, 0, 0);
 		if (mask && maskTex) { gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, maskTex); gl!.uniform1i(U.u_mask, 0); gl!.uniform1f(U.u_maskOn, 1); gl!.uniform4f(U.u_maskBox, mask.bbox[0], mask.bbox[1], mask.bbox[2], mask.bbox[3]); gl!.uniform1f(U.u_rAx, rAxNow || 1); } else { gl!.uniform1f(U.u_maskOn, 0); gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, null); }   // マスク無し＝unit 0 を空に（pick の FBO の texture が残っていると「読みながら書く」＝描画が黙って捨てられる）
