@@ -1,0 +1,61 @@
+{
+ "at": "2026-10-29T08:33:18.550Z",
+ "cesium": "1.146.0",
+ "n": 1,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 1,
+  "3": 0,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 1,
+  "3": 0,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 1,
+   "examples": [
+    "3d-tiles-1.1-photogrammetry-classification"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-1.1-photogrammetry-classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 59% · edges 75% of the cells match · a patch of 626 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1560,
+    "n": 3072,
+    "colour": 0.5865885416666666,
+    "edge": 0.7486979166666666,
+    "blob": 626
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}

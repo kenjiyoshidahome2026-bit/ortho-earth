@@ -1,0 +1,1 @@
+== 3d-tiles-1.1-photogrammetry-classification backend=webgpu
