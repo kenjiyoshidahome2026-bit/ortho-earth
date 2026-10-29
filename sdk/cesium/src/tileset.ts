@@ -18,6 +18,7 @@ export function sphereOfVolume(bv: Any, transform?: number[]): BoundingSphere | 
 	return s;
 }
 
+import { customShaderId } from "./custom-shader.ts";
 export interface TilesetHost { map: Any | null; ready: Promise<Any> }
 
 /** the facade's Cesium3DTileset */
@@ -33,7 +34,7 @@ export class Cesium3DTileset {
 	backFaceCulling = true; enableCollision = false; preloadWhenHidden = false; preloadFlightDestinations = true; skipLevelOfDetail = false;
 	dynamicScreenSpaceError = true; foveatedScreenSpaceError = true; cullRequestsWhileMoving = true; cullWithChildrenBounds = true;
 	splitDirection = 0; showOutline = true; outlineColor = Color.clone(Color.BLACK); pointCloudShading: Any = { attenuation: false, geometricErrorScale: 1, maximumAttenuation: undefined, baseResolution: undefined, eyeDomeLighting: true, eyeDomeLightingStrength: 1, eyeDomeLightingRadius: 1, backFaceCulling: false, normalShading: true };   // PointCloudShading's defaults
-	#shadeKey = "";
+	#shadeKey = ""; #csId: string | null = null;
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere;
 	#opts: Any;
 
@@ -47,7 +48,8 @@ export class Cesium3DTileset {
 		this.#sphere = BoundingSphere.transform(bs, this.modelMatrix, new BoundingSphere());
 		if (opts.pointCloudShading) Object.assign(this.pointCloudShading, opts.pointCloudShading);
 		if (opts.clippingPlanes != null) this.clippingPlanes = opts.clippingPlanes;   // drawn by the scene (clipping.ts)
-		for (const k of ["clippingPolygons", "customShader"]) if (opts[k] != null) { (this as Any)[k] = opts[k]; unsupported(`Cesium3DTileset option ${k}`); }
+		if (opts.clippingPolygons != null) { this.clippingPolygons = opts.clippingPolygons; unsupported("Cesium3DTileset option clippingPolygons"); }
+		if (opts.customShader != null) this.customShader = opts.customShader;   // drawn by the globe (custom-shader.ts), followed in __sync
 	}
 	static async fromUrl(url: Any, options: Any = {}): Promise<Cesium3DTileset> {
 		const res = (Resource as Any).createIfNeeded(await url);
@@ -109,7 +111,8 @@ export class Cesium3DTileset {
 			} : undefined;
 			try {
 				const ps = pointSizeOf(this.#style), sent = this.#style;
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true });
+				const cid = customShaderId(map, this.customShader); this.#csId = cid;
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, customShader: cid, mc: !!cid });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
 				if (this.#style !== sent) h.setStyle(styleOf(this.#style));   // the style set while the tileset was being added
@@ -127,6 +130,8 @@ export class Cesium3DTileset {
 			eyeDomeLighting: !!s.eyeDomeLighting, edlStrength: s.eyeDomeLightingStrength ?? 1, edlRadius: s.eyeDomeLightingRadius ?? 1 } : null;
 		const key = JSON.stringify(spec);
 		if (key !== this.#shadeKey) { this.#shadeKey = key; this.#h.setOptions({ pointShading: spec }); }
+		const cid = customShaderId(this.#host?.map, this.customShader);   // tileset.customShader = … (or null)
+		if (cid !== this.#csId) { this.#csId = cid; this.#h.setOptions({ customShader: cid }); }
 	}
 	__detach() { this.#host = null; this.#h?.remove(); this.#h = null; }
 	/** the feature under a screen point (scene.pick) */
