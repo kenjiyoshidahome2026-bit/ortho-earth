@@ -1,0 +1,10 @@
+== b605e46f lensflare
+== b605e46f depth-of-field
+== b605e46f post-processing
+== b605e46f clustering
+== b605e46f billboards
+== b605e46f points
+== b605e46f kml
+== b605e46f labels
+PASS  t-wgsl             ok:80/80 modules compile ok:Frame に sun がある（段 0）  〔0.9s〕
+✓ 全1ページ PASS
