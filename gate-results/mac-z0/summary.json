@@ -1,0 +1,224 @@
+{
+ "at": "2026-10-29T16:29:03.847Z",
+ "cesium": "1.146.0",
+ "n": 9,
+ "levels": {
+  "0": 6,
+  "1": 0,
+  "2": 3,
+  "3": 0,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 2,
+  "1": 0,
+  "2": 3,
+  "3": 0,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "never finished loading",
+   "n": 4,
+   "examples": [
+    "billboardclamptoground-dev",
+    "ground-polyline-material-dev",
+    "polylines-on-terrain-dev",
+    "volumecloud"
+   ]
+  },
+  {
+   "blocker": "picture differs",
+   "n": 3,
+   "examples": [
+    "elevation-band-material",
+    "high-dynamic-range",
+    "terrain-exaggeration"
+   ]
+  },
+  {
+   "blocker": "exception: DeveloperError",
+   "n": 1,
+   "examples": [
+    "shadows-dev"
+   ]
+  },
+  {
+   "blocker": "exception: tileset.metadata.getProperty is not a function",
+   "n": 1,
+   "examples": [
+    "aec-tileset-metadata-filtering"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "aec-tileset-metadata-filtering",
+   "level": 0,
+   "reasons": [
+    "exception: tileset.metadata.getProperty is not a function"
+   ],
+   "blockers": [
+    "exception: tileset.metadata.getProperty is not a function"
+   ],
+   "unsupported": [],
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "billboardclamptoground-dev",
+   "level": 0,
+   "reasons": [
+    "never finished loading"
+   ],
+   "blockers": [
+    "never finished loading"
+   ],
+   "unsupported": [],
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "elevation-band-material",
+   "level": 2,
+   "reasons": [
+    "picture: colour 45% · edges 58% of the cells match · a patch of 1259 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1149,
+    "n": 3072,
+    "colour": 0.4495442708333333,
+    "edge": 0.5777994791666666,
+    "blob": 1259
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ground-polyline-material-dev",
+   "level": 0,
+   "reasons": [
+    "never finished loading"
+   ],
+   "blockers": [
+    "never finished loading"
+   ],
+   "unsupported": [],
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "high-dynamic-range",
+   "level": 2,
+   "reasons": [
+    "picture: colour 64% · edges 67% of the cells match · a patch of 388 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1652,
+    "n": 3072,
+    "colour": 0.6448567708333334,
+    "edge": 0.6656901041666666,
+    "blob": 388
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "polylines-on-terrain-dev",
+   "level": 0,
+   "reasons": [
+    "never finished loading"
+   ],
+   "blockers": [
+    "never finished loading"
+   ],
+   "unsupported": [],
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "shadows-dev",
+   "level": 0,
+   "reasons": [
+    "exception: DeveloperError"
+   ],
+   "blockers": [
+    "exception: DeveloperError"
+   ],
+   "unsupported": [],
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "terrain-exaggeration",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 93% of the cells match · a patch of 55 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2509,
+    "n": 3072,
+    "colour": 0.8561197916666666,
+    "edge": 0.9306640625,
+    "blob": 55
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "volumecloud",
+   "level": 0,
+   "reasons": [
+    "never finished loading"
+   ],
+   "blockers": [
+    "never finished loading"
+   ],
+   "unsupported": [],
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
