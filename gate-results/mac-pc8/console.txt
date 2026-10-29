@@ -1,0 +1,6 @@
+== gltf-pbr-extensions backend=webgpu
+== image-based-lighting backend=webgpu
+== pbr-lighting-dev backend=webgpu
+== 3d-tiles-feature-picking backend=webgpu
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+== ground-polyline-material-dev backend=webgpu

@@ -1,0 +1,22 @@
+== 3d-tiles-1.1-photogrammetry backend=webgpu
+== 3d-tiles-compare backend=webgpu
+== 3d-tiles-gaussian-splatting-comparison backend=webgpu
+   1× warning: [tiles3d] t1: KHR_gaussian_splatting drawn as points (74624+); map.use(splatPlugin()) from @ortho-earth/splat to draw Gaussian splats
+== ground-polyline-material-dev backend=webgpu
+   1× warning: [csshim] unsupported: material PolylineGlow (drawn in its colour)
+   1× warning: [csshim] unsupported: material PolylineDash (drawn in its colour)
+   1× warning: [csshim] unsupported: material PolylineOutline (drawn in its colour)
+== polyline backend=webgpu
+== clamp-entities-to-ground backend=webgpu
+== polylines-on-terrain-dev backend=webgpu
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 (1/5)
+== drawing-on-terrain backend=webgpu
+== classification-types backend=webgpu
+== czml-polyline backend=webgpu
+== high-dynamic-range backend=webgpu
+== terrain backend=webgpu
+== cesium-osm-buildings backend=webgpu
+== 3d-tiles-feature-picking backend=webgpu
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+== montreal-point-cloud backend=webgpu
+   1× warning: [terrain] audit: refetching unwritten cells 0,0 (1/5)

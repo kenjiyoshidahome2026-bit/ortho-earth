@@ -1,0 +1,5 @@
+== montreal-point-cloud backend=webgpu
+== 3d-tiles-point-cloud backend=webgpu
+== 3d-tiles-point-cloud-shading backend=webgpu
+== 3d-tiles-point-cloud-classification backend=webgpu
+== 3d-tiles-point-cloud-styling backend=webgpu

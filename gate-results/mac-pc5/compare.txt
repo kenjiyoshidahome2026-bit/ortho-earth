@@ -1,0 +1,39 @@
+     3d-tiles-1.1-cdb-yemen | now L2 c83.4 e74.2 b70 | prev(none) - | picture: colour 83% · edges 74% of the cells match · a patch of 70 cells differs
+     3d-tiles-1.1-photogrammetry | now L1 c45.8 e54.9 b897 | prev(mac-pc3) L1 c45.8 e55.0 b898 | camera (Δ 318 m · Δangle 0.0°)
+     3d-tiles-1.1-photogrammetry-classification | now L2 c61.2 e74.8 b403 | prev(mac-ug) L2 c60.5 e74.3 b403 | picture: colour 61% · edges 75% of the cells match · a patch of 403 cells differs
+     3d-tiles-1.1-s2-globe | now L3 c99.2 e95.5 b6 | prev(mac-cs-main) L3 c99.2 e95.7 b6 | 
+     3d-tiles-adjust-height | now L3 c99.9 e98.7 b0 | prev(none) - | 
+     3d-tiles-batch-table-hierarchy | now L3 c100.0 e99.9 b0 | prev(none) - | 
+     3d-tiles-bim | now L3 c99.9 e97.7 b1 | prev(none) - | 
+     3d-tiles-clipping-planes | now L3 c99.9 e96.5 b0 | prev(mac-f5b-b3fe) L3 c99.9 e96.5 b0 | 
+DOWN 3d-tiles-compare | now L2 c77.5 e92.2 b491 | prev(mac-cl2-main) L2 c79.0 e91.1 b452 | picture: colour 77% · edges 92% of the cells match · a patch of 491 cells differs
+     3d-tiles-edge-visibility | now L2 c92.6 e96.2 b190 | prev(none) - | picture: colour 93% · edges 96% of the cells match · a patch of 190 cells differs
+DOWN 3d-tiles-feature-picking | now L2 c84.8 e86.9 b40 | prev(mac-f6-eccb) L2 c81.7 e92.1 b71 | picture: colour 85% · edges 87% of the cells match · a patch of 40 cells differs
+     3d-tiles-feature-styling | now L3 c85.0 e93.8 b8 | prev(mac-cu-main) L2 c83.0 e90.5 b30 | 
+     3d-tiles-formats | now L3 c98.8 e99.9 b6 | prev(none) - | 
+     3d-tiles-gaussian-splats-with-lod | now L2 c51.7 e53.5 b230 | prev(none) - | picture: colour 52% · edges 54% of the cells match · a patch of 230 cells differs
+     3d-tiles-gaussian-splatting | now L2 c75.4 e78.1 b70 | prev(none) - | picture: colour 75% · edges 78% of the cells match · a patch of 70 cells differs
+     3d-tiles-interactivity | now L3 c95.9 e94.2 b9 | prev(mac-f6-eccb) L3 c93.0 e95.1 b9 | 
+     3d-tiles-interior | now L3 c98.8 e98.7 b19 | prev(none) - | 
+     3d-tiles-photogrammetry | now L3 c99.3 e97.9 b2 | prev(mac-p4-main) L2 c91.6 e93.8 b65 | 
+     3d-tiles-photogrammetry-classification | now L2 c94.4 e93.4 b61 | prev(mac-pc2) L2 c94.6 e93.6 b65 | picture: colour 94% · edges 93% of the cells match · a patch of 61 cells differs
+     3d-tiles-point-cloud | now L2 c93.5 e95.1 b39 | prev(mac-pc5) L2 c93.5 e95.1 b39 | picture: colour 94% · edges 95% of the cells match · a patch of 39 cells differs
+     3d-tiles-point-cloud-classification | now L2 c93.3 e94.9 b39 | prev(mac-pc5) L2 c93.3 e94.9 b39 | picture: colour 93% · edges 95% of the cells match · a patch of 39 cells differs
+     3d-tiles-point-cloud-shading | now L2 c88.8 e94.9 b240 | prev(mac-pc5) L2 c88.8 e94.9 b240 | picture: colour 89% · edges 95% of the cells match · a patch of 240 cells differs
+     3d-tiles-point-cloud-styling | now L3 c100.0 e99.7 b0 | prev(mac-pc5) L3 c100.0 e99.7 b0 | 
+     3d-tiles-property-lod-river | now L2 c77.4 e69.6 b11 | prev(none) - | picture: colour 77% · edges 70% of the cells match
+     3d-tiles-terrain-classification | now L1 c68.6 e61.5 b938 | prev(none) - | 3D Tiles drawn 4/0
+     3d-tiles-vertical-exaggeration | now L2 c88.1 e90.7 b30 | prev(none) - | picture: colour 88% · edges 91% of the cells match · a patch of 30 cells differs
+     aec-tileset-metadata-filtering | now L3 c96.3 e96.8 b17 | prev(mac-z0b) L3 c96.3 e96.9 b18 | 
+DOWN cesium-osm-buildings | now L2 c77.4 e91.2 b335 | prev(mac-cl2-main) L2 c79.7 e92.5 b161 | picture: colour 77% · edges 91% of the cells match · a patch of 335 cells differs
+     custom-shaders-3d-tiles | now L3 c98.8 e98.1 b18 | prev(mac-ug) L3 c98.2 e97.6 b18 | 
+     czml-3d-tiles | now L1 c98.8 e99.3 b9 | prev(none) - | 3D Tiles drawn 1/0
+     drape-imagery-on-3d-tiles | now L1 c32.2 e75.6 b719 | prev(none) - | unsupported: scene.primitives.add(Cesium3DTileset); 3D Tiles drawn 11/0
+     globe-materials-3d-tiles-terrain | now L3 c98.7 e98.7 b1 | prev(none) - | 
+     google-photorealistic-3d-tiles | now L2 c95.2 e97.2 b89 | prev(mac-p4-main) L2 c94.3 e96.1 b118 | picture: colour 95% · edges 97% of the cells match · a patch of 89 cells differs
+     google-photorealistic-3d-tiles-with-building-insert | now L2 c99.0 e97.5 b24 | prev(mac-main737) L2 c51.4 e57.5 b1438 | picture: colour 99% · edges 98% of the cells match · a patch of 24 cells differs
+     japan-buildings | now L2 c54.3 e77.5 b796 | prev(none) - | picture: colour 54% · edges 78% of the cells match · a patch of 796 cells differs
+     montreal-point-cloud | now L3 c95.9 e98.1 b5 | prev(mac-pc5) L2 c90.0 e95.7 b52 | 
+     polylines-on-3d-tiles | now L2 c71.2 e86.2 b200 | prev(none) - | picture: colour 71% · edges 86% of the cells match · a patch of 200 cells differs
+     sample-height-from-3d-tiles | now L2 c41.8 e49.7 b534 | prev(mac-ba-main) L2 c41.8 e49.7 b534 | picture: colour 42% · edges 50% of the cells match · a patch of 534 cells differs
+     voxels-in-3d-tiles | now L2 c56.8 e97.7 b1246 | prev(none) - | picture: colour 57% · edges 98% of the cells match · a patch of 1246 cells differs
