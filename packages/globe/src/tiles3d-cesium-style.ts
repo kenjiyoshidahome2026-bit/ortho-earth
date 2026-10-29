@@ -8,14 +8,14 @@ import { parseRGBA } from "@ortho-earth/core";
 import type { StyleSpec } from "./tiles3d-style.ts";
 
 /** Cesium 形のスタイル（読む欄） */
-export interface CesiumStyle { color?: string | { conditions?: Array<[string, string]> }; show?: string | boolean | { conditions?: Array<[string, string]> }; defines?: Record<string, string>; meta?: unknown }
+export interface CesiumStyle { color?: string | { conditions?: Array<[string, string]> }; show?: string | boolean | { conditions?: Array<[string, string]> }; pointSize?: string | number | { conditions?: Array<[string, string]> }; defines?: Record<string, string>; meta?: unknown }
 type Ex = unknown;
 
 /** Cesium 形か（color／show が文字列・conditions・defines がある） */
 export function isCesiumStyle(s: unknown): s is CesiumStyle {
 	if (!s || typeof s !== "object" || Array.isArray(s)) return false;
 	const o = s as Record<string, unknown>, cesiumish = (v: unknown) => typeof v === "string" || (!!v && typeof v === "object" && !Array.isArray(v) && "conditions" in v);
-	return "defines" in o || cesiumish(o.color) || cesiumish(o.show);
+	return "defines" in o || cesiumish(o.color) || cesiumish(o.show) || cesiumish(o.pointSize);
 }
 
 /** Cesium 形 → StyleSpec（origin "native"＝JS に近い寛容な比較・真偽） */
@@ -28,7 +28,7 @@ export function cesiumToSpec(s: CesiumStyle): StyleSpec {
 		busy.add(name); const e = parseExpr(String(defSrc[name]), varOf); busy.delete(name); defs.set(name, e); return e;
 	};
 	const one = (v: unknown, what: string): Ex => {
-		if (typeof v === "boolean") return v;
+		if (typeof v === "boolean" || typeof v === "number") return v;
 		if (typeof v === "string") return parseExpr(v, varOf);
 		if (v && typeof v === "object" && Array.isArray((v as { conditions?: unknown }).conditions)) {
 			const out: Ex[] = ["case"];
@@ -44,6 +44,7 @@ export function cesiumToSpec(s: CesiumStyle): StyleSpec {
 	const spec: StyleSpec = { origin: "native" };
 	if (s.color != null) spec.color = one(s.color, "color");
 	if (s.show != null) spec.show = one(s.show, "show");
+	if (s.pointSize != null) spec.pointSize = one(s.pointSize, "pointSize");
 	return spec;
 }
 

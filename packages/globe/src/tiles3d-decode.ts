@@ -4,10 +4,15 @@
 // 三角形は meshdecode の decodeModel（PLATEAU・模型と同じ後段＝テクスチャ/マテリアル/両面）へ、点は経緯度に直して
 // 点のオーバーレイ（gadgets/points-gl.js・原点相対）の形で返す。高さは接地しない＝絶対高さ（楕円体高）−baseH をそのまま持つ。
 import { decodeModel, ecef2geo, geoWorld, earthW, fetchFor } from "./meshdecode.ts";
+import { batchTableOf } from "./mesh-features.ts";
+import type { PropertyTable } from "./mesh-features.ts";
 import type { ModelBatchOut, ModelOut, ModelPoints, SplatPrimOut, VoxelPrimOut, VoxelTileOpts, FetchOpts } from "./meshdecode.ts";
 
 /** 点（points-gl の層に渡す形）＝原点相対の float32・RGBA8 */
-export interface PointsOut { pos: Float32Array; origin: number[]; rgba: Uint8Array; n: number }
+export interface PointsOut { pos: Float32Array; origin: number[]; rgba: Uint8Array; n: number; feat?: PointsFeat | null }
+/** 点群（pnts）の点ごとの地物（スタイルの ${名}・${POSITION}・${COLOR} が引く）：ids＝点ごとの batch の番号（BATCH_ID・無ければ点の番号そのもの＝null）・
+ *  table＝batch table（行＝地物）・local＝局所の位置（RTC 相対・量子化を戻した物）・rgba＝元の色（スタイルで塗り直す元） */
+export interface PointsFeat { ids: ArrayLike<number> | null; table: PropertyTable | null; local: Float32Array; rgba: Uint8Array }
 /** decodeTile3D の戻り（null＝描く物なし） */
 export interface Tile3DOut { batches: ModelBatchOut[]; points: PointsOut[]; splats: SplatPrimOut[]; voxels: VoxelPrimOut[]; stats: { triangles: number; points: number; splats: number; splatPoints: number; voxels: number; voxelsSkipped: number; copyright?: string[]; bytes?: number } }   // bytes＝model-worker が足す（タイルの本体の大きさ）・splats＝Gaussian splat（KHR_gaussian_splatting・局所＋transform）・splatPoints＝splat を点として描いた個数（plugin が無い時）
 /** decodeTile3D の opts（transform＝列優先 4x4・baseH＝高さの基準（m）・ground＝"terrain"｜"absolute"・splats＝KHR_gaussian_splatting を splat として返す（false＝点として描く）） */
@@ -57,25 +62,32 @@ const ftValue = (ftJ: FeatureTableJson, ftBin: Uint8Array, key: string, n: numbe
 
 // Draco で圧した点群（3DTILES_draco_point_compression）：特徴表の POSITION／RGB(A) は Draco の塊の中＝解いて差し替える。
 // 位置は量子化を戻した値（POSITION_QUANTIZED でも QUANTIZED_VOLUME_* を掛けた後と同じ空間＝RTC_CENTER 相対）・色は 8bit
-async function dracoPnts(J: FeatureTableJson, bin: Uint8Array): Promise<{ P: ArrayLike<number>; RGB: ArrayLike<number> | null; RGBA: ArrayLike<number> | null } | null> {
-	const ext = (J as { extensions?: Record<string, { properties?: Record<string, number>; byteOffset?: number; byteLength?: number }> }).extensions?.["3DTILES_draco_point_compression"];
+type DracoExt = { properties?: Record<string, number>; byteOffset?: number; byteLength?: number };
+const dracoExtOf = (J: Record<string, unknown> | null) => (J as { extensions?: Record<string, DracoExt> } | null)?.extensions?.["3DTILES_draco_point_compression"];
+// batch table の列も Draco の塊の中に有り得る（BT.extensions の同名拡張の properties＝列名 → Draco の属性の番号）＝名を付けて一緒に解く
+async function dracoPnts(J: FeatureTableJson, bin: Uint8Array, BT: Record<string, unknown> | null): Promise<{ P: ArrayLike<number>; RGB: ArrayLike<number> | null; RGBA: ArrayLike<number> | null; cols: Record<string, { value: ArrayLike<number>; size: number }> } | null> {
+	const ext = dracoExtOf(J);
 	if (!ext) return null;
+	const extra = { ...(ext.properties || {}), ...(dracoExtOf(BT)?.properties || {}) };
 	const { loadParse, DracoLoader } = await import("./mesh-loaders.ts");   // loaders.gl の Draco worker で解く（この model worker は module worker＝importScripts で復号器を読めない）
 	const at = bin.byteOffset + (ext.byteOffset || 0), buf = bin.buffer.slice(at, at + (ext.byteLength || 0)) as ArrayBuffer;
-	const mesh = await loadParse(buf, DracoLoader) as { attributes: Record<string, { value: ArrayLike<number>; size: number }> };
-	const A = mesh.attributes, P = A.POSITION?.value, C = A.COLOR_0;
+	const mesh = await loadParse(buf, DracoLoader, { draco: { extraAttributes: extra } }) as { attributes: Record<string, { value: ArrayLike<number>; size: number }> };
+	const A = mesh.attributes, P = (A.POSITION ?? A.POSITION_QUANTIZED)?.value, C = A.RGBA ?? A.RGB ?? A.COLOR_0;
 	if (!P) return null;
-	return { P, RGB: C && C.size === 3 ? C.value : null, RGBA: C && C.size === 4 ? C.value : null };
+	const cols: Record<string, { value: ArrayLike<number>; size: number }> = {};
+	for (const k of Object.keys(dracoExtOf(BT)?.properties || {})) if (A[k]) cols[k] = A[k];
+	return { P, RGB: C && C.size === 3 ? C.value : null, RGBA: C && C.size === 4 ? C.value : null, cols };
 }
 
 // 点群（pnts）
 async function decodePnts(ab: ArrayBuffer, M: Xf3, baseH: number): Promise<PointsOut | null> {
-	const dv = new DataView(ab), ftJ = dv.getUint32(12, true), ftB = dv.getUint32(16, true);
+	const dv = new DataView(ab), ftJ = dv.getUint32(12, true), ftB = dv.getUint32(16, true), btJ = dv.getUint32(20, true), btB = dv.getUint32(24, true);
 	const J = jsonAt(ab, 28, ftJ), bin = new Uint8Array(ab, 28 + ftJ, ftB);
 	const n = J.POINTS_LENGTH! | 0;
 	if (!n) return null;
 	const rtc = J.RTC_CENTER || [0, 0, 0];
-	const D = await dracoPnts(J, bin);
+	const BT = btJ ? jsonAt(ab, 28 + ftJ + ftB, btJ) as Record<string, unknown> : null, btBin = btB ? new Uint8Array(ab, 28 + ftJ + ftB + btJ, btB) : null;
+	const D = await dracoPnts(J, bin, BT);
 	let P = D ? D.P : ftValue(J, bin, "POSITION", n), qo: number[] | null | undefined = null, qs: number[] | null | undefined = null;
 	if (!P) { P = ftValue(J, bin, "POSITION_QUANTIZED", n, Uint16Array); qo = J.QUANTIZED_VOLUME_OFFSET; qs = J.QUANTIZED_VOLUME_SCALE; }
 	if (!P) return null;
@@ -92,7 +104,24 @@ async function decodePnts(ab: ArrayBuffer, M: Xf3, baseH: number): Promise<Point
 		else if (R565) { const c = R565[i]; rgba[i*4] = ((c >> 11) & 31) * 255 / 31; rgba[i*4+1] = ((c >> 5) & 63) * 255 / 63; rgba[i*4+2] = (c & 31) * 255 / 31; rgba[i*4+3] = 255; }
 		else { rgba[i*4] = K[0]; rgba[i*4+1] = K[1]; rgba[i*4+2] = K[2]; rgba[i*4+3] = K[3] ?? 255; }
 	}
-	return pointsOut({ geo, rgba }, baseH);
+	const out = pointsOut({ geo, rgba }, baseH);
+	if (out) out.feat = pntsFeat(J, bin, BT, btBin, D?.cols ?? {}, n, P, qo, qs, rgba);
+	return out;
+}
+// 点の地物（スタイル用）：batch table＝BATCH_LENGTH 行（BATCH_ID で点 → 行）か、無ければ点ごと（POINTS_LENGTH 行）
+function pntsFeat(J: FeatureTableJson, bin: Uint8Array, BT: Record<string, unknown> | null, btBin: Uint8Array | null, dcols: Record<string, { value: ArrayLike<number>; size: number }>, n: number,
+	P: ArrayLike<number>, qo: number[] | null | undefined, qs: number[] | null | undefined, rgba: Uint8Array): PointsFeat {
+	const nB = J.BATCH_LENGTH! | 0, ids = nB ? ftValue(J, bin, "BATCH_ID", n, Uint16Array, 1) : null, rows = ids ? nB : n;
+	let table: PropertyTable | null = null;
+	if (BT) {
+		const plain: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(BT)) if (k !== "extensions" && !(k in dcols)) plain[k] = v;
+		table = batchTableOf(plain, btBin, rows) ?? { name: "batchTable", class: null, count: rows, columns: {} };
+		for (const [k, c] of Object.entries(dcols)) table.columns[k] = Array.from({ length: rows }, (_, r) => c.size === 1 ? c.value[r] : Array.from({ length: c.size }, (_, i) => c.value[r * c.size + i]));
+	}
+	const local = new Float32Array(n * 3);
+	for (let i = 0; i < n * 3; i++) { const k = i % 3; local[i] = qo ? qo[k] + P[i] / 65535 * qs![k] : P[i]; }
+	return { ids, table, local, rgba: new Uint8Array(rgba) };
 }
 
 // 点（経緯度 rad・楕円体高）→ 世界座標の原点相対 float32（points-gl の layer に渡す形）。置き方は建物メッシュと同じ式（geoWorld＝楕円体なら β 単位球・#43）
