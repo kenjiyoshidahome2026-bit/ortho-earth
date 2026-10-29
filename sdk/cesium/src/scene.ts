@@ -11,6 +11,7 @@ import { postChainOf, type PostFrame } from "./postprocess.ts";
 import { sunPositionWC } from "./lighting.ts";
 import { clipSpecOf } from "./clipping.ts";
 import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
+import { RawDrawer } from "./rawdraw.ts";
 
 /** the globe and what the facade hangs on it (filled when createGlobe resolves) */
 export interface Host {
@@ -74,7 +75,8 @@ export class OrthoScene {
 	readonly controllerHost: any;
 	globe: any;
 	readonly frameState: any;
-	readonly context = { drawingBufferWidth: 1, drawingBufferHeight: 1, webgl2: true, stencilBuffer: true, depthTexture: true, uniformState: {}, _gl: null, shaderCache: { numberOfShaders: 0 } };
+	/** what the facade's own Cesium parts read as the context (no GL: ContextLimits, the voxel shaders); scene.context is a real one (rawdraw.ts) */
+	readonly fakeContext = { drawingBufferWidth: 1, drawingBufferHeight: 1, webgl2: true, stencilBuffer: true, depthTexture: true, uniformState: {}, _gl: null, shaderCache: { numberOfShaders: 0 } };
 	readonly atmosphere = new Atmosphere(); readonly fog = new Fog(); readonly postProcessStages: any; light: any = new SunLight();
 	readonly shadowMap = { enabled: false, softShadows: false, size: 2048, darkness: 0.3, maximumDistance: 5000, normalOffset: true, fadingEnabled: true, isDestroyed: () => false, destroy: () => undefined };
 	skyBox: any = { show: true }; skyAtmosphere: any = { show: true, hueShift: 0, saturationShift: 0, brightnessShift: 0, atmosphereLightIntensity: 50, atmosphereRayleighCoefficient: { x: 5.5e-6, y: 13.0e-6, z: 28.4e-6 }, atmosphereMieCoefficient: { x: 21e-6, y: 21e-6, z: 21e-6 }, atmosphereMieAnisotropy: 0.9, atmosphereRayleighScaleHeight: 10000, atmosphereMieScaleHeight: 3200 };   // SkyAtmosphere's defaults (the atmosphere example reads them)
@@ -98,11 +100,13 @@ export class OrthoScene {
 	#lastPose: number[] | null = null; #lastGlobe: GlobeCam | null = null; #fovy = 0;
 	#postKey = ""; #aoOn = false; #clipKey = "";   // postProcessStages → map.setPostChain (順 4): what was last pushed
 	#destroyed = false;
+	readonly raw: RawDrawer;
 
 	constructor(host: Host, canvas: HTMLCanvasElement, o: { scene3DOnly?: boolean; globe?: unknown } = {}) {
 		fillContextLimits();
 		this.host = host; this.canvas = canvas; this.scene3DOnly = !!o.scene3DOnly;
-		this.frameState = { mode: SceneMode.SCENE3D, mapProjection: this.mapProjection, useLogDepth: false, frameNumber: 0, time: undefined, camera: null, context: this.context, pixelRatio: 1, verticalExaggeration: 1 };
+		this.raw = new RawDrawer(this, canvas);
+		this.frameState = { mode: SceneMode.SCENE3D, mapProjection: this.mapProjection, useLogDepth: false, frameNumber: 0, time: undefined, camera: null, context: this.fakeContext, pixelRatio: 1, verticalExaggeration: 1 };
 		this.screenSpaceCameraController = controllerOf(host);
 		this.controllerHost = new engine.ControllerHost();   // widget.addController(ScreenSpaceTiltOrbitCameraController…): Cesium's own host, updated each frame (camera-controllers example)
 		this.camera = new Camera(this as never);
@@ -112,6 +116,8 @@ export class OrthoScene {
 		this.globe = o.globe === false ? undefined : makeGlobe(this);
 		this.#terrainProvider = this.globe?.terrainProvider;
 	}
+	/** scene.context: a real Cesium Context over the globe, made when an example asks for it (its own primitives draw with it) */
+	get context(): any { return this.raw.context ?? this.fakeContext; }
 	get drawingBufferWidth() { return Math.max(1, Math.round(this.canvas.clientWidth * this.pixelRatio)); }
 	get drawingBufferHeight() { return Math.max(1, Math.round(this.canvas.clientHeight * this.pixelRatio)); }
 	get imageryLayers() { return this.globe?.imageryLayers; }
@@ -221,6 +227,7 @@ export class OrthoScene {
 			for (const t of (this as any).__tilesets ?? []) t.__sync?.(this);   // tileset pointCloudShading → the globe
 			this.#syncClip();   // tileset clippingPlanes → the globe's clipping (the examples move the plane in preRender / on drag)
 			this.#syncPost();   // postProcessStages → the globe's post chain (the examples flip enabled/uniforms in preRender and the knockout bindings)
+			this.raw.render(time);   // the primitives that draw themselves (Cesium DrawCommands on scene.context)
 			this.camera._updateCameraChanged?.();
 			this.postRender.raiseEvent(this, time);
 			credits?.endFrame?.();
