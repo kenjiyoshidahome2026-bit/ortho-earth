@@ -143,6 +143,8 @@ export interface Tiles3DEnv {
 	setMeshCut?: ((name: string, cut: number) => void) | null;
 	/** 利用者のシェーダの名（map.setCustomShader）｜null（renderer の meshCustom） */
 	setMeshCustom?: ((name: string, id: string | null) => void) | null;
+	/** Cesium splitDirection of a mesh: -1 left / +1 right of map.setSplitPosition / 0 both (renderer meshSplit) */
+	setMeshSplit?: ((name: string, side: number) => void) | null;
 	/** 分類の柱（renderer の "classify"）＝{ pos・idx（β の原点相対・閉じた三角形）・origin・color（0..1・直の α）・type（0 両方・1 地形・2 3D）}｜null＝外す */
 	setClassify?: ((name: string, data: { pos: Float32Array; idx: Uint32Array; origin: number[]; color: number[]; type: number } | null) => void) | null;
 	pickEnv?: (() => MeshPickEnv | null) | null;
@@ -229,7 +231,7 @@ let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;
 const cssRGB = (c: string): number[] | null => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB!.fillStyle = "#000"; ctxRGB!.fillStyle = c; const f = ctxRGB!.fillStyle as string, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setMeshSplit = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -444,7 +446,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			r.batches.forEach((b, k) => {
 				const m = b.mesh, mask = (!!sty?.show || (!!set.maskAll && !!b.features)) && opaque(b);   // show（スタイル・feature state）で抜く＝OPAQUE を MASK に（見える地物は α 255）
 				n.bytes += (m.pos?.byteLength || 0) + (m.nrm?.byteLength || 0) + (m.idx?.byteLength || 0) + (m.uv?.byteLength || 0) + (m.col?.byteLength || 0) + (b.tex?.rgba?.byteLength || (b.tex?.bitmap ? b.tex.bitmap.width * b.tex.bitmap.height * 4 : 0));
-				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
+				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null, split: splitOf(set) });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
 			});
 			if (set.states.size || n.paint) paintNode(n);   // feature state の色とスタイルは後から読んだタイルにも
 			n.copyright = r.stats?.copyright || null;   // glTF の asset.copyright（W8）＝出典の欄へ
@@ -531,6 +533,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		const v = (x1 - x0) * (y1 - y0) * (z1 - z0);
 		return cnt > 0 && v > 0 ? Math.cbrt(v / cnt) : 0;
 	};
+	const splitOf = (set: T3dSet) => set.opts.splitDirection === "left" ? -1 : set.opts.splitDirection === "right" ? 1 : 0;
 	const edlOf = (set: T3dSet): [number, number] | null => { const o = set.opts.pointShading; return o?.eyeDomeLighting ? [o.edlStrength ?? 1, o.edlRadius ?? 1] : null; };
 	const setPointShading = (set: T3dSet) => {
 		if (!set.pts) return;
@@ -909,7 +912,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
 				get schema() { return (set.scope?.schema ?? null) as Record<string, unknown> | null; }, get tilesetMetadata() { return entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema); }, get groups() { return [...(set.scope?.groups || [])]; }, get extras() { return set.extras!; }, get extensionsUsed() { return [...set.extensionsUsed!]; }, get extensionsRequired() { return [...set.extensionsRequired!]; },   // root の見出し（F5）
 				remove: () => ctl.remove(id), setVisible: v => setHidden(set, !v),
-				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); if ("customShader" in o && setMeshCustom) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshCustom(`${n.ward}#${k}`, o.customShader ?? null); if ("pointShading" in o) setPointShading(set); if ("colorBlend" in o && set.style) for (const n of set.loaded()) if (n.state === "ready" && n.paint) paintStyled(n); schedule(); },
+				setOptions: o => { Object.assign(set.opts, o); if ("style" in o) setStyle(set, o.style); if ("customShader" in o && setMeshCustom) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshCustom(`${n.ward}#${k}`, o.customShader ?? null); if ("splitDirection" in o && setMeshSplit) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshSplit(`${n.ward}#${k}`, splitOf(set)); if ("pointShading" in o) setPointShading(set); if ("colorBlend" in o && set.style) for (const n of set.loaded()) if (n.state === "ready" && n.paint) paintStyled(n); schedule(); },
 				/** スタイル（地物ごとの color・show を MapLibre の式で）。null で外す */
 				setStyle(style) { setStyle(set, style); return this; }, get style() { return set.styleSpec ?? null; },
 				// 当たりと feature state（W7）＝EXT_mesh_features／_BATCHID の番号。色は { color } を頂点色へ（他の鍵は保つだけ）。状態は tileset ごと（タイルを跨いで同じ番号＝同じ地物）

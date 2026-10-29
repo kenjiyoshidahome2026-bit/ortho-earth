@@ -39,6 +39,7 @@ export class Cesium3DTileset {
 	#shadeKey = ""; #csId: string | null = null; #blendKey = "";
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere;
 	#opts: Any;
+	#split: string | null = null;
 
 	constructor(resource: Any, json: Any, opts: Any = {}) {
 		this.resource = resource; this.json = json; this.#opts = opts;
@@ -146,6 +147,8 @@ export class Cesium3DTileset {
 			eyeDomeLighting: !!s.eyeDomeLighting, edlStrength: s.eyeDomeLightingStrength ?? 1, edlRadius: s.eyeDomeLightingRadius ?? 1 } : null;
 		const key = JSON.stringify(spec);
 		if (key !== this.#shadeKey) { this.#shadeKey = key; this.#h.setOptions({ pointShading: spec }); }
+		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
+		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
 		const cid = customShaderId(this.#host?.map, this.customShader);   // tileset.customShader = … (or null)
 		if (cid !== this.#csId) { this.#csId = cid; this.#h.setOptions({ customShader: cid }); }
 		const mode = (["highlight", "replace", "mix"] as const)[this.colorBlendMode | 0] ?? "highlight", bk = `${mode}:${this.colorBlendAmount}`;   // Cesium3DTileColorBlendMode HIGHLIGHT 0 / REPLACE 1 / MIX 2

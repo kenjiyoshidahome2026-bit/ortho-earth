@@ -399,11 +399,13 @@ vec3 csLit(vec3 base, vec3 n) {   // base＝リニアの基本色・n＝表向�
 	color += csSH(nC) * (FmsEms + (1.0 - FssEss - FmsEms) * diffuse) * u_csIbl.x + (u_csEnv.x > 0.5 ? textureLod(u_csEnvMap, rC, roughness * u_csEnv.y).rgb : csSH(rC) * u_csIbl.z) * FssEss * u_csIbl.y;
 	return pow(max(csTonemap(color), 0.0), vec3(1.0 / 2.2));
 }
+uniform vec2 u_split;   // Cesium splitDirection: x = 0 off, else sign = side kept (-1 left, +1 right) and |x| - 1 = the split as a fraction of the width; y = the width (device px)
 void main() {
 	// 面の幾何法線＝スクリーン微分（discard より前＝隣接ヘルパー画素が生きているうちに取る）。
 	// v_toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号が相殺し位置微分の面法線と等価＝varying追加不要。
 	vec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));
 	if (v_front < 0.0) discard;                                   // 裏半球
+	if (u_split.x != 0.0 && sign(u_split.x) * (gl_FragCoord.x - (abs(u_split.x) - 1.0) * u_split.y) < 0.0) discard;   // the other side of the split
 	vec3 n = normalize(v_n);                                      // glTF 実法線（陰影用＝従来のまま）
 	// 裏面カリングは幾何法線で判定＝面内で一定値＝画素毎の揺れが構造的に消える。旧・補間int8法線の
 	// dot閾値(-0.02)は「すれすれ帯≈1px」前提が深ズーム(z20)で数十pxに化け、閾値をまたぐ画素だけ

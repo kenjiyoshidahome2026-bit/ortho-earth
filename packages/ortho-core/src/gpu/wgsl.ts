@@ -1006,6 +1006,7 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	// toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号相殺＝位置微分の面法線と等価（varying追加不要）。
 	let gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));
 	if (in.front < 0.0) { discard; }
+	if (B.tintB.w != 0.0 && sign(B.tintB.w) * (in.pos.x - (abs(B.tintB.w) - 1.0) * F.viewport.x) < 0.0) { discard; }   // Cesium splitDirection (tintB.w: sign = side kept, |w| - 1 = the split as a fraction of the width)
 	var n = normalize(in.n);
 	var ltBase = P.p1.rgb;   // 局所の光源（W2）が掛かる素の色（模型の派生＝頂点色×テクスチャ）
 	// 裏面カリングは幾何法線＝面内で一定＝画素毎の揺れゼロ。旧・補間int8法線のdot閾値は「すれすれ帯≈1px」

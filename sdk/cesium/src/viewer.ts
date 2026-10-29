@@ -180,7 +180,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
-		let base = "", atm = "", gop = -1, ugKey = "";   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
+		let base = "", atm = "", gop = -1, ugKey = "", gsp = NaN;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
 		const lighting = syncLighting(scene, map);   // scene.light + Cesium's environment map → the globe's mesh lighting (lighting.ts)
 		const specular = syncSpecularEnv(scene, map);   // ImageBasedLighting.specularEnvironmentMaps → the globe's specular cube (specular-env.ts)
 		scene.postRender.addEventListener((_s: unknown, time: Any) => {
@@ -200,6 +200,8 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 			}
 			op = Math.round(op * 100) / 100;
 			if (op !== gop) { gop = op; map.setGlobeOpacity?.(op); }
+			const sp = scene.splitPosition;   // where the tilesets with a splitDirection part
+			if (sp !== gsp) { gsp = sp; map.setSplitPosition?.(sp); }
 			// the globe's underside seen from a camera below the ellipsoid (globe.undergroundColor and its alpha by distance; undefined = the
 			// underside's imagery alone). Above the ellipsoid it is off: the globe's floor is the sea-level sphere under the terrain
 			const ch = scene.camera.positionCartographic?.height;

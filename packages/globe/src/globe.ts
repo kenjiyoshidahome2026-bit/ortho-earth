@@ -2830,6 +2830,7 @@ map.areTilesLoaded = () => mapLoaded && (coverOk || noVecBase()) && !elevBusy &&
 	&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); clearAlpha = clearOf(c) != null && clear[3] < 1; renderer.set("view", { clear, clearAlpha }); requestDraw(); return map; };
 // 球の不透明度（1.17.0〜・2026-10-26）：0＝地面を描かない（3D Tiles だけの眺め・Cesium の globe:false）・0〜1＝半透明（Cesium の globe.translucency）。表示パネル「基図」のつまみと同じ経路（globe/terrain/湖/夜面/塗り）
+map.setSplitPosition = f => { renderer.set("splitPos", Number.isFinite(f) ? Math.max(0, Math.min(1, f)) : 0.5); requestDraw(); return map; };   // Cesium scene.splitPosition: where the split meshes (Tiles3DOptions.splitDirection) part
 map.setGlobeOpacity = a => { const v = Number.isFinite(a) ? Math.max(0, Math.min(1, a)) : 1; renderer.set("view", { baseAlpha: v, globeAlpha: v }); requestDraw(); return map; };
 // 利用者のシェーダ（Cesium の CustomShader・2026-10-29）＝名 id で定義（GLSL の vertexMain／fragmentMain・uniform の型と値・照明・半透明）。
 // 同じ名で送り直すと値だけ替わる（GLSL が同じなら作り直さない）。模型・3D Tiles は手綱の setCustomShader(id)／setOptions({ customShader }) で名を指す。WebGPU は GLSL を WGSL へ写す（ortho-core csshader.ts）
@@ -3200,6 +3201,7 @@ const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); ret
 	setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); requestDraw(); },   // feature state の色（W7）
 	setMeshPaint: (name, data) => { wPost({ type: "set", cmd: "meshPaint", data, prop: name }, data ? [data.rgba.buffer] : []); requestDraw(); },   // 画素ごとの地物の番号から塗った絵（photogrammetry の分類）
 	setMeshCut: (name, cut) => { wPost({ type: "set", cmd: "meshCut", data: cut, prop: name }); requestDraw(); },
+	setMeshSplit: (name, side) => { wPost({ type: "set", cmd: "meshSplit", data: side, prop: name }); requestDraw(); },   // Cesium splitDirection（-1 left / +1 right / 0）
 	setMeshCustom: (name, id) => { wPost({ type: "set", cmd: "meshCustom", data: id, prop: name }); requestDraw(); },   // 利用者のシェーダ（tileset.customShader）   // 不透明の束を MASK に（feature state の show:false）
 	setClassify: (name, data) => { wPost({ type: "set", cmd: "classify", prop: name, data }, data ? [data.pos.buffer, data.idx.buffer] : []); requestDraw(); },   // 分類の立体（.geom・classificationType）＝分類の柱
 	pickEnv: meshPickEnv,   // 当たり（W7）
