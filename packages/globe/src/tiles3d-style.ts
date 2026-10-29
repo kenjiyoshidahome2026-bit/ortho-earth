@@ -6,15 +6,15 @@ import { evalExpr, parseRGBA, isColor, truthy } from "@ortho-earth/core";
 import { NO_FEATURE } from "./mesh-features.ts";
 
 /** スタイル（MapLibre の式）。Cesium の 3D Tiles Styling（文字列の式・conditions・defines）は tiles3d-cesium-style.ts が訳してから来る */
-export interface StyleSpec { color?: unknown; show?: unknown; /** 式の意味："ml"（既定・MapLibre どおり型に厳しい）｜"native"（寛容・Cesium の式を訳した物） */ origin?: "ml" | "native" }
+export interface StyleSpec { color?: unknown; show?: unknown; /** 点群の点の幅（px・Cesium の pointSize） */ pointSize?: unknown; /** 式の意味："ml"（既定・MapLibre どおり型に厳しい）｜"native"（寛容・Cesium の式を訳した物） */ origin?: "ml" | "native" }
 /** 評価の入口（props＝重ねた属性・id＝地物の番号・state＝feature state） */
 export interface StyleInput { props: Record<string, unknown>; id: number | null; state: Record<string, unknown> | null }
 /** 組んだスタイル＝color は [r,g,b,a]（0..255）か null（元の色のまま）・show は真偽 */
-export interface CompiledStyle { color: ((x: StyleInput) => number[] | null) | null; show: ((x: StyleInput) => boolean) | null }
+export interface CompiledStyle { color: ((x: StyleInput) => number[] | null) | null; show: ((x: StyleInput) => boolean) | null; /** 点の幅（px）か null（既定のまま） */ pointSize?: ((x: StyleInput) => number | null) | null }
 
 /** スタイルを組む（無ければ null）。式の誤りは評価の時に null（元の色・表示のまま）＝1 回だけ警告 */
 export function compileStyle(s: StyleSpec | null | undefined): CompiledStyle | null {
-	if (!s || (s.color == null && s.show == null)) return null;
+	if (!s || (s.color == null && s.show == null && s.pointSize == null)) return null;
 	let warned = false;
 	const origin = s.origin ?? "ml", ctxOf = (x: StyleInput) => ({ props: x.props, id: x.id, state: x.state, origin });
 	const safe = <T>(f: () => T, dflt: T): T => { try { return f(); } catch (e) { if (!warned) { warned = true; console.warn("[tiles3d] style", (e as Error)?.message || e); } return dflt; } };
@@ -25,7 +25,8 @@ export function compileStyle(s: StyleSpec | null | undefined): CompiledStyle | n
 		return [Math.round(c[0] * 255), Math.round(c[1] * 255), Math.round(c[2] * 255), Math.round((c[3] ?? 1) * 255)];
 	}, null as number[] | null);
 	const show = s.show == null ? null : (x: StyleInput) => safe(() => { const v = evalExpr(s.show, ctxOf(x)); return v == null || truthy(v); }, true);   // 値が無い＝見せる（Cesium の既定と同じ）
-	return { color, show };
+	const pointSize = s.pointSize == null ? null : (x: StyleInput) => safe(() => { const v = Number(evalExpr(s.pointSize, ctxOf(x))); return Number.isFinite(v) && v >= 0 ? v : null; }, null as number | null);
+	return { color, show, pointSize };
 }
 
 /** 束の頂点色を塗り直す。rgbaOf(地物の番号｜null, 表の番号｜null) → [r,g,b,a]（0..255・NaN＝その成分は元のまま）か null（全部元のまま）。

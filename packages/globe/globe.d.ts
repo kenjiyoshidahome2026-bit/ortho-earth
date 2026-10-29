@@ -935,7 +935,10 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
 	/** heights＝tileset の高さの基準：既定 "orthometric"＝そのまま（この地図の標高はジオイド基準）。"ellipsoidal"＝WGS84 の楕円体高（Cesium の物・Google の写実 3D Tiles
 	 *  など）＝根の中心の EGM96 の N を引いて載せる（ニューヨークで +33 m・日本で −37 m 前後）。heightOffset はその上に足す */
 	heights?: "ellipsoidal" | "orthometric";
-	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
+	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number;
+	/** 点群の陰影（Cesium の PointCloudShading）：attenuation＝点の幅をタイルの geometricError（×geometricErrorScale・baseResolution が有ればそれ・m）の画面の px に（上限 maximumAttenuation px・既定 maxSSE）。
+	 *  eyeDomeLighting＝点の奥行きの段差で縁を暗く（edlStrength・edlRadius px）。既定は全部切 */
+	pointShading?: { attenuation?: boolean; geometricErrorScale?: number; maximumAttenuation?: number; baseResolution?: number; eyeDomeLighting?: boolean; edlStrength?: number; edlRadius?: number } | null; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** Gaussian splat のタイル（glTF の KHR_gaussian_splatting・2026-10-18）＝タイルごとに map.addData(…, { kind: "splat" }) の層にする時の opts（lod・shDegree・opacity・depthTest など・@ortho-earth/splat の SplatOptions）。
 	 *  描き手＝splat（map.use(splatPlugin())）。無ければ仕様の fallback どおり点として描く（tileset ごとに一度 warn） */
 	splat?: Record<string, unknown> | null;

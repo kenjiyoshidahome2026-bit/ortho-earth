@@ -75,7 +75,7 @@ export class TimePointsDrawer {
 			const json = { asset: { version: "1.0" }, geometricError: 1, root: { boundingVolume: { sphere: [s.center.x, s.center.y, s.center.z, s.radius] }, geometricError: 1, refine: "ADD", content: { uri: f.url } } };
 			const url = URL.createObjectURL(new Blob([JSON.stringify(json)], { type: "application/json" }));
 			const style = styleOf(p.style), ps = pointSizeOf(p.style);
-			const h = await map.add3DTiles(url, { fit: false, ...(style && { style }), ...(ps && { pointSize: ps }), pickable: false });
+			const h = await map.add3DTiles(url, { fit: false, ...(style && { style }), pointSize: ps, pickable: false });
 			URL.revokeObjectURL(url);
 			if (r.dead) { h?.remove?.(); return; }
 			r.next = { h, i, seen: 0 };   // swapped in by update once its points are drawn
