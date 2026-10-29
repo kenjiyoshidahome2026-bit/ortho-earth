@@ -2627,7 +2627,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "patImage":  setPatImage(data as Parameters<typeof setPatImage>[0]); break;                       // fill-pattern の画像（S-P1-4/5・render worker が記号帳の写しを回す）                                            // data={clear,land,atmo,bldColor}
 			case "groundLight": groundLight = data && Array.isArray((data as GLGroundLight).dir) ? data as GLGroundLight : null; break;   // 地面の照明（@ortho-earth/cesium の setGroundLighting）
 			case "groundMaterial": setGroundMat(data as GLGroundMat | null); break;   // 地面の材質（@ortho-earth/cesium の globe.material → setGroundMaterial）
-			case "meshEnv": {   // Cesium の ImageBasedLighting.specularEnvironmentMaps（KTX2 の前処理済み立方体図）＝levels[mip] に 6 面（+X −X +Y −Y +Z −Z）の RGBA16F を並べた物
+			case "meshSpecEnv": {   // Cesium の ImageBasedLighting.specularEnvironmentMaps（KTX2 の前処理済み立方体図）＝levels[mip] に 6 面（+X −X +Y −Y +Z −Z）の RGBA16F を並べた物
 				if (envTex) { gl.deleteTexture(envTex); envTex = null; }
 				const e = data as GLMeshEnv | null;
 				if (e && e.size > 0 && e.levels?.length) {
@@ -2710,7 +2710,6 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 			case "cityLights": break;   // 夜の街明かり（2026-10-24）＝WebGPU だけ（map.setCityLights は GL2 では送らない・念のため黙って受ける）   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1）＝renderworker が FBO（depthOut）を開いて end で合成
 			case "clip": clip = normClip(data as Parameters<typeof normClip>[0]); if (!clip) clipFree(); break;   // 断面（P0 #3）＝WebGPU と同じ記述（clip.ts normClip）
 			case "shadow": shadow = { ...shadow, ...(data as Partial<typeof shadow>) }; if (!shadow.on) shadowFree(); break;   // 建物の影（P0 #3＝WebGL2 も・旧 2026-09-24 裁定「GL2 は影をかけない」を改めた）＝消灯で資源を返す
-			case "clip": break;     // 断面（#111）＝WebGPU 専用（本人裁定 2026-09-29・影と同じ扱い）＝素通し・警告しない
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}
