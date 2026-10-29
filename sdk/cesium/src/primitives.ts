@@ -9,7 +9,8 @@ import { ArcType, BoundingSphere, Cartesian3, Color, Ellipsoid, EllipsoidGeometr
 import * as engine from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { enuRotOf, headingOf } from "./display.ts";
-import { gltfNodeNames, gltfSphere } from "./gltf.ts";
+import { gltfNodeNames, gltfSphere, modelSilOf, modelTintOf } from "./gltf.ts";
+import { modelEnvSH } from "./lighting.ts";
 import { ownArrays } from "./spheres.ts";
 import { matKey, matOfMaterial, matTranslucent, paintSquare } from "./materials.ts";
 import type { MatDesc } from "./materials.ts";
@@ -173,7 +174,9 @@ export class PrimitiveDrawer {
 			if (!show) { if (it.h) { it.h.clear(); it.h = null; it.built = false; } continue; }   // hidden: off the globe, built again when shown
 			const isModel = Model && p instanceof Model, pl = isModel ? this.#placeOf(p) : null;
 			const mk = Matrix4.toArray(p.modelMatrix ?? Matrix4.IDENTITY).join(",") + (pl ? `|${pl.scale.toPrecision(3)}` : "");
-			if (isModel && it.h) this.#syncAnim(it);
+			if (isModel && it.h) { this.#syncAnim(it); const tk = JSON.stringify(modelTintOf(p.color, p.colorBlendMode, p.colorBlendAmount)); if ((it as Any).tk !== tk) { (it as Any).tk = tk; it.h.setColor?.(JSON.parse(tk)); }   // Model.color / colorBlendMode / colorBlendAmount
+				const sk = JSON.stringify(modelSilOf(p.silhouetteColor, p.silhouetteSize)); if ((it as Any).sk !== sk) { (it as Any).sk = sk; it.h.setSilhouette?.(JSON.parse(sk)); }   // Model.silhouetteColor / silhouetteSize
+				const mm = p.modelMatrix ?? Matrix4.IDENTITY, env = this.scene ? modelEnvSH(this.scene, [mm[12], mm[13], mm[14]]) : null; if ((it as Any).env !== env) { (it as Any).env = env; it.h.setEnvironment?.(env); } }   // the environment around the model's own position
 			if (isModel) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, rot: pl.rot, scale: pl.scale }); } continue; }
 			if (!it.built || (it as Any).mk !== mk) { (it as Any).mk = mk; this.#build(map, it); linesChanged = true; }
 		}
@@ -328,8 +331,6 @@ export class PrimitiveDrawer {
 		const p = it.p, url: string | undefined = p._resource?.url ?? p._resource?._url;
 		const pl = this.#placeOf(p);
 		if (!url || !pl) { unsupported("Model without a URL (a glTF given as JSON or a buffer)"); return; }
-		if (p.color && !Color.equals(p.color, Color.WHITE)) unsupported("Model color");
-		if (p.silhouetteSize) unsupported("Model silhouette");
 		it.loading = true;
 		// animations: the globe plays the glTF's own (all of them, looping) while any is active
 		const anims = p.activeAnimations, started: Any[] = [];

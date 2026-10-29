@@ -173,7 +173,7 @@ export class Cesium3DTileFeature {
 	get color() { return this.#color ?? Color.WHITE; }
 	set color(c: Color) { this.#color = c; this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: c ? c.toCssColorString() : null }); }
 	get show() { return this.#show; }
-	set show(v: boolean) { this.#show = !!v; if (!v) unsupported("Cesium3DTileFeature.show = false"); }
+	set show(v: boolean) { this.#show = !!v; this.tileset.orthoHandle?.setFeatureState(this.featureId, { show: v ? undefined : false }); }   // the globe cuts a hidden feature out (alpha 0 on a MASK batch)
 	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#p.properties || {}).filter(k => !k.startsWith("__"))); return result; }
 	/** the batch table hierarchy (the globe puts the class in __class and the class with its ancestors in __classes) */
 	getExactClassName() { return this.#p.properties?.__class ?? undefined; }
