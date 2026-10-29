@@ -1,0 +1,93 @@
+{
+ "at": "2026-10-29T19:52:54.600Z",
+ "cesium": "1.146.0",
+ "n": 2,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 0,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 0,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 2,
+   "examples": [
+    "3d-tiles-feature-styling",
+    "cesium-osm-buildings"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-feature-styling",
+   "level": 2,
+   "reasons": [
+    "picture: colour 83% · edges 87% of the cells match · a patch of 65 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2420,
+    "n": 3072,
+    "colour": 0.8310546875,
+    "edge": 0.8678385416666666,
+    "blob": 65
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cesium-osm-buildings",
+   "level": 2,
+   "reasons": [
+    "picture: colour 79% · edges 91% of the cells match · a patch of 324 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2269,
+    "n": 3072,
+    "colour": 0.7858072916666666,
+    "edge": 0.9075520833333334,
+    "blob": 324
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}

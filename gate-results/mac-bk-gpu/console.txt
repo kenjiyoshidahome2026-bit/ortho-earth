@@ -1,0 +1,2 @@
+== gpu cesium-osm-buildings backend=webgpu
+== gpu 3d-tiles-feature-styling backend=webgpu
