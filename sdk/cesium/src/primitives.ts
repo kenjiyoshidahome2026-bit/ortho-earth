@@ -5,7 +5,7 @@
 // features. Line geometries (outlines, SimplePolylineGeometry, PolylineGeometry, GroundPolylineGeometry) go to the entity overlay's 3D lines.
 // Stripe, Checkerboard, Grid and Image materials are painted into a texture over the geometry's st (materials.ts); other materials draw in
 // their colour (else white). Not drawn: per-vertex polyline colours (the first one is used).
-import { ArcType, BoundingSphere, Cartesian3, Color, Ellipsoid, Event, GeometryInstance, Matrix3, Matrix4, PolylineGeometry, PolylinePipeline, Quaternion } from "@cesium/core";
+import { ArcType, BoundingSphere, Cartesian3, Color, Ellipsoid, EllipsoidGeometry, Event, GeometryInstance, Matrix3, Matrix4, PolylineGeometry, PolylinePipeline, Quaternion, VertexFormat } from "@cesium/core";
 import * as engine from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { enuRotOf, headingOf } from "./display.ts";
@@ -37,6 +37,15 @@ export function debugAxesPrimitive(p: Any): Any {
 	const axis = (to: Cartesian3, c: Color) => new GeometryInstance({ geometry: new PolylineGeometry({ positions: [Cartesian3.ZERO, to], width: p.width ?? 2, colors: [c, c], arcType: ArcType.NONE }), modelMatrix: M, id: p.id });
 	return new Primitive({ geometryInstances: [axis(Cartesian3.UNIT_X, Color.RED), axis(Cartesian3.UNIT_Y, Color.GREEN), axis(Cartesian3.UNIT_Z, Color.BLUE)], appearance: { material: undefined }, asynchronous: false, show: p.show !== false });
 }
+/** EllipsoidPrimitive (a ray-cast ellipsoid with a material): the same ellipsoid as an EllipsoidGeometry Primitive, centre and radii in its model matrix */
+export const isEllipsoidPrimitive = (p: Any) => !!(engine as Any).EllipsoidPrimitive && p instanceof (engine as Any).EllipsoidPrimitive;
+export function ellipsoidPrimitive(p: Any): Any {
+	const M = Matrix4.multiplyByTranslation(p.modelMatrix ?? Matrix4.IDENTITY, p.center ?? Cartesian3.ZERO, new Matrix4());
+	return new Primitive({
+		geometryInstances: new GeometryInstance({ geometry: new EllipsoidGeometry({ radii: p.radii, vertexFormat: VertexFormat.POSITION_NORMAL_AND_ST }), modelMatrix: M, id: p.id ?? p }),
+		appearance: new (engine as Any).MaterialAppearance({ material: p.material }), asynchronous: false, show: p.show !== false,
+	});
+}
 export const isGeometryPrimitive = (p: Any) => !!p && [Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model].some(C => C && p instanceof C);
 
 const instancesOf = (p: Any): Any[] => { const g = p.geometryInstances; return g == null ? [] : Array.isArray(g) ? g : [g]; };
@@ -61,7 +70,7 @@ const shownOf = (inst: Any) => { const s = inst.attributes?.show?.value; return 
 
 // ── a glTF (glb) of triangles in ECEF ──
 /** triangles: idx is drawn in its vertex colours; parts (with uv) each with a texture (an image URL, data: or http) multiplied in */
-export interface Tris { pos: number[]; nrm: number[] | null; col: number[]; bid: number[]; idx: number[]; uv?: number[]; parts?: Array<{ idx: number[]; tex: string; blend: boolean }> }
+export interface Tris { pos: number[]; nrm: number[] | null; col: number[]; bid: number[]; idx: number[]; uv?: number[]; parts?: Array<{ idx: number[]; tex: string; blend: boolean }>; unlit?: boolean }
 export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 	const n = t.pos.length / 3;
 	let cx = 0, cy = 0, cz = 0;
@@ -103,12 +112,12 @@ export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 		accessors.push({ bufferView: a++, componentType: 5125, count: g.idx.length, type: "SCALAR" });
 		const pbr: Any = { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 1 };
 		if (g.tex) { pbr.baseColorTexture = { index: images.length }; images.push({ uri: g.tex }); }
-		materials.push({ pbrMetallicRoughness: pbr, doubleSided: true, alphaMode: g.blend ? "BLEND" : "OPAQUE" });
+		materials.push({ pbrMetallicRoughness: pbr, doubleSided: true, alphaMode: g.blend ? "BLEND" : "OPAQUE", ...(t.unlit && { extensions: { KHR_materials_unlit: {} } }) });
 		prims.push({ attributes, indices: ia, material: materials.length - 1, mode: TRIANGLES });
 		if (g.blend) blend = true;
 	}
 	const json = {
-		asset: { version: "2.0", generator: "@ortho-earth/cesium" }, extensionsUsed: ["CESIUM_RTC"], extensions: { CESIUM_RTC: { center: [cx, cy, cz] } },
+		asset: { version: "2.0", generator: "@ortho-earth/cesium" }, extensionsUsed: ["CESIUM_RTC", ...(t.unlit ? ["KHR_materials_unlit"] : [])], extensions: { CESIUM_RTC: { center: [cx, cy, cz] } },
 		scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
 		meshes: [{ primitives: prims }], materials, accessors, bufferViews: views, buffers: [{ byteLength: off }],
 		...(images.length && { images, textures: images.map((_, i) => ({ source: i, sampler: 0 })), samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 }] }),
@@ -269,7 +278,9 @@ export class PrimitiveDrawer {
 		if (tris.nrm && tris.nrm.length !== tris.pos.length) tris.nrm = null;
 		it.loading = true;
 		const gen = (it as Any).gen = ((it as Any).gen ?? 0) + 1;
-		void Promise.all([...painted.values()].map(async g => ({ idx: g.idx, tex: (await paintSquare(g.mat))?.toDataURL() ?? null, blend: matTranslucent(g.mat) }))).then(ps => {
+		tris.unlit = !!p.appearance?.flat;   // MaterialAppearance flat: no lighting (EquirectangularPanorama)
+		const opaque = p.appearance?.translucent === false;   // the appearance says opaque: an image is drawn so whatever its alpha
+		void Promise.all([...painted.values()].map(async g => ({ idx: g.idx, tex: (await paintSquare(g.mat, g.mat.type === "Image" ? 4096 : 512))?.toDataURL() ?? null, blend: !opaque && matTranslucent(g.mat) }))).then(ps => {
 			if (it.dead || (it as Any).gen !== gen) return;
 			tris.parts = [];
 			for (const q of ps) if (q.tex) tris.parts.push({ idx: q.idx, tex: q.tex, blend: q.blend }); else tris.idx.push(...q.idx);   // not painted (an image that did not load): white
@@ -282,7 +293,7 @@ export class PrimitiveDrawer {
 		for (let k = 0; k < tris.pos.length; k += 3) { const c = Ellipsoid.WGS84.cartesianToCartographic(Cartesian3.fromElements(tris.pos[k], tris.pos[k + 1], tris.pos[k + 2], v3)); if (c && c.height < minH) minH = c.height; }
 		it.loading = true;
 		const file = new File([glb as BlobPart], `${it.key}.glb`, { type: "model/gltf-binary" });
-		map.gadget.model(file, { slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true, lighting: "globe", altitude: Number.isFinite(minH) ? minH : 0, lift: false })   // Cesium shades geometry with Phong, not the model lighting: the globe's own light is the nearer look   // the globe grounds a model's lowest point: lift it back to its (ellipsoid) height, absolute = not onto the terrain
+		map.gadget.model(file, { slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true, ...(!tris.unlit && { lighting: "globe" }), altitude: Number.isFinite(minH) ? minH : 0, lift: false })   // Cesium shades geometry with Phong, not the model lighting: the globe's own light is the nearer look   // the globe grounds a model's lowest point: lift it back to its (ellipsoid) height, absolute = not onto the terrain
 			.then((h: Any) => {
 				it.loading = false;
 				if (it.dead) { h.clear(); return; }
