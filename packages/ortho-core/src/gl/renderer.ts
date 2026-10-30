@@ -10,7 +10,7 @@ import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, movedBbox, betaRadiusOf, betaToLonLat } from "../camera.ts";
+import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
 import { viewRays } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
@@ -2488,7 +2488,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 			gl.useProgram(meshProg);
 			let curProg = meshProg;
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
-			const pad = 0.5 * Math.max(st.W, st.H), foot = betaToLonLat(st.eye);          // 高層ビルの頭のはみ出し余白（半画面）・foot＝目の足元
+			const pad = 0.5 * Math.max(st.W, st.H), foot = betaGeo(st.eye);          // 高層ビルの頭のはみ出し余白（半画面）・foot＝目の足元
 			// LOD打ち切りの物差し＝画面1pxが何mか（app.js approxViewBbox と同式。ortho-z は緯度非依存）。
 			// 「画面上~1px未満の建物は描かない」＝見た目は変えずに頂点処理を捨てる。遠方バッチは距離で緩やかに閾値を上げる
 			// （チルト時の遠景は透視で1pxがもっと大きい＝控えめ側の近似）。
@@ -2498,7 +2498,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 			for (const p of meshes.values()) {
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
-				if (!bboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaRadiusOf(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin))) continue;   // 重心の高さで射影（camera.ts bboxVisible）
+				if (!bboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2])) continue;   // 重心の高さで射影（camera.ts bboxVisible）
 				let count = p.count;
 				// LOD打ち切りは建物のみ。橋梁（two＝両面）は「高さ3〜5m×長さ数百m」＝高さ基準だと小物と誤判定され
 				// 桁が距離で歯抜けになる（横浜ベイブリッジで実測）ため適用しない。橋梁データは軽い＝全描画で問題ない。
