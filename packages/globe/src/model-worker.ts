@@ -19,7 +19,7 @@ interface ModelJob {
 	ab?: ArrayBuffer; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number; mc?: boolean;
 	polys?: ExtrudeInPoly[]; refine?: number; transcoders?: unknown; opts?: Record<string, unknown>;
 	url?: string; token?: string; ids?: Array<number | string>; nodeId?: number | string; baseH?: number; groundMode?: string;
-	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts;
+	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts; upAxis?: string | null;
 }
 /** transfer を集める束（模型・3D Tiles・I3S・押し出しの batches） */
 type XferBatch = { mesh: MeshOut; features?: { ids?: ArrayBufferView | null; tblV?: ArrayLike<number> | null; tex?: { ids: ArrayBufferView } | null } | null; tex?: TexOut | null; texMR?: TexOut | null; texN?: TexOut | null; texOcc?: TexOut | null; texEm?: TexOut | null; meta?: { texs: (TexOut | null)[] } | null; skin?: Array<{ P: ArrayBufferView; N?: ArrayBufferView | null; J: ArrayBufferView; W: ArrayBufferView }> | null };
