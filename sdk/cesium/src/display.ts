@@ -753,7 +753,26 @@ export class EntityDisplay {
 			return r.samples.t.length ? { ...r.samples, dynamic: false } : null;
 		}
 		const p = val(prop, t);   // CallbackProperty and the like: where it is now, every frame
-		return p ? { t: [-FAR, FAR], p: [p.x, p.y, p.z, p.x, p.y, p.z], dynamic: true, degree: 1 } : null;
+		if (!p) return null;
+		// a path on it (callback-position-property): Cesium's PathVisualizer samples the property every `resolution` seconds from trailTime
+		// before now to leadTime after (the availability's ends when one is unset), every frame
+		const ph = e.path, av = e.availability;
+		if (ph && val(ph.show, t, true)) {
+			const lead = val(ph.leadTime, t, null), trail = val(ph.trailTime, t, null), now = JulianDate.toDate(t).getTime();
+			const a = trail != null ? now - trail * 1000 : av?.start ? JulianDate.toDate(av.start).getTime() : NaN;
+			const b = lead != null ? now + lead * 1000 : av?.stop ? JulianDate.toDate(av.stop).getTime() : NaN;
+			if (Number.isFinite(a) && Number.isFinite(b) && b > a) {
+				const step = Math.max(val(ph.resolution, t, 60) * 1000, (b - a) / 1000), tt: number[] = [], pp: number[] = [], jd = new JulianDate();
+				for (let ms = a; ; ms = Math.min(b, ms + step)) {
+					const q = ms === now ? p : prop.getValue(JulianDate.fromDate(new Date(ms), jd));
+					if (q) { tt.push(ms); pp.push(q.x, q.y, q.z); }
+					if (ms < now && ms + step > now) { tt.push(now); pp.push(p.x, p.y, p.z); }   // now itself: the marks sit where the entity is
+					if (ms >= b) break;
+				}
+				if (tt.length > 1) return { t: tt, p: pp, dynamic: true, degree: 1 };
+			}
+		}
+		return { t: [-FAR, FAR], p: [p.x, p.y, p.z, p.x, p.y, p.z], dynamic: true, degree: 1 };
 	}
 
 	#setShapes(map: Any, shapes: Any[]) {

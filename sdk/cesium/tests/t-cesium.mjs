@@ -122,7 +122,7 @@ for (const g of [
 	ok("WMS-style template → bbox-epsg-3857", wms?.tiles[0] === "https://w.example/wms?bbox={bbox-epsg-3857}", JSON.stringify(wms));
 	class BingMapsImageryProvider { constructor(o) { Object.assign(this, o); } }
 	const bing = rasterSourceOf(new BingMapsImageryProvider({ _imageUrlTemplate: "http://ecn.{subdomain}.example/a{quadkey}.jpeg?mkt={culture}", _imageUrlSubdomains: ["t0", "t1"], _culture: "en-US" }));
-	ok("Bing → raster with {quadkey}", bing?.tiles[1] === "https://ecn.t1.example/a{quadkey}.jpeg?mkt=en-US", JSON.stringify(bing));
+	ok("Bing → raster with {quadkey} (n=z: no camera picture where Bing has no tile)", bing?.tiles[1] === "https://ecn.t1.example/a{quadkey}.jpeg?mkt=en-US&n=z", JSON.stringify(bing));
 	const geoP = new UrlTemplateImageryProvider({ tilingScheme: new GeographicTilingScheme(), _resource: { _url: "https://g.example/{z}/{x}/{y}" }, maximumLevel: 6, rectangle: Rectangle.fromDegrees(-180, -90, 180, 90), requestImage() { return null; } });
 	const geo = rasterSourceOf(geoP), geo2 = rasterSourceOf(geoP);
 	ok("geographic tiling → Mercator tiles through the cs-geo protocol", geo?.type === "raster" && /^cs-geo:\/\/g\d+\/\{z\}\/\{x\}\/\{y\}$/.test(geo.tiles[0]) && geo.maxzoom === 7 && geo.tiles[0] === geo2.tiles[0], JSON.stringify(geo));

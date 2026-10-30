@@ -31,7 +31,10 @@ export function rasterSourceOf(p: Any): Any | null {
 		const tpl: string = p._imageUrlTemplate;
 		if (!tpl) return null;
 		const subs: string[] = p._imageUrlSubdomains?.length ? p._imageUrlSubdomains : [""];
-		return { type: "raster", tiles: subs.map(s => tpl.replace("{subdomain}", s).replace("{culture}", p._culture || "").replace(/^http:/, "https:")), ...range, tileSize: 256, attribution: "© Microsoft" };
+		// n=z (as Cesium asks): where Bing has no tile at that level it sends an empty body instead of its "no imagery" camera picture, which
+		// the globe would otherwise draw (material-with-custom-glsl at z20: a white floor of camera icons); the globe takes the parent tile there
+		const nz = (u: string) => /[?&]n=z\b/.test(u) ? u : u + (u.includes("?") ? "&" : "?") + "n=z";
+		return { type: "raster", tiles: subs.map(s => nz(tpl.replace("{subdomain}", s).replace("{culture}", p._culture || "").replace(/^http:/, "https:"))), ...range, tileSize: 256, attribution: "© Microsoft" };
 	}
 	if (name === "ArcGisMapServerImageryProvider") {
 		const base = raw(p._resource).replace(/\/$/, "");
