@@ -12,6 +12,7 @@ import { sunPositionWC } from "./lighting.ts";
 import { clipSpecOf, polygonClipOf } from "./clipping.ts";
 import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
 import { RawDrawer } from "./rawdraw.ts";
+import { bridgedTerrainSource } from "./terrain.ts";
 
 /** the globe and what the facade hangs on it (filled when createGlobe resolves) */
 export interface Host {
@@ -410,11 +411,14 @@ function onTerrain(scene: OrthoScene, p: any) {
 		const bathy = !cwt && r?._ionEndpoint && /\/asset_depot\/2426648\//.test(r.url ?? "") && token;
 		// another ion terrain asset (CesiumTerrainProvider.fromIonAssetId: ArcticDEM, PAMAP): the globe reads it from ion by its id
 		const ionId = !cwt && !bathy && token ? +(/\/assets\/(\d+)\/endpoint/.exec(r?._ionEndpointResource?.url ?? "")?.[1] ?? NaN) : NaN;
-		if (!cwt && !bathy && !(ionId > 0) && (!(scene.host as any).flatStart || map.getTerrain?.())) return;
-		const source = cwt ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token }, heights: "orthometric" }
+		// a provider the globe cannot read by URL (CustomHeightmapTerrainProvider, ArcGIS LERC, VRTheWorld …): re-tiled through its own requestTileGeometry
+		const urlOk = cwt || bathy || ionId > 0 || (r?.url && !r._ionEndpoint);
+		const bridged = !urlOk ? bridgedTerrainSource(map, p) : null;
+		if (!urlOk && !bridged && (!(scene.host as any).flatStart || map.getTerrain?.())) return;
+		const source = bridged ?? (cwt ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token }, heights: "orthometric" }
 			: bathy ? { type: "quantized-mesh", ion: { assetId: 2426648, accessToken: token }, heights: "orthometric", seafloor: true }
 			: ionId > 0 ? { type: "quantized-mesh", ion: { assetId: ionId, accessToken: token }, heights: "orthometric" }
-			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers, heights: "orthometric" } : null;
+			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers, heights: "orthometric" } : null);
 		if (source) map.setTerrain?.({ source }).catch?.((e: unknown) => console.warn("[csshim] terrain", e));
 		else unsupported(`terrain provider ${name}`);
 	});

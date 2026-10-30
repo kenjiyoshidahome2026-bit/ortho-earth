@@ -52,9 +52,20 @@ export function normalizeDemSpec(spec: DemSpecInput | null | undefined): DemSpec
 		redFactor: spec.redFactor ?? 1, greenFactor: spec.greenFactor ?? 1, blueFactor: spec.blueFactor ?? 1, baseShift: spec.baseShift ?? 0 };   // encoding custom の係数（MapLibre の既定 1/1/1/0）
 }
 
-export function createDemSource(spec0: DemSpecInput | QmeshSpecInput): DemSource {
+/** 独自スキーム（addProtocol）の取得口＝タイルの本体（PNG などのバイト列）か画素（ImageData 形＝RGBA をそのまま・canvas を通さない）か無し（null＝そこに無い）。
+ *  main では loader 関数を直に（opts.load）、worker では main が渡した MessagePort（spec.port：{ id, url } を送ると { id, data } が返る）で */
+export interface DemPixels { width: number; height: number; data: Uint8ClampedArray | Uint8Array }
+export type DemLoad = (url: string) => Promise<ArrayBuffer | Blob | DemPixels | null>;
+const portLoad = (port: MessagePort): DemLoad => {
+	const wait = new Map<number, (d: ArrayBuffer | Blob | DemPixels | null) => void>(); let seq = 0;
+	port.onmessage = (e: MessageEvent) => { const m = e.data as { id: number; data: ArrayBuffer | Blob | DemPixels | null }; wait.get(m.id)?.(m.data ?? null); wait.delete(m.id); };
+	return url => new Promise(res => { const id = ++seq; wait.set(id, res); port.postMessage({ id, url }); });
+};
+export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { load?: DemLoad | null } = {}): DemSource {
 	if (spec0?.type === "quantized-mesh") return createQmeshSource(spec0 as QmeshSpecInput);   // Cesium の地形（layer.json＋.terrain・#110）
 	const spec = normalizeDemSpec(spec0 as DemSpecInput);
+	const port = (spec0 as DemSpecInput).port as MessagePort | undefined;
+	const load: DemLoad | null = opts.load ?? (port ? portLoad(port) : null);   // 独自スキーム（Cesium の互換の口の地形プロバイダ・addProtocol の raster-dem）
 	const tiles = new Map<string, Promise<DemTile | null>>();   // "z/x/y" → Promise<{ h: Float32Array, n }|null>（直近 256 枚）
 	let ctx: OffscreenCanvasRenderingContext2D | null = null;
 	const url = (z: number, x: number, y: number): string => spec.tiles[(x + y) % spec.tiles.length].replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
@@ -62,9 +73,19 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput): DemSource
 		const k = `${z}/${x}/${y}`;
 		if (tiles.has(k)) { const p = tiles.get(k)!; tiles.delete(k); tiles.set(k, p); return p; }
 		const p = (async (): Promise<DemTile | null> => {
-			const r = await fetch(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
-			if (!r.ok) return null;   // 404＝そこに無い（海・範囲外）
-			const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+			let body: Blob;
+			if (load) {
+				const d = await load(url(z, x, y));
+				if (!d) return null;
+				if ("width" in d && "data" in d) return { h: decodeDEM(d.data, spec.encoding, spec), n: d.width };   // 画素のまま（Cesium の互換の口の地形）＝canvas の往復なし
+				body = d instanceof Blob ? d : new Blob([d]);
+			}
+			else {
+				const r = await fetch(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
+				if (!r.ok) return null;   // 404＝そこに無い（海・範囲外）
+				body = await r.blob();
+			}
+			const bmp = await createImageBitmap(body, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
 			const n = bmp.width;
 			ctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true });
 			if (ctx!.canvas.width !== n) { ctx!.canvas.width = n; ctx!.canvas.height = n; }
