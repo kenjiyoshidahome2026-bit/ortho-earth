@@ -41,7 +41,7 @@ export class Cesium3DTileset {
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null; #olKey = "";
 	#opts: Any;
 	#split: string | null = null;
-	#loaded = 0;
+	#tiles = new Map<number, Any>();   // the loaded tiles tileLoad was raised for (tileUnload gets the same object)
 
 	constructor(resource: Any, json: Any, opts: Any = {}) {
 		this.resource = resource; this.json = json; this.#opts = opts;
@@ -53,7 +53,7 @@ export class Cesium3DTileset {
 		this.#sphere = BoundingSphere.transform(bs, this.modelMatrix, new BoundingSphere());
 		if (opts.pointCloudShading) Object.assign(this.pointCloudShading, opts.pointCloudShading);
 		if (opts.clippingPlanes != null) this.clippingPlanes = opts.clippingPlanes;   // drawn by the scene (clipping.ts)
-		if (opts.clippingPolygons != null) { this.clippingPolygons = opts.clippingPolygons; unsupported("Cesium3DTileset option clippingPolygons"); }
+		if (opts.clippingPolygons != null) this.clippingPolygons = opts.clippingPolygons;   // drawn by the scene (clipping.ts)
 		if (opts.showOutline === false) this.showOutline = false;
 		if (opts.outlineColor) this.outlineColor = Color.clone(opts.outlineColor);
 		if (opts.customShader != null) this.customShader = opts.customShader;   // drawn by the globe (custom-shader.ts), followed in __sync
@@ -157,12 +157,21 @@ export class Cesium3DTileset {
 		if (ok !== this.#olKey) { this.#olKey = ok; this.#h.setOptions({ outline: ol }); }
 		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
 		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
-		const nl = this.#h.stats?.loaded ?? 0;   // tileLoad / tileUnload: the globe loads tiles on its own, so the count's change is raised once a frame (the examples read statistics in the handler)
-		if (nl !== this.#loaded) { const ev = nl > this.#loaded ? this.tileLoad : this.tileUnload; this.#loaded = nl; if (ev.numberOfListeners) ev.raiseEvent(this.root); }
+		if (this.tileLoad.numberOfListeners || this.tileUnload.numberOfListeners) {   // tileLoad / tileUnload: the globe loads tiles on its own, so the loaded set is compared once a frame
+			const now = new Set<number>(this.#h.tileIds ?? []);
+			for (const id of now) if (!this.#tiles.has(id)) { const t = this.#tileOf(id); this.#tiles.set(id, t); this.tileLoad.raiseEvent(t); }
+			for (const [id, t] of this.#tiles) if (!now.has(id)) { this.#tiles.delete(id); this.tileUnload.raiseEvent(t); }
+		}
 		const cid = customShaderId(this.#host?.map, this.customShader);   // tileset.customShader = … (or null)
 		if (cid !== this.#csId) { this.#csId = cid; this.#h.setOptions({ customShader: cid }); }
 		const mode = (["highlight", "replace", "mix"] as const)[this.colorBlendMode | 0] ?? "highlight", bk = `${mode}:${this.colorBlendAmount}`;   // Cesium3DTileColorBlendMode HIGHLIGHT 0 / REPLACE 1 / MIX 2
 		if (bk !== this.#blendKey) { this.#blendKey = bk; this.#h.setOptions({ colorBlend: { mode, amount: this.colorBlendAmount } }); }
+	}
+	/** a loaded tile as Cesium3DTile: its content holds the tile's features (content.featuresLength / getFeature, the same objects until it unloads) */
+	#tileOf(id: number) {
+		const feats = (this.#h?.tileFeatures?.(id) ?? []).map((p: Any) => new Cesium3DTileFeature(this, { ...p, tile: id }));
+		const content = { tileset: this, url: this.url, featuresLength: feats.length, innerContents: undefined, getFeature: (i: number) => feats[i], hasProperty: (i: number, name: string) => !!feats[i]?.hasProperty?.(name) };
+		return { ...this.root, tileset: this, content };
 	}
 	__detach() { this.#host = null; this.#h?.remove(); this.#h = null; }
 	/** the feature under a screen point (scene.pick) */
@@ -229,9 +238,9 @@ export class Cesium3DTileFeature {
 	get content() { return { tileset: this.tileset, url: this.tileset.url }; }
 	get pickId() { return this.featureId; }
 	get color() { return this.#color ?? Color.WHITE; }
-	set color(c: Color) { this.#color = c; this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: c ? c.toCssColorString() : null }); }
+	set color(c: Color) { this.#color = c; this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: c ? c.toCssColorString() : null }, this.#p.tile); }
 	get show() { return this.#show; }
-	set show(v: boolean) { this.#show = !!v; this.tileset.orthoHandle?.setFeatureState(this.featureId, { show: v ? undefined : false }); }   // the globe cuts a hidden feature out (alpha 0 on a MASK batch)
+	set show(v: boolean) { this.#show = !!v; this.tileset.orthoHandle?.setFeatureState(this.featureId, { show: v ? undefined : false }, this.#p.tile); }   // the globe cuts a hidden feature out (alpha 0 on a MASK batch)
 	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#p.properties || {}).filter(k => !k.startsWith("__"))); return result; }
 	/** the batch table hierarchy (the globe puts the class in __class and the class with its ancestors in __classes) */
 	getExactClassName() { return this.#p.properties?.__class ?? undefined; }
