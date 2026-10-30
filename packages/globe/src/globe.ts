@@ -3203,6 +3203,7 @@ const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); ret
 	setMeshCut: (name, cut) => { wPost({ type: "set", cmd: "meshCut", data: cut, prop: name }); requestDraw(); },
 	setMeshSplit: (name, side) => { wPost({ type: "set", cmd: "meshSplit", data: side, prop: name }); requestDraw(); },   // Cesium splitDirection（-1 left / +1 right / 0）
 	setMeshEnv: (name, sh) => { wPost({ type: "set", cmd: "meshEnv", data: sh ? Array.from(sh) : null, prop: name }); requestDraw(); },
+	setMeshNoClip: (name, off) => { wPost({ type: "set", cmd: "meshNoClip", data: off, prop: name }); requestDraw(); },   // left out of setClipping (Cesium clippingPolygons of another tileset)
 	setMeshOutline: (name, c) => { wPost({ type: "set", cmd: "meshOutline", data: c ? Array.from(c) : null, prop: name }); requestDraw(); },   // CESIUM_primitive_outline colour (Cesium tileset.showOutline / outlineColor)   // タイルセットの環境光（Cesium の tileset の DynamicEnvironmentMapManager）＝SH9｜null
 	setMeshCustom: (name, id) => { wPost({ type: "set", cmd: "meshCustom", data: id, prop: name }); requestDraw(); },   // 利用者のシェーダ（tileset.customShader）   // 不透明の束を MASK に（feature state の show:false）
 	setClassify: (name, data) => { wPost({ type: "set", cmd: "classify", prop: name, data }, data ? [data.pos.buffer, data.idx.buffer] : []); requestDraw(); },   // 分類の立体（.geom・classificationType）＝分類の柱

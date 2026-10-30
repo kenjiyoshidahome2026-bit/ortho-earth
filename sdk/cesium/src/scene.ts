@@ -9,7 +9,7 @@ import { globeCamOf, poseOfGlobeCam, poseKey, sameKey, sameGlobeCam, setCameraWo
 import { unsupported } from "./report.ts";
 import { postChainOf, type PostFrame } from "./postprocess.ts";
 import { sunPositionWC } from "./lighting.ts";
-import { clipSpecOf } from "./clipping.ts";
+import { clipSpecOf, polygonClipOf } from "./clipping.ts";
 import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
 import { RawDrawer } from "./rawdraw.ts";
 
@@ -98,7 +98,7 @@ export class OrthoScene {
 	lastRenderTime: any = undefined;
 	#terrainProvider: any;
 	#lastPose: number[] | null = null; #lastGlobe: GlobeCam | null = null; #fovy = 0;
-	#postKey = ""; #aoOn = false; #clipKey = "";   // postProcessStages → map.setPostChain (順 4): what was last pushed
+	#postKey = ""; #aoOn = false; #clipKey = ""; #clipOwn = new WeakMap<object, boolean>();   // postProcessStages → map.setPostChain (順 4): what was last pushed
 	#destroyed = false;
 	readonly raw: RawDrawer;
 
@@ -174,23 +174,39 @@ export class OrthoScene {
 		try { map.setPostChain(r.chain.length ? r.chain : null); } catch (e) { console.warn("[csshim] postProcessStages", (e as Error)?.message || e); }
 		if (r.ao !== this.#aoOn) { this.#aoOn = r.ao; map.setRenderFx?.({ ao: r.ao }); }
 	}
-	// the tilesets' clippingPlanes → map.setClipping (one clipping on the globe: the first shown tileset that clips)
+	// the tilesets' clippingPlanes / clippingPolygons and globe.clippingPolygons → map.setClipping. The globe has one clipping on its models:
+	// the first shown tileset that clips owns it, and every other tileset is left out of it (Cesium clips a tileset by its own collections)
 	#syncClip() {
 		const map = this.host.map; if (!map?.setClipping) return;
-		let spec: any = null, skipped: string[] = [];
+		const groups: any[] = [], skipped: string[] = [], sets: any[] = [];
+		let owner: any = null;
 		const walk = (c: any) => {
-			for (let i = 0; i < (c?.length ?? 0) && !spec; i++) {
+			for (let i = 0; i < (c?.length ?? 0); i++) {
 				const p = c.get(i);
-				if (p instanceof PrimitiveCollection) walk(p);
-				else if (p?.clippingPlanes && p.show !== false && typeof p.clippingPlanesOriginMatrix === "object" && p.orthoHandle !== undefined) ({ spec, skipped } = clipSpecOf(p.clippingPlanes, p.clippingPlanesOriginMatrix));
+				if (p instanceof PrimitiveCollection) { walk(p); continue; }
+				if (p?.orthoHandle === undefined || typeof p.clippingPlanesOriginMatrix !== "object") continue;
+				sets.push(p);
+				if (owner || p.show === false) continue;
+				const r = p.clippingPlanes ? clipSpecOf(p.clippingPlanes, p.clippingPlanesOriginMatrix) : null, poly = polygonClipOf(p.clippingPolygons, ["models"]);
+				if (r?.spec || poly) { owner = p; if (r?.spec) { groups.push(r.spec); skipped.push(...r.skipped); } if (poly) groups.push(poly); }
 			}
 		};
 		try { walk(this.primitives); } catch { return; }
-		const key = JSON.stringify(spec);
+		let g: any = null;
+		try { g = this.globe?.show !== false ? polygonClipOf(this.globe?.clippingPolygons, ["terrain"]) : null; } catch { /* a globe without the surface */ }
+		if (g) {
+			const same = groups.find(x => x.polygon && JSON.stringify([x.polygon, x.inverse]) === JSON.stringify([g.polygon, g.inverse]));
+			if (same) same.targets = ["models", "terrain"]; else groups.push(g);
+		}
+		for (const p of sets) {
+			const h = p.orthoHandle, on = !owner || p === owner;
+			if (h && this.#clipOwn.get(h) !== on) { this.#clipOwn.set(h, on); h.setOptions?.({ clip: on }); }
+		}
+		const spec = groups.length ? (groups.length === 1 ? groups[0] : groups) : null, key = JSON.stringify(spec);
 		if (key === this.#clipKey) return;
 		this.#clipKey = key;
 		for (const w of skipped) unsupported(w);
-		try { map.setClipping(spec ?? false); } catch (e) { console.warn("[csshim] clippingPlanes", (e as Error)?.message || e); }
+		try { map.setClipping(spec ?? false); } catch (e) { console.warn("[csshim] clipping", (e as Error)?.message || e); }
 	}
 	// ── the frame (CesiumWidget.render: initializeFrame → clock.tick → render) ──
 	initializeFrame() {
