@@ -29,6 +29,7 @@ export function cesiumToSpec(s: CesiumStyle): StyleSpec {
 	};
 	const one = (v: unknown, what: string): Ex => {
 		if (typeof v === "boolean" || typeof v === "number") return v;
+		if (typeof v === "function") return v as Ex;   // a function in place of an expression (compileStyle calls it)
 		if (typeof v === "string") return parseExpr(v, varOf);
 		if (v && typeof v === "object" && Array.isArray((v as { conditions?: unknown }).conditions)) {
 			const out: Ex[] = ["case"];
