@@ -979,6 +979,7 @@ function tuneRes(drew: boolean) {
 
 // terrain.ensure は視野→セル範囲計算（cameraState＋108回unproject）を伴う＝毎フレームは無駄。
 // アトラス構成が変わり得るだけのカメラ移動（視野幅の~10%・ズーム0.05・チルト/方位~1°）があった時だけ呼ぶ。
+let lastEnsureT = 0;   // when the last ensure was tried (the throttle while the camera keeps moving)
 let lastEnsure: { lon: number; lat: number; zoom: number; pitch: number; bearing: number; w: number; h: number } | null = null;
 // c＝dpr補正済みカメラ（動的解像度中は dpr×resScale）。素の cam を渡すと縮小 canvas と食い違い、
 // camDist が×s に潰れた（＝ズームインした）仮想視点で標高窓の票を取ってしまう→実視野の遠景が窓の外＝
@@ -1028,7 +1029,10 @@ function frame() {
 			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
 			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
 			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。ensure には draw と同じ glCam＝縮小 canvas と整合する視野を渡す。
-			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved(glCam);
+			// a camera that never rests (one that follows a moving model every frame: Cesium's trackedEntity) would never build the atlas: while
+			// moving, build it once at the start and then at most once a second while the zoom holds (a zoom still waits for the rest: its
+			// cell size changes continuously), and still only when the view moved past ensureIfMoved's tolerance
+			if (terrain && !opts?.noTerrain && (opts?.terrainGate !== false || !lastEnsure || (lastFrameRun - lastEnsureT > 1000 && Math.abs(glCam.zoom - lastEnsure.zoom) < 0.12))) { lastEnsureT = lastFrameRun; ensureIfMoved(glCam); }
 			// 画像タイル層：カメラ不変・在庫不変なら選抜は走らない（raster.js が camKey で判定）。groundR＝地形リフト球（塗りの選抜と同じ流儀）
 			if (raster) raster.update(glCam, canvas!.width, canvas!.height, { groundR: groundRNow(glCam), farR: farRNow(glCam), moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS });   // moving＝入力中/飛行中/静定前＝取得の並列を絞る（着地で戻す）
 			let fogAnim = false;
