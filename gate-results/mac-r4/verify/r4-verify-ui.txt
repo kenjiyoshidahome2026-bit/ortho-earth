@@ -1,0 +1,11 @@
+
+> @ortho-earth/globe@2.2.0 verify:ui
+> node scripts/verify-ui.mjs t-tiles3d-drape t-tiles3d
+
+PASS  t-tiles3d      ok:replace({"loaded":8,"shown":7,"failed":0,"triangles":180,"points":900,"splats":0,"voxels":0,"bytes":24232,"subtrees":0,"complete":true,"gpuMB":0,"mainMB":0,"inflight":0,"sseScale":1}) ok:content(tris=180 pts=900) ok:pixels(blue=34116 yellow=1128 purple=3622 red=0) ok:points({"type":"overlayStage","name":"tiles3d:t1","stage":"ready","queued":0}) ok:sampleHeight([{"lng":139.7671,"lat":35.678676,"height":100.00564681796641,"source":"tiles3d","id":"t1","featureId":0},{"lng":139.8,"lat":35.7,"height":1.2499999999846523,"source":"terrain"}]) ok:sampleHeightNoTerrain([{"lng":139.8,"lat":35.7,"height":null,"source":null}]) ok:coarse({"loaded":8,"shown":1,"failed":0,"triangles":180,"points":900,"splats":0,"voxels":0,"bytes":24232,"subtrees":0,"complete":true,"gpuMB":0,"mainMB":0,"inflight":0,"sseScale":1}) ok:removed({"loaded":0,"shown":1,"failed":0,"triangles":180,"points":900,"splats":0,"voxels":0,"bytes":24232,"subtrees":0,"complete":true,"gpuMB":0,"mainMB":0,"inflight":0,"sseScale":1})  〔16.9s〕
+PASS  t-tiles3d-drape?gl2=1 ok:loaded({"loaded":8,"shown":7,"failed":0,"triangles":180,"points":900,"splats":0,"voxels":0,"bytes":24232,"subtrees":0,"complete":true,"gpuMB":0,"mainMB":0,"inflight":0,"sseScale":1}) ok:west red, east blue({"blue":{"n":14298,"x":0.6118864235091155},"red":{"n":1287,"x":0.47876440688940686}}) ok:off = blue again({"blue":{"n":34019,"x":0.47954568280470716},"red":{"n":0,"x":-1}}) ok:picture removed({"blue":{"n":34019,"x":0.47954568280470716},"red":{"n":0,"x":-1}}) backend=webgl2  〔22.4s〕
+bucket の中継：手元 23・新規 0・確かめ直し 2・古い物で代用 0・素通し 0・失敗 0
+
+壁時計 0.7 分（1 本ずつ）・遅い頁：t-tiles3d-drape?gl2=1 22s・t-tiles3d 17s
+
+✓ 全2ページ PASS

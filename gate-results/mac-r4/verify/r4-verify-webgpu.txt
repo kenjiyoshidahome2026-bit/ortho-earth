@@ -1,0 +1,12 @@
+
+> @ortho-earth/globe@2.2.0 verify:webgpu
+> node scripts/verify-webgpu.mjs t-tiles3d-drape t-clipgint t-wgsl
+
+PASS  t-tiles3d-drape    [webgpu] ok:loaded({"loaded":8,"shown":7,"failed":0,"triangles":180,"points":900,"splats":0,"voxels":0,"bytes":24232,"subtrees":0,"complete":true,"gpuMB":0,"mainMB":0,"inflight":0,"sseScale":1}) ok:west red, east blue({"blue":{"n":13944,"x":0.611837453982597},"red":{"n":1559,"x":0.4795468516142826}}) ok:off = blue again({"blue":{"n":33101,"x":0.4796185034691802},"red":{"n":0,"x":-1}}) ok:picture removed({"blue":{"n":33101,"x":0.4796185034691802},"red":{"n":0,"x":-1}}) backend=webgpu  〔9.0s〕
+PASS  t-clipgint         ok:面は画面の中（x=152） ok:①切る前は東にも gint がある(602 画素) ok:①東側は gint を隠した絵と同じ（最大の差 0） ok:①西側は切らない絵と同じ（最大の差 0） ok:②拾い：線 西=8・東=none／面 西=7・東=none ok:③コロプレス：切る前は東にも塗り(1034)・東は隠した絵と同じ(0)・西は切らない絵と同じ(0) ok:④消して元どおり(Δ=0) ok:⑤GPU の検証エラーなし（0）  〔4.9s〕
+PASS  t-wgsl             ok:86/86 modules compile ok:Frame に sun がある（段 0）  〔0.8s〕
+bucket の中継：手元 5・新規 0・確かめ直し 1・古い物で代用 0・素通し 0・失敗 0
+
+壁時計 0.2 分（1 本ずつ）・遅い頁：t-tiles3d-drape 9s・t-clipgint 5s・t-wgsl 1s
+
+✓ 全3ページ PASS
