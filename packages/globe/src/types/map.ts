@@ -9,7 +9,7 @@
 
 import type {
 	Bbox, BodyPosition, COPCHandle, COPCOptions, CameraOptions, CameraPose,
-	CameraTarget, Capability, CapabilityKey, SampleHeightResult, ClassificationOptions, ClassificationHandle, CzmlHandle, CellsLayerHandle, CellsLayerOptions, ClipOptions,
+	CameraTarget, Capability, CapabilityKey, SampleHeightResult, RaycastHit, ClassificationOptions, ClassificationHandle, CzmlHandle, CellsLayerHandle, CellsLayerOptions, ClipOptions,
 	CloudsSpec, ColumnarLayerHandle, ColumnarLayerOptions,
 	ContourLayerHandle, ContourLayerOptions, DataLayerHandle, DataLayerOptions,
 	FitBoundsOptions, FollowHandle, GeoPBF,
@@ -433,6 +433,9 @@ export interface TerrainApi {
 	 *  当たらない点は地形（sampleTerrain と同じ出どころ・source "terrain"）。terrain:false＝地形に落とさない（height null）。高さは実スケールの m。当てるのは今の視点で読み込んである詳細度のタイル。
 	 *  当たりの写しを持つタイルだけ当たる（pickable "auto"＝地物の番号を持つ束だけ・番号の無い Google 等の写実タイルは add3DTiles(url, { pickable: true })・lowMem では "auto" は持たない） */
 	sampleHeight(positions: LonLat[] | { lng?: number; lon?: number; lat: number }[] | object, opts?: { terrain?: boolean; from?: number; concurrency?: number }): Promise<SampleHeightResult[]>;
+	/** 半直線の当たり（Cesium の scene.pickFromRay／drillPickFromRay・2026-10-30〜）。from から to の向きへ伸ばした半直線（[lng, lat, 高さ m]）を、読み込んである 3D Tiles と模型の三角形に当てる。
+	 *  近い順・同期。limit（既定 1）＝奥へ進みながら別の物（id と地物の番号）を集める数。地形には当てない */
+	raycast(from: [number, number, number], to: [number, number, number], opts?: { limit?: number }): RaycastHit[];
 	/** 一人称歩行（F6 の口・W3 で builtin の中身＝src/walk.js）。registry.handlers の "walk"（plugin）があればそれが勝つ。足元＝描いている地形・壁＝基図の建物の足跡と押し出し（簡易の衝突） */
 	walk(opts?: WalkOptions): WalkHandle;   // api/terrain.ts:77
 	// camera member living in installTerrain (terrain.js:77); the facade converts it (mlfacade.js FACADE_CONV). Move to CameraApi in the port

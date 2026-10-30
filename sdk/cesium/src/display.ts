@@ -47,6 +47,14 @@ const movingPlane = (e: Any, t: JulianDate): string => {
 	if (!pl?.normal || !dm || !p) return "";
 	return [pl.normal.x, pl.normal.y, pl.normal.z, pl.distance, dm.x, dm.y, p.x, p.y, p.z, q?.x, q?.y, q?.z, q?.w].join();
 };
+// the solids whose shape is time-varying but whose place is not (a CallbackProperty radii: 3d-tiles-nga-gpm-visualization's anchor point ellipsoids):
+// drawn with Cesium's geometry at the shape's current value, made again whenever that value changes (the sig)
+const SHAPE_PROPS: Record<string, string[]> = { box: ["dimensions"], cylinder: ["length", "topRadius", "bottomRadius"], ellipsoid: ["radii", "innerRadii"] };
+const movingShape = (e: Any, name: string, t: JulianDate): string | null => {
+	const g = e[name], ps = SHAPE_PROPS[name];
+	if (!g || !ps || !isConst(e.position) || !Property.isConstant(e.orientation) || ps.every(k => isConst(g[k]))) return null;
+	return ps.map(k => { const v = val(g[k], t); return v == null ? "" : typeof v === "number" ? v : [v.x, v.y, v.z].join(" "); }).join();
+};
 /** a NearFarScalar → [near, nearValue, far, farValue] (the globe's marks scale and fade by the eye's distance as Cesium's billboards and labels) */
 const nfOf = (v: Any): number[] | null => v && Number.isFinite(v.near) ? [v.near, v.nearValue, v.far, v.farValue] : null;
 const isConst = (p: Any) => p == null || Property.isConstant(p);
@@ -445,7 +453,7 @@ export class EntityDisplay {
 	}
 	/** the entity's constant solids as Cesium's geometry instances (into d.solids): the names done so (a time-varying or ground one is not: the shapes below draw it) */
 	#solidsOf(e: Any, t: JulianDate, d: Desc, r: Rec): Set<string> {
-		const sig = movingPlane(e, t);
+		const sig = movingPlane(e, t) + "|" + Object.keys(SHAPE_PROPS).map(n => movingShape(e, n, t) ?? "").join("|");
 		if (r.solids && r.solids.sig === sig) { d.solids = r.solids.d; return r.solids.names; }
 		const done = new Set<string>();
 		r.solids = { d: null, names: done, sig };
@@ -455,6 +463,7 @@ export class EntityDisplay {
 			try { u = new U(e, this.scene); } catch { continue; }
 			try {
 				if (u.isDynamic && name === "plane" && sig) { u._options.plane = val(e.plane.plane, t); u._options.dimensions = val(e.plane.dimensions, t); }   // made again whenever it moves (the sig)
+				else if (u.isDynamic && !u.onTerrain && movingShape(e, name, t) != null && !onGround(e[name], t)) { u._dynamic = false; u._setStaticOptions(e, e[name]); u._isClosed = u._getIsClosed?.(u._options) ?? true; }   // the shape now (made again when it changes: the sig)
 				else if (u.isDynamic || u.onTerrain || onGround(e[name], t) || onSurface(name, e[name], t)) continue;
 				done.add(name);
 				const g = d.solids ??= r.solids.d = { fill: [], outline: [], width: 1 };
