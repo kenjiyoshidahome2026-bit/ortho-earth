@@ -2,7 +2,7 @@
 // 並び順どおり 1 段ずつ全画面で掛ける（2 枚のフル解像度の的を行き来し、最後の段だけ画面へ）。段の形は ../postfx.js PostStage。
 //   silhouette＝深度の縁取り（Cesium の EdgeDetection＋Silhouette と同式：Sobel 3×3 の重み 3/10/3・閾値 length・縁の色 color）
 //   grey＝白黒（gradations 段）／brightness＝明るさ（mix(黒, 色, value)）／nightVision＝暗視（緑＋画面座標の雑音）
-//   lensFlare＝Cesium の LensFlare（汚れ・星形の画像は URL から読む）／depthOfField＝Gaussian 2 段＋奥行きで混ぜる（Cesium の DepthOfField）
+//   lensFlare＝Cesium の LensFlare（汚れ・星形の画像は URL から読む）／depthOfField＝Gaussian 2 段＋奥行きで混ぜる（Cesium の DepthOfField）／cesiumBloom＝Cesium の bloom（明るさとコントラスト→Gaussian 2 段→素に足す）
 //   glsl＝利用者の GLSL ES 3.00 の fragment（Cesium の PostProcessStage の書き方）＝colorTexture・depthTexture・v_textureCoordinates・out_FragColor と czm_* の一部（下の PRELUDE）。
 //     uniforms は宣言の型（float/int/bool/vec2〜4）を本文から読んで流す。壊れた物は 1 度だけ警告して飛ばす（他の段は描く）
 // 深度＝Cesium の深度の尺（log2(w−near+1)／log2(far−near+1)・w＝目からの奥行き m・near 1・far 5e8＝Cesium の frustum の既定）に写した深度テクスチャを、段が要る時だけ 1 フレームに 1 度作る
@@ -13,14 +13,14 @@ const R_M = 6378137, CZM_NEAR = 1, CZM_FAR = 5e8;
 const VS = `#version 300 es
 out vec2 v_textureCoordinates;
 void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); v_textureCoordinates = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
-// 深度の写し（本体の対数深度 → Cesium の尺）。u_p＝(2·ln2／logCoef, 1／log2(far−near+1), near, 0)
-const DEPTH_FS = `#version 300 es
+// 深度の写し（本体の対数深度 → Cesium の尺）。u_p＝(2·ln2／logCoef, 1／log2(far−near+1), near, 0)。packed＝深度が RGB8 に詰めてある（WebGPU から渡す時＝glslbridge.js・白＝遠方）
+const DEPTH_FS = (packed = false): string => `#version 300 es
 precision highp float;
 uniform highp sampler2D u_depth;
 uniform vec4 u_p;
 float expm1s(float x) { if (x < 0.1) return x * (1.0 + x * (0.5 + x * (0.16666667 + x * (0.041666668 + x * (0.0083333335 + x * (0.0013888889 + x * 0.00019841270)))))); return exp(x) - 1.0; }
 void main() {
-	float d = texelFetch(u_depth, ivec2(gl_FragCoord.xy), 0).r;
+	float d = ${packed ? "dot(texelFetch(u_depth, ivec2(gl_FragCoord.xy), 0).rgb, vec3(1.0, 1.0 / 255.0, 1.0 / 65025.0))" : "texelFetch(u_depth, ivec2(gl_FragCoord.xy), 0).r"};
 	if (d >= 1.0) { gl_FragDepth = 1.0; return; }
 	float w = expm1s(d * u_p.x) * ${R_M.toFixed(1)};   // 目からの奥行き（m）
 	gl_FragDepth = clamp(log2(max(w - u_p.z, 0.0) + 1.0) * u_p.y, 0.0, 1.0);
@@ -193,6 +193,30 @@ void main() {
 	for (int i = 1; i < 8; ++i) { g.xy *= g.yz; vec2 offset = float(i) * dir * stp; result += texture(colorTexture, st - offset) * g.x; result += texture(colorTexture, st + offset) * g.x; }
 	out_FragColor = result;
 }`;
+// Cesium の bloom（PostProcessStageLibrary.createBloomStage）＝ContrastBias（HSB の明るさ＋brightness・コントラスト係数）→ GaussianBlur1D の x・y（BLUR_FS）→ BloomComposite（素＋ぼかし・glowOnly はぼかしだけ）
+const BLOOM_CB_FS = PRELUDE + `uniform sampler2D colorTexture;
+uniform vec2 u_cb;   // contrast, brightness
+in vec2 v_textureCoordinates;
+out vec4 out_FragColor;
+void main() {
+	vec3 sceneColor = texture(colorTexture, v_textureCoordinates).xyz;
+	sceneColor = czm_RGBToHSB(sceneColor);
+	sceneColor.z += u_cb.y;
+	sceneColor = czm_HSBToRGB(sceneColor);
+	float factor = (259.0 * (u_cb.x + 255.0)) / (255.0 * (259.0 - u_cb.x));
+	sceneColor = factor * (sceneColor - vec3(0.5)) + vec3(0.5);
+	out_FragColor = vec4(sceneColor, 1.0);
+}`;
+const BLOOM_FS = PRELUDE + `uniform sampler2D colorTexture;
+uniform sampler2D bloomTexture;
+uniform float u_glowOnly;
+in vec2 v_textureCoordinates;
+out vec4 out_FragColor;
+void main() {
+	vec4 color = texture(colorTexture, v_textureCoordinates);
+	vec4 bloom = texture(bloomTexture, v_textureCoordinates);
+	out_FragColor = u_glowOnly > 0.5 ? bloom : bloom + color;
+}`;
 const DOF_FS = PRELUDE + `uniform sampler2D colorTexture;
 uniform sampler2D blurTexture;
 uniform sampler2D depthTexture;
@@ -254,12 +278,12 @@ export function glslUniformTypes(src: string): Map<string, string> {
 	return m;
 }
 
-export function createPostStagesGL(gl: WebGL2RenderingContext, realBind: (target: number, fb: WebGLFramebuffer | null) => void, vao: WebGLVertexArrayObject, requestDraw?: (() => void) | null) {
+export function createPostStagesGL(gl: WebGL2RenderingContext, realBind: (target: number, fb: WebGLFramebuffer | null) => void, vao: WebGLVertexArrayObject, requestDraw?: (() => void) | null, packedDepth = false) {
 	const progs = new Map<string, StageProg | null>();   // 鍵＝型（glsl は "glsl:" + 本文）。null＝壊れていて飛ばす
-	const depthProg = compile(gl, DEPTH_FS), dpTex = gl.getUniformLocation(depthProg, "u_depth"), dpP = gl.getUniformLocation(depthProg, "u_p");
+	const depthProg = compile(gl, DEPTH_FS(packedDepth)), dpTex = gl.getUniformLocation(depthProg, "u_depth"), dpP = gl.getUniformLocation(depthProg, "u_p");
 	let T: { w: number; h: number; tex: WebGLTexture[]; fb: WebGLFramebuffer[]; dTex: WebGLTexture; dFb: WebGLFramebuffer } | null = null;
 	let B: { w: number; h: number; tex: WebGLTexture[]; fb: WebGLFramebuffer[] } | null = null;   // 被写界深度のぼかしの行き来（要る時だけ）
-	let blurProg: WebGLProgram | null = null;
+	let blurProg: WebGLProgram | null = null, cbProg: WebGLProgram | null = null;
 	// 段の画像（レンズフレアの汚れ・星形）：URL ごとに 1 度読む（worker 内でも読める fetch＋createImageBitmap）。着くまでは 1×1 の黒＝汚れ無し・星形無し、着いたら一枚要求
 	const imgs = new Map<string, { tex: WebGLTexture | null; w: number; h: number }>();
 	let black: WebGLTexture | null = null;
@@ -324,7 +348,7 @@ export function createPostStagesGL(gl: WebGL2RenderingContext, realBind: (target
 		if (progs.has(key)) return progs.get(key)!;
 		let sp: StageProg | null = null;
 		try {
-			const src = s.type === "silhouette" ? SIL_FS : s.type === "grey" ? GREY_FS : s.type === "brightness" ? BRIGHT_FS : s.type === "nightVision" ? NV_FS : s.type === "lensFlare" ? LF_FS : s.type === "depthOfField" ? DOF_FS : glslStageSource(s.src);
+			const src = s.type === "silhouette" ? SIL_FS : s.type === "grey" ? GREY_FS : s.type === "brightness" ? BRIGHT_FS : s.type === "nightVision" ? NV_FS : s.type === "lensFlare" ? LF_FS : s.type === "depthOfField" ? DOF_FS : s.type === "cesiumBloom" ? BLOOM_FS : glslStageSource(s.src);
 			const p = compile(gl, src), u = new Map<string, { loc: WebGLUniformLocation | null; type: string }>();
 			if (s.type === "glsl") for (const [name, type] of glslUniformTypes(s.src)) if (type !== "sampler2D") u.set(name, { loc: gl.getUniformLocation(p, name), type });
 			sp = { p, color: gl.getUniformLocation(p, "colorTexture"), depth: gl.getUniformLocation(p, "depthTexture"), vp: gl.getUniformLocation(p, "czm_viewport"), pr: gl.getUniformLocation(p, "czm_pixelRatio"), fn: gl.getUniformLocation(p, "czm_frameNumber"), eye: gl.getUniformLocation(p, "ortho_eyeP"), u, needsDepth: !!gl.getUniformLocation(p, "depthTexture") };
@@ -361,6 +385,19 @@ export function createPostStagesGL(gl: WebGL2RenderingContext, realBind: (target
 				realBind.call(gl, gl.FRAMEBUFFER, B!.fb[0]); gl.uniform4f(bu, s.delta, s.sigma, s.stepSize, 0); gl.bindTexture(gl.TEXTURE_2D, cur); gl.drawArrays(gl.TRIANGLES, 0, 3);
 				realBind.call(gl, gl.FRAMEBUFFER, B!.fb[1]); gl.uniform4f(bu, s.delta, s.sigma, s.stepSize, 1); gl.bindTexture(gl.TEXTURE_2D, B!.tex[0]); gl.drawArrays(gl.TRIANGLES, 0, 3);
 			}
+			if (s.type === "cesiumBloom") {   // 明るさとコントラスト（B0）→ ぼかし x（B1）→ y（B0）＝合成の bloomTexture
+				ensureBlur(W, H);
+				cbProg ??= compile(gl, BLOOM_CB_FS);
+				blurProg ??= compile(gl, BLUR_FS);
+				gl.activeTexture(gl.TEXTURE0);
+				gl.useProgram(cbProg); gl.uniform1i(gl.getUniformLocation(cbProg, "colorTexture"), 0); gl.uniform2f(gl.getUniformLocation(cbProg, "u_cb"), s.contrast, s.brightness);
+				realBind.call(gl, gl.FRAMEBUFFER, B!.fb[0]); gl.bindTexture(gl.TEXTURE_2D, cur); gl.drawArrays(gl.TRIANGLES, 0, 3);
+				gl.useProgram(blurProg);
+				gl.uniform1i(gl.getUniformLocation(blurProg, "colorTexture"), 0); gl.uniform4f(gl.getUniformLocation(blurProg, "czm_viewport"), 0, 0, W, H); gl.uniform1f(gl.getUniformLocation(blurProg, "czm_pixelRatio"), f.dpr);
+				const bu = gl.getUniformLocation(blurProg, "u_blur");
+				realBind.call(gl, gl.FRAMEBUFFER, B!.fb[1]); gl.uniform4f(bu, s.delta, s.sigma, s.stepSize, 0); gl.bindTexture(gl.TEXTURE_2D, B!.tex[0]); gl.drawArrays(gl.TRIANGLES, 0, 3);
+				realBind.call(gl, gl.FRAMEBUFFER, B!.fb[0]); gl.uniform4f(bu, s.delta, s.sigma, s.stepSize, 1); gl.bindTexture(gl.TEXTURE_2D, B!.tex[1]); gl.drawArrays(gl.TRIANGLES, 0, 3);
+			}
 			realBind.call(gl, gl.FRAMEBUFFER, last ? null : T!.fb[i & 1]);
 			gl.useProgram(sp.p);
 			gl.uniform1i(sp.color, 0); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, cur);
@@ -387,6 +424,10 @@ export function createPostStagesGL(gl: WebGL2RenderingContext, realBind: (target
 				gl.uniform2f(gl.getUniformLocation(sp.p, "u_tan"), tn[0], tn[1]);
 				gl.uniform1i(gl.getUniformLocation(sp.p, "blurTexture"), 2); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, B!.tex[1]); gl.activeTexture(gl.TEXTURE0);
 			}
+			else if (s.type === "cesiumBloom") {
+				gl.uniform1f(gl.getUniformLocation(sp.p, "u_glowOnly"), s.glowOnly ? 1 : 0);
+				gl.uniform1i(gl.getUniformLocation(sp.p, "bloomTexture"), 2); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, B!.tex[0]); gl.activeTexture(gl.TEXTURE0);
+			}
 			else if (s.type === "glsl") for (const [name, v] of Object.entries(s.uniforms)) {
 				const d = sp.u.get(name); if (!d || !d.loc) continue;
 				const a = typeof v === "boolean" ? [v ? 1 : 0] : typeof v === "number" ? [v] : v;
@@ -406,7 +447,7 @@ export function createPostStagesGL(gl: WebGL2RenderingContext, realBind: (target
 	const drawable = (stages: PostStage[]): boolean => stages.some(s => !!progOf(s));
 	function dispose(): void {
 		free(); for (const sp of progs.values()) if (sp) gl.deleteProgram(sp.p); progs.clear(); gl.deleteProgram(depthProg);
-		if (blurProg) gl.deleteProgram(blurProg); blurProg = null;
+		if (blurProg) gl.deleteProgram(blurProg); blurProg = null; if (cbProg) gl.deleteProgram(cbProg); cbProg = null;
 		for (const e of imgs.values()) if (e.tex) gl.deleteTexture(e.tex); imgs.clear(); if (black) gl.deleteTexture(black); black = null;
 	}
 	const bytes = (): number => (T ? T.w * T.h * (4 + 4 + 4) : 0) + (B ? B.w * B.h * 8 : 0);

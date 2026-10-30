@@ -1,8 +1,10 @@
 // 画面の段（WebGPU・2026-10-28）＝Cesium の postProcessStages 相当（gl/poststage.js の移植）。固定の後処理の鎖（postfx.js COMP）の出力を的に受け、
 // 並び順どおり 1 段ずつ全画面で掛ける（2 枚のフル解像度の的を行き来し、最後の段だけ canvas へ）。段の形は ../postfx.js PostStage。
-//   silhouette＝深度の縁取り（Cesium の EdgeDetection＋Silhouette と同式）／grey＝白黒／brightness＝明るさ／nightVision＝暗視／lensFlare・depthOfField（gl/poststage.js と同式）。glsl（利用者の GLSL）は WebGPU では描けない＝1 度だけ警告して飛ばす
+//   glsl（利用者の GLSL）＝同じ worker の WebGL2 の文脈で GL2 の段の描き手を走らせて戻す（../glslbridge.js・初めて要る時に動的 import・2026-10-30）。橋が立たない器では 1 度だけ警告して飛ばす
+//   silhouette＝深度の縁取り（Cesium の EdgeDetection＋Silhouette と同式）／grey＝白黒／brightness＝明るさ／nightVision＝暗視／lensFlare・depthOfField・cesiumBloom（gl/poststage.js と同式）
 // 深度＝Cesium の尺（log2(w−near+1)／log2(far−near+1)・w＝目からの奥行き m）に写した depth24plus を、段が要る時だけ 1 フレームに 1 度作る（本体の深度＝対数・4x は sample 0）
 import type { PostStage } from "../postfx.ts";
+import type { GlslBridge } from "../glslbridge.ts";
 
 const R_M = 6378137, CZM_NEAR = 1, CZM_FAR = 5e8;
 const FULL_VS = `struct VOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
@@ -174,17 +176,44 @@ fn computeDepthBlur(depth: f32) -> f32 {
 	let w = select(exp2(d * ${Math.log2(CZM_FAR - CZM_NEAR + 1).toFixed(6)}) - 1.0 + ${CZM_NEAR.toFixed(1)}, groundW(in.uv), d >= 1.0);
 	return mix(tex(src, in.uv), tex(texA, in.uv), computeDepthBlur(w));
 }`;
+// Cesium の bloom（gl/poststage.js BLOOM_CB_FS・BLOOM_FS と同式）：明るさとコントラスト X.a＝(contrast, brightness)／合成 X.a.x＝glowOnly・texA＝ぼかした絵
+const BLOOM_CB = XHEAD + `
+fn rgbToHsb(rgb: vec3f) -> vec3f {
+	let K = vec4f(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+	let p = mix(vec4f(rgb.bg, K.wz), vec4f(rgb.gb, K.xy), step(rgb.b, rgb.g));
+	let q = mix(vec4f(p.xyw, rgb.r), vec4f(rgb.r, p.yzx), step(p.x, rgb.r));
+	let d = q.x - min(q.w, q.y);
+	return vec3f(abs(q.z + (q.w - q.y) / (6.0 * d + 0.0000001)), d / (q.x + 0.0000001), q.x);
+}
+fn hsbToRgb(hsb: vec3f) -> vec3f {
+	let K = vec4f(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+	let p = abs(fract(hsb.xxx + K.xyz) * 6.0 - K.www);
+	return hsb.z * mix(K.xxx, clamp(p - K.xxx, vec3f(0.0), vec3f(1.0)), hsb.y);
+}
+@fragment fn fs(in: VOut) -> @location(0) vec4f {
+	var c = rgbToHsb(textureLoad(src, vec2i(in.pos.xy), 0).rgb);
+	c.z += X.a.y;
+	let factor = (259.0 * (X.a.x + 255.0)) / (255.0 * (259.0 - X.a.x));
+	return vec4f(factor * (hsbToRgb(c) - vec3f(0.5)) + vec3f(0.5), 1.0);
+}`;
+const BLOOM_COMP = XHEAD + `
+@fragment fn fs(in: VOut) -> @location(0) vec4f {
+	let q = vec2i(in.pos.xy);
+	let bloom = textureLoad(texA, q, 0);
+	if (X.a.x > 0.5) { return bloom; }
+	return bloom + textureLoad(src, q, 0);
+}`;
 /** 検定（t-wgsl）がコンパイルを検める口 */
-export const STAGE_WGSL = Object.freeze({ STAGE_SIL_WGSL: SIL, STAGE_GREY_WGSL: GREY, STAGE_BRIGHT_WGSL: BRIGHT, STAGE_NV_WGSL: NV, STAGE_DEPTH_WGSL: DEPTH_WGSL(false), STAGE_DEPTH_MS_WGSL: DEPTH_WGSL(true), STAGE_LF_WGSL: LF, STAGE_BLUR_WGSL: BLUR, STAGE_DOF_WGSL: DOF });
+export const STAGE_WGSL = Object.freeze({ STAGE_SIL_WGSL: SIL, STAGE_GREY_WGSL: GREY, STAGE_BRIGHT_WGSL: BRIGHT, STAGE_NV_WGSL: NV, STAGE_DEPTH_WGSL: DEPTH_WGSL(false), STAGE_DEPTH_MS_WGSL: DEPTH_WGSL(true), STAGE_LF_WGSL: LF, STAGE_BLUR_WGSL: BLUR, STAGE_DOF_WGSL: DOF, STAGE_BLOOM_CB_WGSL: BLOOM_CB, STAGE_BLOOM_COMP_WGSL: BLOOM_COMP });
 /** フレームの尺：depth＝本体の深度（samples＝1x/4x）・logCoef・dpr＝czm_pixelRatio・frame＝フレーム番号 */
-export interface StageFrameGPU { depthTex: GPUTexture; samples: number; logCoef: number; dpr: number; frame: number }
+export interface StageFrameGPU { depthTex: GPUTexture; samples: number; logCoef: number; dpr: number; frame: number; /** 縦の画角（rad）＝glsl の段の czm_windowToEyeCoordinates */ fovy?: number }
 export interface PostStagesGPU {
 	/** 固定の鎖の出力の的（最初の段が読む） */
 	target(W: number, H: number): GPUTextureView;
 	/** 描ける段が 1 つでもあるか（glsl だけなら false） */
 	drawable(stages: PostStage[]): boolean;
-	/** 的（target）→ 段を順に → dst（canvas） */
-	encode(enc: GPUCommandEncoder, stages: PostStage[], dst: GPUTextureView, W: number, H: number, f: StageFrameGPU): void;
+	/** 的（target）→ 段を順に → dst（canvas）。glsl の段は途中で submit する＝続きを書く encoder を返す（他は enc のまま） */
+	encode(enc: GPUCommandEncoder, stages: PostStage[], dst: GPUTextureView, W: number, H: number, f: StageFrameGPU): GPUCommandEncoder;
 	dispose(): void; bytes(): number;
 }
 export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null): PostStagesGPU {
@@ -197,7 +226,7 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 		{ binding: 0, visibility: F, buffer: {} }, { binding: 1, visibility: F, texture: {} }, { binding: 2, visibility: F, sampler: {} }, { binding: 3, visibility: F, texture: { sampleType: "depth" } },
 		{ binding: 4, visibility: F, texture: {} }, { binding: 5, visibility: F, texture: {} },
 	] });
-	const XCODE: Record<string, string> = { lensFlare: LF, blur: BLUR, depthOfField: DOF };
+	const XCODE: Record<string, string> = { lensFlare: LF, blur: BLUR, depthOfField: DOF, bloomCB: BLOOM_CB, bloomComp: BLOOM_COMP };
 	const pipes = new Map<string, GPURenderPipeline>();
 	const pipe = (key: string, code: string): GPURenderPipeline => {
 		let p = pipes.get(key);
@@ -216,7 +245,7 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 	const ub = device.createBuffer({ size: STRIDE * MAXS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }), ubD = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	let T: { w: number; h: number; tex: GPUTexture[]; view: GPUTextureView[]; d: GPUTexture; dv: GPUTextureView } | null = null;
 	let B: { w: number; h: number; tex: GPUTexture[]; view: GPUTextureView[] } | null = null;   // 被写界深度のぼかしの行き来（要る時だけ）
-	let warnedGlsl = false;
+	let warnedGlsl = false, bridge: GlslBridge | null | undefined;   // undefined＝まだ立てていない・null＝立たない器
 	// 段の画像（レンズフレアの汚れ・星形）：URL ごとに 1 度読む。着くまでは 1×1 の黒＝汚れ無し・星形無し、着いたら一枚要求
 	const imgs = new Map<string, { tex: GPUTexture | null; view: GPUTextureView | null; w: number; h: number }>();
 	const blackT = device.createTexture({ size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
@@ -247,16 +276,27 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 	function ensure(W: number, H: number): void {
 		if (T && T.w === W && T.h === H) return;
 		free();
-		const tex = [0, 1].map(() => device.createTexture({ size: [W, H], format, usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT }));
+		const tex = [0, 1].map(() => device.createTexture({ size: [W, H], format, usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST }));   // COPY_DST＝glsl の段の答えを GL から戻す
 		const d = device.createTexture({ size: [W, H], format: "depth24plus", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT });
 		T = { w: W, h: H, tex, view: tex.map(t => t.createView()), d, dv: d.createView() };
 	}
-	const okStage = (s: PostStage): boolean => { if (s.type !== "glsl") return true; if (!warnedGlsl) { warnedGlsl = true; console.warn("[gpu] post stage \"glsl\" is WebGL2 only (skipped on WebGPU)"); } return false; };
+	// 橋は初めて glsl の段を見た時に読む（読み終わるまでの数フレームはその段を飛ばし、届いたら描き直す）
+	let bridgeLoading = false, disposed = false;
+	const bridgeOf = (): GlslBridge | null => {
+		if (bridge === undefined && !bridgeLoading) {
+			bridgeLoading = true;
+			import("../glslbridge.ts").then(m => { if (disposed) return; try { bridge = m.createGlslBridge(device, format, requestDraw); } catch (e) { bridge = null; console.warn("[gpu] glsl post stages:", (e as Error)?.message || e); } })
+				.catch(e => { bridge = null; console.warn("[gpu] glsl post stages:", (e as Error)?.message || e); })
+				.finally(() => requestDraw?.());
+		}
+		return bridge ?? null;
+	};
+	const okStage = (s: PostStage): boolean => { if (s.type !== "glsl" || bridgeOf()) return true; if (bridge === null && !warnedGlsl) { warnedGlsl = true; console.warn("[gpu] post stage \"glsl\" needs WebGL2 in this worker (skipped on WebGPU)"); } return false; };
 	function target(W: number, H: number): GPUTextureView { ensure(W, H); return T!.view[1]; }
-	const drawable = (stages: PostStage[]): boolean => stages.some(s => s.type !== "glsl");
-	function encode(enc: GPUCommandEncoder, stages: PostStage[], dst: GPUTextureView, W: number, H: number, f: StageFrameGPU): void {
+	const drawable = (stages: PostStage[]): boolean => stages.some(okStage);
+	function encode(enc: GPUCommandEncoder, stages: PostStage[], dst: GPUTextureView, W: number, H: number, f: StageFrameGPU): GPUCommandEncoder {
 		ensure(W, H);
-		const list = stages.filter(okStage).slice(0, MAXS - 2);   // 被写界深度は 3 枠（ぼかし x・y・合成）＝枠は数え直す
+		const list = stages.filter(okStage).slice(0, MAXS - 3);   // 被写界深度は 3 枠（ぼかし x・y・合成）・Cesium の bloom は 4 枠＝枠は数え直す
 		if (list.some(s => s.type === "silhouette" || s.type === "depthOfField")) {   // Cesium の尺の深度を 1 度だけ
 			const ms = f.samples > 1, d = dPipe(ms);
 			device.queue.writeBuffer(ubD, 0, new Float32Array([2 * Math.LN2 / Math.max(f.logCoef, 1e-9), 1 / Math.log2(CZM_FAR - CZM_NEAR + 1), CZM_NEAR, 0]));
@@ -274,7 +314,23 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 			p.setPipeline(pipe(key, XCODE[key])); p.setBindGroup(0, bg); p.draw(3); p.end();
 		};
 		let cur = T!.view[1];
-		list.forEach((s, i) => {
+		for (let i = 0; i < list.length; i++) {
+			const s = list[i];
+			if (s.type === "glsl") {   // 続く glsl の段をまとめて GL へ（途中で submit＝ここまでの枠を先に書く）→ 答えは T[b & 1]・最後なら canvas へ写す
+				let b = i; while (b + 1 < list.length && list[b + 1].type === "glsl") b++;
+				device.queue.writeBuffer(ub, 0, u, 0, slot * (STRIDE / 4));
+				const next = bridgeOf()?.run(enc, list.slice(i, b + 1), cur, T!.tex[b & 1], W, H, { ...f, fovy: f.fovy ?? 50 * Math.PI / 180 });
+				if (next) { enc = next; cur = T!.view[b & 1]; }
+				i = b;
+				if (i === list.length - 1) {   // 最後＝canvas へそのまま写す（明るさ 1 の段）
+					const o = slot * (STRIDE / 4); u[o + 4] = 1;
+					const bg = device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: ub, offset: slot * STRIDE, size: 48 } }, { binding: 1, resource: cur }, { binding: 2, resource: smp }, { binding: 3, resource: T!.dv }] });
+					slot++;
+					const p = enc.beginRenderPass({ colorAttachments: [{ view: dst, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
+					p.setPipeline(pipe("brightness", BRIGHT)); p.setBindGroup(0, bg); p.draw(3); p.end();
+				}
+				continue;
+			}
 			const last = i === list.length - 1, view = last ? dst : T!.view[i & 1];
 			if (s.type === "lensFlare") {
 				const dirt = image(s.dirt), star = image(s.star);
@@ -285,6 +341,12 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 				xpass("blur", [s.delta, s.sigma, s.stepSize, 1], [0, 0, 0, f.dpr], [0, 0, 0, 0], [0, 0, 0, 0], B!.view[0], B!.view[1], blackV, blackV);
 				const e = s.earth, tn = s.tan ?? [1, 1];
 				xpass("depthOfField", [s.focalDistance, s.near, s.far, e ? 1 : 0], [0, 0, 0, f.dpr], e ? e.slice(0, 4) : [0, 0, 0, 0], [tn[0], tn[1], 0, 0], cur, view, B!.view[1], blackV);
+			} else if (s.type === "cesiumBloom") {   // 明るさとコントラスト（B0）→ ぼかし x（B1）→ y（B0）→ 素に足す
+				ensureBlur(W, H);
+				xpass("bloomCB", [s.contrast, s.brightness, 0, 0], [0, 0, 0, f.dpr], [0, 0, 0, 0], [0, 0, 0, 0], cur, B!.view[0], blackV, blackV);
+				xpass("blur", [s.delta, s.sigma, s.stepSize, 0], [0, 0, 0, f.dpr], [0, 0, 0, 0], [0, 0, 0, 0], B!.view[0], B!.view[1], blackV, blackV);
+				xpass("blur", [s.delta, s.sigma, s.stepSize, 1], [0, 0, 0, f.dpr], [0, 0, 0, 0], [0, 0, 0, 0], B!.view[1], B!.view[0], blackV, blackV);
+				xpass("bloomComp", [s.glowOnly ? 1 : 0, 0, 0, 0], [0, 0, 0, f.dpr], [0, 0, 0, 0], [0, 0, 0, 0], cur, view, B!.view[0], blackV);
 			} else {
 				const o = slot * (STRIDE / 4);
 				if (s.type === "silhouette") { u.set(s.color, o); u[o + 4] = s.length; }
@@ -298,10 +360,11 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 				p.setPipeline(pipe(s.type, code)); p.setBindGroup(0, bg); p.draw(3); p.end();
 			}
 			cur = T!.view[i & 1];
-		});
+		}
 		device.queue.writeBuffer(ub, 0, u, 0, slot * (STRIDE / 4));   // 書き込みは submit の前に順序づく＝encode の後でも各 pass は自分の枠を読む
+		return enc;
 	}
-	function dispose(): void { free(); ub.destroy(); ubD.destroy(); blackT.destroy(); for (const e of imgs.values()) e.tex?.destroy(); imgs.clear(); pipes.clear(); dPipes.clear(); }
+	function dispose(): void { disposed = true; bridge?.dispose(); bridge = null; free(); ub.destroy(); ubD.destroy(); blackT.destroy(); for (const e of imgs.values()) e.tex?.destroy(); imgs.clear(); pipes.clear(); dPipes.clear(); }
 	const bytes = (): number => (T ? T.w * T.h * (4 + 4 + 4) : 0) + (B ? B.w * B.h * 8 : 0);
 	return { target, drawable, encode, dispose, bytes };
 }

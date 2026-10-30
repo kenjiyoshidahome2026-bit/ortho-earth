@@ -6,6 +6,7 @@
      ③setPostProcess(null)＝素の絵に戻る（±tol）④getPostProcess＝正規化（既定の数値）
      ⑤第 3 波 W1（2026-10-12）＝tonemap（linear・exposure 0.3＝白い屋根が暗くなる・aces 露出 1＝屋根は白のまま）・lut（.cube の data: URL＝全部を緑に写す＝屋根が緑になる・intensity 0.5＝半分）・
        fxaa（bearing 30°＝斜めの縁で、絵は少し変わるが平均の輝度はほぼ同じ）
+     ⑥〜⑧ 画面の段（2026-10-30）＝Cesium の bloom・利用者の GLSL（WebGPU は WebGL2 の橋）・GLSL の後に他の段
      GL2（verify:ui）と WebGPU（verify:webgpu）の両方。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px}</style><title>t-postfx</title></head>
 <body><div id="map"></div>
@@ -94,6 +95,22 @@ try {
 	ok("fxaaMeanSame", Math.abs(sum0 - sum1) / n < 10, `mean ${J(sum0 / n)}→${J(sum1 / n)}`);
 	ok("fxaaCenterWhite", lumAround(r1, c30[0], c30[1]) > 200, `in=${J(lumAround(r1, c30[0], c30[1]))}`);
 	map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 0, bearing: 0 }); await sleep(600);
+	// ⑥ 画面の段（2026-10-30）：Cesium の bloom（明るさとコントラスト→ぼかし→足す）＝屋根の外が明るくなる・屋根は白のまま
+	map.setPostChain([{ type: "cesiumBloom", contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5 }]);
+	const cb = await snap(map);
+	ok("cesiumBloomOut", lumAround(cb, e[0], e[1]) > cOut + 12, `out ${J(cOut)}→${J(lumAround(cb, e[0], e[1]))}`);
+	ok("cesiumBloomIn", lumAround(cb, c[0], c[1]) > 200, `in=${J(lumAround(cb, c[0], c[1]))}`);
+	// ⑦ 利用者の GLSL の段（WebGPU では同じ worker の WebGL2 へ渡して戻す＝ortho-core の glslbridge.js）：色を反転＝白い屋根が暗く・暗い周りが明るく。深度も読む（czm_unpackDepth を通る）
+	map.setPostChain([{ type: "glsl", src: `uniform sampler2D colorTexture; uniform sampler2D depthTexture; uniform float k; in vec2 v_textureCoordinates;
+void main() { vec4 c = texture(colorTexture, v_textureCoordinates); float d = czm_unpackDepth(texture(depthTexture, v_textureCoordinates)); out_FragColor = vec4(vec3(k) - c.rgb + vec3(d * 0.0), 1.0); }`, uniforms: { k: 1 } }]);
+	const gi = await snap(map);
+	ok("glslInvertIn", lumAround(gi, c[0], c[1]) < 55, `in ${J(cIn)}→${J(lumAround(gi, c[0], c[1]))}`);
+	ok("glslInvertOut", lumAround(gi, e[0], e[1]) > 255 - cOut - 25, `out ${J(cOut)}→${J(lumAround(gi, e[0], e[1]))}`);
+	// ⑧ glsl の後に他の段（橋から WebGPU の鎖へ戻る）＝反転して明るさ 0.5
+	map.setPostChain([{ type: "glsl", src: "uniform sampler2D colorTexture; in vec2 v_textureCoordinates; void main() { out_FragColor = vec4(vec3(1.0) - texture(colorTexture, v_textureCoordinates).rgb, 1.0); }" }, { type: "brightness", value: 0.5 }]);
+	const gb = await snap(map);
+	ok("glslThenStage", Math.abs(lumAround(gb, e[0], e[1]) - (255 - cOut) * 0.5) < 20, `out ${J(lumAround(gb, e[0], e[1]))} want≈${J((255 - cOut) * 0.5)}`);
+	map.setPostChain(null);
 	// ④ 外す＝素の絵
 	map.setPostProcess(null);
 	ok("getPostNull", map.getPostProcess() === null);
