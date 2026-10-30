@@ -3,6 +3,7 @@
 // instanceof Cesium3DTileset and Cesium3DTileFeature hold (the prototypes chain to the engine's), so the widgets and CesiumWidget.zoomTo treat these as the real ones.
 import { BoundingSphere, Cartesian3, Color, Event, Matrix3, Matrix4, OrientedBoundingBox, Rectangle } from "@cesium/core";
 import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, ConditionsExpression, Expression, ImageryLayerCollection, IonResource, Resource } from "@cesium/engine";
+import * as engineAll from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { clippingOriginOf } from "./clipping.ts";
 
@@ -159,6 +160,14 @@ export class Cesium3DTileset {
 		if (ok !== this.#olKey) { this.#olKey = ok; this.#h.setOptions({ outline: ol }); }
 		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
 		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
+		const cam = scene?.camera, cull = this.tileVisible.numberOfListeners && cam?.frustum?.computeCullingVolume ? cam.frustum.computeCullingVolume(cam.positionWC, cam.directionWC, cam.upWC) : null;
+		if (this.tileVisible.numberOfListeners) for (const id of this.#h.shownTileIds ?? []) {   // tileVisible: each tile drawn this frame and in the view frustum (raised between preRender and postRender, as Cesium does while it renders)
+			const sp = cull ? this.#h.tileSphere?.(id) : null;
+			if (sp && cull.computeVisibility(new BoundingSphere(Cartesian3.fromArray(sp.center), sp.radius)) === -1) continue;   // Intersect.OUTSIDE
+			let t = this.#tiles.get(id) ?? this.#seen.get(id);
+			if (!t) { t = this.#tileOf(id); this.#seen.set(id, t); }
+			this.tileVisible.raiseEvent(t);
+		}
 		if (this.tileLoad.numberOfListeners || this.tileUnload.numberOfListeners) {   // tileLoad / tileUnload: the globe loads tiles on its own, so the loaded set is compared once a frame
 			const now = new Set<number>(this.#h.tileIds ?? []);
 			for (const id of now) if (!this.#tiles.has(id)) { const t = this.#tileOf(id); this.#tiles.set(id, t); this.tileLoad.raiseEvent(t); }
@@ -172,7 +181,17 @@ export class Cesium3DTileset {
 	/** a loaded tile as Cesium3DTile: its content holds the tile's features (content.featuresLength / getFeature, the same objects until it unloads) */
 	#tileOf(id: number) {
 		const feats = (this.#h?.tileFeatures?.(id) ?? []).map((p: Any) => new Cesium3DTileFeature(this, { ...p, tile: id }));
-		const content = { tileset: this, url: this.url, featuresLength: feats.length, innerContents: undefined, getFeature: (i: number) => feats[i], hasProperty: (i: number, name: string) => !!feats[i]?.hasProperty?.(name) };
+		// a Model3DTileContent (instanceof holds: the examples test it) whose values are its own; getExtension = the glTF's root extension as Cesium's loader
+		// makes it (NGA_gpm_local → GltfGpmLoader's objects), else the raw json
+		let ext: Record<string, Any> | null | undefined;
+		const getExtension = (name: string) => {
+			if (ext === undefined) ext = this.#h?.tileExtensions?.(id) ?? null;
+			const e = ext?.[name];
+			if (e === undefined) return undefined;
+			if (name === "NGA_gpm_local") { try { return GltfGpmLoader.load(e); } catch { return undefined; } }
+			return e;
+		};
+		const content = Object.create(Model3DTileContent.prototype, Object.fromEntries(Object.entries({ tileset: this, url: this.url, featuresLength: feats.length, innerContents: undefined, getFeature: (i: number) => feats[i], hasProperty: (i: number, name: string) => !!feats[i]?.hasProperty?.(name), getExtension }).map(([k, v]) => [k, { value: v, enumerable: true, writable: true }])));
 		return { ...this.root, tileset: this, content };
 	}
 	__detach() { this.#host = null; this.#h?.remove(); this.#h = null; }
@@ -181,6 +200,19 @@ export class Cesium3DTileset {
 		const p = this.#h?.pick?.(x, y);
 		return p ? new Cesium3DTileFeature(this, p) : undefined;
 	}
+	/** a feature by its id in a tile (scene.pickFromRay): one object per feature while its tile stays, as Cesium hands back the same Cesium3DTileFeature */
+	__feature(featureId: number, tile?: number) {
+		const key = `${tile ?? ""}:${featureId}`;
+		let f = this.#features.get(key);
+		if (!f) {
+			const p = tile != null ? (this.#h?.tileFeatures?.(tile) ?? []).find((q: Any) => q.featureId === featureId) : null;
+			f = new Cesium3DTileFeature(this, { ...(p ?? {}), featureId, tile });
+			this.#features.set(key, f);
+		}
+		return f;
+	}
+	#features = new Map<string, Cesium3DTileFeature>();
+	#seen = new Map<number, Any>();   // the tiles handed to tileVisible (the same object each frame)
 	update() {}
 	prePassesUpdate() {}
 	postPassesUpdate() {}
@@ -236,6 +268,8 @@ class StyleFeature {
 	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#x.props || {}).filter(k => !k.startsWith("__"))); return result; }
 }
 /** what scene.pick returns for a 3D Tiles hit */
+const { GltfGpmLoader, Model3DTileContent } = engineAll as Any;   // private in the d.ts, exported at run time
+
 export class Cesium3DTileFeature {
 	readonly tileset: Cesium3DTileset; readonly primitive: Cesium3DTileset; readonly featureId: number;
 	#p: Any; #color: Color | undefined; #show = true;

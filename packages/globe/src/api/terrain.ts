@@ -7,7 +7,7 @@ import { classifyGeometry } from "../classify.ts";
 import { cssColor } from "../hillshade.ts";
 import type { MeshItemRef, PickItem } from "../meshpick.ts";
 import { createWalk, pointInPolygon } from "../walk.ts";
-import type { ClassificationHandle, ClassificationOptions, HandlerImpl, LonLat, RenderedFeature, SampleHeightResult, WalkHandle, WalkOptions } from "../../globe.d.ts";
+import type { ClassificationHandle, ClassificationOptions, HandlerImpl, LonLat, RaycastHit, RenderedFeature, SampleHeightResult, WalkHandle, WalkOptions } from "../../globe.d.ts";
 import type { Installing, TerrainDeps, TerrainLive } from "../types/install.ts";
 import type { GlobeMap, TerrainApi } from "../types/map.ts";
 import type { TerrainSpec } from "../types/scope.ts";
@@ -140,6 +140,34 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 			let th = 0; try { th = await heightAt(lng, lat); } catch { th = 0; }
 			out[q] = { lng, lat, height: Number.isFinite(th) ? th : 0, source: "terrain" };
 		} }));
+		return out;
+	};
+	// 半直線の当たり（Cesium の scene.pickFromRay／drillPickFromRay・2026-10-30）：map.raycast(from, to, { limit }) → [{ lng, lat, height, distance, source, id, tile?, featureId? }]（近い順・同期）。
+	//   from・to＝[lng, lat, height(m)]＝from から to の向きへ伸ばした半直線（to で止めない）。読み込んである 3D Tiles と模型の三角形に当てる（sampleHeight と同じ束）。
+	//   limit（既定 1）＝奥へ進みながら別の物（id と地物の番号の組）を集める数。地形には当てない。地形へ持ち上げる束の持ち上げ＝queryTerrainElevation（同期・未着は 0）
+	map.raycast = (from, to, { limit = 1 } = {}) => {
+		const k = 1 / EARTH_M, w = (q: ArrayLike<number>) => { const u = lonlatTo3D(q[0], q[1]), m = ELL_ON ? ellNormal3D(q[0], q[1]) : u, h = (+q[2] || 0) * k; return [u[0] + h * m[0], u[1] + h * m[1], u[2] + h * m[2]]; };
+		const raw: Array<MeshItemRef & { src: "tiles3d" | "model" }> = [
+			...(live.t3dCtl?.meshItems() ?? []).map(r => ({ ...r, src: "tiles3d" as const })),
+			...(live.modelCtl?.meshItems?.() ?? []).map(r => ({ ...r, src: "model" as const }))];
+		const out: RaycastHit[] = [];
+		if (!raw.length) return out;
+		const items: PickItem[] = raw.map(r => { if (r.mode === "plane") return { ...r.item, lift: 0 }; const ll = betaToLonLat(r.item.origin), g = map.queryTerrainElevation(ll[0], ll[1]); return { ...r.item, lift: Math.max(0, Number.isFinite(g) ? +g! : 0) * k }; });
+		const a = w(from), b = w(to), d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(d[0], d[1], d[2]);
+		if (!(L > 0)) return out;
+		const u = [d[0] / L, d[1] / L, d[2] / L], seen = new Set<string>();
+		let t0 = 0;
+		for (let n = 0; n < 64 && out.length < Math.max(1, limit); n++) {
+			const o = [a[0] + t0 * u[0], a[1] + t0 * u[1], a[2] + t0 * u[2]], h = rayMeshes(items, o, u);
+			if (!h) break;
+			t0 += h.t + 1e-3 * k;   // 1 mm 奥から次を探す
+			const r = raw[h.item], key = `${r.src}:${r.id}:${h.featureId ?? ""}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			const P = h.world, ll = betaToLonLat(P), q = lonlatTo3D(ll[0], ll[1]), m = ELL_ON ? ellNormal3D(ll[0], ll[1]) : q, mm = m[0] * m[0] + m[1] * m[1] + m[2] * m[2];
+			const height = ((P[0] - q[0]) * m[0] + (P[1] - q[1]) * m[1] + (P[2] - q[2]) * m[2]) / mm / k;   // 法線方向の高さ（m）
+			out.push({ lng: ll[0], lat: ll[1], height, distance: (t0 - 1e-3 * k) / k, source: r.src, id: r.id, ...(r.tile != null && { tile: r.tile }), ...(h.featureId != null && { featureId: h.featureId }) });
+		}
 		return out;
 	};
 	// 一人称歩行（F6 の口・第 3 波 W3 で中身＝src/walk.js）：map.walk(opts) → 手綱 { start, stop, active, opts, step, turn, look, position }。
