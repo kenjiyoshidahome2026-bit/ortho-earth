@@ -476,10 +476,11 @@ function onTerrain(scene: OrthoScene, p: any) {
 		const urlOk = cwt || bathy || ionId > 0 || (r?.url && !r._ionEndpoint);
 		const bridged = !urlOk ? bridgedTerrainSource(map, p) : null;
 		if (!urlOk && !bridged && (!(scene.host as any).flatStart || map.getTerrain?.())) return;
-		const source = bridged ?? (cwt ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token }, heights: "orthometric" }
+		// negative: the sea surface of these ellipsoid heights is at −N (about −29 m in San Francisco Bay); the globe's default would lift it to 0
+		const source = bridged ?? (cwt ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token }, heights: "orthometric", negative: true }
 			: bathy ? { type: "quantized-mesh", ion: { assetId: 2426648, accessToken: token }, heights: "orthometric", seafloor: true }
-			: ionId > 0 ? { type: "quantized-mesh", ion: { assetId: ionId, accessToken: token }, heights: "orthometric" }
-			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers, heights: "orthometric" } : null);
+			: ionId > 0 ? { type: "quantized-mesh", ion: { assetId: ionId, accessToken: token }, heights: "orthometric", negative: true }
+			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers, heights: "orthometric", negative: true } : null);
 		if (source) map.setTerrain?.({ source }).catch?.((e: unknown) => console.warn("[csshim] terrain", e));
 		else unsupported(`terrain provider ${name}`);
 	});
