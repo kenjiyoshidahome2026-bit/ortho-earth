@@ -2847,6 +2847,7 @@ map.setCustomShader = (id, spec) => { renderer.set("customShader", spec ? { ...s
 // 模型の鏡面の環境（Cesium の ImageBasedLighting.specularEnvironmentMaps・KTX2 の前処理済み立方体図）：levels[mip]＝6 面（+X −X +Y −Y +Z −Z・各 size>>mip 四方）の RGBA16F を並べた物。mip＝粗さ×最大 mip で引く。null＝反射の向きの SH9 に戻す
 map.setMeshEnvironmentMap = e => { const data = e && e.size > 0 && e.levels?.length ? { size: e.size | 0, levels: e.levels.map(l => new Uint16Array(l)) } : null; wPost({ type: "set", cmd: "meshSpecEnv", data }, data ? data.levels.map(l => l.buffer) : []); requestDraw(); return map; };
 map.setCustomShaderTexture = (id, name, tex, opts = {}) => { const bm = (tex as { bitmap?: ImageBitmap } | null)?.bitmap, rg = (tex as { rgba?: Uint8Array } | null)?.rgba; wPost({ type: "set", cmd: "customShaderTex", data: { name, tex, ...opts }, prop: String(id) }, [bm, rg?.buffer].filter(Boolean) as Transferable[]); requestDraw(); return map; };
+map.setMeshImagery = (id, d) => { const data = d?.bitmap ? { bitmap: d.bitmap, west: +d.west, south: +d.south, east: +d.east, north: +d.north } : null; wPost({ type: "set", cmd: "meshDrape", data, prop: String(id) }, data ? [data.bitmap] : []); requestDraw(); return map; };   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）＝窓 1 枚・Tiles3DOptions.imagery が id を指す
 map.setUnderground = u => { renderer.set("view", { underground: u && Array.isArray(u.color) && Array.isArray(u.nf) ? { color: [...u.color], nf: [...u.nf] } : null }); requestDraw(); return map; };   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
@@ -3212,6 +3213,7 @@ const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); ret
 	setMeshCut: (name, cut) => { wPost({ type: "set", cmd: "meshCut", data: cut, prop: name }); requestDraw(); },
 	setMeshSplit: (name, side) => { wPost({ type: "set", cmd: "meshSplit", data: side, prop: name }); requestDraw(); },   // Cesium splitDirection（-1 left / +1 right / 0）
 	setMeshEnv: (name, sh) => { wPost({ type: "set", cmd: "meshEnv", data: sh ? Array.from(sh) : null, prop: name }); requestDraw(); },
+	setMeshImagery: (name, id) => { wPost({ type: "set", cmd: "meshImagery", data: id, prop: name }); requestDraw(); },   // the drape picture the batch reads (map.setMeshImagery)
 	setMeshNoClip: (name, off) => { wPost({ type: "set", cmd: "meshNoClip", data: off, prop: name }); requestDraw(); },   // left out of setClipping (Cesium clippingPolygons of another tileset)
 	setMeshOutline: (name, c) => { wPost({ type: "set", cmd: "meshOutline", data: c ? Array.from(c) : null, prop: name }); requestDraw(); },   // CESIUM_primitive_outline colour (Cesium tileset.showOutline / outlineColor)   // タイルセットの環境光（Cesium の tileset の DynamicEnvironmentMapManager）＝SH9｜null
 	setMeshCustom: (name, id) => { wPost({ type: "set", cmd: "meshCustom", data: id, prop: name }); requestDraw(); },   // 利用者のシェーダ（tileset.customShader）   // 不透明の束を MASK に（feature state の show:false）

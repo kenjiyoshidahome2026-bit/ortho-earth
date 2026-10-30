@@ -82,7 +82,7 @@ async function work(e: MessageEvent<ModelJob>) {
 				if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
 				buf = await res.arrayBuffer();
 			}
-			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, mc: !!e.data.mc, splats: !!e.data.splats, voxels: e.data.voxels ?? false, fetchOpts: headers || credentials ? { headers: headers ?? null, credentials: credentials ?? null } : null });
+			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, upAxis: e.data.upAxis ?? null, mc: !!e.data.mc, splats: !!e.data.splats, voxels: e.data.voxels ?? false, fetchOpts: headers || credentials ? { headers: headers ?? null, credentials: credentials ?? null } : null });
 			if (!r) { self.postMessage({ id, batches: [], points: [], splats: [], voxels: [], stats: { triangles: 0, points: 0, splats: 0, splatPoints: 0, voxels: 0, voxelsSkipped: 0, bytes: buf.byteLength } }); return; }
 			r.stats.bytes = buf.byteLength;
 			const tr = transferOf(r.batches); for (const p of r.points) tr.push(p.pos.buffer, p.rgba.buffer);

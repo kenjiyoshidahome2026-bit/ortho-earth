@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- 3D Tiles に重ねる絵（map.setMeshImagery＋Tiles3DOptions.imagery＝Cesium3DTileset.imageryLayers・2026-10-30）。試料＝tests/fixtures/tiles3d（東京駅の青い箱 4 棟・東 ±150 m・北 ±150 m）。
+     ①窓の西半分だけ赤い絵＝西の箱は赤・東の箱は青のまま（緑は点群・赤い親の板は寄ると伏せる）（位置で引いている）②imagery:null で元の青 ③絵を外す。?gl2=1 と WebGPU の両方で回す -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-tiles3d-drape</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (f()) return true; await sleep(250); } return false; };
+run(); async function run() { try { const note = s => { document.title = "… " + s; };
+	const map = await createGlobe({ target: "#map", view: "#16.6/35.6812/139.7671/45t", chips: false, debugGlobals: true });
+	await sleep(2500);
+	const h = await map.add3DTiles("./fixtures/tiles3d/tileset.json", { fit: false });
+	ok("loaded", await until(() => h.stats.shown >= 7), JSON.stringify(h.stats)); note(t.join(" "));
+	const shot = map.gadget.shot();
+	const grab = async () => {
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const stat = (img, test) => { let k = 0, sx = 0; for (let i = 0; i < img.data.length; i += 4) if (test(img.data[i], img.data[i + 1], img.data[i + 2])) { k++; sx += (i / 4) % img.width; } return { n: k, x: k ? sx / k / img.width : -1 }; };
+	const isBlue = (r, g, b) => b > 120 && b > r * 2 && b > g * 1.6, isRed = (r, g, b) => r > 150 && g < 60 && b < 60;
+	const settle = async (want) => { let s; for (let k = 0; k < 10; k++) { const img = await grab(); s = { blue: stat(img, isBlue), red: stat(img, isRed) }; note(t.join(" ") + " " + JSON.stringify(s)); if (want(s)) break; await sleep(2000); } return s; };
+	// the window: ±0.006° around the station; the picture's west half is opaque red, the east half clear
+	const W = 256, cv = new OffscreenCanvas(W, W), cx = cv.getContext("2d");
+	cx.fillStyle = "rgb(255,0,0)"; cx.fillRect(0, 0, W / 2, W);
+	map.setMeshImagery("drape-t", { bitmap: cv.transferToImageBitmap(), west: 139.7611, south: 35.6752, east: 139.7731, north: 35.6872 });
+	h.setOptions({ imagery: "drape-t" });
+	const s1 = await settle(s => s.red.n > 300 && s.blue.n > 300 && s.red.x < s.blue.x);
+	ok("west red, east blue", s1.red.n > 300 && s1.blue.n > 300 && s1.red.x < s1.blue.x, JSON.stringify(s1));
+	h.setOptions({ imagery: null });
+	const s2 = await settle(s => s.red.n < 50 && s.blue.n > 600);
+	ok("off = blue again", s2.red.n < 50 && s2.blue.n > 600, JSON.stringify(s2));
+	h.setOptions({ imagery: "drape-t" }); map.setMeshImagery("drape-t", null);
+	const s3 = await settle(s => s.red.n < 50 && s.blue.n > 600);
+	ok("picture removed", s3.red.n < 50 && s3.blue.n > 600, JSON.stringify(s3));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ") + " backend=" + map.backend;
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); } }
+</script>
+</body></html>
