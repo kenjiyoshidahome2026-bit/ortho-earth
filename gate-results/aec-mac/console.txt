@@ -1,0 +1,23 @@
+== webgpu aec-architectural-design backend=webgpu
+   1× page warning: Color has been moved from cesium/engine to cesium/core in CesiumJS 1.146, and will be removed from cesium/engine in 1.150. Import from cesium/core instead.
+== webgpu aec-elements-api-query backend=webgpu
+== webgpu aec-isolate-by-category backend=webgpu
+   1× page warning: Color has been moved from cesium/engine to cesium/core in CesiumJS 1.146, and will be removed from cesium/engine in 1.150. Import from cesium/core instead.
+== webgpu aec-metadata-styling backend=webgpu
+   1× page warning: Color has been moved from cesium/engine to cesium/core in CesiumJS 1.146, and will be removed from cesium/engine in 1.150. Import from cesium/core instead.
+== webgpu aec-snapping backend=webgpu
+== webgpu aec-tileset-metadata-filtering backend=webgpu
+== webgpu aec-clipping backend=webgpu
+   1× page warning: Color has been moved from cesium/engine to cesium/core in CesiumJS 1.146, and will be removed from cesium/engine in 1.150. Import from cesium/core instead.
+== webgpu 3d-tiles-bim backend=webgpu
+   1× page error: [csshim] render error TypeError: Cannot read properties of undefined (reading 'innerContents') |     at processTileFeatures (http://localhost:5460/cs/ortho/gallery/3d-tiles-bim/main.js:112:33)
+   1× page error: TypeError: Cannot read properties of undefined (reading 'innerContents') |     at processTileFeatures (http://localhost:5460/cs/ortho/gallery/3d-tiles-bim/main.js:112:33)
+== webgpu 3d-tiles-feature-styling backend=webgpu
+== webgpu 3d-tiles-interactivity backend=webgpu
+   1× worker warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+   1× page warning: [terrain] audit: refetching unwritten cells 0,0 1,0 0,1 (1/5)
+== webgpu google-photorealistic-3d-tiles-with-building-insert backend=webgpu
+   1× page warning: Color has been moved from cesium/engine to cesium/core in CesiumJS 1.146, and will be removed from cesium/engine in 1.150. Import from cesium/core instead.
+== webgpu cesium-osm-buildings backend=webgpu
+   1× worker warning: [terrain] audit: refetching unwritten cells 0,0 1,0 2,0 3,0 0,1 1,1 2,1 3,1 (1/5)
+   1× page warning: [terrain] audit: refetching unwritten cells 0,0 1,0 2,0 3,0 0,1 1,1 2,1 3,1 (1/5)

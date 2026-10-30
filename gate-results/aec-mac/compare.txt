@@ -1,0 +1,12 @@
+DOWN 3d-tiles-bim | now L1 c99.9 e97.7 b0 | prev(mac-pc6) L3 c99.9 e97.7 b1 | render error: Cannot read properties of undefined (reading 'innerContents')
+DOWN 3d-tiles-feature-styling | now L2 c85.3 e95.7 b126 | prev(ol-mac-gl2) L2 c92.2 e96.8 b21 | picture: colour 85% · edges 96% of the cells match · a patch of 126 cells differs
+     3d-tiles-interactivity | now L3 c96.3 e94.8 b9 | prev(ol-mac-gl2) L3 c96.3 e94.8 b9 | 
+     aec-architectural-design | now L2 c71.4 e88.2 b271 | prev(none) - | picture: colour 71% · edges 88% of the cells match · a patch of 271 cells differs
+     aec-clipping | now L3 c98.5 e99.1 b11 | prev(none) - | 
+     aec-elements-api-query | now L2 c83.2 e77.1 b225 | prev(none) - | picture: colour 83% · edges 77% of the cells match · a patch of 225 cells differs
+     aec-isolate-by-category | now L2 c70.1 e86.6 b272 | prev(none) - | picture: colour 70% · edges 87% of the cells match · a patch of 272 cells differs
+     aec-metadata-styling | now L2 c67.7 e87.7 b567 | prev(none) - | picture: colour 68% · edges 88% of the cells match · a patch of 567 cells differs
+     aec-snapping | now L2 c73.7 e81.9 b52 | prev(none) - | picture: colour 74% · edges 82% of the cells match · a patch of 52 cells differs
+     aec-tileset-metadata-filtering | now L3 c97.3 e96.8 b7 | prev(mac-pc6) L3 c96.3 e96.8 b17 | 
+DOWN cesium-osm-buildings | now L3 c86.1 e94.0 b5 | prev(ol-mac-gl2) L2 c82.7 e95.2 b13 | 
+     google-photorealistic-3d-tiles-with-building-insert | now L2 c98.7 e97.5 b24 | prev(mac-pc6) L2 c99.0 e97.5 b24 | picture: colour 99% · edges 98% of the cells match · a patch of 24 cells differs
