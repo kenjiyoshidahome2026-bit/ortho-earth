@@ -1256,7 +1256,9 @@ const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "first
 //     wait は順番待ちだけ（ローダ死は 20 秒で諦め＝不透明度は据え置き＝「地上」とは言わない）。
 //   ・★再サンプルの契機（同日）：onMove だけでは「起動時に地中で開いた」「静止中にタイルが届いた」を拾えない
 //     → ローダ準備完了（getHeightP）・settle・タイル到着（onend）で force サンプル。静止中に届いた答えは帯でなく確定値。
-let ugT = 0, ugBusy = false, ugLastD = Infinity;   // ugLastD＝直近サンプルの eye直下地表からの余裕[m]（静止時コミット用。Infinity=地上/不明）
+let ugT = 0, ugBusy = false, ugLastD = Infinity, ugEye: number[] | null = null;   // ugEye = the eye the last sample measured (a sample of a camera that has moved since is stale)
+const ugEyeNow = () => cameraState(cam, size.w, size.h).eye;
+const ugStale = (e: ArrayLike<number> | null) => { if (!e) return true; const n = ugEyeNow(); return Math.hypot(n[0] - e[0], n[1] - e[1], n[2] - e[2]) * EARTH_M > 0.5; };   // ugLastD＝直近サンプルの eye直下地表からの余裕[m]（静止時コミット用。Infinity=地上/不明）
 const UG_FADE_TOP_M = 20, UG_FADE_FULL_M = -15, UG_WAIT_MS = 20000;
 function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove から）：eye直下の地表との高低差→オーバーレイ不透明度。force＝スロットル無視（起動/settle/到着）
 	if ((!getHeight && !demMain) || ugBusy || (!force && performance.now() - ugT < 60)) return;
@@ -1276,6 +1278,10 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	Promise.race([ground, new Promise(r => setTimeout(r, UG_WAIT_MS, UG_TIMEOUT))])
 		.then(h => {
 			if (h === UG_TIMEOUT) { ugBusy = false; return; }   // ローダ無応答＝今の不透明度を据え置き（次の契機で再挑戦）
+			// the camera moved while the height was on its way (e.g. the Cesium facade lifts its target onto terrain that just arrived: the eye stays,
+			// but a frame in between had the target at 0 m and the new distance): this answer measured an eye that is no longer there = sample again
+			if (ugStale(st.eye)) { ugBusy = false; setTimeout(() => updateUnderground(true), 0); return; }
+			ugEye = Array.from(st.eye);
 			if (clipFor("terrain") && clipDistanceM(clipFor("terrain")!, lon, lat, eyeAltM) < 0) return done(0, Infinity);   // 断面（#111）＝目が地形の面で切られた側（周りに地面が無い）＝地中でない
 			const d = eyeAltM - (+(h as number) || 0);   // 直下地表からの余裕[m]（d<0=地中）
 			const x = Math.max(0, Math.min(1, (UG_FADE_TOP_M - d) / (UG_FADE_TOP_M - UG_FADE_FULL_M)));
@@ -1287,6 +1293,7 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 // ＝地中(d<0)なら中途半端なグレーを残さず全黒（opacity=1）、地上なら解除（0）。Kenji「止まった時はヒステリシスが
 // あっても真っ黒に」。直近サンプル ugLastD を同期で使う（新規fetchの競合なし。静止時は eye≈最終onMove位置＝十分新鮮）。
 function commitUnderground() {
+	if (ugLastD < 0 && ugStale(ugEye)) { updateUnderground(true); return; }   // the last "underground" was measured at another eye: measure where the camera rests now
 	(undergroundEl.style as { opacity: string | number }).opacity = ((cam.pitch || 0) >= 0.06 && ugLastD < 0) ? 1 : 0;
 }
 
