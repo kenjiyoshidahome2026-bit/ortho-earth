@@ -56,5 +56,5 @@ export type { RasterSpec, RasterSource } from "./raster-src.ts";
 export { splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, convertLayer, convertFilter, convertValue, isExpressionFilter, shiftLayerZoom, shiftZoomExpr, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, mlUnknownOps, validateMLStyle } from "./mlstyle.ts";   // 外来の MapLibre style.json を基図 style へ（#33）
 export type { MLLayer, StyleIssue } from "./mlstyle.ts";
 export { createDemSource, decodeDEM, normalizeDemSpec } from "./dem-src.ts";   // 外来の標高タイル（raster-dem・#36）
-export type { DemEncoding, DemSpec, DemSpecInput, DemSource } from "./dem-src.ts";
+export type { DemEncoding, DemLoad, DemPixels, DemSpec, DemSpecInput, DemSource } from "./dem-src.ts";
 export { loadGeoid, geoidHeight } from "./geoid.ts";   // ジオイド高（EGM96 30 分・楕円体高 → 標高）
