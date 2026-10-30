@@ -187,11 +187,14 @@ const worldOf = (e: ArrayLike<number>, baseH: number, ell: boolean, EW: number) 
 
 // distance (world units) from the eye to a box volume: the box's half axes mapped to world by central differences, d = box centre − eye
 // (Cesium's TileOrientedBoundingBox.distanceToCamera; the mapping is affine enough over one tile)
-const obbDist = (b: number[][], baseH: number, d: number[], ell: boolean, EW: number) => {
+const obbAxes = (b: number[][], baseH: number, ell: boolean, EW: number) => [1, 2, 3].map(k => {
+	const a = b[k], p = worldOf([b[0][0] + a[0], b[0][1] + a[1], b[0][2] + a[2]], baseH, ell, EW), q = worldOf([b[0][0] - a[0], b[0][1] - a[1], b[0][2] - a[2]], baseH, ell, EW);
+	return [(p[0] - q[0]) / 2, (p[1] - q[1]) / 2, (p[2] - q[2]) / 2];
+});
+const obbDist = (axes: number[][], d: number[]) => {
 	let s = 0;
-	for (let k = 1; k <= 3; k++) {
-		const a = b[k], p = worldOf([b[0][0] + a[0], b[0][1] + a[1], b[0][2] + a[2]], baseH, ell, EW), q = worldOf([b[0][0] - a[0], b[0][1] - a[1], b[0][2] - a[2]], baseH, ell, EW);
-		const ax = [(p[0] - q[0]) / 2, (p[1] - q[1]) / 2, (p[2] - q[2]) / 2], L = len(ax);
+	for (const ax of axes) {
+		const L = len(ax);
 		if (L < 1e-15) continue;
 		const t = Math.abs(d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2]) / L, e = t - L;
 		if (e > 0) s += e * e;
@@ -214,8 +217,15 @@ export function sphereOf(bv: BoundingVolume | undefined, M: ArrayLike<number>): 
 		for (let i = 0; i <= K; i++) for (const y of lats) for (const h of [h0, h1]) pts.push(geo2ecef(w + (e - w) * i / K, y, h));
 		const far = (o: number[]) => pts.reduce((m, p) => Math.max(m, Math.hypot(p[0] - o[0], p[1] - o[1], p[2] - o[2])), 0);
 		const r = far(c);
-		if (e - w > Math.PI / 2 || n - s > Math.PI / 2) { const r0 = far([0, 0, 0]); if (r0 < r) return { c: [0, 0, 0], r: r0 }; }
-		return { c, r };
+		if (e - w > Math.PI / 2 || n - s > Math.PI / 2) { const r0 = far([0, 0, 0]); if (r0 < r) return { c: [0, 0, 0], r: r0 }; return { c, r }; }
+		// a box on the tangent plane at the middle (east, north, up) around the samples: Cesium measures a region's distance and culls it by
+		// such a box (TileBoundingRegion's OrientedBoundingBox.fromRectangle); the sphere around a flat tile is far looser
+		// (3d-tiles-nga-gpm-visualization: the sphere distance refined tiles Cesium keeps, its sphere kept tiles Cesium culls)
+		const cl = Math.cos(lat), ax = [[-Math.sin(lon), Math.cos(lon), 0], [-Math.sin(lat) * Math.cos(lon), -Math.sin(lat) * Math.sin(lon), cl], [cl * Math.cos(lon), cl * Math.sin(lon), Math.sin(lat)]];
+		const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+		for (const p of pts) for (let k = 0; k < 3; k++) { const t = (p[0] - c[0]) * ax[k][0] + (p[1] - c[1]) * ax[k][1] + (p[2] - c[2]) * ax[k][2]; lo[k] = Math.min(lo[k], t); hi[k] = Math.max(hi[k], t); }
+		const bc = [0, 1, 2].map(i => c[i] + ax.reduce((m, a, k) => m + a[i] * (lo[k] + hi[k]) / 2, 0)), half = ax.map((a, k) => a.map(x => x * (hi[k] - lo[k]) / 2));
+		return { c: bc, r: far(bc), obb: [bc, ...half] };
 	}
 	const cy = cylinderOf(bv);
 	if (cy) {   // 円柱（3DTILES_bounding_volume_cylinder）＝高さの真ん中の軸上を中心に、外の半径と高さの半分の斜辺（扇形でも全周で測る＝大きめ）
@@ -825,11 +835,12 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const visible = (n: T3dNode): { ok: true; dist: number; distC?: number } | { ok: false } => {
 				if (!n.sphere) return { ok: true, dist: 1 };
 				const c = worldOf(n.sphere.c, -liftOf(set, n), ell, EARTH_M), r = n.sphere.r / EARTH_M;
-				for (const p of planes) if (p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3] < -r) return { ok: false };
+				const axes = n.sphere.obb ? obbAxes(n.sphere.obb, -liftOf(set, n), ell, EARTH_M) : null;   // a box volume: culled by the box, as Cesium
+				for (const p of planes) if (p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3] < -(axes ? axes.reduce((m, a) => m + Math.abs(p[0] * a[0] + p[1] * a[1] + p[2] * a[2]), 0) : r)) return { ok: false };
 				// 地平線の向こう（球の裏側）＝地平面（接点の面 dot(X,E)=1）より向こうに境界球ごと居る
 				const d = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], dl = len(d), el = len(eye);
 				if (el > 1 && (c[0] * eye[0] + c[1] * eye[1] + c[2] * eye[2]) / el + r < 1 / el) return { ok: false };
-				return { ok: true, dist: Math.max(1e-9, n.sphere.obb ? obbDist(n.sphere.obb, -liftOf(set, n), d, ell, EARTH_M) : dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
+				return { ok: true, dist: Math.max(1e-9, axes ? obbDist(axes, d) : dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
 			};
 			const walk = (n: T3dNode, out: T3dNode[], gp = Infinity, sib = false): boolean => {   // 戻り＝描くべき物が全部揃ったか。gp＝親の SSE（読む順の塊の優先度）。sib＝親が中身を持つ REPLACE（この塊がそろうまで親が受け持つ）
 				const g = n.parent?.id ?? 0;
