@@ -24,6 +24,8 @@ try {
 	for (const [k, v] of Object.entries(PF.POST_WGSL)) mods.push([k, v]);
 	const PS = await import("@ortho-earth/core/src/gpu/poststage.ts");   // 画面の段（Cesium の postProcessStages 相当・2026-10-28）＝縁取り・白黒・明るさ・暗視・深度の写し（1x/4x）
 	for (const [k, v] of Object.entries(PS.STAGE_WGSL)) mods.push([k, v]);
+	const GB = await import("@ortho-earth/core/src/glslbridge.ts");   // glsl の段の橋（2026-10-30）＝色の写し・深度の詰め（1x/4x）
+	for (const [k, v] of Object.entries(GB.BRIDGE_WGSL)) mods.push([k, v]);
 	// 線の派生（基図の classic＝前後の点と旗・距離を属性で／md＝線分プール・影の有無）＝LINEX の継ぎ目と line-gradient（G-3）の色の語の読み方
 	for (const [k, v] of [["LINE_WGSL", W.LINE_WGSL], ["LINE_SH_WGSL", W.LINE_SH_WGSL]]) mods.push([`lineXWgsl(${k})`, W.lineXWgsl(v, k)], [`mdLineWgsl(${k})`, W.mdLineWgsl(v, k)]);
 	let n = 0;
