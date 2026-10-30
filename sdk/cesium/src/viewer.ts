@@ -96,6 +96,10 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	const scene = new OrthoScene(host, canvas, { scene3DOnly: options.scene3DOnly, globe: options.globe });
 	this._scene = scene;
 	scene.camera.constrainedAxis = Cartesian3.UNIT_Z;
+	// Cesium's default data source has an EntityCluster, which listens to camera.changed from the start: the camera's change is measured from the first
+	// frame, so a camera.changed listener added later still hears a jump made before it (google-streetview-panorama: the flyTo into the city switches
+	// to the 3D tiles). The facade draws clustering itself, so the listener is kept here
+	scene.camera.changed.addEventListener(() => {});
 	scene.shadowMap.enabled = !!options.shadows;   // Viewer.shadows reads and writes scene.shadowMap.enabled (lighting.ts shadows)
 	if (scene.globe) scene.globe.shadows = options.terrainShadows ?? engine.ShadowMode.RECEIVE_ONLY;
 	(scene.frameState as Any).creditDisplay = new CreditDisplay(innerCreditContainer, "•", this._creditViewport);   // the real one (the scene runs its frame: OrthoScene.render)
@@ -337,8 +341,8 @@ export function Viewer(this: Any, container: Any, options: Any = {}) {
 		eventHelper.add(homeButton.viewModel.command.beforeExecute, RealViewer.prototype._clearTrackedObject, this);
 	}
 	if (!scene3DOnly && options.sceneModePicker !== false) { try { sceneModePicker = new SceneModePicker(toolbar, scene); } catch (e) { console.warn("[csshim] SceneModePicker", e); } }
-	if (options.projectionPicker) {   // the button is Cesium's; the globe draws in perspective only (an orthographic frustum is reported when chosen)
-		try { projectionPicker = new ProjectionPicker(toolbar, scene); projectionPicker.viewModel.switchToOrthographic.afterExecute.addEventListener(() => unsupported("orthographic frustum (ProjectionPicker)")); }
+	if (options.projectionPicker) {   // the button is Cesium's; an orthographic frustum is drawn as a telephoto view (scene.ts #pushCamera)
+		try { projectionPicker = new ProjectionPicker(toolbar, scene); }
 		catch (e) { console.warn("[csshim] ProjectionPicker", e); }
 	}
 	if (createBaseLayerPicker) {
