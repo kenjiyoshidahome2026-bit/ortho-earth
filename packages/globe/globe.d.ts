@@ -27,7 +27,7 @@ export type LightSpec =
 	| { id?: string; type: string; [k: string]: unknown };
 /** glTF の見出し（F4・2026-10-12・src/gltf-meta.js）＝模型に何が入っているか。animations＝名前・長さ（秒）・channel の数・target の path。textureFormats＝画像の形式（"ktx2" なら KHR_texture_basisu＝変換器が要る）。
  *  featureIds＝EXT_mesh_features か _FEATURE_ID_n／_BATCHID が在る（W7 から pick・queryRenderedFeatures・setFeatureState で当たる）。structuralMetadata＝EXT_structural_metadata が在る */
-export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean; /** asset.copyright（W8・空でない時だけ） */ copyright?: string }
+export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean; /** asset.copyright（W8・空でない時だけ） */ copyright?: string; /** 根の拡張（EXT_structural_metadata・CESIUM_RTC を除く生の json） */ extensions?: Record<string, unknown> }
 export interface GltfAnimationInfo { index: number; name: string; duration: number; channels: number; paths: string[] }
 /** 再生の spec（W4 から rigid アニメ＝ノードの translation/rotation/scale は描く・skin/morph は spec のまま）。name か index（省略＝最初）・time（秒）・loop（既定 true）・speed（既定 1）・playing */
 export interface AnimationSpec { name?: string; index?: number; time?: number; loop?: boolean; speed?: number; playing?: boolean }
@@ -890,6 +890,8 @@ export interface CzmlHandle {
 	/** 全部外す（時計の範囲も外す） */
 	remove(): void;
 }
+/** map.raycast の 1 つの当たり（2026-10-30〜）。distance＝from からの m・tile＝3D Tiles のタイルの番号（featureId の feature state の範囲） */
+export interface RaycastHit { lng: number; lat: number; height: number; distance: number; source: "tiles3d" | "model"; id: string; tile?: number; featureId?: number }
 export interface SampleHeightResult { lng: number; lat: number; height: number | null; source: "tiles3d" | "model" | "terrain" | null; id?: string; featureId?: number }
 /** quantized-mesh（Cesium の地形＝layer.json＋.terrain・1.7.0〜・#110）。setTerrain・opts.terrain・style の terrain（sources の type "quantized-mesh"＝この地図の拡張）・?dem=<layer.json>。
  *  三角形は地形の標高の格子（R01・R10 のセル）へ焼いて描く（誇張しない）。1 点の標高（getHeight・建物の接地・断面図）は最大の段のタイルから。
@@ -984,6 +986,12 @@ export interface Tiles3DHandle {
 	/** 中身の上がっているタイルの id（複合タイルの内側は外側の id） */
 	readonly tileIds: number[];
 	/** そのタイルの地物（pick と同じ形の featureId・properties・table）＝Cesium の tileLoad の content.getFeature */
+	/** 読み込んだタイルの glTF の根の拡張（EXT_structural_metadata・CESIUM_RTC を除く生の json・NGA_gpm_local 等）・無ければ null */
+	tileExtensions(tileId: number): Record<string, unknown> | null;
+	/** 読み込んだタイルの境界球（ECEF・m）・無ければ null */
+	tileSphere(tileId: number): { center: number[]; radius: number } | null;
+	/** 今描いているタイルの番号（Cesium の tileVisible） */
+	readonly shownTileIds: number[];
 	tileFeatures(tileId: number): Array<{ featureId: number; properties: Record<string, unknown>; table: { index: number; name?: string | null; class?: string | null; int64?: string[] } | null }>;
 	/** 表示しているタイルの出典（glTF asset.copyright を「;」で割り・多い順・W8） */
 	readonly copyrights: string[];

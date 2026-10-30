@@ -7,7 +7,7 @@ import type { StructuralMetadata } from "./mesh-features.ts";
 // globe.d.ts は src/types/map.ts（DOM）を引く＝worker の型検査（tsconfig.worker.json）では import できない。形は globe.d.ts と同じに保つ
 // （gadgets/model.ts・tiles3d.ts が公開の型へ渡す所で食い違いは型エラーになる）
 /** glTF の見出し（globe.d.ts の GltfMeta と同形） */
-export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean; copyright?: string }
+export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean; copyright?: string; /** 根の拡張（EXT_structural_metadata・CESIUM_RTC を除く生の json＝NGA_gpm_local 等・Cesium の Model3DTileContent.getExtension） */ extensions?: Record<string, unknown> }
 /** アニメの見出し（globe.d.ts の GltfAnimationInfo と同形） */
 export interface GltfAnimationInfo { index: number; name: string; duration: number; channels: number; paths: string[] }
 /** 再生の spec（globe.d.ts の AnimationSpec と同形） */
@@ -46,7 +46,8 @@ export function gltfMeta(json: unknown): GltfMeta {
 		extensionsUsed: used, extensionsRequired: required, textureFormats: [...fmts].sort(),
 		featureIds: used.includes("EXT_mesh_features") || (j.meshes || []).some(m => (m.primitives || []).some(p => p.attributes && Object.keys(p.attributes).some(k => /^_FEATURE_ID_\d+$|^_BATCHID$/.test(k)))),
 		structuralMetadata: used.includes("EXT_structural_metadata"),
-		...(typeof j.asset?.copyright === "string" && j.asset.copyright.trim() ? { copyright: j.asset.copyright.trim() } : {}),   // asset.copyright（W8）＝3D Tiles の出典の表示義務（Google 等はタイルごとに持つ）
+		...(typeof j.asset?.copyright === "string" && j.asset.copyright.trim() ? { copyright: j.asset.copyright.trim() } : {}),
+		...(() => { const e = Object.fromEntries(Object.entries(j.extensions || {}).filter(([k]) => k !== "EXT_structural_metadata" && k !== "CESIUM_RTC")); return Object.keys(e).length ? { extensions: e } : {}; })(),   // asset.copyright（W8）＝3D Tiles の出典の表示義務（Google 等はタイルごとに持つ）
 	};
 }
 // アニメの再生 spec（口だけ・保つ）：{ name|index, time(s), loop, speed, playing }。name/index が無ければ最初のアニメ。知らない name は投げる

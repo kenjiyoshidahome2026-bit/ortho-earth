@@ -328,8 +328,29 @@ export class OrthoScene {
 	pickMetadata() { unsupported("scene.pickMetadata"); return undefined; }
 	pickMetadataSchema() { unsupported("scene.pickMetadataSchema"); return undefined; }
 	pickVoxel(windowPosition: Cartesian2) { const v = (this as any).__voxels; if (!v) { unsupported("scene.pickVoxel"); return undefined; } return v.pickVoxel(windowPosition.x, windowPosition.y); }
-	pickFromRay() { unsupported("scene.pickFromRay"); return undefined; }
-	drillPickFromRay() { unsupported("scene.drillPickFromRay"); return []; }
+	// pickFromRay / drillPickFromRay: the ray against the loaded 3D Tiles (map.raycast, the triangles the globe keeps for picking) → { object, position, exclude }
+	//   object = the tile's Cesium3DTileFeature (or the tileset where the triangles carry no feature ids). The globe's models are not answered (no Cesium object to give back)
+	pickFromRay(ray: Ray, objectsToExclude?: unknown[], width?: number) { return this.drillPickFromRay(ray, 1, objectsToExclude, width)[0]; }
+	drillPickFromRay(ray: Ray, limit?: number, objectsToExclude?: unknown[], _width?: number) {
+		const map = this.host.map;
+		if (!map?.raycast || !ray) return [];
+		const n = limit && limit > 0 ? limit : Infinity, ex = new Set(objectsToExclude ?? []), out: any[] = [];
+		const llh = (p: Cartesian3) => { const c = Ellipsoid.WGS84.cartesianToCartographic(p); return c ? [c.longitude * R2D, c.latitude * R2D, c.height] : null; };
+		const a = llh(ray.origin), b = llh(Cartesian3.add(ray.origin, Cartesian3.multiplyByScalar(Cartesian3.normalize(ray.direction, new Cartesian3()), 1000, new Cartesian3()), new Cartesian3()));
+		if (!a || !b) return [];
+		let hits: any[] = [];
+		try { hits = map.raycast(a, b, { limit: Number.isFinite(n) ? n + ex.size + 8 : 64 }); } catch { return []; }
+		const sets: any[] = (this as any).__tilesets ?? [];
+		for (const h of hits) {
+			if (out.length >= n || h.source !== "tiles3d") continue;
+			const ts = sets.find(t => t?.orthoHandle?.id === h.id);
+			if (!ts || ex.has(ts)) continue;
+			const object = h.featureId != null ? ts.__feature(h.featureId, h.tile) : ts;
+			if (ex.has(object)) continue;
+			out.push({ object, position: Cartesian3.fromDegrees(h.lng, h.lat, h.height), exclude: false });
+		}
+		return out;
+	}
 	sampleHeight(position: Cartographic) {
 		const map = this.host.map;
 		const r = map?.sampleHeight?.([[position.longitude * R2D, position.latitude * R2D]]);
