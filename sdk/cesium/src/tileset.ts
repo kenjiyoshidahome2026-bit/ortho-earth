@@ -135,7 +135,8 @@ export class Cesium3DTileset {
 			try {
 				const ps = pointSizeOf(this.#style), sent = this.#style;
 				const cid = customShaderId(map, this.customShader); this.#csId = cid;
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, outline: this.showOutline !== false ? [this.outlineColor.red, this.outlineColor.green, this.outlineColor.blue, this.outlineColor.alpha] : null, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
+				const mm = Matrix4.equals(this.modelMatrix, Matrix4.IDENTITY) ? null : Matrix4.toArray(this.modelMatrix);   // the tileset's modelMatrix as it is when added (itwin-gaussian-splats moves the dam onto the terrain with it)
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(mm && { modelMatrix: mm }), ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, outline: this.showOutline !== false ? [this.outlineColor.red, this.outlineColor.green, this.outlineColor.blue, this.outlineColor.alpha] : null, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
 				if (this.#style !== sent) h.setStyle(styleOf(this.#style));   // the style set while the tileset was being added

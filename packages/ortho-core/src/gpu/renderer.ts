@@ -3403,7 +3403,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, focal: st.focal, logCoef,
 				strength: (view.aoStrength ?? 0.6) * aoIn * aoIn * (3 - 2 * aoIn), radiusK: view.aoRadius ?? 0.10, biasSin: view.aoBias ?? 0.15, phase: view.aoPhase ?? 0 });   // 調律ノブ（公開面には出さない）。半径＝視距離の 10%（20〜400m）・強さ 0.6（#63 本人裁定 2026-09-29＝0.5 は斑を抑える暫定で、斑は PR #61 で根治済み）・接平面の sin の下駄 0.15（地平線型・2026-09-26）。aoPhase＝模様の位相（t-ao の安定の検定）
 		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
-		lastStage = { depthTex: t.depth, samples: S, logCoef, dpr: cam.dpr || 1, frame: ++stageFrame };   // 画面の段（Cesium の postProcessStages）が flush の後処理で使う尺
+		lastStage = { depthTex: t.depth, samples: S, logCoef, dpr: cam.dpr || 1, frame: ++stageFrame, fovy: cam.fovy || 50 * Math.PI / 180 };   // 画面の段（Cesium の postProcessStages）が flush の後処理で使う尺
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
 		FAR_PIVOT.on = view.gintFarPivot !== false;   // 塗り扇の遠方の要（画面カリング）の逃げ道（view.gintFarPivot=false＝?nofarpivot=1・比較用）
@@ -3440,7 +3440,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 後処理（PR-8）：描き終えた canvas（1x＝直描き／4x＝上の resolve 済み）を控えに写して bloom・vignette を掛けて戻す。注記・オーバーレイは別 canvas＝掛からない
 		if (post) {
-			try { postFx ??= createPostGPU(device, format, () => rOpts.requestDraw?.()); postFx.encode(frame.enc, ctx!.getCurrentTexture(), frame.w, frame.h, post, lastStage); }
+			try { postFx ??= createPostGPU(device, format, () => rOpts.requestDraw?.()); frame.enc = postFx.encode(frame.enc, ctx!.getCurrentTexture(), frame.w, frame.h, post, lastStage); }
 			catch (e) { console.warn("[gpu] post-process failed (disabled):", (e as Error)?.message || e); post = null; postFx?.dispose(); postFx = null; }
 		} else if (postFx) { postFx.dispose(); postFx = null; }
 		let st = null;
