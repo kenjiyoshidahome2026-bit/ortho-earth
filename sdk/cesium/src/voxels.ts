@@ -125,14 +125,15 @@ export class VoxelDrawer {
 		const g = await gridOf(p, this.#ctx);
 		if (!g) { unsupported("VoxelPrimitive provider without tiles"); return null; }
 		let { values } = g;
-		if (!drawsField(p, g.field)) {   // the default shader (and shaders we cannot read): white cells where the grid has any
+		const field = drawsField(p, g.field);
+		if (!field) {   // the default shader (and shaders we cannot read): white cells where the grid has any
 			const w = new Float32Array(g.dims[0] * g.dims[1] * g.dims[2] * 4);
 			for (let i = 0, n = w.length / 4; i < n; i++) { const on = g.comps === 4 ? values[i * 4 + 3] > 0 || values[i * 4] || values[i * 4 + 1] || values[i * 4 + 2] : true; if (on) w.fill(1, i * 4, i * 4 + 4); }
 			values = w;
 		} else if (g.comps === 1) unsupported("VoxelPrimitive scalar field in a custom shader (drawn with a colormap)");
 		await this.#ensurePlugin(map);
 		const comps = values.length === g.dims[0] * g.dims[1] * g.dims[2] ? 1 : 4;
-		const h = map.addData({ ...place, dims: g.dims, components: comps, values }, { kind: "voxel", render, colormap: "grey", altitude: "absolute", properties: { field: g.field } });
+		const h = map.addData({ ...place, dims: g.dims, components: comps, values }, { kind: "voxel", render, colormap: "grey", altitude: "absolute", properties: { field: g.field }, lighting: !(field && g.comps === 4) });   // a VEC4 colour field is drawn unlit (buildVoxelCustomShader's colour shader); the default and the colormap shaders shade by the light
 		await h.ready;
 		h.__values = g.comps === 4 ? g.values : null;   // the provider's values, for VoxelCell.getProperty
 		return h;
