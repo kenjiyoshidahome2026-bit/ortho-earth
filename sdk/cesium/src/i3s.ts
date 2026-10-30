@@ -59,7 +59,8 @@ export class I3SDataProvider {
 		}
 		const p = new I3SDataProvider(options, resource, data, extent);
 		p.#url = String(resource.url).replace(/\?.*$/, "");
-		if (options.geoidTiledTerrainProvider) unsupported("I3SDataProvider geoidTiledTerrainProvider (the globe places I3S heights itself)");
+		// geoidTiledTerrainProvider needs nothing here: Cesium converts the gravity-related I3S heights onto its ellipsoid, but the globe's heights are
+		// already geoid-based (its terrain is orthometric), so the I3S heights sit on its ground as they are
 		return p;
 	}
 	/** scene.primitives.add: on the globe */
@@ -81,7 +82,8 @@ export class I3SDataProvider {
 	get orthoHandle(): Any { return this.#handle; }
 	getAttributeNames(): string[] { return []; }
 	getAttributeValues(): Any[] { return []; }
-	filterByAttributes(): Promise<void> { unsupported("I3SDataProvider.filterByAttributes"); return Promise.resolve(); }
+	/** no filter (what I3SBuildingSceneLayerExplorer passes for "show all") shows everything, as the globe already does; a real filter is not drawn */
+	filterByAttributes(filters?: Any[]): Promise<void> { if (filters?.length) unsupported("I3SDataProvider.filterByAttributes"); return Promise.resolve(); }
 	isDestroyed(): boolean { return this.#destroyed; }
 	destroy(): void { this.#destroyed = true; this.__detach(); }
 }

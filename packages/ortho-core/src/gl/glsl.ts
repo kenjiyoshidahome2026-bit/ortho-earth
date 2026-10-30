@@ -967,7 +967,7 @@ void main() {
 	if (t < 0.0) {                                 // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続に減衰
 		if (u_csAtm.x > 0.5) {   // Cesium の空の大気（殻の奥の面で計る・星の上に α で重なる）
 			if (u_csAtm.z < 0.5) discard;
-			vec4 cs = csSky(A * CS_R, normalize(d));
+			vec4 cs = csSkyL(A * CS_R, normalize(d), 0.0, u_cg.xyz, u_cg.w > 0.5 ? u_cgP.w : -1.0);   // lit by the sun with the globe's lighting (Cesium's dynamic atmosphere)
 			if (cs.a <= 0.002) discard;
 			fragColor = cs;
 			return;

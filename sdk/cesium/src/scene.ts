@@ -245,9 +245,9 @@ export class OrthoScene {
 			this.#syncPost();   // postProcessStages → the globe's post chain (the examples flip enabled/uniforms in preRender and the knockout bindings)
 			this.raw.render(time);   // the primitives that draw themselves (Cesium DrawCommands on scene.context)
 			this.camera._updateCameraChanged?.();
+			this.lastRenderTime = time;   // as Scene.render: set before postRender (scene-rendering-performance reads it there)
 			this.postRender.raiseEvent(this, time);
 			credits?.endFrame?.();
-			this.lastRenderTime = time;
 		} catch (e) {
 			this.renderError.raiseEvent(this, e);
 			if (this.rethrowRenderErrors) throw e;
