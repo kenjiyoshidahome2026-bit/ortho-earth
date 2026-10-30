@@ -352,7 +352,7 @@ export class PrimitiveDrawer {
 		});
 		// what Model's own update would give once loaded: the bounding sphere (zoomTo, flyToBoundingSphere) and ready
 		void gltfSphere(url).then(sph => {
-			if (!sph || it.dead) return;
+			if (!sph || sph.radius < 0 || it.dead) return;
 			p._sceneGraph ??= { boundingSphere: new BoundingSphere(new Cartesian3(sph.center[0], sph.center[1], sph.center[2]), sph.radius) };
 			p._initialRadius ??= sph.radius;
 			p._boundingSphere ??= new BoundingSphere();

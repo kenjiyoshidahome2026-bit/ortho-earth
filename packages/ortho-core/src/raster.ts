@@ -33,12 +33,12 @@ export interface RasterHandle { kind?: string; bytes?: number; id?: number; [k: 
 export interface RasterDraw { mesh: RasterHandle; tex: RasterHandle; nw: number[]; bounds: number[]; uvT: number[]; z: number; a: number; at?: number; until?: number }
 export type RasterOrder = "under" | "over";
 export type RasterResampling = "linear" | "nearest";
-export interface RasterDrawLayer { order: RasterOrder; opacity: number; resampling: RasterResampling; draws: RasterDraw[] }
+export interface RasterDrawLayer { order: RasterOrder; opacity: number; resampling: RasterResampling; draws: RasterDraw[]; rank?: number }
 export interface RasterDraws { rev: number; hideFills: boolean; layers: RasterDrawLayer[] }
 /** renderer 契約（gl/renderer.js・gpu/renderer.js が実装） */
 export interface RasterRenderer { rasterTex(bitmap: ImageBitmap): RasterHandle; rasterMesh(m: TileMesh): RasterHandle; rasterFree(h: RasterHandle): void; setRasterDraws(rd: RasterDraws | null): void }
-export interface RasterLayerOptions { order?: string; opacity?: number; visible?: boolean; hideFills?: boolean; tileBias?: number; resampling?: string; fadeDuration?: number; minZoom?: number; maxZoom?: number }
-export interface RasterLayerSet { opacity?: number | null; visible?: boolean | null; order?: string; hideFills?: boolean | null; minZoom?: number | null; maxZoom?: number | null; resampling?: string; fadeDuration?: number | null }
+export interface RasterLayerOptions { rank?: number; order?: string; opacity?: number; visible?: boolean; hideFills?: boolean; tileBias?: number; resampling?: string; fadeDuration?: number; minZoom?: number; maxZoom?: number }
+export interface RasterLayerSet { rank?: number | null; opacity?: number | null; visible?: boolean | null; order?: string; hideFills?: boolean | null; minZoom?: number | null; maxZoom?: number | null; resampling?: string; fadeDuration?: number | null }
 export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: number[] | null; attribution: string | null; name: string | null; tileType: string | null; order: RasterOrder; opacity: number; hideFills: boolean; resampling: RasterResampling; fadeDuration: number }
 export interface RasterPending { total: number; layers: Record<string, number>; fading: boolean }
 export interface RasterLayerStats { id: string; kind: string | null; ready: number; loading: number; empty: number; error: number; selected: number; draws: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; resampling: RasterResampling; fadeDuration: number; fading: boolean }
@@ -54,7 +54,7 @@ type EntryStatus = "queued" | "loading" | "ready" | "empty" | "error" | "retry";
 interface Entry { status: EntryStatus; z: number; x: number; y: number; tex: RasterHandle | null; bytes: number; seen: number; tries: number; ac?: AbortController | null; at?: number | null; err?: string }
 interface QueueItem { key: string; z: number; x: number; y: number; dist: number }
 interface Layer {
-	id: string; spec: RasterSpec; source: RasterSource | null; error: string | null; gen: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; tileBias: number;
+	id: string; spec: RasterSpec; source: RasterSource | null; error: string | null; gen: number; rank: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; tileBias: number;
 	resampling: RasterResampling; fadeDur: number; showMin: number; showMax: number; cache: Map<string, Entry>; queue: QueueItem[]; sticky: Set<number> | null; draws: RasterDraw[];
 	dirty: boolean; camKey: string; selN: number; warned: boolean; fresh: boolean; inView: boolean; info?: RasterInfo;
 }
@@ -363,13 +363,14 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 				if (live) anyFade = true; else L.draws = draws;   // 全部済んだ＝以後は組み直さない
 				changed = true;
 			}
-			if (draws.length) rd.layers.push({ order: L.order, opacity: L.opacity, resampling: L.resampling, draws });
+			if (draws.length) rd.layers.push({ order: L.order, opacity: L.opacity, resampling: L.resampling, draws, rank: L.rank });
 			if (L.order === "under" && L.hideFills && L.draws.length) rd.hideFills = true;
 		}
 		evict();
 		// 合成順＝under（基図）を先に・over（重ね）を後に（同種内は追加順）。Map の追加順のままだと「重ねを先に点けてから基図を選ぶ」で
 		// 基図が重ねの上に描かれ、ハザード等が見えなくなる（俯瞰レビューで発見 2026-09-21）
-		rd.layers.sort((a, b) => (a.order === "over" ? 1 : 0) - (b.order === "over" ? 1 : 0));
+		// rank (the style order, set by the map's moveLayer) orders layers of the same kind when both have one; otherwise the order they were added
+		rd.layers.sort((a, b) => (a.order === "over" ? 1 : 0) - (b.order === "over" ? 1 : 0) || (Number.isFinite(a.rank) && Number.isFinite(b.rank) ? a.rank! - b.rank! : 0));
 		drawCount = 0; for (const l of rd.layers) drawCount += l.draws.length;
 		if (rd.layers.length) {
 			// 改訂番号：描画リスト（tex/uvT/位置/不透明度）が変わった時だけ進める＝静止中に到着が無ければアトラスは描き直さない。
@@ -391,7 +392,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	async function add(id: string, spec: RasterSpec, opts: RasterLayerOptions = {}): Promise<RasterInfo> {
 		if (layers.has(id)) remove(id);
 		const L: Layer = {
-			id, spec, source: null, error: null, gen: ++gen,
+			id, spec, source: null, error: null, gen: ++gen, rank: Number.isFinite(opts.rank) ? opts.rank! : NaN,
 			order: opts.order === "over" ? "over" : "under",
 			opacity: Number.isFinite(opts.opacity) ? Math.max(0, Math.min(1, opts.opacity!)) : 1,
 			visible: opts.visible !== false,
@@ -441,6 +442,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		if (o.opacity != null && Number.isFinite(o.opacity)) L.opacity = Math.max(0, Math.min(1, o.opacity));
 		if (o.visible != null) L.visible = !!o.visible;
 		if (o.order === "under" || o.order === "over") L.order = o.order;
+		if (o.rank != null && Number.isFinite(o.rank)) L.rank = o.rank;
 		if (o.hideFills != null) L.hideFills = !!o.hideFills;
 		if (o.minZoom != null) L.showMin = o.minZoom;
 		if (o.maxZoom != null) L.showMax = o.maxZoom;

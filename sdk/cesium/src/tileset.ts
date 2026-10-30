@@ -2,7 +2,7 @@
 // (zoomTo / flyTo / viewBoundingSphere need it before anything draws); adding the tileset to scene.primitives puts it on the globe.
 // instanceof Cesium3DTileset and Cesium3DTileFeature hold (the prototypes chain to the engine's), so the widgets and CesiumWidget.zoomTo treat these as the real ones.
 import { BoundingSphere, Cartesian3, Color, Event, Matrix3, Matrix4, OrientedBoundingBox, Rectangle } from "@cesium/core";
-import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, ConditionsExpression, Expression, IonResource, Resource } from "@cesium/engine";
+import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, ConditionsExpression, Expression, ImageryLayerCollection, IonResource, Resource } from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { clippingOriginOf } from "./clipping.ts";
 
@@ -29,6 +29,7 @@ export class Cesium3DTileset {
 	readonly resource: Any; readonly json: Any;
 	readonly tileLoadProgressEvent = new Event(); readonly allTilesLoaded = new Event(); readonly initialTilesLoaded = new Event();
 	readonly loadProgress = this.tileLoadProgressEvent;
+	readonly imageryLayers = new ImageryLayerCollection();   // imagery draped on the tileset: reported, not drawn
 	readonly tileLoad = new Event(); readonly tileUnload = new Event(); readonly tileFailed = new Event(); readonly tileVisible = new Event();
 	modelMatrix = Matrix4.clone(Matrix4.IDENTITY);
 	maximumScreenSpaceError: number; featureIdLabel: string | number = "featureId_0"; instanceFeatureIdLabel: string | number = "instanceFeatureId_0";
@@ -41,7 +42,7 @@ export class Cesium3DTileset {
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null; #olKey = "";
 	#opts: Any;
 	#split: string | null = null;
-	#tiles = new Map<number, Any>();   // the loaded tiles tileLoad was raised for (tileUnload gets the same object)
+	#tiles = new Map<number, Any>(); #drapeTold = false;   // the loaded tiles tileLoad was raised for (tileUnload gets the same object)
 
 	constructor(resource: Any, json: Any, opts: Any = {}) {
 		this.resource = resource; this.json = json; this.#opts = opts;
@@ -146,6 +147,7 @@ export class Cesium3DTileset {
 	 *  eye dome only while attenuation is on */
 	__sync(scene?: Any) {
 		if (!this.#h) return;
+		if (this.imageryLayers.length && !this.#drapeTold) { this.#drapeTold = true; unsupported("Cesium3DTileset.imageryLayers (imagery draped on 3D Tiles)"); }
 		const s = this.pointCloudShading ?? {}, att = !!s.attenuation;
 		const spec = att ? { attenuation: true, geometricErrorScale: s.geometricErrorScale ?? 1, ...(s.maximumAttenuation != null && { maximumAttenuation: s.maximumAttenuation }), ...(s.baseResolution != null && { baseResolution: s.baseResolution }),
 			eyeDomeLighting: !!s.eyeDomeLighting, edlStrength: s.eyeDomeLightingStrength ?? 1, edlRadius: s.eyeDomeLightingRadius ?? 1 } : null;
@@ -190,6 +192,9 @@ export class Cesium3DTileset {
 	destroy() { this.#destroyed = true; this.__detach(); return undefined; }
 }
 Object.setPrototypeOf(Cesium3DTileset.prototype, RealTileset.prototype);
+// The engine's own helpers (ITwinData.createTilesetFromIModelId / createTilesetForRealityDataId) call the engine class's fromUrl:
+// they get this tileset, drawn by the globe, instead of one that needs Cesium's renderer
+(RealTileset as Any).fromUrl = (url: Any, options?: Any) => Cesium3DTileset.fromUrl(url, options);
 for (const k of ["fromUrl", "fromIonAssetId"] as const) void k;
 
 const statsOf = (h: Any) => new Proxy({ numberOfLoadedTilesTotal: h?.stats?.loaded ?? 0, numberOfTilesTotal: h?.stats?.loaded ?? 0, numberOfTilesWithContentReady: h?.stats?.shown ?? 0, numberOfPendingRequests: h?.stats?.inflight ?? 0, geometryByteLength: h?.stats?.bytes ?? 0,

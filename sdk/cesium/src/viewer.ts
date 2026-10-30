@@ -7,7 +7,7 @@ import { Cartesian3, Clock, Ellipsoid, Event, EventHelper, JulianDate, Rectangle
 import { CesiumWidget as RealWidgetClass, CreditDisplay, SkyBox, ImageryLayer, DataSourceCollection, Entity, ScreenSpaceEventHandler, ScreenSpaceEventType, Camera, Cesium3DTileFeature as RealFeature } from "@cesium/engine";
 import {
 	Animation, AnimationViewModel, BaseLayerPicker, ClockViewModel, FullscreenButton, Geocoder,
-	HomeButton, InfoBox, NavigationHelpButton, ProjectionPicker, SceneModePicker, SelectionIndicator, Timeline, Viewer as RealViewerClass,
+	HomeButton, InfoBox, NavigationHelpButton, ProjectionPicker, SceneModePicker, SelectionIndicator, Timeline, VRButton, Viewer as RealViewerClass,
 } from "@cesium/widgets";
 import * as widgets from "@cesium/widgets";
 import * as engine from "@cesium/engine";
@@ -375,13 +375,19 @@ export function Viewer(this: Any, container: Any, options: Any = {}) {
 		try { fullscreenButton = new FullscreenButton(c, options.fullscreenElement); } catch (e) { console.warn("[csshim] FullscreenButton", e); }
 		if (timeline) { timeline.container.style.right = `${c.clientWidth}px`; timeline.resize(); }
 	}
-	if (options.vrButton) unsupported("Viewer option vrButton");
+	let vrButton: Any;
+	if (options.vrButton) {   // the widget as the Viewer builds it (scene.useWebVR only splits the view in Cesium; here the button is shown, the view stays single)
+		const c = document.createElement("div"); c.className = "cesium-viewer-vrContainer"; viewerContainer.appendChild(c);
+		try { vrButton = new VRButton(c, scene, options.fullScreenElement); } catch (e) { console.warn("[csshim] VRButton", e); }
+		if (fullscreenButton) c.style.right = `${fullscreenButton.container?.clientWidth ?? 0}px`;
+		if (timeline) { timeline.container.style.right = `${(c.clientWidth || 0) + (fullscreenButton?.container?.clientWidth ?? 0)}px`; timeline.resize(); }
+	}
 	Object.assign(this, {
 		_baseLayerPickerDropDown: baseLayerPickerDropDown, _fullscreenSubscription: undefined, _vrSubscription: undefined, _vrModeSubscription: undefined,
 		_dataSourceChangedListeners: {}, _container: container, _bottomContainer: bottomContainer, _element: viewerContainer, _cesiumWidget: cesiumWidget,
 		_selectionIndicator: selectionIndicator, _infoBox: infoBox, _clockViewModel: clockViewModel, _destroyClockViewModel: destroyClockViewModel, _toolbar: toolbar,
 		_homeButton: homeButton, _sceneModePicker: sceneModePicker, _projectionPicker: projectionPicker, _baseLayerPicker: baseLayerPicker, _navigationHelpButton: navigationHelpButton,
-		_animation: animation, _timeline: timeline, _fullscreenButton: fullscreenButton, _vrButton: undefined, _geocoder: geocoder, _eventHelper: eventHelper,
+		_animation: animation, _timeline: timeline, _fullscreenButton: fullscreenButton, _vrButton: vrButton, _geocoder: geocoder, _eventHelper: eventHelper,
 		_lastWidth: 0, _lastHeight: 0, _enableInfoOrSelection: !!(infoBox || selectionIndicator), _selectedEntity: undefined, _selectedEntityChanged: new Event(),
 	});
 	const dataSourceCollection = cesiumWidget.dataSources, display = cesiumWidget.dataSourceDisplay;
