@@ -1,0 +1,1001 @@
+{
+ "aec-architectural-design/ref": {
+  "tilesets": [
+   {
+    "url": "v1/3dtiles/root.json",
+    "trianglesSelected": 58054,
+    "show": true
+   },
+   {
+    "url": "ap-northeast-1/2887123/tileset.json",
+    "trianglesSelected": 2378908,
+    "show": true
+   },
+   {
+    "url": "ap-northeast-1/2887125/tileset.json",
+    "trianglesSelected": 130424,
+    "show": true
+   },
+   {
+    "url": "ap-northeast-1/2887130/tileset.json",
+    "trianglesSelected": 0,
+    "show": false
+   },
+   {
+    "url": "ap-northeast-1/2887124/tileset.json",
+    "trianglesSelected": 59995,
+    "show": true
+   },
+   {
+    "url": "ap-northeast-1/2887126/tileset.json",
+    "trianglesSelected": 315267,
+    "show": true
+   },
+   {
+    "url": "ap-northeast-1/2887127/tileset.json",
+    "trianglesSelected": 60858,
+    "show": true
+   },
+   {
+    "url": "ap-northeast-1/2887129/tileset.json",
+    "trianglesSelected": 206691,
+    "show": true
+   }
+  ],
+  "picks": [
+   {
+    "x": 95,
+    "y": 230,
+    "tileset": "ap-northeast-1/2887123/tileset.json",
+    "props": "{\"area\":20.05555534362793,\"hostId\":\"1054967\",\"category\":\"-2000170\",\"designOption\":\"Main Model\",\"exporttoIFC\":0,\"family\":\"974588\",\"height\":6.333333492279053,\"familyandType\":\"974588\",\"ifcGUID\":\"04b3cqL6T7nASkHPv$no$W\",\"level\":\"593147\",\"panelLocation\":\"Bay 1\",\"phaseCreated\":\"118390\",\"type\":\"974588\",\"ty",
+    "materials": [
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       0.573,
+       0.576,
+       0.565,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "BLEND",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.5,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       0.941,
+       0.945,
+       0.925,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       0.471,
+       0.471,
+       0.471,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     }
+    ],
+    "materialCount": 6
+   },
+   {
+    "x": 110,
+    "y": 300,
+    "tileset": "ap-northeast-1/2887123/tileset.json",
+    "props": "{\"area\":100.01909637451172,\"volume\":3.5032551288604736,\"frameExtension\":2.5208332538604736,\"hostId\":\"1055806\",\"category\":\"-2000014\",\"windowInset\":2.5,\"interiorTrimVisibility\":1,\"type\":\"1703994\",\"interiorWallClosure\":0.1875,\"designOption\":\"Main Model\",\"exporttoIFC\":0,\"extensionJamb\":0.083333335816860",
+    "materials": [
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "BLEND",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.5,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     }
+    ],
+    "materialCount": 3
+   },
+   {
+    "x": 165,
+    "y": 230,
+    "tileset": "ap-northeast-1/2887123/tileset.json",
+    "props": "{\"area\":20.05555534362793,\"volume\":0.8356481194496155,\"designOption\":\"Main Model\",\"hostId\":\"1054769\",\"category\":\"-2000170\",\"exporttoIFC\":0,\"typeId\":\"974588\",\"family\":\"974588\",\"height\":6.333333492279053,\"familyandType\":\"974588\",\"ifcGUID\":\"04b3cqL6T7nASkHPv$nowK\",\"level\":\"593147\",\"panelLocation\":\"Bay ",
+    "materials": [
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "BLEND",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.5,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     }
+    ],
+    "materialCount": 4
+   },
+   {
+    "x": 175,
+    "y": 290,
+    "tileset": "ap-northeast-1/2887123/tileset.json",
+    "props": "{\"area\":20.05555534362793,\"volume\":0.8356481194496155,\"designOption\":\"Main Model\",\"hostId\":\"1054769\",\"category\":\"-2000170\",\"exporttoIFC\":0,\"typeId\":\"974588\",\"family\":\"974588\",\"height\":6.333333492279053,\"familyandType\":\"974588\",\"ifcGUID\":\"04b3cqL6T7nASkHPv$now6\",\"level\":\"593147\",\"panelLocation\":\"Bay ",
+    "materials": [
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "BLEND",
+      "doubleSided": false,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.5,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     }
+    ],
+    "materialCount": 4
+   }
+  ]
+ },
+ "aec-architectural-design/ortho": {
+  "tilesets": [
+   {
+    "url": "v1/3dtiles/root.json",
+    "stats": {
+     "shown": 211,
+     "loaded": 493,
+     "triangles": 151621,
+     "complete": true,
+     "inflight": 0,
+     "sseScale": 1,
+     "gpuMB": 727.9
+    }
+   },
+   {
+    "url": "ap-northeast-1/2887123/tileset.json",
+    "stats": {
+     "shown": 16,
+     "loaded": 16,
+     "triangles": 624210,
+     "complete": true,
+     "inflight": 0,
+     "sseScale": 9.31,
+     "gpuMB": 727.9
+    }
+   },
+   {
+    "url": "ap-northeast-1/2887125/tileset.json",
+    "stats": {
+     "shown": 9,
+     "loaded": 9,
+     "triangles": 130424,
+     "complete": true,
+     "inflight": 0,
+     "sseScale": 1,
+     "gpuMB": 727.9
+    }
+   },
+   {
+    "url": "ap-northeast-1/2887130/tileset.json",
+    "stats": {
+     "shown": 0,
+     "loaded": 0,
+     "triangles": 0,
+     "complete": false,
+     "inflight": 0,
+     "sseScale": 1,
+     "gpuMB": 727.9
+    }
+   },
+   {
+    "url": "ap-northeast-1/2887124/tileset.json",
+    "stats": {
+     "shown": 11,
+     "loaded": 11,
+     "triangles": 184433,
+     "complete": true,
+     "inflight": 0,
+     "sseScale": 1,
+     "gpuMB": 727.9
+    }
+   },
+   {
+    "url": "ap-northeast-1/2887126/tileset.json",
+    "stats": {
+     "shown": 19,
+     "loaded": 19,
+     "triangles": 315267,
+     "complete": true,
+     "inflight": 0,
+     "sseScale": 1,
+     "gpuMB": 727.9
+    }
+   },
+   {
+    "url": "ap-northeast-1/2887127/tileset.json",
+    "stats": {
+     "shown": 4,
+     "loaded": 4,
+     "triangles": 60858,
+     "complete": true,
+     "inflight": 0,
+     "sseScale": 1,
+     "gpuMB": 727.9
+    }
+   },
+   {
+    "url": "ap-northeast-1/2887129/tileset.json",
+    "stats": {
+     "shown": 24,
+     "loaded": 24,
+     "triangles": 206691,
+     "complete": true,
+     "inflight": 0,
+     "sseScale": 1,
+     "gpuMB": 727.9
+    }
+   }
+  ],
+  "picks": [
+   {
+    "x": 95,
+    "y": 230,
+    "tileset": "v1/3dtiles/root.json",
+    "props": "{}"
+   },
+   {
+    "x": 110,
+    "y": 300,
+    "tileset": "v1/3dtiles/root.json",
+    "props": "{}"
+   },
+   {
+    "x": 165,
+    "y": 230,
+    "tileset": "v1/3dtiles/root.json",
+    "props": "{}"
+   },
+   {
+    "x": 175,
+    "y": 290,
+    "tileset": "v1/3dtiles/root.json",
+    "props": "{}"
+   }
+  ]
+ },
+ "aec-snapping/ref": {
+  "tilesets": [
+   {
+    "url": "assets.ion.cesium.com/5161569/tileset.json",
+    "trianglesSelected": 285390,
+    "show": true
+   }
+  ],
+  "picks": [
+   {
+    "x": 200,
+    "y": 298,
+    "tileset": "assets.ion.cesium.com/5161569/tileset.json",
+    "propsErr": "Do not know how to serialize a BigInt",
+    "materials": [
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 1,
+      "roughnessFactor": 0.5452102429848465,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.9127587196258117,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.7782316084463964,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.36779392203618594,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     }
+    ],
+    "materialCount": 5
+   },
+   {
+    "x": 260,
+    "y": 297,
+    "tileset": "assets.ion.cesium.com/5161569/tileset.json",
+    "propsErr": "Do not know how to serialize a BigInt",
+    "materials": [
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 1,
+      "roughnessFactor": 0.5452102429848465,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.9127587196258117,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.7782316084463964,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.36779392203618594,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     }
+    ],
+    "materialCount": 5
+   },
+   {
+    "x": 480,
+    "y": 296,
+    "tileset": "assets.ion.cesium.com/5161569/tileset.json",
+    "propsErr": "Do not know how to serialize a BigInt",
+    "materials": [
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 1,
+      "roughnessFactor": 0.5452102429848465,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.9127587196258117,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.7782316084463964,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.36779392203618594,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     }
+    ],
+    "materialCount": 5
+   },
+   {
+    "x": 600,
+    "y": 296,
+    "tileset": "assets.ion.cesium.com/5161569/tileset.json",
+    "propsErr": "Do not know how to serialize a BigInt",
+    "materials": [
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 1,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 1,
+      "roughnessFactor": 0.5452102429848465,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.9127587196258117,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.7782316084463964,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     },
+     {
+      "alphaMode": "OPAQUE",
+      "doubleSided": true,
+      "unlit": false,
+      "baseColorFactor": [
+       1,
+       1,
+       1,
+       1
+      ],
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.36779392203618594,
+      "emissiveFactor": [
+       0,
+       0,
+       0
+      ]
+     }
+    ],
+    "materialCount": 5
+   }
+  ]
+ },
+ "aec-snapping/ortho": {
+  "tilesets": [
+   {
+    "url": "assets.ion.cesium.com/5161569/tileset.json",
+    "stats": {
+     "shown": 10,
+     "loaded": 13,
+     "triangles": 304269,
+     "complete": true,
+     "inflight": 0,
+     "sseScale": 1,
+     "gpuMB": 128.5
+    }
+   }
+  ],
+  "picks": [
+   {
+    "x": 200,
+    "y": 298,
+    "hit": null
+   },
+   {
+    "x": 260,
+    "y": 297,
+    "tileset": "assets.ion.cesium.com/5161569/tileset.json",
+    "propsErr": "Do not know how to serialize a BigInt"
+   },
+   {
+    "x": 480,
+    "y": 296,
+    "tileset": "assets.ion.cesium.com/5161569/tileset.json",
+    "propsErr": "Do not know how to serialize a BigInt"
+   },
+   {
+    "x": 600,
+    "y": 296,
+    "tileset": "assets.ion.cesium.com/5161569/tileset.json",
+    "propsErr": "Do not know how to serialize a BigInt"
+   }
+  ]
+ }
+}
