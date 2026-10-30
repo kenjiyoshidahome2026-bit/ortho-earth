@@ -93,6 +93,20 @@ export const geodeticOf = (betaDeg: number): number => R_AX === 1 ? betaDeg
 // 加賀市は北 10km が日本海(0m)ゆえ「直った」ように見えていた。
 // GPU が消費する座標（β単位球＝mvp に S を畳んだ後の座標・模型の重心 meshOrigin・cameraState の eye）の長さ＝project() の radius（面上の点で 1・高さ h の点で 1+h/R）
 export const betaRadiusOf = (p: ArrayLike<number>): number => Math.hypot(p[0], p[1], p[2]);
+// a β point above the ellipsoid → [lon, lat, radius] along the ellipsoid normal, so that projectInto(lon, lat, radius) puts it back where it was.
+// betaToLonLat measures along the radius (exact on the surface): 10 km up at 37° it is 29 m north = a model at that height was culled by a box
+// 29 m off its own place (czml-model-data-url, 2026-10-30). The sphere: betaToLonLat and the length as before
+export function betaGeo(p: ArrayLike<number>): [number, number, number] {
+	if (R_AX === 1) { const [lon, lat] = betaToLonLat(p); return [lon, lat, Math.hypot(p[0], p[1], p[2])]; }
+	const rho = Math.hypot(p[0], p[2]), z = p[1] * R_AX, e2 = 1 - R_AX * R_AX;   // world (equator radius 1, polar R_AX)
+	let lat = Math.atan2(z, rho * (1 - e2)), h = 0;
+	for (let i = 0; i < 4; i++) {
+		const s = Math.sin(lat), N = 1 / Math.sqrt(1 - e2 * s * s);
+		h = Math.abs(Math.cos(lat)) > 1e-9 ? rho / Math.cos(lat) - N : Math.abs(z) / Math.abs(s) - N * (1 - e2);
+		lat = Math.atan2(z, rho * (1 - e2 * N / (N + h)));
+	}
+	return [Math.atan2(p[2], p[0]) * R2D, lat * R2D, 1 + h];
+}
 // メッシュのバッチ（経緯度 bbox＋重心）の可視判定（gl/gpu renderer 共通・2026-10-28）：4 隅＋中心を「重心の高さ」で投影し、pad で広げた画面矩形と交差するか。
 // 旧＝海面（radius 1）で投影＝Google photorealistic 3D Tiles の地面（デンバー＝楕円体高 1600 m）を 1.6 km 下に置いて射影するので、目の高さ 260 m の
 // カメラの手前 750 m のタイルが画面の下へ外れて落とされた（building-insert の足元が真っ白＝床の色）。重心の高さで射影すれば実際の画面位置で判る。
@@ -136,7 +150,7 @@ function clearOfGround(st: CameraState, lon: number, lat: number, radius: number
  *  the Cesium milk truck, 2026-10-28). No transform: the bbox itself */
 export function movedBbox(bbox: ArrayLike<number>, origin: ArrayLike<number>, xf: ArrayLike<number> | null | undefined): ArrayLike<number> {
 	if (!xf || xf.length < 12) return bbox;
-	const o = betaToLonLat(origin), m = betaToLonLat([origin[0] + xf[9], origin[1] + xf[10], origin[2] + xf[11]]);
+	const o = betaGeo(origin), m = betaGeo([origin[0] + xf[9], origin[1] + xf[10], origin[2] + xf[11]]);
 	const cl = Math.max(0.01, Math.cos(o[1] * D2R));
 	let r = 0;   // the farthest corner from the origin (degrees of latitude): the reach of the batch about the point it turns around
 	for (const lon of [bbox[0], bbox[2]]) for (const lat of [bbox[1], bbox[3]]) r = Math.max(r, Math.hypot((lon - o[0]) * cl, lat - o[1]));

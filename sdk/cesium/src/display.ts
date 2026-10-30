@@ -255,7 +255,7 @@ interface Desc {
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
 	solids: { fill: Any[]; outline: Any[]; width: number } | null;
 }
-interface Rec { e: Any; desc: Desc | null; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[]; degree: number } | null; icrf?: boolean; off: () => void; solids?: { d: Desc["solids"]; names: Set<string>; sig: string } }
+interface Rec { e: Any; desc: Desc | null; bsAsk?: { frame: number; time: JulianDate }; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[]; degree: number } | null; icrf?: boolean; off: () => void; solids?: { d: Desc["solids"]; names: Set<string>; sig: string } }
 
 export class EntityDisplay {
 	readonly defaultDataSource = new CustomDataSource("default");
@@ -920,9 +920,15 @@ export class EntityDisplay {
 			}
 		}
 		if (!r.desc.model) {   // geometry: measured as Cesium does (spheres.ts), once per description; a mark's position (now) joins it
+			// Cesium builds a geometry's primitive over the next frames and answers PENDING until then: a zoomTo right after the load frames what the
+			// example set in its load's .then too, measured at the time of the first ask (czml-custom-properties: a time-varying extrudedHeight;
+			// framed flat before = 27 km low, framed at the time two slow frames later = the next interval's height, 15 km high)
+			const fn = this.scene.frameState.frameNumber;
+			const ask = r.bsAsk ??= { frame: fn, time: JulianDate.clone(t) };
+			if (fn - ask.frame < 2) return BoundingSphereState.PENDING;
 			if (r.csSphere?.desc !== r.desc || r.csSphere.dynamic) {
 				let cs: ReturnType<typeof cesiumSphereOf> = null;
-				try { cs = cesiumSphereOf(entity, this.scene, t); } catch { cs = null; }
+				try { cs = cesiumSphereOf(entity, this.scene, r.csSphere ? t : ask.time); } catch { cs = null; }
 				if (cs === "pending") return BoundingSphereState.PENDING;
 				r.csSphere = { desc: r.desc, bs: cs?.bs ?? null, dynamic: !!cs?.dynamic };
 			}
