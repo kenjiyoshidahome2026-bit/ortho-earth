@@ -12,7 +12,7 @@ import { enuRotOf, headingOf } from "./display.ts";
 import { gltfNodeNames, gltfSphere, modelSilOf, modelTintOf } from "./gltf.ts";
 import { modelEnvSH } from "./lighting.ts";
 import { ownArrays } from "./spheres.ts";
-import { matKey, matOfMaterial, matTranslucent, paintSquare } from "./materials.ts";
+import { matKey, matOfMaterial, matTranslucent, paintSquare, videoOf } from "./materials.ts";
 import type { MatDesc } from "./materials.ts";
 import type { Host } from "./scene.ts";
 
@@ -29,7 +29,10 @@ interface Item {
 	spheres: Array<BoundingSphere | undefined>;
 	/** a Model's activeAnimations (addAll / add): what to play, at what multiplier; null = stopped */
 	anim?: { name?: string; speed: number } | null;
+	/** a video material's element (painted again from its current frame every VIDEO_MS while it plays) and when it was last painted */
+	video?: HTMLVideoElement | null; videoAt?: number;
 }
+const VIDEO_MS = 1000;   // a video on a geometry is a picture painted from the video's frame, renewed once a second (the globe's models have no live texture)
 
 /** a primitive this module draws */
 /** DebugModelMatrixPrimitive: the x (red), y (green) and z (blue) axes of its model matrix, length × the unit vectors, as the Primitive it builds */
@@ -183,7 +186,8 @@ export class PrimitiveDrawer {
 				const cid = customShaderId(map, p.customShader); if ((it as Any).cid !== cid) { (it as Any).cid = cid; it.h.setCustomShader?.(cid); }   // Model.customShader
 				const mm = p.modelMatrix ?? Matrix4.IDENTITY, env = this.scene ? modelEnvSH(this.scene, [mm[12], mm[13], mm[14]]) : null; if ((it as Any).env !== env) { (it as Any).env = env; it.h.setEnvironment?.(env); } }   // the environment around the model's own position
 			if (isModel) { if (!it.built) { it.built = true; (it as Any).mk = mk; this.#loadModel(map, it); } else if ((it as Any).mk !== mk && it.h) { (it as Any).mk = mk; if (pl) it.h.setTransform({ at: pl.at, altitude: pl.altitude, heading: pl.heading, rot: pl.rot, scale: pl.scale }); } continue; }
-			if (!it.built || (it as Any).mk !== mk) { (it as Any).mk = mk; this.#build(map, it); linesChanged = true; }
+			const v = it.video, vNew = !!v && !it.loading && performance.now() - (it.videoAt ?? 0) > VIDEO_MS && (!v.paused || !it.h);   // a playing video's next frame (or the first, once it has one)
+			if (!it.built || (it as Any).mk !== mk || vNew) { (it as Any).mk = mk; this.#build(map, it); linesChanged = true; }
 		}
 		if (linesChanged) this.#collectLines();
 	}
@@ -283,13 +287,14 @@ export class PrimitiveDrawer {
 		});
 		it.lines = mergeLines(lines);
 		const old = it.h; it.h = null;
+		it.video = [...painted.values()].map(g => videoOf(g.mat)).find(v => v) ?? null; it.videoAt = performance.now();
 		if (!tris.idx.length && !painted.size) { old?.clear?.(); this.#markReady(p); return; }
 		if (tris.nrm && tris.nrm.length !== tris.pos.length) tris.nrm = null;
 		it.loading = true;
 		const gen = (it as Any).gen = ((it as Any).gen ?? 0) + 1;
 		tris.unlit = !!p.appearance?.flat;   // MaterialAppearance flat: no lighting (EquirectangularPanorama)
 		const opaque = p.appearance?.translucent === false;   // the appearance says opaque: an image is drawn so whatever its alpha
-		void Promise.all([...painted.values()].map(async g => ({ idx: g.idx, tex: (await paintSquare(g.mat, g.mat.type === "Image" ? 4096 : 512))?.toDataURL() ?? null, blend: !opaque && matTranslucent(g.mat) }))).then(ps => {
+		void Promise.all([...painted.values()].map(async g => ({ idx: g.idx, tex: (await paintSquare(g.mat, videoOf(g.mat) ? 1024 : g.mat.type === "Image" ? 4096 : 512))?.toDataURL() ?? null, blend: !opaque && matTranslucent(g.mat) }))).then(ps => {
 			if (it.dead || (it as Any).gen !== gen) return;
 			tris.parts = [];
 			for (const q of ps) if (q.tex) tris.parts.push({ idx: q.idx, tex: q.tex, blend: q.blend }); else tris.idx.push(...q.idx);   // not painted (an image that did not load): white
@@ -352,7 +357,7 @@ export class PrimitiveDrawer {
 		});
 		// what Model's own update would give once loaded: the bounding sphere (zoomTo, flyToBoundingSphere) and ready
 		void gltfSphere(url).then(sph => {
-			if (!sph || sph.radius < 0 || it.dead) return;
+			if (!sph || it.dead) return;
 			p._sceneGraph ??= { boundingSphere: new BoundingSphere(new Cartesian3(sph.center[0], sph.center[1], sph.center[2]), sph.radius) };
 			p._initialRadius ??= sph.radius;
 			p._boundingSphere ??= new BoundingSphere();
