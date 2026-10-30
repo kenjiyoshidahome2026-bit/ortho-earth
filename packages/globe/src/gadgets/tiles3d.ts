@@ -75,7 +75,7 @@ interface TileReply {
 	splats?: TileSplat[];
 	voxels?: TileVoxel[];
 	/** Geometry タイル（.geom）の分類の立体（geom-tile の decodeGeom） */ volumes?: GeomOut[];
-	stats: { triangles: number; points: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bytes?: number; copyright?: string[] | null };
+	stats: { triangles: number; points: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bytes?: number; copyright?: string[] | null; extensions?: Record<string, unknown> };
 }
 /** worker が返す voxel（meshdecode の VoxelPrimOut）＝box は単位立方体 → ECEF の transform・region は経緯度高（voxel の VoxelData にそのまま） */
 interface TileVoxel { shape: "box" | "region" | "cylinder"; dims: [number, number, number]; components: 1 | 4; values: Float32Array | Uint16Array | Uint8Array; transform?: number[]; region?: number[]; cylinder?: VoxelCylinder; noData?: number; property: string }
@@ -109,7 +109,7 @@ interface T3dNode {
 	/** 複数 content＝2 個目からの content の節点（タイルと一緒に読み・出す）／owner＝content の節点が付くタイル */
 	extra?: T3dNode[] | null; owner?: T3dNode;
 	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; /** main のヒープに持つ写しの量（当たり・塗り直し・地物の番号）＝予算に数える（2026-10-20） */ mainBytes: number; pts: string[] | null; /** 点群の点の地物（スタイルで塗り直す元・pts と同じ並び） */ ptsFeat?: (PointsFeat | null | undefined)[] | null; splat?: SplatLayer[] | null; voxel?: SplatLayer[] | null; on: boolean; used: number; err: number;
-	pick?: PickPart[] | null; copyright?: string[] | null; meshN?: number; bbox?: number[] | null;
+	pick?: PickPart[] | null; copyright?: string[] | null; gltfExt?: Record<string, unknown> | null; meshN?: number; bbox?: number[] | null;
 	/** 分類の立体（.geom）と、いま renderer に出している柱の名・点群の内外の判定（β 空間） */ vols?: GeomOut[] | null; volKeys?: string[] | null; volTests?: VolTest[] | null;
 	/** 点群の写し（分類の立体がある時だけ）＝点ごとに内側の立体の色を混ぜ直す元（pos・origin＝β・base＝スタイル後の色） */ ptsSrc?: Array<{ pos: Float32Array; origin: number[]; base: Uint8Array; tinted: boolean }> | null;
 	/** 点の層ごとの間隔の見積もり（世界単位・attenuation の誤差が無いタイルの代わり） */ ptsSp?: number[];
@@ -464,7 +464,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: set.blendAll && opaque(b) ? "BLEND" : mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null, split: splitOf(set), sh: set.opts.environment ?? null, outline: set.opts.outline ?? null, noClip: set.opts.clip === false });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
 			});
 			if (set.states.size || set.tileStates?.size || n.paint) paintNode(n);   // feature state の色とスタイルは後から読んだタイルにも
-			n.copyright = r.stats?.copyright || null;   // glTF の asset.copyright（W8）＝出典の欄へ
+			n.copyright = r.stats?.copyright || null;
+			n.gltfExt = r.stats?.extensions ?? null;   // glTF の根の拡張（Cesium の Model3DTileContent.getExtension）   // glTF の asset.copyright（W8）＝出典の欄へ
 			n.meshN = r.batches.length; n.bbox = r.batches[0]?.mesh.bbox?.map(v => +v.toFixed(5)) ?? null;
 			if (r.volumes?.length) { n.vols = r.volumes; for (const g of r.volumes) for (const q of g.parts) n.mainBytes += q.pos.byteLength + q.idx.byteLength; }   // 分類の立体（.geom）＝出すのは setOn（見える時だけ柱を上げる）
 			if (r.points.length) {
@@ -968,8 +969,11 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				setStyle(style) { setStyle(set, style); return this; }, get style() { return set.styleSpec ?? null; },
 				// 当たりと feature state（W7）＝EXT_mesh_features／_BATCHID の番号。色は { color } を頂点色へ（他の鍵は保つだけ）。状態は tileset ごと（タイルを跨いで同じ番号＝同じ地物）
 				pick: (x, y) => pickSet(set, x, y),
+				get shownTileIds() { const s = new Set<number>(); for (const n of set.loaded()) if (n.state === "ready" && n.on) s.add((n.owner ?? n).id); return [...s]; },   // 今描いているタイル（Cesium の tileVisible）
 				get tileIds() { const s = new Set<number>(); for (const n of set.loaded()) if (n.state === "ready") s.add((n.owner ?? n).id); return [...s]; },
 				tileFeatures: tid => tileFeatures(set, tid),
+				tileSphere: tid => { for (const n of set.loaded()) if ((n.owner ?? n).id === tid && n.sphere) return { center: [...n.sphere.c], radius: n.sphere.r }; return null; },   // タイルの境界球（ECEF・m）
+				tileExtensions: tid => { for (const n of set.loaded()) if ((n.owner ?? n).id === tid && n.gltfExt) return n.gltfExt; return null; },
 				/** 表示しているタイルの出典（glTF asset.copyright・多い順・W8） */
 				get copyrights() { return [...(set.copyrights || [])]; },
 				setFeatureState(fid, state, tile) {
@@ -1020,7 +1024,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		// 読み込んである三角形の束（map.sampleHeight の半直線の当たり・2026-10-25）。mode＝地形への持ち上げ方（pick と同じ "drape"｜"plane"・lift は呼ぶ側が入れる）
 		meshItems() {
 			const out: MeshItemRef[] = [];
-			for (const s of sets.values()) { if (s.hidden) continue; const mode = s.opts.ground === "terrain" ? "drape" : "plane"; for (const n of s.loaded()) if (n.on && n.pick) for (const p of n.pick) if (p.pos && p.idx) out.push({ id: s.id, mode, item: { pos: p.pos, idx: p.idx, origin: p.origin, features: p.features } }); }
+			for (const s of sets.values()) { if (s.hidden) continue; const mode = s.opts.ground === "terrain" ? "drape" : "plane"; for (const n of s.loaded()) if (n.on && n.pick) for (const p of n.pick) if (p.pos && p.idx) out.push({ id: s.id, mode, tile: (n.owner ?? n).id, item: { pos: p.pos, idx: p.idx, origin: p.origin, features: p.features, ...(s.maskAll && { skip: (fid: number) => stateOf(s, n, fid)?.show === false }) } }); }
 			return out;
 		},
 		pickAll(x: number, y: number) { return [...sets.values()].filter(s => !s.hidden).map(s => { const h = pickSet(s, x, y); return h && { id: s.id, ...h }; }).filter(Boolean); },   // 全 tileset の当たり（W7・queryRenderedFeatures が使う）
