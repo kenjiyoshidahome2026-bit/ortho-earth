@@ -352,37 +352,62 @@ export class OrthoScene {
 		}
 		return out;
 	}
-	sampleHeight(position: Cartographic) {
-		const map = this.host.map;
-		const r = map?.sampleHeight?.([[position.longitude * R2D, position.latitude * R2D]]);
-		const h = Array.isArray(r) ? r[0]?.height : undefined;
-		if (Number.isFinite(h)) return h;
-		const t = map?.queryTerrainElevation?.(position.longitude * R2D, position.latitude * R2D);
+	// sampleHeight: the highest loaded 3D Tiles / model surface under the point (a vertical map.raycast from 10 km down: synchronous, as Cesium's),
+	// else the terrain. objectsToExclude: tilesets (or their features) left out
+	sampleHeight(position: Cartographic, objectsToExclude?: unknown[]) {
+		const map = this.host.map, lng = position.longitude * R2D, lat = position.latitude * R2D;
+		if (map?.raycast) {
+			const ex = new Set(objectsToExclude ?? []), sets: any[] = (this as any).__tilesets ?? [];
+			let hits: any[] = [];
+			try { hits = map.raycast([lng, lat, 10000], [lng, lat, 0], { limit: ex.size ? 16 : 1 }); } catch { hits = []; }
+			for (const h of hits) {
+				if (ex.size && h.source === "tiles3d") { const ts = sets.find(t => t?.orthoHandle?.id === h.id); if (ts && (ex.has(ts) || (h.featureId != null && ex.has(ts.__feature(h.featureId, h.tile))))) continue; }
+				if (Number.isFinite(h.height)) return h.height;
+			}
+		}
+		const t = map?.queryTerrainElevation?.(lng, lat);
 		return Number.isFinite(t) ? t : undefined;
 	}
 	// Billboard/Label/PointPrimitive clamping (private Cesium API): the globe clamps the drawn marks itself, so answer once with the height
 	// known now and hand back the remover Cesium expects
-	getHeight(cartographic: Cartographic) { return this.sampleHeight(cartographic); }
-	updateHeight(cartographic: Cartographic, callback: (c: Cartographic) => void) {
-		const h = this.sampleHeight(cartographic);
+	// heightReference CLAMP_TO_TERRAIN / RELATIVE_TO_TERRAIN (3, 4): the terrain only; the others: the 3D Tiles and models too, as sampleHeight
+	#heightFor(c: Cartographic, ref?: number) {
+		if (ref === 3 || ref === 4) { const t = this.host.map?.queryTerrainElevation?.(c.longitude * R2D, c.latitude * R2D); return Number.isFinite(t) ? t : undefined; }
+		return this.sampleHeight(c);
+	}
+	getHeight(cartographic: Cartographic, heightReference?: number) { return this.#heightFor(cartographic, heightReference); }
+	updateHeight(cartographic: Cartographic, callback: (c: Cartographic) => void, heightReference?: number) {
+		const h = this.#heightFor(cartographic, heightReference);
 		if (h != null) callback(new Cartographic(cartographic.longitude, cartographic.latitude, h));
 		return () => {};
 	}
-	clampToHeight(cartesian: Cartesian3, _objectsToExclude?: unknown, _width?: number, result?: Cartesian3) {
-		const c = Ellipsoid.WGS84.cartesianToCartographic(cartesian);
-		if (!c) return undefined;
-		const h = this.sampleHeight(c);
-		return h == null ? undefined : Cartesian3.fromRadians(c.longitude, c.latitude, h, Ellipsoid.WGS84, result);
-	}
-	async sampleHeightMostDetailed(positions: Cartographic[]) {
-		const map = await this.host.ready;
-		const r = await map.sampleHeightMostDetailed?.(positions.map(p => [p.longitude * R2D, p.latitude * R2D])).catch?.(() => null);
-		positions.forEach((p, i) => { const h = r?.[i]?.height ?? this.sampleHeight(p); p.height = h ?? (undefined as never); });
+	// the most detailed: once the scene's tilesets (also one still being put on the globe) have settled on what the view needs: complete, nothing in flight
+	// and the loaded count still for 2 s (the globe's "complete" can come before the finer levels are asked for). Cesium loads the tiles over the
+	// points at their finest level; here the ones the view draws. At most 30 s
+	async sampleHeightMostDetailed(positions: Cartographic[], objectsToExclude?: unknown[]) {
+		await this.host.ready;
+		const sets = (): any[] => { const out: any[] = []; const walk = (c: any) => { for (let i = 0; i < (c?.length ?? 0); i++) { const p = c.get(i); if (p instanceof PrimitiveCollection) walk(p); else if (p && "orthoHandle" in p && p.show !== false && !p.isDestroyed?.()) out.push(p); } }; walk(this.primitives); return out; };
+		const t0 = performance.now();
+		let key = "", since = t0;
+		while (performance.now() - t0 < 30000) {
+			const ss = sets(), k = ss.map(t => { const st = t.orthoHandle?.stats; return st ? `${st.complete}/${st.inflight}/${st.loaded}` : "none"; }).join();
+			if (k !== key) { key = k; since = performance.now(); }
+			const settled = ss.every(t => { const st = t.orthoHandle?.stats; return st && st.complete && !st.inflight; });
+			if (settled && performance.now() - since >= 2000) break;
+			await new Promise(r => setTimeout(r, 250));
+		}
+		positions.forEach(p => { const h = this.sampleHeight(p, objectsToExclude); p.height = h ?? (undefined as never); });
 		return positions;
 	}
-	async clampToHeightMostDetailed(cartesians: Cartesian3[]) {
+	clampToHeight(cartesian: Cartesian3, objectsToExclude?: unknown[], _width?: number, result?: Cartesian3) {
+		const c = Ellipsoid.WGS84.cartesianToCartographic(cartesian);
+		if (!c) return undefined;
+		const h = this.sampleHeight(c, objectsToExclude);
+		return h == null ? undefined : Cartesian3.fromRadians(c.longitude, c.latitude, h, Ellipsoid.WGS84, result);
+	}
+	async clampToHeightMostDetailed(cartesians: Cartesian3[], objectsToExclude?: unknown[]) {
 		const cs = cartesians.map(c => Ellipsoid.WGS84.cartesianToCartographic(c));
-		await this.sampleHeightMostDetailed(cs.filter(Boolean) as Cartographic[]);
+		await this.sampleHeightMostDetailed(cs.filter(Boolean) as Cartographic[], objectsToExclude);
 		cs.forEach((c, i) => { if (c && c.height != null) Cartesian3.fromRadians(c.longitude, c.latitude, c.height, Ellipsoid.WGS84, cartesians[i]); else (cartesians as unknown[])[i] = undefined; });
 		return cartesians;
 	}
