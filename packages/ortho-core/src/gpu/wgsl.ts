@@ -1433,7 +1433,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	if (t < 0.0) {                             // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続減衰
 		if (G.misc.z > 0.5) {   // Cesium の空の大気（gl と同じ）
 			if (G.misc.w < 0.5) { discard; }
-			let cs = csSky(A * CS_R, normalize(d));
+			let cs = csSkyL(A * CS_R, normalize(d), 0.0, G.cg.xyz, select(-1.0, G.cgP.w, G.cg.w > 0.5));   // lit by the sun with the globe's lighting (Cesium's dynamic atmosphere)
 			if (cs.a <= 0.002) { discard; }
 			return cs;
 		}

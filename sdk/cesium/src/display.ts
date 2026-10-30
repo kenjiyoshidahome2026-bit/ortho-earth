@@ -881,6 +881,7 @@ export class EntityDisplay {
 			const uri = r.desc.model.uri, g = this.#gsph.get(uri);
 			if (g === undefined) { this.#gsph.set(uri, "pending"); void gltfSphere(uri).then(v => this.#gsph.set(uri, v)); return BoundingSphereState.PENDING; }
 			if (g === "pending") return BoundingSphereState.PENDING;
+			if (g && g.radius < 0) return BoundingSphereState.FAILED;   // the glTF did not load: Cesium's ModelVisualizer answers FAILED (trackedEntity then takes EntityView's default offset)
 			const pos = val(entity.position, t);
 			if (g && pos) {
 				const k = r.desc.model.scale, q = val(entity.orientation, t);

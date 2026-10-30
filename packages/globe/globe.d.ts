@@ -706,6 +706,8 @@ export interface GintApplyOptions {
 
 export type RasterSpec =
 	| { url: string; tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: Bbox | null; attribution?: string | null; subdomains?: string[] | string; tms?: boolean; headers?: Record<string, string>; name?: string;
+		/** WMTS: the TileMatrix id of each zoom, for a url with {TileMatrix}/{TileRow}/{TileCol} (default: the zoom itself) */
+		matrixIds?: string[];
 		/** 色調整（1.2.0〜・#39・MapLibre の raster-hue-rotate / -saturation / -contrast / -brightness-min / -max と同じ意味）。addLayer の raster 層は paint から自動で作る */
 		adjust?: { hueRotate?: number; saturation?: number; contrast?: number; brightnessMin?: number; brightnessMax?: number;
 			/** 色→透明（1.7.0〜）：この色（r,g,b 0..1）との差（最大成分）が threshold 未満の画素を透明に。paint では raster-color-to-alpha */
@@ -733,7 +735,7 @@ export type RasterSpec =
 export interface CanvasHandle { getCanvas(): HTMLCanvasElement | OffscreenCanvas; play(): void; pause(): void; readonly playing: boolean; setCoordinates(c: [LonLat, LonLat, LonLat, LonLat]): CanvasHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
 /** 四隅の動画の手綱（MapLibre の VideoSource と同じ名前）。setCoordinates＝四隅を差し替え（止まっていても動く） */
 export interface VideoHandle { getVideo(): HTMLVideoElement; play(): Promise<void>; pause(): void; seek(seconds: number): void; setCoordinates(corners: [LonLat, LonLat, LonLat, LonLat]): VideoHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
-export interface RasterOptions { order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number; /** カタログの id（select／toggle が付ける・selected() の答え） */ catalogId?: string; /** 標本化（MapLibre の raster-resampling・既定 linear・C4） */ resampling?: "linear" | "nearest"; /** 到着フェード ms（MapLibre の raster-fade-duration・既定 300・0＝無し） */ fadeDuration?: number }
+export interface RasterOptions { /** layers of the same order draw by rank (low first) when both have one; the style's raster layers get their style order */ rank?: number; order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number; /** カタログの id（select／toggle が付ける・selected() の答え） */ catalogId?: string; /** 標本化（MapLibre の raster-resampling・既定 linear・C4） */ resampling?: "linear" | "nearest"; /** 到着フェード ms（MapLibre の raster-fade-duration・既定 300・0＝無し） */ fadeDuration?: number }
 export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: Bbox | null; attribution: string | null; name: string | null; order: "under" | "over"; opacity: number; hideFills: boolean; resampling?: "linear" | "nearest"; fadeDuration?: number }
 export interface RasterAPI {
 	/** 足す（同じ id は置き換え）。戻り値＝ソースの自己申告（タイル寸・ズーム域・範囲・出典）。{ video } は VideoHandle */

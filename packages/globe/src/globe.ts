@@ -3678,7 +3678,7 @@ const mountLayerRaw = async (v: UserLayerRec) => {
 	}
 	if (kind === "raster") {
 		// 層の出しズーム＝表示窓（MapLibre の maxzoom は排他・表示窓の上端は包含＝ほんの少し手前）。source の minzoom/maxzoom は tile の z（spec）
-		const ro: RasterOptions = { order: "over", opacity: layer.paint?.["raster-opacity"] as number ?? 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) }, adjust = rasterAdjust(layer.paint);
+		const ro: RasterOptions = { order: "over", rank: mlOrderOf(layer.id), opacity: layer.paint?.["raster-opacity"] as number ?? 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) }, adjust = rasterAdjust(layer.paint);
 		if (sp.type === "image") { const b = await (await fetch(sp.url!, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates as Corners4, name: layer.id }, ro); }
 		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls as string[], corners: sp.coordinates as Corners4 }, ro);   // #49
 		if (sp.type === "canvas") {   // MapLibre の canvas source（C3）＝canvas は id の文字列か要素・animate（既定 true）
@@ -3690,7 +3690,7 @@ const mountLayerRaw = async (v: UserLayerRec) => {
 		let rs = sp;
 		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }
 		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles![0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
-		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds as Bbox | undefined, attribution: rs.attribution, tms: rs.scheme === "tms", headers: rs.headers ?? undefined, adjust }, ro);   // headers＝拡張（MLSource）
+		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds as Bbox | undefined, attribution: rs.attribution, tms: rs.scheme === "tms", headers: rs.headers ?? undefined, matrixIds: Array.isArray(rs.matrixIds) ? rs.matrixIds as string[] : undefined, adjust }, ro);   // headers＝拡張（MLSource）
 	}
 	if (kind === "custom") {
 		// url＝層のモジュール（worker 経路・gadgets/customgl-draw.js・PR-7）＝render worker の同一フレームで描き、renderingMode "3d" は本体の深度を深度バッファに前置き＝shader 無改修で地形・建物に隠れる
@@ -3703,7 +3703,7 @@ const mountLayerRaw = async (v: UserLayerRec) => {
 		customGet().add(v.layer as unknown as CustomLayer, order); return null;
 	}   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
 	if (kind === "hillshade" || kind === "colorrelief") {   // raster-dem のタイルから陰影（hillshade.js）／段彩（colorrelief.js）の画像タイルを作る port プロバイダ→画像タイル層（基図の上・注記の下）
-		const ro: RasterOptions = { order: "over", opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
+		const ro: RasterOptions = { order: "over", rank: mlOrderOf(layer.id), opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
 		let ds = sp;
 		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize も TileJSON から（setTerrain と同じ）
 		ds = { ...ds, tiles: (ds.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")), encoding: ds.encoding ?? "mapbox", maxzoom: ds.maxzoom ?? 22, tileSize: ds.tileSize ?? 512 };   // MapLibre の raster-dem の既定（encoding mapbox・tileSize 512・maxzoom 22）。⚠この地図の既定は terrarium＝ここで揃えないと勾配が 25 分の 1（3 巡目の轍）
@@ -3782,6 +3782,7 @@ const reorderLayers: GlobeScope["reorderLayers"] = () => {   // 登録順を各�
 	sendUserAnchors();              // 基図の層の間への差し込み（#123）＝順が変われば差し込む位置も変わる
 	sendLabelOrder();
 	for (const v of mlLayers.values()) if (v.kind === "custom") customCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
+	for (const v of mlLayers.values()) if (v.kind === "raster") map.raster?.set(v.layer.id, { rank: mlOrderOf(v.layer.id) });   // image tiles stack in the style order (moveLayer), not in the order their sources opened
 };
 // MapLibre の custom 層の器（main の透明な WebGL2 canvas・注記の下）。層が来た時に作る。hostMap＝onAdd/render に渡す map（MapLibre の口が自分を差す口＝map.setCustomLayerHost）
 let customCtl: ReturnType<typeof createCustomGL> | null = null, customHost: GlobeLive["customHost"] = null;

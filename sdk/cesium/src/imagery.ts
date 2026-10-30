@@ -38,10 +38,14 @@ export function rasterSourceOf(p: Any): Any | null {
 		return { type: "raster", tiles: [withQuery(`${base}/tile/{z}/{y}/{x}`, p._resource?.queryParameters)], ...range, attribution: "Esri" };
 	}
 	if (name === "WebMapTileServiceImageryProvider") {
-		let t = raw(p._resource);
-		if (!/\{TileMatrix\}/.test(t)) { unsupported("WebMapTileServiceImageryProvider in KVP encoding"); return null; }
-		t = t.replace("{TileMatrixSet}", p._tileMatrixSetID ?? "").replace("{Style}", p._style ?? "default").replace("{style}", p._style ?? "default").replace("{Layer}", p._layer ?? "");
-		return { type: "raster", tiles: [t], ...range };
+		// Cesium keeps the provider's values on its resource: KVP as query parameters (tilematrix={TileMatrix}…), REST as template values
+		// ({layer}, {style}, {format}…); both come out as one template whose {TileMatrix}/{TileRow}/{TileCol} the globe fills (tileMatrixLabels → matrixIds)
+		const res = p._resource, tv: Record<string, Any> = { ...(res?._templateValues ?? {}), TileMatrixSet: p._tilematrixset, tilematrixset: p._tilematrixset, format: p._format };
+		let t = p._useKvp ? withQuery(raw(res), res?.queryParameters) : raw(res);
+		t = t.replace(/\{(\w+)\}/g, (m, k) => /^(TileMatrix|tilematrix|TileRow|tilerow|TileCol|tilecol)$/.test(k) ? `{${k === "tilematrix" ? "TileMatrix" : k === "tilerow" ? "TileRow" : k === "tilecol" ? "TileCol" : k}}` : tv[k] != null ? encodeURIComponent(String(tv[k])) : m);
+		if (!/\{TileMatrix\}/.test(t)) { unsupported("WebMapTileServiceImageryProvider without {TileMatrix}"); return null; }
+		const ids = Array.isArray(p._tileMatrixLabels) ? p._tileMatrixLabels.map(String) : undefined;
+		return { type: "raster", tiles: [t], ...range, ...(ids ? { matrixIds: ids } : {}) };
 	}
 	if (name === "WebMapServiceImageryProvider") return rasterSourceOf(p._tileProvider);
 	if (name === "SingleTileImageryProvider") {
