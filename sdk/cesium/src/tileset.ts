@@ -104,7 +104,9 @@ export class Cesium3DTileset {
 	get show() { return this.#show; }
 	set show(v: boolean) { this.#show = !!v; this.#h?.setVisible(this.#show); }
 	get style() { return this.#style; }
-	set style(s: Any) { this.#style = s; this.#h?.setStyle(styleOf(s)); }
+	set style(s: Any) { this.#style = s; this.#h?.setStyle(this.#styleSent()); }
+	// no style: every feature's colour is Cesium's default white, which REPLACE / MIX paint too (imodel-mesh-export-service: the iModels white)
+	#styleSent() { return styleOf(this.#style) ?? ((this.colorBlendMode | 0) === 0 ? null : { color: "color('white')" }); }
 	makeStyleDirty() { this.#h?.setStyle(styleOf(this.#style)); }
 	get timeSinceLoad() { return 0; }
 	get statistics() { return statsOf(this.#h); }
@@ -176,7 +178,10 @@ export class Cesium3DTileset {
 		const cid = customShaderId(this.#host?.map, this.customShader);   // tileset.customShader = … (or null)
 		if (cid !== this.#csId) { this.#csId = cid; this.#h.setOptions({ customShader: cid }); }
 		const mode = (["highlight", "replace", "mix"] as const)[this.colorBlendMode | 0] ?? "highlight", bk = `${mode}:${this.colorBlendAmount}`;   // Cesium3DTileColorBlendMode HIGHLIGHT 0 / REPLACE 1 / MIX 2
-		if (bk !== this.#blendKey) { this.#blendKey = bk; this.#h.setOptions({ colorBlend: { mode, amount: this.colorBlendAmount } }); }
+		if (bk !== this.#blendKey) {
+			this.#blendKey = bk; this.#h.setOptions({ colorBlend: { mode, amount: this.colorBlendAmount } });
+			if (!this.#style) this.#h.setStyle(this.#styleSent());
+		}
 	}
 	/** a loaded tile as Cesium3DTile: its content holds the tile's features (content.featuresLength / getFeature, the same objects until it unloads) */
 	#tileOf(id: number) {
