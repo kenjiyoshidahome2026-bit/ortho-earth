@@ -1038,6 +1038,50 @@ function externalSchema(uri: string, baseUri: string | null, f: typeof fetch): P
 	}
 	return p;
 }
+// glTF line primitives (LINES 1 / LINE_LOOP 2 / LINE_STRIP 3) as thin square tubes (a triangle primitive with COLOR_0 and no normals = drawn unlit,
+// as Cesium draws lines). Width = 0.24% of the lines' bounding box diagonal (about a pixel when the model fills the view). An index equal to the
+// largest value of its type restarts the strip/loop (KHR_mesh_primitive_restart)
+function linePrimAsTubes(pr: GltfPrimitive, mode: number): GltfPrimitive | null {
+	const acc = pr.attributes?.POSITION, P0 = acc?.value; if (!P0) return null;
+	const q = acc!.normalized ? dequant(P0) : 1, n = P0.length / 3, I = pr.indices?.value ?? null;
+	const restart = I instanceof Uint8Array ? 0xff : I instanceof Uint16Array ? 0xffff : I instanceof Uint32Array ? 0xffffffff : -1;
+	const runs: number[][] = []; let cur: number[] = [];
+	const m = I ? I.length : n;
+	for (let k = 0; k < m; k++) { const v = I ? I[k] : k; if (v === restart) { if (cur.length) runs.push(cur); cur = []; } else cur.push(v); }
+	if (cur.length) runs.push(cur);
+	const segs: number[] = [];
+	for (const r of runs) {
+		if (mode === 1) for (let k = 0; k + 1 < r.length; k += 2) segs.push(r[k], r[k + 1]);
+		else { for (let k = 0; k + 1 < r.length; k++) segs.push(r[k], r[k + 1]); if (mode === 2 && r.length > 2) segs.push(r[r.length - 1], r[0]); }
+	}
+	if (!segs.length) return null;
+	let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+	for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) { const x = P0[i * 3 + c] * q; if (x < lo[c]) lo[c] = x; if (x > hi[c]) hi[c] = x; }
+	const w = Math.max(Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) * 0.0012, 1e-6);   // half width
+	const ns = segs.length / 2, P = new Float32Array(ns * 8 * 3), idx = new Uint32Array(ns * 24);
+	const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes!.COLOR_0!.normalized ? dequant(C0) : 1) : 1, C = C0 ? new Float32Array(ns * 8 * 4) : null;
+	for (let s = 0; s < ns; s++) {
+		const a = segs[s * 2], b = segs[s * 2 + 1];
+		const A = [P0[a * 3] * q, P0[a * 3 + 1] * q, P0[a * 3 + 2] * q], B = [P0[b * 3] * q, P0[b * 3 + 1] * q, P0[b * 3 + 2] * q];
+		const d = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], dl = Math.hypot(d[0], d[1], d[2]) || 1;
+		const t = Math.abs(d[0]) < 0.9 * dl ? [1, 0, 0] : [0, 1, 0];
+		let u = [d[1] * t[2] - d[2] * t[1], d[2] * t[0] - d[0] * t[2], d[0] * t[1] - d[1] * t[0]]; const ul = Math.hypot(u[0], u[1], u[2]); u = u.map(x => x / ul * w);
+		let v = [d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]]; const vl = Math.hypot(v[0], v[1], v[2]); v = v.map(x => x / vl * w);
+		const corners = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+		for (let e = 0; e < 2; e++) for (let c = 0; c < 4; c++) {
+			const o = (s * 8 + e * 4 + c) * 3, E = e ? B : A, [cu, cv] = corners[c];
+			for (let k = 0; k < 3; k++) P[o + k] = E[k] + cu * u[k] + cv * v[k];
+			if (C) { const src = e ? b : a; for (let k = 0; k < 4; k++) C[(s * 8 + e * 4 + c) * 4 + k] = k < cN ? C0![src * cN + k] * qc : 1; }
+		}
+		for (let c = 0; c < 4; c++) {   // 4 side quads
+			const a0 = s * 8 + c, a1 = s * 8 + (c + 1) % 4, b0 = a0 + 4, b1 = a1 + 4, o = s * 24 + c * 6;
+			idx[o] = a0; idx[o + 1] = a1; idx[o + 2] = b1; idx[o + 3] = a0; idx[o + 4] = b1; idx[o + 5] = b0;
+		}
+	}
+	const attributes: Record<string, GltfAccessor> = { POSITION: { value: P } as GltfAccessor };
+	if (C) attributes.COLOR_0 = { value: C } as GltfAccessor;
+	return { ...pr, mode: 4, attributes, indices: { value: idx } as GltfAccessor };
+}
 export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
 	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
@@ -1128,8 +1172,8 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	for (const pl of places || [{ A, T }]) for (const { mesh, W, node, skin: si } of inst) {
 		const A = pl.A, T = pl.T, animNode = animated.has(node) ? node : -1;
 		const fr0 = frameOf(W, A, T);
-		for (const pr of (mesh.primitives || [])) {
-			const mode4 = pr.mode ?? 4;
+		for (let pr of (mesh.primitives || [])) {
+			let mode4 = pr.mode ?? 4;
 			// skin（2026-10-28）＝JOINTS_0／WEIGHTS_0 を持つ primitive は静止姿勢でスキンして焼く（p' = Σ w·W(joint)·IBM·p＝シーン座標・mesh のノードの変換は掛けない）。
 			// 束は (skin, material) ごと＝main（gadgets/model.js）が rig の時計で頂点を焼き直す（gltf-anim.skinBatch）
 			const skinIn = si >= 0 && rigSkins?.[si] && mode4 >= 4 && mode4 <= 6 ? skinnedPrim(pr, rigSkins[si], si, jointMats, nodeW) : null;
@@ -1159,7 +1203,8 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 				}
 				continue;
 			}
-			if (mode4 !== 4 && mode4 !== 5 && mode4 !== 6) continue;   // 三角形系だけ（点/線は建物メッシュにならない）
+			if (mode4 >= 1 && mode4 <= 3) { const tp = linePrimAsTubes(pr, mode4); if (tp) { pr = tp; mode4 = 4; } }   // lines (Cesium draws them 1 px, unlit) → thin tubes
+			if (mode4 !== 4 && mode4 !== 5 && mode4 !== 6) continue;   // 三角形系だけ（点は建物メッシュにならない）
 			const acc = pr.attributes?.POSITION; const P = skinIn ? skinIn.P1 : acc?.value; if (!P) continue;
 			const NRM = skinIn ? skinIn.N1 : pr.attributes?.NORMAL?.value;
 			const q = !skinIn && acc!.normalized ? dequant(P) : 1;
