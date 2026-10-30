@@ -57,12 +57,13 @@ const BUILTIN_MATERIALS = new Set<string>(Object.keys((engine as Any).Material ?
 const defaultShaders = new Map<string, { vs: string; fs: string }>();
 /** a Primitive the globe cannot draw as Cesium does, so Cesium's renderer draws it (rawdraw.ts): its appearance carries the example's GLSL (its own
  * vertex/fragment shader, or a material of its own fabric: material-with-custom-glsl), or its polylines have a material the globe has no line style for
- * (PolylineGlow, PolylineArrow, PolylineOutline, PolylineDash, Fade…: polyline-material-dev) */
+ * (PolylineGlow, PolylineArrow, PolylineOutline, PolylineDash, Fade…: polyline-material-dev), or a surface material the globe cannot paint */
 export function drawnByCesium(p: Any): boolean {
 	if (!(Primitive && p instanceof Primitive) || (GroundPrimitive && p instanceof GroundPrimitive) || (ClassificationPrimitive && p instanceof ClassificationPrimitive)) return false;
 	const a = p.appearance, type = a?.material?.type;
 	if (type && !BUILTIN_MATERIALS.has(type) && a.material._template?.source) return true;
 	if (type && type !== "Color" && instancesOf(p).some(i => i.geometry instanceof PolylineGeometry)) return true;
+	if (type && type !== "Color" && !matOfMaterial(a.material) && !instancesOf(p).some(i => i.attributes?.color)) return true;   // a material the globe cannot paint (Dot, RimLighting, Water…: ellipsoid-surface-dev, volumes-dev) on a surface
 	const C = a?.constructor;
 	if (!C || typeof a.vertexShaderSource !== "string") return false;
 	const key = `${C.name}:${a.materialSupport?.vertexFormat ? Object.keys(C.MaterialSupport ?? {}).find(k => C.MaterialSupport[k] === a.materialSupport) : ""}:${a.flat}:${a.faceForward}`;

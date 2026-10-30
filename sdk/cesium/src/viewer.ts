@@ -23,6 +23,7 @@ import { syncSpecularEnv } from "./specular-env.ts";
 import { TimePointsDrawer, isTimeDynamicPointCloud } from "./timepoints.ts";
 import { isRawPrimitive } from "./rawdraw.ts";
 import { PrimitiveDrawer, isGeometryPrimitive, drawnByCesium, isDebugAxes, debugAxesPrimitive, isEllipsoidPrimitive, ellipsoidPrimitive } from "./primitives.ts";
+import { matOfMaterial } from "./materials.ts";
 import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
 import { ParticleDrawer, isParticleSystem } from "./particles.ts";
 import { CloudDrawer, isCloudCollection } from "./clouds.ts";
@@ -165,6 +166,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		else if (drawnByCesium(p)) { p._asynchronous = false; scene.raw.add(p); }   // a Primitive with the example's GLSL (material-with-custom-glsl) or a line material the globe has no style for: Cesium's renderer draws it over the globe (rawdraw.ts); its geometry is made on this thread (the page's COEP blocks Cesium's geometry workers)
 		else if (isGeometryPrimitive(p)) prims.add(p);
 		else if (isDebugAxes(p)) { const q = debugAxesPrimitive(p); debugAxes.set(p, q); prims.add(q); }   // DebugModelMatrixPrimitive: the axes it would draw (localtofixedframe)
+		else if (isEllipsoidPrimitive(p) && p.material?.type && p.material.type !== "Color" && !matOfMaterial(p.material)) scene.raw.add(p);   // its material is one the globe cannot paint (RimLighting: volumes-dev): Cesium's renderer draws it
 		else if (isEllipsoidPrimitive(p)) { const q = ellipsoidPrimitive(p); debugAxes.set(p, q); prims.add(q); }   // EllipsoidPrimitive (volumes-dev): its ellipsoid as geometry
 		else if (isCollection(p)) colls.add(p);
 		else if (isVoxelPrimitive(p)) voxels.add(p);
