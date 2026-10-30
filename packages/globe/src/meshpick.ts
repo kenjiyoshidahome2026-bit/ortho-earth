@@ -71,7 +71,7 @@ export function pickMeshes(items: Array<PickItem | null>, view: MeshPickEnv["vie
 	return best;
 }
 /** 読み込んである束の写し（tileset の id か模型の slot・地形への持ち上げ方・束）＝map.sampleHeight が集める */
-export interface MeshItemRef { id: string; mode: "drape" | "plane"; item: PickItem }
+export interface MeshItemRef { id: string; mode: "drape" | "plane"; item: PickItem; tile?: number }   // tile＝3D Tiles のタイルの番号（feature state の範囲）
 /** 半直線の当たり（rayMeshes）＝束の番号・三角形・t（from + t·dir の t）・一番近い頂点の地物の番号・交点の世界座標 */
 export interface MeshRayHit { item: number; tri: number; t: number; featureId: number | null; world: number[] }
 // 半直線 from + t·dir（t > 0・世界座標）と束の三角形の一番近い交点（Möller–Trumbore）＝map.sampleHeight（Cesium の sampleHeight・2026-10-25）。
@@ -104,6 +104,7 @@ export function rayMeshes(items: Array<PickItem | null>, from: ArrayLike<number>
 			const v = (dir[0] * qx + dir[1] * qy + dir[2] * qz) * inv; if (v < -1e-9 || u + v > 1 + 1e-9) continue;
 			const tt = (e2x * qx + e2y * qy + e2z * qz) * inv; if (tt <= 0 || (best && tt >= best.t)) continue;
 			const ids = it.features?.ids, w = [1 - u - v, u, v], vs = [I[t], I[t+1], I[t+2]], m = w.indexOf(Math.max(w[0], w[1], w[2])), fid = ids ? ids[vs[m]] : NO_FEATURE;
+			if (fid !== NO_FEATURE && it.skip?.(fid)) continue;   // 隠した地物は当てない（pickMeshes と同じ）
 			best = { item: k, tri: t / 3, t: tt, featureId: fid === NO_FEATURE ? null : fid, world: [from[0] + tt * dir[0], from[1] + tt * dir[1], from[2] + tt * dir[2]] };
 		}
 	}
