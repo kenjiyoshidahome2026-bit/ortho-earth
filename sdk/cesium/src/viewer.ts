@@ -212,11 +212,14 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 			if (op !== gop) { gop = op; map.setGlobeOpacity?.(op); }
 			const sp = scene.splitPosition;   // where the tilesets with a splitDirection part
 			if (sp !== gsp) { gsp = sp; map.setSplitPosition?.(sp); }
-			// the globe's underside seen from a camera below the ellipsoid (globe.undergroundColor and its alpha by distance; undefined = the
-			// underside's imagery alone). Above the ellipsoid it is off: the globe's floor is the sea-level sphere under the terrain
-			const ch = scene.camera.positionCartographic?.height;
+			// the globe's underside seen from a camera below the ground (globe.undergroundColor and its alpha by distance; undefined = the
+			// underside's imagery alone). Above the ground it is off: the globe's floor is the sea-level sphere under the terrain. The ground,
+			// as Cesium's scene.cameraUnderground: the terrain under the camera, not the ellipsoid (aerometrex: the eye at -9 m over the bay at
+			// -29 m is above the water, and the sphere's underside drawn 9 m over it filled the sky)
+			const pc = scene.camera.positionCartographic, ch = pc?.height;
+			const gh = Number.isFinite(ch) && ch < 0 ? map.queryTerrainElevation?.(pc.longitude * 180 / Math.PI, pc.latitude * 180 / Math.PI) : null;
 			let ug = "";
-			if (gb && gb.show !== false && Number.isFinite(ch) && ch < 0) {
+			if (gb && gb.show !== false && Number.isFinite(ch) && ch < (Number.isFinite(gh) ? Math.min(0, gh) : 0)) {
 				const uc = gb.undergroundColor, ub = gb.undergroundColorAlphaByDistance;
 				ug = JSON.stringify({ color: uc ? [uc.red, uc.green, uc.blue, uc.alpha] : [0, 0, 0, 0], nf: ub ? [ub.near, ub.nearValue, ub.far, ub.farValue] : [6378.137, 0, 1275627.4, 1] });
 			}
