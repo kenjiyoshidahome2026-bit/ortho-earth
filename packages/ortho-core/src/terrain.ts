@@ -82,7 +82,10 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 海底（seafloor）＝外来の DEM の spec が seafloor:true（Cesium の createWorldBathymetryAsync）の間だけ、R10／R90（GEBCO）と DEM の負値を
 	// 通す（既定は 0 へ寄せる＝海面の地面）。R01（ALOS・DEM10B）は陸だけ＝縁の fill など負の異常があり得るので従来どおり（2026-10-28）
 	let seafloor = !!(dem as { seafloor?: unknown } | null)?.seafloor;
-	const seaOf = (tile: TerrainTile): boolean => seafloor && (tile.range !== 1 || /^(dem|qmesh)/.test(String(tile.source || "")));
+	// negative＝外来の DEM の負値だけを通す（GEBCO の海底は出さない）：楕円体高のまま載せる Cesium World Terrain（heights:"orthometric"＝ジオイドを引かない）の海面は
+	// −N（サンフランシスコ湾で約 −29m）＝0 へ寄せると湾の面が楕円体の 0m に浮き、海面すれすれの目（aerometrex −9m）がその下に潜る（2026-10-30）
+	let negative = !!(dem as { negative?: unknown } | null)?.negative;
+	const seaOf = (tile: TerrainTile): boolean => (seafloor && tile.range !== 1) || ((seafloor || negative) && /^(dem|qmesh)/.test(String(tile.source || "")));
 	const rsDown = (tile: TerrainTile, N: number): CellPayload => gpuRs ? { tile, mode: "down", edge: edgeOf(tile), sea: seaOf(tile) } : perfT("resample", N, () => downsampleFlipped(tile, N, edgeOf(tile), seaOf(tile)));
 	const rsCrop = (tile: TerrainTile, lng0: number, lat0: number, span: number, N: number): CellPayload => gpuRs ? { tile, mode: "crop", lng0, lat0, span, sea: seaOf(tile) } : perfT("resample", N, () => cropResample(tile, lng0, lat0, span, N, seaOf(tile)));
 	let demSrc: DemSource | null = dem ? createDemSource(dem) : null;
@@ -176,6 +179,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	function setDem(spec: DemSpecInput | QmeshSpecInput | null): void {
 		demSrc = spec ? createDemSource(spec) : null;
 		const sea = !!(spec as { seafloor?: unknown } | null)?.seafloor;
+		negative = !!(spec as { negative?: unknown } | null)?.negative;
 		if (sea !== seafloor) { seafloor = sea; farKey = ""; farLoaded = new Set(); farWritten = new Set(); for (const [k, t] of [...r10Tiles]) if (k.startsWith("90,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); } }   // 海底の出し入れ＝遠景層・R90 のセルも焼き直す
 		dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
 		for (const [k, t] of [...r10Tiles]) if (k.startsWith("1,") || k.startsWith("10,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); }
@@ -295,7 +299,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const top = H(x0, y0) + (H(x0 + 1, y0) - H(x0, y0)) * tx;
 		const bot = H(x0, y0 + 1) + (H(x0 + 1, y0 + 1) - H(x0, y0 + 1)) * tx;
 		const v = top + (bot - top) * ty;
-		return v < 0 ? 0 : v;
+		return v < 0 && !seaOf(tile) ? 0 : v;
 	}
 	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化＝cropResample（elevation.js へ移設・2026-09-27・門＝tests/elevation-resample.mjs）
 	// 窓縁の標高フェード幅(deg)。viewCellRange の隣セル強制包含と ensure の renderer.set で共用（値ズレ防止）。
