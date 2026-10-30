@@ -28,6 +28,9 @@ async function gltfJson(url: string): Promise<any> {
 }
 const memo = new Map<string, Promise<{ center: V3; radius: number } | null>>();
 /** the model's bounding sphere in Cesium's model frame (z-up, +X forward), or null when the file has no bounds */
+const failed = new Set<string>();
+/** the glTF at url could not be read (gltfSphere answered null for that, not for a model without bounds) */
+export const gltfFailed = (url: string): boolean => failed.has(url);
 export function gltfSphere(url: string): Promise<{ center: V3; radius: number } | null> {
 	let p = memo.get(url);
 	if (!p) {
@@ -51,7 +54,7 @@ export function gltfSphere(url: string): Promise<{ center: V3; radius: number } 
 			const c: V3 = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
 			const radius = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2;
 			return { center: [c[2], c[0], c[1]] as V3, radius };   // glTF (x, y-up, z-forward) → Cesium's model frame (z-forward → +X, y-up → +Z)
-		}).catch(() => ({ center: [0, 0, 0] as V3, radius: -1 }));   // radius -1 = the glTF did not load (null = it has no bounds)
+		}).catch(() => { failed.add(url); return null; });
 		memo.set(url, p);
 	}
 	return p;
