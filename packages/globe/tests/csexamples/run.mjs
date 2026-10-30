@@ -125,9 +125,9 @@ async function runOne(browser, side, ex) {
 	page.on("load", () => rec.loads = (rec.loads || 0) + 1);   // more than 1 = the dev server reloaded the page (a dependency re-optimised)
 	await page.addInitScript(() => { try { localStorage.removeItem("cesium-hasSeenNavHelp"); } catch { /* none */ } });   // the help panel opens as on a first visit, also after a reload
 	let refClock = null;
-	if (TIME_FROM) {
+	if (TIME_FROM) {   // the ref's start: the record's own t0; older records without it: the file's mtime less the run time (a copy that did not keep the mtime moves the clock)
 		const j = path.join(TIME_FROM, "ref", `${ex.name}.json`);
-		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")); rec.timeFrom = new Date(st.mtimeMs - (r.ms || 0)).toISOString(); await page.addInitScript(shiftDate, st.mtimeMs - (r.ms || 0) - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; }
+		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")), t0 = r.t0 ?? st.mtimeMs - (r.ms || 0); rec.timeFrom = new Date(t0).toISOString(); await page.addInitScript(shiftDate, t0 - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; }
 	}
 	try {
 		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/${side === "ortho" && ORTHO_QUERY ? `?${ORTHO_QUERY}` : ""}`, { timeout: 60000 });
@@ -159,7 +159,7 @@ async function runOne(browser, side, ex) {
 		fs.writeFileSync(path.join(OUT, side, `${ex.name}.png`), shot);
 		rec.cells = cells(decodePng(shot));
 	} catch (e) { rec.harnessError = String(e?.message || e).split("\n")[0].slice(0, 300); }
-	rec.ms = Date.now() - rec.t0; delete rec.t0;
+	rec.ms = Date.now() - rec.t0;   // t0 stays: a later --time-from run starts its clock there
 	fs.writeFileSync(path.join(OUT, side, `${ex.name}.json`), JSON.stringify(rec));
 	await ctx.close().catch(() => {});
 	return rec;
