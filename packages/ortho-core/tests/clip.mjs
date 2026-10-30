@@ -115,6 +115,11 @@ for (const ell of [false, true]) {
 	const circ = Array.from({ length: 200 }, (_, i) => [lng0 + dLng * Math.cos(i / 200 * 2 * Math.PI), lat0 + dLat * Math.sin(i / 200 * 2 * Math.PI)]);
 	const cg = clipPolygon({ polygon: [circ] });
 	ok(cg.edges.length <= CLIP_POLY_MAX && cg.edges.length >= 32 && clipPolygonDistanceM(cg, lng0, lat0) < -95, `辺が多い輪は間引く（${cg.edges.length} 本）`);
+	// 細長い L 字（道路の外形）＝直線上の頂点が多い：間引いても角は残り、角の外は切らない（一様に間引くと弦が角を横切った・aec-clipping）
+	const Lpath = [[0, 0], [10, 0], [10, 1], [1, 1], [1, 10], [0, 10]], Lr = [];
+	for (let i = 0; i < Lpath.length; i++) { const a = Lpath[i], b = Lpath[(i + 1) % Lpath.length]; const m = Math.hypot(b[0] - a[0], b[1] - a[1]) > 5 ? 90 : 1; for (let t = 0; t < m; t++) Lr.push([lng0 + dLng * (a[0] + (b[0] - a[0]) * t / m), lat0 + dLat * (a[1] + (b[1] - a[1]) * t / m)]); }
+	const Lg = clipPolygon({ polygon: [Lr] });
+	ok(Lg.edges.length <= CLIP_POLY_MAX && clipPolygonDistanceM(Lg, lng0 + dLng * 3, lat0 + dLat * 3) > 50 && clipPolygonDistanceM(Lg, lng0 + dLng * 9.95, lat0 + dLat * 0.95) < 0 && clipPolygonDistanceM(Lg, lng0 + dLng * 0.05, lat0 + dLat * 9.95) < 0, `L 字を間引いても角が残る（${Lr.length} 点 → 辺 ${Lg.edges.length} 本）`);
 	ok(clipPolygon({ polygon: { type: "Point", coordinates: [0, 0] } }) === null && clipPolygon({}) === null, "多角形が無い＝null");
 	ok(clipPolygonFor(normClip({ polygon: [sq], targets: ["models"] }), "terrain") === null && clipPolygonFor(normClip({ polygon: [sq], targets: ["models"] }), "models") !== null, "対象ごと（targets）");
 	// シェーダと同じ式（f32・原点相対）：polyXY(rel)＝(pe·rel + pe.w, pn·rel + pn.w)・polyD＝辺までの最短（偶奇で符号）
