@@ -83,7 +83,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 通す（既定は 0 へ寄せる＝海面の地面）。R01（ALOS・DEM10B）は陸だけ＝縁の fill など負の異常があり得るので従来どおり（2026-10-28）
 	let seafloor = !!(dem as { seafloor?: unknown } | null)?.seafloor;
 	// negative＝外来の DEM の負値だけを通す（GEBCO の海底は出さない）：楕円体高のまま載せる Cesium World Terrain（heights:"orthometric"＝ジオイドを引かない）の海面は
-	// −N（サンフランシスコ湾で約 −29m）＝0 へ寄せると湾の面が楕円体の 0m に浮き、海面すれすれの目（aerometrex −9m）がその下に潜る（2026-10-30）
+	// ジオイド高 N（サンフランシスコ湾で約 −29m）＝0 へ寄せると湾の面が楕円体の 0m に浮く（2026-10-30）
 	let negative = !!(dem as { negative?: unknown } | null)?.negative;
 	const seaOf = (tile: TerrainTile): boolean => (seafloor && tile.range !== 1) || ((seafloor || negative) && /^(dem|qmesh)/.test(String(tile.source || "")));
 	const rsDown = (tile: TerrainTile, N: number): CellPayload => gpuRs ? { tile, mode: "down", edge: edgeOf(tile), sea: seaOf(tile) } : perfT("resample", N, () => downsampleFlipped(tile, N, edgeOf(tile), seaOf(tile)));

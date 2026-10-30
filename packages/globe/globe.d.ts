@@ -901,7 +901,7 @@ export interface SampleHeightResult { lng: number; lat: number; height: number |
 export interface QuantizedMeshSource { type: "quantized-mesh"; url?: string; ion?: { assetId: number | string; accessToken: string }; heights?: "ellipsoidal" | "orthometric"; heightOffset?: number;
 	/** R01 のセルを焼く段（既定＝タイルの幅がセルの約 1/4＝z10）・maxzoom＝1 点の標本の上限の段（既定 16） */ cellZoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; headers?: Record<string, string>; credentials?: RequestCredentials;
 	/** 海底を持つ（Cesium の World Bathymetry 等）＝負の標高を海面の 0 へ寄せずに描く。この間は既定の標高（GEBCO の R10／R90）の海底も出す */ seafloor?: boolean;
-	/** negative heights of this source are drawn as they are (no GEBCO sea floor): an ellipsoid-height source taken as it is, whose sea surface is at −N */ negative?: boolean }
+	/** negative heights of this source are drawn as they are (no GEBCO sea floor): an ellipsoid-height source taken as it is, whose sea surface is at the geoid height N */ negative?: boolean }
 export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "terrarium" | "mapbox" | "gsi" | "custom"; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number; /** 海底を持つ（負の標高を 0 へ寄せない）＝QuantizedMeshSource と同じ */ seafloor?: boolean }
 /** 標高の source を整えた後の spec（map.getTerrain の source）＝raster-dem は tiles を頁基準の絶対・encoding 既定 mapbox・tileSize 512・maxzoom 22（TileJSON の申告の encoding・bounds はそのまま）／
  *  quantized-mesh は url を頁基準の絶対にしただけ（ion・heights などもそのまま） */
