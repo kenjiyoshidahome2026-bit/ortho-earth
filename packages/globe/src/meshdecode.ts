@@ -972,7 +972,7 @@ function voxelPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 	if (vol?.region && vol.region.length === 6) { const r = vol.region; return { ...base, shape: "region", region: [r[0] * R2D_, r[1] * R2D_, r[2] * R2D_, r[3] * R2D_, r[4] + lift, r[5] + lift] }; }
 	return null;
 }
-// ground＝"batch"（既定・一体で接地）／"each"（連結成分ごとに接地＝街の一区画を切り出した模型）
+// ground＝"batch"（既定・一体で接地）／"each"（連結成分ごとに接地＝街の一区画を切り出した模型）／"absolute"（接地しない＝楕円体高のまま）
 // mask＝模型の足元の基図建物を伏せる（PLATEAU と同じ被覆マスク）。街の一区画を切り出した模型は、基図の白い箱と
 // 同じ建物を二重に描いて壁の絵が明滅する（本人 2026-09-21）＝模型もマスクを出して下の箱を伏せる。既定 false
 // tile＝3D Tiles のタイルとして置く（#41・2026-09-23）＝{ places:[{ L:列優先3x3, t:[x,y,z] }]（タイル変換×インスタンス・ECEF）, rtc:[x,y,z]|null, baseH:m, points:true }。
@@ -1298,7 +1298,8 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		}
 	}
 	if (tile && tile.baseH != null) minH = tile.baseH;   // 3D Tiles＝接地しない（絶対高さ − baseH）
-	else if (ground === "origin" && mode === "anchor") minH = 0;   // 錨（模型の原点）を高さの基準に＝最低点で接地しない（Cesium の Model＝原点が position。坑道の模型は原点の 94 m 上から始まる・2026-10-29）
+	else if (ground === "origin" && mode === "anchor") minH = 0;
+	else if (ground === "absolute") minH = 0;   // the heights as they are (ellipsoid): a shape deep inside the Earth (Cesium's globe-interior core at the centre) measured from its lowest point and lifted back by one altitude along one normal came out a shell 2500 km thick   // 錨（模型の原点）を高さの基準に＝最低点で接地しない（Cesium の Model＝原点が position。坑道の模型は原点の 94 m 上から始まる・2026-10-29）
 	if (!nTri) return pts?.geo.length || splats.length || voxels.length || nVoxSkip ? { batches: [], mask: null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts ? pts.geo.length / 3 : 0, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), gltf: gltfMeta(raw ?? gltf.json ?? gltf) } } : null;
 	// マテリアル束ごとに後段（接地＝模型全体の最低点 minH で揃える＝束が違っても一体で沈む/浮く）。テクスチャは同じ画像を 1 回だけ
 	const imgCache = new Map<GltfImage, TexOut | null>();
