@@ -302,8 +302,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// 予算を越えると越えたまま持ち続けた（iPhone の 160 MB は密な街区で越え得る）。戻し＝使っている物（表示中＋今回の選びで塊の一員）の量が予算の 7 割を
 	// 切っていれば、動いた時に 1 s に 1 段ずつ 0.9 倍で 1 倍まで（止まっている間は戻さない・取っておいた物（捨てていない隠れた子）は量に数えない＝戻せなくなる）
 	// per tileset (2026-10-29): Cesium gives each tileset its own cacheBytes, so a BIM model's large textures do not coarsen the Google tiles beside it.
-	// A tileset over BUDGET on its own, or the largest one while all together pass CAP, is the one raised
-	const CAP = BUDGET * 2;
+	// A tileset over SET_MAX on its own, or the largest one while all together pass CAP, is the one raised. SET_MAX = Cesium's cacheBytes +
+	// maximumCacheOverflowBytes (512 + 512 MB): a BIM model needing 700 MB keeps its fine levels as in Cesium (aec-architectural-design's
+	// curtain walls were cut to a 9x coarser level). lowMem keeps the old limits
+	const SET_MAX = lowMem ? BUDGET : BUDGET * 2, CAP = lowMem ? BUDGET * 2 : BUDGET * 4;
 	let moved = false, sseDownAt = 0;   // moved＝前回の選びから動いた（戻しは動いた時だけ）・sseDownAt＝最後に戻した時刻
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
 
@@ -918,10 +920,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		for (const set of sets.values()) { let a = 0, b = 0; for (const n of set.loaded()) { const x = n.bytes + n.mainBytes; a += x; if (n.on || n.used === frameNo) b += x; } own.set(set, a); live.set(set, b); }
 		const raise = (set: T3dSet | undefined) => { if (set && (set.sse ?? 1) < 16) { set.sse = Math.min(16, (set.sse ?? 1) * 1.25); schedule(); } };
 		let over = false;
-		for (const [set, b] of live) if (b > BUDGET) { raise(set); over = true; }   // what it shows and wants now (its hidden tiles were evicted above)
+		for (const [set, b] of live) if (b > SET_MAX) { raise(set); over = true; }   // what it shows and wants now (its hidden tiles were evicted above)
 		if (!over && gpuBytes + mainBytes > CAP) raise([...own].filter(([x]) => (x.sse ?? 1) < 16).sort((a, b) => b[1] - a[1])[0]?.[0]);
 		else if (!over && moved && performance.now() - sseDownAt > 1000 && gpuBytes + mainBytes < CAP * 0.7)
-			for (const [set, b] of live) if ((set.sse ?? 1) > 1 && b < BUDGET * 0.7) { const v = set.sse! * 0.9; set.sse = v < 1.05 ? 1 : v; sseDownAt = performance.now(); }
+			for (const [set, b] of live) if ((set.sse ?? 1) > 1 && b < SET_MAX * 0.7) { const v = set.sse! * 0.9; set.sse = v < 1.05 ? 1 : v; sseDownAt = performance.now(); }
 		moved = false;
 	}
 
