@@ -1025,6 +1025,19 @@ function mcJOf(lin: ArrayLike<number> | undefined, e0: number[] | undefined, min
 	for (let k = 0; k < 3; k++) { const e = [...e0]; e[k] += 1; const wk = w(e); L[k*3] = wk[0] - w0[0]; L[k*3+1] = wk[1] - w0[1]; L[k*3+2] = wk[2] - w0[2]; }
 	return Array.from(m3mul(L, lin));
 }
+const schemaCache = new Map<string, Promise<Record<string, unknown> | null>>();
+/** an external metadata schema (schemaUri, relative to the glTF): fetched once per URL; null when it cannot be read */
+function externalSchema(uri: string, baseUri: string | null, f: typeof fetch): Promise<Record<string, unknown> | null> {
+	let url: string;
+	try { url = new URL(uri, baseUri ?? self.location?.href).href; } catch { return Promise.resolve(null); }
+	let p = schemaCache.get(url);
+	if (!p) {
+		p = f(url).then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json() as Promise<Record<string, unknown>>; })
+			.catch(e => { console.warn("[model] metadata schema", url, (e as Error | null)?.message || e); return null; });
+		schemaCache.set(url, p);
+	}
+	return p;
+}
 export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
 	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
@@ -1039,6 +1052,10 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	}
 	dracoNames(gltf, raw);
 	const metaRaw = ((raw as { extensions?: { EXT_structural_metadata?: RawMeta } } | null)?.extensions?.EXT_structural_metadata ?? gltf.extensions?.EXT_structural_metadata ?? null) as RawMeta | null;   // property texture の読み方（生の json）
+	// EXT_structural_metadata with schemaUri (Cesium ion's BIM exports: ../../../../schema.json): the schema is fetched once per URL and put where the
+	// inline one would be, so the property tables and textures read their classes from it
+	for (const m of new Set([raw?.extensions?.EXT_structural_metadata, gltf.extensions?.EXT_structural_metadata] as Array<{ schema?: unknown; schemaUri?: string } | undefined>))
+		if (m && !m.schema && m.schemaUri) m.schema = await externalSchema(m.schemaUri, baseUri, f) ?? undefined;
 	const ktx2 = textures ? await transcodeBasisu(gltf, raw, baseUri, f) : { textures: 0, transcoded: 0, failed: 0 };   // KTX2/Basis の texture を変換器で素の RGBA に（W5・無ければ fallback の画像）
 	// シーン木を根から歩き、mesh を持つノードごとに world 行列（Y-up ローカル）を確定。scene 無しの glb は「親を持たないノード」を根とみなす
 	const nodes = gltf.nodes || [];

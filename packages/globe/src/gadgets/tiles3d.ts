@@ -99,7 +99,7 @@ interface SubtreeSlot { state: "loading" | "ready" | "failed"; st: Subtree | nul
 /** implicit の節点＝c＝自分の座標・r＝自分を含む subtree の根の座標・st＝その subtree（null＝まだ読んでいない＝自分が subtree の根） */
 interface ImpNode { R: ImpRoot; c: TileCoord; r: TileCoord; st: Subtree | null }
 /** スタイルの塗り直しの写し（束ごと）＝元の頂点色・地物・元の alphaMode・mask＝OPAQUE を MASK に切り替えて上げた（show で抜くため） */
-interface PaintPart { k: number; col0: Uint8Array; features: MeshFeatures | null; alpha0: string; mask: boolean }
+interface PaintPart { k: number; col0: Uint8Array; features: MeshFeatures | null; alpha0: string; mask: boolean; /** an OPAQUE batch put up as BLEND: the style gives some feature an alpha under 1 */ blend?: boolean }
 /** 選びの節点（3D Tiles のタイルか I3S の節） */
 interface T3dNode {
 	id: number; set: T3dSet; parent: T3dNode | null; M?: ArrayLike<number>; ge: number; refine: string; sphere: Sphere | null; uri: string | null; children: T3dNode[] | null;
@@ -120,14 +120,18 @@ interface VolTest { shape: number; Q: Float64Array; q0: number[]; bc: number[]; 
 type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token?: string; splat?: Record<string, unknown> | null; voxel?: Record<string, unknown> | null };
 /** 1 つの tileset（3D Tiles か I3S＝kind "i3s"）。asset 等は 3D Tiles だけ・states は両方（I3S は手綱に setFeatureState が無い＝常に空） */
 interface T3dSet {
+	/** the memory-adaptive SSE factor of this tileset (Cesium: each tileset has its own cache budget) */
+	sse?: number;
 	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; splats: number; voxels: number; bytes: number; subtrees: number; complete: boolean };
+	/** the style gave a feature a colour with alpha under 1 (Cesium draws it translucent): OPAQUE batches are put up as BLEND */
+	blendAll?: boolean;
 	states: Map<number, Record<string, unknown>>; /** feature state の show:false が一度でも来た＝不透明の束も MASK で上げる（地物を α 0 で抜く） */ maskAll?: boolean; query: Array<[string, string]>; pts: OverlayHandle | null; removed: boolean; hidden: boolean; releaseT?: number; splatWarned?: boolean; voxelWarned?: boolean; voxDecl?: { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | null;
 	asset?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null; extras?: Record<string, unknown> | null; extensionsUsed?: string[]; extensionsRequired?: string[];
 	name?: string | null; copyright?: string | null; ellipsoidal?: boolean;
 	root: T3dNode; ready: Set<T3dNode>; scope?: T3dScope; style?: CompiledStyle | null; styleSpec?: Tiles3DStyle | null; metaBase?: Record<string, unknown>; loaded: () => T3dNode[]; copyrights?: string[]; attrText?: string | null;
 }
 /** add の手綱（公開の Tiles3DHandle＋検分用の tiles） */
-type T3dHandle = Tiles3DHandle & { readonly tiles: Array<{ id: number; uri: string | undefined; on: boolean; ward: string | null; meshes: number | undefined; pts: number; splats: number; voxels: number; bbox: number[] | null | undefined }> };
+type T3dHandle = Tiles3DHandle & { readonly tiles: Array<{ id: number; uri: string | undefined; on: boolean; ward: string | null; meshes: number | undefined; pts: number; splats: number; voxels: number; bbox: number[] | null | undefined; bytes: number; mainBytes: number }> };
 /** addI3S の opts と手綱（map.addI3S と同じ） */
 type I3SOptions = Parameters<GlobeMap["addI3S"]>[1];
 type I3SHandle = Awaited<ReturnType<GlobeMap["addI3S"]>>;
@@ -295,7 +299,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// sseScale 倍（1.25 倍ずつ・上限 16 倍）にして粗い段で止める＝表示中の塊そのものを縮める（Cesium の memory-adaptive SSE と同じ考え）。旧＝表示中の塊が
 	// 予算を越えると越えたまま持ち続けた（iPhone の 160 MB は密な街区で越え得る）。戻し＝使っている物（表示中＋今回の選びで塊の一員）の量が予算の 7 割を
 	// 切っていれば、動いた時に 1 s に 1 段ずつ 0.9 倍で 1 倍まで（止まっている間は戻さない・取っておいた物（捨てていない隠れた子）は量に数えない＝戻せなくなる）
-	let sseScale = 1, moved = false, sseDownAt = 0;   // moved＝前回の選びから動いた（戻しは動いた時だけ）・sseDownAt＝最後に戻した時刻
+	// per tileset (2026-10-29): Cesium gives each tileset its own cacheBytes, so a BIM model's large textures do not coarsen the Google tiles beside it.
+	// A tileset over BUDGET on its own, or the largest one while all together pass CAP, is the one raised
+	const CAP = BUDGET * 2;
+	let moved = false, sseDownAt = 0;   // moved＝前回の選びから動いた（戻しは動いた時だけ）・sseDownAt＝最後に戻した時刻
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
 
 	// 親の URL の鍵（?key= 等）を子へ引き継ぐ：tileset の根の物と、子を書いた JSON（外部 tileset）の URL の物（Cesium の getDerivedResource と同じ＝
@@ -440,7 +447,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const pk = set.opts.pickable ?? "auto", geom = pk === true || (pk === "auto" && !lowMem);
 			n.pick = pk === false ? null : r.batches.map((b, k) => (pk === true || b.features) ? { k, pos: geom ? b.mesh.pos.slice() : null, idx: geom ? b.mesh.idx.slice() : null, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : null).filter(Boolean) as PickPart[];
 			const sty = set.style, opaque = (b: TileBatch) => (b.alphaMode ?? "OPAQUE") === "OPAQUE";
-			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: (!!sty.show || !!set.maskAll) && opaque(b) } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
+			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: (!!sty.show || !!set.maskAll) && opaque(b), blend: !!set.blendAll && opaque(b) } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
 			// main に残る写しの量＝当たりの頂点・index・元の頂点色＋塗り直しの元の頂点色＋地物の番号（ids・tblV＝束ごとに 1 回）。属性の表（文字列の配列）は数えない
 			n.mainBytes = 0;
 			const featBytes = (f: MeshFeatures | null) => f ? f.ids.byteLength + ((f.tblV as ArrayBufferView | null)?.byteLength || 0) + (f.tex?.ids.byteLength || 0) : 0;
@@ -450,7 +457,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			r.batches.forEach((b, k) => {
 				const m = b.mesh, mask = (!!sty?.show || (!!set.maskAll && !!b.features)) && opaque(b);   // show（スタイル・feature state）で抜く＝OPAQUE を MASK に（見える地物は α 255）
 				n.bytes += (m.pos?.byteLength || 0) + (m.nrm?.byteLength || 0) + (m.idx?.byteLength || 0) + (m.uv?.byteLength || 0) + (m.col?.byteLength || 0) + (b.tex?.rgba?.byteLength || (b.tex?.bitmap ? b.tex.bitmap.width * b.tex.bitmap.height * 4 : 0));
-				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null, split: splitOf(set), sh: set.opts.environment ?? null, outline: set.opts.outline ?? null });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
+				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: set.blendAll && opaque(b) ? "BLEND" : mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null, split: splitOf(set), sh: set.opts.environment ?? null, outline: set.opts.outline ?? null });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
 			});
 			if (set.states.size || n.paint) paintNode(n);   // feature state の色とスタイルは後から読んだタイルにも
 			n.copyright = r.stats?.copyright || null;   // glTF の asset.copyright（W8）＝出典の欄へ
@@ -570,26 +577,32 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const paintStyled = (n: T3dNode) => {
 		if (!setMeshCol || !n.ward) return;
 		const set = n.set, sty = set.style ?? null;
+		let reblend = false;
 		set.metaBase ??= { ...(entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema)?.properties || {}) };
 		const base = { ...set.metaBase, ...(n.group != null ? n.scope?.groups[n.group]?.properties : null), ...n.tileMeta?.properties, ...n.contentMeta?.properties };
 		for (const p of n.paint!) {
 			const f = p.features, cache = new Map<string, number[] | null>();
+			let seeThrough = false;
 			const rgbaOf = (id: number | null, t: number | null) => {
 				const key = `${id}:${t}`;
 				if (cache.has(key)) return cache.get(key)!;
 				const state = id != null ? set.states.get(id) ?? null : null, table = id != null && t != null && t >= 0 ? f?.tables?.[t] : null;
-				const props = table ? { ...base, ...featureProperties(table, id!) } : base, x = { props, id, state };
+				const props = table ? { ...base, ...featureProperties(table, id!) } : base, x = { props, id, state, int64: table?.int64 };
 				let c: number[] = [NaN, NaN, NaN, NaN];
 				const sc = sty?.color?.(x); if (sc) c = [sc[0], sc[1], sc[2], NaN];
+				const sa = sc && sc[3] < 255 ? sc[3] : NaN; if (!Number.isNaN(sa)) seeThrough = true;   // a translucent style colour (color('lightblue', 0.05))
 				const st = state?.color ? cssRGB(String(state.color)) : null; if (st) c = [st[0], st[1], st[2], NaN];   // feature state の色が勝つ
 				const shown = (sty?.show ? sty.show(x) : true) && state?.show !== false;   // feature state の show:false も抜く
-				c[3] = !shown ? 0 : p.mask ? 255 : NaN;
+				c[3] = !shown ? 0 : !Number.isNaN(sa) && (p.blend || p.alpha0 === "BLEND") ? sa : p.mask ? 255 : NaN;
 				const out = c.every(v => Number.isNaN(v)) ? null : c;
 				cache.set(key, out); return out;
 			};
 			setMeshCol(`${n.ward}#${p.k}`, paintBatch(p.col0, f?.ids, i => f ? (f.tblV ? f.tblV[i] : f.table ?? null) : null, rgbaOf));
 			if (f?.tex && setMeshPaint) setMeshPaint(`${n.ward}#${p.k}`, paintTexel(f.tex, f.table ?? null, rgbaOf, blendOf(set)));
+			if (seeThrough && p.alpha0 === "OPAQUE" && !p.blend && !set.blendAll) { set.blendAll = true; reblend = true; }
 		}
+		// the first translucent style colour: the tiles put up OPAQUE are put up again as BLEND (after this load has finished; blendAll stays for the set)
+		if (reblend) setTimeout(() => { for (const m of set.loaded()) if (m.state === "ready" && m.paint?.some(q => q.alpha0 === "OPAQUE" && !q.blend)) unload(m); schedule(); }, 0);
 	};
 	// 画素ごとの地物の番号（featureId.texture）→ 塗る絵（RGBA・α 255＝その色で・0＝元の色のまま）。番号ごとに色を 1 度だけ引く。何も塗らなければ null
 	const paintTexel = (t: NonNullable<MeshFeatures["tex"]>, table: number | null, rgbaOf: (id: number | null, t: number | null) => number[] | null, blend: number) => {
@@ -626,7 +639,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		n.vols.forEach((g, gi) => {
 			const groups = new Map<string, { color: number[]; parts: GeomOut["parts"] }>();
 			for (const q of g.parts) {
-				const state = set.states.get(q.id) ?? null, x = { props: { ...base, ...featureProperties(g.table, q.id) }, id: q.id, state };
+				const state = set.states.get(q.id) ?? null, x = { props: { ...base, ...featureProperties(g.table, q.id) }, id: q.id, state, int64: g.table?.int64 };
 				if ((sty?.show && !sty.show(x)) || state?.show === false) continue;
 				const sc = sty?.color?.(x), st = state?.color ? cssRGB(String(state.color)) : null;
 				const c = st ? [st[0], st[1], st[2], sc?.[3] ?? 255] : sc ?? [255, 255, 255, 255], key = c.join(",");
@@ -719,7 +732,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		for (const n of set.loaded()) if (n.on && n.pick) for (const p of n.pick) { if (!p.pos || !p.idx) continue; items.push({ pos: p.pos, idx: p.idx, origin: p.origin, features: p.features, lift: env.lift(p.origin, onGround ? "drape" : "plane"), skip }); refs.push([n, p]); }
 		const h = pickMeshes(items, env.view, x, y); if (!h) return null;
 		const [n, p] = refs[h.item], f = p.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f!.tables?.[tIdx] : null;
-		return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx!, name: table.name, class: table.class } : null,
+		return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx!, name: table.name, class: table.class, ...(table.int64 && { int64: table.int64 }) } : null,
 			tile: (n.owner ?? n).id, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(set.states.get(h.featureId) || {}) } : {},
 			tileMetadata: n.tileMeta ?? null, contentMetadata: n.contentMeta ?? null, groupMetadata: n.group != null ? n.scope?.groups[n.group] ?? null : null };   // metadata（3D Tiles 1.1）
 	};
@@ -775,7 +788,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		for (const set of sets.values()) {
 			if (!set.root || set.hidden) continue;
 			const show = new Set<T3dNode>();
-			const maxSSE = (set.opts.maxSSE ?? (lowMem ? 24 : 16)) * sseScale;
+			const maxSSE = (set.opts.maxSSE ?? (lowMem ? 24 : 16)) * (set.sse ?? 1);
 			const visible = (n: T3dNode): { ok: true; dist: number; distC?: number } | { ok: false } => {
 				if (!n.sphere) return { ok: true, dist: 1 };
 				const c = worldOf(n.sphere.c, -liftOf(set, n), ell, EARTH_M), r = n.sphere.r / EARTH_M;
@@ -871,12 +884,14 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			for (const n of cand) { if (gpuBytes + mainBytes <= BUDGET * 0.85) break; unload(n); }
 		}
 		// 予算の SSE 引き上げ／戻し（上の sseScale の注釈）。上げたら選び直す（止まっていても効く）・戻すのは今回の選び（動いた時）の分だけ
-		if (gpuBytes + mainBytes > BUDGET) { if (sseScale < 16) { sseScale = Math.min(16, sseScale * 1.25); schedule(); } }
-		else if (sseScale > 1 && moved && performance.now() - sseDownAt > 1000) {
-			let live = 0;
-			for (const set of sets.values()) for (const n of set.loaded()) if (n.on || n.used === frameNo) live += n.bytes + n.mainBytes;
-			if (live < BUDGET * 0.7) { sseScale = sseScale * 0.9 < 1.05 ? 1 : sseScale * 0.9; sseDownAt = performance.now(); }
-		}
+		const own = new Map<T3dSet, number>(), live = new Map<T3dSet, number>();
+		for (const set of sets.values()) { let a = 0, b = 0; for (const n of set.loaded()) { const x = n.bytes + n.mainBytes; a += x; if (n.on || n.used === frameNo) b += x; } own.set(set, a); live.set(set, b); }
+		const raise = (set: T3dSet | undefined) => { if (set && (set.sse ?? 1) < 16) { set.sse = Math.min(16, (set.sse ?? 1) * 1.25); schedule(); } };
+		let over = false;
+		for (const [set, b] of live) if (b > BUDGET) { raise(set); over = true; }   // what it shows and wants now (its hidden tiles were evicted above)
+		if (!over && gpuBytes + mainBytes > CAP) raise([...own].filter(([x]) => (x.sse ?? 1) < 16).sort((a, b) => b[1] - a[1])[0]?.[0]);
+		else if (!over && moved && performance.now() - sseDownAt > 1000 && gpuBytes + mainBytes < CAP * 0.7)
+			for (const [set, b] of live) if ((set.sse ?? 1) > 1 && b < BUDGET * 0.7) { const v = set.sse! * 0.9; set.sse = v < 1.05 ? 1 : v; sseDownAt = performance.now(); }
 		moved = false;
 	}
 
@@ -910,8 +925,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				map.flyTo(lon * R2D, lat * R2D, Math.max(2, Math.min(18, z)), 50);
 			}
 			schedule();
-			return { id, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight, sseScale: +sseScale.toFixed(2) } }, get bbox() { return sp ? (() => { const [lo, la] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]), d = sp.r / 111320; return [lo * R2D - d / Math.cos(la), la * R2D - d, lo * R2D + d / Math.cos(la), la * R2D + d] as Bbox; })() : null; },
-				get tiles() { return set.loaded().map(n => ({ id: n.id, uri: n.uri?.split("/").pop(), on: n.on, ward: n.ward, meshes: n.meshN, pts: n.pts?.length || 0, splats: n.splat?.length || 0, voxels: n.voxel?.length || 0, bbox: n.bbox })); },   // 検分用
+			return { id, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight, sseScale: +(set.sse ?? 1).toFixed(2) } }, get bbox() { return sp ? (() => { const [lo, la] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]), d = sp.r / 111320; return [lo * R2D - d / Math.cos(la), la * R2D - d, lo * R2D + d / Math.cos(la), la * R2D + d] as Bbox; })() : null; },
+				get tiles() { return set.loaded().map(n => ({ id: n.id, uri: n.uri?.split("/").pop(), on: n.on, ward: n.ward, meshes: n.meshN, pts: n.pts?.length || 0, splats: n.splat?.length || 0, voxels: n.voxel?.length || 0, bbox: n.bbox, bytes: n.bytes, mainBytes: n.mainBytes })); },   // 検分用
 				get asset() { return set.asset!; }, get metadata() { return set.metadata!; },
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
 				get schema() { return (set.scope?.schema ?? null) as Record<string, unknown> | null; }, get tilesetMetadata() { return entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema); }, get groups() { return [...(set.scope?.groups || [])]; }, get extras() { return set.extras!; }, get extensionsUsed() { return [...set.extensionsUsed!]; }, get extensionsRequired() { return [...set.extensionsRequired!]; },   // root の見出し（F5）
@@ -948,7 +963,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const sp = set.root.sphere;
 			if (opts.fit !== false && sp) { const z = Math.log2(Math.min(size().w, size().h) / (cam.dpr || dpr || 1) * 360 / (256 * Math.max(1e-6, 2.4 * sp.r / 111320))); map.flyTo(info.root.c[0], info.root.c[1], Math.max(2, Math.min(18, z)), 50); }
 			schedule();
-			return { id, name: info.name, copyright: info.copyright, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight, sseScale: +sseScale.toFixed(2) } },
+			return { id, name: info.name, copyright: info.copyright, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), mainMB: +(mainBytes / 1048576).toFixed(1), inflight, sseScale: +(set.sse ?? 1).toFixed(2) } },
 				remove: () => ctl.remove(id), setVisible: v => setHidden(set, !v), setOptions: o => { Object.assign(set.opts, o); schedule(); } };
 		},
 		remove(id: string) {

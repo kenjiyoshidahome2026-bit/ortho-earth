@@ -2,7 +2,7 @@
 // (zoomTo / flyTo / viewBoundingSphere need it before anything draws); adding the tileset to scene.primitives puts it on the globe.
 // instanceof Cesium3DTileset and Cesium3DTileFeature hold (the prototypes chain to the engine's), so the widgets and CesiumWidget.zoomTo treat these as the real ones.
 import { BoundingSphere, Cartesian3, Color, Event, Matrix3, Matrix4, OrientedBoundingBox, Rectangle } from "@cesium/core";
-import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, IonResource, Resource } from "@cesium/engine";
+import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, ConditionsExpression, Expression, IonResource, Resource } from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { clippingOriginOf } from "./clipping.ts";
 
@@ -195,10 +195,32 @@ export function pointSizeOf(s: Any): number {
 }
 export function styleOf(s: Any): Any {
 	if (!s) return null;
-	if (s instanceof Cesium3DTileStyle) return (s as Any).style ?? (s as Any)._style ?? null;
+	if (s instanceof Cesium3DTileStyle) {
+		// style.color = { evaluateColor(feature, result) } / style.show = { evaluate(feature) }: functions the globe calls per feature (the JSON has no
+		// trace of them); an Expression / ConditionsExpression made from the JSON is read from the JSON
+		const json = (s as Any).style ?? (s as Any)._style ?? null, own = (v: Any, k: string) => v && typeof v[k] === "function" && !(v instanceof Expression) && !(v instanceof ConditionsExpression) ? v : null;
+		const fc = own((s as Any)._color, "evaluateColor"), fs = own((s as Any)._show, "evaluate");
+		if (!fc && !fs) return json;
+		const out: Any = { ...json };
+		if (fc) out.color = (x: Any) => { const c = fc.evaluateColor(new StyleFeature(x), new Color()); return c ? [c.red, c.green, c.blue, c.alpha] : null; };
+		if (fs) out.show = (x: Any) => fs.evaluate(new StyleFeature(x));
+		return out;
+	}
 	return s;
 }
 
+/** a 64-bit integer property as Cesium gives it (a BigInt); the globe has it as a number, or a string past 2^53 */
+const int64Of = (v: unknown, names: string[] | undefined, name: string) => v != null && names?.includes(name) && (typeof v === "number" || typeof v === "string") ? (() => { try { return BigInt(v); } catch { return v; } })() : v;
+/** the feature a style function is called with (the globe's style input: its properties, id and state) */
+class StyleFeature {
+	readonly #x: Any;
+	constructor(x: Any) { this.#x = x; }
+	get featureId() { return this.#x.id; }
+	getProperty(name: string) { return int64Of(this.#x.props?.[name], this.#x.int64, name); }
+	getPropertyInherited(name: string) { return this.getProperty(name); }
+	hasProperty(name: string) { return Object.prototype.hasOwnProperty.call(this.#x.props || {}, name); }
+	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#x.props || {}).filter(k => !k.startsWith("__"))); return result; }
+}
 /** what scene.pick returns for a 3D Tiles hit */
 export class Cesium3DTileFeature {
 	readonly tileset: Cesium3DTileset; readonly primitive: Cesium3DTileset; readonly featureId: number;
@@ -216,7 +238,7 @@ export class Cesium3DTileFeature {
 	isExactClass(name: string) { return this.getExactClassName() === name; }
 	isClass(name: string) { return !!this.#p.properties?.__classes?.includes?.(name); }
 	hasProperty(name: string) { return Object.prototype.hasOwnProperty.call(this.#p.properties || {}, name); }
-	getProperty(name: string) { return this.#p.properties?.[name]; }
+	getProperty(name: string) { return int64Of(this.#p.properties?.[name], this.#p.table?.int64, name); }
 	getPropertyInherited(name: string) { return this.getProperty(name) ?? this.#p.contentMetadata?.properties?.[name] ?? this.#p.tileMetadata?.properties?.[name] ?? this.#p.groupMetadata?.properties?.[name]; }
 	setProperty(name: string, value: unknown) { (this.#p.properties ||= {})[name] = value; }
 	/** the globe's pick (lngLat, distance…) */
