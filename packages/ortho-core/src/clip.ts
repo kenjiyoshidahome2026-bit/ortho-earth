@@ -140,17 +140,35 @@ export function clipPolygonRings(src: unknown): number[][][] {
 	walk(src as GeoIn);
 	return rings;
 }
-/** 切り方の記述 → 多角形（輪が無ければ null）。辺が CLIP_POLY_MAX を超える時は輪ごとに一様に間引く */
+// rings thinned to at most max vertices, dropping the vertex whose triangle with its neighbours is smallest first (Visvalingam).
+// A uniform pick cut chords across a long narrow footprint (aec-clipping: a road's outline lost its bends and cut white wedges into the tiles)
+function thinRings(rings: number[][][], max: number): number[][][] {
+	const rs = rings.map(r => r.slice());
+	const area = (r: number[][], i: number) => {
+		const a = r[(i + r.length - 1) % r.length], b = r[i], c = r[(i + 1) % r.length], k = Math.cos(b[1] * Math.PI / 180);
+		return Math.abs(((a[0] - b[0]) * (c[1] - b[1]) - (c[0] - b[0]) * (a[1] - b[1])) * k);
+	};
+	let total = rs.reduce((a, r) => a + r.length, 0);
+	while (total > max) {
+		let best = Infinity, bi = -1, bk = -1;
+		for (let k = 0; k < rs.length; k++) if (rs[k].length > 3) for (let i = 0; i < rs[k].length; i++) { const v = area(rs[k], i); if (v < best) { best = v; bi = i; bk = k; } }
+		if (bk < 0) { rs.pop(); total = rs.reduce((a, r) => a + r.length, 0); if (!rs.length) break; continue; }   // only triangles left: drop the last rings
+		rs[bk].splice(bi, 1); total--;
+	}
+	return rs;
+}
+/** 切り方の記述 → 多角形（輪が無ければ null）。辺が CLIP_POLY_MAX を超える時は形に効かない頂点から落とす（Visvalingam：隣と作る三角形の面積の小さい順） */
+const polyMemo = new WeakMap<object, ClipPoly | null>();   // the renderers ask every frame: the rings are read and thinned once per spec
 export function clipPolygon(spec: ClipSpec | null | undefined): ClipPoly | null {
 	if (!spec || spec.polygon == null) return null;
+	if (polyMemo.has(spec)) return polyMemo.get(spec)!;
+	const p = clipPolygonOf(spec); polyMemo.set(spec, p); return p;
+}
+function clipPolygonOf(spec: ClipSpec): ClipPoly | null {
 	let rings = clipPolygonRings(spec.polygon);
 	if (!rings.length) return null;
 	const total = rings.reduce((a, r) => a + r.length, 0);
-	if (total > CLIP_POLY_MAX) {
-		const k = CLIP_POLY_MAX / total;
-		rings = rings.map(r => { const m = Math.max(3, Math.floor(r.length * k)); return Array.from({ length: m }, (_, i) => r[Math.floor(i * r.length / m)]); });
-		while (rings.reduce((a, r) => a + r.length, 0) > CLIP_POLY_MAX && rings.length > 1) rings.pop();   // 小さい輪が多すぎる＝後ろの輪を落とす
-	}
+	if (total > CLIP_POLY_MAX) rings = thinRings(rings, CLIP_POLY_MAX);
 	// 重心（経度は最初の点の近くへ寄せる＝日付変更線を跨ぐ輪）
 	const l0 = rings[0][0][0]; let sx = 0, sy = 0, n = 0;
 	for (const r of rings) for (const c of r) { let l = c[0]; while (l - l0 > 180) l -= 360; while (l - l0 < -180) l += 360; sx += l; sy += c[1]; n++; }
