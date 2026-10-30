@@ -11,6 +11,8 @@ import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
 import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, movedBbox, betaRadiusOf, betaToLonLat } from "../camera.ts";
+import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
+import type { DrapeIn, DrapeMap } from "../drape.ts";
 import { viewRays } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
@@ -137,7 +139,7 @@ interface MeshIn {
 	lodH?: ArrayLike<number> | null; lodCounts?: ArrayLike<number> | null; twoSided?: boolean; noCull?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	mask?: ArrayLike<number> | null; maskCells?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[] | null;
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexIn | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
-	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number; sh?: ArrayLike<number> | null; outline?: ArrayLike<number> | null; noClip?: boolean;   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
+	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number; sh?: ArrayLike<number> | null; outline?: ArrayLike<number> | null; noClip?: boolean; imagery?: string | null;   // imagery＝重ねる絵（set "meshDrape"）の id・Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 interface MeshBatch {
 	vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; tex: WebGLTexture | null; textured: boolean; blend: boolean; cut: number; count: number;
@@ -149,7 +151,7 @@ interface MeshBatch {
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝SH9・27 値）＝meshLight.sh より勝つ
 	paint?: WebGLTexture | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
-	custom?: string | null; mcJ?: Float32Array | null; mc?: boolean; split?: number; ol?: Float32Array | null; noClip?: boolean;   // Cesium の CustomShader（set "meshCustom"）の id・J・a_mc の有無
+	custom?: string | null; mcJ?: Float32Array | null; mc?: boolean; split?: number; ol?: Float32Array | null; noClip?: boolean; imagery?: string | null;   // imagery＝重ねる絵の id（set "meshImagery"）・Cesium の CustomShader（set "meshCustom"）の id・J・a_mc の有無
 	uvm?: boolean; meta?: { props: Record<string, CsMeta>; sig: string; texs: WebGLTexture[] } | null;   // property texture（a_uvm の有無・読み方・画像）
 }
 /** set("customShader", spec, id) の登録＝プログラムは初めて描く時に作る（失敗＝err＝素の模型で描く） */
@@ -433,7 +435,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	const SH_UNIT = 18, SH_RAW_UNIT = 19;   // 0〜17 は埋まっている（PAT_UNIT 16・PT_UNIT 17）
 	const NEAR_UNIT = 20;   // 近景層の標高（ELEV を持つ全プログラムが参照＝far の unit8 と同じ常時結合）
 	const ENV_UNIT = 22;
-const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模型の鏡面の環境（立方体図・setMeshEnvironmentMap）＝u_csEnvMap。samplerCube は既定の unit 0 に置くと 2D と衝突する＝全プログラムでここへ向ける
+const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）・3D Tiles に重ねる絵（meshDrape）   // Cesium の模型の鏡面の環境（立方体図・setMeshEnvironmentMap）＝u_csEnvMap。samplerCube は既定の unit 0 に置くと 2D と衝突する＝全プログラムでここへ向ける
 	const SH_PEN_K = 0.018, SH_SEARCH = 4, SH_FADE_R0 = 0.7;   // 半影の係数・遮る物を探す半径（texel）・基の窓の縁のフェード（WebGPU と同値）
 	let shadow: { on: boolean; time?: number; darkness?: number } = { on: false };
 	let shGL: { tex: WebGLTexture; fbos: WebGLFramebuffer[]; sampC: WebGLSampler; sampR: WebGLSampler; ubo: WebGLBuffer; cpu: Float32Array; cast: Map<string, WebGLProgram> } | null = null;
@@ -586,6 +588,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 	const rasAtlasProg = program(gl, RASTER_ATLAS_VS, RASTER_ATLAS_FS);   // 画像タイル層（raster.js）＝タイルを地面アトラスへ合成（RTT ドレープ）
 	// ベクタ塗りを地面アトラスへ焼く（3D 限定）。属性位置は塗り本体の VAO（fillProg／md.fillProg で束ねた）と一致させる＝リンク前に bindAttribLocation
 	const atlasFillProg = programBound(gl, ATLAS_FILL_VS, ATLAS_FILL_FS, { a_delta: gl.getAttribLocation(fillProg, "a_delta"), a_color: gl.getAttribLocation(fillProg, "a_color") });
+	const drapes = new Map<string, { tex: WebGLTexture; map: DrapeMap }>(), drU = new Float32Array(12);   // 3D Tiles に重ねる絵（set "meshDrape"）＝id → 絵と窓の平面写像（drape.ts）
 	const whiteTex = gl.createTexture()!;   // テクスチャ無しの模型バッチ用（頂点色×1）
 	gl.bindTexture(gl.TEXTURE_2D, whiteTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255])); gl.bindTexture(gl.TEXTURE_2D, null);
 	function meshTexture(t: MeshTexIn | null | undefined): WebGLTexture {   // 模型のテクスチャ（ImageBitmap か {rgba,w,h}）。無ければ白 1x1。glTF の uv 原点＝画像左上＝texImage2D の先頭行＝flip 不要
@@ -1643,7 +1646,7 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
 			meta: textured && data.meta?.props && data.meta.texs?.length ? { props: data.meta.props, sig: JSON.stringify(data.meta.props), texs: data.meta.texs.map(t => t ? csTexture({ name: "", tex: t, nearest: true, repeat: false }) : whiteTex) } : null });   // 影を落とさない（WebGPU と同じ）   // noCull＝裏面を捨てない（面の向きが揃っていない建物・間引きは残す）／noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
@@ -2569,6 +2572,10 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 					gl.uniform1f(loc(gl, pg, "u_alphaCut"), p.cut); gl.uniform1f(loc(gl, pg, "u_blend"), blendOf(p));
 					gl.uniform1f(loc(gl, pg, "u_tintB"), p.tint ? p.tint[4] : -1); if (p.tint) gl.uniform4f(loc(gl, pg, "u_tint"), p.tint[0], p.tint[1], p.tint[2], p.tint[3]);   // Cesium の Model.color（-1＝無し）
 					gl.activeTexture(gl.TEXTURE0 + PAINT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.paint ?? whiteTex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_paint"), PAINT_UNIT); gl.uniform1f(loc(gl, pg, "u_paintB"), p.paint ? p.paintB ?? 0 : -1);   // 塗る絵（-1＝無し）
+					const dr = p.imagery && !p.paint ? drapes.get(p.imagery) : undefined;   // 重ねる絵（Cesium3DTileset.imageryLayers）＝窓の平面写像を束の原点に合わせて（double）・塗る絵のある束には重ねない（WebGPU は同じ枠＝絵を揃える）
+					drapeUniforms(drU, 0, dr?.map ?? null, p.origin);
+					gl.activeTexture(gl.TEXTURE0 + DRAPE_UNIT); gl.bindTexture(gl.TEXTURE_2D, dr?.tex ?? whiteTex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_drape"), DRAPE_UNIT);
+					gl.uniform4f(loc(gl, pg, "u_drU"), drU[0], drU[1], drU[2], drU[3]); gl.uniform4f(loc(gl, pg, "u_drV"), drU[4], drU[5], drU[6], drU[7]); gl.uniform1f(loc(gl, pg, "u_drOn"), drU[8]);
 				}
 				gl.uniform2f(loc(gl, pg, "u_split"), p.split ? Math.sign(p.split) * (1 + splitPos) : 0, canvas.width);   // Cesium splitDirection
 				const bl = p.textured && !!blendOf(p);
@@ -2695,7 +2702,25 @@ const PAINT_UNIT = 23;   // 模型の塗る絵（meshPaint）   // Cesium の模
 			case "customShader": setCustomShader(String(prop), data as CsEntry["spec"] | null); break;   // Cesium の CustomShader＝{vs, fs, uniforms, values, lighting, translucency}｜null（id＝prop）
 			case "customShaderTex": { const e = customs.get(String(prop)), t = data as CsTexIn | null; if (e && t?.name && t.tex) { const o = e.tex.get(t.name); if (o) gl.deleteTexture(o); e.tex.set(t.name, csTexture(t)); } break; }   // TextureUniform＝{name, tex:{bitmap}|{rgba,w,h}, nearest, repeat}
 			case "meshCustom": { const p = meshes.get(prop as string); if (p) p.custom = data != null && data !== "" ? String(data) : null; break; }
-			case "meshNoClip": { const p = meshes.get(prop as string); if (p) p.noClip = !!data; break; }   // left out of set("clip") (Cesium clippingPolygons of another tileset)
+			case "meshNoClip": { const p = meshes.get(prop as string); if (p) p.noClip = !!data; break; }
+			case "meshImagery": { const p = meshes.get(prop as string); if (p) p.imagery = data != null && data !== "" ? String(data) : null; break; }   // the batch reads the drape picture of that id
+			case "meshDrape": {   // { bitmap | rgba,w,h, west, south, east, north (deg; the picture is Web Mercator) } | null, id = prop
+				const id = String(prop), d = data as DrapeIn | null, old = drapes.get(id);
+				if (old) gl.deleteTexture(old.tex);
+				drapes.delete(id);
+				const m = d ? drapeMap(d) : null, w = d ? (d.bitmap ? d.bitmap.width : d.w ?? 0) : 0, h = d ? (d.bitmap ? d.bitmap.height : d.h ?? 0) : 0;
+				if (d && m && w > 0 && h > 0 && (d.bitmap || d.rgba)) {
+					const t = gl.createTexture()!; gl.activeTexture(gl.TEXTURE0 + DRAPE_UNIT); gl.bindTexture(gl.TEXTURE_2D, t);
+					gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+					if (d.bitmap) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, d.bitmap);
+					else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, d.rgba!);
+					gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+					for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+					gl.activeTexture(gl.TEXTURE0); drapes.set(id, { tex: t, map: m });
+				}
+				d?.bitmap?.close?.();
+				break;
+			}   // left out of set("clip") (Cesium clippingPolygons of another tileset)
 			case "meshSplit": { const p = meshes.get(prop as string); if (p) p.split = typeof data === "number" ? data : 0; break; }   // Cesium splitDirection: -1 left / +1 right of splitPos / 0 both
 			case "splitPos": { splitPos = typeof data === "number" ? Math.max(0, Math.min(1, data)) : 0.5; break; }   // scene.splitPosition (fraction of the width)   // 束に差し込むシェーダの id｜null
 			case "meshXf": { const p = meshes.get(prop as string); if (p) p.xf = data && (data as Float32Array).length >= 12 ? data as Float32Array : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null

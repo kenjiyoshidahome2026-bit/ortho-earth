@@ -39,7 +39,9 @@ import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarknes
 import { SUN_COUNT_WGSL, SURFACE_WGSL, MARCH_WGSL, cellPositions, bboxPoints } from "./analysis.ts";
 import type { RendererAnalysis } from "./analysis.ts";   // 日影時間・可視域の GPU 版（2026-10-24）＝影の深度パスの使い回し＋compute
 import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.ts";   // 断面とクリッピング平面（#111・切った時だけ）
-import { groundWindows, groundSizes, windowsKey } from "../ground.ts";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
+import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
+import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
+import type { DrapeIn, DrapeMap } from "../drape.ts";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createClassifyGPU } from "./classify.ts";   // 面の貼り付け（分類・2026-10-25）＝gl/classify.ts と同じ手順の WebGPU 版
 import { createAoGPU } from "./ao.ts";
@@ -169,7 +171,7 @@ export interface MeshSetData {
 	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexSrc | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
-	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number; sh?: ArrayLike<number> | null; outline?: ArrayLike<number> | null; noClip?: boolean;   // outline＝CESIUM_primitive_outline の色 rgba（法線の 4 バイト目に辺の座標）   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
+	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number; sh?: ArrayLike<number> | null; outline?: ArrayLike<number> | null; noClip?: boolean; imagery?: string | null;   // imagery＝重ねる絵（set "meshDrape"）の id・outline＝CESIUM_primitive_outline の色 rgba（法線の 4 バイト目に辺の座標）   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 /** set("customShader", spec, id) の登録＝モジュールとパイプラインは初めて描く時に非同期で組む（出来るまで・失敗は素の模型で描く） */
 interface CsEntryG {
@@ -187,10 +189,11 @@ interface MeshBatch {
 	paint?: MeshTex | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
 	noClip?: boolean;   // not cut by set("clip") (Cesium: clippingPolygons belong to one tileset)
+	imagery?: string | null; texBGDrape?: MeshTex | null;   // the draped imagery's id (set "meshDrape" / "meshImagery") and the drape texture texBG was made with
 	ol?: Float32Array | null;   // CESIUM_primitive_outline の色 rgba（cc.zw）
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝Cesium の模型ごとの環境の SH9・27 値）＝meshLight.sh より勝つ
 	custom?: string | null; mcJ?: Float32Array | null; mcbo?: GPUBuffer | null; split?: number;   // Cesium の CustomShader（set "meshCustom"）の id・J・positionMC の頂点バッファ（location 4）
-	cs?: { id: string; rev: number; bgl: GPUBindGroupLayout; cub: GPUBuffer; bg: GPUBindGroup; cpu: ArrayBuffer; paint: MeshTex | null } | null;   // その束の CU（uniform）と group(3)
+	cs?: { id: string; rev: number; bgl: GPUBindGroupLayout; cub: GPUBuffer; bg: GPUBindGroup; cpu: ArrayBuffer; paint: MeshTex | null; drape: MeshTex | null } | null;   // その束の CU（uniform）と group(3)
 	uvmbo?: GPUBuffer | null; meta?: { props: Record<string, CsMeta>; sig: string; texs: MeshTex[] } | null;   // property texture の texCoord（location 5）・読み方・画像
 }
 interface MeshMask { ward: string; rev: number; tex: GPUTexture; view: GPUTextureView; bbox: number[]; n: number; bytes: Uint8Array }
@@ -251,7 +254,7 @@ const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, me
 const N_ROLES = 12;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
 const PAINT_BINDING = 99;   // group(3) の塗る絵（meshPaint）＝利用者のシェーダの束縛（6〜）と重ならない番号
-const PL_BATCH_SLOT = 1024; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）＋xf/xt（196〜211）＋sl0/sl1/cs（212〜223・style の light と頂点色の色空間）＋csL/csC/csI（224〜235）＋eyeRel（236〜239）のスロット境界（dynamic offset）
+const PL_BATCH_SLOT = 1280; // dr0/dr1/dr2（重ねる絵・float 256〜267）で 1024 を越えた＝256 の倍数へ。 mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）＋xf/xt（196〜211）＋sl0/sl1/cs（212〜223・style の light と頂点色の色空間）＋csL/csC/csI（224〜235）＋eyeRel（236〜239）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
 const MAX_MESH_MASKS = 4;
 
@@ -1968,8 +1971,18 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		else device.queue.writeTexture({ texture: tex }, t.rgba, { bytesPerRow: w * 4, rowsPerImage: h }, [w, h]);
 		return { tex, view: tex.createView() };
 	}
-	function meshTexBG(texs: (MeshTex | null)[], paint: MeshTex | null = null): GPUBindGroup {   // 5 枚（無い所は既定）＋塗る絵 → group(3)
-		return device.createBindGroup({ layout: bglPlTex5, entries: [{ binding: 0, resource: texSampler }, ...texs.map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view })), { binding: PAINT_BINDING, resource: (paint || mrTex1).view }] });
+	function meshTexBG(texs: (MeshTex | null)[], paint: MeshTex | null = null, drape: MeshTex | null = null): GPUBindGroup {   // 5 枚（無い所は既定）＋塗る絵（無ければ重ねる絵：同じ枠）→ group(3)
+		return device.createBindGroup({ layout: bglPlTex5, entries: [{ binding: 0, resource: texSampler }, ...texs.map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view })), { binding: PAINT_BINDING, resource: (paint || drape || mrTex1).view }] });
+	}
+	// ── imagery draped on meshes (set "meshDrape": Cesium3DTileset.imageryLayers) ── one picture per id over a geographic window; the batches that name it
+	// (set "meshImagery") read it by their pixel's place (drapeW). The window's plane map is made here in double (drapeMap, the same as gl).
+	// The picture takes the paint picture's binding (16 sampled textures per stage): a batch with a paint picture shows no drape
+	const drapes = new Map<string, { t: MeshTex; map: DrapeMap }>();
+	const drapeOf = (p: MeshBatch) => (p.imagery && !p.paint ? drapes.get(p.imagery) : undefined) ?? null;
+	function texBGOf(p: MeshBatch): GPUBindGroup | null {   // the batch's group(3), made again when its drape picture changed
+		const d = drapeOf(p)?.t ?? null;
+		if (p.texs && (p.texBGDrape ?? null) !== d) { p.texBG = meshTexBG(p.texs, p.paint ?? null, d); p.texBGDrape = d; }
+		return p.texBG;
 	}
 	// ── 地面アトラス（RTT ドレープ・2026-09-21）＝ラスタ基図 → ベクタ塗り（3D 時）→ ラスタ重ね を 3 段窓（近/中/遠）へ合成し、地形・球・塗りの
 	// FS が gndMix0 で画素標本化する（gl/renderer.js と対）。合成は鍵（窓・ラスタ rev・シーン rev・ゲート）が変わった時だけ＝別エンコーダで
@@ -2262,7 +2275,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
-				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
+				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのに建物メッシュが無い」
@@ -2706,7 +2719,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						if (KC && !tex) sp.setBindGroup(3, p.textured ? cl!.bg.models : cl!.bg.buildings);   // 対象ごとの面（段 4）＝模型か建物メッシュか
 						sp.setBindGroup(2, KC && tex ? KX!.castPlBG[sh!.L.indexOf(L)] : L.batchBG, [slot * PL_BATCH_SLOT]);
 						sp.setVertexBuffer(0, p.vbo); sp.setVertexBuffer(1, p.nbo);
-						if (tex) { sp.setVertexBuffer(2, p.uvbo); sp.setVertexBuffer(3, p.cbo); sp.setBindGroup(3, p.texBG); }
+						if (tex) { sp.setVertexBuffer(2, p.uvbo); sp.setVertexBuffer(3, p.cbo); sp.setBindGroup(3, texBGOf(p)); }
 						sp.setIndexBuffer(p.ibo, "uint32");
 						sp.drawIndexed(p.count);
 						cnt.meshTris += p.count / 3;
@@ -3322,6 +3335,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				plBatchCPU[o + 247] = p.split ? Math.sign(p.split) * (1 + splitPos) : 0;   // tintB.w＝Cesium splitDirection
 				plBatchCPU[o + 252] = pb?.clearcoat?.[0] ?? 0; plBatchCPU[o + 253] = pb?.clearcoat?.[1] ?? 0;   // cc.xy＝KHR_materials_clearcoat（float 252〜253）
 				const ol = meshLight ? p.ol : null;   // cc.zw＝CESIUM_primitive_outline の色（z＝α・w＝rgb を 8 bit ずつ詰めた整数＝f32 で正確）
+				drapeUniforms(plBatchCPU, o + 256, drapeOf(p)?.map ?? null, p.origin);   // dr0/dr1/dr2＝重ねる絵（float 256〜267）
 				plBatchCPU[o + 254] = ol ? ol[3] : 0; plBatchCPU[o + 255] = ol ? Math.round(ol[0] * 255) * 65536 + Math.round(ol[1] * 255) * 256 + Math.round(ol[2] * 255) : 0;
 				if (p.sil) { plBatchCPU[o + 245] = p.sil[4]; plBatchCPU.set(p.sil.subarray(0, 4), o + 248); }   // tintB.y＝輪郭線の太さ・sil＝色
 				plBatchCPU[o + 236] = st.eye[0] - p.origin[0]; plBatchCPU[o + 237] = st.eye[1] - p.origin[1]; plBatchCPU[o + 238] = st.eye[2] - p.origin[2];   // eyeRel＝目 − 原点（double）＝toEye の錨（近接の裏面判定）
@@ -3344,7 +3358,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setPipeline(P.meshSil); pass.setBindGroup(0, bg0.bld); pass.setBindGroup(1, paramBG[ROLE.mesh]);
 					for (const { p, count, slot } of sils) {
 						pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);
-						pass.setVertexBuffer(0, p.vbo); pass.setVertexBuffer(1, p.nbo); pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setBindGroup(3, p.texBG);
+						pass.setVertexBuffer(0, p.vbo); pass.setVertexBuffer(1, p.nbo); pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setBindGroup(3, texBGOf(p));
 						pass.setIndexBuffer(p.ibo, "uint32"); pass.drawIndexed(count);
 					}
 				}
@@ -3376,7 +3390,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						pass.setBindGroup(2, !tx ? plBatchBG : nc ? (R ? sh!.plShBG : plBatchBG) : CR ? CX!.plBG : C ? cl!.plBG : R ? sh!.plShBG : plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform（影・断面の間の模型は、その束縛と同居の group）
 						pass.setVertexBuffer(0, p.vbo);
 						pass.setVertexBuffer(1, p.nbo);
-						if (tx) { pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setBindGroup(3, p.texBG); }
+						if (tx) { pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setBindGroup(3, texBGOf(p)); }
 						pass.setIndexBuffer(p.ibo, "uint32");
 						pass.drawIndexed(count);
 					}
@@ -3534,15 +3548,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		return null;
 	}
 	function csBind(p: MeshBatch, id: string, e: CsEntryG, v: CsVarG): NonNullable<MeshBatch["cs"]> {   // その束の CU と group(3)（材質 5 枚＋CU＋利用者のテクスチャ＋property texture）
-		if (p.cs && p.cs.id === id && p.cs.rev === e.rev && p.cs.bgl === v.bgl && p.cs.paint === (p.paint ?? null)) return p.cs;
+		if (p.cs && p.cs.id === id && p.cs.rev === e.rev && p.cs.bgl === v.bgl && p.cs.paint === (p.paint ?? null) && p.cs.drape === (drapeOf(p)?.t ?? null)) return p.cs;
 		p.cs?.cub.destroy();
 		const cub = device.createBuffer({ size: v.cuSize, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		const m0 = 7 + v.textures.length * 2, nearClamp = csSampler(true, false);
 		const bg = device.createBindGroup({ layout: v.bgl!, entries: [{ binding: 0, resource: texSampler }, ...(p.texs || [null, null, null, null, null]).map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view })),
-			{ binding: 6, resource: { buffer: cub } }, { binding: PAINT_BINDING, resource: (p.paint || mrTex1).view },
+			{ binding: 6, resource: { buffer: cub } }, { binding: PAINT_BINDING, resource: (p.paint || drapeOf(p)?.t || mrTex1).view },
 			...v.textures.flatMap((n, k) => { const x = e.tex.get(n); return [{ binding: 7 + k * 2, resource: x ? x.samp : csSampler(false, true) }, { binding: 8 + k * 2, resource: (x ? x.t : mrTex1).view }]; }),
 			...Array.from({ length: v.nMeta }, (_, k) => [{ binding: m0 + k * 2, resource: nearClamp }, { binding: m0 + 1 + k * 2, resource: (p.meta?.texs[k] ?? mrTex1).view }]).flat()] });
-		return p.cs = { id, rev: e.rev, bgl: v.bgl!, cub, bg, cpu: new ArrayBuffer(v.cuSize), paint: p.paint ?? null };
+		return p.cs = { id, rev: e.rev, bgl: v.bgl!, cub, bg, cpu: new ArrayBuffer(v.cuSize), paint: p.paint ?? null, drape: drapeOf(p)?.t ?? null };
 	}
 	function csWrite(p: MeshBatch, e: CsEntryG, V: Float32Array): void {   // 毎フレームの CU：J・V（mat3x3f＝列 16 B）・misc（frame, 0, UNLIT, TRANSLUCENT）・利用者の値
 		const c = p.cs!, f = new Float32Array(c.cpu), J = p.mcJ ?? Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1);
@@ -3688,7 +3702,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					device.queue.writeTexture({ texture: tex }, d.rgba, { bytesPerRow: d.w * 4, rowsPerImage: d.h }, [d.w, d.h]);
 					p.paint = { tex, view: tex.createView() }; p.paintB = d.blend;
 				}
-				p.texBG = meshTexBG(p.texs, p.paint);   // 利用者のシェーダの group(3) は csBind が p.paint の替わりを見て作り直す
+				p.texBG = meshTexBG(p.texs, p.paint, drapeOf(p)?.t ?? null); p.texBGDrape = drapeOf(p)?.t ?? null;   // 利用者のシェーダの group(3) は csBind が p.paint の替わりを見て作り直す
 				break;
 			}
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.cbo && (data as Uint8Array | null)?.length && (data as Uint8Array).byteLength <= p.cbo.size) device.queue.writeBuffer(p.cbo, 0, (data as Uint8Array).buffer, (data as Uint8Array).byteOffset, (data as Uint8Array).byteLength); break; }   // 頂点色だけ書き換える（feature state の色・W7）
@@ -3709,7 +3723,22 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "customShader": setCustomShader(String(prop), data as CsEntryG["spec"] | null); break;   // Cesium の CustomShader＝{vs, fs, uniforms, values, lighting, translucency}｜null（id＝prop）
 			case "customShaderTex": setCustomShaderTex(String(prop), data as CsTexInG | null); break;   // TextureUniform＝{name, tex:{bitmap}|{rgba,w,h}, nearest, repeat}
 			case "meshCustom": { const p = meshes.get(prop as string); if (p) p.custom = data != null && data !== "" ? String(data) : null; break; }
-			case "meshNoClip": { const p = meshes.get(prop as string); if (p) p.noClip = !!data; break; }   // left out of set("clip") (Cesium clippingPolygons of another tileset)
+			case "meshNoClip": { const p = meshes.get(prop as string); if (p) p.noClip = !!data; break; }
+			case "meshImagery": { const p = meshes.get(prop as string); if (p) p.imagery = data != null && data !== "" ? String(data) : null; break; }   // the batch reads the drape picture of that id
+			case "meshDrape": {   // { bitmap | rgba,w,h, west, south, east, north (deg; the picture is Web Mercator) } | null, id = prop
+				const id = String(prop), d = data as DrapeIn | null, old = drapes.get(id);
+				drapes.delete(id);
+				if (old) queueMicrotask(() => old.t.tex.destroy());   // after this frame's bind groups let go (they are made again from drapes)
+				const m = d ? drapeMap(d) : null, w = d ? (d.bitmap ? d.bitmap.width : d.w ?? 0) : 0, h = d ? (d.bitmap ? d.bitmap.height : d.h ?? 0) : 0;
+				if (d && m && w > 0 && h > 0) {
+					const tex = device.createTexture({ size: [w, h], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+					if (d.bitmap) device.queue.copyExternalImageToTexture({ source: d.bitmap }, { texture: tex }, [w, h]);
+					else if (d.rgba) device.queue.writeTexture({ texture: tex }, d.rgba, { bytesPerRow: w * 4, rowsPerImage: h }, [w, h]);
+					drapes.set(id, { t: { tex, view: tex.createView() }, map: m });
+				}
+				d?.bitmap?.close?.();
+				break;
+			}   // left out of set("clip") (Cesium clippingPolygons of another tileset)
 			case "meshSplit": { const p = meshes.get(prop as string); if (p) p.split = typeof data === "number" ? data : 0; break; }   // Cesium splitDirection: -1 left / +1 right of splitPos / 0 both
 			case "splitPos": { splitPos = typeof data === "number" ? Math.max(0, Math.min(1, data)) : 0.5; break; }   // scene.splitPosition (fraction of the width)   // 束に差し込むシェーダの id｜null
 			case "meshTint": { const p = meshes.get(prop as string); if (p) p.tint = data && (data as ArrayLike<number>).length >= 5 ? Float32Array.from(data as ArrayLike<number>) : null; break; }   // Cesium の Model.color＝[r,g,b,a, blend]（blend＝0 HIGHLIGHT／1 REPLACE／間＝MIX の量）｜null
