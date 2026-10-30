@@ -348,7 +348,7 @@ export class PrimitiveDrawer {
 		const cur = h.getAnimation?.();
 		if (a?.timeFn) {   // the pose at the time the function gives (Cesium's ModelAnimationCollection: REPEAT wraps the share, MIRRORED_REPEAT bounces, NONE clamps)
 			const info = (a.name != null ? h.animations.find((x: Any) => x.name === a.name) : null) ?? h.animations[0], dur = +info?.duration || 0;
-			const secs = ck && a.t0 ? JulianDate.secondsDifference(ck.currentTime, a.t0) : 0;
+			const secs = ck?.currentTime && a.t0 ? JulianDate.secondsDifference(ck.currentTime, a.t0) : 0;
 			let f = +a.timeFn(dur, secs);
 			if (!Number.isFinite(f)) return;
 			if (a.loop === ModelAnimationLoop.REPEAT) f -= Math.floor(f);
