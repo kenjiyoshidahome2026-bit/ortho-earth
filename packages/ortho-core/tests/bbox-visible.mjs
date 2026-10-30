@@ -1,7 +1,7 @@
 // bboxVisible（メッシュのバッチのカリング・2026-10-28）：Cesium 例 google-photorealistic-3d-tiles-with-building-insert＝globe:false で注視点が楕円体（Google タイルの
 // 地面＝楕円体高 1600 m の 1.6 km 下）、目は地面の 260 m 上。旧 meshBboxVisible は bbox を海面（radius 1）で射影したので、目の手前 750 m のタイルが
 // 画面の下へ外れて落とされ、足元が床の色（白）になった。重心の高さ（radius）で射影すれば見える。目の足元が bbox 内／目の面を跨ぐ bbox も可視。
-import { cameraState, worldRadiusM, bboxVisible, movedBbox, betaToLonLat, betaRadiusOf, lonlatTo3D, setEllipsoid } from "../src/camera.ts";
+import { cameraState, worldRadiusM, bboxVisible, movedBbox, betaToLonLat, betaRadiusOf, betaGeo, ellNormal3D, lonlatTo3D, setEllipsoid } from "../src/camera.ts";
 let fails = 0;
 const ok = (name, c, info = "") => { console.log((c ? "PASS " : "FAIL ") + name + (c ? "" : "  " + info)); if (!c) fails++; };
 for (const ell of [false, true]) {
@@ -44,6 +44,18 @@ ok("tile beyond the horizon culled", !bboxVisible(st, [cam.center[0] + 20, cam.c
 	ok("a model 500 m above a level camera's eye, 5 km ahead, visible", bboxVisible(st2, ahead(5000, 30), cam2.center, null, pad, h2));
 	ok("a model 500 m above the eye beyond the horizon culled", !bboxVisible(st, [cam.center[0] + 20, cam.center[1], cam.center[0] + 20.001, cam.center[1] + 0.001], cam.center, foot, pad, high));
 	ok("a model 500 m above the eye behind the camera culled", !bboxVisible(st, tile(-2000, 20), cam.center, foot, pad, high));
+}
+// betaGeo（2026-10-30・Cesium の czml-model-data-url）：高さ 10 km の模型の重心を betaToLonLat（動径沿い）で経緯度にすると 37° で 29 m 北＝目の 8 m 先の
+// 4 m の箱が 29 m 北の箱で間引かれて消えた。楕円体の法線沿いに戻せば元の場所
+{
+	const h = 10000 / R, u = lonlatTo3D(-77, 37), n = ellNormal3D(-77, 37), P = u.map((v, i) => v + h * n[i]), g = betaGeo(P);
+	ok("betaGeo puts a point 10 km up back at its latitude", Math.abs(g[1] - 37) < 1e-7 && Math.abs(g[0] + 77) < 1e-9, JSON.stringify(g));
+	ok("betaGeo radius = 1 + height", Math.abs(g[2] - 1 - h) < 1e-9, String((g[2] - 1) * R));
+	const dl = 2 / (111320 * Math.cos(37 * Math.PI / 180)), dp = 2 / 111320, box = [-77 - dl, 37 - dp, -77 + dl, 37 + dp];
+	const mb = movedBbox(box, P, [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
+	ok("movedBbox of a model 10 km up stays on its place", mb[1] <= 37 && mb[3] >= 37 && mb[3] - mb[1] < 1e-4, JSON.stringify(mb));
+	const g0 = betaGeo(lonlatTo3D(139.7, 35.6));
+	ok("betaGeo on the surface = betaToLonLat, radius 1", Math.abs(g0[1] - betaToLonLat(lonlatTo3D(139.7, 35.6))[1]) < 1e-9 && Math.abs(g0[2] - 1) < 1e-12, JSON.stringify(g0));
 }
 const o = lonlatTo3D(foot[0], foot[1]).map(v => v * ground);
 ok("betaRadiusOf(centroid) = radius", Math.abs(betaRadiusOf(o) - ground) < 1e-9, String(betaRadiusOf(o)));
