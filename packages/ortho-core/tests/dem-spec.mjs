@@ -48,6 +48,25 @@ const warn = console.warn; console.warn = () => {};
 	ok("url も ion も無ければ投げる", throws(() => createDemSource({ type: "quantized-mesh" })));
 }
 
+// ── 独自スキームの読み口（opts.load・spec.port）：画素（ImageData 形）は canvas を通さず encoding で解く・fetch は呼ばない ──
+{
+	const n = 4, px = new Uint8ClampedArray(n * n * 4);
+	for (let i = 0; i < n * n; i++) { const e = 1234.5 + 32768, w = Math.floor(e); px[i * 4] = w >> 8; px[i * 4 + 1] = w & 255; px[i * 4 + 2] = (e - w) * 256; px[i * 4 + 3] = 255; }
+	const asked = [], f0 = fetched;
+	const d = createDemSource({ tiles: ["cs-terrain://t0/{z}/{x}/{y}"], maxzoom: 3 }, { load: async u => { asked.push(u); return { width: n, height: n, data: px }; } });
+	const h = await d.height(139.7, 35.6);
+	ok("load：画素の terrarium をそのまま解く", Math.abs(h - 1234.5) < 0.01, `h=${h}`);
+	ok("load：型紙の z/x/y で頼む・fetch は呼ばない", asked[0] === "cs-terrain://t0/3/7/3" && fetched === f0, asked[0]);
+	const none = createDemSource({ tiles: ["cs-terrain://t1/{z}/{x}/{y}"], maxzoom: 2, minzoom: 1 }, { load: async () => null });
+	ok("load：null＝そこに無い（親へ上がって最後は NaN）", Number.isNaN(await none.height(10, 10)));
+	const ch = new MessageChannel(), seen = [];
+	ch.port1.onmessage = e => { seen.push(e.data.url); ch.port1.postMessage({ id: e.data.id, data: { width: n, height: n, data: px } }); };
+	const viaPort = createDemSource({ tiles: ["cs-terrain://t2/{z}/{x}/{y}"], maxzoom: 1, port: ch.port2 });
+	const hp = await viaPort.height(139.7, 35.6);
+	ok("port：{ id, url } を送り { id, data } を受ける（worker の形）", Math.abs(hp - 1234.5) < 0.01 && seen[0] === "cs-terrain://t2/1/1/0", `${hp} ${seen[0]}`);
+	ch.port1.close(); ch.port2.close();
+}
+
 globalThis.fetch = realFetch; console.warn = warn;
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ dem-spec 全 PASS");
 process.exit(fail ? 1 : 0);
