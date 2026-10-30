@@ -208,6 +208,9 @@ export interface GlobeCoreApi {
 	setSplitPosition(f: number): GlobeMap;
 	/** the globe's underside seen from below the ground (Cesium globe.undergroundColor): color rgba 0..1, nf = its alpha by distance [near m, nearValue, far m, farValue]; null = off */
 	setUnderground(u: { color: number[]; nf: number[] } | null): GlobeMap;
+	/** imagery draped on 3D Tiles (Cesium3DTileset.imageryLayers): one picture over a window (degrees, Web Mercator rows, north up), read by the tilesets whose Tiles3DOptions.imagery is this id, by each pixel's place
+	 *  (straight down). The ImageBitmap is transferred. Same id again = a new picture; null = remove */
+	setMeshImagery(id: string, drape: { bitmap: ImageBitmap; west: number; south: number; east: number; north: number } | null): GlobeMap;
 	/** a user shader for models and 3D Tiles (Cesium CustomShader): GLSL vertexMain/fragmentMain, uniform types and values, lighting, translucency. Same id again = new values (no rebuild when the GLSL is the same). WebGPU translates the GLSL to WGSL. null = remove */
 	setCustomShader(id: string, spec: CustomShaderSpec | null): GlobeMap;
 	/** a sampler2D uniform of a user shader: tex = ImageBitmap or raw RGBA (rgba, w, h); nearest = NEAREST filtering; null = remove */

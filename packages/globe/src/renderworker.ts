@@ -113,7 +113,7 @@ type MdMsg = Extract<ScenePortMessage, { type: "up" | "grow" | "dl" }>;
 /** 基図の場面（slot ごとに最新だけ・noFade＝動いている間の差し替え） */
 type SceneRec = MergedScene & { noFade?: boolean };
 /** 建物メッシュの列（plateau worker の直結ポート・set の meshSet/meshVis/meshXf/meshCol） */
-type MeshItem = { name?: string; port?: MessagePort; vis?: boolean; xf?: unknown; tint?: unknown; env?: unknown; ol?: unknown; noClip?: unknown; paint?: unknown; sil?: unknown; custom?: unknown; split?: unknown; cut?: unknown; col?: unknown; posData?: unknown; meshData?: { pos?: ArrayBufferView; nrm?: ArrayBufferView; idx?: ArrayBufferView } | null };
+type MeshItem = { name?: string; port?: MessagePort; vis?: boolean; xf?: unknown; tint?: unknown; env?: unknown; ol?: unknown; noClip?: unknown; imagery?: unknown; paint?: unknown; sil?: unknown; custom?: unknown; split?: unknown; cut?: unknown; col?: unknown; posData?: unknown; meshData?: { pos?: ArrayBufferView; nrm?: ArrayBufferView; idx?: ArrayBufferView } | null };
 /** worker の self に置く計器の窓 */
 interface RwSelf { __gintStats?: () => GintStats | null; __perfElev?: boolean; __perfScene?: boolean; __perfHitch?: Record<string, number> }
 /** 非標準の JS ヒープ計器（Chromium） */
@@ -555,6 +555,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			else if (m.cmd === "meshTint") meshInbox.push({ tint: m.data, name: m.prop });
 			else if (m.cmd === "meshEnv") meshInbox.push({ env: m.data, name: m.prop });
 			else if (m.cmd === "meshNoClip") meshInbox.push({ noClip: m.data, name: m.prop });
+			else if (m.cmd === "meshImagery") meshInbox.push({ imagery: m.data, name: m.prop });   // the drape picture a batch reads: same queue (after the batch arrives)
 			else if (m.cmd === "meshOutline") meshInbox.push({ ol: m.data, name: m.prop });   // CESIUM_primitive_outline colour: same queue (after the batch arrives)   // 模型ごとの環境光（SH9）も同じ列
 			else if (m.cmd === "meshPaint") meshInbox.push({ paint: m.data, name: m.prop });   // 画素ごとの地物の番号から塗った絵（photogrammetry の分類）も同じ列＝バッチの到着の後に効く
 			else if (m.cmd === "meshSil") meshInbox.push({ sil: m.data, name: m.prop });
@@ -907,6 +908,7 @@ function drainUploads0() {
 		if ("split" in item) { renderer.set("meshSplit", item.split, item.name); dirty = true; continue; }
 		if ("env" in item) { renderer.set("meshEnv", item.env, item.name); dirty = true; continue; }
 		if ("noClip" in item) { renderer.set("meshNoClip", item.noClip, item.name); dirty = true; continue; }
+		if ("imagery" in item) { renderer.set("meshImagery", item.imagery, item.name); dirty = true; continue; }
 		if ("ol" in item) { renderer.set("meshOutline", item.ol, item.name); dirty = true; continue; }
 		if ("paint" in item) { renderer.set("meshPaint", item.paint, item.name); dirty = true; continue; }
 		if ("tint" in item) { renderer.set("meshTint", item.tint, item.name); dirty = true; continue; }

@@ -4,8 +4,8 @@
 import { BoundingSphere, Cartesian3, Color, Event, Matrix3, Matrix4, OrientedBoundingBox, Rectangle } from "@cesium/core";
 import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, ConditionsExpression, Expression, ImageryLayerCollection, IonResource, Resource } from "@cesium/engine";
 import * as engineAll from "@cesium/engine";
-import { unsupported } from "./report.ts";
 import { clippingOriginOf } from "./clipping.ts";
+import { TilesetDrape } from "./drape.ts";
 
 type Any = any;
 
@@ -30,7 +30,7 @@ export class Cesium3DTileset {
 	readonly resource: Any; readonly json: Any;
 	readonly tileLoadProgressEvent = new Event(); readonly allTilesLoaded = new Event(); readonly initialTilesLoaded = new Event();
 	readonly loadProgress = this.tileLoadProgressEvent;
-	readonly imageryLayers = new ImageryLayerCollection();   // imagery draped on the tileset: reported, not drawn
+	readonly imageryLayers = new ImageryLayerCollection();   // imagery draped on the tileset (drape.ts → map.setMeshImagery)
 	readonly tileLoad = new Event(); readonly tileUnload = new Event(); readonly tileFailed = new Event(); readonly tileVisible = new Event();
 	modelMatrix = Matrix4.clone(Matrix4.IDENTITY);
 	maximumScreenSpaceError: number; featureIdLabel: string | number = "featureId_0"; instanceFeatureIdLabel: string | number = "instanceFeatureId_0";
@@ -43,7 +43,7 @@ export class Cesium3DTileset {
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null; #olKey = "";
 	#opts: Any;
 	#split: string | null = null;
-	#tiles = new Map<number, Any>(); #drapeTold = false;   // the loaded tiles tileLoad was raised for (tileUnload gets the same object)
+	#tiles = new Map<number, Any>(); #drape: TilesetDrape | null = null;   // the loaded tiles tileLoad was raised for (tileUnload gets the same object)
 
 	constructor(resource: Any, json: Any, opts: Any = {}) {
 		this.resource = resource; this.json = json; this.#opts = opts;
@@ -104,7 +104,9 @@ export class Cesium3DTileset {
 	get show() { return this.#show; }
 	set show(v: boolean) { this.#show = !!v; this.#h?.setVisible(this.#show); }
 	get style() { return this.#style; }
-	set style(s: Any) { this.#style = s; this.#h?.setStyle(styleOf(s)); }
+	set style(s: Any) { this.#style = s; this.#h?.setStyle(this.#styleSent()); }
+	// no style: every feature's colour is Cesium's default white, which REPLACE / MIX paint too (imodel-mesh-export-service: the iModels white)
+	#styleSent() { return styleOf(this.#style) ?? ((this.colorBlendMode | 0) === 0 ? null : { color: "color('white')" }); }
 	makeStyleDirty() { this.#h?.setStyle(styleOf(this.#style)); }
 	get timeSinceLoad() { return 0; }
 	get statistics() { return statsOf(this.#h); }
@@ -148,7 +150,7 @@ export class Cesium3DTileset {
 	 *  eye dome only while attenuation is on */
 	__sync(scene?: Any) {
 		if (!this.#h) return;
-		if (this.imageryLayers.length && !this.#drapeTold) { this.#drapeTold = true; unsupported("Cesium3DTileset.imageryLayers (imagery draped on 3D Tiles)"); }
+		if (scene && (this.imageryLayers.length || this.#drape)) (this.#drape ??= new TilesetDrape(this.#host?.map)).sync(this, scene, this.#h);   // imagery draped on the tileset
 		const s = this.pointCloudShading ?? {}, att = !!s.attenuation;
 		const spec = att ? { attenuation: true, geometricErrorScale: s.geometricErrorScale ?? 1, ...(s.maximumAttenuation != null && { maximumAttenuation: s.maximumAttenuation }), ...(s.baseResolution != null && { baseResolution: s.baseResolution }),
 			eyeDomeLighting: !!s.eyeDomeLighting, edlStrength: s.eyeDomeLightingStrength ?? 1, edlRadius: s.eyeDomeLightingRadius ?? 1 } : null;
@@ -176,7 +178,10 @@ export class Cesium3DTileset {
 		const cid = customShaderId(this.#host?.map, this.customShader);   // tileset.customShader = … (or null)
 		if (cid !== this.#csId) { this.#csId = cid; this.#h.setOptions({ customShader: cid }); }
 		const mode = (["highlight", "replace", "mix"] as const)[this.colorBlendMode | 0] ?? "highlight", bk = `${mode}:${this.colorBlendAmount}`;   // Cesium3DTileColorBlendMode HIGHLIGHT 0 / REPLACE 1 / MIX 2
-		if (bk !== this.#blendKey) { this.#blendKey = bk; this.#h.setOptions({ colorBlend: { mode, amount: this.colorBlendAmount } }); }
+		if (bk !== this.#blendKey) {
+			this.#blendKey = bk; this.#h.setOptions({ colorBlend: { mode, amount: this.colorBlendAmount } });
+			if (!this.#style) this.#h.setStyle(this.#styleSent());
+		}
 	}
 	/** a loaded tile as Cesium3DTile: its content holds the tile's features (content.featuresLength / getFeature, the same objects until it unloads) */
 	#tileOf(id: number) {
@@ -194,7 +199,7 @@ export class Cesium3DTileset {
 		const content = Object.create(Model3DTileContent.prototype, Object.fromEntries(Object.entries({ tileset: this, url: this.url, featuresLength: feats.length, innerContents: undefined, getFeature: (i: number) => feats[i], hasProperty: (i: number, name: string) => !!feats[i]?.hasProperty?.(name), getExtension }).map(([k, v]) => [k, { value: v, enumerable: true, writable: true }])));
 		return { ...this.root, tileset: this, content };
 	}
-	__detach() { this.#host = null; this.#h?.remove(); this.#h = null; }
+	__detach() { this.#drape?.clear(); this.#drape = null; this.#host = null; this.#h?.remove(); this.#h = null; }
 	/** the feature under a screen point (scene.pick) */
 	__pick(x: number, y: number) {
 		const p = this.#h?.pick?.(x, y);

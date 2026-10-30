@@ -35,6 +35,7 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-three", "t-three?r=webgpu",   // three.js（map.addThree）＝本体 WebGPU の上で WebGLRenderer（深度は遅延の ImageBitmap）・WebGPURenderer（本体の device と深度テクスチャを共有・2026-10-18）
 	"t-pvoxel",   // voxel の WebGPU の描き手（@ortho-earth/voxel＝光線行進・本体の device と深度を共有・pick は非同期・2026-10-23）
 	"t-psplat",   // Gaussian splat の WebGPU の描き手（@ortho-earth/splat＝SH・GPU の並べ替え・本体の device と深度を共有・pick は非同期・2026-10-18）
+	"t-tiles3d-drape",   // 3D Tiles に重ねる絵（map.setMeshImagery＝Cesium3DTileset.imageryLayers・塗る絵の枠と共用＝16 枚の上限・2026-10-30）
 	"t-tiles3d-voxel",   // 3D Tiles の voxel（EXT_primitive_voxels＋KHR_implicit_shapes・3DTILES_content_voxels）＝タイルごとの voxel の層・WebGPU で検める（2026-10-23）
 	"t-tiles3d-splat",   // 3D Tiles の Gaussian splat（KHR_gaussian_splatting）＝タイルごとの splat の層・当たりは WebGPU で検める（2026-10-18）
 	"t-czml-scene",   // CZML の model・polyline・polygon（map.loadCZML・P0 #5・2026-10-25）

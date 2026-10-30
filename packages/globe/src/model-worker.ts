@@ -19,7 +19,7 @@ interface ModelJob {
 	ab?: ArrayBuffer; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number; mc?: boolean;
 	polys?: ExtrudeInPoly[]; refine?: number; transcoders?: unknown; opts?: Record<string, unknown>;
 	url?: string; token?: string; ids?: Array<number | string>; nodeId?: number | string; baseH?: number; groundMode?: string;
-	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts;
+	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts; upAxis?: string | null;
 }
 /** transfer を集める束（模型・3D Tiles・I3S・押し出しの batches） */
 type XferBatch = { mesh: MeshOut; features?: { ids?: ArrayBufferView | null; tblV?: ArrayLike<number> | null; tex?: { ids: ArrayBufferView } | null } | null; tex?: TexOut | null; texMR?: TexOut | null; texN?: TexOut | null; texOcc?: TexOut | null; texEm?: TexOut | null; meta?: { texs: (TexOut | null)[] } | null; skin?: Array<{ P: ArrayBufferView; N?: ArrayBufferView | null; J: ArrayBufferView; W: ArrayBufferView }> | null };
@@ -82,7 +82,7 @@ async function work(e: MessageEvent<ModelJob>) {
 				if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
 				buf = await res.arrayBuffer();
 			}
-			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, mc: !!e.data.mc, splats: !!e.data.splats, voxels: e.data.voxels ?? false, fetchOpts: headers || credentials ? { headers: headers ?? null, credentials: credentials ?? null } : null });
+			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, upAxis: e.data.upAxis ?? null, mc: !!e.data.mc, splats: !!e.data.splats, voxels: e.data.voxels ?? false, fetchOpts: headers || credentials ? { headers: headers ?? null, credentials: credentials ?? null } : null });
 			if (!r) { self.postMessage({ id, batches: [], points: [], splats: [], voxels: [], stats: { triangles: 0, points: 0, splats: 0, splatPoints: 0, voxels: 0, voxelsSkipped: 0, bytes: buf.byteLength } }); return; }
 			r.stats.bytes = buf.byteLength;
 			const tr = transferOf(r.batches); for (const p of r.points) tr.push(p.pos.buffer, p.rgba.buffer);
