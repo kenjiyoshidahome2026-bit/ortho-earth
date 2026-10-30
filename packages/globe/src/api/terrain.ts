@@ -2,6 +2,7 @@
 // 中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { betaToLonLat, createDemSource, ellNormal3D, lonlatTo3D, resolveVectorSource } from "@ortho-earth/core";
+import type { DemLoad, DemPixels } from "@ortho-earth/core";
 import { rayMeshes } from "../meshpick.ts";
 import { classifyGeometry } from "../classify.ts";
 import { cssColor } from "../hillshade.ts";
@@ -47,15 +48,27 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 		if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map((u: string) => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
 		const demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,
 			redFactor: sp.redFactor, greenFactor: sp.greenFactor, blueFactor: sp.blueFactor, baseShift: sp.baseShift, ...(sp.seafloor ? { seafloor: true } : {}) } : null;   // MapLibre の raster-dem の既定＝tileSize 512・maxzoom 22・encoding custom の係数（段 6）   // MapLibre の raster-dem の既定 encoding は mapbox
-		return setDem(demSpec);
+		// 独自スキーム（addProtocol）の型紙＝取得は main の読み口で（関数は worker へ渡せない）：main の照会は読み口を直に、render worker へは
+		// MessagePort を渡して { id, url } → { id, data } で頼ませる（MapLibre の raster-dem も addProtocol を通す・Cesium の互換の口の地形プロバイダ 2026-10-30）
+		//   読み口の答え＝画像のバイト列（ArrayBuffer・Blob）か画素（ImageData・{ width, height, data }）
+		const custom = demSpec?.tiles?.some((u: string) => requester.resolve(u, "Tile").load);
+		const pixels = (d: unknown) => d && typeof d === "object" && "width" in d && "data" in d ? d as DemPixels : null;
+		return setDem(demSpec, custom ? (u: string) => Promise.resolve(requester.resolve(u, "Tile").load?.("image")).then(d => pixels(d) ?? (d instanceof Blob || d instanceof ArrayBuffer ? d : ArrayBuffer.isView(d) ? new Blob([d as Uint8Array<ArrayBuffer>]) : null), () => null) : null);
 	};
-	function setDem(spec: TerrainSpec | null): GlobeMap {   // 標高のソースを差し替える（raster-dem も quantized-mesh も同じ 4 つの口＝core createDemSource が振り分ける）
+	let demChan: MessageChannel | null = null;
+	function setDem(spec: TerrainSpec | null, load: DemLoad | null = null): GlobeMap {   // 標高のソースを差し替える（raster-dem も quantized-mesh も同じ 4 つの口＝core createDemSource が振り分ける）
 		live.demSpec = spec;
-		live.demMain = live.demSpec ? createDemSource(live.demSpec) : null;
+		live.demMain = live.demSpec ? createDemSource(live.demSpec, { load }) : null;
+		demChan?.port1.close(); demChan = null;
+		if (spec && load) {
+			const ch = demChan = new MessageChannel();
+			ch.port1.onmessage = (e: MessageEvent) => { const { id, url } = e.data as { id: number; url: string }; void load(url).then(data => ch.port1.postMessage({ id, data })); };   // 写しで送る（読み口が本体を取り置いていても切り離さない）
+		}
 		live.geGen++; live.geBusy = false; live.geKey = "";   // 中心の地面の高さも新しい DEM で引き直す（古い照会の答えは捨てる）
 		elevMemo.clear(); live.elevGen++;   // DOM オーバーレイの持ち上げも新しい DEM で引き直す（次フレームから）
 		if (terrLazy && live.demSpec) live.noTerr = false;   // terrain:false の地図に初めて DEM が来た＝render worker が地形を作る（持ち上げもここから）
-		wPost({ type: "set", cmd: "dem", data: live.demSpec });
+		if (demChan) wPost({ type: "set", cmd: "dem", data: { ...live.demSpec, port: demChan.port2 } }, [demChan.port2]);
+		else wPost({ type: "set", cmd: "dem", data: live.demSpec });
 		requestDraw();
 		return map;
 	}
