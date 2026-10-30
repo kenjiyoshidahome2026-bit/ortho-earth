@@ -24,6 +24,13 @@ export interface Host {
 }
 
 const R2D = 180 / Math.PI;
+const ORTHO_FOVY = Math.PI / 180;   // the telephoto field of view an orthographic frustum is drawn with (the globe's narrowest)
+/** an orthographic frustum's height in metres (width = the horizontal extent, height = width / aspectRatio); null = a perspective frustum */
+function orthoExtent(f: any): number | null {
+	const w = f?.width, a = f?.aspectRatio;
+	if (f?.fovy !== undefined || !(w > 0)) return null;
+	return a > 0 ? w / a : w;
+}
 
 /** the screen-space camera controller: the globe handles the input; the flags map to its handlers */
 function controllerOf(host: Host): any {
@@ -215,7 +222,7 @@ export class OrthoScene {
 		if (!map) return;
 		// the user moved the globe (or the globe flew) and Cesium code did not move the camera: take the globe's view
 		const g = map.getCamera() as GlobeCam;
-		const fovy = this.camera.frustum.fovy;
+		const fovy = this.camera.frustum.fovy;   // an orthographic frustum has none: #pushCamera sets the telephoto field of view
 		if (Number.isFinite(fovy) && Math.abs(fovy - this.#fovy) > 1e-9) { this.#fovy = fovy; map.setVerticalFieldOfView(fovy * R2D); }
 		const pose = poseKey(this.camera);
 		if (this.#lastGlobe && !sameGlobeCam(this.#lastGlobe, g) && sameKey(this.#lastPose, pose)) {
@@ -260,8 +267,8 @@ export class OrthoScene {
 	#pushCamera() {
 		const map = this.host.map;
 		if (!map) return;
-		const pose = poseKey(this.camera);
-		const same = sameKey(this.#lastPose, pose), terrOn = !!map.getTerrain?.();
+		const pose = poseKey(this.camera), ortho = orthoExtent(this.camera.frustum);
+		const same = sameKey(this.#lastPose, pose) && ortho === this.#lastOrtho, terrOn = !!map.getTerrain?.();
 		if (same && !this.#terrainPending && terrOn === this.#terrOnLast) return;   // also again when a terrain arrived or left after the last push
 		this.#terrOnLast = terrOn;
 		const tf = this.camera.transform, focus = tf && !Matrix4.equals(tf, Matrix4.IDENTITY) ? Matrix4.getTranslation(tf, new Cartesian3()) : null;   // camera.lookAt / trackedEntity
@@ -290,9 +297,17 @@ export class OrthoScene {
 		// (google-photorealistic-3d-tiles-with-building-insert: the whole foreground white). Cesium's own near (frustum.near, 1 m) caps it instead
 		const near = (this.camera.frustum as { near?: number }).near;
 		if (Number.isFinite(near) && near! > 0) g.near = near;
+		if (ortho !== null) {
+			// an orthographic frustum (ProjectionPicker): the globe draws in perspective only, so it is drawn as a telephoto view of the same target and
+			// extent (fovy ≥ 1°, the eye backed off along the view ray until the frustum's height fills the screen; ≤ 3e7 m away: a whole-earth width keeps a wider angle)
+			const fov = Math.max(ORTHO_FOVY, 2 * Math.atan(ortho / 2 / 3e7));
+			if (Math.abs(fov - this.#fovy) > 1e-9) { this.#fovy = fov; map.setVerticalFieldOfView(fov * R2D); }
+			g.distance = ortho / 2 / Math.tan(fov / 2);
+		}
 		map.setCamera(g);
-		this.#lastPose = pose; this.#lastGlobe = map.getCamera();
+		this.#lastPose = pose; this.#lastOrtho = ortho; this.#lastGlobe = map.getCamera();
 	}
+	#lastOrtho: number | null = null;   // the orthographic frustum's height last pushed (its size moves the telephoto eye)
 	#terrainPending = false; #terrOnLast = false; #terrHeights = new Map<string, number>(); #terrWanting = new Set<string>();
 
 	// ── picking ──

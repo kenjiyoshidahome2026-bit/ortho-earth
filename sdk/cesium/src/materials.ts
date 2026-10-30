@@ -31,7 +31,7 @@ export function matTranslucent(d: MatDesc): boolean {
 		case "Stripe": return a(u.evenColor) < 1 || a(u.oddColor) < 1;
 		case "Checkerboard": return a(u.lightColor) < 1 || a(u.darkColor) < 1;
 		case "Grid": return a(u.color) < 1 || (u.cellAlpha ?? 0.1) < 1;
-		case "Image": return true;   // the image may have alpha (Cesium's transparent flag is off by default, but PNGs drawn so are rare)
+		case "Image": return a(u.color) < 1;   // as Cesium's Image material: translucent only by its colour's alpha (ImageMaterialProperty transparent:true makes it 0.99); a PNG's own alpha is not blended
 	}
 	return false;
 }
@@ -74,6 +74,8 @@ function loadImage(src: string): Promise<HTMLImageElement | null> {
 	}
 	return p;
 }
+/** an Image material whose image is a video element (Cesium draws its current frame each frame) */
+export const videoOf = (d: MatDesc | null): HTMLVideoElement | null => (d?.type === "Image" && typeof HTMLVideoElement !== "undefined" && d.u.image instanceof HTMLVideoElement ? d.u.image : null);
 const imageUrl = (im: Any): string | null => (typeof im === "string" ? new URL(im, location.href).href : im?.url ? new URL(im.url, location.href).href : im instanceof HTMLCanvasElement ? im.toDataURL() : im instanceof HTMLImageElement ? im.src : null);
 
 /**
@@ -85,13 +87,15 @@ export async function paint(d: MatDesc, W: number, H: number, stOf: (x: number, 
 	const ctx = cv.getContext("2d");
 	if (!ctx) return null;
 	if (d.type === "Image") {
-		const src = imageUrl(d.u.image);
-		const im = src ? await loadImage(src) : null;
+		const v = videoOf(d), src = v ? null : imageUrl(d.u.image);
+		const im = v ? (v.readyState >= 2 && v.videoWidth > 0 ? v : null) : src ? await loadImage(src) : null;   // a video: the frame it shows now
 		if (!im) return null;
 		const [rx, ry] = xy(d.u.repeat, 1), tint = rgba(d.u.color, [255, 255, 255, 255]);
-		const tile = document.createElement("canvas"); tile.width = im.naturalWidth; tile.height = im.naturalHeight;
+		const tile = document.createElement("canvas"); tile.width = v ? v.videoWidth : (im as HTMLImageElement).naturalWidth; tile.height = v ? v.videoHeight : (im as HTMLImageElement).naturalHeight;
 		const tc = tile.getContext("2d")!; tc.drawImage(im, 0, 0);
-		const src4 = tc.getImageData(0, 0, tile.width, tile.height).data, out = ctx.createImageData(W, H), o = out.data;
+		let src4: Uint8ClampedArray;
+		try { src4 = tc.getImageData(0, 0, tile.width, tile.height).data; } catch { return null; }   // a cross-origin video without CORS cannot be read
+		const out = ctx.createImageData(W, H), o = out.data;
 		for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
 			const st = stOf(x + 0.5, y + 0.5);
 			if (!st) continue;
