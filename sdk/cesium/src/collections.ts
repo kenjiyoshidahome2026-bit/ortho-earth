@@ -33,6 +33,8 @@ export class CollectionDrawer {
 	readonly source = new CustomDataSource("__csshim-collections");
 	lines: PrimLine[] = [];
 	#colls = new Set<Any>(); #recs = new Map<Any, Rec>(); #linesKey = "";
+	/** a PolylineCollection with a material the globe has no line style for (glow, arrow, outline, dash, fade…): Cesium's renderer draws it (rawdraw.ts) */
+	toCesium: ((c: Any) => void) | null = null;
 	add(c: Any) { this.#colls.add(c); }
 	remove(c: Any) {
 		this.#colls.delete(c);
@@ -46,6 +48,7 @@ export class CollectionDrawer {
 			if (c.isDestroyed?.()) { this.#colls.delete(c); continue; }
 			const shown = c.show !== false;
 			if (PolylineCollection && c instanceof PolylineCollection) {
+				if (this.toCesium && itemsOf(c).some((pl: Any) => pl.material?.type && pl.material.type !== "Color")) { this.#colls.delete(c); this.toCesium(c); continue; }
 				if (!shown) continue;
 				for (const pl of itemsOf(c)) {
 					if (pl.show === false || !pl.positions?.length) continue;
