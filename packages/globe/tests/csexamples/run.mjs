@@ -4,7 +4,7 @@
 // CHROME=<path> picks the browser binary (the cloud sandbox: /opt/pw-browsers/chromium).
 // --gpu: the real GPU (Metal WebGPU + ANGLE Metal on a Mac). Without it Chrome is forced onto SwiftShader (no WebGPU → ortho falls back to GL2),
 //   which is what every Mac run before 2026-10-28 silently did; the refs and ortho shots of one run must share the flag.
-// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade] [--no-warm] [--time-from <run dir>] [--gpu]
+// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade] [--no-warm] [--time-from <run dir>] [--hide-ui] [--gpu]
 //   records: <out>/<side>/<name>.json and .png (default out: <repo>/.cache/csexamples/runs/latest) · summary: <out>/summary.json and summary.md
 import fs from "node:fs";
 import path from "node:path";
@@ -18,6 +18,7 @@ const flag = k => process.argv.includes(`--${k}`);
 const BASE = arg("base", "http://localhost:5460"), OUT = path.resolve(arg("out", path.join(REPO, ".cache/csexamples/runs/latest")));
 const JOBS = +arg("jobs", 3), WAIT = +arg("wait", 10000), SETTLE = +arg("settle", 20000), SIDES = arg("side") ? [arg("side")] : ["ref", "ortho"];
 const ORTHO_QUERY = arg("ortho-query", "");   // a query string for the ortho pages only (e.g. gl2=1 = shoot on WebGL2 to compare the backends)
+const HIDE_UI = flag("hide-ui");   // the final shoot: hide Cesium's widgets and the example's panels on the ortho side only (the grade masks those cells either way)
 const TIME_FROM = arg("time-from", "");   // the page's clock starts when that run's ref page started: the sun, the stars and the clock-driven examples at the same time of day as the ref shot; an animated example is also shot at the ref's simulation time (rec.clock, recorded by both sides)
 // runs in the page before any script: Date shifted by a constant (timers and performance.now keep running)
 function shiftDate(off) {
@@ -65,22 +66,23 @@ const STATE = () => {
 // and the example's own panels (Sandcastle toolbar, legends). The grade leaves these cells out: they are the same real elements on both sides
 // (so they always "matched"), and the final shoot hides them on the ortho side only. Outermost visible absolute / fixed elements outside the
 // map's canvas, plus the credits inside the widget
-const UI_RECTS = () => {
-	const canvas = document.querySelector(".cesium-widget canvas"), out = [];
+const UI_RECTS = hide => {
+	const canvas = document.querySelector(".cesium-widget canvas"), out = [], els = [];
 	const vis = el => { const cs = getComputedStyle(el); return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) > 0.05; };
-	const put = r => { if (r.width > 2 && r.height > 2 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight) out.push([r.left, r.top, r.right, r.bottom].map(v => Math.round(v))); };
-	const inner = el => { for (const d of el.querySelectorAll("*")) { if (!vis(d)) continue; const p = getComputedStyle(d).position; if (p === "absolute" || p === "fixed") put(d.getBoundingClientRect()); } };
+	const put = (r, el) => { if (hide) els.push(el); if (r.width > 2 && r.height > 2 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight) out.push([r.left, r.top, r.right, r.bottom].map(v => Math.round(v))); };
+	const inner = el => { for (const d of el.querySelectorAll("*")) { if (!vis(d)) continue; const p = getComputedStyle(d).position; if (p === "absolute" || p === "fixed") put(d.getBoundingClientRect(), d); } };
 	const walk = el => {
 		for (const c of el.children) {
 			if (c === canvas || c.contains(canvas)) { walk(c); continue; }
 			if (c.closest(".cesium-widget") && !c.matches(".cesium-widget-credits")) continue;   // the map itself (and ortho's own furniture inside it)
 			if (!vis(c)) continue;
 			const cs = getComputedStyle(c), r = c.getBoundingClientRect();
-			if ((cs.position === "absolute" || cs.position === "fixed" || c.matches(".cesium-widget-credits, #toolbar")) && r.width > 2 && r.height > 2) { put(r); inner(c); }   // and what drops out of it (the help panel under the toolbar)
+			if ((cs.position === "absolute" || cs.position === "fixed" || c.matches(".cesium-widget-credits, #toolbar")) && r.width > 2 && r.height > 2) { put(r, c); inner(c); }   // and what drops out of it (the help panel under the toolbar)
 			else walk(c);
 		}
 	};
 	walk(document.body);
+	for (const el of els) el.style.setProperty("visibility", "hidden", "important");   // --hide-ui: the shot shows the globe only
 	return out;
 };
 
@@ -151,7 +153,8 @@ async function runOne(browser, side, ex) {
 		rec.paused = await page.evaluate(() => { const v = window.__csx?.viewers?.[0]; if (!v?.clock?.shouldAnimate) return false; v.clock.shouldAnimate = false; return true; }).catch(() => false);
 		if (rec.paused) await page.waitForTimeout(1000);   // the frame at the paused time
 		Object.assign(rec, await page.evaluate(STATE));
-		rec.ui = await page.evaluate(UI_RECTS).catch(() => null);
+		rec.ui = await page.evaluate(UI_RECTS, HIDE_UI && side === "ortho").catch(() => null);
+		if (HIDE_UI && side === "ortho") await page.waitForTimeout(300);
 		const shot = await page.screenshot({ timeout: 120000 });   // a frame of a city of 3D Tiles takes seconds on SwiftShader (on both sides)
 		fs.writeFileSync(path.join(OUT, side, `${ex.name}.png`), shot);
 		rec.cells = cells(decodePng(shot));
