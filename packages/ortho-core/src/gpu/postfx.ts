@@ -115,7 +115,8 @@ export interface PostFrameOptions {
 	/** 画面の段（Cesium の postProcessStages 相当・2026-10-28）＝固定の鎖の後に並び順どおり（gpu/poststage.js） */
 	stages?: PostStage[] | null;
 }
-export interface PostGPU { encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): void; dispose(): void; bytes(): number }
+/** encode の戻り＝続きを書く encoder（glsl の段が途中で submit した時は新しい物・他は enc） */
+export interface PostGPU { encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): GPUCommandEncoder; dispose(): void; bytes(): number }
 interface PostTargets { w: number; h: number; hw: number; hh: number; scratch: GPUTexture; half: GPUTexture[]; sv: GPUTextureView; hv: GPUTextureView[] }
 interface PostLut { url: string; size: number; tex: GPUTexture | null; view: GPUTextureView | null; n: number; ready: boolean }
 export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null): PostGPU {
@@ -167,7 +168,7 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 	}
 	// enc＝開いたコマンドエンコーダ・canvasTex＝ctx.getCurrentTexture()（描き終えた色）・post＝normPost の形
 	let SG: PostStagesGPU | null = null;   // 画面の段（Cesium の postProcessStages 相当）＝段がある間だけ
-	function encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): void {
+	function encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): GPUCommandEncoder {
 		ensure(W, H);
 		const stages = post.stages?.length && sf ? post.stages : null;
 		if (stages) SG ??= createPostStagesGPU(device, format, requestDraw); else if (SG) { SG.dispose(); SG = null; }
@@ -189,7 +190,7 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 		uni(3, bb, vg, sz, [0, 0, 0, 0], tm, lp);
 		const comp = device.createBindGroup({ layout: bglComp, entries: [{ binding: 0, resource: { buffer: ub[3] } }, { binding: 1, resource: T!.sv }, { binding: 2, resource: smp }, { binding: 3, resource: b ? T!.hv[2] : T!.sv }, { binding: 4, resource: lutOn ? L!.view! : dummyView() }] });
 		pass(pComp, stageOn ? SG!.target(W, H) : canvasTex.createView(), comp);
-		if (stageOn) SG!.encode(enc, stages!, canvasTex.createView(), W, H, sf!);   // 固定の鎖の出力 → 段を順に → canvas
+		return stageOn ? SG!.encode(enc, stages!, canvasTex.createView(), W, H, sf!) : enc;   // 固定の鎖の出力 → 段を順に → canvas
 	}
 	function dispose() { free(); freeLut(); dummy?.destroy(); dummy = null; for (const u of ub) u.destroy(); SG?.dispose(); SG = null; }
 	const bytes = () => (T ? T.w * T.h * 4 + T.hw * T.hh * 4 * 3 : 0) + (SG ? SG.bytes() : 0) + (L?.ready ? L.n * L.n * L.n * 4 : 0);

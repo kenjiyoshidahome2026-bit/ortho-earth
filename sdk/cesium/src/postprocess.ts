@@ -2,7 +2,7 @@
 //   The facade keeps Cesium's real PostProcessStageCollection (the examples add PostProcessStage / PostProcessStageLibrary stages to it and flip
 //   `enabled` and `uniforms` every frame); this module reads it each frame and turns it into the globe's passes:
 //     fxaa.enabled                      → { type: "fxaa" }
-//     bloom.enabled (contrast/brightness/sigma/stepSize) → { type: "bloom", threshold, strength, radius }   (Cesium's contrast-bias bright pass ≈ a luminance threshold)
+//     bloom.enabled (contrast/brightness/delta/sigma/stepSize/glowOnly) → { type: "cesiumBloom", … }   (Cesium's own passes: contrast-bias, Gaussian x/y, added to the scene)
 //     ambientOcclusion.enabled          → ao: true (the WebGPU renderer's fx.ao; GL2 has none)
 //     czm_silhouette                    → { type: "silhouette", color, length }
 //     czm_black_and_white / czm_brightness / czm_night_vision → grey / brightness / nightVision
@@ -34,14 +34,10 @@ export function uniformValue(v: Any): number | number[] | boolean | undefined {
 	}
 	return undefined;
 }
-/** Cesium's bloom uniforms → the globe's bloom. contrast/brightness feed a contrast-bias pass (HSB brightness += b, then factor f = 259(c+255)/(255(259−c))): everything whose
- *  brightness is below 0.5 − 0.5/f − b goes black before the blur = our luminance threshold. sigma × stepSize (px, 8 taps) ≈ the blur radius; ours is a 9-tap at half resolution × radius. */
+/** Cesium's bloom uniforms → the globe's "cesiumBloom" stage, the same passes as createBloomStage: contrast-bias (HSB brightness += brightness, then factor 259(c+255)/(255(259−c))),
+ *  a Gaussian blur in x and y (delta, sigma, stepSize px) and the composite (scene + blur, or the blur alone with glowOnly). The fixed chain's threshold bloom was too weak (bloom 46%, 2026-10-30). */
 export function bloomOf(u: Any): PostPass {
-	const contrast = Math.min(255, Math.max(-255, num(u?.contrast, 128))), brightness = num(u?.brightness, -0.3);
-	const f = (259 * (contrast + 255)) / (255 * (259 - contrast));
-	const threshold = Math.min(1, Math.max(0, 0.5 - 0.5 / Math.max(f, 1e-3) - brightness));
-	const radius = Math.min(4, Math.max(0.25, num(u?.stepSize, 1) * num(u?.sigma, 2) / 4));
-	return { type: "bloom", threshold, strength: 1, radius };
+	return { type: "cesiumBloom", contrast: Math.min(255, Math.max(-255, num(u?.contrast, 128))), brightness: num(u?.brightness, -0.3), delta: num(u?.delta, 1), sigma: num(u?.sigma, 2), stepSize: num(u?.stepSize, 1), glowOnly: u?.glowOnly === true };
 }
 const SKIP: Record<string, string> = { czm_ambient_occlusion: "postProcessStages ambient occlusion (GL2)" };
 /** the frame the stages are drawn for: view / proj = Cesium's czm_view / czm_projection (column-major 16), eye = czm_viewerPositionWC, sun = czm_sunPositionWC (m, fixed frame),

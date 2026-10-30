@@ -32,7 +32,7 @@ export type PostStage =
 	| { type: "brightness"; value: number }
 	| { type: "nightVision" }
 	| { type: "glsl"; src: string; uniforms: Record<string, number | number[] | boolean> }
-	| LensFlareStage | DepthOfFieldStage;
+	| LensFlareStage | DepthOfFieldStage | CesiumBloomStage;
 /** レンズフレア（Cesium の PostProcessStageLibrary.createLensFlareStage と同式・2026-10-28）。sun＝太陽の画面位置（NDC x,y）・earth＝地球の中心の NDC（x,y）と、
  *  目の座標で中心を earthRadius×1.5 だけ横へずらした点の NDC x（isInEarth の尺）・space＝目が宇宙（地心から 6500 km 超）・camrot＝czm_view[0].z＋czm_view[1].y（星形の回り）・
  *  dirt／star＝レンズの汚れ・星形の画像の URL（無ければ汚れ無し・星形無し）。太陽が画面外（|NDC|＞1.1）か宇宙でない時は素の色（Cesium と同じ） */
@@ -40,6 +40,9 @@ export type LensFlareStage = { type: "lensFlare"; intensity: number; distortion:
 /** 被写界深度（Cesium の createDepthOfFieldStage と同式）：Gaussian の 2 段のぼかし（delta・sigma・stepSize px）と、目からの奥行きで素とぼかしを混ぜる（focalDistance m・near／far＝Cesium の frustum）。
  *  earth＝地球の中心の目の座標と半径 [x,y,z,R]・tan＝画角の半分の tan [x,y]：深度の無い画素（地面を深度に書かない描き方）は、目の光線が球に当たる奥行きで見る */
 export type DepthOfFieldStage = { type: "depthOfField"; focalDistance: number; delta: number; sigma: number; stepSize: number; near: number; far: number; earth?: number[]; tan?: number[] };
+/** Cesium の bloom（PostProcessStageLibrary.createBloomStage と同式・2026-10-30）：HSB の明るさに brightness を足し、コントラスト係数 259(c+255)／(255(259−c)) で広げた絵を
+ *  Gaussian の 2 段（delta・sigma・stepSize px）でぼかして素の色に足す（glowOnly＝ぼかしだけ）。固定の鎖の bloom（閾値で抜く近似）とは別物 */
+export type CesiumBloomStage = { type: "cesiumBloom"; contrast: number; brightness: number; delta: number; sigma: number; stepSize: number; glowOnly: boolean };
 /** 正規化の戻り。fxaa/tonemap/lut の鍵は on の時だけ生える（従来の { bloom, vignette } の形を壊さない）。 */
 export interface PostProcessNormalized {
 	bloom: { threshold: number; strength: number; radius: number } | null;
@@ -106,6 +109,7 @@ export function normStages(list: unknown): PostStage[] {
 				const d = url(o.dirt), st = url(o.star); if (d) lf.dirt = d; if (st) lf.star = st;
 				out.push(lf); break;
 			}
+			case "cesiumBloom": out.push({ type: "cesiumBloom", contrast: num(o.contrast, 128, -255, 255), brightness: num(o.brightness, -0.3, -1, 1), delta: num(o.delta, 1, 0, 100), sigma: num(o.sigma, 2, 0.01, 100), stepSize: num(o.stepSize, 1, 0, 100), glowOnly: o.glowOnly === true }); break;
 			case "depthOfField": {
 				const d: DepthOfFieldStage = { type: "depthOfField", focalDistance: num(o.focalDistance, 5, 0, 1e9), delta: num(o.delta, 1, 0, 100), sigma: num(o.sigma, 2, 0.01, 100), stepSize: num(o.stepSize, 1, 0, 100), near: num(o.near, 1, 1e-3, 1e9), far: num(o.far, 5e8, 1, 1e12) };
 				if (Array.isArray(o.earth) && o.earth.length === 4) d.earth = o.earth.map(x => num(x, 0, -1e12, 1e12));

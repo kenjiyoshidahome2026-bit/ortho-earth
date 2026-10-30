@@ -835,6 +835,11 @@ const dequant = (A: NumArr) => A instanceof Int8Array ? 1 / 127 : A instanceof U
 //   色＝DC（0.282095×sh0＋0.5）→ sRGB の 0〜255（colorSpace lin_rec709_display は sRGB の伝達関数を掛ける・COLOR_0 は glTF の決まりで線形＝同じく）。SH の並び＝plugin の SplatData（係数が先・色が後）
 const SPLAT_EXT = "KHR_gaussian_splatting";
 const splatAttr = (pr: GltfPrimitive, name: string): GltfAccessor | undefined => pr.attributes?.[`${SPLAT_EXT}:${name}`] ?? pr.attributes?.[`_${name}`];
+/** SPZ の圧縮の拡張＝KHR_gaussian_splatting の中の extensions（今の仕様の置き方・iTwin の reality data 2026-10-30）か、プリミティブの extensions に並ぶ物（2025 の草案） */
+const splatSpz = (pr: GltfPrimitive): { bufferView?: number } | undefined => {
+	const find = (e: unknown) => Object.entries((e as Record<string, unknown> | undefined) || {}).find(([k]) => k.startsWith(`${SPLAT_EXT}_compression_spz`))?.[1] as { bufferView?: number } | undefined;
+	return find((pr.extensions?.[SPLAT_EXT] as { extensions?: unknown } | undefined)?.extensions) ?? find(pr.extensions);
+};
 const srgb8 = (v: number): number => { const c = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055; return Math.max(0, Math.min(255, Math.round(c * 255))); };
 const clamp8 = (v: number): number => Math.max(0, Math.min(255, Math.round(v * 255)));
 const SH_C0 = 0.28209479177387814;
@@ -849,7 +854,7 @@ function splatPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 		return out;
 	};
 	// 圧縮（SPZ）＝bufferView の本体をそのまま持たせる（plugin の parseSpz が gzip を解いて読む・局所の座標は glTF の軸のまま＝transform で置く）
-	const comp = Object.entries(pr.extensions || {}).find(([k]) => k.startsWith(`${SPLAT_EXT}_compression_spz`))?.[1] as { bufferView?: number } | undefined;
+	const comp = splatSpz(pr);
 	if (comp && Number.isInteger(comp.bufferView)) {
 		const data = gltf.bufferViews?.[comp.bufferView!]?.data;
 		if (!data) return null;
@@ -1190,7 +1195,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 				continue;
 			}
 			if (mode4 === 0 && pts) {   // 点＝経緯度・高さ・色だけ（点のオーバーレイへ）
-				if (Object.keys(pr.extensions || {}).some(k => k.startsWith(`${SPLAT_EXT}_compression_spz`))) continue;   // SPZ＝属性の本体が無い（loaders.gl 4.5 は bufferView の無い accessor を 0 で埋める＝原点に点が並ぶ）＝点にしない
+				if (splatSpz(pr)) continue;   // SPZ＝属性の本体が無い（loaders.gl 4.5 は bufferView の無い accessor を 0 で埋める＝原点に点が並ぶ）＝点にしない
 				const P = pr.attributes?.POSITION?.value; if (!P) continue;
 				if (pr.extensions?.[SPLAT_EXT]) nSplatPts += P.length / 3;
 				const q = pr.attributes!.POSITION!.normalized ? dequant(P) : 1, n = P.length / 3;

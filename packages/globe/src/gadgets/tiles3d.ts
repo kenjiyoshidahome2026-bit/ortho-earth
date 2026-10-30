@@ -945,7 +945,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const vd = (j.root?.content as { extensions?: Record<string, unknown> } | undefined)?.extensions?.["3DTILES_content_voxels"] as { dimensions?: number[]; padding?: { before?: number[]; after?: number[] } } | undefined;
 			set.voxDecl = vd && Array.isArray(vd.dimensions) ? { dimensions: vd.dimensions, padding: vd.padding } : null;
 			set.styleSpec = opts.style ?? null; set.style = styleOf(opts.style);
-			set.root = tileNode(j.root, I4, abs.href, set, null, set.scope);
+			set.root = tileNode(j.root, opts.modelMatrix && opts.modelMatrix.length === 16 ? Array.from(opts.modelMatrix) : I4, abs.href, set, null, set.scope);   // modelMatrix＝tileset 全体の変換（Cesium の modelMatrix）
 			if (!set.root.ge) set.root.ge = j.geometricError ?? 0;
 			set.loaded = () => [...set.ready];   // 中身が上がっている節点（load／unload が保つ＝毎回木を歩かない）
 			const sp = set.root.sphere;
