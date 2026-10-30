@@ -12,7 +12,7 @@ import type { DemCell, DemSource } from "./dem-src.ts";
 /** 利用者が書く spec（quantized-mesh） */
 export interface QmeshSpecInput { type?: "quantized-mesh"; url?: string | null; ion?: { assetId: string | number; accessToken?: string } | null; heights?: "ellipsoidal" | "orthometric"; heightOffset?: number; cellZoom?: number | null; maxzoom?: number | null; bounds?: number[] | null; dtm?: boolean; headers?: Record<string, string> | null; credentials?: RequestCredentials; [k: string]: unknown }
 /** 整えた spec */
-export interface QmeshSpec { type: "quantized-mesh"; url: string | null; ion: { assetId: string | number; accessToken: string } | null; heights: "ellipsoidal" | "orthometric"; heightOffset: number; cellZoom: number | null; seafloor: boolean; maxzoom: number | null; bounds: number[] | null; dtm: boolean; headers: Record<string, string> | null; credentials: RequestCredentials }
+export interface QmeshSpec { type: "quantized-mesh"; url: string | null; ion: { assetId: string | number; accessToken: string } | null; heights: "ellipsoidal" | "orthometric"; heightOffset: number; cellZoom: number | null; seafloor: boolean; negative: boolean; maxzoom: number | null; bounds: number[] | null; dtm: boolean; headers: Record<string, string> | null; credentials: RequestCredentials }
 export interface QmeshSource extends DemSource { spec: QmeshSpec; ready: Promise<QMLayer | null>; tileSpan: (z: number) => number }
 interface IonEndpoint { url?: string; accessToken?: string; message?: string }
 
@@ -23,7 +23,7 @@ const CACHE_BYTES = 96 << 20;   // 解いたタイルの在庫（バイトで区
 function normalizeQmeshSpec(s: QmeshSpecInput | null | undefined): QmeshSpec {
 	if (!s?.url && !s?.ion?.assetId) throw new Error("quantized-mesh: spec needs url (layer.json) or ion { assetId, accessToken }");
 	return { type: "quantized-mesh", url: s.url || null, ion: s.ion ? { assetId: s.ion.assetId, accessToken: s.ion.accessToken || "" } : null,
-		heights: s.heights === "orthometric" ? "orthometric" : "ellipsoidal", heightOffset: +(s.heightOffset ?? 0) || 0, cellZoom: s.cellZoom ?? null, seafloor: !!s.seafloor, maxzoom: s.maxzoom ?? null,
+		heights: s.heights === "orthometric" ? "orthometric" : "ellipsoidal", heightOffset: +(s.heightOffset ?? 0) || 0, cellZoom: s.cellZoom ?? null, seafloor: !!s.seafloor, negative: !!s.negative, maxzoom: s.maxzoom ?? null,
 		bounds: Array.isArray(s.bounds) && s.bounds.length === 4 ? s.bounds.slice() : null, dtm: !!s.dtm, headers: s.headers || null, credentials: s.credentials || "omit" };
 }
 
