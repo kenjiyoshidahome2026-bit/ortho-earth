@@ -15,7 +15,7 @@ export interface PointsOut { pos: Float32Array; origin: number[]; rgba: Uint8Arr
  *  table＝batch table（行＝地物）・local＝局所の位置（RTC 相対・量子化を戻した物）・rgba＝元の色（スタイルで塗り直す元） */
 export interface PointsFeat { ids: ArrayLike<number> | null; table: PropertyTable | null; local: Float32Array; rgba: Uint8Array }
 /** decodeTile3D の戻り（null＝描く物なし） */
-export interface Tile3DOut { batches: ModelBatchOut[]; points: PointsOut[]; splats: SplatPrimOut[]; voxels: VoxelPrimOut[]; /** Geometry タイル（.geom）の分類の立体 */ volumes?: GeomOut[]; stats: { triangles: number; points: number; splats: number; splatPoints: number; voxels: number; voxelsSkipped: number; copyright?: string[]; bytes?: number } }   // bytes＝model-worker が足す（タイルの本体の大きさ）・splats＝Gaussian splat（KHR_gaussian_splatting・局所＋transform）・splatPoints＝splat を点として描いた個数（plugin が無い時）
+export interface Tile3DOut { batches: ModelBatchOut[]; points: PointsOut[]; splats: SplatPrimOut[]; voxels: VoxelPrimOut[]; /** Geometry タイル（.geom）の分類の立体 */ volumes?: GeomOut[]; stats: { triangles: number; points: number; splats: number; splatPoints: number; voxels: number; voxelsSkipped: number; copyright?: string[]; bytes?: number; /** 最初の glTF の根の拡張（gltfMeta の extensions） */ extensions?: Record<string, unknown> } }   // bytes＝model-worker が足す（タイルの本体の大きさ）・splats＝Gaussian splat（KHR_gaussian_splatting・局所＋transform）・splatPoints＝splat を点として描いた個数（plugin が無い時）
 /** decodeTile3D の opts（transform＝列優先 4x4・baseH＝高さの基準（m）・ground＝"terrain"｜"absolute"・splats＝KHR_gaussian_splatting を splat として返す（false＝点として描く）） */
 export interface Tile3DOpts { transform?: ArrayLike<number> | null; baseUri?: string; baseH?: number; textures?: boolean; maxInstances?: number; ground?: string; featureIdSet?: number; /** 利用者のシェーダの positionMC と J（meshdecode の mc） */ mc?: boolean; splats?: boolean; /** EXT_primitive_voxels を voxel として返す（false＝飛ばす・VoxelTileOpts＝属性名・tileset の宣言・タイルの境界体積） */ voxels?: boolean | VoxelTileOpts; /** タイル本体を取った headers／credentials＝同じ origin の外部画像・glTF にも（ion の Bearer） */ fetchOpts?: FetchOpts | null }
 /** 3D Tiles の変換（L＝列優先 3x3・t＝平行移動） */
@@ -186,6 +186,7 @@ export async function decodeTile3D(ab: ArrayBuffer, { transform, baseUri, baseH 
 	const merge = (r: ((Omit<Partial<ModelOut>, "points"> & { points?: ModelPoints | PointsOut | null }) | (PointsOut & { batches?: undefined; stats?: undefined; points?: undefined; splats?: undefined; voxels?: undefined })) | null) => {
 		if (!r) return;
 		if (r.batches?.length) { out.batches.push(...r.batches); out.stats.triangles += r.stats?.triangles || 0; }
+		if (r.stats?.gltf?.extensions && !out.stats.extensions) out.stats.extensions = r.stats.gltf.extensions;   // 根の拡張（NGA_gpm_local 等）＝Cesium の content.getExtension
 		if (r.stats?.gltf?.copyright) (out.stats.copyright ??= []).includes(r.stats.gltf.copyright) || out.stats.copyright!.push(r.stats.gltf.copyright);   // glTF の asset.copyright（W8）＝tileset の出典を集める
 		if (r.splats?.length) { out.splats.push(...r.splats); out.stats.splats += r.stats?.splats || 0; }
 		out.stats.splatPoints += r.stats?.splatPoints || 0;
