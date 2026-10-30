@@ -22,7 +22,7 @@ import { syncLighting } from "./lighting.ts";
 import { syncSpecularEnv } from "./specular-env.ts";
 import { TimePointsDrawer, isTimeDynamicPointCloud } from "./timepoints.ts";
 import { isRawPrimitive } from "./rawdraw.ts";
-import { PrimitiveDrawer, isGeometryPrimitive, isDebugAxes, debugAxesPrimitive, isEllipsoidPrimitive, ellipsoidPrimitive } from "./primitives.ts";
+import { PrimitiveDrawer, isGeometryPrimitive, drawnByCesium, isDebugAxes, debugAxesPrimitive, isEllipsoidPrimitive, ellipsoidPrimitive } from "./primitives.ts";
 import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
 import { ParticleDrawer, isParticleSystem } from "./particles.ts";
 import { CloudDrawer, isCloudCollection } from "./clouds.ts";
@@ -139,6 +139,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	prims.scene = scene;
 	this._orthoPrimitives = prims;
 	const colls = new CollectionDrawer();
+	colls.toCesium = c => scene.raw.add(c);
 	this._orthoCollections = colls;
 	const voxels = new VoxelDrawer(host, scene.fakeContext);
 	this._orthoVoxels = voxels;
@@ -161,6 +162,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	const onAdd = (p: Any) => {
 		if (p instanceof Cesium3DTileset) { tilesets.push(p); p.__attach(host); }
 		else if (p instanceof I3SDataProvider) p.__attach(host);   // I3S (ArcGIS scene layers): the globe's own I3S reader (i3s.ts)
+		else if (drawnByCesium(p)) { p._asynchronous = false; scene.raw.add(p); }   // a Primitive with the example's GLSL (material-with-custom-glsl) or a line material the globe has no style for: Cesium's renderer draws it over the globe (rawdraw.ts); its geometry is made on this thread (the page's COEP blocks Cesium's geometry workers)
 		else if (isGeometryPrimitive(p)) prims.add(p);
 		else if (isDebugAxes(p)) { const q = debugAxesPrimitive(p); debugAxes.set(p, q); prims.add(q); }   // DebugModelMatrixPrimitive: the axes it would draw (localtofixedframe)
 		else if (isEllipsoidPrimitive(p)) { const q = ellipsoidPrimitive(p); debugAxes.set(p, q); prims.add(q); }   // EllipsoidPrimitive (volumes-dev): its ellipsoid as geometry
