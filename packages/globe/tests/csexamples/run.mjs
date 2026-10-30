@@ -125,9 +125,9 @@ async function runOne(browser, side, ex) {
 	page.on("load", () => rec.loads = (rec.loads || 0) + 1);   // more than 1 = the dev server reloaded the page (a dependency re-optimised)
 	await page.addInitScript(() => { try { localStorage.removeItem("cesium-hasSeenNavHelp"); } catch { /* none */ } });   // the help panel opens as on a first visit, also after a reload
 	let refClock = null;
-	if (TIME_FROM) {   // the ref's start: the record's own t0; older records without it: the file's mtime less the run time (a copy that did not keep the mtime moves the clock)
+	if (TIME_FROM) {   // the ref's start: the record's own t0; a ref shot with --time-from itself: its page started at its timeFrom; older records: the file's mtime less the run time (a copy that did not keep the mtime moves the clock)
 		const j = path.join(TIME_FROM, "ref", `${ex.name}.json`);
-		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")), t0 = r.t0 ?? st.mtimeMs - (r.ms || 0); rec.timeFrom = new Date(t0).toISOString(); await page.addInitScript(shiftDate, t0 - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; }
+		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")), t0 = r.t0 ?? (r.timeFrom ? Date.parse(r.timeFrom) : st.mtimeMs - (r.ms || 0)); rec.timeFrom = new Date(t0).toISOString(); await page.addInitScript(shiftDate, t0 - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; }
 	}
 	try {
 		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/${side === "ortho" && ORTHO_QUERY ? `?${ORTHO_QUERY}` : ""}`, { timeout: 60000 });
