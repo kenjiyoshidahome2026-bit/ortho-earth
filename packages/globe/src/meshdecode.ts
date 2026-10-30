@@ -105,7 +105,7 @@ export interface ModelOut {
 /** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable・splats（KHR_gaussian_splatting を splat として返す＝false なら点として描く）・voxels（EXT_primitive_voxels を voxel として返す＝false なら飛ばす） */
 export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; splats?: boolean; voxels?: boolean | VoxelTileOpts; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
 /** decodeModel の opts */
-export interface DecodeModelOpts { at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number; /** 利用者のシェーダ（Cesium の CustomShader）＝頂点ごとの positionMC（glTF の POSITION そのまま）と束の J を返す */ mc?: boolean; /** タイル本体を取った時の headers／credentials（transformRequest・ion の Bearer）＝同じ origin の外部画像・buffer・i3dm の glTF にも付ける（無いと ion の CDB のテクスチャが 401） */ fetchOpts?: FetchOpts | null }
+export interface DecodeModelOpts { /** 3D Tiles 1.0 asset.gltfUpAxis: "Z" = no Y-up → Z-up turn for a tile */ upAxis?: string | null; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number; /** 利用者のシェーダ（Cesium の CustomShader）＝頂点ごとの positionMC（glTF の POSITION そのまま）と束の J を返す */ mc?: boolean; /** タイル本体を取った時の headers／credentials（transformRequest・ion の Bearer）＝同じ origin の外部画像・buffer・i3dm の glTF にも付ける（無いと ion の CDB のテクスチャが 401） */ fetchOpts?: FetchOpts | null }
 export interface FetchOpts { headers?: Record<string, string> | null; credentials?: RequestCredentials | null }
 /** fetch の代わり＝baseUri と同じ origin の URL にだけ headers／credentials を付ける（別ホストへ委譲された画像に token を漏らさない） */
 export const fetchFor = (baseUri: string | null | undefined, o: FetchOpts | null | undefined): typeof fetch => {
@@ -769,6 +769,7 @@ const m3mul = (a: ArrayLike<number>, b: ArrayLike<number>) => {   // 列優先 3
 	return o;
 };
 const m3v = (m: ArrayLike<number>, v: ArrayLike<number>): number[] => [m[0]*v[0] + m[3]*v[1] + m[6]*v[2], m[1]*v[0] + m[4]*v[1] + m[7]*v[2], m[2]*v[0] + m[5]*v[1] + m[8]*v[2]];
+const I3 = Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1);
 const SWAP = Float64Array.of(1, 0, 0, 0, 0, 1, 0, -1, 0);   // (x,y,z)→(x,−z,y)＝glTF Y-up → ECEF/ENU の Z-up（decodeBatch の軸入替と同じ）
 // ── マテリアル（2026-09-20 テクスチャ/マテリアル対応）──
 // baseColor（factor＋texture＋COLOR_0）に加え、#46 段 2（2026-09-26）から PBR の材質も読む：metallicRoughness（factor＋texture＝G=粗さ・B=金属）・
@@ -1008,6 +1009,25 @@ function withOutline(seg: { geo: Float64Array; nrm: Int8Array; idx: Uint32Array;
 	for (let k = 0; k < idx.length; k++) idx[k] += base;
 	seg.idx = idx;
 }
+// WEB3D_quantized_attributes (glTF 1.0 b3dm, e.g. Bentley ContextCapture): loaders.gl keeps the integer values and the extension on the accessor;
+// Cesium decodes them with decodeMatrix (v' = M·[v, 1], (n+1)² column-major). Undecoded, a 276 m tile came out 65 km wide (drape-imagery-on-3d-tiles)
+function dequantWeb3d(gltf: GltfDoc): void {
+	const done = new Set<object>();
+	for (const m of gltf.meshes || []) for (const pr of m.primitives || []) for (const a of Object.values(pr.attributes || {}) as Array<(GltfAccessor & { extensions?: Record<string, { decodeMatrix?: number[] }> }) | undefined>) {
+		const M = a?.extensions?.WEB3D_quantized_attributes?.decodeMatrix, v = a?.value;
+		if (!a || !M || !v || done.has(a)) continue;
+		done.add(a);
+		const c = Math.round(Math.sqrt(M.length)) - 1;
+		if (c < 1 || (c + 1) * (c + 1) !== M.length || v.length % c) continue;
+		const out = new Float32Array(v.length);
+		for (let i = 0; i < v.length; i += c) for (let k = 0; k < c; k++) {
+			let s = M[c * (c + 1) + k];
+			for (let j = 0; j < c; j++) s += M[j * (c + 1) + k] * v[i + j];
+			out[i + k] = s;
+		}
+		a.value = out; a.normalized = false; delete a.extensions!.WEB3D_quantized_attributes;
+	}
+}
 function dracoNames(gltf: GltfDoc, raw: unknown): void {
 	const rm = (raw as { meshes?: Array<{ primitives?: Array<{ extensions?: { KHR_draco_mesh_compression?: { attributes?: Record<string, number> } } }> }> } | null)?.meshes;
 	if (!rm) return;
@@ -1082,7 +1102,7 @@ function linePrimAsTubes(pr: GltfPrimitive, mode: number): GltfPrimitive | null 
 	if (C) attributes.COLOR_0 = { value: C } as GltfAccessor;
 	return { ...pr, mode: 4, attributes, indices: { value: idx } as GltfAccessor };
 }
-export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
+export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false, upAxis = null }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
 	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
 	const f = fetchFor(baseUri, fetchOpts);   // 外部画像・buffer＝タイルと同じ headers で（ion の Bearer）
@@ -1095,6 +1115,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		textures = false; gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(false))) as GltfDoc;
 	}
 	dracoNames(gltf, raw);
+	dequantWeb3d(gltf);
 	const metaRaw = ((raw as { extensions?: { EXT_structural_metadata?: RawMeta } } | null)?.extensions?.EXT_structural_metadata ?? gltf.extensions?.EXT_structural_metadata ?? null) as RawMeta | null;   // property texture の読み方（生の json）
 	// EXT_structural_metadata with schemaUri (Cesium ion's BIM exports: ../../../../schema.json): the schema is fetched once per URL and put where the
 	// inline one would be, so the property tables and textures read their classes from it
@@ -1130,7 +1151,8 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	let A: Float64Array, T: number[], mode: string, places: Array<{ A: Float64Array; T: number[] }> | null = null;
 	if (tile) {   // 3D Tiles：置き方は呼び手のタイル変換（インスタンスごと）。glTF 内の CESIUM_RTC も b3dm の RTC_CENTER と同じ扱い
 		const r0 = tile.rtc || rtc || [0, 0, 0];
-		places = tile.places.map(({ L, t }) => { const o = m3v(L, r0); return { A: m3mul(L, SWAP), T: [o[0] + t[0], o[1] + t[1], o[2] + t[2]] }; });
+		const up = upAxis === "Z" ? I3 : SWAP;   // 3D Tiles 1.0 gltfUpAxis Z (Bentley ContextCapture b3dm): the glTF is Z-up already
+		places = tile.places.map(({ L, t }) => { const o = m3v(L, r0); return { A: m3mul(L, up), T: [o[0] + t[0], o[1] + t[1], o[2] + t[2]] }; });
 		A = places[0].A; T = places[0].T; mode = "tile";
 	}
 	else if (rtc) { A = SWAP; T = rtc; mode = "rtc"; }
