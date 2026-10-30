@@ -24,7 +24,7 @@ export interface CamState { mvp: ArrayLike<number>; eye?: ArrayLike<number> | nu
 export type VoxelApi = Pick<OverlayFrameApi, "rAx" | "elevM" | "liftScale"> & { depth?: OverlayFrameApi["depth"] };
 export interface PickContext { s: CamState; api: VoxelApi; size: { w: number; h: number } }
 export type VoxelAltitude = "relative" | "absolute";
-export interface VoxelStyle { /** 見せるこま（時間の次元・frames の番号） */ frame?: number; mode?: 0 | 1 | 2; thr?: number; step?: number; opacity?: number; clip?: Clip | null; depthTest?: boolean; cmap?: Uint8Array; properties?: Record<string, unknown> | null }
+export interface VoxelStyle { /** 見せるこま（時間の次元・frames の番号） */ frame?: number; mode?: 0 | 1 | 2; thr?: number; step?: number; opacity?: number; clip?: Clip | null; depthTest?: boolean; /** false＝面の陰を付けない（色そのまま・Cesium の VoxelPrimitive） */ lighting?: boolean; cmap?: Uint8Array; properties?: Record<string, unknown> | null }
 export interface VoxelLayerBody extends VoxelStyle { /** ブリックの親の層の id（当たりの layer） */ layer?: string; /** ブリック＝テクスチャの 0 番のセルの親での位置・描く範囲・親の dims */ off?: [number, number, number]; own?: [number, number, number, number, number, number]; full?: [number, number, number]; /** 最大値（R8・RGBA は α）＝閾より下なら描かない */ vmax?: number; /** 時間の次元＝こまごとの値（frames[0]＝tex）。style の frame で選ぶ（GPU には見せるこまだけ） */ frames?: Uint8Array[] | null; /** 粗い段（s＝2, 4…）＝GPU の予算を越える時に遠い層で使う */ lods?: LevelBody[] | null; shape: "box" | "region" | "cylinder"; dims: [number, number, number]; comps: 1 | 4; tex: Uint8Array; cmap: Uint8Array; anchor: [number, number, number]; alt?: VoxelAltitude; A: Float64Array | ArrayLike<number>; radius: number; geo?: GeoGrid | null; mode: 0 | 1 | 2; thr: number; step: number; opacity: number; range: [number, number]; on?: boolean }
 export type LevelBody = Pick<Level, "s" | "off" | "own" | "dims" | "tex" | "frames" | "vmax" | "anchor" | "A" | "radius" | "geo">;
 export type VoxelMessage = ({ type: "layer"; q: string } & VoxelLayerBody) | ({ type: "style"; q: string } & VoxelStyle) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "budget"; bytes: number } | { type: "probe"; id: unknown };
@@ -45,7 +45,7 @@ ${depthGLSL}
 uniform mat4 u_mvp; uniform vec3 u_dims; uniform vec3 u_eye; uniform vec2 u_vp;
 uniform highp sampler3D u_vol; uniform sampler2D u_cmap;
 uniform int u_mode; uniform int u_comps; uniform int u_maxSteps; uniform int u_geo;
-uniform float u_thr; uniform float u_step; uniform float u_opacity; uniform float u_occl;
+uniform float u_thr; uniform float u_step; uniform float u_opacity; uniform float u_occl; uniform float u_lit;
 uniform mat3 u_nrm; uniform mat3 u_gradM; uniform vec3 u_light; uniform highp uint u_base;
 uniform vec3 u_lo; uniform vec3 u_hi;
 uniform vec3 u_o; uniform vec3 u_E; uniform vec3 u_N; uniform vec3 u_U; uniform float u_R; uniform float u_rAx;
@@ -89,7 +89,7 @@ vec3 cylN(vec3 nc, vec3 p) {
 	vec3 l = u_cylM * p; vec2 u = dot(l.xy, l.xy) > 0.0 ? normalize(l.xy) : vec2(1.0, 0.0);
 	return normalize(transpose(u_cylM) * (nc.x * vec3(u, 0.0) + nc.y * vec3(-u.y, u.x, 0.0) + vec3(0.0, 0.0, nc.z)));
 }
-vec4 shade(vec4 col, vec3 ne) { float l = 0.55 + 0.45 * max(0.0, dot(ne, u_light)); float a = u_opacity; return vec4(col.rgb * l * a, a); }
+vec4 shade(vec4 col, vec3 ne) { float l = mix(1.0, 0.55 + 0.45 * max(0.0, dot(ne, u_light)), u_lit); float a = u_opacity; return vec4(col.rgb * l * a, a); }
 ${pick ? `vec4 encode(highp uint id) { return vec4(float(id & 255u), float((id >> 8) & 255u), float((id >> 16) & 255u), float((id >> 24) & 255u)) / 255.0; }
 highp uint cellId(ivec3 c) { return u_base + uint(c.x + int(u_dims.x) * (c.y + int(u_dims.y) * c.z)); }` : ""}
 void main() {
@@ -204,7 +204,7 @@ void main() {
 }`;
 interface Layer {
 	shape: "box" | "region" | "cylinder"; dims: [number, number, number]; comps: 1 | 4; n: number; anchor: [number, number, number]; alt: VoxelAltitude; A: Float64Array; Ainv: Float64Array; radius: number;
-	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; occl: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
+	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; occl: boolean; lit: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
 	tex: WebGLTexture; cmap: WebGLTexture; on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array;
 	geo: GeoGrid | null; vao: WebGLVertexArrayObject | null; vb: WebGLBuffer | null; nVerts: number;
 	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
@@ -320,7 +320,7 @@ function build(d: VoxelLayerBody): Layer {
 	for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, p, v);
 	upCmap(cmap, d.cmap);
 	const V = levels[0], fullFine = d.full ?? d.dims;
-	const L: Layer = { shape: d.shape, dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
+	const L: Layer = { shape: d.shape, dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, lit: d.lighting !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
 		tex: null as unknown as WebGLTexture, cmap, on: d.on !== false, base: 0, dist: 0, nrm: V.nrm, gradM: V.gradM, geo: V.geo, vao: V.vao, vb: V.vb, nVerts: V.nVerts, layer: d.layer ?? null, off: V.off, own: V.own, full: d.full ?? null, vmax: d.vmax ?? 255,
 		frame: Math.max(0, d.frame ?? 0), lv: 0, s: 1, levels, cell: cellOf(V.A, V.geo), fullFine: [fullFine[0], fullFine[1], fullFine[2]] };
 	useLevel(L, 0);
@@ -363,7 +363,7 @@ export function message(d: VoxelMessage): void {
 		const L = layers.get(d.q); if (!L) return;
 		if (d.frame != null) L.frame = Math.max(0, d.frame);   // 次に描く時に上げ直す（ensure）
 		if (d.mode != null) L.mode = d.mode; if (d.thr != null) L.thr = d.thr; if (d.step != null) L.step = d.step; if (d.opacity != null) L.opacity = d.opacity;
-		if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.properties !== undefined) L.properties = d.properties ?? null;
+		if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.lighting != null) L.lit = d.lighting; if (d.properties !== undefined) L.properties = d.properties ?? null;
 		if (d.cmap) upCmap(L.cmap, d.cmap);
 		host?.requestDraw?.();
 	}
@@ -458,7 +458,7 @@ function drawAll(pick: boolean, s: CamState, api: VoxelApi | null | undefined, w
 		gl.uniformMatrix4fv(P.u.u_mvp, false, mvpC); gl.uniform3f(P.u.u_dims, L.dims[0], L.dims[1], L.dims[2]); gl.uniform3fv(P.u.u_eye, eyeC);
 		gl.uniformMatrix3fv(P.u.u_nrm, false, L.nrm); gl.uniformMatrix3fv(P.u.u_gradM, false, L.gradM);
 		gl.uniform1i(P.u.u_mode, L.mode); gl.uniform1i(P.u.u_comps, L.comps); gl.uniform1i(P.u.u_geo, L.geo ? (L.geo.cyl ? 2 : 1) : 0); gl.uniform1i(P.u.u_maxSteps, maxSteps);
-		gl.uniform1f(P.u.u_thr, L.thr); gl.uniform1f(P.u.u_step, step); gl.uniform1f(P.u.u_opacity, L.opacity); gl.uniform1f(P.u.u_occl, L.occl ? 1 : 0);
+		gl.uniform1f(P.u.u_thr, L.thr); gl.uniform1f(P.u.u_step, step); gl.uniform1f(P.u.u_opacity, L.opacity); gl.uniform1f(P.u.u_occl, L.occl ? 1 : 0); gl.uniform1f(P.u.u_lit, L.lit ? 1 : 0);
 		gl.uniform3f(P.u.u_lo, lo[0], lo[1], lo[2]); gl.uniform3f(P.u.u_hi, hi[0], hi[1], hi[2]);
 		gl.uniform1ui(P.u.u_base, L.base);
 		if (L.geo) {

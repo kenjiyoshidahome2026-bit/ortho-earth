@@ -4,9 +4,9 @@
 //   setPostProcess({ bloom, vignette }) は従来どおり＝鎖の bloom→vignette の 2 段に写る。DOM 無し＝tests/postchain.mjs。
 import { normPost, normStages } from "@ortho-earth/core/postfx";
 import type { PostProcessNormalized, PostProcessOptions, PostStage, TonemapMode } from "@ortho-earth/core/postfx";
-export const POST_TYPES: readonly string[] = Object.freeze(["bloom", "vignette", "fxaa", "smaa", "tonemap", "lut", "dof", "ssr", "silhouette", "grey", "brightness", "nightVision", "glsl", "lensFlare", "depthOfField"]);   // silhouette〜depthOfField＝画面の段（Cesium の postProcessStages 相当・2026-10-28）＝固定の鎖の後に並び順どおり
+export const POST_TYPES: readonly string[] = Object.freeze(["bloom", "vignette", "fxaa", "smaa", "tonemap", "lut", "dof", "ssr", "silhouette", "grey", "brightness", "nightVision", "glsl", "lensFlare", "depthOfField", "cesiumBloom"]);   // silhouette〜cesiumBloom＝画面の段（Cesium の postProcessStages 相当・2026-10-28）＝固定の鎖の後に並び順どおり
 const LEGACY_KEYS = ["fxaa", "bloom", "tonemap", "lut", "vignette"];
-const STAGE_TYPES = new Set(["silhouette", "grey", "brightness", "nightVision", "glsl", "lensFlare", "depthOfField"]);   // setPostProcess({ ... }) の旧形が受ける鍵＝描く順
+const STAGE_TYPES = new Set(["silhouette", "grey", "brightness", "nightVision", "glsl", "lensFlare", "depthOfField", "cesiumBloom"]);   // setPostProcess({ ... }) の旧形が受ける鍵＝描く順
 const fin = (v: unknown, d: number): number => (Number.isFinite(+(v as number)) ? +(v as number) : d);
 const nn = (v: unknown, d: number, lo = 0, hi = Infinity): number => Math.min(hi, Math.max(lo, fin(v, d)));
 // 正規化した pass（type ごとの既定を補った物）。plugin の pass（PluginPass）は受けた鍵をそのまま
@@ -36,7 +36,7 @@ export function normPass(p: unknown): NormBuiltinPass | null {
 		case "lut": return { ...base, enabled, url: typeof o.url === "string" ? o.url : null, size: [16, 32, 64].includes(+(o.size as number)) ? +(o.size as number) : 32, intensity: nn(o.intensity, 1, 0, 1) };
 		case "dof": return { ...base, enabled, focusDistance: nn(o.focusDistance, 500), focalLength: nn(o.focalLength, 50, 1, 1200), aperture: nn(o.aperture, 2.8, 0.5, 64), maxBlur: nn(o.maxBlur, 8, 0, 64) };
 		case "ssr": return { ...base, enabled, intensity: nn(o.intensity, 0.5, 0, 1), maxDistance: nn(o.maxDistance, 2000), thickness: nn(o.thickness, 2), steps: Math.round(nn(o.steps, 32, 4, 256)) };
-		case "silhouette": case "grey": case "brightness": case "nightVision": case "glsl": case "lensFlare": case "depthOfField": { const st = normStages([o])[0]; return st ? { ...base, enabled, ...st } : null; }   // 画面の段（src の無い glsl は null）
+		case "silhouette": case "grey": case "brightness": case "nightVision": case "glsl": case "lensFlare": case "depthOfField": case "cesiumBloom": { const st = normStages([o])[0]; return st ? { ...base, enabled, ...st } : null; }   // 画面の段（src の無い glsl は null）
 		default: return null;
 	}
 }

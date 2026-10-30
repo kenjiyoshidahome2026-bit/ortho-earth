@@ -32,7 +32,7 @@ struct Uni {
 	gspanLat: f32, gh0: f32, gh1: f32, ceps: f32,   // 76（ceps＝cylinder の差分の幅 m）
 	vp: vec2f, ddim: vec2f,      // 80
 	logCoef: f32, eps: f32, pad1: f32, pad2: f32,   // 84
-	light: vec3f, pad3: f32,     // 88
+	light: vec3f, lit: f32,      // 88（lit＝0 で面の陰を付けない）
 	mode: u32, comps: u32, maxSteps: u32, geo: u32,   // 92
 	base: u32, occl: u32, depthOn: u32, pad4: u32,    // 96
 	cylM: mat3x3f,       // 100（cylinder＝東北上 m → 局所 m）
@@ -92,7 +92,7 @@ fn cylN(nc: vec3f, p: vec3f) -> vec3f {
 	let l = U.cylM * p; let u = select(vec2f(1.0, 0.0), normalize(l.xy), dot(l.xy, l.xy) > 0.0);
 	return normalize(transpose(U.cylM) * (nc.x * vec3f(u, 0.0) + nc.y * vec3f(-u.y, u.x, 0.0) + vec3f(0.0, 0.0, nc.z)));
 }
-fn shade(col: vec4f, ne: vec3f) -> vec4f { let l = 0.55 + 0.45 * max(0.0, dot(ne, U.light)); let a = U.opacity; return vec4f(col.rgb * l * a, a); }
+fn shade(col: vec4f, ne: vec3f) -> vec4f { let l = mix(1.0, 0.55 + 0.45 * max(0.0, dot(ne, U.light)), U.lit); let a = U.opacity; return vec4f(col.rgb * l * a, a); }
 fn cellId(c: vec3i) -> u32 { return U.base + u32(c.x + i32(U.dims.x) * (c.y + i32(U.dims.y) * c.z)); }
 // 本体の深度（詰めた 24 bit の対数深度・行は下から＝GL）→ 光線の w（pos＝画素・上から）
 fn sceneW(pos: vec2f) -> f32 {
@@ -223,7 +223,7 @@ fn march(pos: vec2f, vp: vec3f, pick: bool) -> Hit {
 
 interface Layer {
 	q: string; shape: "box" | "region" | "cylinder"; dims: [number, number, number]; comps: 1 | 4; n: number; anchor: [number, number, number]; alt: VoxelAltitude; A: Float64Array; Ainv: Float64Array; radius: number;
-	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; occl: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
+	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; occl: boolean; lit: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
 	tex: GPUTexture; cmap: GPUTexture; vb: GPUBuffer; nVerts: number; ub: GPUBuffer; bg: GPUBindGroup | null; bgDep: GPUTexture | null;
 	on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array; geo: GeoGrid | null;
 	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
@@ -389,7 +389,7 @@ export function create(): VoxelGpuModule {
 		upCmap(cmap, d.cmap);
 		const ub = device!.createBuffer({ label: `voxel-u-${q}`, size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
 		const V = levels[0], fullFine = d.full ?? d.dims;
-		const L: Layer = { q, shape: d.shape, dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
+		const L: Layer = { q, shape: d.shape, dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, lit: d.lighting !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
 			tex: null as unknown as GPUTexture, cmap, vb: V.vb, nVerts: V.nVerts, ub, bg: null, bgDep: null, on: d.on !== false, base: 0, dist: 0, nrm: V.nrm, gradM: V.gradM, geo: V.geo, layer: d.layer ?? null, off: V.off, own: V.own, full: d.full ?? null, vmax: d.vmax ?? 255,
 			frame: Math.max(0, d.frame ?? 0), lv: 0, s: 1, levels, cell: cellOf(V.A, V.geo), fullFine: [fullFine[0], fullFine[1], fullFine[2]] };
 		useLevel(L, 0);
@@ -419,7 +419,7 @@ export function create(): VoxelGpuModule {
 			const L = layers.get(d.q); if (!L) return;
 			if (d.frame != null) L.frame = Math.max(0, d.frame);   // 次に描く時に上げ直す（ensure）
 			if (d.mode != null) L.mode = d.mode; if (d.thr != null) L.thr = d.thr; if (d.step != null) L.step = d.step; if (d.opacity != null) L.opacity = d.opacity;
-			if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.properties !== undefined) L.properties = d.properties ?? null;
+			if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.lighting != null) L.lit = d.lighting; if (d.properties !== undefined) L.properties = d.properties ?? null;
 			if (d.cmap) upCmap(L.cmap, d.cmap);
 			host?.requestDraw?.();
 		}
@@ -472,7 +472,7 @@ export function create(): VoxelGpuModule {
 		if (cy) { uF[79] = 0.5 * Math.min(...L.geo!.cellM); for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) uF[100 + c * 4 + r] = cy.inv[r * 3 + c]; uF[112] = cy.r0; uF[113] = cy.r1; uF[114] = cy.a0; uF[115] = cy.span; }
 		uF[80] = w; uF[81] = h; uF[82] = dep ? dep.w : 1; uF[83] = dep ? dep.h : 1;
 		uF[84] = dep ? dep.logCoef : 1; uF[85] = 2e-6;
-		uF[88] = LIGHT[0]; uF[89] = LIGHT[1]; uF[90] = LIGHT[2];
+		uF[88] = LIGHT[0]; uF[89] = LIGHT[1]; uF[90] = LIGHT[2]; uF[91] = L.lit ? 1 : 0;
 		uU[92] = L.mode; uU[93] = L.comps; uU[94] = maxSteps; uU[95] = L.geo ? (L.geo.cyl ? 2 : 1) : 0;
 		uU[96] = L.base; uU[97] = L.occl ? 1 : 0; uU[98] = dep && !pick ? 1 : 0;
 		device!.queue.writeBuffer(L.ub, 0, uData);

@@ -122,7 +122,7 @@ for (const g of [
 	ok("WMS-style template → bbox-epsg-3857", wms?.tiles[0] === "https://w.example/wms?bbox={bbox-epsg-3857}", JSON.stringify(wms));
 	class BingMapsImageryProvider { constructor(o) { Object.assign(this, o); } }
 	const bing = rasterSourceOf(new BingMapsImageryProvider({ _imageUrlTemplate: "http://ecn.{subdomain}.example/a{quadkey}.jpeg?mkt={culture}", _imageUrlSubdomains: ["t0", "t1"], _culture: "en-US" }));
-	ok("Bing → raster with {quadkey} (n=z: no camera picture where Bing has no tile)", bing?.tiles[1] === "https://ecn.t1.example/a{quadkey}.jpeg?mkt=en-US&n=z", JSON.stringify(bing));
+	ok("Bing → raster with {quadkey} (n=z: no camera picture where Bing has no tile; https only on an https page)", bing?.tiles[1] === "http://ecn.t1.example/a{quadkey}.jpeg?mkt=en-US&n=z", JSON.stringify(bing));
 	const geoP = new UrlTemplateImageryProvider({ tilingScheme: new GeographicTilingScheme(), _resource: { _url: "https://g.example/{z}/{x}/{y}" }, maximumLevel: 6, rectangle: Rectangle.fromDegrees(-180, -90, 180, 90), requestImage() { return null; } });
 	const geo = rasterSourceOf(geoP), geo2 = rasterSourceOf(geoP);
 	ok("geographic tiling → Mercator tiles through the cs-geo protocol", geo?.type === "raster" && /^cs-geo:\/\/g\d+\/\{z\}\/\{x\}\/\{y\}$/.test(geo.tiles[0]) && geo.maxzoom === 7 && geo.tiles[0] === geo2.tiles[0], JSON.stringify(geo));
@@ -320,7 +320,7 @@ for (const g of [
 	const r2 = postChainOf(coll([user]));
 	ok("post: a user stage carries its GLSL and uniforms (Cartesian4/Color/number/boolean), textures are skipped", r2.chain.length === 1 && r2.chain[0].type === "glsl" && r2.chain[0].src === "void main(){}" && JSON.stringify(r2.chain[0].uniforms) === JSON.stringify({ fogByDistance: [10, 0, 200, 1], fogColor: [0, 0, 0, 1], k: 2, on: true }) && r2.skipped.includes("postProcessStages texture uniforms"));
 	const r3 = postChainOf(coll([stage("czm_silhouette", { color: Color.RED, length: 0.5 }, { selected: [{}] }), stage("czm_depth_of_field", {}), stage("czm_ambient_occlusion", {})], { bloom: { enabled: true, uniforms: { contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5 } }, ambientOcclusion: { enabled: false } }));
-	ok("post: per-feature (selected) is skipped, depth of field is drawn, ambient occlusion sets the flag, bloom comes from its uniforms", r3.chain.length === 2 && r3.chain[0].type === "bloom" && r3.chain[1].type === "depthOfField" && r3.ao && r3.skipped.length === 1, JSON.stringify(r3));
+	ok("post: per-feature (selected) is skipped, depth of field is drawn, ambient occlusion sets the flag, bloom comes from its uniforms", r3.chain.length === 2 && r3.chain[0].type === "cesiumBloom" && r3.chain[1].type === "depthOfField" && r3.ao && r3.skipped.length === 1, JSON.stringify(r3));
 	const r3e = postChainOf(coll([stage("czm_silhouette", { color: Color.RED, length: 0.5 }, { selected: [] })], {}));
 	ok("post: an empty selection draws nothing and is not reported", r3e.chain.length === 0 && r3e.skipped.length === 0, JSON.stringify(r3e));
 	const comp = (name, stages, extra = {}) => ({ name, enabled: true, uniforms: {}, length: stages.length, get: i => stages[i], ...extra });
@@ -346,7 +346,7 @@ for (const g of [
 		ok("post: lens flare without a camera is skipped", postChainOf(coll([stage("czm_lens_flare", {})])).skipped.includes("postProcessStages lens flare (no camera)"));
 	}
 	const b = bloomOf({ contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5 });
-	ok("post: bloom threshold from contrast/brightness, radius from sigma×stepSize", near(b.threshold, 0.5 - 0.5 / ((259 * 383) / (255 * 131)) + 0.3, 1e-9) && b.radius === 4 && b.strength === 1, JSON.stringify(b));
+	ok("post: bloom = Cesium's own passes with its uniforms", JSON.stringify(b) === JSON.stringify({ type: "cesiumBloom", contrast: 128, brightness: -0.3, delta: 1, sigma: 3.78, stepSize: 5, glowOnly: false }), JSON.stringify(b));
 	ok("post: uniformValue shapes", JSON.stringify([uniformValue(1), uniformValue(false), uniformValue(() => 3), uniformValue({ x: 1, y: 2 }), uniformValue("s")]) === "[1,false,3,[1,2],null]");
 	ok("post: empty collection → nothing", postChainOf(coll([])).chain.length === 0 && postChainOf(null).chain.length === 0);
 }
