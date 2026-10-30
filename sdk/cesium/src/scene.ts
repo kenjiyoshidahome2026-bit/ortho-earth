@@ -408,9 +408,12 @@ function onTerrain(scene: OrthoScene, p: any) {
 		// Cesium World Bathymetry (createWorldBathymetryAsync = ion asset 2426648): the sea floor as it is (the globe keeps negative heights
 		// instead of the sea surface at 0, and shows its own GEBCO sea floor where the asset has no tile)
 		const bathy = !cwt && r?._ionEndpoint && /\/asset_depot\/2426648\//.test(r.url ?? "") && token;
-		if (!cwt && !bathy && (!(scene.host as any).flatStart || map.getTerrain?.())) return;
+		// another ion terrain asset (CesiumTerrainProvider.fromIonAssetId: ArcticDEM, PAMAP): the globe reads it from ion by its id
+		const ionId = !cwt && !bathy && token ? +(/\/assets\/(\d+)\/endpoint/.exec(r?._ionEndpointResource?.url ?? "")?.[1] ?? NaN) : NaN;
+		if (!cwt && !bathy && !(ionId > 0) && (!(scene.host as any).flatStart || map.getTerrain?.())) return;
 		const source = cwt ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token }, heights: "orthometric" }
 			: bathy ? { type: "quantized-mesh", ion: { assetId: 2426648, accessToken: token }, heights: "orthometric", seafloor: true }
+			: ionId > 0 ? { type: "quantized-mesh", ion: { assetId: ionId, accessToken: token }, heights: "orthometric" }
 			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers, heights: "orthometric" } : null;
 		if (source) map.setTerrain?.({ source }).catch?.((e: unknown) => console.warn("[csshim] terrain", e));
 		else unsupported(`terrain provider ${name}`);
