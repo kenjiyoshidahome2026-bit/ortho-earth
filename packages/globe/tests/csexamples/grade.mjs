@@ -27,20 +27,32 @@ export function cells(img, T = THRESH) {
 	}
 	return { c, e };
 }
-export function pictureMatch(a, b, T = THRESH) {
+// the cells the page furniture covers (half or more of the cell under the union of the rectangles, CSS px of the w × h shot): left out of the grade
+export function uiMask(rects, T = THRESH, w = 800, h = 600) {
+	if (!rects?.length) return null;
+	const cw = w / T.gridW, ch = h / T.gridH, m = new Uint8Array(T.gridW * T.gridH);
+	for (let gy = 0; gy < T.gridH; gy++) for (let gx = 0; gx < T.gridW; gx++) {
+		const x0 = gx * cw, y0 = gy * ch, cx = x0 + cw / 2, cy = y0 + ch / 2;
+		if (rects.some(([l, t, r, b]) => cx >= l && cx < r && cy >= t && cy < b)) m[gy * T.gridW + gx] = 1;
+	}
+	return m;
+}
+export function pictureMatch(a, b, T = THRESH, mask = null) {
 	if (!a?.c || !b?.c || a.c.length !== b.c.length) return null;
-	let colour = 0, edge = 0, ok = 0;
+	let colour = 0, edge = 0, ok = 0, n = 0;
 	for (let i = 0; i < a.c.length; i++) {
+		if (mask?.[i]) continue;
+		n++;
 		const p = a.c[i], q = b.c[i], cOk = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) <= T.cellTol;
 		const eOk = Math.abs(a.e[i] - b.e[i]) <= Math.max(T.edgeTol, T.edgeRel * Math.max(a.e[i], b.e[i]));
 		colour += cOk; edge += eOk; ok += cOk && eOk;
 	}
-	const n = a.c.length;
-	return { ok, n, colour: colour / n, edge: edge / n, blob: blobOf(a, b, T) };
+	if (!n) return null;
+	return { ok, n, colour: colour / n, edge: edge / n, blob: blobOf(a, b, T, mask), ...(mask && { masked: a.c.length - n }) };
 }
 // the largest patch of touching cells whose colours are far apart (a missing or misplaced object: the shares above miss a small one, 2026-10-26)
-function blobOf(a, b, T) {
-	const W = T.gridW, H = T.gridH, bad = a.c.map((p, i) => Math.hypot(p[0] - b.c[i][0], p[1] - b.c[i][1], p[2] - b.c[i][2]) > T.blobTol);
+function blobOf(a, b, T, mask = null) {
+	const W = T.gridW, H = T.gridH, bad = a.c.map((p, i) => !mask?.[i] && Math.hypot(p[0] - b.c[i][0], p[1] - b.c[i][1], p[2] - b.c[i][2]) > T.blobTol);
 	const seen = new Uint8Array(bad.length);
 	let best = 0;
 	for (let i = 0; i < bad.length; i++) {
@@ -136,7 +148,7 @@ export function grade(R, O, T = THRESH) {
 	}
 	if (why.length) { out.reasons.push(...why); }
 	else out.level = 2;
-	const pm = out.picture = pictureMatch(R.cells, O.cells, T);
+	const pm = out.picture = pictureMatch(R.cells, O.cells, T, uiMask([...(R.ui || []), ...(O.ui || [])], T));   // the widgets and panels of either side left out
 	if (pm && out.level === 2) {
 		if (pictureSame(pm, T)) out.level = 3;
 		else { out.reasons.push(`picture: colour ${Math.round(pm.colour * 100)}% · edges ${Math.round(pm.edge * 100)}% of the cells match${pm.blob > T.blobMax ? ` · a patch of ${pm.blob} cells differs` : ""}`); out.blockers.push("picture differs"); }

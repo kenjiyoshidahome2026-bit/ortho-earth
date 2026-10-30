@@ -944,7 +944,7 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
 	/** heights＝tileset の高さの基準：既定 "orthometric"＝そのまま（この地図の標高はジオイド基準）。"ellipsoidal"＝WGS84 の楕円体高（Cesium の物・Google の写実 3D Tiles
 	 *  など）＝根の中心の EGM96 の N を引いて載せる（ニューヨークで +33 m・日本で −37 m 前後）。heightOffset はその上に足す */
 	heights?: "ellipsoidal" | "orthometric";
-	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; /** 点の形：既定 "circle"・"square"＝Cesium の様な四角 */ pointShape?: "circle" | "square"; /** 画面の左右の片側だけに描く（Cesium の splitDirection）：境は map.setSplitPosition（既定 0.5＝真ん中） */ splitDirection?: "left" | "right" | null; /** タイルセットの環境光（Cesium の照明の SH9・27 値）＝map.setMeshLighting の sh の代わりにこの組の全タイルへ｜null＝その sh */ environment?: ArrayLike<number> | null; /** CESIUM_primitive_outline の辺を描く色 rgba（0〜1）｜null＝描かない（Cesium の showOutline / outlineColor） */ outline?: ArrayLike<number> | null;
+	maxInflight?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; /** 点の形：既定 "circle"・"square"＝Cesium の様な四角 */ pointShape?: "circle" | "square"; /** 画面の左右の片側だけに描く（Cesium の splitDirection）：境は map.setSplitPosition（既定 0.5＝真ん中） */ splitDirection?: "left" | "right" | null; /** タイルセットの環境光（Cesium の照明の SH9・27 値）＝map.setMeshLighting の sh の代わりにこの組の全タイルへ｜null＝その sh */ environment?: ArrayLike<number> | null; /** CESIUM_primitive_outline の辺を描く色 rgba（0〜1）｜null＝描かない（Cesium の showOutline / outlineColor） */ outline?: ArrayLike<number> | null; /** false＝map.setClipping の models の面で切らない（Cesium の clippingPolygons は 1 つのタイルセットのもの） */ clip?: boolean;
 	/** 点群の陰影（Cesium の PointCloudShading）：attenuation＝点の幅をタイルの geometricError（×geometricErrorScale・baseResolution が有ればそれ・m）の画面の px に（上限 maximumAttenuation px・既定 maxSSE）。
 	 *  eyeDomeLighting＝点の奥行きの段差で縁を暗く（edlStrength・edlRadius px）。既定は全部切 */
 	pointShading?: { attenuation?: boolean; geometricErrorScale?: number; maximumAttenuation?: number; baseResolution?: number; eyeDomeLighting?: boolean; edlStrength?: number; edlRadius?: number } | null; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
@@ -979,12 +979,17 @@ export interface Tiles3DHandle {
 	remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void;
 	/** 画面の点（CSS px）の当たり（W7）＝ModelHandle.pick と同じ形（tile＝当たったタイルの id）。queryRenderedFeatures の層＝この tileset の id（type "3d-tiles"） */
 	pick(x: number, y: number): MeshPick | null;
+	/** 中身の上がっているタイルの id（複合タイルの内側は外側の id） */
+	readonly tileIds: number[];
+	/** そのタイルの地物（pick と同じ形の featureId・properties・table）＝Cesium の tileLoad の content.getFeature */
+	tileFeatures(tileId: number): Array<{ featureId: number; properties: Record<string, unknown>; table: { index: number; name?: string | null; class?: string | null; int64?: string[] } | null }>;
 	/** 表示しているタイルの出典（glTF asset.copyright を「;」で割り・多い順・W8） */
 	readonly copyrights: string[];
-	/** feature state（tileset ごと・タイルを跨いで同じ番号＝同じ地物）。{ color } は描きに効く・後から読んだタイルにも効く */
-	setFeatureState(featureId: number, state: Record<string, unknown> | null): Tiles3DHandle;
-	getFeatureState(featureId: number): Record<string, unknown>;
-	removeFeatureState(featureId?: number): Tiles3DHandle;
+	/** feature state（tileset ごと・タイルを跨いで同じ番号＝同じ地物／tile を渡すとそのタイルだけ＝読み直すと消える）。{ color } は描きに効く・後から読んだタイルにも効く */
+	setFeatureState(featureId: number, state: Record<string, unknown> | null, tile?: number): Tiles3DHandle;
+	getFeatureState(featureId: number, tile?: number): Record<string, unknown>;
+	/** tile＝そのタイルの地物だけ（Cesium の地物はタイルの中身ごと＝番号はタイルの中の番号） */
+	removeFeatureState(featureId?: number, tile?: number): Tiles3DHandle;
 	/** スタイル（Tiles3DStyle）を差し替える。null で外す（元の色・全部見せる） */
 	setStyle(style: Tiles3DStyle | null): Tiles3DHandle;
 	readonly style: Tiles3DStyle | null;

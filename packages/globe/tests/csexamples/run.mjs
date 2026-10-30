@@ -61,6 +61,29 @@ const STATE = () => {
 	return out;
 };
 
+// the page furniture over the map, as rectangles in CSS px of the 800 × 600 shot: Cesium's widgets (toolbar, help, animation, timeline, credits)
+// and the example's own panels (Sandcastle toolbar, legends). The grade leaves these cells out: they are the same real elements on both sides
+// (so they always "matched"), and the final shoot hides them on the ortho side only. Outermost visible absolute / fixed elements outside the
+// map's canvas, plus the credits inside the widget
+const UI_RECTS = () => {
+	const canvas = document.querySelector(".cesium-widget canvas"), out = [];
+	const vis = el => { const cs = getComputedStyle(el); return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) > 0.05; };
+	const put = r => { if (r.width > 2 && r.height > 2 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight) out.push([r.left, r.top, r.right, r.bottom].map(v => Math.round(v))); };
+	const inner = el => { for (const d of el.querySelectorAll("*")) { if (!vis(d)) continue; const p = getComputedStyle(d).position; if (p === "absolute" || p === "fixed") put(d.getBoundingClientRect()); } };
+	const walk = el => {
+		for (const c of el.children) {
+			if (c === canvas || c.contains(canvas)) { walk(c); continue; }
+			if (c.closest(".cesium-widget") && !c.matches(".cesium-widget-credits")) continue;   // the map itself (and ortho's own furniture inside it)
+			if (!vis(c)) continue;
+			const cs = getComputedStyle(c), r = c.getBoundingClientRect();
+			if ((cs.position === "absolute" || cs.position === "fixed" || c.matches(".cesium-widget-credits, #toolbar")) && r.width > 2 && r.height > 2) { put(r); inner(c); }   // and what drops out of it (the help panel under the toolbar)
+			else walk(c);
+		}
+	};
+	walk(document.body);
+	return out;
+};
+
 // everything in view loaded: the globe's tiles (globe.tilesLoaded, on ortho the map's idle) and each 3D tileset's
 const SETTLED = () => {
 	const v = window.__csx?.viewers?.[0], s = v?.scene;
@@ -128,6 +151,7 @@ async function runOne(browser, side, ex) {
 		rec.paused = await page.evaluate(() => { const v = window.__csx?.viewers?.[0]; if (!v?.clock?.shouldAnimate) return false; v.clock.shouldAnimate = false; return true; }).catch(() => false);
 		if (rec.paused) await page.waitForTimeout(1000);   // the frame at the paused time
 		Object.assign(rec, await page.evaluate(STATE));
+		rec.ui = await page.evaluate(UI_RECTS).catch(() => null);
 		const shot = await page.screenshot({ timeout: 120000 });   // a frame of a city of 3D Tiles takes seconds on SwiftShader (on both sides)
 		fs.writeFileSync(path.join(OUT, side, `${ex.name}.png`), shot);
 		rec.cells = cells(decodePng(shot));

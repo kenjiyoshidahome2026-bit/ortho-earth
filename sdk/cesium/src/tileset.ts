@@ -2,7 +2,7 @@
 // (zoomTo / flyTo / viewBoundingSphere need it before anything draws); adding the tileset to scene.primitives puts it on the globe.
 // instanceof Cesium3DTileset and Cesium3DTileFeature hold (the prototypes chain to the engine's), so the widgets and CesiumWidget.zoomTo treat these as the real ones.
 import { BoundingSphere, Cartesian3, Color, Event, Matrix3, Matrix4, OrientedBoundingBox, Rectangle } from "@cesium/core";
-import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, IonResource, Resource } from "@cesium/engine";
+import { Cesium3DTileFeature as RealFeature, Cesium3DTileset as RealTileset, Cesium3DTileStyle, ConditionsExpression, Expression, IonResource, Resource } from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { clippingOriginOf } from "./clipping.ts";
 
@@ -41,7 +41,7 @@ export class Cesium3DTileset {
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null; #olKey = "";
 	#opts: Any;
 	#split: string | null = null;
-	#loaded = 0;
+	#tiles = new Map<number, Any>();   // the loaded tiles tileLoad was raised for (tileUnload gets the same object)
 
 	constructor(resource: Any, json: Any, opts: Any = {}) {
 		this.resource = resource; this.json = json; this.#opts = opts;
@@ -53,7 +53,7 @@ export class Cesium3DTileset {
 		this.#sphere = BoundingSphere.transform(bs, this.modelMatrix, new BoundingSphere());
 		if (opts.pointCloudShading) Object.assign(this.pointCloudShading, opts.pointCloudShading);
 		if (opts.clippingPlanes != null) this.clippingPlanes = opts.clippingPlanes;   // drawn by the scene (clipping.ts)
-		if (opts.clippingPolygons != null) { this.clippingPolygons = opts.clippingPolygons; unsupported("Cesium3DTileset option clippingPolygons"); }
+		if (opts.clippingPolygons != null) this.clippingPolygons = opts.clippingPolygons;   // drawn by the scene (clipping.ts)
 		if (opts.showOutline === false) this.showOutline = false;
 		if (opts.outlineColor) this.outlineColor = Color.clone(opts.outlineColor);
 		if (opts.customShader != null) this.customShader = opts.customShader;   // drawn by the globe (custom-shader.ts), followed in __sync
@@ -157,12 +157,21 @@ export class Cesium3DTileset {
 		if (ok !== this.#olKey) { this.#olKey = ok; this.#h.setOptions({ outline: ol }); }
 		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
 		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
-		const nl = this.#h.stats?.loaded ?? 0;   // tileLoad / tileUnload: the globe loads tiles on its own, so the count's change is raised once a frame (the examples read statistics in the handler)
-		if (nl !== this.#loaded) { const ev = nl > this.#loaded ? this.tileLoad : this.tileUnload; this.#loaded = nl; if (ev.numberOfListeners) ev.raiseEvent(this.root); }
+		if (this.tileLoad.numberOfListeners || this.tileUnload.numberOfListeners) {   // tileLoad / tileUnload: the globe loads tiles on its own, so the loaded set is compared once a frame
+			const now = new Set<number>(this.#h.tileIds ?? []);
+			for (const id of now) if (!this.#tiles.has(id)) { const t = this.#tileOf(id); this.#tiles.set(id, t); this.tileLoad.raiseEvent(t); }
+			for (const [id, t] of this.#tiles) if (!now.has(id)) { this.#tiles.delete(id); this.tileUnload.raiseEvent(t); }
+		}
 		const cid = customShaderId(this.#host?.map, this.customShader);   // tileset.customShader = … (or null)
 		if (cid !== this.#csId) { this.#csId = cid; this.#h.setOptions({ customShader: cid }); }
 		const mode = (["highlight", "replace", "mix"] as const)[this.colorBlendMode | 0] ?? "highlight", bk = `${mode}:${this.colorBlendAmount}`;   // Cesium3DTileColorBlendMode HIGHLIGHT 0 / REPLACE 1 / MIX 2
 		if (bk !== this.#blendKey) { this.#blendKey = bk; this.#h.setOptions({ colorBlend: { mode, amount: this.colorBlendAmount } }); }
+	}
+	/** a loaded tile as Cesium3DTile: its content holds the tile's features (content.featuresLength / getFeature, the same objects until it unloads) */
+	#tileOf(id: number) {
+		const feats = (this.#h?.tileFeatures?.(id) ?? []).map((p: Any) => new Cesium3DTileFeature(this, { ...p, tile: id }));
+		const content = { tileset: this, url: this.url, featuresLength: feats.length, innerContents: undefined, getFeature: (i: number) => feats[i], hasProperty: (i: number, name: string) => !!feats[i]?.hasProperty?.(name) };
+		return { ...this.root, tileset: this, content };
 	}
 	__detach() { this.#host = null; this.#h?.remove(); this.#h = null; }
 	/** the feature under a screen point (scene.pick) */
@@ -195,10 +204,32 @@ export function pointSizeOf(s: Any): number {
 }
 export function styleOf(s: Any): Any {
 	if (!s) return null;
-	if (s instanceof Cesium3DTileStyle) return (s as Any).style ?? (s as Any)._style ?? null;
+	if (s instanceof Cesium3DTileStyle) {
+		// style.color = { evaluateColor(feature, result) } / style.show = { evaluate(feature) }: functions the globe calls per feature (the JSON has no
+		// trace of them); an Expression / ConditionsExpression made from the JSON is read from the JSON
+		const json = (s as Any).style ?? (s as Any)._style ?? null, own = (v: Any, k: string) => v && typeof v[k] === "function" && !(v instanceof Expression) && !(v instanceof ConditionsExpression) ? v : null;
+		const fc = own((s as Any)._color, "evaluateColor"), fs = own((s as Any)._show, "evaluate");
+		if (!fc && !fs) return json;
+		const out: Any = { ...json };
+		if (fc) out.color = (x: Any) => { const c = fc.evaluateColor(new StyleFeature(x), new Color()); return c ? [c.red, c.green, c.blue, c.alpha] : null; };
+		if (fs) out.show = (x: Any) => fs.evaluate(new StyleFeature(x));
+		return out;
+	}
 	return s;
 }
 
+/** a 64-bit integer property as Cesium gives it (a BigInt); the globe has it as a number, or a string past 2^53 */
+const int64Of = (v: unknown, names: string[] | undefined, name: string) => v != null && names?.includes(name) && (typeof v === "number" || typeof v === "string") ? (() => { try { return BigInt(v); } catch { return v; } })() : v;
+/** the feature a style function is called with (the globe's style input: its properties, id and state) */
+class StyleFeature {
+	readonly #x: Any;
+	constructor(x: Any) { this.#x = x; }
+	get featureId() { return this.#x.id; }
+	getProperty(name: string) { return int64Of(this.#x.props?.[name], this.#x.int64, name); }
+	getPropertyInherited(name: string) { return this.getProperty(name); }
+	hasProperty(name: string) { return Object.prototype.hasOwnProperty.call(this.#x.props || {}, name); }
+	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#x.props || {}).filter(k => !k.startsWith("__"))); return result; }
+}
 /** what scene.pick returns for a 3D Tiles hit */
 export class Cesium3DTileFeature {
 	readonly tileset: Cesium3DTileset; readonly primitive: Cesium3DTileset; readonly featureId: number;
@@ -207,16 +238,16 @@ export class Cesium3DTileFeature {
 	get content() { return { tileset: this.tileset, url: this.tileset.url }; }
 	get pickId() { return this.featureId; }
 	get color() { return this.#color ?? Color.WHITE; }
-	set color(c: Color) { this.#color = c; this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: c ? c.toCssColorString() : null }); }
+	set color(c: Color) { this.#color = c; this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: c ? c.toCssColorString() : null }, this.#p.tile); }
 	get show() { return this.#show; }
-	set show(v: boolean) { this.#show = !!v; this.tileset.orthoHandle?.setFeatureState(this.featureId, { show: v ? undefined : false }); }   // the globe cuts a hidden feature out (alpha 0 on a MASK batch)
+	set show(v: boolean) { this.#show = !!v; this.tileset.orthoHandle?.setFeatureState(this.featureId, { show: v ? undefined : false }, this.#p.tile); }   // the globe cuts a hidden feature out (alpha 0 on a MASK batch)
 	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#p.properties || {}).filter(k => !k.startsWith("__"))); return result; }
 	/** the batch table hierarchy (the globe puts the class in __class and the class with its ancestors in __classes) */
 	getExactClassName() { return this.#p.properties?.__class ?? undefined; }
 	isExactClass(name: string) { return this.getExactClassName() === name; }
 	isClass(name: string) { return !!this.#p.properties?.__classes?.includes?.(name); }
 	hasProperty(name: string) { return Object.prototype.hasOwnProperty.call(this.#p.properties || {}, name); }
-	getProperty(name: string) { return this.#p.properties?.[name]; }
+	getProperty(name: string) { return int64Of(this.#p.properties?.[name], this.#p.table?.int64, name); }
 	getPropertyInherited(name: string) { return this.getProperty(name) ?? this.#p.contentMetadata?.properties?.[name] ?? this.#p.tileMetadata?.properties?.[name] ?? this.#p.groupMetadata?.properties?.[name]; }
 	setProperty(name: string, value: unknown) { (this.#p.properties ||= {})[name] = value; }
 	/** the globe's pick (lngLat, distance…) */

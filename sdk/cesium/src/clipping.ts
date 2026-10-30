@@ -40,3 +40,16 @@ export function clipSpecOf(coll: Any, origin: Matrix4): { spec: Any | null; skip
 		skipped,
 	};
 }
+
+/** a ClippingPolygonCollection (Cesium3DTileset.clippingPolygons, Globe.clippingPolygons) → a globe clip group on those targets (null: none).
+ *  Cesium cuts the inside of each polygon as a vertical prism (inverse: keeps only the inside); the globe's polygon clip does the same */
+export function polygonClipOf(coll: Any, targets: string[]): Any | null {
+	if (!coll || coll.enabled === false || !(coll.length > 0)) return null;
+	const rings: number[][][] = [];
+	for (let i = 0; i < coll.length; i++) {
+		const ps: Cartesian3[] | undefined = coll.get(i)?.positions;
+		if (!ps || ps.length < 3) continue;
+		rings.push(ps.map(p => { const c = Cartographic.fromCartesian(p); return [+(c.longitude * 180 / Math.PI).toFixed(9), +(c.latitude * 180 / Math.PI).toFixed(9)]; }));
+	}
+	return rings.length ? { polygon: rings, inverse: !!coll.inverse, targets, cap: false, edge: false } : null;
+}

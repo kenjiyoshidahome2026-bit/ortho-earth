@@ -19,7 +19,7 @@ export interface FeatureIdTexture { index: number; texCoord?: number; channels?:
 /** プリミティブの feature ID の組（featureSetOf の戻り） */
 export interface FeatureSet { attribute: ArrayLike<number | bigint> | null; implicit: boolean; texture: boolean; texInfo?: FeatureIdTexture | null; featureCount: number; nullFeatureId: number | null; propertyTable: number | null; label: string | null; batchId?: boolean }
 /** property table（EXT_structural_metadata）か batch table の 1 枚＝列の名前 → 行ごとの値 */
-export interface PropertyTable { name: string | null; class: string | null; count: number; columns: Record<string, unknown[]> }
+export interface PropertyTable { name: string | null; class: string | null; count: number; columns: Record<string, unknown[]>; /** the INT64 / UINT64 scalar columns (their values come as numbers, or strings past 2^53; Cesium gives a BigInt) */ int64?: string[] }
 /** 画素ごとの地物の番号（featureId.texture）＝w×h・NO_FEATURE＝無し。uv は束の baseColor の uv（同じ texCoord の時だけ作る） */
 export interface FeatureTexture { w: number; h: number; ids: Uint32Array }
 /** 束の地物の番号（worker の答え）＝ids＝頂点ごとの番号・tblV＝頂点ごとの property table の番号（無ければ table＝束で 1 つ）・tex＝画素ごとの番号 */
@@ -118,15 +118,16 @@ export function decodePropertyTables(meta: StructuralMetadata | null | undefined
 	if (!meta?.propertyTables?.length) return [];
 	const schema = meta.schema || {}, classes = schema.classes || {}, enums = schema.enums || {};
 	return meta.propertyTables.map((t, ti) => {
-		const cls = classes[t.class!] || { properties: {} }, count = t.count! | 0, columns: Record<string, unknown[]> = {};
+		const cls = classes[t.class!] || { properties: {} }, count = t.count! | 0, columns: Record<string, unknown[]> = {}, int64: string[] = [];
 		for (const [name, cp] of Object.entries(cls.properties || {})) {
 			const p = t.properties?.[name];
 			try {
 				if (!p) { if (cp.default !== undefined || cp.noData !== undefined) columns[name] = new Array(count).fill(cp.default ?? null); continue; }
 				columns[name] = decodeColumn(cp, p, count, bytesOf, enums);
+				if ((cp.componentType === "INT64" || cp.componentType === "UINT64") && cp.type === "SCALAR" && !cp.array && !cp.normalized && p.offset == null && p.scale == null && cp.offset == null && cp.scale == null) int64.push(name);
 			} catch (e) { warnings.push(`propertyTable ${ti} ${name}: ${(e as Error | null)?.message || e}`); }
 		}
-		return { name: t.name ?? null, class: t.class ?? null, count, columns };
+		return { name: t.name ?? null, class: t.class ?? null, count, columns, ...(int64.length && { int64 }) };
 	});
 }
 function decodeColumn(cp: ClassProperty, p: TableProperty, count: number, bytesOf: (view: number) => Uint8Array, enums: EnumDefs): unknown[] {
