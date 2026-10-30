@@ -1,7 +1,7 @@
 // A Scene without WebGL: the members Cesium code and the engine's own helpers (Camera, CameraFlightPath, EntityView, SceneTransforms,
 // the widgets) read, with the real engine classes where they need no GL context (Camera, Globe, PrimitiveCollection, Fog, Atmosphere,
 // PostProcessStageCollection, SunLight, TweenCollection). Drawing is the globe's; this object only keeps the state and the per-frame events.
-import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, Ellipsoid, Event, GeographicProjection, IntersectionTests, Matrix4, Ray } from "@cesium/core";
+import { BoundingSphere, Cartesian2, Cartesian3, Cartographic, Color, Ellipsoid, Event, GeographicProjection, IntersectionTests, JulianDate, Matrix4, Ray } from "@cesium/core";
 import { Atmosphere, Camera, Fog, Globe, MapMode2D, PostProcessStageCollection, PrimitiveCollection, SceneMode, SceneTransforms, SunLight } from "@cesium/engine";
 import * as engine from "@cesium/engine";
 const { TweenCollection } = engine as any;   // a runtime export the d.ts leaves out
@@ -21,7 +21,7 @@ export interface Host {
 	/** the entity display (picking, bounding spheres) */
 	display: { pick(x: number, y: number): unknown; drillPick(x: number, y: number, limit?: number): unknown[] } | null;
 	/** the viewer's clock: model animations run only while it animates, at its multiplier (Cesium's ModelVisualizer) */
-	clock?: { shouldAnimate: boolean; multiplier: number } | null;
+	clock?: { shouldAnimate: boolean; multiplier: number; currentTime?: JulianDate } | null;
 }
 
 const R2D = 180 / Math.PI;

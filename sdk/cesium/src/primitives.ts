@@ -5,7 +5,7 @@
 // features. Line geometries (outlines, SimplePolylineGeometry, PolylineGeometry, GroundPolylineGeometry) go to the entity overlay's 3D lines.
 // Stripe, Checkerboard, Grid and Image materials are painted into a texture over the geometry's st (materials.ts); other materials draw in
 // their colour (else white). Not drawn: per-vertex polyline colours (the first one is used).
-import { ArcType, BoundingSphere, Cartesian3, Color, Ellipsoid, EllipsoidGeometry, Event, GeometryInstance, Matrix3, Matrix4, PolylineGeometry, PolylinePipeline, Quaternion, VertexFormat } from "@cesium/core";
+import { ArcType, BoundingSphere, Cartesian3, Color, Ellipsoid, EllipsoidGeometry, Event, GeometryInstance, JulianDate, Matrix3, Matrix4, PolylineGeometry, PolylinePipeline, Quaternion, VertexFormat } from "@cesium/core";
 import * as engine from "@cesium/engine";
 import { unsupported } from "./report.ts";
 import { enuRotOf, headingOf } from "./display.ts";
@@ -18,7 +18,7 @@ import type { Host } from "./scene.ts";
 
 type Any = any;
 import { customShaderId } from "./custom-shader.ts";
-const { Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model } = engine as Any;
+const { Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model, ModelAnimationLoop } = engine as Any;
 const TRIANGLES = 4, LINES = 1;
 
 export interface PrimLine { p: number[]; color: string; width: number; ground?: boolean; material?: { type: string; uniforms: Any } | null }   // material: a ground line's appearance material (Glow, Dash, Outline), drawn by the display   // ground: a GroundPolylinePrimitive's line, draped on the terrain (p = its input positions)
@@ -28,7 +28,7 @@ interface Item {
 	/** each instance's world bounding sphere (getGeometryInstanceAttributes(id).boundingSphere, as Primitive gives once built → camera.viewBoundingSphere) */
 	spheres: Array<BoundingSphere | undefined>;
 	/** a Model's activeAnimations (addAll / add): what to play, at what multiplier; null = stopped */
-	anim?: { name?: string; speed: number } | null;
+	anim?: { name?: string; speed: number; timeFn?: (duration: number, seconds: number) => number; loop?: number; t0?: Any } | null;
 	/** a video material's element (painted again from its current frame every VIDEO_MS while it plays) and when it was last painted */
 	video?: HTMLVideoElement | null; videoAt?: number;
 }
@@ -52,6 +52,29 @@ export function ellipsoidPrimitive(p: Any): Any {
 	});
 }
 export const isGeometryPrimitive = (p: Any) => !!p && [Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model].some(C => C && p instanceof C);
+// Cesium's own material types (Material.ColorType …): any other fabric type is the example's GLSL
+const BUILTIN_MATERIALS = new Set<string>(Object.keys((engine as Any).Material ?? {}).filter(k => k.endsWith("Type")).map(k => (engine as Any).Material[k]).filter(v => typeof v === "string"));
+const defaultShaders = new Map<string, { vs: string; fs: string }>();
+/** a Primitive the globe cannot draw as Cesium does, so Cesium's renderer draws it (rawdraw.ts): its appearance carries the example's GLSL (its own
+ * vertex/fragment shader, or a material of its own fabric: material-with-custom-glsl), or its polylines have a material the globe has no line style for
+ * (PolylineGlow, PolylineArrow, PolylineOutline, PolylineDash, Fade…: polyline-material-dev), or a surface material the globe cannot paint */
+export function drawnByCesium(p: Any): boolean {
+	if (!(Primitive && p instanceof Primitive) || (GroundPrimitive && p instanceof GroundPrimitive) || (ClassificationPrimitive && p instanceof ClassificationPrimitive)) return false;
+	const a = p.appearance, type = a?.material?.type;
+	if (type && !BUILTIN_MATERIALS.has(type) && a.material._template?.source) return true;
+	if (type && type !== "Color" && instancesOf(p).some(i => i.geometry instanceof PolylineGeometry)) return true;
+	if (type && type !== "Color" && !matOfMaterial(a.material) && !instancesOf(p).some(i => i.attributes?.color)) return true;   // a material the globe cannot paint (Dot, RimLighting, Water…: ellipsoid-surface-dev, volumes-dev) on a surface
+	const C = a?.constructor;
+	if (!C || typeof a.vertexShaderSource !== "string") return false;
+	const key = `${C.name}:${a.materialSupport?.vertexFormat ? Object.keys(C.MaterialSupport ?? {}).find(k => C.MaterialSupport[k] === a.materialSupport) : ""}:${a.flat}:${a.faceForward}`;
+	let d = defaultShaders.get(key);
+	if (!d) {
+		try { const q = new C({ materialSupport: a.materialSupport, flat: a.flat, faceForward: a.faceForward, translucent: a.translucent, closed: a.closed }); d = { vs: q.vertexShaderSource, fs: q.fragmentShaderSource }; }
+		catch { d = { vs: a.vertexShaderSource, fs: a.fragmentShaderSource }; }
+		defaultShaders.set(key, d);
+	}
+	return a.vertexShaderSource !== d.vs || a.fragmentShaderSource !== d.fs;
+}
 
 const instancesOf = (p: Any): Any[] => { const g = p.geometryInstances; return g == null ? [] : Array.isArray(g) ? g : [g]; };
 const toBytes = (c: Color) => Uint8Array.of(Math.round(c.red * 255), Math.round(c.green * 255), Math.round(c.blue * 255), Math.round(c.alpha * 255));
@@ -324,6 +347,18 @@ export class PrimitiveDrawer {
 		if (!h?.animations?.length) return;
 		const ck = this.host.clock, playing = !!a && (ck ? !!ck.shouldAnimate : true), speed = (a?.speed ?? 1) * (ck && Number.isFinite(ck.multiplier) ? ck.multiplier : 1);
 		const cur = h.getAnimation?.();
+		if (a?.timeFn) {   // the pose at the time the function gives (Cesium's ModelAnimationCollection: REPEAT wraps the share, MIRRORED_REPEAT bounces, NONE clamps)
+			const info = (a.name != null ? h.animations.find((x: Any) => x.name === a.name) : null) ?? h.animations[0], dur = +info?.duration || 0;
+			const secs = ck?.currentTime && a.t0 ? JulianDate.secondsDifference(ck.currentTime, a.t0) : 0;
+			let f = +a.timeFn(dur, secs);
+			if (!Number.isFinite(f)) return;
+			if (a.loop === ModelAnimationLoop.REPEAT) f -= Math.floor(f);
+			else if (a.loop === ModelAnimationLoop.MIRRORED_REPEAT) { const k = Math.floor(f); f -= k; if (k % 2) f = 1 - f; }
+			else f = Math.min(1, Math.max(0, f));
+			const time = f * dur;
+			if (cur?.playing || cur?.time !== time || (a.name != null && cur?.name !== a.name)) h.setAnimation({ ...(a.name != null ? { name: a.name } : {}), time, playing: false });
+			return;
+		}
 		if (!playing) { if (cur?.playing) h.stop(); return; }
 		if (!cur?.playing || cur.speed !== speed || (a!.name != null && cur.name !== a!.name)) h.play({ ...(cur || {}), ...(a!.name != null ? { name: a!.name } : {}), speed });
 	}
@@ -346,7 +381,9 @@ export class PrimitiveDrawer {
 		// animations: the globe plays the glTF's own (all of them, looping) while any is active
 		const anims = p.activeAnimations, started: Any[] = [];
 		if (anims) {
-			const spec = (o: Any) => { if (typeof o.animationTime === "function") unsupported("model animation animationTime (a time function)"); return { name: o.name != null ? String(o.name) : undefined, speed: Number.isFinite(o.multiplier) ? o.multiplier : 1 }; };
+			// animationTime (manually-controlled-animation): Cesium asks it every frame for the animation's place (a share of the duration), ignoring the multiplier
+			const spec = (o: Any) => ({ name: o.name != null ? String(o.name) : undefined, speed: Number.isFinite(o.multiplier) ? o.multiplier : 1,
+				...(typeof o.animationTime === "function" ? { timeFn: o.animationTime, loop: o.loop ?? 0, t0: this.host.clock?.currentTime?.clone?.() } : {}) });
 			anims.addAll = (o: Any = {}) => { it.anim = spec(o); started.push(o); this.#syncAnim(it); return []; };
 			anims.add = (o: Any = {}) => { it.anim = spec(o); started.push(o); this.#syncAnim(it); return { ...o, start: new Event(), update: new Event(), stop: new Event() }; };
 			anims.removeAll = () => { started.length = 0; it.anim = null; this.#syncAnim(it); };
