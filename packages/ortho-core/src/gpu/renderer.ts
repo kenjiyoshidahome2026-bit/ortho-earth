@@ -246,8 +246,8 @@ const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6�
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一
 const LINE_IDX = new Uint16Array([0, 1, 2, 2, 1, 3]);
 const FRAME_SLOT = 768;    // frame UBO のスロット境界（実使用528B＝FRAME_F32×4・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 140;     // 560B/4（末尾 nearBounds/nearP＝近景層・順 1a）（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
-const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5, terrainNear: 6 };   // terrainNear＝近景メッシュパス（順 1a）   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
+const FRAME_F32 = 148;     // 592B/4（末尾 nearBounds/nearP＝近景層・順 1a、fineBounds/fineP＝足元層 2026-10-31）（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
+const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5, terrainNear: 6, terrainFine: 7 };   // terrainFine＝足元メッシュパス（farPass=3・2026-10-31）   // terrainNear＝近景メッシュパス（順 1a）   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP のスロット境界
 const DRAWP_B = 144;       // DrawP（9×vec4＝p0〜p2＋tr/lx/dashP/dashI0/dashI1/patP）の大きさ（wgsl.ts FRAME と対）
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
@@ -1131,7 +1131,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
-	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 7, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
+	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 8, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBuf = device.createBuffer({ size: 448 + 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
@@ -1665,6 +1665,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）
 	let farTexObj: GPUTexture | null = null, farTexView: GPUTextureView | null = null, far: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
 	let nearTexObj: GPUTexture | null = null, nearTexView: GPUTextureView | null = null, near: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };   // 近景層（1 セル・順 1a）
+	let fine: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };   // 足元層（fine・2026-10-31）＝近景テクスチャの右半分（cx=1）。束縛は近景と同じ view＝作り直し不要
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 	let memAtlas = 0, memStage = 0, memFar = 0, memMesh = 0, memMsaa = 0;
 	let bg0: Record<string, GPUBindGroup> = null!;   // group(0) の5スロット bind group（elevTex/farTex 差し替えで作り直し）
@@ -1808,17 +1809,26 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	function setElevationAtlasNear(a: ElevAtlasMeta) {
 		const span = a.cellSpan || 0.25;
 		if (nearTexObj) retire(nearTexObj);
-		nearTexObj = mkAtlasTex(a.cellsX * a.cellRes, a.cellsY * a.cellRes);
+		nearTexObj = mkAtlasTex(2 * a.cellsX * a.cellRes, a.cellsY * a.cellRes);   // 2 セル幅：右半分＝足元層（fine）の枠（シェーダは近景の u を 0.5 倍で引く）
 		near = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], has: 0, edgeFade: a.edgeFade || 0 };
+		fine.has = 0;   // テクスチャを作り直した＝足元層のセルは消えた（terrain.ts が張り直す）
 		rebuildBG0();
 	}
-	function setElevationCellNear(cx: number, cy: number, data: Float32Array | ElevCellSrc, cellRes: number) { if (nearTexObj) { putCellAny(nearTexObj, cx, cy, data, cellRes); if (!near.has) { near.has = 1; rebuildBG0(); } } }
+	function setElevationCellNear(cx: number, cy: number, data: Float32Array | ElevCellSrc, cellRes: number) {
+		if (!nearTexObj) return;
+		putCellAny(nearTexObj, cx, cy, data, cellRes);
+		if (cx === 1) fine.has = fine.bounds[3] > 0 ? 1 : 0;   // 足元層（右半分）
+		else if (!near.has) { near.has = 1; rebuildBG0(); }
+	}
 	function clearElevationNear() {
 		if (!nearTexObj) return;
 		retire(nearTexObj); nearTexObj = null;
-		near = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+		near = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 }; fine = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
 		rebuildBG0();
 	}
+	// 足元層（fine）の窓：elevFineOn（窓）→ elevCellNear cx=1（中身）で has=1。elevFineOff＝has=0（テクスチャはそのまま）
+	function setFineOn(d: { originLng: number; originLat: number; span: number; edgeFade?: number }) { fine = { bounds: [d.originLng, d.originLat, d.span, d.span], has: 0, edgeFade: d.edgeFade || 0 }; }
+	function setFineOff() { fine.has = 0; }
 	// ── 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）──
 	// terrain.js が生タイルの記述子 { tile, mode:"down" } | { tile, mode:"crop", lng0, lat0, span } | { atlas, mode:"world", cx, cy } を渡し、
 	// renderer が storage buffer（LRU＝同じ親 R10 から 64 セルを切る混成窓で 1 回の上げ）から fullscreen 三角形 1 発でセル矩形へ焼く
@@ -1936,7 +1946,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	// 地形チャンクのカリング（perf plan P4 step B）：可視チャンクの区間だけ drawIndexed。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
-	const terrStat: Record<string, Required<ChunkStats>> = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 } };   // fine＝近景層のパス   // ?perf=1／HUD の物差し（renderworker が mem テレメトリに載せる）
+	const terrStat: Record<string, Required<ChunkStats>> = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 }, foot: { drawn: 0, of: 0 } };   // fine＝近景層のパス・foot＝足元層のパス   // ?perf=1／HUD の物差し（renderworker が mem テレメトリに載せる）
 	const terrRuns = (mesh: ArrayLike<number>, st: CameraState, which: string): number[][] => TERR_LOD ? visibleChunkRuns(terrain!.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain!.chunks.length, [[0, terrain!.count]]);
 
 	// --- 建物メッシュ（LOD2 等）（gl/renderer.js setMeshSet/setMeshVis/meshBboxVisible の移植）---
@@ -2607,6 +2617,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 近景層（near・順 1a）：bounds/has/edgeFade は全スロット共通（elev() が参照）。近景メッシュパスは farP.z=2（terrainNear slot）
 		f[132] = near.bounds[0]; f[133] = near.bounds[1]; f[134] = near.bounds[2]; f[135] = near.bounds[3];
 		f[136] = near.has; f[137] = near.edgeFade || 0; f[138] = 0; f[139] = 0;
+		// 足元層（fine・2026-10-31）：近景テクスチャの右半分。足元メッシュパスは farP.z=3（terrainFine slot）
+		f[140] = fine.bounds[0]; f[141] = fine.bounds[1]; f[142] = fine.bounds[2]; f[143] = fine.bounds[3];
+		f[144] = fine.has && near.has ? 1 : 0; f[145] = fine.edgeFade || 0; f[146] = 0; f[147] = 0;
 		return f;
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
@@ -2853,6 +2866,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (nearActive) device.queue.writeBuffer(frameBuf, SLOT.terrainNear * FRAME_SLOT, packFrame(st, terrOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, near.bounds, 2));
 		const nearRunsF = nearActive ? terrRuns(near.bounds, st, "fine") : null;
 		if (!nearActive) { terrStat.fine.drawn = 0; terrStat.fine.of = 0; }
+		const fineActive = nearActive && fine.has;   // 足元メッシュパス（mesh=足元層の窓・farPass=3）
+		if (fineActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFine * FRAME_SLOT, packFrame(st, terrOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, fine.bounds, 3));
+		const fineRuns = fineActive ? terrRuns(fine.bounds, st, "foot") : null;
+		if (!fineActive) { terrStat.foot.drawn = 0; terrStat.foot.of = 0; }
 		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), fogColorOf(land), logCoef, dpr));
 		if (userOn) device.queue.writeBuffer(frameBuf, SLOT.user * FRAME_SLOT, packFrame(st, scenes.user.origin || [0, 0], st.fogDist * 2.5 * fogK(), fogFarCap, fogColorOf(land), logCoef, dpr));   // base/main と同じ fog
 		if (shWin) {   // 影：太陽の正射影の Frame（落とす側・段ごと）と ShadowP（受け手）
@@ -3071,6 +3088,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (nearActive) {   // 近景メッシュ＝同じ単位格子を近景層の窓へ縮めて 3 度目のドロー（主パスはその内側を discard 済み）
 				pass.setBindGroup(0, bg0.terrainNear);
 				for (const [f0, n] of nearRunsF!) pass.drawIndexed(n, 1, f0);
+			}
+			if (fineActive) {   // 足元メッシュ＝同じ単位格子を足元層の窓へ縮めて 4 度目のドロー（近景メッシュパスはその内側を discard 済み）
+				pass.setBindGroup(0, bg0.terrainFine);
+				for (const [f0, n] of fineRuns!) pass.drawIndexed(n, 1, f0);
 			}
 			// 地形の蓋（#111 段 2）＝切った面ごとに「地面の中」だけ塗る板（近窓・遠窓の 2 回・地形と同じ分担）
 			if (C && tp!.terrain.length && clip!.style.capOn) {
@@ -3718,6 +3739,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "elevAtlasNear": setElevationAtlasNear(data as ElevAtlasMeta); break;   // 近景層（1 セル・順 1a）
 			case "elevCellNear": setElevationCellNear((prop as CellProp).cx, (prop as CellProp).cy, data as Float32Array | ElevCellSrc, (prop as CellProp).cellRes); break;
 			case "elevAtlasNearOff": clearElevationNear(); break;
+			case "elevFineOn": setFineOn(data as { originLng: number; originLat: number; span: number; edgeFade?: number }); break;   // 足元層（fine）
+			case "elevFineOff": setFineOff(); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "meshSet": setMeshSet(prop as string, data as MeshSetData | null); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
 			case "meshPaint": {   // 画素ごとの地物の番号から塗った絵＝{ w, h, rgba（α 0＝元の色）, blend }｜null（tiles3d の paintTexel）
