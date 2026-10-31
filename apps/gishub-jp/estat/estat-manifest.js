@@ -91,7 +91,7 @@ async function main() {
 	console.log(`  市区町村:     ${cities.length}`);
 
 	manifest.sort((a, b) => a.code.localeCompare(b.code));
-	// 2020 は census/ui.ts が ../estat/manifest.json を import している既存契約を維持
+	// 2020 は manifest.json の名のまま（読み手が import している既存契約）
 	const outName = YEAR === '2020' ? 'manifest.json' : `manifest-${YEAR}.json`;
 	writeFileSync(join(__dir, outName), JSON.stringify(manifest, null, 2));
 	console.log(`✅ 出力: ${outName} (${manifest.length} 件)`);
