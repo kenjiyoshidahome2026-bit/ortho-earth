@@ -110,7 +110,7 @@ interface ShadowLayer {
 }
 interface ShadowRes {
 	bgl: GPUBindGroupLayout; tex: GPUTexture; view: GPUTextureView; pBuf: GPUBuffer; samp: GPUSampler;
-	bg: GPUBindGroup; plShBG: GPUBindGroup; lay: ShadowLayouts; cast: CastPipes;
+	bg: GPUBindGroup; plShBG: GPUBindGroup; bglPlSh: GPUBindGroupLayout; lay: ShadowLayouts; cast: CastPipes;
 	pipes: Map<number, ShadowPipes>; cpu: Float32Array; L: ShadowLayer[];
 }
 interface ClipModsBase { terr: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; fill: GPUShaderModule; line: GPUShaderModule; lineX: GPUShaderModule; bld: GPUShaderModule; globe: GPUShaderModule; cap?: GPUShaderModule }
@@ -256,7 +256,8 @@ const N_ROLES = 12;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
 const PAINT_BINDING = 99;   // group(3) の塗る絵（meshPaint）＝利用者のシェーダの束縛（6〜）と重ならない番号
 const PL_BATCH_SLOT = 1280; // dr0/dr1/dr2（重ねる絵・float 256〜267）で 1024 を越えた＝256 の倍数へ。 mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）＋xf/xt（196〜211）＋sl0/sl1/cs（212〜223・style の light と頂点色の色空間）＋csL/csC/csI（224〜235）＋eyeRel（236〜239）のスロット境界（dynamic offset）
-const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
+const MAX_PL_BATCH = 512;  // 影・解析の落とす側の可視バッチ上限（超過は打ち切り）＝本体の受け皿の初期の大きさ
+const PL_BATCH_CEIL = 16384;  // 本体の可視バッチの天井（受け皿は 512 から倍々に広げる・2026-10-31 cdb-yemen：CDB の地形と建物で 512 を越え、地形のタイルが落ちて平らな基図が見えた）
 const MAX_MESH_MASKS = 4;
 
 // f32→f16 は ./f16.js（Float16Array の native 変換＋旧ループのフォールバック・perf plan P1 step 0）
@@ -787,7 +788,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		sh = {
 			bgl, tex, view, pBuf, samp, L,
 			bg: device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: pBuf } }, { binding: 1, resource: view }, { binding: 2, resource: samp }] }),
-			plShBG: device.createBindGroup({ layout: bglPlSh, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }, { binding: 1, resource: { buffer: pBuf } }, { binding: 2, resource: view }, { binding: 3, resource: samp }] }),   // 模型の受け手＝本体と同じ PB（plBatchBuf）＋影
+			bglPlSh, plShBG: device.createBindGroup({ layout: bglPlSh, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }, { binding: 1, resource: { buffer: pBuf } }, { binding: 2, resource: view }, { binding: 3, resource: samp }] }),   // 模型の受け手＝本体と同じ PB（plBatchBuf）＋影
 			lay: { terr: lay([bgl0, bgl1, bglClim, bgl]), fill: lay([bgl0, bgl1, bgl]), bld: lay([bgl0, bgl1, bglMask, bgl]), mesh: lay([bgl0, bgl1, bglPlBatch, bgl]), meshTex: lay([bgl0, bgl1, bglPlSh, bglPlTex5]), globe: lay([bglGlobe, bgl]) },
 			cast: castPipes(),
 			pipes: new Map(), cpu: new Float32Array(64),
@@ -1260,9 +1261,31 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		}) ?? paramBG[role];
 	}
 	// mesh per-batch UBO（dynamic offset＝1つの bind group で全バッチを切替）
-	const plBatchBuf = device.createBuffer({ size: PL_BATCH_SLOT * MAX_PL_BATCH, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }] });   // PB＝meshOrigin+clipMesh+alpha+pbr0+emis+lp+sh[9]＝240B（#46 段 2）
-	const plBatchCPU = new Float32Array(PL_BATCH_SLOT / 4 * MAX_PL_BATCH);
+	let plCap = MAX_PL_BATCH;   // 本体の受け皿のスロット数（growPlBatch が倍々に広げる）
+	let plBatchBuf = device.createBuffer({ size: PL_BATCH_SLOT * MAX_PL_BATCH, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	let plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }] });   // PB＝meshOrigin+clipMesh+alpha+pbr0+emis+lp+sh[9]＝240B（#46 段 2）
+	let plBatchCPU = new Float32Array(PL_BATCH_SLOT / 4 * MAX_PL_BATCH);
+	const plRetired: GPUBuffer[] = [];   // 広げる前の受け皿＝そのフレームの submit の後に返す
+	// 本体の可視バッチが受け皿を越えたら倍々に広げる（天井 PL_BATCH_CEIL）。PB を指す束縛（本体・影の受け手・断面・断面＋影）を作り直す。
+	// 書き込み済みの CPU 側は写して続ける＝このフレームの途中から広げてよい（束縛はこの後の encode で読む）
+	function growPlBatch(need: number): boolean {
+		if (need <= plCap) return true;
+		if (plCap >= PL_BATCH_CEIL) return false;
+		let cap = plCap;
+		while (cap < need && cap < PL_BATCH_CEIL) cap *= 2;
+		const buf = device.createBuffer({ size: PL_BATCH_SLOT * cap, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+		const cpu = new Float32Array(PL_BATCH_SLOT / 4 * cap); cpu.set(plBatchCPU);
+		plRetired.push(plBatchBuf); plBatchBuf = buf; plBatchCPU = cpu; plCap = cap;
+		const pb = { buffer: buf, offset: 0, size: PL_BATCH_SLOT };
+		plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: pb }] });
+		if (sh) sh.plShBG = device.createBindGroup({ layout: sh.bglPlSh, entries: [{ binding: 0, resource: pb }, { binding: 1, resource: { buffer: sh.pBuf } }, { binding: 2, resource: sh.view }, { binding: 3, resource: sh.samp }] });
+		if (cl) {
+			cl.plBG = device.createBindGroup({ layout: cl.bglPlCl, entries: [{ binding: 0, resource: pb }, { binding: 1, resource: cl.slotRes(CS.models) }] });
+			const x = cl.shx;
+			if (x?.sh) x.plBG = device.createBindGroup({ layout: cl.bglPlShCl, entries: [{ binding: 0, resource: pb }, { binding: 1, resource: { buffer: x.sh.pBuf } }, { binding: 2, resource: x.sh.view }, { binding: 3, resource: x.sh.samp }, { binding: 4, resource: cl.slotRes(CS.models) }] });
+		}
+		return true;
+	}
 	// 画像タイル層の per-tile UBO（dynamic offset・アトラス合成 1 回あたり最大 MAX_RAS 枚＝近窓＋遠窓の合算）
 	const RAS_SLOT = 256, MAX_RAS = 1200;
 	const rasBuf = device.createBuffer({ size: RAS_SLOT * MAX_RAS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -3297,7 +3320,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
 			const draws: { p: MeshBatch; count: number; slot: number }[] = [];
 			for (const p of meshes.values()) {
-				if (draws.length >= MAX_PL_BATCH) { if (!warnedPL) { warnedPL = true; console.warn(`[gpu] mesh visible batches exceed ${MAX_PL_BATCH} = truncated`); } break; }   // 警告は 1 回（旧＝超えている間は毎フレーム）
+				if (draws.length >= plCap && !growPlBatch(draws.length + 1)) { if (!warnedPL) { warnedPL = true; console.warn(`[gpu] mesh visible batches exceed ${PL_BATCH_CEIL} = truncated`); } break; }   // 受け皿は倍々に広げる・天井を越えた分だけ打ち切り（警告は 1 回）
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;
 				if (!bboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2])) continue;   // 重心の高さで射影（camera.ts bboxVisible）
@@ -3467,6 +3490,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		device.queue.submit([frame.enc.finish()]);
 		frame = null;
+		if (plRetired.length) { const r = plRetired.splice(0); device.queue.onSubmittedWorkDone().then(() => { for (const b of r) b.destroy(); }).catch(() => {}); }   // 広げる前の PB の受け皿
 		if (retired.length) { const r = retired.splice(0); device.queue.onSubmittedWorkDone().then(() => { for (const t of r) t.destroy(); }).catch(() => {}); }   // 差し替えた標高アトラスはこのフレームが GPU で終わってから返す
 		if (frame1Scoped === 1) { frame1Scoped = 2; device.popErrorScope().then(e => { if (e) gpuErr("初回フレーム検証", e.message); }).catch(() => {}); }
 		// ⚠WebKit(Safari) の轍：submit と同一タスクで mapAsync を呼ぶと canvas present が黙って止まる

@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- 実描画の検分：メッシュの可視バッチが 512 を越えても全部描く（WebGPU・2026-10-31）。createRendererGPU をメインスレッドで直駆動。
+     旧＝本体の PB の受け皿が 512 スロット固定＝越えた分を打ち切り（Cesium の cdb-yemen：CDB の地形と建物で越え、地形のタイルが落ちて平らな基図が見えた）。
+     試料＝画面の縁に 1m 角の小さな屋根を 700 個（先に入れる）＋中央に 20m 角の中間灰の屋根を 1 個（最後に入れる＝旧なら打ち切られる側）。
+     真俯瞰（keep2d）で中央を読む＝128（±3）なら最後のバッチまで描けている。GPU の検証エラーなし。
+     ⚠実時間専用（verify-webgpu.mjs が回す）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-meshmany</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("@ortho-earth/core/gpu");
+	const { cameraState, project, lonlatTo3D } = await import("@ortho-earth/core/camera");
+	const canvas = document.getElementById("g");
+	const r = await createRendererGPU(canvas);
+	const Re = 6371000, K = 111320, LON = 139.7, LAT = 35.7, cosL = Math.cos(LAT * Math.PI / 180);
+	const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];
+	// 屋根（高さ 30m・half の正方形・2 三角形）＝中間灰 2×2 のテクスチャ＋白の頂点色・keep2d（真俯瞰でも描く）
+	const roof = (e0, n0, half, key) => {
+		const [lo, la] = ll(e0, n0), origin = lonlatTo3D(lo, la);
+		const P = (e, n) => { const [a, b] = ll(e0 + e, n0 + n), p = lonlatTo3D(a, b), s = 1 + 30 / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
+		const C = [[-half, -half], [half, -half], [half, half], [-half, half]];
+		const N = new Int8Array(16); for (let i = 0; i < 4; i++) for (let k = 0; k < 3; k++) N[i * 4 + k] = Math.round(origin[k] / Math.hypot(...origin) * 127);
+		const [bw, bs] = ll(e0 - half, n0 - half), [be, bn] = ll(e0 + half, n0 + half);
+		r.set("meshSet", { pos: new Float32Array(C.flatMap(([e, n]) => P(e, n))), nrm: N, idx: new Uint32Array([0, 1, 2, 0, 2, 3]), origin, bbox: [bw, bs, be, bn], ward: key,
+			uv: new Float32Array(8).fill(0.5), col: new Uint8Array(16).fill(255), tex: { rgba: new Uint8Array(16).fill(128), w: 2, h: 2 }, alphaMode: "OPAQUE", keep2d: true }, key + "#0");
+	};
+	// 縁の小さな屋根 700 個（画面の左上の帯・1m 角）＝可視バッチの数を 512 より多くする
+	for (let i = 0; i < 700; i++) roof(-120 + (i % 70) * 1.5, 100 + Math.floor(i / 70) * 1.5, 0.5, "s" + i);
+	roof(0, 0, 20, "big");   // 最後に入れる＝打ち切りなら落ちる側
+	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const cam = { center: [LON, LAT], zoom: 17, pitch: 0, bearing: 0, dpr: 1 };
+	let px = null;
+	for (let k = 0; k < 2; k++) {   // 同一タスクで drawImage（t-shadow と同じ作法）・2 枚目を読む（1 枚目で受け皿が広がる）
+		r.draw(cam, {}); r.flush();
+		rctx.clearRect(0, 0, 256, 256); rctx.drawImage(canvas, 0, 0);
+		px = rctx.getImageData(0, 0, 256, 256).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+	}
+	const st = cameraState(cam, 256, 256), p = project(st, LON, LAT, 1 + 30 / Re), x = Math.round(p[0]), y = Math.round(p[1]);
+	let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = ((y + dy) * 256 + (x + dx)) * 4; s += (px[i] + px[i + 1] + px[i + 2]) / 3; }
+	s /= 9;
+	ok(`701 番目のバッチ（中央の灰の屋根）も描く（${s.toFixed(1)}）`, Math.abs(s - 128) <= 3);
+	await new Promise(res => setTimeout(res, 50));   // WGSL の compilation info と errorScope の回収を待つ
+	ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0);
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
