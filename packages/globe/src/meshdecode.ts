@@ -107,7 +107,7 @@ export interface ModelOut {
 /** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable・splats（KHR_gaussian_splatting を splat として返す＝false なら点として描く）・voxels（EXT_primitive_voxels を voxel として返す＝false なら飛ばす） */
 export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; splats?: boolean; voxels?: boolean | VoxelTileOpts; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
 /** decodeModel の opts */
-export interface DecodeModelOpts { /** 3D Tiles 1.0 asset.gltfUpAxis: "Z" = no Y-up → Z-up turn for a tile */ upAxis?: string | null; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number; /** 利用者のシェーダ（Cesium の CustomShader）＝頂点ごとの positionMC（glTF の POSITION そのまま）と束の J を返す */ mc?: boolean; /** タイル本体を取った時の headers／credentials（transformRequest・ion の Bearer）＝同じ origin の外部画像・buffer・i3dm の glTF にも付ける（無いと ion の CDB のテクスチャが 401） */ fetchOpts?: FetchOpts | null }
+export interface DecodeModelOpts { /** 3D Tiles 1.0 asset.gltfUpAxis: "Z" = no Y-up → Z-up turn for a tile */ upAxis?: string | null; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number; /** EXT_mesh_primitive_edge_visibility: Cesium's EdgeDisplayMode (0 surfaces only, 1 surfaces and edges, 2 edges only) */ edges?: number; /** 利用者のシェーダ（Cesium の CustomShader）＝頂点ごとの positionMC（glTF の POSITION そのまま）と束の J を返す */ mc?: boolean; /** タイル本体を取った時の headers／credentials（transformRequest・ion の Bearer）＝同じ origin の外部画像・buffer・i3dm の glTF にも付ける（無いと ion の CDB のテクスチャが 401） */ fetchOpts?: FetchOpts | null }
 export interface FetchOpts { headers?: Record<string, string> | null; credentials?: RequestCredentials | null }
 /** fetch の代わり＝baseUri と同じ origin の URL にだけ headers／credentials を付ける（別ホストへ委譲された画像に token を漏らさない） */
 export const fetchFor = (baseUri: string | null | undefined, o: FetchOpts | null | undefined): typeof fetch => {
@@ -996,6 +996,56 @@ function outlineEdgesOf(pr: GltfPrimitive, gltf: GltfDoc): ArrayLike<number> | n
 	const v = typeof a === "number" ? (gltf as { accessors?: { value?: ArrayLike<number> }[] }).accessors?.[a]?.value : a?.value;
 	return v && v.length >= 2 ? v : null;
 }
+// EXT_mesh_primitive_edge_visibility (Cesium3DTileset / Model edgeDisplayMode, 2026-10-31): each triangle edge carries 2 bits in the order the
+// indices give them (v0v1, v1v2, v2v0; 4 edges a byte, low bits first): 0 hidden, 1 silhouette, 2 hard, 3 a hard edge already given. The hard
+// edges (once each, as CesiumJS's EdgeVisibilityPipelineStage dedups them) and the extension's lineStrings become a LINES primitive that goes on
+// as a 1 px ribbon like any glTF line. Colour: the extension's material (or the line string's) replaces the surface colour; without one the edge
+// takes the surface's material and vertex colours. Silhouette edges (shown by Cesium only where one face turns away from the eye) are left out:
+// they would need both face normals on the vertex. EDGES_ONLY (2) drops the surfaces of a primitive that has edges, as Cesium's draw command does
+export const EDGE_EXT = "EXT_mesh_primitive_edge_visibility";
+function edgePrims(pr: GltfPrimitive, gltf: GltfDoc): GltfPrimitive[] {
+	const ext = (pr.extensions as Record<string, Record<string, unknown>> | undefined)?.[EDGE_EXT];
+	if (!ext) return [];
+	const accs = (gltf as { accessors?: { value?: ArrayLike<number> }[] }).accessors;
+	const valOf = (a: unknown): ArrayLike<number> | null => (typeof a === "number" ? accs?.[a]?.value : (a as { value?: ArrayLike<number> } | undefined)?.value) ?? null;
+	const mats = (gltf as { materials?: GltfMaterial[] }).materials, rawMats = (gltf as { json?: { materials?: unknown[] } | null }).json?.materials;
+	const matOf = (i: unknown): GltfMaterial | null | undefined => typeof i === "number" ? (mats?.[i] ?? (rawMats?.[i] as GltfMaterial | undefined) ?? null) : undefined;
+	const seen = new Set<string>(), out: GltfPrimitive[] = [];
+	const make = (pairs: number[], m: GltfMaterial | null | undefined) => {
+		if (!pairs.length) return;
+		const attributes = { ...(pr.attributes || {}) };
+		if (m !== undefined) delete attributes.COLOR_0;   // the edge material's colour replaces the surface colour
+		out.push({ ...pr, mode: 1, attributes, indices: { value: Uint32Array.from(pairs) } as GltfAccessor, material: m !== undefined ? m : pr.material, extensions: { ...(pr.extensions || {}), [EDGE_EXT]: undefined, CESIUM_primitive_outline: undefined } } as GltfPrimitive);
+	};
+	const add = (a: number, b: number, pairs: number[]) => { const k = a < b ? `${a},${b}` : `${b},${a}`; if (a === b || seen.has(k)) return; seen.add(k); pairs.push(a, b); };
+	const vis = valOf(ext.visibility), I = pr.indices?.value ?? null, n = (pr.attributes?.POSITION?.value?.length ?? 0) / 3;
+	if (vis && I) {
+		const pairs: number[] = [];
+		for (let t = 0, e = 0; t + 2 < I.length; t += 3) for (let k = 0; k < 3; k++, e++) {
+			const bits = ((vis[e >> 2] ?? 0) >> ((e & 3) * 2)) & 3;
+			if (bits >= 2) add(I[t + k], I[t + (k + 1) % 3], pairs);   // hard / repeated hard
+		}
+		make(pairs, matOf(ext.material));
+	}
+	for (const ls of (ext.lineStrings as Array<{ indices?: unknown; material?: number }> | undefined) || []) {
+		const L = valOf(ls?.indices); if (!L) continue;
+		const restart = L instanceof Uint8Array ? 0xff : L instanceof Uint16Array ? 0xffff : 0xffffffff, pairs: number[] = [];
+		for (let k = 1; k < L.length; k++) { const a = L[k - 1], b = L[k]; if (a === restart || b === restart || a >= n || b >= n) continue; add(a, b, pairs); }
+		make(pairs, matOf(ls.material ?? ext.material));
+	}
+	return out;
+}
+/** a mesh's primitives with the edges of EXT_mesh_primitive_edge_visibility added as line primitives (edges: EdgeDisplayMode 1 surfaces and edges, 2 edges only) */
+function withEdges(prims: GltfPrimitive[], gltf: GltfDoc, edges: number): GltfPrimitive[] {
+	if (!edges || !prims.some(p => (p.extensions as Record<string, unknown> | undefined)?.[EDGE_EXT])) return prims;
+	const out: GltfPrimitive[] = [];
+	for (const p of prims) {
+		const e = (p.mode ?? 4) === 4 ? edgePrims(p, gltf) : [];
+		if (!(edges === 2 && e.length)) out.push(p);
+		out.push(...e);
+	}
+	return out;
+}
 /** a primitive's vertices copied where CesiumJS copies them and the outline coordinates packed into the normal's 4th byte (bits 0..2) */
 function withOutline(seg: { geo: Float64Array; nrm: Int8Array; idx: Uint32Array; uv: Float32Array; col: Uint8Array; fid: Uint32Array | null; mc: Float32Array | null; uvm: Float32Array | null }, edges: ArrayLike<number>, n: number, base: number): void {
 	const local = new Uint32Array(seg.idx.length);
@@ -1123,7 +1173,7 @@ function linePrimAsRibbons(pr: GltfPrimitive, mode: number): LinePrim | null {
 	}
 	return { ...pr, mode: 4, attributes, indices: { value: idx } as GltfAccessor, lineSide: side };
 }
-export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false, upAxis = null }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
+export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false, upAxis = null, edges = 0 }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
 	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
 	const f = fetchFor(baseUri, fetchOpts);   // 外部画像・buffer＝タイルと同じ headers で（ion の Bearer）
@@ -1215,7 +1265,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	for (const pl of places || [{ A, T }]) for (const { mesh, W, node, skin: si } of inst) {
 		const A = pl.A, T = pl.T, animNode = animated.has(node) ? node : -1;
 		const fr0 = frameOf(W, A, T);
-		for (let pr of (mesh.primitives || [])) {
+		for (let pr of withEdges(mesh.primitives || [], gltf, edges)) {
 			let mode4 = pr.mode ?? 4;
 			// skin（2026-10-28）＝JOINTS_0／WEIGHTS_0 を持つ primitive は静止姿勢でスキンして焼く（p' = Σ w·W(joint)·IBM·p＝シーン座標・mesh のノードの変換は掛けない）。
 			// 束は (skin, material) ごと＝main（gadgets/model.js）が rig の時計で頂点を焼き直す（gltf-anim.skinBatch）
