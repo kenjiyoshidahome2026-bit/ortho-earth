@@ -12,7 +12,7 @@ import { sunPositionWC } from "./lighting.ts";
 import { clipSpecOf, polygonClipOf } from "./clipping.ts";
 import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
 import { RawDrawer } from "./rawdraw.ts";
-import { bridgedTerrainSource } from "./terrain.ts";
+import { bridgedTerrainSource, terrainSourceOf } from "./terrain.ts";
 
 /** the globe and what the facade hangs on it (filled when createGlobe resolves) */
 export interface Host {
@@ -492,11 +492,7 @@ function onTerrain(scene: OrthoScene, p: any) {
 		const urlOk = cwt || bathy || ionId > 0 || (r?.url && !r._ionEndpoint);
 		const bridged = !urlOk ? bridgedTerrainSource(map, p) : null;
 		if (!urlOk && !bridged && (!(scene.host as any).flatStart || map.getTerrain?.())) return;
-		// negative: the sea surface of these ellipsoid heights is at the geoid height N (about −29 m in San Francisco Bay); the globe's default would lift it to 0
-		const source = bridged ?? (cwt ? { type: "quantized-mesh", ion: { assetId: 1, accessToken: token }, heights: "orthometric", negative: true }
-			: bathy ? { type: "quantized-mesh", ion: { assetId: 2426648, accessToken: token }, heights: "orthometric", seafloor: true }
-			: ionId > 0 ? { type: "quantized-mesh", ion: { assetId: ionId, accessToken: token }, heights: "orthometric", negative: true }
-			: r?.url && !r._ionEndpoint ? { type: "quantized-mesh", url: new URL("layer.json", r.url).href, headers: r.headers, heights: "orthometric", negative: true } : null);
+		const source = terrainSourceOf({ bridged, cwt: !!cwt, bathy: !!bathy, ionId, url: r?.url && !r._ionEndpoint ? new URL("layer.json", r.url).href : null, headers: r?.headers, token });
 		if (source) map.setTerrain?.({ source }).catch?.((e: unknown) => console.warn("[csshim] terrain", e));
 		else unsupported(`terrain provider ${name}`);
 	});

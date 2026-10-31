@@ -6,6 +6,9 @@ import { splatPlugin } from "../../../../sdk/splat/src/index.ts";
 const withPlugins = (o = {}) => ({ ...o, ortho: { ...o.ortho, plugins: [...(o.ortho?.plugins ?? []), splatPlugin()] } });
 const X = (window.__csx ||= { side: "ortho", viewers: [], errors: [] });
 X.side = "ortho"; X.Cesium = NS;
+// the same random sequence as the ref side (vite.config.mjs REF_WRAPPER): examples colour their shapes with Color.fromRandom, which draws from
+// CesiumMath.nextRandomNumber; unseeded, each side picked its own colours and the picture compare counted them as a mismatch (geometry-height-reference)
+NS.Math.setRandomNumberSeed(20261031);
 export class Viewer extends NS.Viewer {
 	constructor(c, o) {
 		super(c, withPlugins(o)); X.viewers.push(this);

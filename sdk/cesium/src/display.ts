@@ -33,6 +33,18 @@ const SOLIDS: [string, Any][] = [["box", E.BoxGeometryUpdater], ["cylinder", E.C
 	["polygon", E.PolygonGeometryUpdater], ["rectangle", E.RectangleGeometryUpdater], ["ellipse", E.EllipseGeometryUpdater], ["corridor", E.CorridorGeometryUpdater],
 	["wall", E.WallGeometryUpdater], ["polylineVolume", E.PolylineVolumeGeometryUpdater], ["plane", E.PlaneGeometryUpdater]];
 /** a height measured from the terrain (Cesium moves such geometry with the ground under it): the GeoJSON layers below draw it */
+const isClamp = (h: number) => h === HeightReference.CLAMP_TO_GROUND || h === (HeightReference as Any).CLAMP_TO_TERRAIN || h === (HeightReference as Any).CLAMP_TO_3D_TILE;
+const isRelative = (h: number) => h === HeightReference.RELATIVE_TO_GROUND || h === (HeightReference as Any).RELATIVE_TO_TERRAIN || h === (HeightReference as Any).RELATIVE_TO_3D_TILE;
+/** a ground-referenced shape's absolute base and top (m): h/x = height/extrudedHeight, hr/xr their references, gh = the terrain at the shape's
+ *  centre (off) and the lowest under its outline (min). A clamped height is 0 above the centre's ground, a relative one is measured from it,
+ *  a clamped extrusion goes 50 m under the lowest ground (Cesium: ApproximateTerrainHeights' minimum) */
+export function groundHeights(h: number, x: number | undefined, hr: number, xr: number, gh: { off: number; min: number }): { base: number; top: number } {
+	const H = (isClamp(hr) ? 0 : h) + (hr !== HeightReference.NONE ? gh.off : 0);
+	if (x == null) return { base: H - 0.5, top: H + 0.5 };
+	const X = isClamp(xr) ? gh.min - 50 : x + (isRelative(xr) ? gh.off : 0);
+	const lo = Math.min(H, X), hi = Math.max(H, X);
+	return { base: lo, top: Math.max(hi, lo + 0.01) };
+}
 const onGround = (g: Any, t: JulianDate) => [g.heightReference, g.extrudedHeightReference].some(p => { const v = val(p, t, HeightReference.NONE); return v !== HeightReference.NONE; });
 /** a polygon, rectangle, ellipse or corridor with neither height nor extrusion lies on the surface (the GeoJSON fill drapes it; Cesium's is a ground primitive) */
 const SURFACE = new Set(["polygon", "rectangle", "ellipse", "corridor"]);
@@ -570,7 +582,7 @@ export class EntityDisplay {
 		}
 		// ── shapes ──
 		const id = String(e.id);
-		const addShape = (rings: number[][][] | number[][][][], o: { fill: boolean; color: Color; mat?: MatDesc | null; z?: number; outline: boolean; outlineColor: Color; outlineWidth: number; base?: number; top?: number; cls?: number }, multi = false) => {
+		const addShape = (rings: number[][][] | number[][][][], o: { fill: boolean; color: Color; mat?: MatDesc | null; z?: number; outline: boolean; outlineColor: Color; outlineWidth: number; base?: number; top?: number; abs?: boolean; cls?: number }, multi = false) => {
 			const geom = multi ? { type: "MultiPolygon", coordinates: rings } : { type: "Polygon", coordinates: rings };
 			const polys = (multi ? rings : [rings]) as number[][][][];
 			if (!polys.length || !polys[0]?.[0]?.length) return;
@@ -583,7 +595,7 @@ export class EntityDisplay {
 			if (o.fill && o.mat && !ext) { if (o.cls !== ClassificationType.CESIUM_3D_TILE) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0 }); }
 			else if (o.fill && o.cls !== ClassificationType.CESIUM_3D_TILE) {
 				const [fc, fo] = rgbAlpha(o.color);
-				d.shapes.push({ type: "Feature", geometry: geom, properties: { _id: id, _k: ext ? "ext" : "fill", _fc: fc, _fo: fo, _b: o.base ?? 0, _h: o.top ?? 0, _z: o.z ?? 0 } });
+				d.shapes.push({ type: "Feature", geometry: geom, properties: { _id: id, _k: ext ? (o.abs ? "exta" : "ext") : "fill", _fc: fc, _fo: fo, _b: o.base ?? 0, _h: o.top ?? 0, _z: o.z ?? 0 } });
 			}
 			if (o.outline) {
 				const [lc, lo] = rgbAlpha(o.outlineColor, Color.BLACK);
@@ -607,6 +619,19 @@ export class EntityDisplay {
 			if (x != null) return { base: Math.min(hh, x), top: Math.max(hh, x) };
 			return Math.abs(hh) > 0.01 ? { base: hh - 0.5, top: hh + 0.5 } : {};   // a polygon in the air: a 1 m slab
 		};
+		// heights measured from the terrain (heightReference / extrudedHeightReference), as Cesium's GroundGeometryUpdater and TerrainOffsetProperty
+		// place them: a clamped height is 0 and a clamped extrusion goes down to the lowest ground under the shape; the terrain height at the shape's
+		// centre is added to the top (one of the two heights relative) or to both (both relative), so each shape keeps a flat top at its own height
+		// (geometry-height-reference: 16 boxes stepping down a slope, not one sheet following the ground). The heights are absolute (the layer is
+		// not lifted again); until the terrain is sampled the globe grounds each vertex instead (2026-10-31)
+		const groundVertical = (g: Any, h: number | undefined, x: number | undefined, perPos: number | undefined, ring: number[][] | undefined) => {
+			const v = vertical(h, x, perPos);
+			const hr = h == null ? HeightReference.NONE : val(g.heightReference, t, HeightReference.NONE), xr = x == null ? HeightReference.NONE : val(g.extrudedHeightReference, t, HeightReference.NONE);
+			if ((hr === HeightReference.NONE && xr === HeightReference.NONE) || perPos != null || !ring?.length) return v;
+			const gh = this.#groundOf(ring, r);
+			if (!gh) return v;
+			return { ...groundHeights(h!, x, hr, xr, gh), abs: true };
+		};
 		const solid = this.#solidsOf(e, t, d, r);
 		if (r.solids?.sig) dynamic = true;
 		const pg = e.polygon;
@@ -618,7 +643,7 @@ export class EntityDisplay {
 				const polys = polysOf(hi), c = common(pg);
 				let perPos: number | undefined;
 				if (val(pg.perPositionHeight, t, false)) { const hs = hi.positions.map((p: Cartesian3) => llOf(p)?.[2] ?? 0); perPos = hs.reduce((a: number, b: number) => a + b, 0) / Math.max(1, hs.length); }
-				addShape(polys, { ...c, ...vertical(val(pg.height, t), val(pg.extrudedHeight, t), perPos) }, true);
+				addShape(polys, { ...c, ...groundVertical(pg, val(pg.height, t), val(pg.extrudedHeight, t), perPos, polys[0]?.[0]) }, true);
 			}
 		}
 		const re = e.rectangle;
@@ -632,14 +657,14 @@ export class EntityDisplay {
 				for (let i = 1; i <= N; i++) ring.push([ea, s + (n - s) * i / N]);
 				for (let i = 1; i <= N; i++) ring.push([ea - (ea - w) * i / N, n]);
 				for (let i = 1; i <= N; i++) ring.push([w, n - (n - s) * i / N]);
-				addShape([ring], { ...common(re), ...vertical(val(re.height, t), val(re.extrudedHeight, t)) });
+				addShape([ring], { ...common(re), ...groundVertical(re, val(re.height, t), val(re.extrudedHeight, t), undefined, ring) });
 			}
 		}
 		const el = e.ellipse;
 		if (el && pos && val(el.show, t, true) && !solid.has("ellipse")) {
 			dyn(el.semiMajorAxis, el.semiMinorAxis, el.rotation); if (!isConst(e.position)) dynamic = true;
 			const a = val(el.semiMajorAxis, t), b = val(el.semiMinorAxis, t);
-			if (a > 0 && b > 0) addShape([enuRing(pos, ellipsePts(a, b, val(el.rotation, t, 0)), 0)], { ...common(el), ...vertical(val(el.height, t), val(el.extrudedHeight, t)) });
+			if (a > 0 && b > 0) { const ring = enuRing(pos, ellipsePts(a, b, val(el.rotation, t, 0)), 0); addShape([ring], { ...common(el), ...groundVertical(el, val(el.height, t), val(el.extrudedHeight, t), undefined, ring) }); }
 		}
 		const bx = e.box;
 		if (bx && pos && val(bx.show, t, true) && !solid.has("box")) {
@@ -673,7 +698,7 @@ export class EntityDisplay {
 		if (co && val(co.show, t, true) && !solid.has("corridor")) {
 			dyn(co.positions, co.width);
 			const ps = val(co.positions, t), w = val(co.width, t, 0);
-			if (ps?.length > 1 && w > 0) addShape([cesiumCorridorRing(ps, w, val(co.cornerType, t))], { ...common(co), ...vertical(val(co.height, t), val(co.extrudedHeight, t)) });
+			if (ps?.length > 1 && w > 0) { const ring = cesiumCorridorRing(ps, w, val(co.cornerType, t)); addShape([ring], { ...common(co), ...groundVertical(co, val(co.height, t), val(co.extrudedHeight, t), undefined, ring) }); }
 		}
 		const wa = e.wall;
 		if (wa && val(wa.show, t, true) && !solid.has("wall")) {
@@ -785,12 +810,16 @@ export class EntityDisplay {
 		const ops = new Set<number>();
 		for (const s of shapes) if (s.properties._k === "ext") ops.add(Math.round(s.properties._fo * 10) / 10);
 		for (const o of ops) want.add(`__cs-ext-${o}`);
+		const opsA = new Set<number>();
+		for (const s of shapes) if (s.properties._k === "exta") opsA.add(Math.round(s.properties._fo * 10) / 10);
+		for (const o of opsA) want.add(`__cs-exta-${o}`);
 		for (const s of shapes) if (s.properties._k === "dash") want.add(`__cs-dash-${s.properties._dk}`);
 		for (const id of want) {
 			if (this.#layers.has(id)) continue;
 			if (id === "__cs-fill") map.addLayer({ id, type: "fill", source: SRC, filter: ["==", ["get", "_k"], "fill"], paint: { "fill-color": ["get", "_fc"], "fill-opacity": ["get", "_fo"] } });
 			else if (id.startsWith("__cs-dash-")) { const k = id.slice(10); map.addLayer({ id, type: "line", source: SRC, filter: ["all", ["==", ["get", "_k"], "dash"], ["==", ["get", "_dk"], k]], paint: { "line-color": ["get", "_lc"], "line-opacity": ["get", "_lo"], "line-width": ["get", "_lw"], "line-dasharray": dashArrayOf(k) } }); }
 			else if (id === "__cs-line") map.addLayer({ id, type: "line", source: SRC, filter: ["==", ["get", "_k"], "line"], paint: { "line-color": ["get", "_lc"], "line-opacity": ["get", "_lo"], "line-width": ["get", "_lw"] } });
+			else if (id.startsWith("__cs-exta-")) { const o = +id.slice(10); map.addLayer({ id, type: "fill-extrusion", source: SRC, bottom: 0, filter: ["all", ["==", ["get", "_k"], "exta"], [">=", ["get", "_fo"], o - 0.05], ["<", ["get", "_fo"], o + 0.05]], paint: { "fill-extrusion-color": ["get", "_fc"], "fill-extrusion-opacity": Math.max(0.05, o), "fill-extrusion-height": ["get", "_h"], "fill-extrusion-base": ["get", "_b"] } }); }   // absolute heights (bottom 0 = a plane at sea level, not lifted onto the terrain)
 			else { const o = +id.slice(9); map.addLayer({ id, type: "fill-extrusion", source: SRC, filter: ["all", ["==", ["get", "_k"], "ext"], [">=", ["get", "_fo"], o - 0.05], ["<", ["get", "_fo"], o + 0.05]], paint: { "fill-extrusion-color": ["get", "_fc"], "fill-extrusion-opacity": Math.max(0.05, o), "fill-extrusion-height": ["get", "_h"], "fill-extrusion-base": ["get", "_b"] } }); }
 			this.#layers.add(id);
 		}
@@ -996,6 +1025,36 @@ export class EntityDisplay {
 		return limit ? out.slice(0, limit) : out;
 	}
 	/** forget what was sent (the overlay or the layers were lost) */
+	// the terrain under a shape: its height at the centre of the outline (Cesium's TerrainOffsetProperty) and the lowest of the outline's points,
+	// from map.sampleTerrain into a memo (shared by the shapes, dropped when the terrain changes); null while a point is still being sampled
+	#gh = new Map<string, number>(); #ghWant = new Set<string>(); #ghWaiting = new Set<Rec>(); #ghTerr: Any = null;
+	#groundOf(ring: number[][], r: Rec): { off: number; min: number } | null {
+		const map = this.host.map, terr = map?.getTerrain?.()?.source ?? null;
+		if (!terr || typeof map.sampleTerrain !== "function") return null;
+		if (terr !== this.#ghTerr) { this.#ghTerr = terr; this.#gh.clear(); this.#ghWant.clear(); }
+		const n = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? ring.length - 1 : ring.length;
+		const step = Math.max(1, Math.ceil(n / 64));
+		let cx = 0, cy = 0;
+		for (let i = 0; i < n; i++) { cx += ring[i][0]; cy += ring[i][1]; }
+		const pts: [number, number][] = [[cx / n, cy / n]];
+		for (let i = 0; i < n; i += step) pts.push([ring[i][0], ring[i][1]]);
+		const key = (p: [number, number]) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+		const hs: number[] = [], miss: [number, number][] = [];
+		for (const p of pts) { const v = this.#gh.get(key(p)); if (v === undefined) { if (!this.#ghWant.has(key(p))) miss.push(p); } else hs.push(v); }
+		if (hs.length === pts.length) return { off: hs[0], min: Math.min(...hs) };
+		this.#ghWaiting.add(r);
+		if (miss.length) {
+			for (const p of miss) this.#ghWant.add(key(p));
+			const gen = terr;
+			Promise.resolve(map.sampleTerrain(miss)).then((rs: Array<{ height: number }>) => {
+				if (this.#destroyed || gen !== this.#ghTerr) return;
+				miss.forEach((p, i) => { const h = rs?.[i]?.height; this.#gh.set(key(p), Number.isFinite(h) ? h : 0); this.#ghWant.delete(key(p)); });
+				for (const w of this.#ghWaiting) w.dirty = true;
+				this.#ghWaiting.clear(); this.invalidate();
+			}, () => { for (const p of miss) this.#ghWant.delete(key(p)); });
+		}
+		return null;
+	}
 	invalidate() { this.#lastTracks = this.#lastLines = this.#lastShapes = ""; this.#needRedraw = true; }
 }
 
