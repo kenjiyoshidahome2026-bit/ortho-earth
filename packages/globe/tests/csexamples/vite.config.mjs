@@ -25,6 +25,7 @@ const REF_WRAPPER = `export * from "./Build/Cesium/index.js";
 import * as real from "./Build/Cesium/index.js";
 const X = (window.__csx ||= { side: "ref", viewers: [], errors: [] });
 X.Cesium = real;
+real.Math.setRandomNumberSeed(20261031);   // the same random sequence on both sides (Color.fromRandom, CesiumMath.nextRandomNumber): ortho-entry.js seeds it alike
 export class Viewer extends real.Viewer {
 	constructor(c, o) {
 		super(c, o); X.viewers.push(this);
