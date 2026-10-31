@@ -56,6 +56,7 @@ try {
 		ok("root", s1 && s1.nodes >= 1 && s1.shownPoints >= 66272, JSON.stringify(s1));
 		const be = window.__backend;   // 本体の描き手（frame1 で埋まる・debugGlobals）。点群はそれに合わせる（WebGPU＝copc-gpu.ts・WebGL2＝copc-gl.ts・2026-10-23）。?copcgl=1＝WebGL2 に固定
 		const gl1 = /[?&]copcgl=1/.test(location.search);
+		await until(() => h.backend ?? null, 8000);   // 描き手の答え（copc-draw.ts の host.post）は render worker から非同期に届く＝届くまで待つ（旧＝settled 直後に読み、未着の null で落ちることがあった・main でも）
 		ok("backend", !!be && h.backend === (be === "webgpu" && !gl1 ? "webgpu" : "webgl2"), `map=${be} copc=${h.backend}`);
 		const p1 = count(await grab("copc:e"));
 		ok("drawn", p1.n > 500, JSON.stringify(p1));
