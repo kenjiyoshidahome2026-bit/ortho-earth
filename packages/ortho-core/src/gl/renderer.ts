@@ -2606,7 +2606,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			bldStencil(false);
 		}
 		// 面の貼り付け（分類）＝描き終えた深度（地形・建物・3D Tiles・模型）に柱を当てる。bit7（建物・メッシュの画素）を読むので建物の後
-		if (classify.size) classify.draw(st, logCoefOf(st));
+		if (classify.size) classify.draw(st, logCoefOf(st), terrain && elev.has && elev.scale > 0 ? 1 - (terrainActive ? elevScaleEff / elev.scale : 0) : 0, !terrainDepth);   // 真俯瞰の平ら化に柱を合わせる（classify.ts flatOrigin）・地面が深度を書かない時は単位球を地面に
 		gl.disable(gl.DEPTH_TEST);
 		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：時計の時刻の太陽直下点（ephem/sun＝solar と同じ式・均時差込み。
 		// 旧＝v1 nightJSON の赤緯正弦近似＋UTC 時刻→経度）を平行光源に、夜半球を夜紺で減光。地図の全レイヤの上に重ねる。
