@@ -1204,7 +1204,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			lin[4] * lin[8] - lin[5] * lin[7], lin[5] * lin[6] - lin[3] * lin[8], lin[3] * lin[7] - lin[4] * lin[6],
 			lin[7] * lin[2] - lin[8] * lin[1], lin[8] * lin[0] - lin[6] * lin[2], lin[6] * lin[1] - lin[7] * lin[0],
 			lin[1] * lin[5] - lin[2] * lin[4], lin[2] * lin[3] - lin[0] * lin[5], lin[0] * lin[4] - lin[1] * lin[3]];
-		const det = lin[0] * cof[0] + lin[3] * cof[1] + lin[6] * cof[2];   // < 0＝鏡に映す置き方
+		const det = lin[0] * cof[0] + lin[1] * cof[1] + lin[2] * cof[2];   // 列 0 と その余因子   // < 0＝鏡に映す置き方
 		if (det < 0) for (let i = 0; i < 9; i++) cof[i] = -cof[i];   // 法線は逆転置（＝余因子÷det）＝鏡の置き方で余因子のままだと裏を向く
 		return { lin, ox: o[0] + T[0], oy: o[1] + T[1], oz: o[2] + T[2], cof, mirror: det < 0 };
 	};
