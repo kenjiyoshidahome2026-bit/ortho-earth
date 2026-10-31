@@ -14328,6 +14328,183 @@
 			"bytes": 247
 		}
 	],
+	"images": [
+		{
+			"path": "Cesium_Logo_Color.jpg",
+			"sha256": "b71481e38e7846a3784d74c86e3404e0ba0930fbaa334b3eb76e2a09c5f27819",
+			"bytes": 49939
+		},
+		{
+			"path": "Cesium_Logo_Color_Overlay.png",
+			"sha256": "c1fd61082bb30b9e3fe3aa23592cbe1b1325d05f5b81d6be58e19b494286cb84",
+			"bytes": 23746
+		},
+		{
+			"path": "Cesium_Logo_Color_Overlay_Light.png",
+			"sha256": "c0e5188fa0317364235be06a08d3641339c79d6a949ccea9c5b58fdecad77d9d",
+			"bytes": 32484
+		},
+		{
+			"path": "Cesium_Logo_ETC1S.ktx2",
+			"sha256": "dd83cb0f6057212663a9eead6071ff8fc772b8f93c9b8b59d4bffb32f3740374",
+			"bytes": 3559
+		},
+		{
+			"path": "Cesium_Logo_UASTC.ktx2",
+			"sha256": "33824c2bae99ff70edbbc50917c057b66d84bd9456cd3a66395d52c295b35259",
+			"bytes": 13975
+		},
+		{
+			"path": "Cesium_Logo_overlay.png",
+			"sha256": "1d6a9bbf468253843d3fda9021b1592c2f85da109cecb11f6f37f875dc251332",
+			"bytes": 4664
+		},
+		{
+			"path": "bumpmap.png",
+			"sha256": "e9ff8f3c8a2c43b6335156f9f06c7c7a15621adf2152997dfff0f032e8a825ad",
+			"bytes": 28984
+		},
+		{
+			"path": "cesium-logomark-192.png",
+			"sha256": "748f3b8e390e17f0defe316f24f3421215c1e3c31ba32135f61b4ee53d28bfc2",
+			"bytes": 10082
+		},
+		{
+			"path": "cesium-logomark.svg",
+			"sha256": "60494a2b4fa4fecc2792ecf4f6d76cbd2d1a961c4f1d052313f85e090d190163",
+			"bytes": 1294
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color.jpg",
+			"sha256": "02f701546ab825119ad91a089dfbe7e758c6758e106af06469ec19a4153a9a1f",
+			"bytes": 38666
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color.jpg.aux.xml",
+			"sha256": "e2cd4e9617757d3f867e560ad5f0d3678c2f5bbf78dcdfb88589588d37cb76fd",
+			"bytes": 397
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/0/0/0.png",
+			"sha256": "2d9e2857c079c1b02aaf08ce30d9913ef605cb0ccbc973c60e4458ad52bfafd4",
+			"bytes": 1635
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/1/0/1.png",
+			"sha256": "d6d285cef43e63b397c719d7e9a2fd7c8d1b5aab166ca2c9f2116f41f773412e",
+			"bytes": 2963
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/2/0/2.png",
+			"sha256": "f341678ffe781239d1eff6398171fdfa840615ee9913e9cd9428c6a2a97dd6aa",
+			"bytes": 3706
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/2/1/2.png",
+			"sha256": "4bdf8126ac2384c07ade828ae41e2212d6f6f67e8cbb7ba8c770445d18e7f824",
+			"bytes": 2499
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/3/1/4.png",
+			"sha256": "dce80ce8e9080795370c9206baad3a8a029492b7943d77bd74ac8b2641d0d731",
+			"bytes": 7940
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/3/2/4.png",
+			"sha256": "e5194a46f7ee7de021f10d8ec853cf044456bb2a5189b19266f0928bfcf70a8d",
+			"bytes": 4567
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/4/2/8.png",
+			"sha256": "22d6dba70da687513b6acd9a2bd10d0cc457bbd3a6678307144e45eaefc1b111",
+			"bytes": 406
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/4/2/9.png",
+			"sha256": "433ca730bbc9b2549397aa63ac6df97b4307fcd4472b3c076d8684a93a79a214",
+			"bytes": 8229
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/4/3/8.png",
+			"sha256": "d9116f85fea313d90cefb700f65769c3cc42d315700e006abf8a7f1c9c8d39f6",
+			"bytes": 397
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/4/3/9.png",
+			"sha256": "38b2f6e0d4e0142d799f278791b4787e87fd550b7837904bcd3d25ea8b3b2c20",
+			"bytes": 14579
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/4/4/8.png",
+			"sha256": "d9116f85fea313d90cefb700f65769c3cc42d315700e006abf8a7f1c9c8d39f6",
+			"bytes": 397
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/4/4/9.png",
+			"sha256": "13996e73f0f27cf87bffddfa235008833b36fc9b5c54ca8016921802767da38c",
+			"bytes": 8783
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/4/5/8.png",
+			"sha256": "a3266ede77c40ab5821cb0095ad9471325e8ddbcbb45c1a75639b92012bc3edc",
+			"bytes": 416
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/4/5/9.png",
+			"sha256": "2a06a40017905bb6250e3e1d7e2d75c982ae1627b53bddf6d5645ef16622a91f",
+			"bytes": 2794
+		},
+		{
+			"path": "cesium_maptiler/Cesium_Logo_Color/tilemapresource.xml",
+			"sha256": "36b8bb8a3e14ec528106a4f7fd04b37f22d254ee4ab49d8bac733eecdf2ac51c",
+			"bytes": 892
+		},
+		{
+			"path": "checkerboard.png",
+			"sha256": "02001f551bd17f27acff9d2327002e8168a760800da1d47bc9167de37460fedc",
+			"bytes": 751
+		},
+		{
+			"path": "earthbump1k.jpg",
+			"sha256": "b6d791ba9f017a867de6629eeea29d5493e3d0a938199946676e10760c164ac7",
+			"bytes": 91237
+		},
+		{
+			"path": "earthspec1k.jpg",
+			"sha256": "e39b88d326862037f3efa2ab7c153fa93938bc14b762c4c92c6fa833354caec7",
+			"bytes": 116543
+		},
+		{
+			"path": "facility.gif",
+			"sha256": "6ff527e387b28a88547e0679aff6623c929fe9f897e786f19938054a8b03c3fb",
+			"bytes": 179
+		},
+		{
+			"path": "gitHub16px.png",
+			"sha256": "b161f78f4513089b751b2dc1d410cf457ae81026584b3e92199343b4588ce472",
+			"bytes": 1748
+		},
+		{
+			"path": "normalmap.png",
+			"sha256": "d30dfd572958394fca921e9892cceaeaee9e181744fb732e480ac8db7a054482",
+			"bytes": 26798
+		},
+		{
+			"path": "placeholder-thumbnail.jpg",
+			"sha256": "f6688457fd900aec131c477f0885d142882d1d28da83e8d4914573f5524f7944",
+			"bytes": 7655
+		},
+		{
+			"path": "share16px.png",
+			"sha256": "fac40959fd27ee6be2fc752badaf131c04696f903828aa96f90e385d21c5c035",
+			"bytes": 381
+		},
+		{
+			"path": "whiteShapes.png",
+			"sha256": "1bcbadd4fd0b245ad307eb14d46b8047939dd335ce25b87fe1730521c9dcb607",
+			"bytes": 1439
+		}
+	],
 	"sampleData": [
 		{
 			"path": "Cesium3DTiles/Batched/BatchedColors/batchedColors.b3dm",
