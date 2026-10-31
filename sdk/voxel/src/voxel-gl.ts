@@ -117,9 +117,14 @@ void main() {
 	}
 	// シーンの深度＝光線を w がそこへ届く所で切る（w は光線に沿って線形）
 	if (u_occl > 0.5 && u_sceneDepthOn > 0.5) {
-		float s = sceneDepthAt(gl_FragCoord.xy / u_vp);
-		if (s < 1.0) {
-			float ws = exp2(2.0 * s / u_sceneLogCoef) - 1.0;
+		vec2 uv = gl_FragCoord.xy / u_vp;
+		float s = sceneDepthAt(uv);
+		float ws = s < 1.0 ? exp2(2.0 * s / u_sceneLogCoef) - 1.0 : -1.0;
+#ifdef SCENE_GLOBE
+		float wg = sceneGlobeW(uv);   // 海面の球（深度に書かれない）＝地球を包む箱は地球の向こうを見せない（Cesium と同じ）
+		if (wg > 0.0 && (ws < 0.0 || wg < ws)) ws = wg;
+#endif
+		if (ws > 0.0) {
 			float w0 = dot(vec4(ro, 1.0), vec4(u_mvp[0][3], u_mvp[1][3], u_mvp[2][3], u_mvp[3][3])), dw = dot(rd, vec3(u_mvp[0][3], u_mvp[1][3], u_mvp[2][3]));
 			if (dw > 1e-12) t1 = min(t1, (ws - w0) / dw);
 		}

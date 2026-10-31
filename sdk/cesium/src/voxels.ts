@@ -83,6 +83,8 @@ export function placementOf(p: Any): Record<string, unknown> | null {
 	return null;
 }
 
+/** the custom shader shades by the light (Cesium's voxel-picking: `0.5 + 0.5 * max(0, dot(normalEC, czm_lightDirectionEC))`) = draw lit (the plugin's 0.55 + 0.45·n·l) */
+const shaderLit = (p: Any) => { const t = String(p.customShader?.fragmentShaderText ?? ""); return /czm_lightDirectionEC|czm_sunDirectionEC/.test(t) && /normalEC/.test(t); };
 /** what the custom shader draws (it is not run): the field it reads, or white */
 const drawsField = (p: Any, field: string) => {
 	const t = String(p.customShader?.fragmentShaderText ?? "");
@@ -133,7 +135,7 @@ export class VoxelDrawer {
 		} else if (g.comps === 1) unsupported("VoxelPrimitive scalar field in a custom shader (drawn with a colormap)");
 		await this.#ensurePlugin(map);
 		const comps = values.length === g.dims[0] * g.dims[1] * g.dims[2] ? 1 : 4;
-		const h = map.addData({ ...place, dims: g.dims, components: comps, values }, { kind: "voxel", render, colormap: "grey", altitude: "absolute", properties: { field: g.field }, lighting: !(field && g.comps === 4) });   // a VEC4 colour field is drawn unlit (buildVoxelCustomShader's colour shader); the default and the colormap shaders shade by the light
+		const h = map.addData({ ...place, dims: g.dims, components: comps, values }, { kind: "voxel", render, colormap: "grey", altitude: "absolute", properties: { field: g.field }, lighting: !(field && g.comps === 4) || shaderLit(p) });   // a VEC4 colour field is drawn unlit (buildVoxelCustomShader's colour shader) unless the shader lights it (shaderLit); the default and the colormap shaders shade by the light
 		await h.ready;
 		h.__values = g.comps === 4 ? g.values : null;   // the provider's values, for VoxelCell.getProperty
 		return h;
