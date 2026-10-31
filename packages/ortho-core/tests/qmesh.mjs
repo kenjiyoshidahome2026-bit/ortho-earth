@@ -139,8 +139,28 @@ console.log("― 近景層の窓（range < 1）：陸でも無い段は親で埋
 	const { createQmeshSource } = await import("../src/qmesh-src.ts");
 	const src = createQmeshSource({ url: "https://n.test/layer.json", heights: "orthometric" });
 	const c = await src.cell(2.917969, 46.380859, 1 / 64, 65);
-	ok(asked.includes(15) && asked.includes(14), `窓の段 z15 を試してから親の z14 へ（取った段 ${[...new Set(asked)].sort((a, b) => a - b).join(",")}）`);
-	ok(c && c.valid === 1 && c.data[32 * 65 + 32] === 412, `z15 が無くても z14 で穴が無い（valid ${c?.valid}・中央 ${c?.data[32 * 65 + 32]}）`);
+	ok(asked.includes(17) && asked.includes(14) && !asked.includes(13), `窓の段 z17（窓/12）を試してから親の z14 へ（取った段 ${[...new Set(asked)].sort((a, b) => a - b).join(",")}）`);
+	ok(c && c.valid === 1 && c.data[32 * 65 + 32] === 412, `z17〜15 が無くても z14 で穴が無い（valid ${c?.valid}・中央 ${c?.data[32 * 65 + 32]}）`);
+}
+
+console.log("― 近景層の窓の段＝1025 texel に見合う深さ（タイル幅≈窓/12・13×13≤169 枚）―");
+{
+	// 1/4° の窓（目が 5 km 先＝high-dynamic-range）は従来 z11（誤差 38 m＝崖が団子）→ z13（Cesium が目の近くで見せる段）。1/8° → z14
+	const run = async (range) => {
+		const asked = new Set(); let n = 0;
+		globalThis.fetch = async (u) => {
+			const url = String(u);
+			if (url.endsWith("layer.json")) return { ok: true, json: async () => ({ format: "quantized-mesh-1.0", tiles: ["{z}/{x}/{y}.terrain"], maxzoom: 18, extensions: ["metadata"], metadataAvailability: 10 }) };
+			const [z] = url.split("/").slice(-3).map(v => parseInt(v)); asked.add(z); n++;
+			const b = makeTile([0, 0, 1, 1], 5, () => 100).ab; return { ok: true, arrayBuffer: async () => b };
+		};
+		const { createQmeshSource } = await import("../src/qmesh-src.ts");
+		const c = await createQmeshSource({ url: `https://z${Math.round(1 / range)}.test/layer.json`, heights: "orthometric" }).cell(-111.875, 36.25, range, 65);
+		return { z: [...asked], n, valid: c?.valid };
+	};
+	const q = await run(0.25), e = await run(0.125);
+	ok(q.z.length === 1 && q.z[0] === 13 && q.n <= 169 && q.valid === 1, `1/4° の窓は z13・${q.n} 枚（${q.z.join(",")}）`);
+	ok(e.z.length === 1 && e.z[0] === 14 && e.n <= 169 && e.valid === 1, `1/8° の窓は z14・${e.n} 枚（${e.z.join(",")}）`);
 }
 
 if (fails) { console.error(`FAIL ${fails}`); process.exit(1); }

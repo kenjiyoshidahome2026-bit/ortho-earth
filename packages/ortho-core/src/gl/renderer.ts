@@ -10,7 +10,7 @@ import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
+import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, liftedBboxVisible, worldRadiusM, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
 import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
 import type { DrapeIn, DrapeMap } from "../drape.ts";
 import { viewRays } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
@@ -628,6 +628,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）。unit8（2-5=メッシュマスク・6=md線・7=gint elev と不干渉）
 	let farTex: WebGLTexture | null = null, far: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
 	let nearTex: WebGLTexture | null = null, near: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };   // 近景層（1 セル・順 1a 2026-10-28）＝unit NEAR_UNIT
+	let fine: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };   // 足元層（fine・2026-10-31）＝近景テクスチャの右半分（cx=1）。has はセルが書けてから 1
 	// 気候場テクスチャ（全球ハイプソの cross-blend 用・view.worldHypso.clim の URL から一度だけ取得）。
 	// 未着の間はシェーダが緯度近似へフォールバック（u_hasClim=0）＝1-2フレームの色ズレのみ。
 	let climTex: WebGLTexture | null = null, climLoading = false;
@@ -1560,7 +1561,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// ── 近景層（near）アトラス ──：1 セル（1024²・2MB）。terrain.ts は焼けてから「elevAtlasNear → elevCellNear」を続けて送る＝張替えの瞬間の平坦は無い。
 	// has はセルが書けてから 1（主パスの discard は中身がある時だけ）。メッシュは近窓と同じ単位格子を u_mesh で近景窓へ縮める
 	function setElevationAtlasNear(a: ElevAtlasDesc): void {
-		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 0.25;
+		const W = 2 * a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 0.25;   // 2 セル幅：右半分＝足元層（fine）の枠（シェーダは近景の u を 0.5 倍で引く）
 		if (!nearTex) nearTex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, nearTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -1570,12 +1571,16 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		near = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], has: 0, edgeFade: a.edgeFade || 0 };
+		fine.has = 0;   // テクスチャを作り直した＝足元層のセルは消えた（terrain.ts が張り直す）
 	}
-	function setElevationCellNear(cx: number, cy: number, data: CellPayload, cellRes: number): void { if (nearTex) { putCellAny(nearTex, cx, cy, data, cellRes); near.has = 1; } }
+	function setElevationCellNear(cx: number, cy: number, data: CellPayload, cellRes: number): void { if (nearTex) { putCellAny(nearTex, cx, cy, data, cellRes); if (cx === 1) fine.has = fine.bounds[3] > 0 ? 1 : 0; else near.has = 1; } }
 	function clearElevationNear(): void {
 		if (nearTex) gl.deleteTexture(nearTex);
-		nearTex = null; near = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+		nearTex = null; near = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 }; fine = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
 	}
+	// 足元層（fine）の窓：elevFineOn（窓）→ elevCellNear cx=1（中身）で has=1。elevFineOff＝has=0（テクスチャはそのまま）
+	function setFineOn(d: { originLng: number; originLat: number; span: number; edgeFade?: number }): void { fine = { bounds: [d.originLng, d.originLat, d.span, d.span], has: 0, edgeFade: d.edgeFade || 0 }; }
+	function setFineOff(): void { fine.has = 0; }
 	// 地形メッシュ＝単位格子 [0,1]²（G だけに依存）。窓の原点/幅は uniform u_mesh で渡す＝
 	// 標高アトラスの窓替え（パンのたび）でメッシュを作り直さない。旧実装は毎回 lon/lat を焼いた
 	// 頂点配列(G=1536 で 18.9MB)＋index(56.5MB)を作って GPU へ上げ直しており、広域×高チルトの
@@ -1599,8 +1604,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	}
 	// 地形チャンクのカリング（perf plan P4 step B・gpu/renderer.js と同じ純関数）：可視チャンクの区間だけ drawElements。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
-	const terrStat = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 } };   // fine＝近景層のパス
-	const terrRuns = (mesh: ArrayLike<number>, st: GLCamState, which: "near" | "far" | "fine"): DrawRun[] => TERR_LOD ? visibleChunkRuns(terrain!.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain!.chunks.length, [[0, terrain!.count]]);
+	const terrStat = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 }, foot: { drawn: 0, of: 0 } };   // fine＝近景層のパス・foot＝足元層のパス
+	const terrRuns = (mesh: ArrayLike<number>, st: GLCamState, which: "near" | "far" | "fine" | "foot"): DrawRun[] => TERR_LOD ? visibleChunkRuns(terrain!.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain!.chunks.length, [[0, terrain!.count]]);
 
 	// 建物メッシュ（LOD2 等）を受ける。key=バッチキー "区名#i"（data あり）または区名（data=null＝区の全バッチ+マスク解放）。
 	// data={ pos:Float32Array(xyz…), idx:Uint32Array, ward, mask, maskN, maskBbox }（頂点は ortho 単位球座標へ変換済み）。
@@ -1897,6 +1902,9 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.uniform4f(loc(gl, prog, "u_nearBounds"), near.bounds[0], near.bounds[1], near.bounds[2], near.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_hasNear"), near.has);
 		gl.uniform1f(loc(gl, prog, "u_nearEdgeFade"), near.edgeFade || 0);
+		gl.uniform4f(loc(gl, prog, "u_fineBounds"), fine.bounds[0], fine.bounds[1], fine.bounds[2], fine.bounds[3]);   // 足元層（fine）
+		gl.uniform1f(loc(gl, prog, "u_hasFine"), fine.has && near.has ? 1 : 0);
+		gl.uniform1f(loc(gl, prog, "u_fineEdgeFade"), fine.edgeFade || 0);
 	}
 
 	function draw(cam: CameraPose, opts?: GLDrawOptions | null): boolean {
@@ -2177,8 +2185,14 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				gl.uniform4f(loc(gl, terrainProg, "u_mesh"), near.bounds[0], near.bounds[1], near.bounds[2], near.bounds[3]);
 				setCogMesh(near.bounds); setGndMesh(near.bounds);
 				for (const [f0, n] of terrRuns(near.bounds, st, "fine")) gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_INT, f0 * 4);
+				if (fine.has) {   // 足元メッシュ＝同じ単位格子を足元層の窓へ縮めて 4 度目のドロー（近景メッシュパスはその内側を discard 済み）
+					gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 3);
+					gl.uniform4f(loc(gl, terrainProg, "u_mesh"), fine.bounds[0], fine.bounds[1], fine.bounds[2], fine.bounds[3]);
+					setCogMesh(fine.bounds); setGndMesh(fine.bounds);
+					for (const [f0, n] of terrRuns(fine.bounds, st, "foot")) gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_INT, f0 * 4);
+				} else { terrStat.foot.drawn = 0; terrStat.foot.of = 0; }
 				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
-			} else { terrStat.fine.drawn = 0; terrStat.fine.of = 0; }
+			} else { terrStat.fine.drawn = 0; terrStat.fine.of = 0; terrStat.foot.drawn = 0; terrStat.foot.of = 0; }
 			if (clipFr && clipFr.tp.terrain.length && clip!.style.capOn) {   // 地形の蓋（断面）＝地形と同じ深度の流儀・polygonOffset は外す（蓋は地形の手前で勝つ）
 				if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
 				gl.depthMask(true);
@@ -2501,10 +2515,11 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
 			const vis: { p: MeshBatch; count: number }[] = [];   // 可視バッチ（カリング＋LOD 済み）＝描く順を並べ替えるため一度溜める
+			const liftGroundR = 1 + Math.max(0, cam.centerAlt || 0) / worldRadiusM();   // 注視点の地面の高さ（持ち上げる束の間引きの第 2 候補・camera.ts liftedBboxVisible）
 			for (const p of meshes.values()) {
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
-				if (!bboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2])) continue;   // 重心の高さで射影（camera.ts bboxVisible）
+				if (!liftedBboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2], p.noLift ? 0 : liftGroundR)) continue;   // 重心の高さで射影（camera.ts bboxVisible）・持ち上げる束は注視点の地面の高さでも（liftedBboxVisible・2026-10-31）
 				let count = p.count;
 				// LOD打ち切りは建物のみ。橋梁（two＝両面）は「高さ3〜5m×長さ数百m」＝高さ基準だと小物と誤判定され
 				// 桁が距離で歯抜けになる（横浜ベイブリッジで実測）ため適用しない。橋梁データは軽い＝全描画で問題ない。
@@ -2694,6 +2709,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			case "elevAtlasNear": setElevationAtlasNear(data as ElevAtlasDesc); break;                           // 近景層（1 セル・順 1a）
 			case "elevCellNear": setElevationCellNear((prop as ElevCellProp).cx, (prop as ElevCellProp).cy, data as CellPayload, (prop as ElevCellProp).cellRes); break;
 			case "elevAtlasNearOff": clearElevationNear(); break;
+			case "elevFineOn": setFineOn(data as { originLng: number; originLat: number; span: number; edgeFade?: number }); break;   // 足元層（fine）
+			case "elevFineOff": setFineOff(); break;
 			case "meshSet": setMeshSet(prop as string, data as MeshIn | null); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
 			case "classify": classify.set(prop as string, data as Parameters<typeof classify.set>[1]); break;   // 面の貼り付け（分類・2026-10-25）＝柱一式（null＝外す）
 			case "classifyStyle": classify.style(prop as string, data as Parameters<typeof classify.style>[1]); break;

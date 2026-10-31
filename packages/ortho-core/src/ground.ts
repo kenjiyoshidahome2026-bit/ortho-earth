@@ -4,7 +4,7 @@
 //   前景＝画面下 3/4 の地点を中心に、中心とのカメラ距離比 r（≥1.3 の時だけ）で縮尺を上げた窓＝チルトの手前が近窓の解像度で
 //   甘くなる件の根治（本人指摘 9/21）。r は 1/4 段で量子化＝チルト中に毎フレーム作り直さない。
 // 原点は半幅の 1/4 刻みにスナップ＝カメラが窓幅の 1/8 動いた時だけ再合成（標本化は正確な窓座標で行う＝絵は飛ばない）。
-import { cameraState, unproject, lonlatTo3D } from "./camera.ts";
+import { cameraState, unproject, lonlatTo3D, worldRadiusM } from "./camera.ts";
 import type { CameraPose, LonLat } from "./camera.ts";
 
 /** 地面アトラスの窓＝[西, 南, 東, 北]（度） */
@@ -24,10 +24,15 @@ export function groundWindows(cam: CameraPose, W: number, H: number, liftM = 0):
 	// 宙の注視点（centerAlt＞0：上空の模型を数 m から見る trackedEntity 等）：zoom は注視点までの距離＝地面は遥かに遠い。
 	// 窓は「画面中心の地面」を中心に、目から地面までの距離に合わせた zoom で取る（旧＝注視点の zoom のまま＝数 m 四方の窓＝地面が下地の色）
 	let zoom = cam.zoom, cx = cam.center[0], cy = cam.center[1];
+	// 地面の球（gR）＝注視点の下の地面の高さ（cam.groundAlt）：視線が当たる所までの距離は、海面球（R=1）だと山岳で数倍遠い
+	// （fog＝目 3,640 m・地面 2,840 m：画面下端の地面は 1 km 先なのに海面球では 6.7 km）＝窓が 4〜5 倍広く、手前の画像が z15（8 m/texel）に
+	// ぼやけた（Cesium は z18）。無指定＝1＝従来とビット同値
+	const gR = 1 + Math.max(0, cam.groundAlt || 0) / worldRadiusM();
+	const at = (p: LonLat): number[] => { const q = lonlatTo3D(p[0], p[1]); return gR === 1 ? q : [q[0] * gR, q[1] * gR, q[2] * gR]; };
 	if ((cam.centerAlt || 0) > 0) {
-		const st = cameraState(cam, W, H), pc = unproject(st, W / 2, H / 2);
-		if (pc) { const q = lonlatTo3D(pc[0], pc[1]); zoom -= Math.log2(Math.max(1, Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]) / st.camDist)); cx = pc[0]; cy = pc[1]; }
-		else zoom -= Math.log2(Math.max(1, (Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - 1) / st.camDist));   // 空を見ている＝目の高さ
+		const st = cameraState(cam, W, H), pc = unproject(st, W / 2, H / 2, gR);
+		if (pc) { const q = at(pc); zoom -= Math.log2(Math.max(1, Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]) / st.camDist)); cx = pc[0]; cy = pc[1]; }
+		else zoom -= Math.log2(Math.max(1, (Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - gR) / st.camDist));   // 空を見ている＝目の高さ（地面の球から）
 	}
 	const zq = Math.floor(zoom * 4) / 4;
 	const capW = 360 * (W / dpr) / (256 * Math.pow(2, zq)), capH = capW * H / W;
@@ -35,9 +40,9 @@ export function groundWindows(cam: CameraPose, W: number, H: number, liftM = 0):
 	// 前景：画面中心と画面下 90% の地点のカメラ距離比。両方が球上（チルトで下端が空＝null なら無し）
 	if ((cam.pitch || 0) > 0.06) {
 		const st = cameraState(cam, W, H);
-		const pc = unproject(st, W / 2, H / 2), pb = unproject(st, W / 2, H * 0.9), pf = unproject(st, W / 2, H * 0.75);
+		const pc = unproject(st, W / 2, H / 2, gR), pb = unproject(st, W / 2, H * 0.9, gR), pf = unproject(st, W / 2, H * 0.75, gR);
 		if (pc && pb && pf) {
-			const d = (p: LonLat): number => { const q = lonlatTo3D(p[0], p[1]); return Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]); };
+			const d = (p: LonLat): number => { const q = at(p); return Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]); };
 			const r = Math.pow(2, Math.floor(Math.log2(Math.max(1, d(pc) / d(pb))) * 4) / 4);   // 1/4 段で量子化
 			if (r >= 1.3) { out.push(snapWin(pf[0], pf[1], capW / r * 1.1, capH / r * 1.1)); out.fg = true; }
 		}

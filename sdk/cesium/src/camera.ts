@@ -9,7 +9,7 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const enu = new Matrix4(), rot = new Matrix3(), inv = new Matrix3(), ray = new Ray(), carto = new Cartographic();
 const v1 = new Cartesian3(), v2 = new Cartesian3(), v3 = new Cartesian3(), E = new Cartesian3(), N = new Cartesian3(), U = new Cartesian3();
 
-export interface GlobeCam { lng: number; lat: number; height: number; distance: number; heading: number; pitch: number; roll: number; pending?: boolean; near?: number }
+export interface GlobeCam { lng: number; lat: number; height: number; distance: number; heading: number; pitch: number; roll: number; pending?: boolean; near?: number; groundAlt?: number }   // groundAlt＝注視点の下の地面の高さ［m］（画像窓の距離の物差し・terrainAt がある時だけ）
 
 /** the east, north and up axes at a point (ECEF) */
 function axesAt(p: Cartesian3): void {
@@ -37,6 +37,7 @@ export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, foc
 	else if (hit && hit.start > 0) t = hit.start;
 	else if (hit && hit.stop > 0) t = Math.min(hit.stop, Math.max(1000, -c.height * 10));   // inside the ellipsoid (below sea level): a point ahead, not the far side of the earth (an underground camera had its target 2200 km away: no imagery, the near models cut, underground-color 2026-10-29)
 	else t = Math.max(1000, c.height);   // sky: a target along the ray as far as the camera is high
+	let groundAlt: number | undefined;
 	if (terrainAt && !(focus && t === ft)) {
 		// the march goes on past the ellipsoid: ground under it (Cesium World Terrain is in ellipsoid heights, San Francisco Bay's shore is at −30 m,
 		// the Dead Sea at −450 m) was never met when the march stopped at the ellipsoid, so the target stayed 30 m above the ground and the camera
@@ -65,6 +66,11 @@ export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, foc
 	}
 	const out: GlobeCam = { lng: tc.longitude * R2D, lat: tc.latitude * R2D, height: tc.height, distance: t, heading: ((heading % 360) + 360) % 360, pitch, roll: Math.abs(roll) < 1e-3 ? 0 : roll };
 	if (pending) out.pending = true;
+	// the ground under the target (the globe's imagery windows measure the view's distances on a sphere at this height, not at sea level: a camera
+	// standing in the mountains got windows 4-5× too wide and blurry foreground imagery, fog / high-dynamic-range 2026-10-31). On the terrain = the
+	// target's own height; a target in the air (tracked entity, sky) = the terrain under it; unknown yet = left out (sea level)
+	if (terrainAt) { const g = terrainAt(out.lng, out.lat); if (g != null && Number.isFinite(g)) groundAlt = Math.max(0, g); }
+	if (groundAlt !== undefined) out.groundAlt = groundAlt;
 	return out;
 }
 /** how far the view ray (ray.origin / ray.direction) goes before it meets the terrain: null = no crossing before tMax. pending = a sample had no height yet */
