@@ -31,7 +31,7 @@
 |---|---|---|---|
 | 殻アプリの scripts/verify-i18n.mjs・i18n-build.mjs | 23＋21 個の写し | globe の `scripts/lib/i18n-shell.mjs`（verifyShellI18n・buildShellI18n）を呼ぶだけに | **#813 済**（門の出力は前後で byte 一致） |
 | gadgets の GL 描き手 7 つ（arcs・points・trips・sprites・copc・customgl・columnar）の program 作成と pick 窓の読み | 各 10〜20 行 | `gadgets/glprog.ts`（glProgram・readPickWindow・decodeId・nearestId） | **#814 済**（Mac 実 GPU で main と同じ。t-copc の backend 待ちも直した） |
-| apps/census2020 と apps/gishub-jp の census/ui.ts・small-area.ts | 1,193 と 1,132 行 | 共通部品に括り出す | **判断待ち**（中身が分かれた：差 345 行、データ源と型が違う。gishub-jp→japan の統合を待つか） |
+| apps/census2020 と apps/gishub-jp の census/ui.ts・small-area.ts | 1,193 と 1,132 行 | census2020 を正とし、gishub-jp の画面は census2020 への案内に（本人裁定 2026-10-31「消す方向」。経緯＝8/12 に census2020 を 1 日で出した時の写しが残り、7/16 の方針で gishub-jp の描画は消える側） | **#816** |
 | sdk の voxel・splat・scene の -gl/-gpu の定型 | voxel 547/570・splat 275/426 行 | globe の glprog を export して使う | 後回し（sdk は globe を型だけで読む＝globe のリリースが要る） |
 | core の gl/ と gpu/（renderer・シェーダ・gint・poststage・classify・depthout） | GL 9,000・GPU 10,500 行。10 月に renderer を触った 55 コミットのうち 43 が両方 | 一つのソースにはしない。カリング・バッチの選び・影の範囲などの純関数だけ terrainlod.ts の形で抜く | 段階 3 |
 | 各アプリの vite.config、physical と terrain、parks と parks-us | 小 | 共通の設定関数へ | 急がない |
@@ -62,14 +62,14 @@
 | 0 | 計器：`?perf=1` の `[csperf]`（sdk/cesium/src/perf.ts の timed＝display・prims・colls・voxels・particles・clouds・timePoints の平均/最大 ms と回数を 2 秒ごと）と `[t3perf]`（選びの ms・1 フレームに見たノード数）。初期バンドルの大きさの関門。Mac で perf plan の 3 シーン＋Cesium の重い例 5 本、iPhone は本人に一度 | 表が §5 に埋まる | 計器は #815、測定は Mac で実行中 |
 | 1 | §2 の「#815」の 3 件。静的 import の遅延は段階 0 の数字で選ぶ | Sandcastle を撮り直して段が下がらない・3D Tiles の頁が main と同じ | #815 |
 | 2 | 既存の速さの計画の残り（paint 表・T-P1 の門・render bundle・topology） | MapLibre の門・verify:webgpu・verify:ui 緑、perf plan の表に数字 | 未着手 |
-| 3 | 重複の残り（census・sdk の定型・gl/gpu の純関数） | 門の出力が前後で同じ | #813・#814 済、残りは未着手 |
+| 3 | 重複の残り（sdk の定型・gl/gpu の純関数） | 門の出力が前後で同じ | #813・#814・#816（census）済、残りは未着手 |
 | 4 | 構造：globe.ts と gpu/renderer.ts の分割、facade の any（cesium 約 700・leaflet 約 570・gmaps 約 200）を公開 API の型から | 機能追加の邪魔になった時 | 後回し |
 
 ## 4. やらないこと・決めてほしいこと
 
 - やらない（既存の計画でも見送り）：描画ループやタイル結合の WASM 化、multi-draw-indirect、GL と GPU のシェーダを一つのソースから生成する作り直し、3D Tiles の選びの worker 化（段階 1 の数字を見てから）。
 - 決めてほしいこと：
-  1. census の写しを今括り出すか、gishub-jp の japan への統合を待つか（推奨：統合が近くなければ今）。
+  1. ~~census の写し~~＝2026-10-31 裁定済み（gishub-jp 側を消す）。
   2. WebGL2 をいつまで維持するか（推奨：当面維持。WebGPU の無い端末がある間は残す。これで二重実装の費用が続く期間が決まる）。
 
 ## 5. 計測（段階 0）
