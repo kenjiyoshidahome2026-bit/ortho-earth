@@ -123,6 +123,19 @@ const strs = list => { const bs = list.map(enc), all = new Uint8Array(bs.reduce(
 	const r2 = await decodeModel(plain, { at: [139.7671, 35.6812] });
 	ok("decode.none", r2.batches[0].features === null && r2.features === null && !r2.stats.features);
 }
+
+// glTF の線（LINES）＝細い管にして描く：地物の番号（_FEATURE_ID_n）が管の頂点にも付く（2026-10-31・3d-tiles-property-lod-river の川の色分け）
+{
+	const json = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+		meshes: [{ primitives: [{ mode: 1, attributes: { POSITION: 0, _FEATURE_ID_0: 2 }, indices: 1, extensions: { EXT_mesh_features: { featureIds: [{ featureCount: 2, attribute: 0 }] } } }] }],
+		accessors: [{ bufferView: 0, componentType: 5126, count: 4, type: "VEC3", min: [0, 0, 0], max: [20, 0, 10] }, { bufferView: 1, componentType: 5123, count: 4, type: "SCALAR" }, { bufferView: 2, componentType: 5126, count: 4, type: "SCALAR" }],
+		extensionsUsed: ["EXT_mesh_features"] };
+	const glb = glbOf(json, [B(Float32Array.of(0, 0, 0, 10, 0, 0, 10, 0, 10, 20, 0, 10)), B(Uint16Array.of(0, 1, 2, 3)), B(Float32Array.of(0, 0, 1, 1))]);
+	const r = await decodeModel(glb.slice(0), { at: [139.7671, 35.6812] });
+	const f = r?.batches?.[0]?.features, ids = f ? [...f.ids] : null;
+	ok("lines.tubes", !!r && r.batches.length === 1 && !!ids && ids.length === 16, `vertices ${ids?.length}`);   // 2 本の線分 × 8 頂点の管
+	ok("lines.ids", !!ids && ids.length === 16 && ids.slice(0, 8).every(v => v === 0) && ids.slice(8).every(v => v === 1), J(ids));
+}
 // 型 → 成分の数（own の名前だけ＝旧 NCOMP[type] は "constructor" 等で Object.prototype の物を返した）
 {
 	const want = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
