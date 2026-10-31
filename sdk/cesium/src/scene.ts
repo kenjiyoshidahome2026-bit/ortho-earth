@@ -246,6 +246,7 @@ export class OrthoScene {
 				if (c) credits.addCreditToNextFrame(c);
 			}
 			this.controllerHost.update(this, time);   // as Scene.render: the registered controllers move the camera before it is pushed to the globe
+			this.#collide();
 			this.#pushCamera();
 			this.globe?.__orthoSyncMaterial?.();   // globe.material → the globe's ground material (after preRender: the examples set its uniforms there)
 			for (const t of (this as any).__tilesets ?? []) t.__sync?.(this);   // tileset pointCloudShading → the globe
@@ -264,6 +265,21 @@ export class OrthoScene {
 	}
 	forceRender(time?: any) { this.initializeFrame(); this.render(time); }
 	requestRender() { this.host.map?.requestDraw?.(); }
+	/** the screen-space camera controller's collision (Cesium's adjustHeightForTerrain): a camera lower than minimumZoomDistance above the globe is
+	 *  lifted to it, as Cesium does below minimumCollisionTerrainHeight with the globe shown. particle-system-fireworks puts the eye 7 mm over
+	 *  the ellipsoid; Cesium shows it 1 m up (at 7 mm the ground under the sky was a navy band here).
+	 *  The ellipsoid only (no terrain: the globe height is 0). Under a terrain the globe answers 0 while the tile is still on its way and its
+	 *  heights are not Cesium's to the metre, so a camera Cesium leaves where it is (aerometrex-san-francisco 9 m under the ellipsoid) would be
+	 *  thrown up: not done there yet */
+	#collide() {
+		const c = this.screenSpaceCameraController, map = this.host.map;
+		if (!map || !c || c.enableCollisionDetection === false || !this.globe || this.globe.show === false || map.getTerrain?.()) return;
+		const pc = Ellipsoid.WGS84.cartesianToCartographic(this.camera.positionWC, this.#collideCarto), want = Number(c.minimumZoomDistance) || 0;
+		if (!pc || !(pc.height < (c.minimumCollisionTerrainHeight ?? 15000)) || !(pc.height < want)) return;
+		pc.height = want;
+		setCameraWorldPose(this.camera, { position: Ellipsoid.WGS84.cartographicToCartesian(pc), direction: Cartesian3.clone(this.camera.directionWC), up: Cartesian3.clone(this.camera.upWC) });
+	}
+	#collideCarto = new Cartographic();
 	/** Cesium code moved the camera: show it on the globe */
 	#pushCamera() {
 		const map = this.host.map;
