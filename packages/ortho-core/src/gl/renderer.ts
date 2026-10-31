@@ -1880,6 +1880,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.uniform4f(loc(gl, prog, "u_ellTrig"), ...((_ell ? [Math.cos(2 * _pr), Math.sin(2 * _pr), Math.cos(4 * _pr), Math.sin(4 * _pr)] : [0, 0, 0, 0]) as Vec4T));
 		gl.uniform1f(loc(gl, prog, "u_ell"), _ell ? 1 : 0);
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
+		gl.uniform1f(loc(gl, prog, "u_lineDpr"), lastDpr);   // the mesh VS's line ribbons (CSS px → device px)
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5 * fogK());
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0 * fogK());
 		fog = fogColorOf(fog);
@@ -2759,9 +2760,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.textured && (data as Uint8Array | null | undefined)?.length && p.bufs[4]) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[4]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data as Uint8Array); gl.bindBuffer(gl.ARRAY_BUFFER, null); } break; }   // 頂点色だけ書き換える（feature state の色・W7）＝Uint8Array RGBA×頂点（長さは meshSet と同じ）
 			case "meshPos": {   // skin の頂点の焼き直し（2026-10-28）＝pos（原点相対・Float32・3n）と法線（Int8・4n）を同じ頂点数のまま書き換える（大きさが違えば捨てる）
 				const p = meshes.get(prop as string), d = data as { pos?: Float32Array; nrm?: Int8Array } | null;
-				if (!p || !d?.pos?.length) break;
-				gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[0]);
-				if (gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) === d.pos.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.pos);
+				if (!p || (!d?.pos?.length && !d?.nrm?.length)) break;   // nrm alone: a line batch's widths (the style's lineWidth, in the normal's 4th byte)
+				if (d.pos?.length) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[0]); if (gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) === d.pos.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.pos); }
 				if (d.nrm?.length) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[1]); if (gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) === d.nrm.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.nrm); }
 				gl.bindBuffer(gl.ARRAY_BUFFER, null);
 				break;
