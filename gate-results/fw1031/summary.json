@@ -1,0 +1,49 @@
+{
+ "at": "2026-10-31T10:49:18.579Z",
+ "cesium": "1.146.0",
+ "n": 1,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [],
+ "graded": [
+  {
+   "name": "particle-system-fireworks",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2031,
+    "n": 2143,
+    "colour": 0.9631357909472702,
+    "edge": 0.9640690620625292,
+    "blob": 19,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
