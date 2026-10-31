@@ -8,7 +8,7 @@
 //   5. createRaster：偽 renderer＋MessagePort プロバイダで add→update→描画リスト→hideFills→set/remove の一周（fetch/ImageBitmap 不要）
 // 使い方: node packages/ortho-core/tests/raster.mjs
 import { expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities, adjustRGBA } from "../src/raster-src.ts";
-import { buildTileMesh, buildPoleCapMesh, ancestorUV, subdivOf, createRaster } from "../src/raster.ts";
+import { buildTileMesh, buildPoleCapMesh, ancestorUV, subdivOf, createRaster, cesiumTilePx } from "../src/raster.ts";
 import { tileBounds, tileLocalToLonLat } from "../src/tile.ts";
 
 let fails = 0;
@@ -366,6 +366,33 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	raster.update(camL, 1280, 720, { groundR: lift, farR: lift });   // 最後の到着の dirty を消化
 	{ const r0 = R.last.rev, a0 = asked; raster.update(camL, 1280, 720, { groundR: lift, farR: lift }); ok(R.last.rev === r0 && asked === a0, `lift: same lift again = no re-select, no requests (rev ${r0}→${R.last.rev}, asked +${asked - a0})`); }
 	raster.destroy(); ch.port1.close();
+}
+
+// 9. sse（Cesium の口・globe.maximumScreenSpaceError）＝Cesium の ImageryLayer と同じ z（google-2d-tiles の文字が半分の大きさだった・2026-10-31）
+{
+	ok(near(cesiumTilePx(2, 0), 512, 1e-6) && near(cesiumTilePx(2, 60), 512, 1e-6), `cesiumTilePx: equator / 60° = 512 px (${cesiumTilePx(2, 0)}, ${cesiumTilePx(2, 60)})`);
+	ok(Math.abs(cesiumTilePx(2, 40) - 392.2) < 0.1, `cesiumTilePx: 40°N = 1024·cos40°/2 ≈ 392 (${cesiumTilePx(2, 40).toFixed(1)})`);
+	ok(near(cesiumTilePx(4, 40), 2 * cesiumTilePx(2, 40), 1e-9) && near(cesiumTilePx(2, 40, 512), 2 * cesiumTilePx(2, 40), 1e-9), "cesiumTilePx: ∝ sse; a 512-px provider = one level coarser");
+	// 選抜の最細 z：sse 無し（地球の規則＝282 px で分割）と sse 2（40°N＝392 px）。z の小数部 0.2〜0.7 では一段違う・それ以外は同じ（二段違うことは無い）
+	const maxZ = async (sse, zoom) => {
+		const ch9 = new MessageChannel(); let zmax = -1;
+		ch9.port1.onmessage = ev => { const q = ev.data; if (q.abort) return; zmax = Math.max(zmax, q.z); ch9.port1.postMessage({ id: q.id, bitmap: { width: 256, height: 256 } }); };
+		ch9.port1.postMessage({ type: "info", info: { tileSize: 256, minZoom: 0, maxZoom: 22, bbox: null, name: "z" } });
+		const R9 = { rasterTex: () => ({ bytes: 1 }), rasterMesh: () => ({ bytes: 1 }), rasterFree: () => {}, setRasterDraws: () => {} };
+		const r9 = createRaster({ renderer: R9, requestDraw: () => {}, post: () => {} });
+		await r9.add("s", { port: ch9.port2 }, { order: "over", ...(sse ? { sse } : {}) });
+		const cam9 = { center: [-75.118, 40.0], zoom, pitch: 0, bearing: 0, dpr: 1 };
+		for (let i = 0; i < 6; i++) { r9.update(cam9, 800, 600); await new Promise(r => setTimeout(r, 20)); }
+		r9.destroy(); ch9.port1.close();
+		return zmax;
+	};
+	let diff1 = 0;
+	for (const zoom of [10, 10.25, 10.5, 10.75, 11]) {
+		const a = await maxZ(0, zoom), b = await maxZ(2, zoom);
+		ok(b <= a && a - b <= 1, `sse 2 picks the same or one level coarser (zoom ${zoom}: ${a} → ${b})`);
+		if (a - b === 1) diff1++;
+	}
+	ok(diff1 > 0, `sse 2 is one level coarser over part of each zoom step (${diff1} of 5)`);
 }
 
 console.log(fails ? `✗ ${fails} failure(s)` : "✓ raster: all checks passed");
