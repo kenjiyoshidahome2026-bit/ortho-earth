@@ -175,10 +175,11 @@ export function syncImagery(scene: Any, map: Any): void {
 		for (const id of placed) if (!keep.has(id)) { if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(id)) map.removeSource(id); }
 		const before = () => map.getStyle?.()?.layers?.find((l: Any) => /^__cs-(fill|line|ext)/.test(l.id))?.id;
 		for (const w of want) {
-			const adj = adjustPaint(w.layer), paint = { "raster-opacity": w.layer.alpha ?? 1, ...adj }, adjSig = JSON.stringify([adj, w.src.tiles ?? w.src.url ?? null]);   // the tiles change with a time-dynamic provider's interval
+			const sd = w.layer.splitDirection < 0 ? "left" : w.layer.splitDirection > 0 ? "right" : "none";   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 → paint raster-split (the globe's extension; scene.splitPosition → map.setSplitPosition in viewer.ts)
+			const adj = adjustPaint(w.layer), paint = { "raster-opacity": w.layer.alpha ?? 1, "raster-split": sd, ...adj }, adjSig = JSON.stringify([adj, w.src.tiles ?? w.src.url ?? null]);   // the tiles change with a time-dynamic provider's interval
 			if (map.getSource?.(w.id) && adjSigs.get(w.id) !== adjSig) { map.removeLayer(w.id); map.removeSource(w.id); }   // the globe bakes the colour adjustment into the tiles at decode: a change re-mounts the layer
 			if (!map.getSource?.(w.id)) { map.addSource(w.id, w.src); map.addLayer({ id: w.id, type: "raster", source: w.id, paint, layout: { visibility: w.layer.show ? "visible" : "none" } }, before()); adjSigs.set(w.id, adjSig); }
-			else { map.setPaintProperty(w.id, "raster-opacity", paint["raster-opacity"]); map.setLayoutProperty(w.id, "visibility", w.layer.show ? "visible" : "none"); }
+			else { map.setPaintProperty(w.id, "raster-opacity", paint["raster-opacity"]); if (map.getPaintProperty?.(w.id, "raster-split") !== sd) map.setPaintProperty(w.id, "raster-split", sd); map.setLayoutProperty(w.id, "visibility", w.layer.show ? "visible" : "none"); }
 		}
 		for (const w of want) map.moveLayer?.(w.id, before());   // collection order = bottom to top
 		placed = want.map(w => w.id);
@@ -188,7 +189,7 @@ export function syncImagery(scene: Any, map: Any): void {
 	let last = "";
 	scene.postRender.addEventListener(() => {
 		let k = "";
-		for (let i = 0; i < coll.length; i++) { const L = coll.get(i), c = L.colorToAlpha, r = L.cutoutRectangle; k += `${L.alpha},${L.show},${L.brightness},${L.saturation},${L.contrast},${L.hue},${L.ready},${c ? `${c.red},${c.green},${c.blue},${L.colorToAlphaThreshold}` : ""},${r ? `${r.west},${r.south},${r.east},${r.north}` : ""},${L.imageryProvider?._timeDynamicImagery?._currentIntervalIndex ?? ""};`; }
+		for (let i = 0; i < coll.length; i++) { const L = coll.get(i), c = L.colorToAlpha, r = L.cutoutRectangle; k += `${L.alpha},${L.show},${L.splitDirection},${L.brightness},${L.saturation},${L.contrast},${L.hue},${L.ready},${c ? `${c.red},${c.green},${c.blue},${L.colorToAlphaThreshold}` : ""},${r ? `${r.west},${r.south},${r.east},${r.north}` : ""},${L.imageryProvider?._timeDynamicImagery?._currentIntervalIndex ?? ""};`; }
 		if (k !== last) { last = k; sync(); }
 	});
 	sync();

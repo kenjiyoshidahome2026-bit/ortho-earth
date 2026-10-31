@@ -6,15 +6,15 @@ import { evalExpr, parseRGBA, isColor, truthy } from "@ortho-earth/core";
 import { NO_FEATURE } from "./mesh-features.ts";
 
 /** スタイル（MapLibre の式）。Cesium の 3D Tiles Styling（文字列の式・conditions・defines）は tiles3d-cesium-style.ts が訳してから来る */
-export interface StyleSpec { color?: unknown; show?: unknown; /** 点群の点の幅（px・Cesium の pointSize） */ pointSize?: unknown; /** 式の意味："ml"（既定・MapLibre どおり型に厳しい）｜"native"（寛容・Cesium の式を訳した物） */ origin?: "ml" | "native" }
+export interface StyleSpec { color?: unknown; show?: unknown; /** 点群の点の幅（px・Cesium の pointSize） */ pointSize?: unknown; /** a glTF line's width (CSS px, Cesium's lineWidth; default 1) */ lineWidth?: unknown; /** 式の意味："ml"（既定・MapLibre どおり型に厳しい）｜"native"（寛容・Cesium の式を訳した物） */ origin?: "ml" | "native" }
 /** 評価の入口（props＝重ねた属性・id＝地物の番号・state＝feature state） */
 export interface StyleInput { props: Record<string, unknown>; id: number | null; state: Record<string, unknown> | null; /** the 64-bit integer properties (PropertyTable.int64) */ int64?: string[] }
 /** 組んだスタイル＝color は [r,g,b,a]（0..255）か null（元の色のまま）・show は真偽 */
-export interface CompiledStyle { color: ((x: StyleInput) => number[] | null) | null; show: ((x: StyleInput) => boolean) | null; /** 点の幅（px）か null（既定のまま） */ pointSize?: ((x: StyleInput) => number | null) | null }
+export interface CompiledStyle { color: ((x: StyleInput) => number[] | null) | null; show: ((x: StyleInput) => boolean) | null; /** 点の幅（px）か null（既定のまま） */ pointSize?: ((x: StyleInput) => number | null) | null; /** a line's width (px) or null (1 px) */ lineWidth?: ((x: StyleInput) => number | null) | null }
 
 /** スタイルを組む（無ければ null）。式の誤りは評価の時に null（元の色・表示のまま）＝1 回だけ警告 */
 export function compileStyle(s: StyleSpec | null | undefined): CompiledStyle | null {
-	if (!s || (s.color == null && s.show == null && s.pointSize == null)) return null;
+	if (!s || (s.color == null && s.show == null && s.pointSize == null && s.lineWidth == null)) return null;
 	let warned = false;
 	const origin = s.origin ?? "ml", ctxOf = (x: StyleInput) => ({ props: x.props, id: x.id, state: x.state, origin });
 	const safe = <T>(f: () => T, dflt: T): T => { try { return f(); } catch (e) { if (!warned) { warned = true; console.warn("[tiles3d] style", (e as Error)?.message || e); } return dflt; } };
@@ -28,7 +28,21 @@ export function compileStyle(s: StyleSpec | null | undefined): CompiledStyle | n
 	}, null as number[] | null);
 	const show = s.show == null ? null : (x: StyleInput) => safe(() => { const v = fs ? fs(x) : evalExpr(s.show, ctxOf(x)); return v == null || truthy(v); }, true);   // 値が無い＝見せる（Cesium の既定と同じ）
 	const pointSize = s.pointSize == null ? null : (x: StyleInput) => safe(() => { const v = Number(evalExpr(s.pointSize, ctxOf(x))); return Number.isFinite(v) && v >= 0 ? v : null; }, null as number | null);
-	return { color, show, pointSize };
+	const lineWidth = s.lineWidth == null ? null : (x: StyleInput) => safe(() => { const v = Number(typeof s.lineWidth === "function" ? (s.lineWidth as (x: StyleInput) => unknown)(x) : evalExpr(s.lineWidth, ctxOf(x))); return Number.isFinite(v) && v > 0 ? v : null; }, null as number | null);
+	return { color, show, pointSize, lineWidth };
+}
+/** a line batch's normals with each vertex's width rewritten (meshdecode lineByte in the 4th byte: −(2·quarter px + side)). widthOf(feature id | null,
+ *  table | null) → px or null (1 px, Cesium's default) */
+export function lineWidths(nrm0: Int8Array, ids: ArrayLike<number> | null | undefined, tableAt: (i: number) => number | null, widthOf: (id: number | null, table: number | null) => number | null): Int8Array {
+	const out = new Int8Array(nrm0), n = nrm0.length >> 2;
+	let lastId = -2, lastT: number | null = -2, q = 4;
+	for (let i = 0; i < n; i++) {
+		const b = nrm0[i * 4 + 3]; if (b >= 0) continue;   // not a line vertex
+		const raw = ids ? ids[i] : -1, id = !ids || raw === NO_FEATURE ? null : raw, t = id == null ? null : tableAt(i);
+		if (raw !== lastId || t !== lastT) { lastId = raw; lastT = t; const w = widthOf(id, t); q = Math.max(1, Math.min(63, Math.round((w ?? 1) * 4))); }
+		out[i * 4 + 3] = -(2 * q + ((-b) & 1));
+	}
+	return out;
 }
 
 /** 束の頂点色を塗り直す。rgbaOf(地物の番号｜null, 表の番号｜null) → [r,g,b,a]（0..255・NaN＝その成分は元のまま）か null（全部元のまま）。

@@ -45,6 +45,9 @@ ok("show＝真偽そのまま", cesiumToSpec({ show: false }).show === false && 
 const psOf = (st, props = {}) => compileStyle(cesiumToSpec(st)).pointSize({ props, id: 0, state: null });
 ok("pointSize＝数と式", psOf({ pointSize: 5 }) === 5 && psOf({ pointSize: "${t} * 10" }, { t: 0.5 }) === 5 && psOf({ color: "color('red')", pointSize: "3" }) === 3);
 ok("pointSize だけでも Cesium 形", isCesiumStyle({ pointSize: "${t}" }) && psOf({ pointSize: { conditions: [["${t} > 1", "8"], ["true", "2"]] } }, { t: 0 }) === 2);
+// lineWidth（glTF の線の幅 px）＝3d-tiles-property-lod-river の式（5 − ORD_FLOW×0.4・Number／clamp）
+const lwOf = (st, props = {}) => compileStyle(cesiumToSpec(st)).lineWidth({ props, id: 0, state: null });
+ok("lineWidth＝式", isCesiumStyle({ lineWidth: "2" }) && Math.abs(lwOf({ lineWidth: "5.0 - clamp(Number(${ORD_FLOW}), 0.0, 10.0) * 0.4" }, { ORD_FLOW: "6" }) - 2.6) < 1e-9 && lwOf({ lineWidth: 3 }) === 3 && lwOf({ lineWidth: "0 - 1" }) === null);
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ tiles3d-cesium-style 全 PASS");
 process.exit(fail ? 1 : 0);
