@@ -198,7 +198,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
-		let base = "", atm = "", gop = -1, ugKey = "", gsp = NaN;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
+		let base = "", atm = "", gop = -1, ugKey = "", gsp = NaN, mog: boolean | null = null;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
 		const lighting = syncLighting(scene, map);   // scene.light + Cesium's environment map → the globe's mesh lighting (lighting.ts)
 		const specular = syncSpecularEnv(scene, map);   // ImageBasedLighting.specularEnvironmentMaps → the globe's specular cube (specular-env.ts)
 		scene.postRender.addEventListener((_s: unknown, time: Any) => {
@@ -232,6 +232,10 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 				ug = JSON.stringify({ color: uc ? [uc.red, uc.green, uc.blue, uc.alpha] : [0, 0, 0, 0], nf: ub ? [ub.near, ub.nearValue, ub.far, ub.farValue] : [6378.137, 0, 1275627.4, 1] });
 			}
 			if (ug !== ugKey) { ugKey = ug; map.setUnderground?.(ug ? JSON.parse(ug) : null); }
+			// globe.depthTestAgainstTerrain false (Cesium's default): Cesium clears the globe's depth before 3D Tiles and primitives, so the
+			// terrain never cuts into them (custom-shaders-property-textures: the fine CWT ground poked through the photogrammetry)
+			const og = !!gb && gb.show !== false && !gb.depthTestAgainstTerrain;
+			if (og !== mog) { mog = og; map.setMeshOverGround?.(og); }
 			const c = scene.globe?.baseColor?.toCssColorString?.() ?? "rgb(0,0,255)";
 			if (c !== base) { base = c; map.setPaintProperty?.("__cs-base", "background-color", c); }
 			// Cesium's atmosphere (the ground atmosphere seen from afar, the sky atmosphere): the globe draws them with Cesium's own formulas
