@@ -14,8 +14,9 @@ const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.VGW_PORT || 5246;
 
 // t-meshmask＝メッシュ被覆マスクの 4 枠選抜（原点そのままカメラだけ動いて近い 4 区が入れ替わる＝BG の作り直し）
+// t-meshmany＝メッシュの可視バッチが 512 を越えても最後まで描く（PB の受け皿を倍々に広げる・cdb-yemen 2026-10-31）
 // t-rectlook の 2 変種＝旧 verify:editor（japan）が引数で回していた円ツール・ズーム列の検分（頁が globe へ移ったのでここが宿す）
-const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-clipgint?gintsb=0", "t-clipmap", "t-qmesh", "t-meshmask", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintgpu?gintsb=0&gintlh=16", "t-gintgpu?gintlh=16", "t-gintlayers", "t-gintexpr", "t-gintexprdraw", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
+const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-clipgint?gintsb=0", "t-clipmap", "t-qmesh", "t-meshmask", "t-meshmany", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintgpu?gintsb=0&gintlh=16", "t-gintgpu?gintlh=16", "t-gintlayers", "t-gintexpr", "t-gintexprdraw", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
 	"t-spotlight", "t-linedeco", "t-linegrad", "t-mdparity", "t-shotov",
@@ -51,7 +52,7 @@ const fail = await runPages({
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], p.startsWith("t-mlcompat") || p.startsWith("t-mdparity") ? 240 : p.startsWith("t-three") || p.startsWith("t-psplat") || p.startsWith("t-pvoxel") || p.startsWith("t-tiles3d-splat") || p.startsWith("t-tiles3d-voxel") || p.startsWith("t-classify") ? 300 : p.startsWith("t-czml-scene") ? 420 : p.startsWith("t-clipmap") ? 150 : p.startsWith("t-mlboot") ? 180 : p.startsWith("t-ellparity") ? 300 : p.startsWith("t-shadow-terrain") || p.startsWith("t-sungpu") ? 150 : p.startsWith("t-qmesh") ? 200 : p.startsWith("t-gintexpr") ? 180 : p.startsWith("t-clouds") || p.startsWith("t-postfx") || p.startsWith("t-plugin") || p.startsWith("t-linepattern") ? 150 : 90])),   // t-mlcompat＝場面が多い（段 8⑤）
 	jobs: +process.env.VG_JOBS || 4,   // 4 本ずつ並べる（2026-09-29・実 GPU でも全頁 PASS を 2 回確認）・VG_JOBS=1 で直列
 	flags: REALGPU, drag: true, profilePrefix: "og-webgpu", cdpBase: +process.env.VGW_CDP || 9335, pad: 18,
-	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-clip", "t-clipgint", "t-meshmask", "t-gintgpu", "t-gintlayers", "t-gintexpr", "t-gintmulti", "t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-cogpair", "t-elevcell", "t-meshfs", "t-linegrad"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
+	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-clip", "t-clipgint", "t-meshmask", "t-meshmany", "t-gintgpu", "t-gintlayers", "t-gintexpr", "t-gintmulti", "t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-cogpair", "t-elevcell", "t-meshfs", "t-linegrad"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
 	urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}`,
 });
 stop();
