@@ -653,7 +653,7 @@ let clear = clearOf(opts.clearColor) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 
 // 透明を明示した時だけ WebGPU も透かす（既定の透明＝MapLibre の口は WebGPU では白に畳む・gpu/renderer の 2026-08-03 の裁定）
 let clearAlpha = clearOf(opts.clearColor) != null && clear[3] < 1;
 
-let dpr: GlobeLive["dpr"] = Math.min(2, window.devicePixelRatio || 1);
+let dpr: GlobeLive["dpr"] = (opts.pixelRatio ?? 0) > 0 ? Math.max(0.1, Math.min(4, +opts.pixelRatio!)) : Math.min(2, window.devicePixelRatio || 1);   // opts.pixelRatio＝描く解像度（Cesium の口の resolutionScale）
 
 // --- render worker：GL を OffscreenCanvas で worker に置く。main は set/draw を postMessage する薄いプロキシ ---
 // transfer 後は main から canvas.width を触れないので、論理サイズ(size)を main が自前で持つ。
@@ -2810,7 +2810,7 @@ map.setSourceTileLodParams = (maxZoomLevelsOnScreen, tileCountMaxMinimum) => {  
 map.setCameraUpdate = fn => { camUpdateFn = typeof fn === "function" ? fn : null; onMove(); return map; };   // MapLibre の setTransformCameraUpdate＝制約の後に {center, zoom, pitch, bearing, roll, elevation} を書き換える。zoom は内製の目盛り（cam.zoom）＝shim が MapLibre の目盛りに往復する
 map.setMinPitch = deg => { minPitchCur = Math.max(0, Math.min(maxPitchCur, (+deg || 0) * D2R)); if (cam.pitch < minPitchCur) { flightCtl.cancel(); cam.pitch = minPitchCur; onMove(); } return map; };   // 度（MapLibre の口と同じ・setMaxPitch の rad とは違う＝新しい口は度で揃える）
 map.getMinPitch = () => minPitchCur * R2D;
-map.setPixelRatio = r => { r = Math.max(0.5, Math.min(4, +r || 1)); if (r === dpr) return map; dpr = r; cam.dpr = r; resize(); return map; };   // 描く解像度（CSS px あたりの画素）。星空劇場・overlay の内部の dpr は起動時の値のまま
+map.setPixelRatio = r => { r = Math.max(0.1, Math.min(4, +r || 1)); if (r === dpr) return map; dpr = r; cam.dpr = r; resize(); return map; };   // 描く解像度（CSS px あたりの画素）。星空劇場・overlay の内部の dpr は起動時の値のまま
 map.getPixelRatio = () => dpr;
 map.setRepaint = on => { repaintAlways = !!on; if (on) requestDraw(); return map; };   // 連続描画（計測用）
 map.getRepaint = () => repaintAlways;

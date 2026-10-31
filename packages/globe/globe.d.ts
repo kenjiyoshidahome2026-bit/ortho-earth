@@ -242,6 +242,8 @@ export interface OrthoJapanOptions {
 	night?: boolean;
 	/** 宇宙（球の外側）の色（1.16.0〜・B5）：色の文字列か "transparent"。既定＝内製は紺・MapLibre の目盛り（zoomScale mercator／maplibre）は透明＝頁の色が見える（background 層の無い style の床も透明）。WebGPU は白に畳む */
 	clearColor?: string;
+	/** 描く解像度＝CSS px あたりの画素（2.2.1〜）。既定＝min(2, devicePixelRatio)。0.1〜4。後から変えるのは map.setPixelRatio */
+	pixelRatio?: number;
 	/** 表示の世界の形（1.6.0〜・#43）。"auto"（既定）＝通常・HI のデスクトップは WGS84 楕円体・低メモリ端末（LOW_MEM）と非力な機体（MID_TIER＝内蔵 GPU・4 コア以下・
 	 *  RAM の多いスマホ/タブレット）は球（6371 km）。true／false で固定。URL の ?ell=1／?ell=0 が opts より強い。計測は常に WGS84（表示の形に依らない）。
 	 *  同じ頁の 2 枚目以降の地図は最初の地図の形に従う（core の状態は頁に 1 つ＝違えば console に警告） */
