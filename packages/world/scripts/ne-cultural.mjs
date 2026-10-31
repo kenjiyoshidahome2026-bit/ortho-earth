@@ -32,7 +32,7 @@ async function ne(name) {
 	return JSON.parse(await readFile(p, "utf8")).features;
 }
 
-const seed = await loadSeed(name => readFile(path.join(ROOT, name.startsWith("../") ? name.replace("../", "") : "seed/" + name), "utf8"));
+const seed = await loadSeed(name => readFile(path.join(ROOT, name.startsWith("../") ? name.slice(3) : "seed/" + name), "utf8"));
 const layers = typeof opt("layers") === "string" ? opt("layers").split(",") : NE_LAYERS;
 const only = typeof opt("only") === "string" ? opt("only").split(",") : null;
 const { all, out, routes, index, encode, countVerts } = await buildNeCultural(seed, { ne, log, warn: console.warn }, { precision: +opt("precision", 6), layers, only });

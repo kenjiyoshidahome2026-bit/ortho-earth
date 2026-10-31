@@ -45,7 +45,7 @@ async function worldJSON(name) {
 }
 const itemsOf = v => v?.items ?? v;
 
-const seed = await loadSeed(name => readFile(path.join(ROOT, name.startsWith("../") ? name.replace("../", "") : "seed/" + name), "utf8"));
+const seed = await loadSeed(name => readFile(path.join(ROOT, name.startsWith("../") ? name.slice(3) : "seed/" + name), "utf8"));
 const langs = seed.langs;
 log("NE admin_1・populated_places を key に割り当て…");
 const { all } = await buildNeCultural(seed, { ne, log: () => {}, warn: console.warn }, { layers: ["admin_1", "populated_places"] });

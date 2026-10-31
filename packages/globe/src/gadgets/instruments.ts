@@ -13,8 +13,10 @@ export interface AttributionDecl { lines: { href?: string; key?: string; text?: 
 const KEYS = ["log", "pos", "scale", "attr"];
 // 出典の組み立て＝地域宣言の attribution（{ lines:[[{href,key|text}…]…], note } の列）→ HTML。#attr の中身と、#attr の無い画面での
 // shot の焼き込み（globe が圏ごとに組む）の共通の源。末尾は加工注記＋© を必ず付ける（地域に依らない）
-const A = (href: string | undefined, label: string | undefined) => href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
-const renderAttribution = (at: AttributionDecl) => at.lines.map((line, i) => (i ? "" : t("Sources: ")) + line.map(x => A(x.href, x.key ? t(x.key) : x.text)).join("・")).join("<br>")
+// 宣言は地域・プラグインの手書き＝npm で外にも出る部品なので、href と生の text は HTML として逃がす（訳語 t(key) は自前の辞書＝そのまま）
+const escAttr = (s: string) => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const A = (href: string | undefined, label: string | undefined) => href && /^(?:https?:|mailto:|\/)/i.test(href) ? `<a href="${escAttr(href)}" target="_blank" rel="noopener">${label}</a>` : label;
+const renderAttribution = (at: AttributionDecl) => at.lines.map((line, i) => (i ? "" : t("Sources: ")) + line.map(x => A(x.href, x.key ? t(x.key) : escAttr(x.text ?? ""))).join("・")).join("<br>")
 	+ `<br>${t(at.note)}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
 export const attributionHTML = (attribution: AttributionDecl[] = []): string => attribution.map(renderAttribution).join("<br>");
 // 出典の欄（#attr）の形（本人 2026-10-21「右下は (c) 2026 [logo] ortho-earth　データ一覧」・出典が増えて欄が大きくなりすぎた）：

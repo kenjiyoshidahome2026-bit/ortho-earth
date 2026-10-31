@@ -53,8 +53,8 @@ try {
 		const send = (method, params = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
 		ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
 			if (process.env.DEBUG) {   // DEBUG=1＝ページの例外と console.error/warn を標準出力へ（起動しない原因の特定用・2026-09-15）
-				if (m.method === "Runtime.exceptionThrown") console.log(`[${PAGE} exception]`, m.params.exceptionDetails?.exception?.description ?? m.params.exceptionDetails?.text);
-				if (m.method === "Runtime.consoleAPICalled" && /error|warning/.test(m.params.type)) console.log(`[${PAGE} ${m.params.type}]`, m.params.args.map(a => a.value ?? a.description ?? "").join(" "));
+				if (m.method === "Runtime.exceptionThrown") console.log("[%s exception]", PAGE, m.params.exceptionDetails?.exception?.description ?? m.params.exceptionDetails?.text);
+				if (m.method === "Runtime.consoleAPICalled" && /error|warning/.test(m.params.type)) console.log("[%s %s]", PAGE, m.params.type, m.params.args.map(a => a.value ?? a.description ?? "").join(" "));
 			} };
 		await send("Page.enable"); await send("Runtime.enable");
 		if (/-mobile\b/.test(PAGE)) await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });   // *-mobile＝スマホ幅（@media ≤640px を効かせる・2026-10-24）
