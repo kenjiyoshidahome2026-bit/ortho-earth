@@ -493,19 +493,21 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 		const L = style.layers[li], eo = originOfLayer(L);   // eo＝式の出自（引数 origin はシーンの原点＝別物）
 		if (L.type !== "fill" && L.type !== "line") continue;
 		if (L.layout && L.layout.visibility === "none") continue;
-		if (L.minzoom != null && z < L.minzoom) continue;
-		if (L.maxzoom != null && z >= L.maxzoom) continue;
+		// タイルの z と層の出しズーム（エンジンの目盛り）を揃えて比べる（式の ["zoom"] も同じ）：MapLibre 形の層は入口で dz を足してある＝足さないと z5 のタイルが minzoom 5 の層を落とし、線幅と不透明度が 0 に焼かれて道路が 2 段ほど遅れて出ていた（2026-10-31）
+		const zL = z + ((L.metadata?.["ortho:dzApplied"] as number) || 0);
+		if (L.minzoom != null && zL < L.minzoom) continue;
+		if (L.maxzoom != null && zL >= L.maxzoom) continue;
 		const src = (layers as DecodedTile)[L["source-layer"] as string]; if (!src) continue;
 		const extent = src.extent;
 		// filter で残る地物だけを line-sort-key/fill-sort-key の昇順に（高い値ほど後＝上に描く）。std は道路を vt_drworder で並べる。
 		// 旧＝層の全地物を並べてから filter＝同じ source-layer（road）を読む層の数だけ全地物の sort-key を評価して並べていた
-		const feats = filterSortFeatures(src.features, L.filter, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z, eo, { z, x, y, E: extent });   // tile＝within/distance（C2）が地物の形を経緯度へ
+		const feats = filterSortFeatures(src.features, L.filter, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], zL, eo, { z, x, y, E: extent });   // tile＝within/distance（C2）が地物の形を経緯度へ
 
 		if (L.type === "fill") {
 			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = B.pos, col = B.col, idx = B.idx; pos.n = col.n = idx.n = 0;
-			const ctx: ExprContext = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ctx: ExprContext = { zoom: zL, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			const ptL = eo ? layerPaintTable("fill", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝頂点ごとの行（状態を焼く呼び手＝利用者の層は feature-state の層を表にしない＝段 3）
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
@@ -528,8 +530,8 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			}
 			// index はタイル単体なら大抵 Uint16 で足りる（65536頂点超の層だけ Uint32）＝transfer/常駐がさらに半減。
 			// merge 側は結合時に常に Uint32 へ広げる（結合後は頂点数が容易に 65k を超える）。
-			const fx = eo ? layerFx(L, z, eo) : null;   // fill-translate（S-P1-4/5）＝外来の層だけ
-			const pat = eo ? fillPatternOf(L, z, eo) : null;   // fill-pattern（S-P1-4/5）＝記号帳の画像の名前（層で一度）
+			const fx = eo ? layerFx(L, zL, eo) : null;   // fill-translate（S-P1-4/5）＝外来の層だけ
+			const pat = eo ? fillPatternOf(L, zL, eo) : null;   // fill-pattern（S-P1-4/5）＝記号帳の画像の名前（層で一度）
 			const pz = eo ? layerPaintZoom("fill", L.paint, eo) : null;   // ズーム連続（V-Ph3＝S-P1-2）＝描き手が今の z で色を差し替える
 			const ptO = pt && pos.n ? pt.out(pos.n >> 1) : null;
 			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: pos.n >> 1 <= 65535 ? idx.out(Uint16Array) : idx.out(Uint32Array), ...(fx ? { fx } : {}), ...(pat ? { pat } : {}), ...(pz ? { pz } : {}), ...(ptO ? { pt: ptO } : {}) });
@@ -545,15 +547,15 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			// ＝今の z で 0 でも角の継ぎ（tS/tE）を持つ・シェーダの破線と並べる（GL2 の線分プールの語 6 が空く）
 			const pzL = eo ? layerPaintZoom("line", L.paint, eo) : null, uOff = !!(off && pzL?.of != null);
 			// 端と継ぎ（S-P1-1）：丸でない層だけ線分に隣の点 [P0, P3] を添える。ずらす層（line-offset・line-gap-width）は今は丸のまま（角の継ぎは miterSlides）
-			const cj = lineCapJoin(L.layout, z, eo), jf = !off && cj & 15 ? B.jf : null; if (jf) jf.n = 0;
+			const cj = lineCapJoin(L.layout, zL, eo), jf = !off && cj & 15 ? B.jf : null; if (jf) jf.n = 0;
 			// line-dasharray [線, 間隔, …]：走行距離の位相を保って線分を刻む。
 			// renderer の capsule は丸端なので、刻んだ破片がそのままピル状のダッシュになる（トンネル破線等）。
 			// 値は式として評価する（["literal",[..]]・step/interpolate・旧式関数の変換物）＝MapLibre でも zoom だけに依る＝層で一度。
 			// 単位：内蔵 style は px（タイル基準ズームでの見かけ）、外来 MapLibre style（dashInLineWidths）は線幅の倍数。
 			// 読めない値は破線なし（実線）に倒す＝線ごと消さない（2026-09-25・旧版は NaN で片が 0 になり線が消えた）
-			const dashV = evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {}, origin: eo });
+			const dashV = evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: zL, props: {}, geom: null, vars: {}, origin: eo });
 			// line-pattern（G-4）＝破線と line-gradient を無効にする（MapLibre の spec）。位相は語 6＝ずらしは層で 1 つの値の時だけ（破線と同じ・他は色の線）
-			const lp = eo && (!off || uOff) ? linePatternOf(L, z, eo) : null;
+			const lp = eo && (!off || uOff) ? linePatternOf(L, zL, eo) : null;
 			const ml = !!(eo && L.dashInLineWidths), dashRaw = lp ? null : dashPattern(dashV, ml);
 			const gpuDash = ml && dashRaw && (!off || uOff) && dashRaw.length <= DASH_GPU_MAX ? dashRaw : null;   // シェーダで描く（S-P1-3）＝刻まない。ずらす層は層で 1 つの値の時だけ
 			const dist = gpuDash || lp ? B.dist : null; if (dist) dist.n = 0;
@@ -561,8 +563,8 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			const cpu = gpuDash || !dashRaw ? null : ml ? dashCpuML(dashRaw) : [dashRaw, dashRaw[0]] as [number[], number];   // CPU で刻む模様と刻み始めの残り
 			const dashPat = cpu ? cpu[0] : null;
 			// line-gradient（G-3）＝色の語は線分の始点・終点の進み（unorm16×2）・色は描き手が見本（lt.lut）から引く。CPU で刻む破線とは並ばない（色で描く）
-			const lg = eo && !dashPat && !lp ? lineGradientOf(L, z, eo, pale) : null, lt = lp ?? lg;
-			const ctx: ExprContext = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const lg = eo && !dashPat && !lp ? lineGradientOf(L, zL, eo, pale) : null, lt = lp ?? lg;
+			const ctx: ExprContext = { zoom: zL, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			const ptL = eo && !lg ? layerPaintTable("line", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行（同上）・色の語を進みに使う層は持たない
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
@@ -671,7 +673,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 				if (off) { let any = uOff; for (let i = 0; !any && i < off.n; i += 3) if (off.a[i]) any = true; if (any) op.off = off.out(); }   // [off, tS, tE]×線分。ずらしが全部 0（式が今の z で 0）なら持たない（層で 1 つの値の層は持つ＝他の z で 0 でない）
 				if (jf) { op.jf = jf.out(); op.cj = cj; }
 				if (dist) { op.dist = dist.out(); if (gpuDash) { op.dash = gpuDash; op.dz = z; } }   // line-pattern（G-4）は距離だけ
-				const fx = eo ? layerFx(L, z, eo) : null; if (fx) op.fx = fx;   // line-translate・line-blur（S-P1-4/5）＝外来の層だけ
+				const fx = eo ? layerFx(L, zL, eo) : null; if (fx) op.fx = fx;   // line-translate・line-blur（S-P1-4/5）＝外来の層だけ
 				if (pzL) op.pz = pzL;
 				const ptO = pt ? pt.out(half.n) : null; if (ptO) op.pt = ptO;
 				if (lt) op.lt = lt;
