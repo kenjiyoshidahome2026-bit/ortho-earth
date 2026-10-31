@@ -470,6 +470,7 @@ void main() {
 	// 採決＝巻き順非依存・面単位で一定。退化面（微分ゼロ）だけ旧判定へフォールバック。
 	float g2 = dot(gn, gn);
 	float fe = g2 > 1e-18 ? dot(normalize(gn * sign(dot(gn, n))), normalize(v_toEye)) : dot(n, normalize(v_toEye));
+	if (u_cullBack > 1.5) fe = gl_FrontFacing ? max(abs(fe), 1e-3) : -1.0;   // 2＝Cesium の表裏（glTF・doubleSided でない材質）：巻き順で裏を捨て、法線は書かれたまま（反転しない）。glTF の表（反時計回り）＝gl_FrontFacing（世界軸の鏡像は投影の行列が戻す・砂場で確認）
 	if (u_cullBack > 0.5 && fe < -0.02) discard;
 	if (fe < 0.0) n = -n;                                         // 両面時は法線を視線側へ＝裏から見ても陰影が成立
 	vec3 L = normalize(vec3(-0.35, 0.85, 0.30));                  // 斜め上の光＝屋根が立つ
