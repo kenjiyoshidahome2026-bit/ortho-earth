@@ -255,12 +255,46 @@ function cesiumCorridorRing(ps: Cartesian3[], width: number, cornerType: number 
 	return corridorRing(ps, width);
 }
 
+/** a surface rectangle's texture coordinates (Cesium's RectangleGeometryLibrary): the rectangle (degrees), its rotation and stRotation (radians) */
+type RectSt = { rect: [number, number, number, number]; rot: number; str: number };
+
+/** a ring of a rectangle (degrees) turned by `rot` (radians, counter-clockwise) about its centre in longitude/latitude, as RectangleGeometry turns it
+ *  (its GeographicProjection scales longitude and latitude alike) */
+export function rectRing([w, s, e, n]: [number, number, number, number], rot: number, N = 8): number[][] {
+	const ring: number[][] = [];
+	for (let i = 0; i <= N; i++) ring.push([w + (e - w) * i / N, s]);
+	for (let i = 1; i <= N; i++) ring.push([e, s + (n - s) * i / N]);
+	for (let i = 1; i <= N; i++) ring.push([e - (e - w) * i / N, n]);
+	for (let i = 1; i <= N; i++) ring.push([w, n - (n - s) * i / N]);
+	if (!rot) return ring;
+	const cx = (w + e) / 2, cy = (s + n) / 2, c = Math.cos(rot), si = Math.sin(rot);
+	return ring.map(([x, y]) => [cx + c * (x - cx) - si * (y - cy), cy + si * (x - cx) + c * (y - cy)]);
+}
+
+/** longitude/latitude (degrees) → st of a surface rectangle, as RectangleGeometryLibrary.computePosition gives it: without stRotation st runs over the
+ *  turned rectangle's bounding box scaled by the rectangle's own size (a turned picture is cut off, as Cesium's is); with stRotation the st grid starts
+ *  at the bounding box's north-west corner turned by rotation − stRotation (stRotation = rotation: the picture turns with the rectangle and fills it) */
+export function rectStOf({ rect: [w, s, e, n], rot, str }: RectSt): (lon: number, lat: number) => [number, number] {
+	const cx = (w + e) / 2, cy = (s + n) / 2, W = e - w, H = n - s;
+	const turn = (a: number, x: number, y: number): [number, number] => { const c = Math.cos(a), si = Math.sin(a); return [cx + c * (x - cx) - si * (y - cy), cy + si * (x - cx) + c * (y - cy)]; };
+	const corners = (a: number, x0: number, y0: number) => [turn(a, x0, y0), turn(a, x0 + W, y0), turn(a, x0, y0 - H), turn(a, x0 + W, y0 - H)];
+	const bb = rot ? corners(rot, w, n) : [[w, n], [e, s]];   // the turned rectangle's bounding box
+	const bw = Math.min(...bb.map(p => p[0])), bs = Math.min(...bb.map(p => p[1])), bn = Math.max(...bb.map(p => p[1]));
+	if (!str) return (lon, lat) => [(lon - bw) / W, (lat - bs) / H];
+	const a = rot - str, sc = corners(a, bw, bn), sw = Math.min(...sc.map(p => p[0])), ss = Math.min(...sc.map(p => p[1]));
+	return (lon, lat) => {
+		const [ux, uy] = turn(-rot, lon, lat);   // the point on the rectangle before it turned → its grid offset from the north-west corner
+		const [sx, sy] = turn(a, bw + (ux - w), bn + (uy - n));
+		return [(sx - sw) / W, (sy - ss) / H];
+	};
+}
+
 /** what one entity shows at a time (JSON-comparable) */
 interface Desc {
 	track: { id: string; name: string | null; t: number[]; p: number[]; degree: number; style: Any; avail: number[][] | null } | null;
 	shapes: Any[];
 	/** shapes on the ground with a painted material (stripe, checkerboard, grid, image): an image layer over their box */
-	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number }>;
+	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number; st?: RectSt }>;
 	lines: Array<{ p: number[]; color: string; width: number; dash?: { len: number; pattern: number }; arrow?: boolean }>;
 	/** ground shapes and clamped polylines classifying the 3D Tiles and models (classificationType CESIUM_3D_TILE or BOTH): a classification volume in their colour
 	 *  (the terrain part stays a fill / line layer); a polyline's width is its pixel width at the entity's distance, in metres */
@@ -281,7 +315,7 @@ export class EntityDisplay {
 	readonly host: Host;
 	#recs = new Map<Any, Rec>();
 	#ov: Any = null; #layers = new Set<string>(); #models = new Map<Any, { h: Any; loading: boolean; uri: string; scale: number; dead?: boolean; tk?: string; sk?: string; env?: Float32Array | null }>();
-	#lastTracks = ""; #lastLines = ""; #lastShapes = ""; #pats = new Map<string, { n: number; z: number; ready: boolean }>(); #patGen = 0;
+	#lastTracks = ""; #lastLines = ""; #lastShapes = ""; #pats = new Map<string, { n: number; id: string; z: number; ready: boolean; stale: boolean }>(); #patGen = 0;
 	#cls = new Map<string, Any>();   // classification volumes on the map (key = outline + colour → handle)
 	#gsph = new Map<string, { center: number[]; radius: number } | null | "pending">();
 	#needRedraw = false; #destroyed = false;
@@ -589,7 +623,7 @@ export class EntityDisplay {
 		}
 		// ── shapes ──
 		const id = String(e.id);
-		const addShape = (rings: number[][][] | number[][][][], o: { fill: boolean; color: Color; mat?: MatDesc | null; z?: number; outline: boolean; outlineColor: Color; outlineWidth: number; base?: number; top?: number; abs?: boolean; cls?: number }, multi = false) => {
+		const addShape = (rings: number[][][] | number[][][][], o: { fill: boolean; color: Color; mat?: MatDesc | null; z?: number; outline: boolean; outlineColor: Color; outlineWidth: number; base?: number; top?: number; abs?: boolean; cls?: number; st?: RectSt }, multi = false) => {
 			const geom = multi ? { type: "MultiPolygon", coordinates: rings } : { type: "Polygon", coordinates: rings };
 			const polys = (multi ? rings : [rings]) as number[][][][];
 			if (!polys.length || !polys[0]?.[0]?.length) return;
@@ -599,7 +633,7 @@ export class EntityDisplay {
 			// stays a plain fill: every GeoJSON polygon would otherwise become a volume
 			const onTiles = o.fill && !ext && (o.cls === ClassificationType.CESIUM_3D_TILE || o.cls === ClassificationType.BOTH);
 			if (onTiles) { const [cc, co] = rgbAlpha(o.color); d.classify.push({ geom: { type: "MultiPolygon", coordinates: polys }, color: cc, opacity: co }); }
-			if (o.fill && o.mat && !ext) { if (o.cls !== ClassificationType.CESIUM_3D_TILE) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0 }); }
+			if (o.fill && o.mat && !ext) { if (o.cls !== ClassificationType.CESIUM_3D_TILE) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0, ...(o.st ? { st: o.st } : {}) }); }
 			else if (o.fill && o.cls !== ClassificationType.CESIUM_3D_TILE) {
 				const [fc, fo] = rgbAlpha(o.color);
 				d.shapes.push({ type: "Feature", geometry: geom, properties: { _id: id, _k: ext ? (o.abs ? "exta" : "ext") : "fill", _fc: fc, _fo: fo, _b: o.base ?? 0, _h: o.top ?? 0, _z: o.z ?? 0 } });
@@ -655,20 +689,15 @@ export class EntityDisplay {
 		}
 		const re = e.rectangle;
 		if (re && val(re.show, t, true) && !solid.has("rectangle")) {
-			dyn(re.coordinates, re.rotation);
+			dyn(re.coordinates, re.rotation, re.stRotation);
 			const rc = val(re.coordinates, t);
 			if (rc) {
-				const w = rc.west * R2D, s = rc.south * R2D, ea = rc.east * R2D, n = rc.north * R2D, ring: number[][] = [];
-				const N = 8;
-				for (let i = 0; i <= N; i++) ring.push([w + (ea - w) * i / N, s]);
-				for (let i = 1; i <= N; i++) ring.push([ea, s + (n - s) * i / N]);
-				for (let i = 1; i <= N; i++) ring.push([ea - (ea - w) * i / N, n]);
-				for (let i = 1; i <= N; i++) ring.push([w, n - (n - s) * i / N]);
-				// rotation: Cesium's RectangleGeometryLibrary turns the rectangle counter-clockwise about its centre in longitude/latitude (radians, not
-				// metres): the rectangle example's spinning logo, which stood still and square here before 2026-10-31
-				const rot = val(re.rotation, t, 0);
-				if (rot) { const cx = (w + ea) / 2, cy = (s + n) / 2, c = Math.cos(rot), sn = Math.sin(rot); for (const q of ring) { const dx = q[0] - cx, dy = q[1] - cy; q[0] = cx + dx * c - dy * sn; q[1] = cy + dx * sn + dy * c; } }
-				addShape([ring], { ...common(re), ...groundVertical(re, val(re.height, t), val(re.extrudedHeight, t), undefined, ring) });
+				// rotation turns the surface rectangle and stRotation its picture, as Cesium's ground primitive does (rectangle: the Cesium logo turning
+				// over the south-east US; it was drawn unturned before 2026-10-31)
+				const rect: [number, number, number, number] = [rc.west * R2D, rc.south * R2D, rc.east * R2D, rc.north * R2D];
+				const rot = +val(re.rotation, t, 0) || 0, str = +val(re.stRotation, t, 0) || 0;
+				const ring = rectRing(rect, rot);
+				addShape([ring], { ...common(re), ...groundVertical(re, val(re.height, t), val(re.extrudedHeight, t), undefined, ring), ...(rot || str ? { st: { rect, rot: +rot.toFixed(4), str: +str.toFixed(4) } } : {}) });
 			}
 		}
 		const el = e.ellipse;
@@ -861,16 +890,26 @@ export class EntityDisplay {
 	 *  clipped to the shape, as an image layer under the outlines */
 	#setPatterns(map: Any, pats: Desc["patterns"]) {
 		const want = new Map<string, Desc["patterns"][number]>();
-		for (const q of pats) want.set(JSON.stringify(q.polys) + matKey(q.mat), q);
-		for (const [k, pt] of this.#pats) if (!want.has(k)) { const id = `__cs-pat-${pt.n}`; if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(id)) map.removeSource(id); this.#pats.delete(k); }
+		for (const q of pats) want.set(JSON.stringify(q.polys) + matKey(q.mat) + (q.st ? JSON.stringify(q.st) : ""), q);
+		const drop = (k: string, pt: { n: number }) => { const id = `__cs-pat-${pt.n}`; if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(id)) map.removeSource(id); this.#pats.delete(k); };
+		// a shape that changes (a turning rectangle: a new picture every frame) keeps its last picture until the next one is painted, and paints one
+		// picture at a time (a paint started every frame would be dropped every frame and never show)
+		const ids = new Set(pats.map(q => q.id));
+		for (const [k, pt] of this.#pats) {
+			if (want.has(k)) pt.stale = false;
+			else if (ids.has(pt.id)) pt.stale = true;   // replaced once a newer picture of that shape is painted
+			else drop(k, pt);
+		}
 		for (const [k, q] of want) {
 			if (this.#pats.has(k)) continue;
-			const n = ++this.#patGen, pt = { n, z: q.z, ready: false }; this.#pats.set(k, pt);
+			if ([...this.#pats.values()].some(x => x.id === q.id && !x.ready)) continue;   // that shape's previous picture is still being painted
+			const n = ++this.#patGen, pt = { n, id: q.id, z: q.z, ready: false, stale: false }; this.#pats.set(k, pt);
 			let w = Infinity, s = Infinity, e = -Infinity, nn = -Infinity;
 			for (const p of q.polys) for (const r of p) for (const [x, y] of r) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); nn = Math.max(nn, y); }
 			if (!(e > w && nn > s)) continue;
 			const k0 = Math.cos(((s + nn) / 2) * D2R), aspect = ((e - w) * k0) / (nn - s), W = Math.round(aspect >= 1 ? 1024 : Math.max(16, 1024 * aspect)), H = Math.round(aspect >= 1 ? Math.max(16, 1024 / aspect) : 1024);
-			void paint(q.mat, W, H, (x, y) => [x / W, 1 - y / H]).then(cv => {
+			const rst = q.st ? rectStOf(q.st) : null;
+			void paint(q.mat, W, H, rst ? (x, y) => rst(w + (x / W) * (e - w), nn - (y / H) * (nn - s)) : (x, y) => [x / W, 1 - y / H]).then(cv => {
 				if (!cv || this.#pats.get(k) !== pt || this.#destroyed) return;
 				const ctx = cv.getContext("2d")!;
 				ctx.globalCompositeOperation = "destination-in"; ctx.beginPath();
@@ -879,6 +918,8 @@ export class EntityDisplay {
 				const id = `__cs-pat-${n}`;
 				map.addSource(id, { type: "image", url: cv.toDataURL(), coordinates: [[w, nn], [e, nn], [e, s], [w, s]] });
 				pt.ready = true;
+				for (const [k2, x] of this.#pats) if (x !== pt && x.id === pt.id && x.stale) drop(k2, x);   // the pictures it replaces
+				if (pt.stale) this.invalidate();   // the shape moved on while it was painted: paint the shape as it is now
 				// stack the image layers in zIndex order (each paint lands in its own time: lay them all again)
 				const ready = [...this.#pats.values()].filter(x => x.ready).sort((a, b) => a.z - b.z || a.n - b.n);
 				for (const x of ready) if (map.getLayer?.(`__cs-pat-${x.n}`)) map.removeLayer(`__cs-pat-${x.n}`);

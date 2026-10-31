@@ -21,7 +21,7 @@ const REPO = path.resolve(HERE, "../../../..");
 export const PIN = { version: "1.146.0", tag: "1.146", commit: "b8d3a36fe98a3e432eb89253c95d5f20e605e0f1", repo: "CesiumGS/cesium" };
 export const CACHE = path.join(REPO, ".cache/csexamples", PIN.version);
 const CORPUS = path.join(HERE, "corpus.json");
-const DIRS = ["packages/sandcastle/gallery", "packages/sandcastle/templates", "packages/sandcastle/public/templates", "Apps/SampleData"];   // public/templates＝例が @import する bucket.css
+const DIRS = ["packages/sandcastle/gallery", "packages/sandcastle/templates", "packages/sandcastle/public/templates", "packages/sandcastle/public/images", "Apps/SampleData"];   // public/templates＝例が @import する bucket.css・public/images＝例が "../images/…" で取る絵（Cesium_Logo_Color.jpg など。無いと Cesium は白い四角・ortho は何も描かない）
 const EX_FILES = ["main.js", "index.html", "sandcastle.yaml"];   // 縮図（thumbnail）は取らない
 
 const sha256 = buf => crypto.createHash("sha256").update(buf).digest("hex");
@@ -65,7 +65,7 @@ function fetchAll() {
 		git("checkout", "-q", "FETCH_HEAD");
 		const head = git("rev-parse", "HEAD").trim();
 		if (head !== PIN.commit) throw new Error(`取った commit（${head}）が PIN（${PIN.commit}）と違う`);
-		for (const d of ["gallery", "templates", "SampleData", "Build"]) fs.rmSync(path.join(CACHE, d), { recursive: true, force: true });
+		for (const d of ["gallery", "templates", "images", "SampleData", "Build"]) fs.rmSync(path.join(CACHE, d), { recursive: true, force: true });
 		fs.mkdirSync(CACHE, { recursive: true });
 		const gal = path.join(tmp, "packages/sandcastle/gallery");
 		const examples = fs.readdirSync(gal, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name).sort().map(name => {
@@ -81,6 +81,7 @@ function fetchAll() {
 		// Sandcastle の助け手（templates/Sandcastle.ts・bucket.html）と例が @import する bucket.css を templates に
 		fs.cpSync(path.join(tmp, "packages/sandcastle/templates"), path.join(CACHE, "templates"), { recursive: true });
 		fs.cpSync(path.join(tmp, "packages/sandcastle/public/templates"), path.join(CACHE, "templates"), { recursive: true });
+		fs.cpSync(path.join(tmp, "packages/sandcastle/public/images"), path.join(CACHE, "images"), { recursive: true });
 		fs.cpSync(path.join(tmp, "Apps/SampleData"), path.join(CACHE, "SampleData"), { recursive: true });
 		const listed = sub => walk(path.join(CACHE, sub)).sort().map(f => ({ path: path.relative(path.join(CACHE, sub), f), sha256: sha256(fs.readFileSync(f)), bytes: fs.statSync(f).size }));
 		// 本物＝npm pack → Build/Cesium だけ残す
@@ -93,7 +94,7 @@ function fetchAll() {
 			execFileSync("tar", ["-xzf", path.join(pk, filename), "-C", pk, "package/Build/Cesium"]);
 			fs.cpSync(path.join(pk, "package/Build/Cesium"), path.join(CACHE, "Build/Cesium"), { recursive: true });
 			const build = listed("Build");
-			return { cesium: { ...PIN, npm: { integrity } }, examples, templates: listed("templates"), sampleData: listed("SampleData"), build: { files: build.length, bytes: build.reduce((s, f) => s + f.bytes, 0), sha256: sha256(Buffer.from(build.map(f => f.path + " " + f.sha256).join("\n"))) } };
+			return { cesium: { ...PIN, npm: { integrity } }, examples, templates: listed("templates"), images: listed("images"), sampleData: listed("SampleData"), build: { files: build.length, bytes: build.reduce((s, f) => s + f.bytes, 0), sha256: sha256(Buffer.from(build.map(f => f.path + " " + f.sha256).join("\n"))) } };
 		} finally { fs.rmSync(pk, { recursive: true, force: true }); }
 	} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
@@ -117,6 +118,7 @@ function verifyCache(corpus) {
 	};
 	for (const e of corpus.examples) for (const [f, h] of Object.entries(e.files)) check(`gallery/${e.name}/${f}`, h);
 	for (const t of corpus.templates) check(`templates/${t.path}`, t.sha256);
+	for (const i of corpus.images ?? []) check(`images/${i.path}`, i.sha256);
 	for (const s of corpus.sampleData) check(`SampleData/${s.path}`, s.sha256);
 	const bdir = path.join(CACHE, "Build");
 	if (!fs.existsSync(bdir)) bad.push("missing Build");
