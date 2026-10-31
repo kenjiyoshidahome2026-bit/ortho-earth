@@ -28,7 +28,7 @@ import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つ
 import { transcodersOf } from "../transcoders.ts";   // registry.textureTranscoders の写し（W5）＝タイルの glb の KTX2 も変換器で
 import { implicitOf, contentsOf, isAvailable, indexIn, childSubtreeIndex, childCoord, expandUri, geometricErrorAt, volumeAt, parseSubtree, rankOf, cylinderOf, cylinderFrame } from "../tiles3d-implicit.ts";   // implicit tiling（3D Tiles 1.1）
 import { entityOf, subtreeTables, rowEntity, semanticsOf, applySemantics } from "../tiles3d-metadata.ts";   // metadata（tileset・group・tile・content）
-import { compileStyle, paintBatch } from "../tiles3d-style.ts";   // スタイル（地物ごとの color・show）
+import { compileStyle, paintBatch, lineWidths } from "../tiles3d-style.ts";   // スタイル（地物ごとの color・show）
 import { isCesiumStyle, cesiumToSpec } from "../tiles3d-cesium-style.ts";   // Cesium の 3D Tiles Styling → MapLibre の式
 import { cameraState, ellipsoidOn, loadGeoid, geoidHeight } from "@ortho-earth/core";
 import type { Bbox, OverlayHandle, Tiles3DHandle, Tiles3DOptions, Tiles3DRequestTransform, Tiles3DStyle } from "../../globe.d.ts";
@@ -66,6 +66,8 @@ export interface TileBatch {
 	mesh: TileMesh; features?: MeshFeatures | null; tex?: TileTex | null; texMR?: TileTex | null; texN?: TileTex | null; texOcc?: TileTex | null; texEm?: TileTex | null;
 	pbr?: unknown; alphaMode?: string; alphaCutoff?: number;
 	/** I3S の法線の無い層（Cesium は照明無しで描く） */ unlit?: boolean;
+	/** 表裏を巻き順で決める束（meshdecode の wind＝法線あり・doubleSided でない材質） */ wind?: boolean;
+	/** glTF lines as ribbons (meshdecode): the style's lineWidth rewrites the normals' 4th byte */ lines?: boolean;
 	/** 利用者のシェーダの J（meshdecode の mcJ） */ mcJ?: number[] | null; /** property texture（meshdecode の meta） */ meta?: { props: Record<string, unknown>; texs: (TileTex | null)[] } | null;
 }
 /** worker（tile3d・i3sContent）の答え */
@@ -99,7 +101,7 @@ interface SubtreeSlot { state: "loading" | "ready" | "failed"; st: Subtree | nul
 /** implicit の節点＝c＝自分の座標・r＝自分を含む subtree の根の座標・st＝その subtree（null＝まだ読んでいない＝自分が subtree の根） */
 interface ImpNode { R: ImpRoot; c: TileCoord; r: TileCoord; st: Subtree | null }
 /** スタイルの塗り直しの写し（束ごと）＝元の頂点色・地物・元の alphaMode・mask＝OPAQUE を MASK に切り替えて上げた（show で抜くため） */
-interface PaintPart { k: number; col0: Uint8Array; features: MeshFeatures | null; alpha0: string; mask: boolean; /** an OPAQUE batch put up as BLEND: the style gives some feature an alpha under 1 */ blend?: boolean }
+interface PaintPart { k: number; col0: Uint8Array; features: MeshFeatures | null; alpha0: string; mask: boolean; /** an OPAQUE batch put up as BLEND: the style gives some feature an alpha under 1 */ blend?: boolean; /** a line batch's normals as decoded (the widths: lineWidths) */ nrm0?: Int8Array | null; lw?: boolean }
 /** 選びの節点（3D Tiles のタイルか I3S の節） */
 interface T3dNode {
 	id: number; set: T3dSet; parent: T3dNode | null; M?: ArrayLike<number>; ge: number; refine: string; sphere: Sphere | null; uri: string | null; children: T3dNode[] | null;
@@ -142,6 +144,8 @@ export interface Tiles3DEnv {
 	setMesh(name: string, data: MeshSetData | null): void;
 	meshVis(ward: string, on: boolean): void;
 	setMeshCol?: ((name: string, data: Uint8Array) => void) | null;
+	/** a line batch's normals (the widths in their 4th byte: the style's lineWidth), renderer "meshPos" with no pos */
+	setMeshNrm?: ((name: string, data: Int8Array) => void) | null;
 	/** 画素ごとの地物の番号から塗った絵（renderer の "meshPaint"）＝{ w, h, rgba（α 0＝元の色のまま）, blend（tintB と同じ：0 掛ける・1 置き換え・間 mix の量）}｜null */
 	setMeshPaint?: ((name: string, data: { w: number; h: number; rgba: Uint8Array; blend: number } | null) => void) | null;
 	/** 不透明の束を MASK に（α がこれ未満を抜く）＝feature state の show:false */
@@ -254,7 +258,7 @@ let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;
 const cssRGB = (c: string): number[] | null => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB!.fillStyle = "#000"; ctxRGB!.fillStyle = c; const f = ctxRGB!.fillStyle as string, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setMeshSplit = null, setMeshEnv = null, setMeshOutline = null, setMeshNoClip = null, setMeshImagery = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshNrm = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setMeshSplit = null, setMeshEnv = null, setMeshOutline = null, setMeshNoClip = null, setMeshImagery = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -464,17 +468,17 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const pk = set.opts.pickable ?? "auto", geom = pk === true || (pk === "auto" && !lowMem);
 			n.pick = pk === false ? null : r.batches.map((b, k) => (pk === true || b.features) ? { k, pos: geom ? b.mesh.pos.slice() : null, idx: geom ? b.mesh.idx.slice() : null, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : null).filter(Boolean) as PickPart[];
 			const sty = set.style, opaque = (b: TileBatch) => (b.alphaMode ?? "OPAQUE") === "OPAQUE";
-			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: (!!sty.show || !!set.maskAll) && opaque(b), blend: !!set.blendAll && opaque(b) } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
+			n.paint = sty ? r.batches.map((b, k) => b.mesh.col ? { k, col0: b.mesh.col.slice(), features: b.features || null, alpha0: b.alphaMode ?? "OPAQUE", mask: (!!sty.show || !!set.maskAll) && opaque(b), blend: !!set.blendAll && opaque(b), nrm0: b.lines ? b.mesh.nrm.slice() : null } : null).filter(Boolean) as PaintPart[] : null;   // スタイル＝元の頂点色を写して持つ
 			// main に残る写しの量＝当たりの頂点・index・元の頂点色＋塗り直しの元の頂点色＋地物の番号（ids・tblV＝束ごとに 1 回）。属性の表（文字列の配列）は数えない
 			n.mainBytes = 0;
 			const featBytes = (f: MeshFeatures | null) => f ? f.ids.byteLength + ((f.tblV as ArrayBufferView | null)?.byteLength || 0) + (f.tex?.ids.byteLength || 0) : 0;
 			for (const p of n.pick || []) n.mainBytes += (p.pos?.byteLength || 0) + (p.idx?.byteLength || 0) + (p.col0?.byteLength || 0) + featBytes(p.features);
-			for (const p of n.paint || []) n.mainBytes += p.col0.byteLength + (n.pick?.some(q => q.k === p.k) ? 0 : featBytes(p.features));
+			for (const p of n.paint || []) n.mainBytes += p.col0.byteLength + (p.nrm0?.byteLength || 0) + (n.pick?.some(q => q.k === p.k) ? 0 : featBytes(p.features));
 			if (r.batches.length) meshVis(n.ward, false);   // 伏せてから上げる（同じ列＝転送より先に効く）＝出すかは次の update が決める（兄弟が揃う前に出さない）
 			r.batches.forEach((b, k) => {
 				const m = b.mesh, mask = (!!sty?.show || (!!set.maskAll && !!b.features)) && opaque(b);   // show（スタイル・feature state）で抜く＝OPAQUE を MASK に（見える地物は α 255）
 				n.bytes += (m.pos?.byteLength || 0) + (m.nrm?.byteLength || 0) + (m.idx?.byteLength || 0) + (m.uv?.byteLength || 0) + (m.col?.byteLength || 0) + (b.tex?.rgba?.byteLength || (b.tex?.bitmap ? b.tex.bitmap.width * b.tex.bitmap.height * 4 : 0));
-				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: set.blendAll && opaque(b) ? "BLEND" : mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null, split: splitOf(set), sh: set.opts.environment ?? null, outline: set.opts.outline ?? null, noClip: set.opts.clip === false, imagery: set.opts.imagery ?? null });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
+				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, wind: !!b.wind, csLit: (b.pbr as { unlit?: boolean } | undefined)?.unlit || b.unlit ? "unlit" : "pbr", alphaMode: set.blendAll && opaque(b) ? "BLEND" : mask ? "MASK" : b.alphaMode, alphaCutoff: mask ? 0.5 : b.alphaCutoff, maskBbox: null, maskN: 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: set.opts.customShader ?? null, split: splitOf(set), sh: set.opts.environment ?? null, outline: set.opts.outline ?? null, noClip: set.opts.clip === false, imagery: set.opts.imagery ?? null });   // pbr＋材質 4 枚＝#46 段 2・custom＝利用者のシェーダ（tileset.customShader）
 			});
 			if (set.states.size || set.tileStates?.size || n.paint) paintNode(n);   // feature state の色とスタイルは後から読んだタイルにも
 			n.copyright = r.stats?.copyright || null;
@@ -630,6 +634,14 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				cache.set(key, out); return out;
 			};
 			setMeshCol(`${n.ward}#${p.k}`, paintBatch(p.col0, f?.ids, i => f ? (f.tblV ? f.tblV[i] : f.table ?? null) : null, rgbaOf));
+			if (p.nrm0 && setMeshNrm && (sty?.lineWidth || p.lw)) {   // the style's lineWidth (Cesium px) per feature (3d-tiles-property-lod-river: 5 − 0.4·ORD_FLOW); lw = a width was sent (a style without one puts 1 px back)
+				const wc = new Map<string, number | null>(), lwOf = sty?.lineWidth ?? null; p.lw = !!lwOf;
+				setMeshNrm(`${n.ward}#${p.k}`, lineWidths(p.nrm0, f?.ids, i => f ? (f.tblV ? f.tblV[i] : f.table ?? null) : null, (id, t) => {
+					const key = `${id}:${t}`; if (wc.has(key)) return wc.get(key)!;
+					const table = id != null && t != null && t >= 0 ? f?.tables?.[t] : null, state = id != null ? stateOf(set, n, id) ?? null : null;
+					const w = lwOf ? lwOf({ props: table ? { ...base, ...featureProperties(table, id!) } : base, id, state, int64: table?.int64 }) : null; wc.set(key, w); return w;
+				}));
+			}
 			if (f?.tex && setMeshPaint) setMeshPaint(`${n.ward}#${p.k}`, paintTexel(f.tex, f.table ?? null, rgbaOf, blendOf(set)));
 			if (seeThrough && p.alpha0 === "OPAQUE" && !p.blend && !set.blendAll) { set.blendAll = true; reblend = true; }
 		}

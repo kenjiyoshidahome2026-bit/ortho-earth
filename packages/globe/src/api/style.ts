@@ -260,7 +260,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		if (!v && !baseLayerOf(id) && extOtherOf(id)) {   // その他の層（§8 A）＝記録だけ・画像の raster は不透明度が効く
 			noteOther(id, n => { if (value === undefined) delete n.paint[name]; else n.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, STYLE_DZ); });
 			if (isExtImage(id) && name === "raster-opacity") map.raster.set(id, { opacity: typeof value === "number" ? value : 1 });
-			if (isExtImage(id) && (name === "raster-resampling" || name === "resampling" || name === "raster-fade-duration")) map.raster.set(id, rasterPaintOpts({ [name]: value }));
+			if (isExtImage(id) && (name === "raster-resampling" || name === "resampling" || name === "raster-fade-duration" || name === "raster-split")) map.raster.set(id, rasterPaintOpts({ [name]: value }));
 			return map;
 		}
 		if (!v) { if (!baseLayerOf(id)) throw new Error(`setPaintProperty: layer "${id}" not found`); if (!fastBasePaint(id, name, value)) overrideBase(id, o => { o.paint = { ...(o.paint || {}), [name]: baseValueIn(name, value) }; }); return map; }   // 基図の層（段 7）
@@ -270,6 +270,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			const P = v.layer.paint!, x = P[name] ?? P[name === "resampling" ? "raster-resampling" : "resampling"];
 			map.raster.set(id, { resampling: rasterSampling({ "raster-resampling": x }) ?? "linear" }); return map;
 		}
+		if (v.kind === "raster" && name === "raster-split") { map.raster.set(id, { split: rasterPaintOpts({ "raster-split": value }).split ?? 0 }); return map; }   // 分割（Cesium の splitDirection）＝タイルを作り直さない
 		if (v.kind === "raster" && name === "raster-fade-duration") { map.raster.set(id, { fadeDuration: rasterFade(v.layer.paint) ?? 300 }); return map; }
 		if (v.kind === "colorrelief" && name === "color-relief-opacity") { map.raster.set(id, { opacity: reliefOpacity(v.layer) }); return map; }   // 不透明度はタイルを作り直さない（#114）
 		if (rekind(v)) return map;   // 描き方が変わる paint（line-offset を足した gint の線→canvas2D の口 等）＝外して載せ直す

@@ -136,7 +136,7 @@ type MeshTexIn = { bitmap: ImageBitmap } | { bitmap?: null; rgba: Uint8Array; w:
 /** set("meshSet", data, key) の data（建物メッシュ・模型） */
 interface MeshIn {
 	pos: Float32Array; idx: Uint32Array; nrm: Int8Array | Float32Array; uv?: Float32Array | null; col?: Uint8Array | null; tex?: MeshTexIn | null;
-	origin?: number[] | null; alphaMode?: string; alphaCutoff?: number; bbox?: number[] | null; ward?: string; pbr?: { metallic: number; roughness: number; clearcoat?: number[] | null } | null; csLit?: string;
+	origin?: number[] | null; alphaMode?: string; alphaCutoff?: number; bbox?: number[] | null; ward?: string; pbr?: { metallic: number; roughness: number; clearcoat?: number[] | null } | null; csLit?: string; wind?: boolean;
 	lodH?: ArrayLike<number> | null; lodCounts?: ArrayLike<number> | null; twoSided?: boolean; noCull?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	mask?: ArrayLike<number> | null; maskCells?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[] | null;
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexIn | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
@@ -147,6 +147,7 @@ interface MeshBatch {
 	origin: ArrayLike<number>; bbox: number[]; ward: string; lodH: ArrayLike<number> | null; lodCounts: ArrayLike<number> | null;
 	two: number; noCull: boolean; noLift: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: Float32Array | null;
 	pbr: { metallic: number; roughness: number; clearcoat: number[] | null } | null;   // 材質の係数（Cesium の照明が読む）・clearcoat＝KHR_materials_clearcoat [factor, roughness]
+	wind: boolean;   // 表裏を巻き順で決める束（glTF の法線あり・doubleSided でない材質）＝Cesium の照明の時だけ u_cullBack 2
 	csLit: string;   // Cesium の照明の掛け方："pbr"（既定）／"unlit"＝素の色（KHR_materials_unlit・法線無し）／"off"＝固定光（entity geometry）
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝SH9・27 値）＝meshLight.sh より勝つ
@@ -694,7 +695,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// シーンの rev・ゲート」の鍵が変わった時だけ＝静止中はゼロコスト。unit10＝合成時のタイル・unit13/14/15＝窓 0/1/2。
 	// raster.js の契約：rasterTex/rasterMesh/rasterFree/setRasterDraws（rd={rev,hideFills,layers}）。
 	let rasterDraws: GLRasterDraws | null = null, memRaster = 0, dbgC: DbgCounters | null = null, sceneRev = 0;
-	const gnd = { w: [null, null, null, null] as (GndWin | null)[], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // w[i]＝{ tex, fbo, size, win:[W,S,spanLon,spanLat], bytes }・段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
+	const gnd = { split: false, w: [null, null, null, null] as (GndWin | null)[], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // w[i]＝{ tex, fbo, size, win:[W,S,spanLon,spanLat], bytes }・段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
 	function rasterTex(bitmap: ImageBitmap): GLRasterTex {
 		const tex = gl.createTexture()!;
 		gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -752,13 +753,13 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	let groundHook: ((cam: CameraPose, target: GintAtlasTarget) => number) | null = null, groundSig: (() => string) | null = null;   // gint の面を窓へ焼くフック（renderworker が bakeFaces/bakeSig を結線）：fn(cam, { fbo, win, size })・sig()＝合成鍵
 	function setGroundHook(fn?: ((cam: CameraPose, target: GintAtlasTarget) => number) | null, sig?: (() => string) | null): void { groundHook = fn || null; groundSig = sig || null; }
 	// ラスタタイルを窓へ（order＝"under"|"over"）
-	function drawRasterInto(a: GndWin, bb: number[], order: string): void {
+	function drawRasterInto(a: GndWin, bb: number[], order: string, side = 0): void {   // side＝分割の半分（-1 左・+1 右・0 分割なし）＝反対側の層（splitDirection）は焼かない
 		gl.useProgram(rasAtlasProg);
 		gl.uniform2f(loc(gl, rasAtlasProg, "u_winInv"), 1 / a.win[2], 1 / a.win[3]);
 		gl.uniform1i(loc(gl, rasAtlasProg, "u_tex"), 10);
 		gl.activeTexture(gl.TEXTURE10);
 		for (const L of rasterDraws!.layers) {
-			if (L.order !== order) continue;
+			if (L.order !== order || (side && L.split && L.split !== side)) continue;
 			const nearest = L.resampling === "nearest";   // raster-resampling（C4）＝層の設定をテクスチャに掛ける（1 枚のテクスチャは 1 層のもの＝毎回掛け直して安い）
 			for (const d of L.draws) {
 				const b = d.bounds;
@@ -837,11 +838,13 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		const rasterOn = !!(rasterDraws && rasterDraws.layers.length);
 		const wantFills = fillsIn && !(rasterOn && rasterDraws!.hideFills);
 		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
-		if (!rasterOn && !wantFills && !(fillsIn && groundHook)) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; gnd.faces = 0; return; }
+		if (!rasterOn && !wantFills && !(fillsIn && groundHook)) { gnd.split = false; gnd.n = 0; gnd.key = ""; gnd.tiles = 0; gnd.faces = 0; return; }
 		const wins = groundWindows(cam, canvas.width, canvas.height, far.has ? far.maxElev || 0 : 0);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（利用者のデータ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
+		const split = rasterOn && rasterDraws!.layers.some(l => l.split);   // 左右に分けて焼く層がある（rev の署名に split が入る＝変われば焼き直し）
+		gnd.split = split;
 		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws!.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) return;
 		gnd.key = key; gnd.tiles = 0; gnd.faces = 0;
@@ -855,24 +858,30 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.disable(gl.SCISSOR_TEST); gl.disable(gl.CULL_FACE); gl.depthMask(true); gl.colorMask(true, true, true, true);
 			gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 			gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-			if (rasterOn) drawRasterInto(a, bb, "under");
-			// 差し込み（#123）：基図の最後の枠（host）を境で分け、間に利用者の塗りを焼く（直描きの drawSlot と同じ計画）。表に無い物は今どおり基図の塗りの後
-			const ua = userAnchorPlan(userIn && wantFills ? [...baseSlots].reverse().find(sl => sceneHasDraws(scenes[sl])) : null);
-			if (wantFills) for (const sl of baseSlots) {
-				if (sl !== ua.host) { drawFillsInto(a, st, land, [sl], seaOff, baseA); continue; }
-				let lo = -Infinity;
-				for (const an of ua.anchors) { drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, an); drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, d => ua.anchorOf(d.li) === an); lo = an; }
-				drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, Infinity);
+			// 分割（Cesium の ImageryLayer.splitDirection）＝窓を左右の半分へ 2 度焼く（左半分＝左の層＋両方の層・右半分＝右＋両方）。
+			// FS は画面の x と分割位置で半分を選ぶ（gndSide）。窓の写像はそのまま＝viewport を半分にするだけで経度が半分の幅に詰まる
+			for (const side of split ? [-1, 1] : [0]) {
+				const vx = side > 0 ? size >> 1 : 0, vw = side ? size >> 1 : size;
+				gl.viewport(vx, 0, vw, size);
+				if (rasterOn) drawRasterInto(a, bb, "under", side);
+				// 差し込み（#123）：基図の最後の枠（host）を境で分け、間に利用者の塗りを焼く（直描きの drawSlot と同じ計画）。表に無い物は今どおり基図の塗りの後
+				const ua = userAnchorPlan(userIn && wantFills ? [...baseSlots].reverse().find(sl => sceneHasDraws(scenes[sl])) : null);
+				if (wantFills) for (const sl of baseSlots) {
+					if (sl !== ua.host) { drawFillsInto(a, st, land, [sl], seaOff, baseA); continue; }
+					let lo = -Infinity;
+					for (const an of ua.anchors) { drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, an); drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, d => ua.anchorOf(d.li) === an); lo = an; }
+					drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, Infinity);
+				}
+				if (userIn) drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null);
+				if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
+					try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", (e as Error | null)?.message); }
+					gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(vx, 0, vw, size);
+					gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.colorMask(true, true, true, true);
+					gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD);
+					gl.bindVertexArray(null);
+				}
+				if (rasterOn) drawRasterInto(a, bb, "over", side);
 			}
-			if (userIn) drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null);
-			if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
-				try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", (e as Error | null)?.message); }
-				gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(0, 0, size, size);
-				gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.colorMask(true, true, true, true);
-				gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD);
-				gl.bindVertexArray(null);
-			}
-			if (rasterOn) drawRasterInto(a, bb, "over");
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 			gl.bindTexture(gl.TEXTURE_2D, a.tex); gl.generateMipmap(gl.TEXTURE_2D); gl.bindTexture(gl.TEXTURE_2D, null);   // 斜め視のちらつき防止
 		}
@@ -883,6 +892,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	function bindGnd(prog: WebGLProgram): void {
 		for (let i = 0; i < 4; i++) gl.uniform1i(loc(gl, prog, "u_gnd" + i), GND_UNITS[i]);
 		gl.uniform1f(loc(gl, prog, "u_gndN"), gnd.n);
+		gl.uniform1f(loc(gl, prog, "u_gndSplit"), gnd.n && gnd.split ? splitPos * canvas.width : -1);   // 分割の画面 x（device px）｜-1＝分割なし
 		for (let i = 0; i < 4; i++) { gl.activeTexture(gl.TEXTURE0 + GND_UNITS[i]); gl.bindTexture(gl.TEXTURE_2D, i < gnd.n && gnd.w[i] ? gnd.w[i]!.tex : null); }
 		gl.activeTexture(gl.TEXTURE0);
 	}
@@ -1652,7 +1662,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", wind: !!data.wind, custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
 			meta: textured && data.meta?.props && data.meta.texs?.length ? { props: data.meta.props, sig: JSON.stringify(data.meta.props), texs: data.meta.texs.map(t => t ? csTexture({ name: "", tex: t, nearest: true, repeat: false }) : whiteTex) } : null });   // 影を落とさない（WebGPU と同じ）   // noCull＝裏面を捨てない（面の向きが揃っていない建物・間引きは残す）／noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
@@ -1880,6 +1890,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.uniform4f(loc(gl, prog, "u_ellTrig"), ...((_ell ? [Math.cos(2 * _pr), Math.sin(2 * _pr), Math.cos(4 * _pr), Math.sin(4 * _pr)] : [0, 0, 0, 0]) as Vec4T));
 		gl.uniform1f(loc(gl, prog, "u_ell"), _ell ? 1 : 0);
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
+		gl.uniform1f(loc(gl, prog, "u_lineDpr"), lastDpr);   // the mesh VS's line ribbons (CSS px → device px)
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5 * fogK());
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0 * fogK());
 		fog = fogColorOf(fog);
@@ -2611,7 +2622,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
 				gl.uniform1f(loc(gl, pg, "u_csOn"), p.csLit === "phong" ? 3 : !meshLight || p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1);   // Cesium の模型の照明（setMeshLighting）：1＝csLit・2＝素の色・0＝固定光・3＝czm_phong（目の光）
 				if (meshLight) { gl.uniform2f(loc(gl, pg, "u_csMR"), p.pbr ? p.pbr.metallic : 0, p.pbr ? p.pbr.roughness : 1); gl.uniform2f(loc(gl, pg, "u_csCC"), p.pbr?.clearcoat?.[0] ?? 0, p.pbr?.clearcoat?.[1] ?? 0); gl.uniform3fv(loc(gl, pg, "u_csSH"), p.sh ?? meshLight.sh); gl.uniform4fv(loc(gl, pg, "u_olC"), p.ol ?? OL_NONE); }   // バッチの材質と環境光（模型ごとの meshEnv が勝つ）   // バッチの材質（Cesium の照明）
-				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two || p.noCull ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
+				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.wind && meshLight && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1);   // 2＝Cesium の表裏（巻き順で裏を捨て、法線は書かれたまま＝Cesium の back-face culling）   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
 				gl.uniform3f(loc(gl, pg, "u_eyeRel"), st.eye[0] - p.origin[0], st.eye[1] - p.origin[1], st.eye[2] - p.origin[2]);   // 目 − 原点（double）＝v_toEye の錨（近接の裏面判定）
 				gl.uniform1f(loc(gl, pg, "u_xfOn"), p.xf ? 1 : 0);   // バッチの剛体変換（glTF の rigid アニメ・W4）＝L（3x3 列優先）と原点相対の平行移動
@@ -2760,9 +2771,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.textured && (data as Uint8Array | null | undefined)?.length && p.bufs[4]) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[4]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data as Uint8Array); gl.bindBuffer(gl.ARRAY_BUFFER, null); } break; }   // 頂点色だけ書き換える（feature state の色・W7）＝Uint8Array RGBA×頂点（長さは meshSet と同じ）
 			case "meshPos": {   // skin の頂点の焼き直し（2026-10-28）＝pos（原点相対・Float32・3n）と法線（Int8・4n）を同じ頂点数のまま書き換える（大きさが違えば捨てる）
 				const p = meshes.get(prop as string), d = data as { pos?: Float32Array; nrm?: Int8Array } | null;
-				if (!p || !d?.pos?.length) break;
-				gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[0]);
-				if (gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) === d.pos.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.pos);
+				if (!p || (!d?.pos?.length && !d?.nrm?.length)) break;   // nrm alone: a line batch's widths (the style's lineWidth, in the normal's 4th byte)
+				if (d.pos?.length) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[0]); if (gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) === d.pos.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.pos); }
 				if (d.nrm?.length) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[1]); if (gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) === d.nrm.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.nrm); }
 				gl.bindBuffer(gl.ARRAY_BUFFER, null);
 				break;
