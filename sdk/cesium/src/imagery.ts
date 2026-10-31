@@ -25,6 +25,12 @@ export function rasterSourceOf(p: Any): Any | null {
 	if (!p) return null;
 	const name = p.constructor?.name;
 	if (name === "IonImageryProvider") return rasterSourceOf(p._imageryProvider);
+	// one picture over its rectangle: an image source (its GeographicTilingScheme spans only that rectangle with one tile, which the world-wide
+	// re-tiling below would stretch over the globe: imagery-cutout's logo never showed, imagery-layers' drew a blue smear over the Earth)
+	if (name === "SingleTileImageryProvider") {
+		const r = p.rectangle, d = 180 / Math.PI;
+		return { type: "image", url: raw(p._resource), coordinates: [[r.west * d, r.north * d], [r.east * d, r.north * d], [r.east * d, r.south * d], [r.west * d, r.south * d]] };
+	}
 	if (isGeographic(p)) return typeof p.requestImage === "function" ? geoSource(p) : (unsupported(`${name} with a geographic tiling scheme and no requestImage`), null);
 	const range = { minzoom: p.minimumLevel ?? 0, maxzoom: Math.min(22, p.maximumLevel ?? 19), tileSize: p.tileWidth ?? 256 };
 	if (name === "BingMapsImageryProvider") {
@@ -54,10 +60,6 @@ export function rasterSourceOf(p: Any): Any | null {
 		return { type: "raster", tiles: [t], ...range, ...(ids ? { matrixIds: ids } : {}) };
 	}
 	if (name === "WebMapServiceImageryProvider") return rasterSourceOf(p._tileProvider);
-	if (name === "SingleTileImageryProvider") {
-		const r = p.rectangle, d = 180 / Math.PI;
-		return { type: "image", url: raw(p._resource), coordinates: [[r.west * d, r.north * d], [r.east * d, r.north * d], [r.east * d, r.south * d], [r.west * d, r.south * d]] };
-	}
 	const res = p._resource ?? p._tileProvider?._resource;
 	if (res) {   // UrlTemplate (and its subclasses: OpenStreetMap, TileMapService…)
 		let t = raw(res);
