@@ -8,7 +8,7 @@ import { batchTableOf, type PropertyTable } from "./mesh-features.ts";
 
 export interface GeomPart {
 	/** 地物の番号（batch id） */ id: number; /** ECEF（m）−center の頂点 */ pos: Float32Array; idx: Uint32Array;
-	/** 内外の判定：shape（0 箱・1 円柱・2 楕円体／球）と ECEF → 単位の形の座標（列優先 4x4・逆行列）＝点群の分類（点ごとに内側か） */ shape: number; inv: Float64Array;
+	/** 内外の判定：shape（0 箱・1 円柱・2 楕円体／球・-1＝判定しない＝vctr の多角形の柱）と ECEF → 単位の形の座標（列優先 4x4・逆行列）＝点群の分類（点ごとに内側か） */ shape: number; inv: Float64Array;
 }
 export interface GeomOut { center: number[]; parts: GeomPart[]; table: PropertyTable | null }
 
