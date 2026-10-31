@@ -659,6 +659,10 @@ export class EntityDisplay {
 				for (let i = 1; i <= N; i++) ring.push([ea, s + (n - s) * i / N]);
 				for (let i = 1; i <= N; i++) ring.push([ea - (ea - w) * i / N, n]);
 				for (let i = 1; i <= N; i++) ring.push([w, n - (n - s) * i / N]);
+				// rotation: Cesium's RectangleGeometryLibrary turns the rectangle counter-clockwise about its centre in longitude/latitude (radians, not
+				// metres): the rectangle example's spinning logo, which stood still and square here before 2026-10-31
+				const rot = val(re.rotation, t, 0);
+				if (rot) { const cx = (w + ea) / 2, cy = (s + n) / 2, c = Math.cos(rot), sn = Math.sin(rot); for (const q of ring) { const dx = q[0] - cx, dy = q[1] - cy; q[0] = cx + dx * c - dy * sn; q[1] = cy + dx * sn + dy * c; } }
 				addShape([ring], { ...common(re), ...groundVertical(re, val(re.height, t), val(re.extrudedHeight, t), undefined, ring) });
 			}
 		}
