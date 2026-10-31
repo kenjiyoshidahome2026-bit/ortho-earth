@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.2 is out — the CesiumJS examples run on the globe</title>
+<meta name="description" content="@ortho-earth/globe and core are now 2.2. All 297 graded CesiumJS Sandcastle examples run unchanged on the globe through the new @ortho-earth/cesium, 190 of them drawing the same picture. Leaflet and Google Maps code gets the same treatment with @ortho-earth/leaflet and @ortho-earth/gmaps.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/release-2-2">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/release-2-2">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/release-2-2-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/release-2-2">
+<meta property="og:title" content="Ortho Earth 2.2 is out">
+<meta property="og:description" content="The 297 graded CesiumJS Sandcastle examples all run unchanged on the globe, 190 with the same picture. New packages for Cesium, Leaflet and Google Maps code.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/release-2-2">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-31">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Ortho Earth 2.2 is out","description":"@ortho-earth/globe and core are now 2.2. All 297 graded CesiumJS Sandcastle examples run unchanged on the globe through the new @ortho-earth/cesium, 190 of them drawing the same picture. Leaflet and Google Maps code gets the same treatment with @ortho-earth/leaflet and @ortho-earth/gmaps.","url":"https://www.ortho-earth.com/docs/release-2-2","mainEntityOfPage":"https://www.ortho-earth.com/docs/release-2-2","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-10-31","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="release-2-2-jp.html" lang="ja">日本語</a></nav>
+
+<header class="masthead"><h1>Ortho Earth 2.2 is out</h1><p class="subtitle">The CesiumJS examples run on the globe, and Leaflet and Google Maps code comes along</p><p class="byline">2026-10-31 &middot; Kenji Yoshida &middot; @ortho-earth/globe &middot; @ortho-earth/core &middot; @ortho-earth/cesium</p></header>
+<article class="reading essay">
+
+<p>
+<code>@ortho-earth/globe</code> and <code>@ortho-earth/core</code> are now 2.2.
+2.1 was about MapLibre. This release is about CesiumJS: the goal was to leave nothing that Cesium can do and Ortho Earth cannot.
+Three packages are new: <code>@ortho-earth/cesium</code>, and the same idea for <code>@ortho-earth/leaflet</code> and <code>@ortho-earth/gmaps</code>.
+</p>
+
+<h2 id="cesium">1. CesiumJS code on the globe</h2>
+
+<p>
+<code>@ortho-earth/cesium</code> gives a namespace with the same names as CesiumJS 1.146's. Everything that does not draw (math, time, the camera, entities, CZML, the clock, ion, the widgets)
+is Cesium's own code, unchanged. Only the drawing is the Ortho Earth globe. So Cesium code runs with only its import changed.
+</p>
+
+<pre><code>import * as Cesium from "@ortho-earth/cesium";
+const viewer = new Cesium.Viewer("cesiumContainer");</code></pre>
+
+<p>
+The yardstick is Cesium's own 309 Sandcastle examples. Each one runs unchanged on real CesiumJS and on the globe, at the same time and from the same camera, and the two pictures are compared
+(297 of them are scored; the Moon and Mars, examples with no viewer and examples that start in 2D are left out). You can see every pair at <a href="/sandcastle/" target="_top">/sandcastle</a>.
+</p>
+
+<div class="table-wrap"><table>
+	<tr><th>Level</th><th>First run (Oct 25)</th><th>2.2 (Oct 31)</th></tr>
+	<tr><td>3　Same picture</td><td>23</td><td><strong>190</strong></td></tr>
+	<tr><td>2　Same answers</td><td>120</td><td>107</td></tr>
+	<tr><td>1　Runs</td><td>129</td><td><strong>0</strong></td></tr>
+	<tr><td>0　Does not run</td><td>24</td><td><strong>0</strong></td></tr>
+</table></div>
+
+<p>
+Every scored example now runs and gives the same answers as Cesium, and about two thirds draw the same picture. The last run was taken on a real GPU (WebGPU) with the same code that went to npm.
+To get there the engine itself learned a lot, and all of it is available from the plain globe API too:
+</p>
+
+<ul>
+	<li>Model lighting with the sun, HDR and image-based light, shadows, and glTF features such as clearcoat and KTX2 textures.</li>
+	<li>Screen effects (bloom, silhouettes, depth of field, lens flare, your own GLSL stages), particles, clouds and clustering.</li>
+	<li>Terrain materials (elevation bands, contours, slope), ocean depths, a translucent globe and a camera that can go underground.</li>
+	<li>3D Tiles clipping by planes and polygons, imagery draped onto 3D Tiles, I3S, point-cloud and voxel data, Gaussian splats, and custom shaders (GLSL on WebGL2, translated to WGSL on WebGPU).</li>
+</ul>
+
+<p>
+If you would rather move to the globe's own API, <a href="from-cesium.html">Coming from CesiumJS</a> lists each Cesium call next to its counterpart.
+</p>
+
+<h2 id="leaflet-gmaps">2. Leaflet and Google Maps code, too</h2>
+
+<p>
+The same approach works for two more APIs. <code>@ortho-earth/leaflet</code> gives an <code>L</code> shaped like Leaflet 1.9's, and <code>@ortho-earth/gmaps</code> a <code>google.maps</code>.
+Both draw on the globe, or on a flat MapLibre map if you prefer, and both change nothing but the import. The Google one needs no Google key for the map;
+with your key it also relays Geocoder, Directions, Places and Street View to Google's own services.
+</p>
+
+<p>
+Neither has a gallery of official examples yet, so <a href="from-leaflet.html">Coming from Leaflet</a> and <a href="from-google-maps.html">Coming from Google Maps</a> list exactly what is translated,
+and anything that is not is reported in the console when you run your code.
+</p>
+
+<h2 id="same">3. Same API as 2.1</h2>
+
+<p>
+Everything in 2.2 is added on top. Code written for 2.1 runs on 2.2 as it is.
+</p>
+
+<pre><code>npm i @ortho-earth/globe@2.2
+npm i @ortho-earth/cesium      # CesiumJS code
+npm i @ortho-earth/leaflet     # Leaflet code
+npm i @ortho-earth/gmaps       # Google Maps code</code></pre>
+
+<p>
+Put together, it has started to look like a formula: Ortho Earth = MapLibre &times; Cesium &minus; Mercator + &alpha;.
+</p>
+
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+
+</article>
+</body>
+</html>

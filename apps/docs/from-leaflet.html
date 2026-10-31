@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coming from Leaflet — your Leaflet code on the 3D globe</title>
+<meta name="description" content="For Leaflet users: @ortho-earth/leaflet gives an L namespace whose maps, tile layers, markers, popups, vector layers and GeoJSON draw on the Ortho Earth globe or on MapLibre GL. Only the import changes. What is translated, what is not, and how to check a port.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/from-leaflet">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/from-leaflet">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/from-leaflet-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/from-leaflet">
+<meta property="og:title" content="Coming from Leaflet — your Leaflet code on the 3D globe">
+<meta property="og:description" content="For Leaflet users: @ortho-earth/leaflet gives an L namespace whose maps, tile layers, markers, popups, vector layers and GeoJSON draw on the Ortho Earth globe or on MapLibre GL. Only the import changes. What is translated, what is not, and how to check a port.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/from-leaflet">
+<meta property="og:type" content="article">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Coming from Leaflet — your Leaflet code on the 3D globe","description":"For Leaflet users: @ortho-earth/leaflet gives an L namespace whose maps, tile layers, markers, popups, vector layers and GeoJSON draw on the Ortho Earth globe or on MapLibre GL. Only the import changes. What is translated, what is not, and how to check a port.","url":"https://www.ortho-earth.com/docs/from-leaflet","mainEntityOfPage":"https://www.ortho-earth.com/docs/from-leaflet","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">From Leaflet</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="from-cesium.html">From CesiumJS</a>
+		<a href="from-maplibre.html">From MapLibre</a>
+		<span class="nav-cur">From Leaflet</span>
+		<a href="from-google-maps.html">From Google Maps</a>
+		<a href="from-leaflet-jp.html" class="nav-flag" aria-label="日本語">🇯🇵</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Coming from Leaflet</h1>
+<p class="lead">Your Leaflet code on the 3D globe<br>
+<span style="font-size:0.85em">
+<code>npm i @ortho-earth/leaflet @ortho-earth/globe</code>
+</span></p>
+
+<p>
+<code>@ortho-earth/leaflet</code> gives you an <code>L</code> namespace shaped like Leaflet 1.9's. Its maps, tile layers, markers, popups, vector layers and GeoJSON
+draw through MapLibre GL: either on the Ortho Earth globe (<code>@ortho-earth/globe/maplibre</code>) or on the real <code>maplibre-gl</code>.
+Code written for Leaflet keeps its shape; only the import changes. Leaflet's stylesheet is not needed.
+</p>
+
+<pre><code>// on the globe
+import L from "@ortho-earth/leaflet/globe";
+
+const map = L.map("map").setView([35.6812, 139.7671], 15);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+L.marker([35.6812, 139.7671]).addTo(map).bindPopup("&lt;b&gt;Tokyo Station&lt;/b&gt;").openPopup();
+L.geoJSON(parks, { style: f =&gt; ({ fillColor: f.properties.kind === "park" ? "green" : "gray" }) }).addTo(map);</code></pre>
+
+<p>
+<code>@ortho-earth/leaflet/globe</code> also has Leaflet's named exports (<code>map</code>, <code>tileLayer</code>, <code>marker</code>, …), so a bundler alias ports a whole app without touching its imports:
+</p>
+
+<pre><code>// vite.config.js
+export default { resolve: { alias: { leaflet: "@ortho-earth/leaflet/globe" } } };</code></pre>
+
+<p>
+To keep a flat map, give it <code>maplibre-gl</code> instead: <code>createLeaflet(maplibregl, { style })</code> from <code>@ortho-earth/leaflet</code>, and <code>installGlobal(L)</code> for scripts and plugins that read <code>window.L</code>.
+</p>
+
+<h2 id="translated">What is translated</h2>
+
+<table>
+	<tr><th>Leaflet</th><th>On the globe</th></tr>
+	<tr><td><code>L.map</code> and its options, <code>setView</code>, <code>flyTo</code>, <code>fitBounds</code>, <code>panTo</code>, point conversions, handlers (<code>map.dragging.disable()</code> …)</td><td>the camera. <strong>Zoom is shifted by one</strong> (Leaflet zoom z = MapLibre zoom z − 1, 256 px vs 512 px tiles). <code>fitBounds</code> uses Leaflet's own arithmetic, so a port lands on the same zoom. Rotation and tilt stay off unless you ask for them (<code>rotate: true</code>)</td></tr>
+	<tr><td>Map events (<code>click</code>, <code>move</code>, <code>zoomend</code>, <code>popupopen</code> …)</td><td>MapLibre events with Leaflet's event object (<code>latlng</code>, <code>containerPoint</code>, <code>layerPoint</code>). A path's mouse event reaches its groups and then the map, as in Leaflet</td></tr>
+	<tr><td><code>L.tileLayer</code> (<code>{s}</code>, <code>{r}</code>, <code>tms</code>, your own <code>{keys}</code>, <code>maxNativeZoom</code>, <code>bounds</code>, <code>opacity</code>), <code>L.tileLayer.wms</code>, <code>L.GridLayer</code> with <code>createTile</code></td><td>raster sources; a <code>GridLayer</code>'s canvas or <code>&lt;img&gt;</code> tiles are drawn through a protocol</td></tr>
+	<tr><td><code>L.marker</code>, <code>L.icon</code>, <code>L.divIcon</code>, popups and tooltips (<code>bindPopup</code>, <code>bindTooltip</code>, <code>permanent</code>, <code>sticky</code>, <code>direction</code>)</td><td>MapLibre markers and popups, placed where Leaflet places them. The default icon is Leaflet's blue pin as SVG, no image files to serve</td></tr>
+	<tr><td><code>L.polyline</code>, <code>L.polygon</code>, <code>L.rectangle</code>, <code>L.circle</code> (metres), <code>L.circleMarker</code> (pixels), <code>setStyle</code>, <code>toGeoJSON</code></td><td>one GeoJSON source per pane, like Leaflet's one renderer per pane, so 10,000 features cost one source</td></tr>
+	<tr><td><code>L.geoJSON</code> (<code>style</code>, <code>pointToLayer</code>, <code>onEachFeature</code>, <code>filter</code>), <code>L.layerGroup</code>, <code>L.featureGroup</code></td><td>one layer per feature, as in Leaflet</td></tr>
+	<tr><td><code>L.imageOverlay</code>, <code>L.videoOverlay</code></td><td>image and video sources</td></tr>
+	<tr><td><code>L.control.zoom</code>, <code>attribution</code>, <code>scale</code>, <code>layers</code>, <code>L.Control.extend</code>; panes (<code>createPane</code>, <code>zIndex</code>)</td><td>controls in MapLibre's corners; panes become the order of the layers</td></tr>
+	<tr><td><code>L.Class</code>, <code>L.Evented</code>, <code>L.Util</code>, <code>L.DomUtil</code>, <code>L.DomEvent</code>, <code>L.latLng</code>, <code>L.latLngBounds</code>, <code>L.CRS</code> …</td><td>plain values and helpers, so plugins built on <code>L.Class.extend</code> load</td></tr>
+</table>
+
+<h2 id="not">What is not</h2>
+
+<ul>
+	<li><strong>Other CRSs</strong> (<code>L.CRS.Simple</code>, EPSG:4326 maps): the globe is drawn in WGS84, and a flat MapLibre map in Web Mercator.</li>
+	<li><strong>The SVG and DOM inside vector layers</strong>: <code>path.getElement()</code> returns null (a path is a MapLibre feature), and plugins that draw into Leaflet's panes or renderers, such as marker clustering or Leaflet.draw, do not draw.</li>
+	<li>HTML <code>GridLayer</code> tiles, <code>detectRetina</code>, and the <code>zoomanim</code> event.</li>
+</ul>
+
+<h2 id="check">Checking a port</h2>
+
+<p>
+Anything the namespace does not translate is reported once in the console as <code>[lfshim] unsupported: …</code>; it never throws.
+<code>L.unsupportedReport()</code> lists them, so you can check a port just by running it. For anything else, <code>map.getMapLibre()</code> returns the map underneath,
+and on the globe that map also has everything in <a href="core.html">the engine</a>: terrain, 3D Tiles, the shared clock and the night side.
+</p>
+
+<p>
+The test suite runs the Leaflet calls above against the real globe (<code>npm run verify:ui -- t-leaflet</code> in <code>packages/globe</code>).
+Unlike <a href="/maplibre/" target="_top">MapLibre</a> and <a href="/sandcastle/" target="_top">CesiumJS</a>, there is no gallery of Leaflet's own examples yet, so the tables on this page are the list of what is covered.
+</p>
+
+<p>
+Coming from other libraries? See <a href="from-google-maps.html">From Google Maps</a>, <a href="from-maplibre.html">From MapLibre GL JS</a> and <a href="from-cesium.html">From CesiumJS</a>.
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/leaflet · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>

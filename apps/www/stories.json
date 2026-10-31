@@ -2,6 +2,20 @@
 	"_note": "Stories タブ（Technologies の後）の記事一覧（日付・題のリンク・一文）。新しい記事は先頭に 1 件足す。ja / en の片方だけでも可（無い言語ではある方を出す）。href は同じオリジンのパス＝押すとナビの下の iframe で開く",
 	"stories": [
 		{
+			"id": "release-2-2",
+			"date": "2026-10-31",
+			"ja": {
+				"title": "Ortho Earth 2.2 を公開しました",
+				"desc": "CesiumJS の Sandcastle 297 本がすべてコードを変えずに地球儀で動き、190 本は同じ絵に。@ortho-earth/cesium と、Leaflet・Google Maps のコード向けのパッケージも出しました。",
+				"href": "/docs/release-2-2-jp"
+			},
+			"en": {
+				"title": "Ortho Earth 2.2 is out",
+				"desc": "All 297 graded CesiumJS Sandcastle examples run unchanged on the globe, 190 with the same picture. New packages for Cesium, Leaflet and Google Maps code.",
+				"href": "/docs/release-2-2"
+			}
+		},
+		{
 			"id": "release-2-1",
 			"date": "2026-10-23",
 			"ja": {
