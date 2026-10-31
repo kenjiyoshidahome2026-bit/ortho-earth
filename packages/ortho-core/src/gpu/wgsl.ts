@@ -1052,7 +1052,7 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	let m = mix(on * ex * ey, rate * 1.1, far);
 	return vec4f(mix(col, farCol, far), clamp(m * k, 0.0, 1.0));
 }
-@fragment fn fs(in: PlOut) -> @location(0) vec4f {
+@fragment fn fs(in: PlOut, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
 	let wlx = dpdx(in.wl); let wly = dpdy(in.wl);   // 街明かりの窓の画素幅（discard より前＝一様制御フロー）
 	olV = in.ol; olW = fwidth(in.ol);   // the outline's screen-space width (uniform control flow: before any discard)
 	let olPk = u32(B.cc.w); olC = vec4f(f32((olPk >> 16u) & 255u), f32((olPk >> 8u) & 255u), f32(olPk & 255u), 255.0 * B.cc.z) / 255.0;   // cc.z = alpha, cc.w = rgb packed 8 bits each
@@ -1067,7 +1067,8 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	// 前提が深ズーム(z20)で崩れ点描ゴーストになった（glsl.js MESH_FS と同文・2026-08-02）。
 	// 向きは属性法線で採決＝巻き順非依存。退化面（微分ゼロ）だけ旧判定へフォールバック。
 	let g2 = dot(gnRaw, gnRaw);
-	let fe = select(dot(n, normalize(in.toEye)), dot(normalize(gnRaw * sign(dot(gnRaw, n))), normalize(in.toEye)), g2 > 1e-18);
+	var fe = select(dot(n, normalize(in.toEye)), dot(normalize(gnRaw * sign(dot(gnRaw, n))), normalize(in.toEye)), g2 > 1e-18);
+	if (B.meshOrigin.w > 1.5) { fe = select(-1.0, max(abs(fe), 1e-3), ff); }   // 2＝Cesium の表裏（gl/glsl.ts MESH_FS と同文）：巻き順で裏を捨て、法線は書かれたまま。glTF の表（反時計回り）＝front_facing
 	// 裏面カリング。cullBack=B.meshOrigin.w
 	if (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }
 	if (fe < 0.0) { n = -n; }   // 両面時は法線を視線側へ＝裏から見ても陰影が成立
@@ -2155,7 +2156,7 @@ fn rd(idx: u32) -> f32 {
 // 派生（deriveWgsl）の錨は触らない＝この変換は mkMod の直前に最後に掛ける（元の fs を fsColor に改名して包む＝return を書き換えない）。
 // 費用＝early-Z が効かない分（東京駅 z16.5・55° で gpuMap +0.4ms・山地は差なし）。逃げ道＝?fd=0（renderer の rOpts.fragDepth=false）
 export function fragDepthWgsl(src: string, label = ""): string {
-	const m = /@fragment fn fs\(in: (\w+)\) -> @location\(0\) vec4f \{/.exec(src);
+	const m = /@fragment fn fs\(in: (\w+)(, @builtin\(front_facing\) ff: bool)?\) -> @location\(0\) vec4f \{/.exec(src);   // ff＝模型の fs だけ（Cesium の表裏）
 	if (!m) throw new Error(`fragDepth(${label}): fs not found`);
 	const out = m[1], st = src.indexOf(`struct ${out} {`);
 	if (st < 0) throw new Error(`fragDepth(${label}): struct ${out} not found`);
@@ -2165,12 +2166,13 @@ export function fragDepthWgsl(src: string, label = ""): string {
 	const vsA = "\tp.z = logDepthZ(p.w);\n\to.pos = p;";
 	if (s.split(vsA).length !== 2) throw new Error(`fragDepth(${label}): vs anchor missing/ambiguous`);
 	s = s.replace(vsA, "\tp.z = logDepthZ(p.w);\n\to.pos = p; o.cw = p.w;");
-	s = s.replace(m[0], `fn fsColor(in: ${out}) -> vec4f {`);
+	const ff = !!m[2];
+	s = s.replace(m[0], `fn fsColor(in: ${out}${ff ? ", ff: bool" : ""}) -> vec4f {`);
 	return s + `
 struct ${out}Frag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
-@fragment fn fs(in: ${out}) -> ${out}Frag {   // 色は元の fs（fsColor）・深度は画素ごとに対数深度（#62）
+@fragment fn fs(in: ${out}${ff ? ", @builtin(front_facing) ff: bool" : ""}) -> ${out}Frag {   // 色は元の fs（fsColor）・深度は画素ごとに対数深度（#62）
 	var o: ${out}Frag;
-	o.c = fsColor(in);
+	o.c = fsColor(in${ff ? ", ff" : ""});
 	o.d = fragDepthOf(in.cw);
 	return o;
 }

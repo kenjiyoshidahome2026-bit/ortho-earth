@@ -136,7 +136,7 @@ type MeshTexIn = { bitmap: ImageBitmap } | { bitmap?: null; rgba: Uint8Array; w:
 /** set("meshSet", data, key) の data（建物メッシュ・模型） */
 interface MeshIn {
 	pos: Float32Array; idx: Uint32Array; nrm: Int8Array | Float32Array; uv?: Float32Array | null; col?: Uint8Array | null; tex?: MeshTexIn | null;
-	origin?: number[] | null; alphaMode?: string; alphaCutoff?: number; bbox?: number[] | null; ward?: string; pbr?: { metallic: number; roughness: number; clearcoat?: number[] | null } | null; csLit?: string;
+	origin?: number[] | null; alphaMode?: string; alphaCutoff?: number; bbox?: number[] | null; ward?: string; pbr?: { metallic: number; roughness: number; clearcoat?: number[] | null } | null; csLit?: string; wind?: boolean;
 	lodH?: ArrayLike<number> | null; lodCounts?: ArrayLike<number> | null; twoSided?: boolean; noCull?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	mask?: ArrayLike<number> | null; maskCells?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[] | null;
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexIn | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
@@ -147,6 +147,7 @@ interface MeshBatch {
 	origin: ArrayLike<number>; bbox: number[]; ward: string; lodH: ArrayLike<number> | null; lodCounts: ArrayLike<number> | null;
 	two: number; noCull: boolean; noLift: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: Float32Array | null;
 	pbr: { metallic: number; roughness: number; clearcoat: number[] | null } | null;   // 材質の係数（Cesium の照明が読む）・clearcoat＝KHR_materials_clearcoat [factor, roughness]
+	wind: boolean;   // 表裏を巻き順で決める束（glTF の法線あり・doubleSided でない材質）＝Cesium の照明の時だけ u_cullBack 2
 	csLit: string;   // Cesium の照明の掛け方："pbr"（既定）／"unlit"＝素の色（KHR_materials_unlit・法線無し）／"off"＝固定光（entity geometry）
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
 	sh?: Float32Array | null;   // その模型の環境光（set "meshEnv"＝SH9・27 値）＝meshLight.sh より勝つ
@@ -1652,7 +1653,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", wind: !!data.wind, custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
 			meta: textured && data.meta?.props && data.meta.texs?.length ? { props: data.meta.props, sig: JSON.stringify(data.meta.props), texs: data.meta.texs.map(t => t ? csTexture({ name: "", tex: t, nearest: true, repeat: false }) : whiteTex) } : null });   // 影を落とさない（WebGPU と同じ）   // noCull＝裏面を捨てない（面の向きが揃っていない建物・間引きは残す）／noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
@@ -2611,7 +2612,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
 				gl.uniform1f(loc(gl, pg, "u_csOn"), !meshLight || p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1);   // Cesium の模型の照明（setMeshLighting）：1＝csLit・2＝素の色・0＝固定光
 				if (meshLight) { gl.uniform2f(loc(gl, pg, "u_csMR"), p.pbr ? p.pbr.metallic : 0, p.pbr ? p.pbr.roughness : 1); gl.uniform2f(loc(gl, pg, "u_csCC"), p.pbr?.clearcoat?.[0] ?? 0, p.pbr?.clearcoat?.[1] ?? 0); gl.uniform3fv(loc(gl, pg, "u_csSH"), p.sh ?? meshLight.sh); gl.uniform4fv(loc(gl, pg, "u_olC"), p.ol ?? OL_NONE); }   // バッチの材質と環境光（模型ごとの meshEnv が勝つ）   // バッチの材質（Cesium の照明）
-				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two || p.noCull ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
+				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.wind && meshLight && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1);   // 2＝Cesium の表裏（巻き順で裏を捨て、法線は書かれたまま＝Cesium の back-face culling）   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
 				gl.uniform3f(loc(gl, pg, "u_eyeRel"), st.eye[0] - p.origin[0], st.eye[1] - p.origin[1], st.eye[2] - p.origin[2]);   // 目 − 原点（double）＝v_toEye の錨（近接の裏面判定）
 				gl.uniform1f(loc(gl, pg, "u_xfOn"), p.xf ? 1 : 0);   // バッチの剛体変換（glTF の rigid アニメ・W4）＝L（3x3 列優先）と原点相対の平行移動

@@ -34,7 +34,7 @@ export interface GltfMaterial {
 	pbrMetallicRoughness?: { baseColorFactor?: number[]; baseColorTexture?: GltfTexRef; metallicRoughnessTexture?: GltfTexRef; metallicFactor?: number; roughnessFactor?: number } | null;
 	extensions?: { KHR_materials_pbrSpecularGlossiness?: { diffuseFactor?: number[]; diffuseTexture?: GltfTexRef } | null; KHR_materials_emissive_strength?: { emissiveStrength?: number } | null; KHR_materials_clearcoat?: { clearcoatFactor?: number; clearcoatRoughnessFactor?: number } | null; KHR_materials_unlit?: Record<string, never> | null } | null;
 	normalTexture?: GltfTexRef; occlusionTexture?: GltfTexRef; emissiveTexture?: GltfTexRef; emissiveFactor?: number[];
-	alphaMode?: string; alphaCutoff?: number;
+	alphaMode?: string; alphaCutoff?: number; doubleSided?: boolean;
 	/** loaders.gl が KHR_materials_unlit を畳んだ印（拡張は material から外される） */ unlit?: boolean;
 }
 export interface GltfPrimitive extends FeaturePrimitive { attributes?: Record<string, GltfAccessor | undefined> | null; indices?: GltfAccessor | null; mode?: number; material?: GltfMaterial | null }
@@ -69,7 +69,7 @@ export interface TexOut { bitmap?: ImageBitmap; rgba?: Uint8Array; w?: number; h
 export interface ModelBatchOut {
 	mesh: MeshOut; tex: TexOut | null; texMR: TexOut | null; texN: TexOut | null; texOcc: TexOut | null; texEm: TexOut | null;
 	pbr: { metallic: number; roughness: number; normalScale: number; occlusion: number; emissive: number[]; unlit: boolean; clearcoat?: number[] | null };   // unlit＝KHR_materials_unlit か法線無し（Cesium はどちらも照明を掛けない）
-	alphaMode: string; alphaCutoff: number; node: number; features: (MeshFeatures & { table: number | null; tblV: Int16Array | null }) | null;
+	alphaMode: string; alphaCutoff: number; node: number; /** 表裏を巻き順で決める束（法線あり・doubleSided でない材質）＝Cesium の照明の時だけ renderer が裏を捨てる */ wind?: boolean; features: (MeshFeatures & { table: number | null; tblV: Int16Array | null }) | null;
 	/** スキンされた区間（2026-10-28）＝main が時計のたびに頂点を焼き直す（gltf-anim.skinBatch）。無ければ無し */
 	skin?: SkinSeg[] | null;
 	/** property texture（CustomShader の fsInput.metadata）＝性質の読み方と画像（opts.mc の時だけ） */
@@ -364,28 +364,29 @@ function canonVerts(geo: Float64Array, M: number, sLL = 1e8, sH = 10): Uint32Arr
 	return canon;
 }
 // 重複三角形の除去：頂点の代表番号（canon）の組が同じ三角形＝巻き順・頂点共有に依らず同じ面。最初の 1 枚だけ残す（旧と同じ順）
-function dedupTris(rawIdx: Uint32Array, canon: Uint32Array): Uint32Array {
-	const T = rawIdx.length / 3 | 0, key = new Uint32Array(T * 3), dedup = new Uint32Array(rawIdx.length);
+function dedupTris(rawIdx: Uint32Array, canon: Uint32Array, keepOpposite = false): Uint32Array {   // keepOpposite＝向きの違う 2 枚（同じ 3 点・逆の巻き順）は別物として残す
+	const T = rawIdx.length / 3 | 0, key = new Uint32Array(T * 3), par = keepOpposite ? new Uint8Array(T) : null, dedup = new Uint32Array(rawIdx.length);
 	let cap = 16; while (cap < T * 2) cap <<= 1;
 	const tab = new Int32Array(cap).fill(-1), mask = cap - 1;
 	let n = 0, di = 0;
 	for (let k = 0; k < rawIdx.length; k += 3) {
 		const a = rawIdx[k], b = rawIdx[k+1], c = rawIdx[k+2];
-		let k0 = canon[a], k1 = canon[b], k2 = canon[c];
-		if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
-		if (k1 > k2) { const t = k1; k1 = k2; k2 = t; }
-		if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
-		let h = (Math.imul(k0, 0x9E3779B1) ^ Math.imul(k1, 0x85EBCA77) ^ Math.imul(k2, 0xC2B2AE3D)) >>> 0;
+		let k0 = canon[a], k1 = canon[b], k2 = canon[c], pv = 0;
+		if (k0 > k1) { const t = k0; k0 = k1; k1 = t; pv ^= 1; }
+		if (k1 > k2) { const t = k1; k1 = k2; k2 = t; pv ^= 1; }
+		if (k0 > k1) { const t = k0; k0 = k1; k1 = t; pv ^= 1; }
+		if (!par) pv = 0;   // the parity of the sort = the winding of the triangle over its 3 corners
+		let h = (Math.imul(k0, 0x9E3779B1) ^ Math.imul(k1, 0x85EBCA77) ^ Math.imul(k2, 0xC2B2AE3D) ^ pv) >>> 0;
 		h = (h ^ (h >>> 15)) & mask;
 		let dup = false;
 		for (;;) {
 			const j = tab[h];
 			if (j < 0) { tab[h] = n; break; }
-			if (key[j*3] === k0 && key[j*3+1] === k1 && key[j*3+2] === k2) { dup = true; break; }
+			if (key[j*3] === k0 && key[j*3+1] === k1 && key[j*3+2] === k2 && (!par || par[j] === pv)) { dup = true; break; }
 			h = (h + 1) & mask;
 		}
 		if (dup) continue;
-		key[n*3] = k0; key[n*3+1] = k1; key[n*3+2] = k2; n++;
+		key[n*3] = k0; key[n*3+1] = k1; key[n*3+2] = k2; if (par) par[n] = pv; n++;
 		dedup[di++] = a; dedup[di++] = b; dedup[di++] = c;
 	}
 	return dedup.slice(0, di);   // 実サイズへトリム（cacheに満杯バッファを残さない）
@@ -565,12 +566,12 @@ export function geoWorld<O extends { [i: number]: number }>(lon: number, lat: nu
 	out[0] = horiz * Math.cos(lon); out[1] = ELL_RAX * sp / w + hr * sp / ELL_RAX; out[2] = horiz * Math.sin(lon);
 	return out;
 }
-export function finishMesh(geo: Float64Array, outNrm: Int8Array, rawIdx: Uint32Array, minH: number, wardMask: Uint8Array | null, wardBbox: ArrayLike<number> | null, brid: boolean, extra: { uv: Float32Array; col: Uint8Array; mc?: Float32Array; uvm?: Float32Array } | null = null, groundBatch = brid): MeshOut {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
+export function finishMesh(geo: Float64Array, outNrm: Int8Array, rawIdx: Uint32Array, minH: number, wardMask: Uint8Array | null, wardBbox: ArrayLike<number> | null, brid: boolean, extra: { uv: Float32Array; col: Uint8Array; mc?: Float32Array; uvm?: Float32Array } | null = null, groundBatch = brid, keepOpposite = false): MeshOut {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
 	// 重複は同一タイル内（nusamai両面出力等）が支配的＝バッチ内 dedup で実質すべて捕まる。
 	const M = geo.length / 3;
 	const canon = extra ? canonVerts(geo, M, 1e10, 1000) : canonVerts(geo, M);   // 模型（extra＝uv/頂点色つき）は mm の刻み＝小さな模型の三角形を重複と見ない（2026-10-28）
-	const outIdx = dedupTris(rawIdx, canon);
+	const outIdx = dedupTris(rawIdx, canon, keepOpposite);   // keepOpposite＝巻き順で表裏を決める束（Cesium の照明の glTF）＝背中合わせの 2 枚は両方とも要る
 	// bbox(deg)：renderer側フラスタムカリングに使う。geo は rad なので deg へ。
 	let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
 	for (let i = 0; i < M; i++) { const lo = geo[i*3], la = geo[i*3+1]; if (lo<minLon) minLon=lo; if (lo>maxLon) maxLon=lo; if (la<minLat) minLat=la; if (la>maxLat) maxLat=la; }
@@ -778,7 +779,7 @@ const SWAP = Float64Array.of(1, 0, 0, 0, 0, 1, 0, -1, 0);   // (x,y,z)→(x,−z
 // normalTexture（scale）・occlusionTexture（strength）・emissive（factor×texture×KHR_materials_emissive_strength）。描くのは WebGPU の模型パイプライン（GL2 は baseColor だけ）。
 // KHR_materials_pbrSpecularGlossiness は diffuse* を baseColor として読む（鏡面側は読まない＝粗さ 1・金属 0）。KHR_texture_transform は uv に畳む（baseColor の物を全テクスチャに使う＝
 // 別 TEXCOORD／別 transform の材質は baseColor の uv で読む＝ずれ得る・既知の限界）。alphaMode は MASK（alphaCutoff で抜く）と BLEND（半透明＝renderer が奥から手前に合成）をそのまま渡す。
-// doubleSided は読まない＝模型は従来どおり両面（巻き順の怪しい模型に穴を開けない側）。
+// doubleSided は束の wind に畳む＝Cesium の照明（setMeshLighting）の時だけ、doubleSided でない束は巻き順で裏を捨てる（Cesium と同じ）。それ以外は従来どおり両面（巻き順の怪しい模型に穴を開けない側）。
 const texRef = (ti: GltfTexRef | null | undefined, gltf: GltfDoc): GltfTexture | null | undefined => ti ? (ti.texture || (typeof ti.index === "number" ? gltf.textures?.[ti.index] : null)) : null;   // 拡張側は postprocess が解決しない＝index で引く
 const baseColorOf = (mat: GltfMaterial | null, gltf: GltfDoc) => {
 	const mr = mat?.pbrMetallicRoughness, sg = mat?.extensions?.KHR_materials_pbrSpecularGlossiness;
@@ -1195,7 +1196,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	const rig = tile ? null : rigFromGltf(gltf);
 	const animated = new Set(rig?.animated || []);
 	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）。アニメするノードは (material, node) ごと
-	const groups = new Map<GltfMaterial | string | null, { segs: ModelSeg[]; totalV: number; totalI: number; mat: GltfMaterial | null; node: number; noNrm: boolean; lines?: boolean; skin: number; lin0?: ArrayLike<number>; e0?: number[]; pt?: ReturnType<typeof propTexOf>; ft?: FeatureSet | null }>();   // skin＝スキンされた primitive は (skin, material) ごとに別の束（main が束ごとに頂点を焼き直す）   // material|node → { segs, totalV, totalI, mat, node }
+	const groups = new Map<GltfMaterial | string | null, { segs: ModelSeg[]; totalV: number; totalI: number; mat: GltfMaterial | null; node: number; noNrm: boolean; lines?: boolean; skin: number; ds: boolean; lin0?: ArrayLike<number>; e0?: number[]; pt?: ReturnType<typeof propTexOf>; ft?: FeatureSet | null }>();   // skin＝スキンされた primitive は (skin, material) ごとに別の束（main が束ごとに頂点を焼き直す）   // material|node → { segs, totalV, totalI, mat, node }
 	const matNo = new Map<GltfMaterial | null, number>(); const gkOf = (prefix: string, mat: GltfMaterial | null) => { if (!matNo.has(mat)) matNo.set(mat, matNo.size); return prefix + matNo.get(mat); };
 	let minH = Infinity, nTri = 0, nVert = 0, nFid = 0, nFidTex = 0;
 	const pts: ModelPoints | null = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
@@ -1210,7 +1211,9 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			lin[4] * lin[8] - lin[5] * lin[7], lin[5] * lin[6] - lin[3] * lin[8], lin[3] * lin[7] - lin[4] * lin[6],
 			lin[7] * lin[2] - lin[8] * lin[1], lin[8] * lin[0] - lin[6] * lin[2], lin[6] * lin[1] - lin[7] * lin[0],
 			lin[1] * lin[5] - lin[2] * lin[4], lin[2] * lin[3] - lin[0] * lin[5], lin[0] * lin[4] - lin[1] * lin[3]];
-		return { lin, ox: o[0] + T[0], oy: o[1] + T[1], oz: o[2] + T[2], cof };
+		const det = lin[0] * cof[0] + lin[1] * cof[1] + lin[2] * cof[2];   // 列 0 と その余因子   // < 0＝鏡に映す置き方
+		if (det < 0) for (let i = 0; i < 9; i++) cof[i] = -cof[i];   // 法線は逆転置（＝余因子÷det）＝鏡の置き方で余因子のままだと裏を向く
+		return { lin, ox: o[0] + T[0], oy: o[1] + T[1], oz: o[2] + T[2], cof, mirror: det < 0 };
 	};
 	for (const pl of places || [{ A, T }]) for (const { mesh, W, node, skin: si } of inst) {
 		const A = pl.A, T = pl.T, animNode = animated.has(node) ? node : -1;
@@ -1220,7 +1223,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			// skin（2026-10-28）＝JOINTS_0／WEIGHTS_0 を持つ primitive は静止姿勢でスキンして焼く（p' = Σ w·W(joint)·IBM·p＝シーン座標・mesh のノードの変換は掛けない）。
 			// 束は (skin, material) ごと＝main（gadgets/model.js）が rig の時計で頂点を焼き直す（gltf-anim.skinBatch）
 			const skinIn = si >= 0 && rigSkins?.[si] && mode4 >= 4 && mode4 <= 6 ? skinnedPrim(pr, rigSkins[si], si, jointMats, nodeW) : null;
-			const { lin, ox, oy, oz, cof } = skinIn ? frameOf(I4_, A, T) : fr0;
+			const { lin, ox, oy, oz, cof, mirror } = skinIn ? frameOf(I4_, A, T) : fr0;
 			if (pr.extensions?.[VOXEL_EXT] || mode4 === VOXEL_MODE) {   // voxel＝局所の形＋transform／region のまま main へ（voxel の層）。plugin が無い（tile.voxels 無し）＝飛ばす
 				const tv = tile?.voxels;
 				const v = tv ? voxelPrim(pr, gltf, lin, [ox, oy, oz], tile!.baseH != null ? -tile!.baseH : 0, tv === true ? {} : tv) : null;
@@ -1258,7 +1261,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			const fbc = baseColorOf(pr.material || null, gltf), fset = featureSetOf(pr, featureIdSet), ft = fset?.texInfo && !skinIn && fbc.texture && !fbc.transform && (fset.texInfo.texCoord ?? 0) === fbc.texCoord ? fset : null;   // 画素ごとの地物の番号＝baseColor と同じ uv の時だけ（photogrammetry の分類）
 			const ftk = ft ? `ft${ft.texInfo!.index}:${ft.texInfo!.channels ?? ""}:${ft.nullFeatureId}:${ft.propertyTable}|` : "";
 			const mat = pr.material || null, gk = lineSide ? gkOf(`ln${animNode}|`, mat) : skinIn ? gkOf(`s${si}|`, mat) : ptd ? gkOf(`pt${ptd.sig}|${animNode}|${ftk}`, mat) : animNode >= 0 || ft ? gkOf(`${animNode}|${ftk}`, mat) : mat;   // アニメするノードは別の束（鍵＝ノード番号＋material）・skin も別の束・番号の画像が違えば別の束
-			let g = groups.get(gk); if (!g) groups.set(gk, g = { segs: [], totalV: 0, totalI: 0, mat, node: skinIn ? -1 : animNode, noNrm: false, skin: skinIn ? si : -1, pt: ptd, ft, lines: !!lineSide });
+			let g = groups.get(gk); if (!g) groups.set(gk, g = { segs: [], totalV: 0, totalI: 0, mat, node: skinIn ? -1 : animNode, noNrm: false, skin: skinIn ? si : -1, ds: !!mat?.doubleSided, pt: ptd, ft, lines: !!lineSide });
 			if (!NRM || lineSide) g.noNrm = true;   // a line's NORMAL is its direction (the ribbon), not a surface: unlit   // 法線の無い primitive＝面法線を積むが、Cesium はこれを照明無し（unlit）で描く
 			const base = g.totalV;
 			const geoSeg = new Float64Array(n * 3), nrmSeg = new Int8Array(n * 4), ecef = new Float64Array(n * 3);
@@ -1276,13 +1279,15 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			const I = pr.indices?.value;
 			const src = I || null, m = I ? I.length : n;
 			let idxSeg: Uint32Array;
-			if (mode4 === 4) { idxSeg = new Uint32Array(m); for (let k = 0; k < m; k++) idxSeg[k] = (src ? src[k] : k) + base; }
+			const flip = mirror;   // a mirroring placement (det < 0) turns the winding over: glTF / Cesium then take the other side as the front = swap two corners so the world winding keeps the authored front
+			if (mode4 === 4) { idxSeg = new Uint32Array(m); for (let k = 0; k < m; k++) idxSeg[k] = (src ? src[k] : k) + base; if (flip) for (let k = 0; k + 2 < m; k += 3) { const t = idxSeg[k+1]; idxSeg[k+1] = idxSeg[k+2]; idxSeg[k+2] = t; } }
 			else {
 				idxSeg = new Uint32Array(Math.max(0, m - 2) * 3);
 				for (let k = 0, w = 0; k + 2 < m; k++) {
 					let a = src ? src[k] : k, b = src ? src[k+1] : k + 1, c = src ? src[k+2] : k + 2;
 					if (mode4 === 6) a = src ? src[0] : 0;
 					else if (k & 1) { const t = b; b = c; c = t; }   // strip の偶奇で巻きを揃える
+					if (flip) { const t = b; b = c; c = t; }
 					idxSeg[w++] = a + base; idxSeg[w++] = b + base; idxSeg[w++] = c + base;
 				}
 			}
@@ -1371,14 +1376,15 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		for (const s of g.segs) { const nv = s.geo.length / 3; if (mcV && s.mc) mcV.set(s.mc, vtx * 4); if (uvmV && s.uvm) uvmV.set(s.uvm, vtx * 2); geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); uv.set(s.uv, vtx * 2); col.set(s.col, vtx * 4); if (s.fid) { fids!.set(s.fid, vtx); if (tblV) tblV.fill(s.tbl ?? -1, vtx, vtx + nv); } if (s.skin) skinSegs.push({ ...s.skin, start: vtx, n: nv }); vtx += nv; io += s.idx.length; }
 		g.segs.length = 0;
 		if (mcV && fids) for (let i = 0; i < g.totalV; i++) mcV[i*4+3] = fids[i] === NO_FEATURE ? 0 : fids[i];   // w＝地物の番号（featureIds.featureId_0）
-		const mesh = finishMesh(geo, outNrm, rawIdx, minH, null, maskBbox, true, mcV ? { uv, col, mc: mcV, ...(uvmV && { uvm: uvmV }) } : { uv, col }, ground !== "each");   // brid=true＝両面。接地の単位は ground・マスクは maskBbox があれば出す
+		const wind = !g.noNrm && !g.ds;   // Cesium の表裏＝巻き順（doubleSided でない材質は裏を捨て、法線は書かれたまま照らす）。法線の無い束（線の管など）は unlit＝従来の両面
+		const mesh = finishMesh(geo, outNrm, rawIdx, minH, null, maskBbox, true, mcV ? { uv, col, mc: mcV, ...(uvmV && { uvm: uvmV }) } : { uv, col }, ground !== "each", wind);   // brid=true＝両面。接地の単位は ground・マスクは maskBbox があれば出す
 		const tex = textures ? await textureOf(baseColorOf(g.mat, gltf).texture, imgCache) : null;
 		const pb = pbrOf(g.mat, gltf);   // #46 段 2＝材質（数値）と 4 枚のテクスチャ（無ければ null）
 		const [texMR, texN, texOcc, texEm] = textures ? await Promise.all([pb.texMR, pb.texN, pb.texOcc, pb.texEm].map(t => textureOf(t, imgCache))) : [null, null, null, null];
 		const ftex = g.ft && fids ? await featureTexOf(g.ft, gltf, imgCache) : null;   // 画素ごとの地物の番号（featureId.texture）
 		const meta = g.pt && textures ? { props: g.pt.props, texs: await Promise.all(g.pt.texIdx.map(i => textureOf(texRef({ index: i }, gltf), imgCache))) } : null;   // property texture の画像（同じ画像は複製で 1 回だけ）
 		batches.push({ ...(meta && { meta }), ...(g.lines && { lines: true }), mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive, clearcoat: pb.clearcoat, unlit: !!g.mat?.unlit || !!g.mat?.extensions?.KHR_materials_unlit || g.noNrm },
-			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5, node: g.node ?? -1, ...(skinSegs.length && rig ? { skin: skinSegs } : {}),   // skin の区間＝rig（アニメ）がある時だけ main へ（静止の模型は焼いた物で足りる）
+			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5, node: g.node ?? -1, wind, ...(skinSegs.length && rig ? { skin: skinSegs } : {}),   // skin の区間＝rig（アニメ）がある時だけ main へ（静止の模型は焼いた物で足りる）
 			features: fids ? { ids: fids, table: tbls.length === 1 ? tbls[0] : null, tblV, ...(ftex && { tex: ftex }) } : null, ...(mcV ? { mcJ: mcJOf(g.lin0, g.e0, minH) } : {}) });   // features（W7）＝頂点ごとの地物の番号（NO_FEATURE＝無し）と property table の番号   // α の扱い＝renderer が cut/blend に畳む。node＝アニメするノード（−1＝動かない束）
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
 	}
