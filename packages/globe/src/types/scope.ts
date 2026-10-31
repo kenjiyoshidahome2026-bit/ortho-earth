@@ -509,7 +509,7 @@ export interface GlobeScope {
 	/** raster-* の paint → 色の調整（無ければ null） */
 	rasterAdjust(P: Record<string, unknown> | undefined): RasterAdjust | null;
 	rasterFade(P: Record<string, unknown> | undefined): number | undefined;
-	rasterPaintOpts(P: Record<string, unknown> | undefined): Pick<RasterOptions, "resampling" | "fadeDuration">;
+	rasterPaintOpts(P: Record<string, unknown> | undefined): Pick<RasterOptions, "resampling" | "fadeDuration" | "split">;
 	/** 画像タイル層の未着（層 id → 枚数） */
 	rasterPend: Map<string, number>;
 	rasterSampling(P: Record<string, unknown> | undefined): "nearest" | "linear" | undefined;
