@@ -91,7 +91,10 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 			const L = await layerP; if (!L) return null;
 			const b = bnd(L); if (!inB(b, lng0, lat0, lng0 + range, lat0 + range)) return null;
 			const div = spec.seafloor && range !== 1 ? 16 : 4;
-			const z = Math.max(L.minzoom, Math.min(L.maxzoom, range === 1 && spec.cellZoom != null ? spec.cellZoom : Math.round(Math.log2(180 / (range / div)))));
+			// 近景層の窓（range < 1）＝タイル幅≈窓/12（跨ぎ込みで最大 13×13＝169 枚・MAX_TILES 400 の内）：1025 texel の窓に見合う段（1/4°→z13・1/8°→z14・1/64°→z17）。
+			// 従来の窓/4（1/4°→z11・誤差 38m）は Cesium が目の近くで見せる z13〜14（誤差 5〜9m）より 2 段粗く、崖が団子になった（high-dynamic-range・fog 2026-10-31）
+			const zq = range === 1 && spec.cellZoom != null ? spec.cellZoom : range < 1 ? Math.floor(Math.log2(180 * 12 / range)) : Math.round(Math.log2(180 / (range / div)));
+			const z = Math.max(L.minzoom, Math.min(L.maxzoom, zq));
 			const w = Math.max(lng0, b ? b[0] : -180), e = Math.min(lng0 + range, b ? b[2] : 180), s = Math.max(lat0, b ? b[1] : -90), n = Math.min(lat0 + range, b ? b[3] : 90);
 			const [x0, y0] = qmTileAt(z, w, s), [x1, y1] = qmTileAt(z, e - 1e-9, n - 1e-9);
 			const need: [number, number][] = []; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) need.push([x, y]);
