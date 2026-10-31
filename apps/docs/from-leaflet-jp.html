@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leaflet から来た人へ — Leaflet のコードを 3D の地球儀へ</title>
+<meta name="description" content="Leaflet を使っている人向け：@ortho-earth/leaflet は、地図・タイル・マーカー・ポップアップ・図形・GeoJSON を Ortho Earth の地球儀か MapLibre GL の上に描く L を返します。変えるのは import だけ。訳すもの・訳さないもの・移したコードの確かめ方。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/from-leaflet-jp">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/from-leaflet">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/from-leaflet-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/from-leaflet">
+<meta property="og:title" content="Leaflet から来た人へ — Leaflet のコードを 3D の地球儀へ">
+<meta property="og:description" content="Leaflet を使っている人向け：@ortho-earth/leaflet は、地図・タイル・マーカー・ポップアップ・図形・GeoJSON を Ortho Earth の地球儀か MapLibre GL の上に描く L を返します。変えるのは import だけ。訳すもの・訳さないもの・移したコードの確かめ方。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/from-leaflet-jp">
+<meta property="og:type" content="article">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Leaflet から来た人へ — Leaflet のコードを 3D の地球儀へ","description":"Leaflet を使っている人向け：@ortho-earth/leaflet は、地図・タイル・マーカー・ポップアップ・図形・GeoJSON を Ortho Earth の地球儀か MapLibre GL の上に描く L を返します。変えるのは import だけ。訳すもの・訳さないもの・移したコードの確かめ方。","url":"https://www.ortho-earth.com/docs/from-leaflet-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/from-leaflet-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">Leaflet から</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="from-cesium-jp.html">CesiumJS から</a>
+		<a href="from-maplibre-jp.html">MapLibre から</a>
+		<span class="nav-cur">Leaflet から</span>
+		<a href="from-google-maps-jp.html">Google マップから</a>
+		<a href="from-leaflet.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Leaflet から来た人へ</h1>
+<p class="lead">Leaflet のコードを 3D の地球儀へ<br>
+<span style="font-size:0.85em">
+<code>npm i @ortho-earth/leaflet @ortho-earth/globe</code>
+</span></p>
+
+<p>
+<code>@ortho-earth/leaflet</code> は、Leaflet 1.9 と同じ形の <code>L</code> を返します。地図・タイル・マーカー・ポップアップ・図形・GeoJSON は MapLibre GL を通して描かれ、
+描く先は Ortho Earth の地球儀（<code>@ortho-earth/globe/maplibre</code>）でも、本物の <code>maplibre-gl</code> でも構いません。
+Leaflet 向けに書いたコードは形がそのままで、変えるのは import だけです。Leaflet のスタイルシートも要りません。
+</p>
+
+<pre><code>// 地球儀の上で
+import L from "@ortho-earth/leaflet/globe";
+
+const map = L.map("map").setView([35.6812, 139.7671], 15);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+L.marker([35.6812, 139.7671]).addTo(map).bindPopup("&lt;b&gt;東京駅&lt;/b&gt;").openPopup();
+L.geoJSON(parks, { style: f =&gt; ({ fillColor: f.properties.kind === "park" ? "green" : "gray" }) }).addTo(map);</code></pre>
+
+<p>
+<code>@ortho-earth/leaflet/globe</code> は Leaflet の名前付き export（<code>map</code>・<code>tileLayer</code>・<code>marker</code> …）も持つので、bundler の alias ひとつで、import に触らずにアプリ全体を移せます。
+</p>
+
+<pre><code>// vite.config.js
+export default { resolve: { alias: { leaflet: "@ortho-earth/leaflet/globe" } } };</code></pre>
+
+<p>
+平らな地図のままにしたいときは、<code>@ortho-earth/leaflet</code> の <code>createLeaflet(maplibregl, { style })</code> に <code>maplibre-gl</code> を渡します。<code>window.L</code> を読むスクリプトやプラグインには <code>installGlobal(L)</code> を使います。
+</p>
+
+<h2 id="translated">訳すもの</h2>
+
+<table>
+	<tr><th>Leaflet</th><th>地球儀の上では</th></tr>
+	<tr><td><code>L.map</code> とその option、<code>setView</code>・<code>flyTo</code>・<code>fitBounds</code>・<code>panTo</code>、点の変換、handler（<code>map.dragging.disable()</code> …）</td><td>カメラ。<strong>ズームは 1 ずれます</strong>（Leaflet の z ＝ MapLibre の z − 1。256 px と 512 px のタイルの違い）。<code>fitBounds</code> は Leaflet と同じ計算なので、移したコードは同じズームに着きます。回転と傾きは、頼まない限り（<code>rotate: true</code>）切ったままです</td></tr>
+	<tr><td>地図のイベント（<code>click</code>・<code>move</code>・<code>zoomend</code>・<code>popupopen</code> …）</td><td>Leaflet のイベントの形（<code>latlng</code>・<code>containerPoint</code>・<code>layerPoint</code>）で届く MapLibre のイベント。図形のマウスのイベントは、Leaflet と同じく group へ、それから地図へ伝わります</td></tr>
+	<tr><td><code>L.tileLayer</code>（<code>{s}</code>・<code>{r}</code>・<code>tms</code>・自分の <code>{keys}</code>・<code>maxNativeZoom</code>・<code>bounds</code>・<code>opacity</code>）、<code>L.tileLayer.wms</code>、<code>createTile</code> を持つ <code>L.GridLayer</code></td><td>raster の source。<code>GridLayer</code> の canvas と <code>&lt;img&gt;</code> のタイルは protocol を通して描きます</td></tr>
+	<tr><td><code>L.marker</code>・<code>L.icon</code>・<code>L.divIcon</code>、ポップアップとツールチップ（<code>bindPopup</code>・<code>bindTooltip</code>・<code>permanent</code>・<code>sticky</code>・<code>direction</code>）</td><td>MapLibre のマーカーとポップアップを、Leaflet が置く位置に置きます。既定のアイコンは Leaflet の青いピンの SVG で、画像ファイルを用意する必要はありません</td></tr>
+	<tr><td><code>L.polyline</code>・<code>L.polygon</code>・<code>L.rectangle</code>・<code>L.circle</code>（メートル）・<code>L.circleMarker</code>（ピクセル）、<code>setStyle</code>・<code>toGeoJSON</code></td><td>pane ごとに GeoJSON の source を 1 つ（Leaflet の pane ごとの renderer と同じ）。1 万の地物でも source は 1 つです</td></tr>
+	<tr><td><code>L.geoJSON</code>（<code>style</code>・<code>pointToLayer</code>・<code>onEachFeature</code>・<code>filter</code>）、<code>L.layerGroup</code>・<code>L.featureGroup</code></td><td>Leaflet と同じく、地物ごとに layer を 1 つ</td></tr>
+	<tr><td><code>L.imageOverlay</code>・<code>L.videoOverlay</code></td><td>画像と動画の source</td></tr>
+	<tr><td><code>L.control.zoom</code>・<code>attribution</code>・<code>scale</code>・<code>layers</code>・<code>L.Control.extend</code>、pane（<code>createPane</code>・<code>zIndex</code>）</td><td>MapLibre の四隅の control。pane は layer の重ね順になります</td></tr>
+	<tr><td><code>L.Class</code>・<code>L.Evented</code>・<code>L.Util</code>・<code>L.DomUtil</code>・<code>L.DomEvent</code>・<code>L.latLng</code>・<code>L.latLngBounds</code>・<code>L.CRS</code> …</td><td>ただの値と道具。<code>L.Class.extend</code> で作ったプラグインも読み込めます</td></tr>
+</table>
+
+<h2 id="not">訳さないもの</h2>
+
+<ul>
+	<li><strong>ほかの CRS</strong>（<code>L.CRS.Simple</code>、EPSG:4326 の地図）：地球儀は WGS84 で、平らな MapLibre の地図は Web メルカトルで描きます。</li>
+	<li><strong>図形の中の SVG や DOM</strong>：<code>path.getElement()</code> は null を返します（図形は MapLibre の地物です）。マーカーのクラスタリングや Leaflet.draw のように、Leaflet の pane や renderer に描くプラグインは描かれません。</li>
+	<li>HTML の <code>GridLayer</code> タイル、<code>detectRetina</code>、<code>zoomanim</code> イベント。</li>
+</ul>
+
+<h2 id="check">移したコードの確かめ方</h2>
+
+<p>
+訳さないものは、コンソールに <code>[lfshim] unsupported: …</code> と一度だけ出ます（例外にはしません）。
+<code>L.unsupportedReport()</code> がその一覧を返すので、動かすだけで移植を確かめられます。ほかのことは、<code>map.getMapLibre()</code> が下の地図を返します。
+地球儀の上では、その地図で <a href="core-jp.html">エンジン</a> の全部（地形・3D Tiles・共通の時計・夜の側）も使えます。
+</p>
+
+<p>
+検定は、上の Leaflet の呼び出しを本物の地球儀で動かします（<code>packages/globe</code> で <code>npm run verify:ui -- t-leaflet</code>）。
+<a href="/maplibre/" target="_top">MapLibre</a> や <a href="/sandcastle/" target="_top">CesiumJS</a> と違い、Leaflet の公式例のギャラリーはまだ無いので、この頁の表が対応の一覧です。
+</p>
+
+<p>
+ほかの道具から来た人は <a href="from-google-maps-jp.html">Google マップから</a>・<a href="from-maplibre-jp.html">MapLibre GL JS から</a>・<a href="from-cesium-jp.html">CesiumJS から</a> も見てください。
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/leaflet · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>

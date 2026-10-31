@@ -35,7 +35,7 @@ The facade replaces only what draws:
 | `BillboardCollection`, `LabelCollection`, `PointPrimitiveCollection`, `PolylineCollection` | billboards, labels and points of the CZML overlay; polylines in the 3D lines |
 | `VoxelPrimitive` (procedural providers, `Cesium3DTilesVoxelProvider`), `scene.pickVoxel` | `@ortho-earth/voxel` (installed on first use): the provider's tiles in one grid at the finest level that fits, BOX as a box and ELLIPSOID as a region. The custom shader is not run: the field it reads is drawn as its colour, `nearestSampling` as blocks |
 
-What the facade does not do yet is reported once in the console as `[csshim] unsupported: …` (never thrown), and `Cesium.unsupportedReport()` counts them. Today that is mostly particles, clouds, I3S, cylinder voxels, material patterns (drawn in their main colour), 2D and Columbus view, the orthographic frustum, and imagery in a geographic tiling scheme.
+What the facade does not do yet is reported once in the console as `[csshim] unsupported: …` (never thrown), and `Cesium.unsupportedReport()` counts them. Today that is mostly 2D and Columbus view (the globe is 3D only), WebVR, metadata picking, cylinder voxels, a few material patterns (drawn in their main colour) and a few provider corner cases. The 309 Sandcastle examples side by side are at https://www.ortho-earth.com/sandcastle/.
 
 `viewer.orthoMap` is the globe underneath, for anything else.
 

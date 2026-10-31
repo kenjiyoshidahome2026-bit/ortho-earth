@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Google マップから来た人へ — Google Maps のコードを 3D の地球儀へ</title>
+<meta name="description" content="Google Maps JavaScript API を使っている人向け：@ortho-earth/gmaps は、Map・Marker・InfoWindow・図形・Data を Ortho Earth の地球儀か MapLibre GL の上に描く google.maps を返します。地図に Google の鍵は要りません。鍵を渡せば Geocoder・Directions・Places・Street View を Google の REST API へ中継します。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/from-google-maps-jp">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/from-google-maps">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/from-google-maps-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/from-google-maps">
+<meta property="og:title" content="Google マップから来た人へ — Google Maps のコードを 3D の地球儀へ">
+<meta property="og:description" content="Google Maps JavaScript API を使っている人向け：@ortho-earth/gmaps は、Map・Marker・InfoWindow・図形・Data を Ortho Earth の地球儀か MapLibre GL の上に描く google.maps を返します。地図に Google の鍵は要りません。鍵を渡せば Geocoder・Directions・Places・Street View を Google の REST API へ中継します。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/from-google-maps-jp">
+<meta property="og:type" content="article">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Google マップから来た人へ — Google Maps のコードを 3D の地球儀へ","description":"Google Maps JavaScript API を使っている人向け：@ortho-earth/gmaps は、Map・Marker・InfoWindow・図形・Data を Ortho Earth の地球儀か MapLibre GL の上に描く google.maps を返します。地図に Google の鍵は要りません。鍵を渡せば Geocoder・Directions・Places・Street View を Google の REST API へ中継します。","url":"https://www.ortho-earth.com/docs/from-google-maps-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/from-google-maps-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">Google マップから</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="from-cesium-jp.html">CesiumJS から</a>
+		<a href="from-maplibre-jp.html">MapLibre から</a>
+		<a href="from-leaflet-jp.html">Leaflet から</a>
+		<span class="nav-cur">Google マップから</span>
+		<a href="from-google-maps.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Google マップから来た人へ</h1>
+<p class="lead">Google Maps JavaScript API のコードを 3D の地球儀へ<br>
+<span style="font-size:0.85em">
+<code>npm i @ortho-earth/gmaps @ortho-earth/globe</code>
+</span></p>
+
+<p>
+<code>@ortho-earth/gmaps</code> は <code>google.maps</code> を返します。<code>Map</code>・<code>Marker</code>・<code>InfoWindow</code>・図形・<code>Data</code> は MapLibre GL を通して描かれ、
+描く先は Ortho Earth の地球儀（<code>@ortho-earth/globe/maplibre</code>）でも、本物の <code>maplibre-gl</code> でも構いません。
+Google Maps 向けに書いたコードは形がそのままで、変えるのは import だけです。地図そのものに Google の API キーは要らず、Google へは何も送りません。
+</p>
+
+<pre><code>// 地球儀の上で
+import google from "@ortho-earth/gmaps/globe";   // { maps }
+
+const map = new google.maps.Map(document.getElementById("map"), { center: { lat: 35.6812, lng: 139.7671 }, zoom: 15, tilt: 45 });
+const marker = new google.maps.Marker({ map, position: { lat: 35.6812, lng: 139.7671 }, title: "東京駅" });
+const info = new google.maps.InfoWindow({ content: "&lt;b&gt;東京駅&lt;/b&gt;" });
+marker.addListener("click", () =&gt; info.open({ map, anchor: marker }));
+map.data.loadGeoJson("/parks.geojson");
+map.data.setStyle(f =&gt; ({ fillColor: f.getProperty("kind") === "park" ? "green" : "gray" }));</code></pre>
+
+<p>
+<code>@googlemaps/js-api-loader</code> で API を読み込むコードは、代わりに <code>@ortho-earth/gmaps/globe</code> の <code>Loader</code> を使えます。<code>google.maps.importLibrary("maps" | "marker" | "places" | …)</code> も動きます。
+平らな地図のままにしたいときは、<code>createGoogleMaps(maplibregl, { styles })</code> に地図の種類ごとの MapLibre のスタイルを渡します。<code>window.google.maps</code> を読むコードには <code>installGlobal(maps)</code> を使います。
+</p>
+
+<h2 id="translated">訳すもの</h2>
+
+<table>
+	<tr><th>Google Maps</th><th>地球儀の上では</th></tr>
+	<tr><td><code>Map</code> の option と method（<code>center</code>・<code>zoom</code>・<code>heading</code>・<code>tilt</code>・<code>restriction</code>・<code>moveCamera</code>・<code>panTo</code>・<code>fitBounds</code>・<code>controls[ControlPosition]</code> …）</td><td>カメラ。<strong>ズームは 1 ずれます</strong>（Google の z ＝ MapLibre の z − 1。256 px と 512 px のタイルの違い）。<code>mapTypeId</code> と <code>mapId</code> は MapLibre のスタイルを選びます</td></tr>
+	<tr><td>地図のイベント（<code>click</code>・<code>idle</code>・<code>bounds_changed</code>・<code>zoom_changed</code>・<code>dragend</code> …）</td><td>Google のイベントの形（<code>latLng</code>・<code>pixel</code>・<code>stop()</code>）で届く MapLibre のイベント。マーカーやクリックできる図形のクリックは、Google と同じく地図のクリックにはなりません</td></tr>
+	<tr><td><code>Marker</code>（URL・<code>Icon</code>・<code>Symbol</code> の <code>icon</code>、<code>label</code>、<code>draggable</code>）、<code>marker.AdvancedMarkerElement</code>・<code>marker.PinElement</code></td><td>Google の赤いピン、自分の画像、SVG の記号を持つ MapLibre のマーカー</td></tr>
+	<tr><td><code>InfoWindow</code>（<code>content</code>・<code>headerContent</code>・<code>pixelOffset</code>・<code>open({ map, anchor })</code>）</td><td>マーカーの上の MapLibre のポップアップ。マーカーが動けば付いていきます</td></tr>
+	<tr><td><code>Polyline</code>・<code>Polygon</code>（穴あき）・<code>Circle</code>・<code>Rectangle</code>、<code>MVCArray</code> の経路、<code>geodesic</code>、<code>zIndex</code></td><td>GeoJSON の line と fill の layer。経路を変えれば描き直し、<code>geodesic</code> は大円をたどります</td></tr>
+	<tr><td><code>Data</code>（<code>addGeoJson</code>・<code>loadGeoJson</code>・object か関数の <code>setStyle</code>・<code>overrideStyle</code>・地物のイベント）</td><td>GeoJSON の source を 1 つ。地物ごとのスタイルを計算して properties に書きます</td></tr>
+	<tr><td><code>LatLng</code>・<code>LatLngBounds</code>・<code>MVCObject</code>・<code>MVCArray</code>・<code>event.*</code>、<code>geometry.spherical</code>・<code>geometry.encoding</code>・<code>geometry.poly</code></td><td>ただの値。geometry は Google と同じく半径 6,378,137 m の球で計算します</td></tr>
+</table>
+
+<h2 id="services">Google のサービス（自分の鍵で）</h2>
+
+<p>
+Google のサーバーにあるサービスには、自分の鍵が要ります：<code>createGlobeMaps({ apiKey, language, region })</code>、<code>maps.setApiKey(key)</code>、または <code>new Loader({ apiKey })</code>。
+鍵は <code>*.googleapis.com</code> にだけ送り、これらの呼び出しには Google の規約と課金がかかります。鍵が無ければ method は <code>REQUEST_DENIED</code> を返し、地図はそのまま動きます。
+</p>
+
+<table>
+	<tr><th>Google Maps</th><th>中継する先</th></tr>
+	<tr><td><code>Geocoder.geocode</code></td><td>Geocoding API</td></tr>
+	<tr><td><code>DirectionsService.route</code>・<code>DirectionsRenderer</code>・<code>DistanceMatrixService</code></td><td>Routes API（renderer は経路と A・B… のマーカーを地図に、手順を panel に描きます）</td></tr>
+	<tr><td><code>ElevationService</code></td><td>Elevation API</td></tr>
+	<tr><td><code>places.PlacesService</code>・<code>places.AutocompleteService</code>・<code>places.Autocomplete</code></td><td>Places API (New)</td></tr>
+	<tr><td><code>StreetViewService.getPanorama</code>・<code>StreetViewPanorama</code></td><td>Street View の metadata と Static API：ドラッグで向きが変わる静止画です。Google はパノラマのタイルを自分の API の外に出していないので、滑らかな 360° にはなりません</td></tr>
+</table>
+
+<h2 id="not">訳さないもの</h2>
+
+<ul>
+	<li><strong>Google の JSON のスタイル</strong>（<code>styles: [{ featureType, … }]</code>）とクラウドのスタイル：代わりに、地図の種類か <code>mapId</code> ごとに MapLibre のスタイルを渡します。</li>
+	<li>編集やドラッグできる図形、<code>Polyline.icons</code>、マーカーのアニメーション、<code>overlayMapTypes</code>、<code>MVCObject.bindTo</code>、地図の種類・Street View・回転の control。</li>
+</ul>
+
+<h2 id="check">移したコードの確かめ方</h2>
+
+<p>
+訳さないものは、コンソールに <code>[gmshim] unsupported: …</code> と一度だけ出ます（例外にはしません）。
+<code>google.maps.unsupportedReport()</code> がその一覧を返すので、動かすだけで移植を確かめられます。ほかのことは、<code>map.getMapLibre()</code> が下の地図を返します。
+地球儀の上では、その地図で <a href="core-jp.html">エンジン</a> の全部（地形・3D Tiles・共通の時計・夜の側）も使えます。
+</p>
+
+<p>
+検定は、上の呼び出しを本物の地球儀で動かし（<code>packages/globe</code> で <code>npm run verify:ui -- t-gmaps</code>）、サービスは Google のサーバーの代わりを相手に一つずつ確かめます。
+<a href="/maplibre/" target="_top">MapLibre</a> や <a href="/sandcastle/" target="_top">CesiumJS</a> と違い、Google の公式サンプルのギャラリーはまだ無いので、この頁の表が対応の一覧です。
+</p>
+
+<p>
+ほかの道具から来た人は <a href="from-leaflet-jp.html">Leaflet から</a>・<a href="from-maplibre-jp.html">MapLibre GL JS から</a>・<a href="from-cesium-jp.html">CesiumJS から</a> も見てください。
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/gmaps · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>
