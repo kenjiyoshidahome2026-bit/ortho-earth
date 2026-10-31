@@ -63,6 +63,8 @@ type GLCamState = CameraState & { mvp32: Float32Array; fogDist?: number };
 interface GLView {
 	clear: number[] | null; land: number[] | null; atmo: number[] | null; bldColor: number[] | null;
 	fog?: boolean; sea?: number[] | null; baseAlpha?: number; globeAlpha?: number;
+	/** 模型（建物メッシュ・3D Tiles）を地形の深度で隠さない（Cesium の globe.depthTestAgainstTerrain=false＝既定）。地形の深度を読む物（深度の書き出し口・面の貼り付け）が無いフレームだけ効く */
+	meshOverGround?: boolean;
 	/** 地下から見た球の裏面（Cesium の globe.undergroundColor）：color＝rgba（0..1）・nf＝α の距離 [near m, nearValue, far m, farValue] */
 	underground?: { color: number[]; nf: number[] } | null;
 	worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
@@ -2513,7 +2515,9 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		//   z-fight の元＝重複面は worker 側の頂点3つ組 dedup で断つ。
 		// バッチ単位でフラスタムカリング＝区全体(数百万tris)のうち画面に掛かるバッチだけ頂点処理へ流す。
 		// 球体が半透明（Cesium の globe.translucency）＝地面の深度を捨ててから模型を描く＝地下の模型（坑道）が地面越しに見える（地面どうしの前後は深度で済ませた後）
-		if (meshes.size && globeA < 1 && terrainActive) gl.clear(gl.DEPTH_BUFFER_BIT);
+		// Cesium の depthTestAgainstTerrain=false（既定）も同じ＝地形の深度を消してから 3D Tiles・模型を描く（細かい地形が写真測量の地面を突き抜けない）。
+		// ただし地形の深度を後で読む物（深度の書き出し口＝後処理・オーバーレイ／面の貼り付け）があるフレームは消さない（地面の深度が要る）
+		if (meshes.size && terrainActive && (globeA < 1 || (view.meshOverGround && !dOut && !classify.size))) gl.clear(gl.DEPTH_BUFFER_BIT);
 		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
 			bldStencil(true);   // 建物メッシュも建物＝bit7 を刻む
 			gl.useProgram(meshProg);

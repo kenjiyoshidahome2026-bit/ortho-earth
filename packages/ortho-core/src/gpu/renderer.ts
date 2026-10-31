@@ -77,6 +77,7 @@ export interface RenderView {
 	clear?: number[] | null; /** clear の α を合成に使う（利用者が clearColor に透明を明示した時だけ＝下の canvas が透ける・Cesium の facade の星空） */ clearAlpha?: boolean; land?: number[] | null; atmo?: number[] | null; bldColor?: number[] | null; sea?: number[] | null;
 	fog?: boolean; worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
 	underground?: { color: number[]; nf: number[] } | null;   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
+	meshOverGround?: boolean;   // 模型を地形の深度で隠さない（Cesium の depthTestAgainstTerrain=false・gl/renderer.ts と同じ）
 	globeAlpha?: number; baseAlpha?: number; skySolar?: boolean; clock?: ClockAnchor | null; showConst?: boolean; night?: boolean; graticule?: boolean;
 	showRail?: boolean; showContour?: boolean; hypso?: { color: number[]; amount?: number; max?: number } | null; distColor?: number[] | null;
 	contourColor?: number[] | null; contourAlpha?: number; gintSub?: boolean; gintFarPivot?: boolean;
@@ -3336,7 +3337,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 「シーン抜け」（gpu単独・東京駅〜丸の内で実測）の正体。基図退場中も街は立ち続けるのが GL の挙動。
 		// 球体が半透明（Cesium の globe.translucency）＝地面の深度を捨ててから模型を描く＝地下の模型（坑道）が地面越しに見える（gl/renderer.ts と同じ）。
 		// パスの途中で深度だけは消せない＝パスを切り直す（色・ステンシルは load）
-		if (meshes.size && (view.globeAlpha ?? 1) < 1 && terrainActive) {
+		// Cesium の depthTestAgainstTerrain=false（既定）も同じ（gl/renderer.ts と同じ条件＝地形の深度を読む物＝深度の書き出し口・後処理・AO・面の貼り付けが無いフレームだけ）
+		if (meshes.size && terrainActive && ((view.globeAlpha ?? 1) < 1 || (view.meshOverGround && !dOut && !post && !ao && !classify.size))) {
 			pass.end();
 			pass = enc.beginRenderPass({ colorAttachments: [{ view: colorView, loadOp: "load", storeOp: "store" }],
 				depthStencilAttachment: { view: t.depthView, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store", stencilLoadOp: "load", stencilStoreOp: "store" } });
