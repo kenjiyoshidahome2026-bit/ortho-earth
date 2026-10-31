@@ -128,9 +128,12 @@ async function runOne(browser, side, ex) {
 	page.on("load", () => rec.loads = (rec.loads || 0) + 1);   // more than 1 = the dev server reloaded the page (a dependency re-optimised)
 	await page.addInitScript(() => { try { localStorage.removeItem("cesium-hasSeenNavHelp"); } catch { /* none */ } });   // the help panel opens as on a first visit, also after a reload
 	let refClock = null, refPhase = null;
-	if (TIME_FROM) {   // the ref's start: the record's own t0; a ref shot with --time-from itself: its page started at its timeFrom; older records: the file's mtime less the run time (a copy that did not keep the mtime moves the clock)
+	// 古い記録（t0 も timeFrom も無い）＝ファイルの mtime は写した時刻（v220 は 188 例が 3.3 時間ずれた＝bloom の光が逆から当たって見えた・2026-10-31）。
+	// 例の時計が壁の時計から始まる（mtime と 1 日以内）なら、その時計（止まっている＝作った時・動いている＝撮った時−撮影の長さ）を始まりにする。CZML などの決まった日付の時計は mtime のまま
+	const refStartOf = (r, byMtime) => { const c = Date.parse(r.clock?.time ?? ""); if (!Number.isFinite(c) || Math.abs(c - byMtime) > 864e5) return byMtime; return r.clock.animating ? c - (r.ms || 0) : c; };
+	if (TIME_FROM) {   // the ref's start: the record's own t0; a ref shot with --time-from itself: its page started at its timeFrom; older records: the example's own wall clock (refStartOf), else the file's mtime less the run time (a copy that did not keep the mtime moves the clock)
 		const j = path.join(TIME_FROM, "ref", `${ex.name}.json`);
-		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")), t0 = r.t0 ?? (r.timeFrom ? Date.parse(r.timeFrom) : st.mtimeMs - (r.ms || 0)); rec.timeFrom = new Date(t0).toISOString(); await page.addInitScript(shiftDate, t0 - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; refPhase = r.particlePhase ?? null; }
+		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")), t0 = r.t0 ?? (r.timeFrom ? Date.parse(r.timeFrom) : refStartOf(r, st.mtimeMs - (r.ms || 0))); rec.timeFrom = new Date(t0).toISOString(); await page.addInitScript(shiftDate, t0 - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; refPhase = r.particlePhase ?? null; }
 	}
 	try {
 		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/${side === "ortho" && ORTHO_QUERY ? `?${ORTHO_QUERY}` : ""}`, { timeout: 60000 });

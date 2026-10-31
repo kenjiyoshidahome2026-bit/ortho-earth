@@ -11,6 +11,7 @@ import { clipDistanceM } from "./clip.ts";   // 断面（#111 段 3）＝切ら�
 import { fontCss } from "./fontstack.ts";
 import { charRotated, verticalize } from "./vertical.ts";   // 縦書き（text-writing-mode・2026-10-03）
 import { labelKey } from "./labelkey.ts";
+import { pickImage } from "./expr.ts";   // coalesce の記号の候補（use-a-fallback-image）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝星空の注記も星（renderer）と同じ時刻で回す
 import { gmstAt } from "@ortho-earth/ephem/sun";       // 恒星時の正本（renderer の星と同じ式）
 import type { CameraPose, CameraState } from "./camera.ts";
@@ -301,7 +302,8 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	}
 	const haloOf = (L: Label2D, im: IconImage) => L.ihw! > 0 || L.ihb! > 0 ? { col: css(L.ihc || [0, 0, 0, 0]), w: (L.ihw || 0) * im.pr / (L.isz || 1), b: (L.ihb || 0) * im.pr / (L.isz || 1) } : null;   // 画面 px → 記号の元の px
 	const missing = new Set<string>(), reported = new Set<string>();   // 記号帳に無い名前（styleimagemissing の材料）＝takeMissing で 1 回だけ渡す
-	const iconImg = (L: Label2D): IconImage | null => { if (!L.icon) return null; const im = images.get(L.icon); if (!im && !reported.has(L.icon)) missing.add(L.icon); return im || null; };   // 記号帳に無い名前＝記号は描かない（main が styleimagemissing を鳴らす）＝文字だけ残る
+	const iconName = (L: Label2D): string => pickImage(L.icon || "", n => images.has(n));   // coalesce の記号の候補＝記号帳に有る最初の名前
+	const iconImg = (L: Label2D): IconImage | null => { if (!L.icon) return null; const nm = iconName(L), im = images.get(nm); if (!im && !reported.has(nm)) missing.add(nm); return im || null; };   // 記号帳に無い名前＝記号は描かない（main が styleimagemissing を鳴らす）＝文字だけ残る
 	function takeMissing(): string[] | null { if (!missing.size) return null; const out = [...missing]; for (const n of out) reported.add(n); missing.clear(); return out; }
 	// 記号の自然な箱（icon-size 倍・icon-anchor／icon-offset（px×size）で錨に置く）＝[x0, y0, w, h]（錨からの相対）
 	const iconBox = (L: Label2D, im: IconImage): IconRect => { const sz = L.isz ?? 1, w = im.bm.width / im.pr * sz, h = im.bm.height / im.pr * sz, a = ANCH[L.ian as string] || ANCH.center, off = L.ioff || [0, 0]; return [off[0] * sz - a[0] * w, off[1] * sz - a[1] * h, w, h]; };
@@ -755,7 +757,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 			const b = winBox.get(k); if (!b) continue;
 			const ibox = b.ib ? [b.sx + b.ib[0] + b.ib[2] / 2, b.sy + b.ib[1] + b.ib[3] / 2, ...(b.ibb ?? [b.ib[2], b.ib[3]])] : b.ln?.icon ? [b.ln.icon.x, b.ln.icon.y, b.ln.icon.bw, b.ln.icon.bh] : null;
 			const cx = b.dx + b.tw / 2, cy = b.dy + b.h / 2, bx = b.txt ? [b.sx + (b.T ? b.T.a * cx + b.T.c * cy : cx), b.sy + (b.T ? b.T.b * cx + b.T.d * cy : cy), ...(b.bb ?? [b.tw, b.h])] : ibox;   // w,h＝画面の箱（向きの transform 込み・段 5）・中心も T（向き・大きさの倍率）を通す
-			out.push({ text: b.txt ? L.text : null, icon: (b.ib || b.ln?.icon) ? L.icon! : null, ibox, line: !!b.ln, lon: L.anchor[0], lat: L.anchor[1], x: bx![0], y: bx![1], w: bx![2], h: bx![3], size: L.size, li: L.li ?? null, set: L.k ?? null, font: b.txt ? (b.tl?.font ?? b.ln?.font ?? null) : null });   // line＝線に沿う注記（x,y＝錨の字の位置・w＝字送りの和）   // x,y＝箱の中心（錨＋dx,dy＋w/2,h/2）・font＝据えた書体（検定）
+			out.push({ text: b.txt ? L.text : null, icon: (b.ib || b.ln?.icon) ? iconName(L) : null, ibox, line: !!b.ln, lon: L.anchor[0], lat: L.anchor[1], x: bx![0], y: bx![1], w: bx![2], h: bx![3], size: L.size, li: L.li ?? null, set: L.k ?? null, font: b.txt ? (b.tl?.font ?? b.ln?.font ?? null) : null });   // line＝線に沿う注記（x,y＝錨の字の位置・w＝字送りの和）   // x,y＝箱の中心（錨＋dx,dy＋w/2,h/2）・font＝据えた書体（検定）
 		}
 		return out;
 	}
