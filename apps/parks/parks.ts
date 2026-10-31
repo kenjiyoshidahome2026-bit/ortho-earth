@@ -161,7 +161,7 @@ export async function mountParks(map: GlobeMap, geopbf: typeof GeopbfFn, { catal
 		const list = visible();
 		$("list").innerHTML = !list.length ? `<div class="empty">${t("No park matches.")}</div>` : `<div class="grid">${list.map(p => `<button type="button" class="card${p.id === cur?.id ? " on" : ""}" data-id="${esc(p.id)}" aria-label="${esc(nameOf(p))}">
 			${p.photo?.src ? `<img src="${esc(p.photo.thumb || p.photo.src)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : ""}
-			<span class="shade"></span><span class="yr">${p.designated.slice(0, 4)}</span>
+			<span class="shade"></span><span class="yr">${esc(p.designated.slice(0, 4))}</span>
 			<span class="txt"><b>${esc(nameOf(p))}</b><small>${esc(p.prefs.map(c => prefName(c).replace(/ Prefecture$/, "")).join(" · "))}</small></span></button>`).join("")}</div>`;
 	};
 	const body = P.body;
