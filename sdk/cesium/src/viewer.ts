@@ -59,7 +59,10 @@ function globeOptions(o: Any, target: HTMLElement): Any {
 
 // ── CesiumWidget ──────────────────────────────────────────────────────────────
 // the globe's own furniture a Cesium page does not have (the star theatre's clock, the solar zone's planet dots, names and orbits far out in space)
-const CSS = ".cesium-widget #sky-clock,.cesium-widget #solar-sky{display:none}";
+// the globe's canvases are pixelated when scaled up, as Cesium sets image-rendering on its canvas (resolutionScale < 1 shows blocks, not a blur)
+const CSS = ".cesium-widget #sky-clock,.cesium-widget #solar-sky{display:none}.cesium-widget canvas{image-rendering:pixelated}";
+/** Cesium's drawing-buffer pixels per CSS pixel (CesiumWidget configurePixelRatio): CSS resolution unless useBrowserRecommendedResolution is off, times resolutionScale */
+const pixelRatioOf = (w: Any) => (w._useBrowserRecommendedResolution ? 1 : (window.devicePixelRatio || 1)) * w._resolutionScale;
 function addCss() {
 	if (document.getElementById("__csshim-css")) return;
 	const st = document.createElement("style"); st.id = "__csshim-css"; st.textContent = CSS; document.head.appendChild(st);
@@ -185,9 +188,13 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 
 	// the globe
 	const gopts = globeOptions(options, element);
+	const widget = this;
+	this._fixedPixelRatio = gopts.pixelRatio != null;   // options.ortho.pixelRatio: the page fixed the globe's resolution itself
+	if (gopts.pixelRatio == null) Object.defineProperty(gopts, "pixelRatio", { enumerable: true, get: () => pixelRatioOf(widget) });   // read when the globe boots, after the page has set viewer.resolutionScale
 	(host as Any).flatStart = gopts.terrain === false;   // the globe started flat: a terrain provider set later brings a DEM (scene.ts)
 	const ready = createGlobe(gopts).then(async (map: Any) => {
 		host.map = map;
+		if (!widget._fixedPixelRatio) { widget._pixelRatioSet = pixelRatioOf(widget); map.setPixelRatio?.(widget._pixelRatioSet); scene.pixelRatio = widget._pixelRatioSet; }
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
@@ -264,8 +271,11 @@ Object.defineProperties(CesiumWidget.prototype, {
 Object.assign(CesiumWidget.prototype, {
 	resize(this: Any) {
 		const c = this._canvas, w = c.clientWidth, h = c.clientHeight;
-		if (!this._forceResize && w === this._canvasClientWidth && h === this._canvasClientHeight) return;
-		this._forceResize = false;
+		if (!this._forceResize && w === this._canvasClientWidth && h === this._canvasClientHeight && this._lastDevicePixelRatio === window.devicePixelRatio) return;
+		this._forceResize = false; this._lastDevicePixelRatio = window.devicePixelRatio;
+		// resolutionScale / useBrowserRecommendedResolution → the globe's drawing resolution (the globe resizes its own canvas)
+		const pr = pixelRatioOf(this), map = this._host.map;
+		if (map && !this._fixedPixelRatio && pr !== this._pixelRatioSet) { this._pixelRatioSet = pr; map.setPixelRatio?.(pr); this._scene.pixelRatio = pr; }
 		this._canvasClientWidth = w; this._canvasClientHeight = h;
 		this._canRender = w > 0 && h > 0;
 		const f = this._scene.camera.frustum;
