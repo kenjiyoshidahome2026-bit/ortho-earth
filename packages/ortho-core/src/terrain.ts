@@ -600,7 +600,10 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			const camDeg = st.camDist * 180 / Math.PI;
 			let span = 1 / 64; while (span < 0.5 && span < camDeg * 3) span *= 2;   // 2 の冪（1/64°〜1/2°）＝カメラ高さの 3 倍を覆う
 			// 窓の中心＝画面下端中央の地面（最も近い見えている地面）。空なら目の足元。そこから注視点へ幅/4 だけ寄せる
-			const foot = worldToLonLat(st.eye), bot = unproject(st, size.w / 2, size.h) || foot;
+			// 下端の地面は注視点の地面の高さの球（centerAlt）で取る：海面球（R=1）だと山岳（fog＝目 3,640 m・地面 2,836 m）で下端の交点が
+			// 実際の手前の尾根より数 km 先へ飛び、窓が目の足元を外して手前の山が R01（108 m/texel）の団子になった（2026-10-31）
+			const groundR = 1 + Math.max(0, cam.centerAlt || 0) / earthM;
+			const foot = worldToLonLat(st.eye), bot = unproject(st, size.w / 2, size.h, groundR) || foot;
 			const dx = cam.center[0] - bot[0], dy = cam.center[1] - bot[1], dd = Math.hypot(dx, dy), reach = Math.min(dd, span / 4);
 			const cx0 = bot[0] + (dd > 1e-9 ? dx / dd * reach : 0), cy0 = bot[1] + (dd > 1e-9 ? dy / dd * reach : 0);
 			const q = span / 8, lng0 = Math.round((cx0 - span / 2) / q) * q, lat0 = Math.max(-90, Math.min(90 - span, Math.round((cy0 - span / 2) / q) * q));
