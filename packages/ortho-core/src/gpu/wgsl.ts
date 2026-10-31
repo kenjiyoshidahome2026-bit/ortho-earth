@@ -78,7 +78,7 @@ struct Frame {
 	fogColor: vec3f,   // 霞む先の色（fill/line/bld=land基色・terrain=遠山ブルー）
 	params: vec4f,     // fogNear, fogFar, logCoef, dpr
 	elevBounds: vec4f, // originLng, originLat, spanLng, spanLat（アトラス被覆）
-	elevP: vec4f,      // elevScaleEff((誇張/半径)×pitchフェード), hasElev(0/1), edgeFade(deg), 0
+	elevP: vec4f,      // elevScaleEff((誇張/半径)×pitchフェード), hasElev(0/1), edgeFade(deg), 負の標高をそのまま描く(0/1＝低地フェード無し)
 	mesh: vec4f,       // 地形メッシュの窓：xy=原点(lon,lat) zw=幅(deg)。頂点は単位格子 uv＝窓替えで作り直さない（terrain/terrainFar slot のみ非0）
 	farBounds: vec4f,  // 遠景層（far）アトラス被覆＝近窓の外を受け持つ粗い R10 第2アトラス（深ズーム×チルトで常設）
 	farP: vec4f,       // hasFar(0/1), farEdgeFade(deg), farPass(1=遠景メッシュパス・terrainFar slot のみ), Cesium の霧の濃さ（csFogDensity・地形と模型の頂点で csFogV）
@@ -811,7 +811,7 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	// 帯の上端＝画素 2 個分の標高（1〜100m）：透けた先は海抜0の球の床（同じ地面アトラスを貼る）＝チルトで
 	// h·tanθ ずれた二重像になる（京都 40m×60° で堀が 70m ずれて水色の四角が浮く）。ずれが 2px 未満の高さでだけ透かす＝
 	// 低ズーム（1px≧50m）は従来の 1〜100m のまま・寄るほど帯が縮む。gl/glsl.js TERRAIN_FS と同式。
-	let t = smoothstep(1.0, clamp(2.0 * mpp, 2.0, 100.0), in.h);
+	let t = select(smoothstep(1.0, clamp(2.0 * mpp, 2.0, 100.0), in.h), 1.0, F.elevP.w > 0.5);   // 負の標高をそのまま描く DEM（CWT の楕円体高・海底）＝フェード無し（gl TERRAIN_FS u_terrNeg と同じ）
 	if (t <= 0.0) { discard; }
 	// 北西光の hillshade（前方差分）。歩幅＝アトラス1texel（下限0.004°≈R10 texel＝遠層域の歩幅としても妥当）
 	let tsz = vec2f(textureDimensions(elevTex, 0));

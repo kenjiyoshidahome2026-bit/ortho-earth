@@ -6,6 +6,7 @@
 globalThis.self ??= globalThis;
 const { createTerrain } = await import("../src/terrain.ts");
 let fails = 0; const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
+const J = v => JSON.stringify(v);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const N = 64;
 const tileOf = (lng, lat, range, v) => ({ lng, lat, range, width: N, height: N, data: new Float32Array(N * N).fill(v), source: "test" });
@@ -61,6 +62,30 @@ ok(e === 2000, `標高のキャッシュは新しい中身（${e}）`);
 	for (let i = 0; i < 50 && !w2.length; i++) await sleep(20);
 	ok(w2.length > 0 && w2.every(v => Math.abs(v - 777) < 1), `外来の DEM の標高が書かれる（${w2.length} 枚・${w2[0]}）`);
 	ok(!asked.includes(10), `全画素そろう R10 のセルは既定のタイルを取りに行かない（取った段 ${[...new Set(asked)].join(",") || "無し"}）`);
+}
+
+// 負の標高をそのまま描く DEM（Cesium World Terrain の楕円体高 negative / 海底 seafloor）＝アトラスの記述子に negative を立てる（2026-10-31）：
+// 描画側はこれで地形面の低地フェード（海抜 1m 未満は透かして 0m の球に任せる）を止める。旧＝サンフランシスコ湾岸（海面 −30m）の地面が丸ごと透け、
+// 0m の球に同じ画像が出て 30m 浮いていた（photogrammetry-classification）
+{
+	const descs = [], never = Object.assign(() => new Promise(() => {}), { byName: () => Promise.resolve(null) });   // 既定のタイルは届かない（記述子だけ見る）
+	const T3 = createTerrain({ renderer: { set(slot, data) { if (slot === "elevAtlas" || slot === "elevAtlasStage") descs.push({ slot, negative: !!data.negative }); } }, requestDraw() {}, exag: 1, earthM: 6371000, tileLoader: never, noMixed: true, noFar: true });
+	T3.ensure(cam, size); await sleep(0);
+	ok(descs.length === 1 && descs[0].negative === false, `既定の DEM＝negative 無し（${J(descs)}）`);
+	T3.setDem({ type: "quantized-mesh", url: "https://d.test/layer.json", heights: "orthometric", negative: true });
+	T3.ensure(cam, size); await sleep(0);
+	ok(descs.length === 2 && descs[1].negative === true, `negative:true の DEM＝記述子に negative（${J(descs)}）`);
+	T3.setDem({ type: "quantized-mesh", url: "https://d.test/layer.json", heights: "orthometric", seafloor: true });
+	T3.ensure(cam, size); await sleep(0);
+	ok(descs.length === 3 && descs[2].negative === true, `seafloor:true の DEM も negative（${J(descs)}）`);
+	T3.setDem(null);
+	T3.ensure(cam, size); await sleep(0);
+	ok(descs.length === 4 && descs[3].negative === false, `外した後は negative 無し（${J(descs)}）`);
+	// 両バックエンドの地形面シェーダが記述子の negative で低地フェードを止める（GL＝u_terrNeg・WebGPU＝elevP.w）
+	const { TERRAIN_FS } = await import("../src/gl/glsl.ts"), W = await import("../src/gpu/wgsl.ts");
+	ok(/float t = u_terrNeg > 0\.5 \? 1\.0 : smoothstep/.test(TERRAIN_FS), "GL TERRAIN_FS：u_terrNeg で低地フェードを止める");
+	const wsrc = Object.values(W).filter(v => typeof v === "string").join("\n");
+	ok(/let t = select\(smoothstep\(1\.0, clamp\(2\.0 \* mpp, 2\.0, 100\.0\), in\.h\), 1\.0, F\.elevP\.w > 0\.5\)/.test(wsrc), "WGSL：elevP.w で低地フェードを止める");
 }
 console.log(fails ? `FAIL ${fails}` : "PASS");
 process.exit(fails ? 1 : 0);

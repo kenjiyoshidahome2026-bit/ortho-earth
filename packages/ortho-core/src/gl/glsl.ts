@@ -733,6 +733,7 @@ float cgLambert(vec2 ll, vec2 gEN, float mode) {
 	return mix(1.0, diff, u_cgP.z);
 }
 uniform float u_globeAlpha;   // 球体の不透明度（globe パスと同じ値＝地形面も一緒に透ける）
+uniform float u_terrNeg;      // 1＝負の標高をそのまま描く DEM（Cesium World Terrain の楕円体高・海底）＝低地フェードを止める：透かした先の 0m の球に地面が化けると、海面が −30m のサンフランシスコで地面ごと 30m 浮く（2026-10-31）
 uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）・2=近景メッシュパス（近景層の窓だけ・主パスはその内側を discard）
 ${ELEV}
 ${WORLD_HYPSO}
@@ -765,7 +766,7 @@ void main() {
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
 	// 帯の上端＝画素 2 個分の標高（1〜100m）：透けた先は海抜0の球の床（同じ地面アトラス）＝チルトで h·tanθ ずれた
 	// 二重像になる（京都 40m×60° で堀が 70m ずれる）。ずれが 2px 未満の高さでだけ透かす（wgsl.js TERRAIN_WGSL と同式）。
-	float t = smoothstep(1.0, clamp(2.0 * mpp, 2.0, 100.0), v_h);
+	float t = u_terrNeg > 0.5 ? 1.0 : smoothstep(1.0, clamp(2.0 * mpp, 2.0, 100.0), v_h);
 	if (t <= 0.0) discard;
 	// 北西光の hillshade（前方差分＝中央差分の半分のフェッチ）。
 	// 歩幅＝アトラス1texel（下限は従来の0.004°≈450m＝近景は不変）。固定歩幅はズームアウトで

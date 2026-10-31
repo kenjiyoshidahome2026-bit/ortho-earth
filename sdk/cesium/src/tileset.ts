@@ -101,6 +101,9 @@ export class Cesium3DTileset {
 	get ellipsoid() { return undefined; }
 	/** ClassificationType (TERRAIN 0 / CESIUM_3D_TILE 1 / BOTH 2) or undefined: the tileset's volumes (.geom) paint what is inside them instead of being drawn */
 	get classificationType() { return this.#opts.classificationType; }
+	/** HeightReference: CLAMP_TO_GROUND (1) / CLAMP_TO_TERRAIN (3) drape the content on the terrain (3d-tiles-property-lod-river: river lines at
+	 *  ellipsoid height 0 under the Himalaya); the globe lifts every vertex by the terrain's height (add3DTiles ground:"terrain"). The others draw as they are */
+	get heightReference() { return this.#opts.heightReference ?? 0; }
 	get show() { return this.#show; }
 	set show(v: boolean) { this.#show = !!v; this.#h?.setVisible(this.#show); }
 	get style() { return this.#style; }
@@ -138,7 +141,7 @@ export class Cesium3DTileset {
 				const ps = pointSizeOf(this.#style), sent = this.#style;
 				const cid = customShaderId(map, this.customShader); this.#csId = cid;
 				const mm = Matrix4.equals(this.modelMatrix, Matrix4.IDENTITY) ? null : Matrix4.toArray(this.modelMatrix);   // the tileset's modelMatrix as it is when added (itwin-gaussian-splats moves the dam onto the terrain with it)
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(mm && { modelMatrix: mm }), ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, outline: this.showOutline !== false ? [this.outlineColor.red, this.outlineColor.green, this.outlineColor.blue, this.outlineColor.alpha] : null, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(mm && { modelMatrix: mm }), ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, outline: this.showOutline !== false ? [this.outlineColor.red, this.outlineColor.green, this.outlineColor.blue, this.outlineColor.alpha] : null, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }), ...((this.heightReference === 1 || this.heightReference === 3) && { ground: "terrain" }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
 				if (this.#style !== sent) h.setStyle(styleOf(this.#style));   // the style set while the tileset was being added

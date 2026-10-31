@@ -86,10 +86,10 @@ interface GLGroundLight { dir: number[]; color: number[]; lambert: number[]; nor
 interface GLGroundMat { kind: number; min: number; max: number; landOnly: number; contour: number[] | null; spacing: number; width: number; opacity: number; ramp: Uint8Array | null; rampN: number }
 /** 局所の光源（W2・light.js localLightsPayload） */
 interface GLLocalLights { n: number; data: Float32Array }
-interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null }
+interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; neg?: number }   // neg＝負の標高をそのまま描く（低地フェード無し）
 interface FarState { bounds: number[]; has: number; edgeFade: number; maxElev?: number }   // maxElev＝遠景層の最大標高（m・terrain.ts の elevFarMax）＝地面アトラスの地平線窓を伸ばす
 /** 標高アトラスの記述（terrain.js の set("elevAtlas"…)） */
-interface ElevAtlasDesc { originLng: number; originLat: number; cellsX: number; cellsY: number; cellRes: number; cellSpan?: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; gMax?: number }
+interface ElevAtlasDesc { originLng: number; originLat: number; cellsX: number; cellsY: number; cellRes: number; cellSpan?: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; gMax?: number; negative?: boolean }
 interface ElevCellProp { cx: number; cy: number; cellRes: number }
 /** 生タイルの記述子（CellPayload の Float32Array 以外）＝tile/atlas はどちらか */
 type CellSrc = Exclude<CellPayload, Float32Array> & { tile?: ElevTileGrid; atlas?: ElevGrid };
@@ -1395,7 +1395,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null, neg: a.negative ? 1 : 0 };
 		const G = Math.min(a.gMax || 1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));   // gMax＝terrain.js が lowMem で 1024 に絞る（メッシュ 75→33.5MB）
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
@@ -1532,7 +1532,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		elevTex = elevStage.tex;
 		memAtlas = memStage; memStage = 0;
 		const a = elevStage.a, span = a.cellSpan || 10;
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null, neg: a.negative ? 1 : 0 };
 		const G = Math.min(a.gMax || 1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));   // gMax＝terrain.js が lowMem で 1024 に絞る（メッシュ 75→33.5MB）
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 		elevStage = null;
@@ -2144,6 +2144,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			gl.uniform2f(loc(gl, terrainProg, "u_hypsoP"), hy ? 1 / (hy.max || 3000) : 0, hy ? (hy.amount ?? 0.5) : 0);
 			gl.uniform1f(loc(gl, terrainProg, "u_whK"), worldHypsoK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色
 			gl.uniform1f(loc(gl, terrainProg, "u_globeAlpha"), globeA);
+			gl.uniform1f(loc(gl, terrainProg, "u_terrNeg"), elev.neg || 0);   // 負の標高をそのまま描く DEM（CWT の楕円体高・海底）＝低地フェード無し（サンフランシスコの −30m の地面が 0m の球に化けていた・2026-10-31）
 			{   // 地面の照明（setGroundLighting・Cesium の globe.enableLighting）：距離のフェードと夜側の明るさは CPU で（camDist＝単位球からの高さ）
 				const gl_ = groundLight, dM = Math.hypot(st.eye[0], st.eye[1], st.eye[2]) * 6378137;   // Cesium の cameraDist＝地球中心からの距離
 				const fk = (f: number[] | null | undefined, lo: number) => f ? Math.max(lo, Math.min(1, (dM - f[0]) / (f[1] - f[0]))) : 1;
