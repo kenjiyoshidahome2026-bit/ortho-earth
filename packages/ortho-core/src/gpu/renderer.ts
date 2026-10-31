@@ -3377,6 +3377,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					const sh = p.sh ?? meshLight.sh;   // 模型ごとの環境（meshEnv）が勝つ
 					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = sh[i * 3]; plBatchCPU[o + 25 + i * 4] = sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = sh[i * 3 + 2]; }
 				} else plBatchCPU[o + 227] = 0;
+				if (p.csLit === "phong") plBatchCPU[o + 227] = 3;   // csL.w 3＝czm_phong（目の光・entity geometry）
 				plBatchCPU[o + 244] = p.tint ? p.tint[4] : -1; if (p.tint) plBatchCPU.set(p.tint.subarray(0, 4), o + 240); plBatchCPU[o + 246] = p.paint ? p.paintB ?? 0 : -1;   // tintB.z＝塗る絵の混ぜ方（−1＝無し）   // tint/tintB＝Cesium の Model.color（−1＝無し）
 				plBatchCPU[o + 247] = p.split ? Math.sign(p.split) * (1 + splitPos) : 0;   // tintB.w＝Cesium splitDirection
 				plBatchCPU[o + 252] = pb?.clearcoat?.[0] ?? 0; plBatchCPU[o + 253] = pb?.clearcoat?.[1] ?? 0;   // cc.xy＝KHR_materials_clearcoat（float 252〜253）
