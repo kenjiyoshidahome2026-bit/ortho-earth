@@ -72,7 +72,7 @@ export type GintExprPaint = FidExprData & { prog?: FidStyleWGSL | null; overlap?
 export interface GintExprState { rows?: [number, ArrayLike<readonly [number, number] | null | undefined> | null][] | null; dnum?: Uint32Array | null; dcol?: Float32Array | null; zoom?: number | null; table?: boolean }
 export interface GintPointer { x: number; y: number }
 /** 地面アトラスの窓 1 枚（renderer.composeGround のフック） */
-export interface GintAtlasTarget { enc: GPUCommandEncoder; view: GPUTextureView; size: number; win: number[]; index: number }
+export interface GintAtlasTarget { enc: GPUCommandEncoder; view: GPUTextureView; size: number; win: number[]; index: number; /** [x, w]: the half of the window a split bake draws into (Cesium splitDirection) */ vp?: number[] }
 /** ベイクの gintData（点の表は Uint32Array・点の座標は length を持つ view） */
 type GpuGintData = GintData & { pointBuffer: ArcBuffer | null; point: Uint32Array };
 interface GintTier { minW: number; edgeCount: number; chunks: EdgeChunk[] | null; tex: GPUTexture }
@@ -1390,7 +1390,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		m.set(size, { gen: sc.gen, fid: L.fidStyleTex, bg });
 		return bg;
 	}
-	function bakeFaces(cam: CameraPose, { enc, view, size, win: w, index }: GintAtlasTarget): number {
+	function bakeFaces(cam: CameraPose, { enc, view, size, win: w, index, vp }: GintAtlasTarget): number {
 		if (!V.width) return 0;   // 初回 draw 前（ビュー寸法なし）は焼かない
 		const sc = scratchFor(size);
 		const seam = w[0] < -180 || w[0] + w[2] > 180;   // 窓 bbox（e7・lastViewBbox と同じ物差し）＝feature bbox カリングを窓で。縫い目跨ぎ＝null＝刈らない
@@ -1419,6 +1419,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 				idRCPU[0] = L.fidStyleW || 1; idRCPU[1] = L.fidStyleCount; idRCPU[2] = L.idOverlapMode ? 1 : 0; idRCPU[3] = 0;
 				device.queue.writeBuffer(L.idRBuf, 0, idRCPU);
 				const idPass = enc.beginRenderPass({ colorAttachments: [{ view: idViewA(sc, size), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
+				if (vp) idPass.setViewport(vp[0], 0, vp[1], size, 0, 1);   // 分割の半分（renderer の composeGround）
 				idPass.setPipeline(L.sbOn ? idAccumPipeSB : idAccumPipe);
 				idPass.setBindGroup(0, L.frameBGA[index * 2]); idPass.setBindGroup(1, L.paramBG[ROLE.stencil]);
 				idPass.setBindGroup(2, texBG(L.sbOn, L.arcTex, L.metaTex)); idPass.setBindGroup(3, aux);
@@ -1433,6 +1434,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 				depthStencilAttachment: { view: sc.stView, stencilLoadOp: "clear", stencilClearValue: 0, stencilStoreOp: "discard" },
 			});
 			pass.setStencilReference(0);
+			if (vp) pass.setViewport(vp[0], 0, vp[1], size, 0, 1);
 			if (idFill) {
 				pass.setPipeline(PA.idResolve); pass.setBindGroup(0, idResolveBGAFor(L, sc, size)); pass.draw(3);
 			} else {

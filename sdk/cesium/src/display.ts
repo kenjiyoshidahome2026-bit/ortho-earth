@@ -304,6 +304,8 @@ interface Desc {
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
 	solids: { fill: Any[]; outline: Any[]; width: number } | null;
 }
+/** a mark's positions over time (ms, fixed-frame xyz) */
+type MarkSamples = { t: number[]; p: number[]; dynamic: boolean; degree: number };
 interface Rec { e: Any; desc: Desc | null; bsAsk?: { frame: number; time: JulianDate }; csSphere?: { desc: Desc; bs: BoundingSphere | null; dynamic: boolean }; key: string; dirty: boolean; dynamic: boolean; trackKey: string; samples: { t: number[]; p: number[]; degree: number } | null; icrf?: boolean; off: () => void; solids?: { d: Desc["solids"]; names: Set<string>; sig: string } }
 
 export class EntityDisplay {
@@ -567,7 +569,7 @@ export class EntityDisplay {
 			}
 		}
 		if (lb && val(lb.show, t, true)) {
-			dyn(lb.text, lb.font, lb.fillColor, lb.outlineColor, lb.pixelOffset, lb.scale, lb.show, lb.style, lb.horizontalOrigin, lb.verticalOrigin, lb.scaleByDistance, lb.translucencyByDistance);
+			dyn(lb.text, lb.font, lb.fillColor, lb.outlineColor, lb.pixelOffset, lb.scale, lb.show, lb.style, lb.horizontalOrigin, lb.verticalOrigin, lb.scaleByDistance, lb.translucencyByDistance, lb.showBackground, lb.backgroundColor, lb.backgroundPadding);
 			const text = val(lb.text, t);
 			if (text != null && text !== "") {
 				const px = fontPx(val(lb.font, t, "30px sans-serif")) * val(lb.scale, t, 1);
@@ -579,6 +581,9 @@ export class EntityDisplay {
 					text: String(text), px, offset: [off.x, oy], align: ho === HorizontalOrigin.LEFT ? "left" : ho === HorizontalOrigin.RIGHT ? "right" : "center", show: true,
 					color: st === LabelStyle.OUTLINE ? "rgba(0,0,0,0)" : css(val(lb.fillColor, t)),
 					outline: st === LabelStyle.FILL ? "rgba(0,0,0,0)" : css(val(lb.outlineColor, t), Color.BLACK),
+					// showBackground: Cesium fills a box behind the text (backgroundColor, default 0.165/0.165/0.165/0.8; backgroundPadding, default 7×5 px)
+					bg: val(lb.showBackground, t, false) ? css(val(lb.backgroundColor, t, new Color(0.165, 0.165, 0.165, 0.8))) : null,
+					bgPad: (() => { const bp = val(lb.backgroundPadding, t); return bp ? [bp.x, bp.y] : [7, 5]; })(),
 				};
 			}
 		}
@@ -589,7 +594,7 @@ export class EntityDisplay {
 			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60), relativeTo: rel == null || rel === "FIXED" || rel === "INERTIAL" ? null : String(rel), frame: rel === "FIXED" ? "fixed" : rel === "INERTIAL" ? "inertial" : own };
 		}
 		if (e.position && (style.point || style.image || style.label || style.path)) {
-			const s = this.#samples(e, t, r);
+			const s = this.#clampMarks(e, t, r, this.#samples(e, t, r));
 			if (s) {
 				const avail = e.availability ? intervalsOf(e.availability) : null;
 				d.track = { id: String(e.id), name: e.name ?? null, t: s.t, p: s.p, degree: s.degree, style, avail };
@@ -786,7 +791,7 @@ export class EntityDisplay {
 	}
 
 	/** the samples (ms, ECEF) of an entity's position: once for a time-sampled position, now for anything else */
-	#samples(e: Any, t: JulianDate, r: Rec): { t: number[]; p: number[]; dynamic: boolean; degree: number } | null {
+	#samples(e: Any, t: JulianDate, r: Rec): MarkSamples | null {
 		const prop = e.position;
 		if (isConst(prop)) {
 			const p = val(prop, t);
@@ -1023,6 +1028,20 @@ export class EntityDisplay {
 		if (entity.position && !isConst(entity.position)) { const p = val(entity.position, t); if (p) Cartesian3.clone(p, result.center); }
 		if (result.radius === 0) this.#clampMark(entity, result, t);
 		return BoundingSphereState.DONE;
+	}
+	/** a still mark with heightReference CLAMP_* / RELATIVE_* (point, billboard or label): Cesium draws it on the ground under it (plus its height
+	 *  for RELATIVE_*); the globe's overlay draws the position as given, so a clamped point at 0 m sat 2.5 km under Mount St. Helens and out of
+	 *  the tracked view (clamp-entities-to-ground). The terrain comes from the same sampled memo as the ground shapes; until it is in, as given */
+	#clampMarks(e: Any, t: JulianDate, r: Rec, s: MarkSamples | null): MarkSamples | null {
+		if (!s || s.dynamic || s.p.length < 3) return s;
+		const g = e.point ?? e.billboard ?? e.label, href = g ? val(g.heightReference, t, HeightReference.NONE) : HeightReference.NONE;
+		if (href === HeightReference.NONE) return s;
+		const c = Cartographic.fromCartesian(new Cartesian3(s.p[0], s.p[1], s.p[2]));
+		if (!c) return s;
+		const gh = this.#groundOf([[c.longitude * R2D, c.latitude * R2D]], r);
+		if (!gh) return s;
+		const q = Cartesian3.fromRadians(c.longitude, c.latitude, gh.off + (isRelative(href) ? c.height : 0));
+		return { ...s, p: s.p.map((_v: number, i: number) => [q.x, q.y, q.z][i % 3]) };
 	}
 	/** a mark on the ground: Cesium frames its clamped position (the terrain height, plus the height for RELATIVE_*) */
 	#clampMark(entity: Any, s: BoundingSphere, t: Any) {
