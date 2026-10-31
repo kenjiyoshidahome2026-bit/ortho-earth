@@ -18,6 +18,7 @@
 // render worker の組み込み（BUILTIN_OVERLAYS の "columnar"・create() で実体を作る）。深度の GLSL は host.depthGLSL（core の depthout）を貼る
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 import type { ChunkLevel, ColumnarChunk } from "./chunk.ts";
+import { glProgram } from "../gadgets/glprog.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 interface Prog { p: WebGLProgram; u: Uniforms }
 interface ColumnarOpts { perf?: boolean; drape?: boolean; depth?: boolean; rAx?: number }
@@ -148,13 +149,7 @@ void main() {
 	const chunks = new Map<number, GLChunk>();   // g → { origin, n, tab, tabW, points, levels:[{zoom, lines, fills}], bufs:[], vaos:[] }
 	const TAB_W = 1024, R2D = 180 / Math.PI, RESAMPLE_PER_FRAME = 60_000, RESAMPLE_EVERY_MS = 2000;
 
-	function compile(vs: string, fs: string): Prog {
-		const mk = (type: GLenum, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + "\n" + src); return s; };
-		const p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
-		if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)!);
-		const u: Uniforms = {}; for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl.getActiveUniform(p, i)!.name; u[nm] = gl.getUniformLocation(p, nm); }
-		return { p, u };
-	}
+	const compile = (vs: string, fs: string) => glProgram(gl, vs, fs, true);
 	function init(canvas: OffscreenCanvas, opts: ColumnarOpts = {}, h: OverlayHost | null = null) {
 		host = h;
 		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext;

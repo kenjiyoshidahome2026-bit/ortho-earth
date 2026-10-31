@@ -14,6 +14,7 @@
 // render worker の組み込み（BUILTIN_OVERLAYS の "customgl"・create() で実体を作る・2026-10-17 まで ?url の依存ゼロ）。args（customgl-args.ts の makeCustomArgs）は host.customArgs、深度の GLSL は host.depthGLSL（render worker が渡す）。
 import type { CameraPose, CameraState, DepthApi, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 import { createThreeLoader, addonsBaseOf } from "./three-resolve.ts";
+import { glProgram } from "./glprog.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 type CustomArgs = ReturnType<OverlayHost["customArgs"]>;
 type RenderingMode = "2d" | "3d";
@@ -62,13 +63,7 @@ void main() {
 	gl_FragDepth = clamp(z * 0.5 + 0.5, 0.0, 1.0);
 }`;
 
-	function compile(vs: string, fs: string): { p: WebGLProgram; u: Uniforms } {
-		const mk = (type: GLenum, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)!); return s; };
-		const p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
-		if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)!);
-		const u: Uniforms = {}; for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl.getActiveUniform(p, i)!.name; u[nm] = gl.getUniformLocation(p, nm); }
-		return { p, u };
-	}
+	const compile = (vs: string, fs: string) => glProgram(gl, vs, fs);
 	// 層に渡す map の代理（MapLibre の Map のうち custom 層がよく触る口だけ）
 	const R2D = 180 / Math.PI;
 	const proxyMap: ProxyMap = {

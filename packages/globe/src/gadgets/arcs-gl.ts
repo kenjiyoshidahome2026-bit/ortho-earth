@@ -11,6 +11,8 @@
 // 当たり判定（統一 picking・PR-1）：pick(x, y, r, ctx)＝弧の番号（層の base＋gl_InstanceID・1 から）を RGBA8 に焼く別パス＝points-gl と同じ流儀。
 // render worker の組み込み（BUILTIN_OVERLAYS の "arcs"・create() で実体を作る）。
 import type { CameraPose, CameraState, LastOverlayFrame, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
+import { glProgram, readPickWindow, nearestId } from "./glprog.ts";
+export { decodeId } from "./glprog.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと）＝has＝属性を持つか（無ければ style の定数） */
 interface Layer {
@@ -118,21 +120,10 @@ export function arcPoint(A: ArrayLike<number>, B: ArrayLike<number>, t: number, 
 	if (hh > 0) { const r = Math.hypot(p[0], p[1], p[2]) || 1; for (let i = 0; i < 3; i++) p[i] += p[i] / r * hh; }
 	return p;
 }
-export const decodeId = (r: number, g: number, b: number, a: number): number => (r | (g << 8) | (b << 16) | (a << 24)) >>> 0;
 
 // 一つのオーバーレイ＝一つの閉包（2026-10-17・旧＝URL ごとに別のモジュール実体＝?ov=）。render worker の BUILTIN_OVERLAYS が create() で作る
 export function create() {
 	const VS_PICK = VS.replace("out vec4 v_col;", "out vec4 v_col; flat out highp uint v_id; uniform highp uint u_base;").replace("v_col = mix(a_c0, a_c1, t);", "v_col = mix(a_c0, a_c1, t); v_id = u_base + uint(gl_InstanceID);");
-	function nearestId(data: ArrayLike<number>, side: number) {
-		const c = (side - 1) / 2; let best: { id: number; distance: number } | null = null;
-		for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) {
-			const k = (j * side + i) * 4, id = decodeId(data[k], data[k + 1], data[k + 2], data[k + 3]);
-			if (!id) continue;
-			const d = Math.hypot(i - c, (side - 1 - j) - c);
-			if (!best || d < best.distance) best = { id, distance: d };
-		}
-		return best;
-	}
 
 	let gl: WebGL2RenderingContext | null = null, prog: WebGLProgram | null = null, uni: Uniforms = {}, pickProg: WebGLProgram | null = null, pickUni: Uniforms = {}, pickFbo: WebGLFramebuffer | null = null, pickTex: WebGLTexture | null = null, pickW = 0, pickH = 0;
 	let geomBuf: WebGLBuffer | null = null, geomSeg = 0, geomN = 0;   // 頂点ごとの (t, side)＝(seg+1)×2 の帯（全層で共用）
@@ -143,13 +134,7 @@ export function create() {
 	let host: OverlayHost | null = null;
 	const probes: unknown[] = [];
 
-	function compile(vs: string, fs: string): { p: WebGLProgram; u: Uniforms } {
-		const mk = (type: GLenum, src: string) => { const s = gl!.createShader(type)!; gl!.shaderSource(s, src); gl!.compileShader(s); if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) throw new Error(gl!.getShaderInfoLog(s)!); return s; };
-		const p = gl!.createProgram(); gl!.attachShader(p, mk(gl!.VERTEX_SHADER, vs)); gl!.attachShader(p, mk(gl!.FRAGMENT_SHADER, fs)); gl!.linkProgram(p);
-		if (!gl!.getProgramParameter(p, gl!.LINK_STATUS)) throw new Error(gl!.getProgramInfoLog(p)!);
-		const u: Uniforms = {}; for (let i = 0, n = gl!.getProgramParameter(p, gl!.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl!.getActiveUniform(p, i)!.name; u[nm] = gl!.getUniformLocation(p, nm); }
-		return { p, u };
-	}
+	const compile = (vs: string, fs: string) => glProgram(gl!, vs, fs);
 	function geometry(seg: number) {
 		if (geomBuf && geomSeg === seg) return;
 		seg = Math.max(2, Math.min(256, seg | 0));
@@ -267,14 +252,7 @@ export function create() {
 		gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 		rAxNow = ctx.api?.rAx || rAxNow;
 		drawLayers(pickProg, pickUni, ctx.s, dpr, { w, h }, true);
-		const rr = Math.max(0, Math.round(r)), side = rr * 2 + 1, x0 = Math.round(x) - rr, y0 = (h - 1 - Math.round(y)) - rr;
-		const data = new Uint8Array(side * side * 4);
-		const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(w, x0 + side), cy1 = Math.min(h, y0 + side);
-		if (cx1 > cx0 && cy1 > cy0) {
-			const sub = new Uint8Array((cx1 - cx0) * (cy1 - cy0) * 4);
-			gl.readPixels(cx0, cy0, cx1 - cx0, cy1 - cy0, gl.RGBA, gl.UNSIGNED_BYTE, sub);
-			for (let j = 0; j < cy1 - cy0; j++) data.set(sub.subarray(j * (cx1 - cx0) * 4, (j + 1) * (cx1 - cx0) * 4), ((j + cy0 - y0) * side + (cx0 - x0)) * 4);
-		}
+		const { data, side } = readPickWindow(gl, x, y, r, w, h);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		const best = nearestId(data, side);
 		if (!best) return null;
