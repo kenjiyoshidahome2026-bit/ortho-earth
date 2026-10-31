@@ -3,6 +3,7 @@
 //   /cs/{ref,ortho}/gallery/<名>/            ＝例の頁（Sandcastle の bucket と同じ組み立て：index.html の本文＋main.js を module で・import map で "cesium" と "Sandcastle" を引く）
 //   /cs/{ref,ortho}/gallery/<名>/main.js     ＝取り置きの**バイトをそのまま**（一文字も変えない）
 //   /cs/{ref,ortho}/gallery/templates/*      ＝bucket.css（例が ../templates/bucket.css を @import する）
+//   /cs/{ref,ortho}/gallery/images/**        ＝Sandcastle の絵（例は ../images/… で取る＝本物の Sandcastle の public/images）
 //   /cs/{ref,ortho}/SampleData/**            ＝素材（例は ../../SampleData/… で取る）
 //   /cs/ref/Build/Cesium/**                  ＝本物 1.146 の Build を静的に（vite を通さない＝Workers・Assets もそのまま）
 //   /cs/ref/cesium.js                        ＝本物を包む数行（Viewer を継いで作った viewer と事象を window.__csx に積む）
@@ -77,6 +78,7 @@ const serve = {
 				return res.end(page(side, g[1]));
 			}
 			if (rest.startsWith("gallery/templates/")) file = inside(path.join(CACHE, "templates"), decodeURIComponent(rest.slice("gallery/templates/".length)));
+			else if (rest.startsWith("gallery/images/")) file = inside(path.join(CACHE, "images"), decodeURIComponent(rest.slice("gallery/images/".length)));
 			else if (rest.startsWith("gallery/")) file = inside(path.join(CACHE, "gallery"), decodeURIComponent(rest.slice("gallery/".length)));
 			else if (rest.startsWith("SampleData/")) file = inside(path.join(CACHE, "SampleData"), decodeURIComponent(rest.slice("SampleData/".length)));
 			else if (side === "ref" && rest.startsWith("Build/")) file = inside(path.join(CACHE, "Build"), decodeURIComponent(rest.slice("Build/".length)));
