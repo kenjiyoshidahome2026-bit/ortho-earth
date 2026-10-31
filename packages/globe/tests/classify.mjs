@@ -6,6 +6,7 @@
 // GPU の経路（深度に当てて塗る）は tests/t-classify.html（verify:ui）。
 // 使い方：node packages/globe/tests/classify.mjs
 import { classifyGeometry, classifyShapes } from "../src/classify.ts";
+import { flatOrigin } from "../../ortho-core/src/classify.ts";
 
 let fails = 0;
 const ok = (c, m) => { if (c) console.log("  ✓ " + m); else { fails++; console.error("  ✗ " + m); } };
@@ -51,6 +52,19 @@ console.log("classifyGeometry");
 	ok(geom({ type: "Point", coordinates: [0, 0] }) === null && geom(null) === null, "点・空＝null");
 	const ell = classifyGeometry({ type: "Polygon", coordinates: [sq(139.76, 35.68, 0.001)] }, { earthM: 6378137, ell: true });
 	ok(ell && closed(ell), "楕円体でも閉じている");
+}
+
+// 真俯瞰の平ら化（renderer の pf）に柱を合わせる（ortho-core classify.ts flatOrigin・2026-10-31）：原点の高さ h0 の flat 割を法線方向に下げる
+{
+	const R = 6378137, n = [0.6, 0.8, 0], h0 = 430 / R, o = n.map(x => x * (1 + h0));
+	const hOf = p => Math.hypot(p[0], p[1], p[2]) - 1;
+	ok(Math.abs(hOf(flatOrigin(o, 1)) * R) < 1e-6, `平ら（flat 1）＝原点を 0 m へ（${(hOf(flatOrigin(o, 1)) * R).toFixed(3)} m）`);
+	ok(Math.abs(hOf(flatOrigin(o, 0.5)) * R - 215) < 1e-6, `半分（flat 0.5）＝215 m（${(hOf(flatOrigin(o, 0.5)) * R).toFixed(3)} m）`);
+	ok(flatOrigin(o, 0).every((x, i) => x === o[i]), "flat 0＝そのまま");
+	const f = flatOrigin(o, 1); ok(Math.abs(f[0] / f[1] - 0.75) < 1e-12 && f[2] === 0, "向き（法線）は変わらない");
+	const far = n.map(x => x * 1.02); ok(flatOrigin(far, 1).every((x, i) => x === far[i]), "地表から 64 km を越える原点（全球の柱など）は動かさない");
+	// 柱 [150, 711] m・地面 300 m：pf（＝1−flat）ごとに地面 pf·300 m が下げた柱の中にある
+	for (const pf of [0, 0.25, 0.5, 1]) { const sh = (1 - pf) * 430; ok(150 - sh <= pf * 300 && pf * 300 <= 711 - sh, `pf ${pf}：地面 ${pf * 300} m が柱 [${150 - sh}, ${711 - sh}] の中`); }
 }
 
 if (fails) { console.error(`classify: ${fails} 件 NG`); process.exit(1); }

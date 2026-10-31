@@ -7,6 +7,7 @@ import { decodeModel, ecef2geo, geoWorld, earthW, fetchFor } from "./meshdecode.
 import { batchTableOf } from "./mesh-features.ts";
 import type { PropertyTable } from "./mesh-features.ts";
 import { decodeGeom, type GeomOut } from "./geom-tile.ts";
+import { decodeVctr } from "./vctr-tile.ts";
 import type { ModelBatchOut, ModelOut, ModelPoints, SplatPrimOut, VoxelPrimOut, VoxelTileOpts, FetchOpts } from "./meshdecode.ts";
 
 /** 点（points-gl の層に渡す形）＝原点相対の float32・RGBA8 */
@@ -213,6 +214,7 @@ export async function decodeTile3D(ab: ArrayBuffer, { transform, baseUri, baseH 
 			for (let k = 0; k < nT && off + 12 <= buf.byteLength; k++) { const len = new DataView(buf, off).getUint32(8, true); await one(buf.slice(off, off + len)); off += len; }
 		} else if (magic === "glTF" || new Uint8Array(buf, 0, 1)[0] === 0x7b) merge(await decodeModel(buf, { baseUri, textures, fetchOpts, ...gOpt, featureIdSet, tile: { places: [M], rtc: null, baseH: bH, points: true, splats, voxels } }));   // glb / glTF(JSON)＝3D Tiles 1.1
 		else if (magic === "geom") { const g = decodeGeom(buf, transform); if (g) (out.volumes ??= []).push(g); }   // 分類用の立体（箱・円柱・楕円体・球）＝描くのは main（分類の柱）
+		else if (magic === "vctr") { const g = decodeVctr(buf); if (g) (out.volumes ??= []).push(g); }   // Vector タイルの多角形＝地面を塗る柱（.geom と同じ道・線と点はまだ）
 		else throw new Error(`unknown tile content "${magic}"`);
 	};
 	await one(ab);
