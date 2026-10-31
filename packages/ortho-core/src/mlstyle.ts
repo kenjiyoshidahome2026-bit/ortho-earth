@@ -170,13 +170,14 @@ export function shiftLayerZoom(L: MLLayer, dz: number): MLLayer {
 // 層の目盛りは metadata["ortho:dz"] で申告できる（getStyle が付けて返す＝setStyle(getStyle()) で二重にずれない）。無ければ入口の既定 dz。
 // 出力は「エンジンの目盛りに直した層」＝metadata["ortho:dz"] を 0 にして返す＝もう一度通しても何も変わらない（冪等）。
 export const DZ_KEY = "ortho:dz";
+export const DZ_APPLIED_KEY = "ortho:dzApplied";   // 入口で足した dz の累計＝minzoom はエンジンの z に直ったが、タイルの z は元の目盛りのまま＝タイルで層を選ぶ build がこの分を足して比べる（2026-10-31）
 export function layerDzOf(L: MLLayer | null | undefined, dflt = 0): number {
 	const v = L?.metadata?.[DZ_KEY];
 	return typeof v === "number" && Number.isFinite(v) ? v : dflt;
 }
 export function normalizeMLLayer(L: MLLayer, dz = 0): MLLayer {
-	const out = shiftLayerZoom(convertLayer(L), layerDzOf(L, dz));
-	return { ...out, metadata: { ...(L.metadata || {}), [DZ_KEY]: 0, [ORIGIN_KEY]: "ml" } };   // 出自の印＝評価器が MapLibre の意味で評価する（expr.js・約束 4）
+	const d = layerDzOf(L, dz), out = shiftLayerZoom(convertLayer(L), d), applied = ((L.metadata?.[DZ_APPLIED_KEY] as number) || 0) + d;
+	return { ...out, metadata: { ...(L.metadata || {}), [DZ_KEY]: 0, [DZ_APPLIED_KEY]: applied, [ORIGIN_KEY]: "ml" } };   // 出自の印＝評価器が MapLibre の意味で評価する（expr.js・約束 4）
 }
 // 目盛りの付け替え（fromDz の目盛りで書かれた値 → toDz の目盛り）。setter/getter が呼び手と層の目盛りの差を埋めるのに使う
 export const rescaleZoomExpr = <T>(e: T, fromDz: number, toDz: number): T => shiftZoomExpr(e, fromDz - toDz);
