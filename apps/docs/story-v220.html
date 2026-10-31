@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V.2.2.0 Into a photogenic world</title>
+<meta name="description" content="A record of seven days spent tracing Cesium's 309 Sandcastle examples and crossing off, one by one, what Cesium could do and ortho-earth could not. Same picture went from 23 to 190; examples that do not run went to 0.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v220">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/story-v220">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/story-v220-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/story-v220">
+<meta property="og:title" content="V.2.2.0 Into a photogenic world">
+<meta property="og:description" content="A record of seven days spent tracing Cesium's 309 Sandcastle examples and crossing off, one by one, what Cesium could do and ortho-earth could not. Same picture went from 23 to 190; examples that do not run went to 0.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v220">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-31">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"V.2.2.0 Into a photogenic world","description":"A record of seven days spent tracing Cesium's 309 Sandcastle examples and crossing off, one by one, what Cesium could do and ortho-earth could not. Same picture went from 23 to 190; examples that do not run went to 0.","url":"https://www.ortho-earth.com/docs/story-v220","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v220","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-10-31","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+<style>.essay figure.ba { margin: 0.6em 0 1.8em; } .essay figure.ba img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); }</style>
+</head>
+<body>
+<!-- A Stories article (opened from a card in apps/www/stories.json): the v2.2.0 Cesium compatibility record. The Before/After pictures put ortho's first shoot, v2.2.0 and real Cesium side by side -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v220-jp.html" lang="ja">日本語</a></nav>
+<header class="masthead"><h1>V.2.2.0 Into a photogenic world</h1><p class="byline">2026-10-31 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>Making "something like Cesium" is not that hard. Making "a 3D engine at Cesium's level" is a different story altogether. That is how much of a god Cesium is.</p>
+<p>Even if it is only imitation, I wanted to get one step closer to that god at a time. So I started on the unglamorous work of tracing the Sandcastle examples and crossing off, one by one, what Cesium can do and ortho-earth cannot. This is the record of that thorny road.</p>
+<p>It reads a bit like a "Project X" documentary, but the persistence of the draftsmen (Claude) genuinely moved me!</p>
+
+<h2>Method</h2>
+<p>All 309 Sandcastle examples (Cesium's official examples) were run on ortho-earth. Twelve of them, such as the Moon and Mars examples, examples with no viewer and examples that start in 2D, cannot be compared and were left out. The other 297 were compared side by side with Cesium.</p>
+<ul>
+<li><strong>ortho with Cesium's face (the facade)</strong>: @ortho-earth/cesium borrows Cesium's computing parts (coordinates, time, CZML, entities, 3D Tiles loading) from Cesium as they are, and swaps only the drawing for the ortho-earth globe. "Borrow the computing parts from Cesium." That is why the Sandcastle code runs without changing a single line.</li>
+<li><strong>Shoot at the same time from the same camera</strong>: open the same example on real Cesium and on ortho, shoot both at the same time (the clocks are aligned) from the same camera, and put the two pictures side by side.</li>
+<li><strong>Grade in four levels</strong>: cut the screen into 64×48 cells and check how much of the colour and the edges match, and whether there are large blocks that differ.
+<ul><li>3 = same picture</li><li>2 = same behaviour and same numeric answers, but a different picture</li><li>1 = part of it does not run</li><li>0 = does not run</li></ul></li>
+<li><strong>The picture has the last word</strong>: the level is a guide. The judgement is made on the pictures side by side (the <a href="/sandcastle/" target="_top">Sandcastle</a> gallery).</li>
+<li><strong>Fix by family</strong>: examples broken by the same cause are grouped into a "family", and one family is fixed by one PR. After a fix, only that family's examples are re-shot on the Mac's real GPU (WebGPU) and their gallery cards replaced.</li>
+</ul>
+
+<h2>Progress</h2>
+<p>The first shoot (2026-10-25) gave 3/2/1/0 = 23/120/129/24. Only 23 of 309 drew the same picture, and I thought this was a bit of trouble. From there:</p>
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>3</th><th>2</th><th>1</th><th>0</th><th>What went in</th></tr></thead><tbody>
+<tr><td>10-25</td><td>23</td><td>120</td><td>129</td><td>24</td><td>First shoot. Primitive, Model, particles, clouds and more stop as "not supported"</td></tr>
+<tr><td>10-26</td><td>33</td><td>183</td><td>62</td><td>11</td><td>The facade (#672). Borrowing Cesium's parts, almost everything runs</td></tr>
+<tr><td>10-26</td><td>100</td><td>129</td><td>54</td><td>10</td><td>CZML solids, 3D Tiles, the starry sky, a translucent globe (#698–#703)</td></tr>
+<tr><td>10-27</td><td>117</td><td>126</td><td>44</td><td>8</td><td>Model lighting (#704), shadows, the blue globe, satellite orbits (#715–#720)</td></tr>
+<tr><td>10-28</td><td>124</td><td>121</td><td>43</td><td>9</td><td>The horizon, near terrain, the camera target (#723–#730)</td></tr>
+<tr><td>10-29</td><td>149</td><td>108</td><td>32</td><td>8</td><td>Post-processing, particles, clouds and clustering, the sea floor, lens flare, point clouds, CustomShader (to #761)</td></tr>
+<tr><td>10-30</td><td>186</td><td>106</td><td>5</td><td>0</td><td>All 309 re-shot on a real GPU (UI hidden on the ortho side). Imagery draped on 3D Tiles, clipping polygons, your own GLSL (to #798)</td></tr>
+<tr><td>v2.2.0</td><td><strong>190</strong></td><td>107</td><td><strong>0</strong></td><td><strong>0</strong></td><td>All 309 re-shot in one go on a real GPU with the same code as npm 2.2.0. Negative terrain heights, the underground test, clouds (to #808)</td></tr>
+</tbody></table></div>
+<p class="note-small">Note: up to 10-28 the gate forced a software GPU (SwiftShader, no WebGPU), so ortho fell back to WebGL2. From partway through 10-28 the shots were taken on the Mac's real GPU (Metal, WebGPU). The 10-29 row is the family re-shoots laid over the gallery. The 10-30 row is all 309 re-shot on a real GPU. The last row, v2.2.0, is the final count, re-shot with the same code that went to npm as 2.2.0.</p>
+
+<h2>Results</h2>
+<p>Re-shooting all 309 in one go with v2.2.0 (the same code as on npm, on the Mac's real GPU with WebGPU), the 297 scored examples came to 3/2/1/0 = <strong>190 / 107 / 0 / 0</strong>. No example fails to run, none runs only in part, and every one gives the same answers as Cesium. 190 (64%) draw the same picture, eight times the 23 of the first shoot. Every picture can be seen next to Cesium's in <a href="/sandcastle/" target="_top">Sandcastle</a>.</p>
+<p>From the left: Before (ortho), After (ortho, v2.2.0), and real Cesium.</p>
+<p><strong>aerometrex-san-francisco</strong>: the grey sky turned blue (colour match 50.7% → 90.2%)</p>
+<figure class="ba"><img src="story-v220-aerometrex-san-francisco.webp" width="1456" height="360" loading="lazy" alt="aerometrex-san-francisco: Before, After and Cesium"></figure>
+<p><strong>sample-height-from-3d-tiles</strong>: from solid grey to the rooftops (27.7% → 98.2%)</p>
+<figure class="ba"><img src="story-v220-sample-height-from-3d-tiles.webp" width="1456" height="360" loading="lazy" alt="sample-height-from-3d-tiles: Before, After and Cesium"></figure>
+<p><strong>drape-imagery-on-3d-tiles</strong>: the map is draped on the 3D Tiles (22.5% → 97.6%)</p>
+<figure class="ba"><img src="story-v220-drape-imagery-on-3d-tiles.webp" width="1456" height="360" loading="lazy" alt="drape-imagery-on-3d-tiles: Before, After and Cesium"></figure>
+<p><strong>itwin-gaussian-splats</strong>: from plain blue to the building (0.0% → 91.2%)</p>
+<figure class="ba"><img src="story-v220-itwin-gaussian-splats.webp" width="1456" height="360" loading="lazy" alt="itwin-gaussian-splats: Before, After and Cesium"></figure>
+
+<h2>What was built</h2>
+<ul>
+<li>The Cesium-compatible facade (@ortho-earth/cesium) and the 309-example gate (shooting, grading, the gallery)</li>
+<li>Model lighting (the sun, HDR, environment light as spherical harmonics), shadows, day and night on the ground</li>
+<li>globe.material (elevation bands, contours, slope, aspect) and the sea floor (Cesium World Bathymetry)</li>
+<li>Screen post-processing (postProcessStages: silhouettes, bloom, black and white, night vision, lens flare, depth of field)</li>
+<li>Particles (ParticleSystem), clouds (CloudCollection), clustering (EntityCluster)</li>
+<li>3D Tiles clipping planes, I3S, time-dynamic point clouds, panoramas, Draco-compressed point clouds</li>
+<li>Model colour and silhouettes, per-feature show and hide, a translucent globe and an underground camera</li>
+<li>Imagery draped onto 3D Tiles (imageryLayers)</li>
+<li>CustomShader (GLSL as is on GL, translated to WGSL on WebGPU)</li>
+<li>A near elevation layer, log depth precision, and WGSL uniformity fixes on WebGPU</li>
+</ul>
+
+<h2>What was given up</h2>
+<ul>
+<li>2D and Columbus view (geojson-simplestyle, multiple-synced-views, rotatable-2d-map): the globe stays 3D only, and the flat map stays Equal Earth</li>
+<li>VR stereo (the cardboard example's picture matches, but it does not split into stereo). Orthographic projection is approximated with a telephoto view (projection)</li>
+<li>Bodies other than the Earth (the Moon, Mars) and examples with no viewer</li>
+<li>Level 2 examples whose picture still differs (lowest colour match first): fog-post-process, 3d-tiles-feature-picking, google-streetview-panorama, video, voxel-picking, three aec examples, 3d-tiles-terrain-classification, photogrammetry-classification, ground-primitive-dev, particle-system-weather</li>
+</ul>
+
+<h2>Why upstream did not budge</h2>
+<p>In these seven days about 130 PRs (#665–#808), mostly for Cesium compatibility, went into main. Even so, the automatic deploy from main runs the full-page WebGPU and UI gates and the production-bundle gate before anything reaches production. There were regressions along the way, in WGSL, depth and clouds (#730–#734, #799), but the gates caught them, held the deploy, and they were fixed the same day.</p>
+<p>With v2.2.0, ortho-earth can finally call itself photogenic, and its features have filled out a lot. The way to evaluate Cesium compatibility is now in place too, so I will keep polishing.</p>
+<p>The same approach now runs Leaflet and Google Maps code on the globe as well. What shipped is in "<a href="release-2-2.html">Ortho Earth 2.2 is out</a>".</p>
+<p>And yet, for all this flamboyant tinkering, upstream did not budge. That is how ortho-earth is developed.</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>

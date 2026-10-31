@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V.2.2.0 フォトジェニックな世界へ</title>
+<meta name="description" content="Cesium にできて ortho-earth にできないものを、Sandcastle 309 本をなぞりながら一つずつ消していった 7 日間の記録。同じ絵は 23 本から 190 本に、動かない例は 0 本になった。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v220-jp">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/story-v220">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/story-v220-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/story-v220">
+<meta property="og:title" content="V.2.2.0 フォトジェニックな世界へ">
+<meta property="og:description" content="Cesium にできて ortho-earth にできないものを、Sandcastle 309 本をなぞりながら一つずつ消していった 7 日間の記録。同じ絵は 23 本から 190 本に、動かない例は 0 本になった。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v220-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-31">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"V.2.2.0 フォトジェニックな世界へ","description":"Cesium にできて ortho-earth にできないものを、Sandcastle 309 本をなぞりながら一つずつ消していった 7 日間の記録。同じ絵は 23 本から 190 本に、動かない例は 0 本になった。","url":"https://www.ortho-earth.com/docs/story-v220-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v220-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-10-31","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+<style>.essay figure.ba { margin: 0.6em 0 1.8em; } .essay figure.ba img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); }</style>
+</head>
+<body>
+<!-- Stories の記事（apps/www/stories.json のカードから開く）。v2.2.0 の Cesium 互換の記録。Before/After の絵は gate-results（ortho の最初の撮影・v2.2.0・本物の Cesium）を横に並べたもの -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v220.html" lang="en">English</a></nav>
+<header class="masthead"><h1>V.2.2.0 フォトジェニックな世界へ</h1><p class="byline">2026-10-31 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>「Cesium みたいなもの」を作るのは、さして難しくない。 しかし「Cesium レベルの 3D エンジン」を作るとなると話が全然違う。 それほど、Cesium は神なのである。</p>
+<p>猿真似でもいい。その神に一歩ずつ近づくために、Cesium にできて ortho-earth にできないものを、Sandcastle をなぞりながら、一つずつ消していく泥臭い作業に入った。これはその荊の道の記録である。</p>
+<p>なんか「プロジェクト X」風ではあるが、製図係（Claude）達の粘り強さには、さすがに感動を覚えた！</p>
+
+<h2>方法</h2>
+<p>Sandcastle（Cesium の公式例）309 本を全部、ortho-earth の上で動かした。月・火星の例、ビューアの無い例、2D 始まりの例など 12 本は比べようがないので外し、残る 297 本を Cesium と並べて比べる。</p>
+<ul>
+<li><strong>Cesium の顔をした ortho（facade）</strong>：@ortho-earth/cesium は、Cesium の計算部品（座標、時刻、CZML、Entity、3D Tiles の読み込み）は Cesium からそのまま借り、描くところだけを ortho-earth の地球儀に差し替えたもの。「計算部品は Cesium から借りる」。だから Sandcastle のコードが 1 行も変えずにそのまま動く。</li>
+<li><strong>同じ時刻・同じカメラで撮る</strong>：本物の Cesium と ortho で同じ例を開き、同じ時刻（時計を合わせる）・同じカメラで撮り、2 枚を並べる。</li>
+<li><strong>4 つの段で採点する</strong>：画面を 64×48 のマスに切り、色と縁が何割一致するか、大きく違う塊が無いかを見る。
+<ul><li>3 = 同じ絵</li><li>2 = 動きも数値の答えも同じだが、絵が違う</li><li>1 = 一部が動かない</li><li>0 = 動かない</li></ul></li>
+<li><strong>最後は絵で決める</strong>：段は目安。判断は並べた絵（ギャラリー <a href="/sandcastle/" target="_top">Sandcastle</a>）で行う。</li>
+<li><strong>家族ごとに直す</strong>：同じ原因で崩れている例を「家族」にまとめ、家族 1 つ＝PR 1 本で直す。直したら、その家族の例だけを Mac の実 GPU（WebGPU）で撮り直し、ギャラリーのカードを差し替える。</li>
+</ul>
+
+<h2>進捗の記録</h2>
+<p>最初の撮影（2026-10-25）は、3/2/1/0 = 23/120/129/24。309 本中、同じ絵はたった 23 本で、少しやばいと思った。そこからの推移：</p>
+<div class="table-wrap"><table><thead><tr><th>日時</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
+<tr><td>10-25</td><td>23</td><td>120</td><td>129</td><td>24</td><td>最初の撮影。Primitive・Model・粒子・雲などが「未対応」で止まる</td></tr>
+<tr><td>10-26</td><td>33</td><td>183</td><td>62</td><td>11</td><td>facade（#672）。Cesium の部品を借りて、ほぼ全部が動くように</td></tr>
+<tr><td>10-26</td><td>100</td><td>129</td><td>54</td><td>10</td><td>CZML の立体、3D Tiles、星空、地球の半透明（#698〜#703）</td></tr>
+<tr><td>10-27</td><td>117</td><td>126</td><td>44</td><td>8</td><td>模型の光（#704）、影、青い地球、衛星の軌道（#715〜#720）</td></tr>
+<tr><td>10-28</td><td>124</td><td>121</td><td>43</td><td>9</td><td>地平線、近景の地形、カメラの目標（#723〜#730）</td></tr>
+<tr><td>10-29</td><td>149</td><td>108</td><td>32</td><td>8</td><td>後処理、粒子・雲・束ね表示、海底、レンズフレア、点群、CustomShader（〜#761）</td></tr>
+<tr><td>10-30</td><td>186</td><td>106</td><td>5</td><td>0</td><td>実 GPU で 309 本を撮り直し（ortho 側は UI を隠して）。3D Tiles への画像の貼り付け、切り抜き多角形、自前の GLSL（〜#798）</td></tr>
+<tr><td>v2.2.0</td><td><strong>190</strong></td><td>107</td><td><strong>0</strong></td><td><strong>0</strong></td><td>npm の 2.2.0 と同じコードで、実 GPU で 309 本を 1 回で撮り直し。地形の負の高さ、地下の判定、雲（〜#808）</td></tr>
+</tbody></table></div>
+<p class="note-small">注：10-28 までの撮影は、検定がソフトの GPU（SwiftShader、WebGPU 無し）を強制していた条件で、ortho は WebGL2 に落ちて描いていた。10-28 の途中から Mac の実 GPU（Metal、WebGPU）で撮っている。10-29 の行は、家族ごとの撮り直しをギャラリーに重ねた数。10-30 の行は、実 GPU で 309 本を撮り直した数。最後の v2.2.0 の行は、npm に出した 2.2.0 と同じコードで撮り直した最終の数。</p>
+
+<h2>結果</h2>
+<p>v2.2.0（npm に出したのと同じコード、Mac の実 GPU・WebGPU）で 309 本を 1 回で撮り直した結果、採点した 297 本は 3/2/1/0 = <strong>190 / 107 / 0 / 0</strong>。動かない例も、一部が動かない例も無くなり、全部が Cesium と同じ答えを返すようになった。同じ絵は 190 本（64%）。最初の撮影の 23 本から 8 倍になった。全部の絵は <a href="/sandcastle/" target="_top">Sandcastle</a> で、Cesium と並べて見られる。</p>
+<p>左から Before（ortho）・After（ortho、v2.2.0）・本物の Cesium。</p>
+<p><strong>aerometrex-san-francisco</strong>：灰色の空が青空に（色の一致 50.7% → 90.2%）</p>
+<figure class="ba"><img src="story-v220-aerometrex-san-francisco.webp" width="1456" height="360" loading="lazy" alt="aerometrex-san-francisco の Before・After・Cesium"></figure>
+<p><strong>sample-height-from-3d-tiles</strong>：全面の灰色から屋上の絵に（27.7% → 98.2%）</p>
+<figure class="ba"><img src="story-v220-sample-height-from-3d-tiles.webp" width="1456" height="360" loading="lazy" alt="sample-height-from-3d-tiles の Before・After・Cesium"></figure>
+<p><strong>drape-imagery-on-3d-tiles</strong>：3D Tiles の上に地図が貼られた（22.5% → 97.6%）</p>
+<figure class="ba"><img src="story-v220-drape-imagery-on-3d-tiles.webp" width="1456" height="360" loading="lazy" alt="drape-imagery-on-3d-tiles の Before・After・Cesium"></figure>
+<p><strong>itwin-gaussian-splats</strong>：青一色から建物に（0.0% → 91.2%）</p>
+<figure class="ba"><img src="story-v220-itwin-gaussian-splats.webp" width="1456" height="360" loading="lazy" alt="itwin-gaussian-splats の Before・After・Cesium"></figure>
+
+<h2>作ったもの</h2>
+<ul>
+<li>Cesium 互換の facade（@ortho-earth/cesium）と、309 本の検定（撮影・採点・ギャラリー）</li>
+<li>模型の光（太陽、HDR、環境の光を球面調和で）、影、地面の昼夜</li>
+<li>globe.material（標高の段彩、等高線、傾斜、方位）、海底（Cesium World Bathymetry）</li>
+<li>画面の後処理（postProcessStages：シルエット、ブルーム、白黒、暗視、レンズフレア、被写界深度）</li>
+<li>粒子（ParticleSystem）、雲（CloudCollection）、束ね表示（EntityCluster）</li>
+<li>3D Tiles の切断面、I3S、時間で動く点群、パノラマ、Draco 圧縮の点群</li>
+<li>模型の色とシルエット、地物ごとの表示切り替え、地球の半透明と地下カメラ</li>
+<li>3D Tiles への画像の貼り付け（imageryLayers）</li>
+<li>CustomShader（GLSL を GL ではそのまま、WebGPU では WGSL に訳して）</li>
+<li>近景の標高層、log depth の精度、WebGPU の WGSL の一様性の修正</li>
+</ul>
+
+<h2>諦めたもの</h2>
+<ul>
+<li>2D・Columbus 視点（geojson-simplestyle、multiple-synced-views、rotatable-2d-map）：地球は 3D のみ、平面は Equal Earth という方針のまま</li>
+<li>VR の立体視（cardboard の例の絵は揃うが、立体には分かれない）。正射影は望遠で近似（projection）</li>
+<li>地球以外の天体（月・火星）とビューアの無い例</li>
+<li>絵が違うまま残った段 2（色の一致が低い順）：fog-post-process、3d-tiles-feature-picking、google-streetview-panorama、video、voxel-picking、aec の 3 本、3d-tiles-terrain-classification、photogrammetry-classification、ground-primitive-dev、particle-system-weather</li>
+</ul>
+
+<h2>上流がびくともしない理由</h2>
+<p>この 7 日間で、Cesium 互換を中心に約 130 本の PR（#665〜#808）が main に入った。それでも main への自動 deploy は、本番に出す前に WebGPU・UI の全ページ検定と本番出荷物の検定を回す。途中で WGSL や深度、雲の回帰（#730〜#734、#799）もあったが、検定が見つけて配信を止め、その日のうちに直している。</p>
+<p>ortho-earth も、v2.2.0 でフォトジェニックと言えるようになり、機能も大分充実してきた。Cesium 互換の評価手法も確立したので、今後とも更に機能に磨きをかけていく。</p>
+<p>同じやり方で、Leaflet と Google Maps の書き方も地球儀の上で動くようになった。何が出たかは「<a href="release-2-2-jp.html">Ortho Earth 2.2 を公開しました</a>」に書いた。</p>
+<p>しかし、これだけ派手に機能を弄っても上流がびくともしない。これが ortho-earth の開発手法である。</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>
