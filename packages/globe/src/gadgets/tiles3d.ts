@@ -110,7 +110,7 @@ interface T3dNode {
 	extra?: T3dNode[] | null; owner?: T3dNode;
 	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; /** main のヒープに持つ写しの量（当たり・塗り直し・地物の番号）＝予算に数える（2026-10-20） */ mainBytes: number; pts: string[] | null; /** 点群の点の地物（スタイルで塗り直す元・pts と同じ並び） */ ptsFeat?: (PointsFeat | null | undefined)[] | null; splat?: SplatLayer[] | null; voxel?: SplatLayer[] | null; on: boolean; used: number; err: number;
 	pick?: PickPart[] | null; copyright?: string[] | null; gltfExt?: Record<string, unknown> | null; meshN?: number; bbox?: number[] | null;
-	/** 分類の立体（.geom）と、いま renderer に出している柱の名・点群の内外の判定（β 空間） */ vols?: GeomOut[] | null; volKeys?: string[] | null; volTests?: VolTest[] | null;
+	/** 分類の立体（.geom・.vctr の多角形）と、いま renderer に出している柱の名・点群の内外の判定（β 空間） */ vols?: GeomOut[] | null; volKeys?: string[] | null; volTests?: VolTest[] | null;
 	/** 点群の写し（分類の立体がある時だけ）＝点ごとに内側の立体の色を混ぜ直す元（pos・origin＝β・base＝スタイル後の色） */ ptsSrc?: Array<{ pos: Float32Array; origin: number[]; base: Uint8Array; tinted: boolean }> | null;
 	/** 点の層ごとの間隔の見積もり（世界単位・attenuation の誤差が無いタイルの代わり） */ ptsSp?: number[];
 	/** 境界の世界座標の写し（sphere と持ち上げ lift が同じ間は使い回す） */ wb?: { s: Sphere; lift: number; c: number[]; axes: number[][] | null };
@@ -680,7 +680,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			}
 			const o = worldOf(g.center, baseH, ell, EARTH_M);
 			let k = 0;
-			for (const grp of groups.values()) for (const q of grp.parts) (n.volTests ??= []).push(volTest(g.center, q, baseH, grp.color));
+			for (const grp of groups.values()) for (const q of grp.parts) if (q.shape >= 0) (n.volTests ??= []).push(volTest(g.center, q, baseH, grp.color));   // shape -1＝vctr の多角形の柱＝点群の内外は見ない
 			if (!setClassify) return;
 			for (const grp of groups.values()) {
 				const nv = grp.parts.reduce((a, q) => a + q.pos.length, 0), ni = grp.parts.reduce((a, q) => a + q.idx.length, 0);
