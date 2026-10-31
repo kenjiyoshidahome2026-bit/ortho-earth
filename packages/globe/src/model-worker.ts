@@ -16,7 +16,7 @@ import type { MeshOut, TexOut, VoxelTileOpts } from "./meshdecode.ts";
 /** main からの仕事（kind 省略＝模型の glTF/GLB） */
 interface ModelJob {
 	id: number; kind?: "extrude" | "viewshed" | "sunshadow" | "i3sOpen" | "i3sNodes" | "i3sContent" | "tile3d";
-	ab?: ArrayBuffer; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number; mc?: boolean;
+	ab?: ArrayBuffer; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number; edges?: number; mc?: boolean;
 	polys?: ExtrudeInPoly[]; refine?: number; transcoders?: unknown; opts?: Record<string, unknown>;
 	url?: string; token?: string; ids?: Array<number | string>; nodeId?: number | string; baseH?: number; groundMode?: string;
 	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts; upAxis?: string | null;
@@ -82,7 +82,7 @@ async function work(e: MessageEvent<ModelJob>) {
 				if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
 				buf = await res.arrayBuffer();
 			}
-			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, upAxis: e.data.upAxis ?? null, mc: !!e.data.mc, splats: !!e.data.splats, voxels: e.data.voxels ?? false, fetchOpts: headers || credentials ? { headers: headers ?? null, credentials: credentials ?? null } : null });
+			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0, edges: e.data.edges ?? 0, upAxis: e.data.upAxis ?? null, mc: !!e.data.mc, splats: !!e.data.splats, voxels: e.data.voxels ?? false, fetchOpts: headers || credentials ? { headers: headers ?? null, credentials: credentials ?? null } : null });
 			if (!r) { self.postMessage({ id, batches: [], points: [], splats: [], voxels: [], stats: { triangles: 0, points: 0, splats: 0, splatPoints: 0, voxels: 0, voxelsSkipped: 0, bytes: buf.byteLength } }); return; }
 			r.stats.bytes = buf.byteLength;
 			const tr = transferOf(r.batches); for (const p of r.points) tr.push(p.pos.buffer, p.rgba.buffer);
@@ -92,7 +92,7 @@ async function work(e: MessageEvent<ModelJob>) {
 			self.postMessage({ id, batches: r.batches, points: r.points, splats: r.splats, voxels: r.voxels, volumes: r.volumes, stats: r.stats }, tr);
 			return;
 		}
-		const r = await decodeModel(ab!, { at, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0, mc: !!e.data.mc });
+		const r = await decodeModel(ab!, { at, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0, edges: e.data.edges ?? 0, mc: !!e.data.mc });
 		if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
 		self.postMessage({ id, batches: r.batches, mask: r.mask, stats: r.stats, rig: r.rig || null, place: r.place || null }, transferOf(r.batches));   // rig/place＝rigid アニメ（W4）
 	} catch (err) { self.postMessage({ id, error: (err as Error)?.message || String(err) }); }

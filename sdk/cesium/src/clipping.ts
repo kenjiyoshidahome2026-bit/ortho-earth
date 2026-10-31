@@ -53,3 +53,71 @@ export function polygonClipOf(coll: Any, targets: string[]): Any | null {
 	}
 	return rings.length ? { polygon: rings, inverse: !!coll.inverse, targets, cap: false, edge: false } : null;
 }
+
+/** Globe.clippingPlanes → a globe clip group on the terrain (null: none). The globe's planes are in collection.modelMatrix alone (no origin
+ *  matrix). Cesium's default (unionClippingRegions false) cuts where every plane is behind (n·P + d ≤ 0 for all): planes upright at the
+ *  collection's centre make that a vertical prism = the polygon clip (the box-shaped hole of terrain-clipping-planes); union true keeps
+ *  the side in front of every plane = the plane clip */
+export function globeClipOf(coll: Any): { spec: Any | null; skipped: string[] } {
+	const skipped: string[] = [];
+	if (!coll || coll.enabled === false || !(coll.length > 0)) return { spec: null, skipped };
+	const M: Matrix4 = coll.modelMatrix ?? Matrix4.IDENTITY;
+	const ew = coll.edgeWidth ?? 0, ec = coll.edgeColor, edge = ew > 0 ? { width: ew, color: ec ? [ec.red, ec.green, ec.blue] : [1, 1, 1] } : false;
+	const planes: number[][] = [];
+	for (let i = 0; i < coll.length; i++) {
+		const p = coll.get(i);
+		if (!p?.normal) continue;
+		const w = Plane.transform(new Plane(Cartesian3.normalize(p.normal, new Cartesian3()), p.distance), M, new Plane(Cartesian3.UNIT_X, 0));
+		planes.push([w.normal.x, w.normal.y, w.normal.z, w.distance]);
+	}
+	if (!planes.length) return { spec: null, skipped };
+	if (coll.unionClippingRegions || planes.length === 1) return { spec: { ecef: planes, targets: ["terrain"], cap: false, edge }, skipped };
+	const ring = cutPrismRing(planes, Matrix4.getTranslation(M, new Cartesian3()));
+	if (!ring) { skipped.push("Globe.clippingPlanes that are not upright (drawn as the intersection)"); return { spec: { ecef: planes, targets: ["terrain"], cap: false, edge }, skipped }; }
+	return { spec: { polygon: [ring], inverse: false, targets: ["terrain"], cap: false, edge }, skipped };
+}
+
+/** the region behind every plane (n·P + d ≤ 0), when each plane stands upright at C: the convex ring in [lon, lat] (null: not upright / empty) */
+export function cutPrismRing(planes: number[][], C: Cartesian3): number[][] | null {
+	if (!(Cartesian3.magnitude(C) > 1e5)) return null;
+	const F = FixedFrameTransforms.eastNorthUpToFixedFrame(C);
+	const E = new Cartesian3(F[0], F[1], F[2]), N = new Cartesian3(F[4], F[5], F[6]), U = new Cartesian3(F[8], F[9], F[10]);
+	const S = 2e5;   // start from a 400 km square around C and cut it by each plane (Sutherland–Hodgman)
+	let poly: number[][] = [[-S, -S], [S, -S], [S, S], [-S, S]];
+	for (const p of planes) {
+		const n = new Cartesian3(p[0], p[1], p[2]);
+		if (Math.abs(Cartesian3.dot(n, U)) > 0.2) return null;   // a plane leaning more than ~12° from upright
+		const a = Cartesian3.dot(n, E), b = Cartesian3.dot(n, N), c = Cartesian3.dot(n, C) + p[3];
+		const f = (q: number[]) => a * q[0] + b * q[1] + c;   // ≤ 0 = behind the plane = cut
+		const out: number[][] = [];
+		for (let i = 0; i < poly.length; i++) {
+			const A = poly[i], B = poly[(i + 1) % poly.length], fa = f(A), fb = f(B);
+			if (fa <= 0) out.push(A);
+			if ((fa <= 0) !== (fb <= 0)) { const t = fa / (fa - fb); out.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]); }
+		}
+		poly = out;
+		if (poly.length < 3) return null;
+	}
+	const R2D = 180 / Math.PI;
+	return poly.map(([x, y]) => {
+		const P = new Cartesian3(C.x + E.x * x + N.x * y, C.y + E.y * x + N.y * y, C.z + E.z * x + N.z * y), c = Cartographic.fromCartesian(P);
+		return [+(c.longitude * R2D).toFixed(9), +(c.latitude * R2D).toFixed(9)];
+	});
+}
+
+/** Globe.cartographicLimitRectangle (the globe draws only the tiles inside it) → terrain planes in ECEF: the latitude bounds are the planes
+ *  z = the ellipsoid's z at that latitude (exact on the surface: z grows with the geodetic latitude), the longitude bounds the meridian
+ *  planes through the axis (a span up to 180°; wider spans keep the latitude bounds alone) */
+export function limitRectClipOf(r: Any): { spec: Any | null; skipped: string[] } {
+	const skipped: string[] = [], H = Math.PI / 2, T = 2 * Math.PI;
+	if (!r || ![r.west, r.south, r.east, r.north].every(Number.isFinite)) return { spec: null, skipped };
+	const ecef: number[][] = [];
+	if (r.north < H - 1e-9) ecef.push([0, 0, -1, Cartesian3.fromRadians(0, r.north, 0).z]);   // z ≤ z(north)
+	if (r.south > -H + 1e-9) ecef.push([0, 0, 1, -Cartesian3.fromRadians(0, r.south, 0).z]);   // z ≥ z(south)
+	let span = r.east - r.west; if (span < 0) span += T;
+	if (span < T - 1e-9) {
+		if (span <= Math.PI + 1e-9) { ecef.push([-Math.sin(r.west), Math.cos(r.west), 0, 0]); ecef.push([Math.sin(r.east), -Math.cos(r.east), 0, 0]); }
+		else skipped.push("Globe.cartographicLimitRectangle wider than 180° in longitude (the latitude bounds alone)");
+	}
+	return { spec: ecef.length ? { ecef, targets: ["terrain"], cap: false, edge: false } : null, skipped };
+}
