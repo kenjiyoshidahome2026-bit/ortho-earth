@@ -32,6 +32,8 @@
 		<a href="/#technologies" class="nav-top">top ⇧</a>
 		<span class="nav-cur">CesiumJS から</span>
 		<a href="from-maplibre-jp.html">MapLibre から</a>
+		<a href="from-leaflet-jp.html">Leaflet から</a>
+		<a href="from-google-maps-jp.html">Google マップから</a>
 		<a href="equal-earth-jp.html">Equal Earth</a>
 		<a href="from-cesium.html" class="nav-flag" aria-label="English">🇬🇧</a>
 	</div>
@@ -49,6 +51,27 @@
 Ortho Earth はブラウザで動く 3D 地球儀の地図エンジン（WebGPU、無ければ WebGL2）で、API は MapLibre GL JS に合わせています。
 CesiumJS でしていることの多くに、ここでの書き方があります。この頁はそれを並べたものです：CesiumJS での書き方、Ortho Earth での書き方、動いている頁。
 例はどれも <code>npm i @ortho-earth/globe</code> のあと <code>const map = await createGlobe({ target: "#map" })</code> とした前提です。
+</p>
+
+<h2 id="facade">Cesium のコードのままでも</h2>
+
+<p>
+書き直したくなければ、<code>npm i @ortho-earth/cesium</code> が CesiumJS 1.146 と同じ名前の名前空間を返します。
+描かない部分（計算、時刻、<code>Camera</code>、<code>Entity</code>、CZML・GeoJSON・KML のデータソース、時計、ion、ウィジェット）は Cesium のコードそのままで、
+<code>Viewer</code> と描くところだけを Ortho Earth の地球儀に差し替えています。変えるのは import だけです。
+</p>
+
+<pre><code>import * as Cesium from "@ortho-earth/cesium";
+
+const viewer = new Cesium.Viewer("cesiumContainer");
+const tileset = await Cesium.Cesium3DTileset.fromUrl("tileset.json");
+viewer.scene.primitives.add(tileset);
+await viewer.zoomTo(tileset);</code></pre>
+
+<p>
+物差しは CesiumJS 公式の Sandcastle 309 本です。本物の Cesium と地球儀でそのまま動かし、絵を並べて比べています：<a href="/sandcastle/" target="_top">/sandcastle</a> で見られます。
+まだ描けないものはコンソールに <code>[csshim] unsupported: …</code> と一度だけ出ます。<code>viewer.orthoMap</code> が下の地球儀です。
+下の表は、地球儀そのものの API へ移るときのためのものです。
 </p>
 
 <h2 id="data">3D データと地形</h2>

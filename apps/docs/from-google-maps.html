@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coming from Google Maps — your Google Maps code on the 3D globe</title>
+<meta name="description" content="For Google Maps JavaScript API users: @ortho-earth/gmaps gives a google.maps namespace whose Map, Marker, InfoWindow, shapes and Data draw on the Ortho Earth globe or on MapLibre GL, with no Google key. With a key, Geocoder, Directions, Places and Street View are relayed to Google's REST APIs.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/from-google-maps">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/from-google-maps">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/from-google-maps-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/from-google-maps">
+<meta property="og:title" content="Coming from Google Maps — your Google Maps code on the 3D globe">
+<meta property="og:description" content="For Google Maps JavaScript API users: @ortho-earth/gmaps gives a google.maps namespace whose Map, Marker, InfoWindow, shapes and Data draw on the Ortho Earth globe or on MapLibre GL, with no Google key. With a key, Geocoder, Directions, Places and Street View are relayed to Google's REST APIs.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/from-google-maps">
+<meta property="og:type" content="article">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Coming from Google Maps — your Google Maps code on the 3D globe","description":"For Google Maps JavaScript API users: @ortho-earth/gmaps gives a google.maps namespace whose Map, Marker, InfoWindow, shapes and Data draw on the Ortho Earth globe or on MapLibre GL, with no Google key. With a key, Geocoder, Directions, Places and Street View are relayed to Google's REST APIs.","url":"https://www.ortho-earth.com/docs/from-google-maps","mainEntityOfPage":"https://www.ortho-earth.com/docs/from-google-maps","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">From Google Maps</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="from-cesium.html">From CesiumJS</a>
+		<a href="from-maplibre.html">From MapLibre</a>
+		<a href="from-leaflet.html">From Leaflet</a>
+		<span class="nav-cur">From Google Maps</span>
+		<a href="from-google-maps-jp.html" class="nav-flag" aria-label="日本語">🇯🇵</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Coming from Google Maps</h1>
+<p class="lead">Your Google Maps JavaScript API code on the 3D globe<br>
+<span style="font-size:0.85em">
+<code>npm i @ortho-earth/gmaps @ortho-earth/globe</code>
+</span></p>
+
+<p>
+<code>@ortho-earth/gmaps</code> gives you a <code>google.maps</code> namespace. Its <code>Map</code>, <code>Marker</code>, <code>InfoWindow</code>, shapes and <code>Data</code>
+draw through MapLibre GL: either on the Ortho Earth globe (<code>@ortho-earth/globe/maplibre</code>) or on the real <code>maplibre-gl</code>.
+Code written for Google Maps keeps its shape; only the import changes. The map itself needs no Google API key and sends nothing to Google.
+</p>
+
+<pre><code>// on the globe
+import google from "@ortho-earth/gmaps/globe";   // { maps }
+
+const map = new google.maps.Map(document.getElementById("map"), { center: { lat: 35.6812, lng: 139.7671 }, zoom: 15, tilt: 45 });
+const marker = new google.maps.Marker({ map, position: { lat: 35.6812, lng: 139.7671 }, title: "Tokyo Station" });
+const info = new google.maps.InfoWindow({ content: "&lt;b&gt;Tokyo Station&lt;/b&gt;" });
+marker.addListener("click", () =&gt; info.open({ map, anchor: marker }));
+map.data.loadGeoJson("/parks.geojson");
+map.data.setStyle(f =&gt; ({ fillColor: f.getProperty("kind") === "park" ? "green" : "gray" }));</code></pre>
+
+<p>
+Code that loads the API with <code>@googlemaps/js-api-loader</code> can take the <code>Loader</code> from <code>@ortho-earth/gmaps/globe</code> instead, and <code>google.maps.importLibrary("maps" | "marker" | "places" | …)</code> works too.
+To keep a flat map, give <code>createGoogleMaps(maplibregl, { styles })</code> a MapLibre style per map type; <code>installGlobal(maps)</code> sets <code>window.google.maps</code> for code that reads the global.
+</p>
+
+<h2 id="translated">What is translated</h2>
+
+<table>
+	<tr><th>Google Maps</th><th>On the globe</th></tr>
+	<tr><td><code>Map</code> options and methods (<code>center</code>, <code>zoom</code>, <code>heading</code>, <code>tilt</code>, <code>restriction</code>, <code>moveCamera</code>, <code>panTo</code>, <code>fitBounds</code>, <code>controls[ControlPosition]</code> …)</td><td>the camera. <strong>Zoom is shifted by one</strong> (Google zoom z = MapLibre zoom z − 1, 256 px vs 512 px tiles). <code>mapTypeId</code> and <code>mapId</code> pick a MapLibre style</td></tr>
+	<tr><td>Map events (<code>click</code>, <code>idle</code>, <code>bounds_changed</code>, <code>zoom_changed</code>, <code>dragend</code> …)</td><td>MapLibre events with Google's event object (<code>latLng</code>, <code>pixel</code>, <code>stop()</code>). A click on a marker or a clickable shape is not also a map click, as in Google Maps</td></tr>
+	<tr><td><code>Marker</code> (<code>icon</code> as URL, <code>Icon</code> or <code>Symbol</code>, <code>label</code>, <code>draggable</code>), <code>marker.AdvancedMarkerElement</code>, <code>marker.PinElement</code></td><td>MapLibre markers with Google's red pin, your image, or the SVG symbol</td></tr>
+	<tr><td><code>InfoWindow</code> (<code>content</code>, <code>headerContent</code>, <code>pixelOffset</code>, <code>open({ map, anchor })</code>)</td><td>a MapLibre popup above the marker, following it when it moves</td></tr>
+	<tr><td><code>Polyline</code>, <code>Polygon</code> (holes), <code>Circle</code>, <code>Rectangle</code>, <code>MVCArray</code> paths, <code>geodesic</code>, <code>zIndex</code></td><td>GeoJSON line and fill layers; editing the path redraws it, and <code>geodesic</code> follows the great circle</td></tr>
+	<tr><td><code>Data</code> (<code>addGeoJson</code>, <code>loadGeoJson</code>, <code>setStyle</code> as an object or a function, <code>overrideStyle</code>, feature events)</td><td>one GeoJSON source; each feature's style is evaluated into its properties</td></tr>
+	<tr><td><code>LatLng</code>, <code>LatLngBounds</code>, <code>MVCObject</code>, <code>MVCArray</code>, <code>event.*</code>, <code>geometry.spherical</code>, <code>geometry.encoding</code>, <code>geometry.poly</code></td><td>plain values; the geometry library is computed on a sphere of radius 6,378,137 m, as Google does</td></tr>
+</table>
+
+<h2 id="services">Google's services, with your key</h2>
+
+<p>
+The services that live on Google's servers need your own key: <code>createGlobeMaps({ apiKey, language, region })</code>, <code>maps.setApiKey(key)</code>, or <code>new Loader({ apiKey })</code>.
+The key is sent only to <code>*.googleapis.com</code>, and Google's terms and billing apply to these calls. Without a key the methods answer <code>REQUEST_DENIED</code> and the map keeps working.
+</p>
+
+<table>
+	<tr><th>Google Maps</th><th>Relayed to</th></tr>
+	<tr><td><code>Geocoder.geocode</code></td><td>Geocoding API</td></tr>
+	<tr><td><code>DirectionsService.route</code>, <code>DirectionsRenderer</code>, <code>DistanceMatrixService</code></td><td>Routes API (the renderer draws the route and lettered markers on the map, and the steps in its panel)</td></tr>
+	<tr><td><code>ElevationService</code></td><td>Elevation API</td></tr>
+	<tr><td><code>places.PlacesService</code>, <code>places.AutocompleteService</code>, <code>places.Autocomplete</code></td><td>Places API (New)</td></tr>
+	<tr><td><code>StreetViewService.getPanorama</code>, <code>StreetViewPanorama</code></td><td>Street View metadata and Static APIs: a still image that turns when dragged. Google does not publish its panorama tiles outside its own API, so there is no smooth 360° view</td></tr>
+</table>
+
+<h2 id="not">What is not</h2>
+
+<ul>
+	<li><strong>Google's JSON map styling</strong> (<code>styles: [{ featureType, … }]</code>) and cloud-based styles: give MapLibre styles by map type or <code>mapId</code> instead.</li>
+	<li>Editable or draggable shapes, <code>Polyline.icons</code>, marker animations, <code>overlayMapTypes</code>, <code>MVCObject.bindTo</code>, and the map type, Street View and rotate controls.</li>
+</ul>
+
+<h2 id="check">Checking a port</h2>
+
+<p>
+Anything the namespace does not translate is reported once in the console as <code>[gmshim] unsupported: …</code>; it never throws.
+<code>google.maps.unsupportedReport()</code> lists them, so you can check a port just by running it. For anything else, <code>map.getMapLibre()</code> returns the map underneath,
+and on the globe that map also has everything in <a href="core.html">the engine</a>: terrain, 3D Tiles, the shared clock and the night side.
+</p>
+
+<p>
+The test suite runs the calls above against the real globe (<code>npm run verify:ui -- t-gmaps</code> in <code>packages/globe</code>), and every service against a stand-in for Google's servers.
+Unlike <a href="/maplibre/" target="_top">MapLibre</a> and <a href="/sandcastle/" target="_top">CesiumJS</a>, there is no gallery of Google's own samples yet, so the tables on this page are the list of what is covered.
+</p>
+
+<p>
+Coming from other libraries? See <a href="from-leaflet.html">From Leaflet</a>, <a href="from-maplibre.html">From MapLibre GL JS</a> and <a href="from-cesium.html">From CesiumJS</a>.
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/gmaps · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>

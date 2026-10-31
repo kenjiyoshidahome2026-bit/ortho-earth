@@ -32,6 +32,8 @@
 		<a href="/#technologies" class="nav-top">top ⇧</a>
 		<span class="nav-cur">From CesiumJS</span>
 		<a href="from-maplibre.html">From MapLibre</a>
+		<a href="from-leaflet.html">From Leaflet</a>
+		<a href="from-google-maps.html">From Google Maps</a>
 		<a href="equal-earth.html">Equal Earth</a>
 		<a href="from-cesium-jp.html" class="nav-flag" aria-label="日本語">🇯🇵</a>
 	</div>
@@ -50,6 +52,27 @@ Ortho Earth is a 3D globe map engine for the browser (WebGPU with a WebGL2 fallb
 Many of the things you do in CesiumJS have a counterpart here. This page lists them side by side: what you write in CesiumJS, what you write in Ortho Earth,
 and a page where you can see it running. All examples assume <code>const map = await createGlobe({ target: "#map" })</code>
 from <code>npm i @ortho-earth/globe</code>.
+</p>
+
+<h2 id="facade">Or keep your Cesium code</h2>
+
+<p>
+If you would rather not rewrite anything, <code>npm i @ortho-earth/cesium</code> gives a namespace with the same names as CesiumJS 1.146's.
+Everything that does not draw (math, time, <code>Camera</code>, <code>Entity</code>, CZML, GeoJSON and KML data sources, the clock, ion, the widgets) is Cesium's own code, unchanged;
+only <code>Viewer</code> and what it draws are replaced with the Ortho Earth globe. Only the import changes:
+</p>
+
+<pre><code>import * as Cesium from "@ortho-earth/cesium";
+
+const viewer = new Cesium.Viewer("cesiumContainer");
+const tileset = await Cesium.Cesium3DTileset.fromUrl("tileset.json");
+viewer.scene.primitives.add(tileset);
+await viewer.zoomTo(tileset);</code></pre>
+
+<p>
+The yardstick is CesiumJS's own 309 Sandcastle examples, run unchanged on real Cesium and on the globe and compared picture by picture: see them side by side at <a href="/sandcastle/" target="_top">/sandcastle</a>.
+What is not drawn yet is reported once in the console as <code>[csshim] unsupported: …</code>, and <code>viewer.orthoMap</code> is the globe underneath.
+The tables below are for moving to the globe's own API instead.
 </p>
 
 <h2 id="data">3D data and terrain</h2>
