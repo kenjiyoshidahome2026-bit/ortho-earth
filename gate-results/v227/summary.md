@@ -1,13 +1,12 @@
-# Cesium examples gate (CesiumJS 1.146.0) — 2026-10-31T20:07:13.429Z
+# Cesium examples gate (CesiumJS 1.146.0) — 2026-10-31T20:10:14.082Z
 
-309 examples · not graded (real Cesium does not run it here, it starts in 2D, or it is the Moon / Mars): 11 · ours does not run: 1 · runs: 0 · same answers: 95 · same picture: 202
+309 examples · not graded (real Cesium does not run it here, it starts in 2D, or it is the Moon / Mars): 11 · ours does not run: 0 · runs: 0 · same answers: 95 · same picture: 203
 
 ## Blockers
 
 | n | blocker | examples |
 |---|---|---|
 | 95 | picture differs | 3d-tiles-batch-table-hierarchy, 3d-tiles-bim, 3d-tiles-clipping-planes, 3d-tiles-compare, 3d-tiles-edge-visibility, 3d-tiles-feature-styling … |
-| 1 | never finished loading | cesium-world-terrain |
 
 ## Examples
 
@@ -86,7 +85,7 @@
 | cesium-inspector | 3 |  |
 | cesium-osm-buildings | 3 |  |
 | cesium-widget | 2 | picture: colour 96% · edges 92% of the cells match · a patch of 61 cells differs |
-| cesium-world-terrain | 0 | never finished loading |
+| cesium-world-terrain | 3 |  |
 | circle-dev (dev) | 3 |  |
 | circle-outline-dev (dev) | 3 |  |
 | circles-and-ellipses | 3 |  |
@@ -330,10 +329,12 @@
 | physically-based-materials | 2→2 | 76.7→84.4 | 46.6→33.2 |
 | fog | 2→2 | 89.5→91.4 | 46.6→43.6 |
 | high-dynamic-range | 2→2 | 61.1→67.8 | 62.5→67.1 |
-| cesium-world-terrain | 3→0 | 98.9→- | 94.8→- |
+| cesium-world-terrain | 3→3 | 98.9→98.8 | 94.8→95.1 |
 | clamp-entities-to-ground | 2→2 | 76.6→76.6 | 86.0→86.0 |
 | terrain-clipping-planes | 2→2 | 86.2→86.2 | 79.8→79.8 |
 | terrain-exaggeration | 2→2 | 79.6→79.6 | 89.4→88.8 |
 | 3d-tiles-vertical-exaggeration | 2→2 | 86.4→86.4 | 87.5→87.5 |
 | drawing-on-terrain | 2→2 | 80.1→80.1 | 77.6→76.1 |
 | geometry-height-reference | 2→2 | 91.7→91.6 | 60.3→87.1 |
+
+cesium-world-terrain は、最初の撮影が vite の依存の再最適化（504 Outdated Optimize Dep）に当たって動かなかったので、同じコードで単独に撮り直した物を使っている。

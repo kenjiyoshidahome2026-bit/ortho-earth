@@ -1,19 +1,19 @@
 {
- "at": "2026-10-31T20:07:13.429Z",
+ "at": "2026-10-31T20:10:14.082Z",
  "cesium": "1.146.0",
  "n": 309,
  "levels": {
-  "0": 1,
+  "0": 0,
   "1": 0,
   "2": 95,
-  "3": 202,
+  "3": 203,
   "null": 11
  },
  "levelsNonDev": {
-  "0": 1,
+  "0": 0,
   "1": 0,
   "2": 80,
-  "3": 145,
+  "3": 146,
   "null": 8
  },
  "blockers": [
@@ -116,13 +116,6 @@
     "voxels",
     "web-map-tile-service-with-time",
     "z-indexing-geometry"
-   ]
-  },
-  {
-   "blocker": "never finished loading",
-   "n": 1,
-   "examples": [
-    "cesium-world-terrain"
    ]
   }
  ],
@@ -2250,14 +2243,28 @@
   },
   {
    "name": "cesium-world-terrain",
-   "level": 0,
-   "reasons": [
-    "never finished loading"
-   ],
-   "blockers": [
-    "never finished loading"
-   ],
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
    "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2015,
+    "n": 2143,
+    "colour": 0.9883341110592627,
+    "edge": 0.9514699020065329,
+    "blob": 3,
+    "masked": 929
+   },
    "dev": false,
    "ion": true
   },
@@ -8770,19 +8777,19 @@
     "name": "cesium-world-terrain",
     "level": [
      3,
-     0
+     3
     ],
     "colour": [
      "98.9",
-     "-"
+     "98.8"
     ],
     "edge": [
      "94.8",
-     "-"
+     "95.1"
     ],
     "blob": [
      4,
-     null
+     3
     ]
    },
    {
