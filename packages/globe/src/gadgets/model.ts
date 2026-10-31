@@ -58,6 +58,7 @@ interface ExtSlot { name: string; stats: ExtrudeStats; used: ExtrudeUsed[]; mode
 /** ctl.extrude の opts（extrudePolys の opts＋床・伏せ・寄り・スロット・層の metadata） */
 export interface ModelExtrudeOptions extends Omit<ExtrudePolysOptions, "origin" | "gs"> {
 	mask?: boolean | "auto"; bottom?: number | "drape" | "ground" | null; fit?: boolean; slot?: string; metadata?: Record<string, unknown> | null;
+	/** "phong"＝Cesium の czm_phong（目の向きと上からの 2 灯・太陽に依らない＝Cesium の entity の押し出し） */ lighting?: "phong" | null;
 }
 /** ctl.load の opts（gadget.model の opts＋ground・mask） */
 export interface ModelLoadOptions {
@@ -79,7 +80,7 @@ export interface ModelLoadOptions {
 	/** 姿勢を丸ごと（ModelTransform.rot＝ENU での回転 3x3・列優先）＝heading より勝つ */
 	rot?: number[] | null;
 	/** "globe"＝setMeshLighting（Cesium の照明）があっても globe の固定光で描く（Cesium の entity geometry＝Phong の見た目・@ortho-earth/cesium の primitives が使う） */
-	lighting?: "globe";
+	lighting?: "globe" | "phong";
 }
 /** worker の stats（公開の ModelHandle.stats＋地物の番号の数） */
 type ModelStats = NonNullable<ModelHandle["stats"]> & { features?: { primitives: number; texture: number; tables: number } };
@@ -567,7 +568,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 		// 押し出し：src＝GeoJSON（Feature/FeatureCollection/features 配列）。opts＝{ height: 鍵名|数|fn, base, color: css|fn, scale, mask, fit }
 		//   または MapLibre の層そのもの（{ type:"fill-extrusion", paint:{ "fill-extrusion-height": 式, … }, filter: 式 }）＝MapLibre と同じ意味で評価
 		// 高さ無し（自動の鍵に当たらない）の面は立てない。戻り値＝stats（polygons/triangles/bbox）か、立つ面が無ければ null
-		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null, slot = "default", metadata = null, layout = null } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。"ground"＝大きさに関わらず建物と同じ接地。無指定で MapLibre 形の層＝接地。それ以外の無指定＝広い面（対角の中央値 ≥ 500m＝下の buildingLike）は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）＝400m 角の箱でも 2,000m に立つ（t-extrude-size）   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
+		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null, slot = "default", metadata = null, layout = null, lighting = null } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。"ground"＝大きさに関わらず建物と同じ接地。無指定で MapLibre 形の層＝接地。それ以外の無指定＝広い面（対角の中央値 ≥ 500m＝下の buildingLike）は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）＝400m 角の箱でも 2,000m に立つ（t-extrude-size）   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
 			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type, origin: originOfLayer({ metadata }), gs: map.getGlobalState?.(), layout });
 			const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features! : src?.type === "Feature" ? [src] : src?.features || [];
 			const first = new Map<number, ExtrudePoly>(); for (const p of polys) if (!first.has(p.fi)) first.set(p.fi, p);
@@ -595,7 +596,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 			clearExtrude(slot);
 			const key = `extrude/${++seq}`;
 			exts.set(slot, { name: key, stats: r.stats, used, mode, lift: lift ?? 0 });   // mode/lift＝問い合わせの立体の当たり（描いた地面と同じ所で当てる）
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, noLift: mode === "plane", drape: mode === "drape", keep2d: true, castShadow: buildingLike, ward: key, tex: null, alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, noLift: mode === "plane", drape: mode === "drape", keep2d: true, castShadow: buildingLike, ward: key, tex: null, ...(lighting === "phong" && { csLit: "phong" }), alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
 			console.info(`[extrude] ${r.stats.polygons} polygons, ${r.stats.triangles} tris`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);
 			return r.stats;
@@ -634,7 +635,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				xfM: null, animRaf: 0, animLast: null, handle: null as unknown as ModelHandle, gizmo: null, gizmoAuto: gizmo === "auto" || gizmo === true, tfListeners: new Set(), noLift: lift === false };
 			it.handle = makeHandle(it);
 			models.set(slot, it); cur = it;
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, wind: !!b.wind, csLit: lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: customShader ?? null }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, wind: !!b.wind, ...((lighting === "phong" || lighting === "globe") && { colSrgb: true }), /* the @ortho-earth/cesium geometry writes its style colours (sRGB) into COLOR_0 = WebGPU decodes them like an extrusion */ csLit: lighting === "phong" ? "phong" : lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: customShader ?? null }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (altitude || (rot && r.stats.mode === "anchor")) setTransform(it, { altitude, ...(rot && r.stats.mode === "anchor" ? { rot } : {}) });   // rot＝姿勢を丸ごと（pitch・roll も）
 			if (gizmo === true || (gizmo === "auto" && r.stats.mode === "anchor")) gizmoOf(it, true);

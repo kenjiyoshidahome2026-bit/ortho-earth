@@ -9,7 +9,7 @@ import { globeCamOf, poseOfGlobeCam, poseKey, sameKey, sameGlobeCam, setCameraWo
 import { unsupported } from "./report.ts";
 import { postChainOf, type PostFrame } from "./postprocess.ts";
 import { sunPositionWC } from "./lighting.ts";
-import { clipSpecOf, globeClipOf, polygonClipOf } from "./clipping.ts";
+import { clipSpecOf, globeClipOf, limitRectClipOf, polygonClipOf } from "./clipping.ts";
 import { groundMaterialOf, materialKey, readRampImage } from "./globe-material.ts";
 import { RawDrawer } from "./rawdraw.ts";
 import { bridgedTerrainSource, terrainSourceOf } from "./terrain.ts";
@@ -205,6 +205,8 @@ export class OrthoScene {
 		try {
 			const gp = this.globe?.show !== false ? globeClipOf(this.globe?.clippingPlanes) : null;   // Globe.clippingPlanes → the terrain
 			if (gp?.spec) { groups.push(gp.spec); skipped.push(...gp.skipped); }
+			const lr = this.globe?.show !== false ? limitRectClipOf(this.globe?.cartographicLimitRectangle) : null;   // Globe.cartographicLimitRectangle
+			if (lr?.spec) { groups.push(lr.spec); skipped.push(...lr.skipped); }
 		} catch { /* a globe without the surface */ }
 		if (g) {
 			const same = groups.find(x => x.polygon && JSON.stringify([x.polygon, x.inverse]) === JSON.stringify([g.polygon, g.inverse]));
