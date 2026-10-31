@@ -12,6 +12,7 @@
 //           lift＝高さの足し込み（heightOffset）＝点を鉛直（球の法線）に持ち上げる・段彩の値にも liftM を足す＝読み直さずに効く（2026-10-18）
 // render worker の組み込み（BUILTIN_OVERLAYS の "copc"＝copc-draw.ts が器を見て選ぶ：本体が WebGPU＝copc-gpu.ts・他＝この WebGL2）。深度の GLSL は host.depthGLSL を貼る。
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
+import { glProgram } from "./glprog.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと＝COPC の節） */
 interface Layer { n: number; vao: WebGLVertexArrayObject | null; bufs: WebGLBuffer[]; origin: ArrayLike<number>; spacing: number; on: boolean }
@@ -90,13 +91,7 @@ void main() {
 	const MODES: Record<string, number> = { rgb: 0, classification: 1, intensity: 2, elevation: 3 };
 	const probes: unknown[] = [];
 
-	function compile(vs: string, fs: string): { p: WebGLProgram; u: Uniforms } {
-		const mk = (type: GLenum, src: string) => { const s = gl!.createShader(type)!; gl!.shaderSource(s, src); gl!.compileShader(s); if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) throw new Error(gl!.getShaderInfoLog(s)!); return s; };
-		const p = gl!.createProgram(); gl!.attachShader(p, mk(gl!.VERTEX_SHADER, vs)); gl!.attachShader(p, mk(gl!.FRAGMENT_SHADER, fs)); gl!.linkProgram(p);
-		if (!gl!.getProgramParameter(p, gl!.LINK_STATUS)) throw new Error(gl!.getProgramInfoLog(p)!);
-		const u: Uniforms = {}; for (let i = 0, n = gl!.getProgramParameter(p, gl!.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl!.getActiveUniform(p, i)!.name; u[nm] = gl!.getUniformLocation(p, nm); }
-		return { p, u };
-	}
+	const compile = (vs: string, fs: string) => glProgram(gl!, vs, fs);
 	function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null) {
 		host = h;
 		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext | null;   // antialias:false＝点の縁は FS の cov で滑らか（上の注）
