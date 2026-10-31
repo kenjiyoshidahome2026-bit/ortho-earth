@@ -101,8 +101,9 @@ export function create() {
 		g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 		g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, img);
 		g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-		g.generateMipmap(g.TEXTURE_2D);
-		g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR_MIPMAP_LINEAR); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+		// no mipmaps, as Cesium's billboard atlas (Sampler default = LINEAR): a 20 px dot drawn at 7 px read from the mip levels came out a blurred
+		// square whose faint corners added up to a solid square where a burst's 400 particles sit on one point (particle-system-fireworks)
+		g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
 		g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
 		return t;
 	}
