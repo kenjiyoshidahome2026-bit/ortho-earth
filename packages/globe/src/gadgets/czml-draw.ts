@@ -18,7 +18,7 @@ import type { LonLat, OverlayFrameApi } from "../../globe.d.ts";
 import type { CzmlStyle, CzmlTrack } from "../czml-time.ts";
 
 /** render worker の host（init の第 3 引数）＝読む分 */
-interface OverlayHost { post(data: unknown): void; requestDraw(): void }
+interface OverlayHost { post(data: unknown): void; requestDraw(): void; depthGLSL?: string }
 /** frame の api（断面＝clip は render worker が足す・#111） */
 type FrameApi = OverlayFrameApi & { clip?: { distM(lon: number, lat: number, hM?: number): number } | null };
 /** main（czml.ts）から来る軌跡（style つき・description は main に残る） */
@@ -40,6 +40,7 @@ const D2R = Math.PI / 180, MIN_EARTH_PX = 14;   // 地球の見かけの半径�
 const FONT = '"Noto Sans",system-ui,sans-serif';   // 地域の書体は名指ししない（regionless）＝各言語の文字は OS の書体が受ける
 const ATLAS = 2048, IMG_MAX = 256;   // アトラスの一辺・billboard の絵の長辺の上限（焼く時に縮める）
 let canvas: OffscreenCanvas | null = null, gl: WebGL2RenderingContext | null = null, host: OverlayHost | null = null, tracks: DrawTrack[] = [];
+let wantDepth = false;   // opts.depth（Cesium の facade）＝尾と 3D の線をシーンの深度で隠す（建物を突き抜けない）
 let marks2: Mark[] = [], lines: DrawLine[] = [];   // 最後に描いた印＝[{ x, y, r（当たり半径・device px）, tr }]（pick が読む）
 const images = new Map<string, ImageBitmap | "loading" | "bad">();   // src → ImageBitmap | "loading" | "bad"
 const probes: unknown[] = [];
@@ -70,24 +71,32 @@ const VS_SEG = `#version 300 es
 precision highp float;
 layout(location=0) in vec2 a_corner;
 layout(location=1) in vec4 a_ab; layout(location=2) in vec3 a_wc;   // a_wc＝幅・始点の丸・終点の丸
+layout(location=3) in vec2 a_w;   // 両端の clip w（目からの奥行き＝シーンの深度と比べる・0＝比べない）
 uniform vec2 u_scr; uniform vec4 u_color;
-out vec2 v_p; flat out vec4 v_ab; flat out vec3 v_wc;
+out vec2 v_p; flat out vec4 v_ab; flat out vec3 v_wc; flat out vec2 v_w;
 void main() {
 	vec2 a = a_ab.xy, b = a_ab.zw, d = b - a; float L = max(length(d), 1e-4); vec2 t = d / L, n = vec2(-t.y, t.x);
 	float e = a_wc.x * 0.5 + 1.0;
 	vec2 p = (a_corner.x < 0.0 ? a - t * e : b + t * e) + n * a_corner.y * e;
-	v_p = p; v_ab = a_ab; v_wc = a_wc;
+	v_p = p; v_ab = a_ab; v_wc = a_wc; v_w = a_w;
 	gl_Position = vec4(p.x / u_scr.x * 2.0 - 1.0, 1.0 - p.y / u_scr.y * 2.0, 0.0, 1.0);
 }`;
-const FS_SEG = `#version 300 es
+// 建物・模型・地形の陰（シーンの深度・#47）は捨てる：線分の上の点の w は画面で 1/w が線形（透視補正）
+const DEPTH_STUB = `highp float sceneOcclusion(highp vec2 uv, highp float w) { return 0.0; }`;
+const FS_SEG = (depthGLSL: string) => `#version 300 es
 precision highp float;
-in vec2 v_p; flat in vec4 v_ab; flat in vec3 v_wc; uniform vec4 u_color; out vec4 o;
+in vec2 v_p; flat in vec4 v_ab; flat in vec3 v_wc; flat in vec2 v_w; uniform vec4 u_color; uniform vec2 u_scr; out vec4 o;
+${depthGLSL}
 void main() {
 	vec2 a = v_ab.xy, d = v_ab.zw - a; float L2 = max(dot(d, d), 1e-8), h = dot(v_p - a, d) / L2;
 	if ((h < 0.0 && v_wc.y < 0.5) || (h > 1.0 && v_wc.z < 0.5)) discard;   // 端は butt（canvas2D の既定）
 	float dist = length(v_p - a - d * clamp(h, 0.0, 1.0));
 	float cov = clamp(v_wc.x * 0.5 - dist + 0.5, 0.0, 1.0);
 	if (cov <= 0.0) discard;
+	if (v_w.x > 0.0 && v_w.y > 0.0) {
+		float k = clamp(h, 0.0, 1.0), w = 1.0 / mix(1.0 / v_w.x, 1.0 / v_w.y, k);
+		if (sceneOcclusion(gl_FragCoord.xy / u_scr, w) > 0.5) discard;
+	}
 	o = u_color * cov;
 }`;
 // 印＝丸（k 0・塗り＋縁）か絵（k 1・アトラスの四角）。中心 c・半幅 hs・左上からの片寄り off（device px）
@@ -191,16 +200,18 @@ function labelSlot(text: string, px: number, color: string, outline: string, dpr
 
 export function init(cv: OffscreenCanvas, opts: unknown, h: OverlayHost) {
 	canvas = cv; host = h;
+	wantDepth = !!(opts as { depth?: unknown } | null)?.depth && !!h?.depthGLSL;
 	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null;
 	if (!gl) return;
-	seg = compile(VS_SEG, FS_SEG, ["u_scr", "u_color"]); mark = compile(VS_MARK, FS_MARK, ["u_scr", "u_atlas"]); cmp = compile(VS_CMP, FS_CMP, ["u_t", "u_a"]);
+	seg = compile(VS_SEG, FS_SEG(wantDepth ? h.depthGLSL! : DEPTH_STUB), ["u_scr", "u_color", "u_sceneDepthOn"]); mark = compile(VS_MARK, FS_MARK, ["u_scr", "u_atlas"]); cmp = compile(VS_CMP, FS_CMP, ["u_t", "u_a"]);
 	quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 	segBuf = gl.createBuffer(); markBuf = gl.createBuffer();
 	segVao = gl.createVertexArray(); gl.bindVertexArray(segVao);
 	gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 	gl.bindBuffer(gl.ARRAY_BUFFER, segBuf);
-	gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 0); gl.vertexAttribDivisor(1, 1);
-	gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 28, 16); gl.vertexAttribDivisor(2, 1);
+	gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, SEG * 4, 0); gl.vertexAttribDivisor(1, 1);
+	gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, SEG * 4, 16); gl.vertexAttribDivisor(2, 1);
+	gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 2, gl.FLOAT, false, SEG * 4, 28); gl.vertexAttribDivisor(3, 1);
 	markVao = gl.createVertexArray(); gl.bindVertexArray(markVao);
 	gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 	gl.bindBuffer(gl.ARRAY_BUFFER, markBuf);
@@ -210,6 +221,7 @@ export function init(cv: OffscreenCanvas, opts: unknown, h: OverlayHost) {
 	gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, ATLAS, ATLAS);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	return wantDepth ? { depth: true } : undefined;
 }
 export function message(d: CzmlDrawMsg | null | undefined) {
 	if (d?.type === "probe") { probes.push(d.id); host?.requestDraw(); return; }   // 検定用＝次に描いた直後の画素を main へ（dbgHost.__ovPixels）
@@ -242,8 +254,8 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 	const E = s.eye, m = s.mvp, dpr = api.dpr || 1;
 	if (s.focal / Math.sqrt(Math.max(E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1, 1e-12)) / dpr < MIN_EARTH_PX) return api.clock?.rate !== 0;
 	const ell = ellipsoidOn(), R = worldRadiusM(), rAx = api.rAx || 1, ms = api.time;
-	// ECEF（m）→ 画面（device px）｜null（地球の陰・カメラの後ろ・断面で切られた側）
-	const toScreen = (q: ArrayLike<number>): [number, number] | null => {
+	// ECEF（m）→ 画面（device px）と clip w｜null（地球の陰・カメラの後ろ・断面で切られた側）
+	const toScreen = (q: ArrayLike<number>): RunPt | null => {
 		let x: number, y: number, z: number, llh: [number, number, number] | null = null;
 		if (ell) { x = q[0] / R; y = q[2] / (R * rAx); z = q[1] / R; }
 		else { llh = ecefToLlh(q[0], q[1], q[2]); const a = llh[0] * D2R, b = llh[1] * D2R, k = 1 + llh[2] / R, cb = Math.cos(b); x = cb * Math.cos(a) * k; y = Math.sin(b) * k; z = cb * Math.sin(a) * k; }
@@ -252,16 +264,18 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		const dx = x - E[0], dy = y - E[1], dz = z - E[2], dd = dx * dx + dy * dy + dz * dz, tt = -(E[0] * dx + E[1] * dy + E[2] * dz) / dd;
 		if (tt > 0 && tt < 1) { const px = E[0] + dx * tt, py = E[1] + dy * tt, pz = E[2] + dz * tt; if (px * px + py * py + pz * pz < 1) return null; }
 		if (api.clip) { llh ??= ecefToLlh(q[0], q[1], q[2]); if (api.clip.distM(llh[0], llh[1], llh[2]) < 0) return null; }
-		return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / ww * 0.5 + 0.5) * w, (1 - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / ww * 0.5 + 0.5)) * h];
+		return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / ww * 0.5 + 0.5) * w, (1 - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / ww * 0.5 + 0.5)) * h, ww];
 	};
-	g.enable(g.BLEND); g.blendFunc(g.ONE, g.ONE_MINUS_SRC_ALPHA);
+	g.enable(g.BLEND);
+	g.useProgram(seg!.p);   // シーンの深度（#47）：このフレームの深度を貼る・まだ無い（申し出の直後・LOW_MEM）＝比べない
+	if (wantDepth && api.depth) api.depth.bind(g, seg!.p, 3); else g.uniform1f(seg!.u.u_sceneDepthOn, 0); g.blendFunc(g.ONE, g.ONE_MINUS_SRC_ALPHA);
 	// 尾（path）＝尾 1 本ごとに 1 回描く。不透明の色はそのまま画面へ（継ぎ目は覆い率の和集合）・半透明は窓へ不透明で描いて不透明度を掛けて重ねる（尾の外接矩形だけ）
 	const segDraw = (out: number[], col: number[]) => {
 		g.useProgram(seg!.p); g.uniform2f(seg!.u.u_scr, w, h); g.uniform4fv(seg!.u.u_color, col);
 		g.bindVertexArray(segVao); g.bindBuffer(g.ARRAY_BUFFER, segBuf); g.bufferData(g.ARRAY_BUFFER, new Float32Array(out), g.STREAM_DRAW);
-		g.drawArraysInstanced(g.TRIANGLE_STRIP, 0, 4, out.length / 7);
+		g.drawArraysInstanced(g.TRIANGLE_STRIP, 0, 4, out.length / SEG);
 	};
-	// 線分の列（device px の [x0,y0,x1,y1,幅,継ぎ前,継ぎ後]×n）を 1 本の線として描く（尾・3D の線の共通）
+	// 線分の列（device px の [x0,y0,x1,y1,幅,継ぎ前,継ぎ後,w0,w1]×n）を 1 本の線として描く（尾・3D の線の共通）
 	const stroke = (out: number[], c: number[], lw: number) => {
 		if (out.length && c[3] >= 0.999) segDraw(out, c);
 		else if (out.length && c[3] > 0) {
@@ -273,7 +287,7 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 				tmp = { tex, fbo, w, h };
 			}
 			let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-			for (let i = 0; i < out.length; i += 7) { x0 = Math.min(x0, out[i], out[i + 2]); x1 = Math.max(x1, out[i], out[i + 2]); y0 = Math.min(y0, out[i + 1], out[i + 3]); y1 = Math.max(y1, out[i + 1], out[i + 3]); }
+			for (let i = 0; i < out.length; i += SEG) { x0 = Math.min(x0, out[i], out[i + 2]); x1 = Math.max(x1, out[i], out[i + 2]); y0 = Math.min(y0, out[i + 1], out[i + 3]); y1 = Math.max(y1, out[i + 1], out[i + 3]); }
 			const e = lw / 2 + 2, sx = Math.max(0, Math.floor(x0 - e)), sy = Math.max(0, Math.floor(h - y1 - e)), sw = Math.min(w, Math.ceil(x1 + e)) - sx, sh = Math.min(h, Math.ceil(h - y0 + e)) - sy;
 			if (sw > 0 && sh > 0) {
 				g.enable(g.SCISSOR_TEST); g.scissor(sx, sy, sw, sh);
@@ -286,16 +300,16 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 			}
 		}
 	};
-	const marks: Array<[[number, number], Partial<CzmlStyle>, DrawTrack, ArrayLike<number>]> = [];
+	const marks: Array<[RunPt, Partial<CzmlStyle>, DrawTrack, ArrayLike<number>]> = [];
 	// 高さのある線（CZML の polyline・P0 #5）＝尾と同じ描き方（隠れた所・切られた所で途切れる）
 	for (const L of lines) {
 		if ((L.avail && !L.avail.some(([a, b]) => ms >= a && ms <= b)) || !boolAt(L.show, ms, true)) continue;
 		const lw = L.width * dpr, out: number[] = [];
-		let run: Array<[number, number]> = [];
+		let run: RunPt[] = [];
 		const flush = () => {
 			if (L.arrow && run.length > 1) arrowRun(run, lw, out);
 			else if (L.dash) dashRun(run, lw, L.dash.len * dpr, L.dash.pattern, out);
-			else for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0);
+			else for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0, run[i][2] ?? 0, run[i + 1][2] ?? 0);
 			run = [];
 		};
 		for (let i = 0; i + 2 < L.p.length; i += 3) { const P = toScreen([L.p[i], L.p[i + 1], L.p[i + 2]]); if (!P) { flush(); continue; } run.push(P); }
@@ -310,8 +324,8 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		if (ph && boolAt(ph.show, ms, true) && (!ph.relativeTo || rel)) {
 			const times = pathTimes(tr, ms, { lead: numberAt(ph.lead, ms, null), trail: numberAt(ph.trail, ms, null), resolution: numberAt(ph.resolution, ms, 60) });
 			const lw = ph.width * dpr, out: number[] = [];
-			let run: Array<[number, number]> = [];
-			const flush = () => { for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0); run = []; };   // 継ぎは丸・尾の端は butt
+			let run: RunPt[] = [];
+			const flush = () => { for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0, run[i][2] ?? 0, run[i + 1][2] ?? 0); run = []; };   // 継ぎは丸・尾の端は butt
 			for (const t of times) { const q = pathPositionAt(tr, t, ms, rel, ph.frame ?? null), P = q && toScreen(q); if (!P) { flush(); continue; } run.push(P); }
 			flush();
 			stroke(out, rgbaOf(ph.color), lw);
@@ -373,23 +387,30 @@ export function nearFar(nf: ArrayLike<number>, d: number): number {
 	const t = Math.pow(Math.min(1, Math.max(0, (d * d - n2) / (f2 - n2 || 1))), 0.2);
 	return nf[1] + (nf[3] - nf[1]) * t;
 }
-// 破線＝画面の長さで模様を刻む（Cesium の PolylineDash と同じ：1 巡 len px を 16 等分・ビットが立つ所が線）。線分の列 [x0,y0,x1,y1,幅,継ぎ前,継ぎ後] を out へ
-export function dashRun(run: Array<[number, number]>, lw: number, len: number, pattern: number, out: number[]) {
+/** 線分 1 本の値の数＝[x0,y0,x1,y1,幅,継ぎ前,継ぎ後,w0,w1]（w＝clip w・0＝深度と比べない） */
+export const SEG = 9;
+/** 画面の点（device px）と clip w（無い＝深度と比べない） */
+type RunPt = [number, number, number?];
+/** a→b を画面で u（0..1）進んだ所の clip w（画面では 1/w が線形）。どちらかが 0（不明）＝0 */
+const wAt = (a: RunPt, b: RunPt, u: number) => { const wa = a[2] ?? 0, wb = b[2] ?? 0; return wa > 0 && wb > 0 ? 1 / ((1 - u) / wa + u / wb) : 0; };
+// 破線＝画面の長さで模様を刻む（Cesium の PolylineDash と同じ：1 巡 len px を 16 等分・ビットが立つ所が線）。線分の列 [x0,y0,x1,y1,幅,継ぎ前,継ぎ後,w0,w1] を out へ
+export function dashRun(run: RunPt[], lw: number, len: number, pattern: number, out: number[]) {
 	const bit = len / 16, on = (d: number) => ((pattern >> (Math.floor((((d % len) + len) % len) / bit) & 15)) & 1) === 1;
 	let d = 0;
 	for (let i = 0; i + 1 < run.length; i++) {
 		const [x0, y0] = run[i], [x1, y1] = run[i + 1], L = Math.hypot(x1 - x0, y1 - y0);
+		if (!(L > 0)) continue;
 		let a = 0;
 		while (a < L) {
 			const r = bit - ((d + a) % bit), b = Math.min(L, a + (r > 1e-6 ? r : bit));   // 次のビットの境まで
-			if (on(d + (a + b) / 2)) out.push(x0 + (x1 - x0) * a / L, y0 + (y1 - y0) * a / L, x0 + (x1 - x0) * b / L, y0 + (y1 - y0) * b / L, lw, 0, 0);
+			if (on(d + (a + b) / 2)) out.push(x0 + (x1 - x0) * a / L, y0 + (y1 - y0) * a / L, x0 + (x1 - x0) * b / L, y0 + (y1 - y0) * b / L, lw, 0, 0, wAt(run[i], run[i + 1], a / L), wAt(run[i], run[i + 1], b / L));
 			a = b;
 		}
 		d += L;
 	}
 }
 // 矢印（Cesium の PolylineArrow）＝終点が先。軸は幅の 1/3、先の 1.5 幅ぶんは幅から 0 へ細る三角（細る段を短い線分で積む）
-export function arrowRun(run: Array<[number, number]>, lw: number, out: number[]) {
+export function arrowRun(run: RunPt[], lw: number, out: number[]) {
 	let total = 0;
 	for (let i = 0; i + 1 < run.length; i++) total += Math.hypot(run[i + 1][0] - run[i][0], run[i + 1][1] - run[i][1]);
 	const head = Math.min(total, lw * 1.5), shaft = Math.max(1, lw / 3), K = 8;
@@ -397,12 +418,12 @@ export function arrowRun(run: Array<[number, number]>, lw: number, out: number[]
 	for (let i = 0; i + 1 < run.length; i++) {
 		const [x0, y0] = run[i], [x1, y1] = run[i + 1], L = Math.hypot(x1 - x0, y1 - y0);
 		if (!(L > 0)) continue;
-		const at = (u: number): [number, number] => [x0 + (x1 - x0) * (u - d) / L, y0 + (y1 - y0) * (u - d) / L];
+		const at = (u: number): [number, number, number] => [x0 + (x1 - x0) * (u - d) / L, y0 + (y1 - y0) * (u - d) / L, wAt(run[i], run[i + 1], (u - d) / L)];
 		const h0 = total - head, a = d, b = Math.min(d + L, h0);
-		if (b > a) { const p = at(a), q = at(b); out.push(p[0], p[1], q[0], q[1], shaft, i > 0 ? 1 : 0, b < d + L ? 1 : 0); }
+		if (b > a) { const p = at(a), q = at(b); out.push(p[0], p[1], q[0], q[1], shaft, i > 0 ? 1 : 0, b < d + L ? 1 : 0, p[2], q[2]); }
 		for (let k = 0; k < K; k++) {   // 先の三角：k 段目の幅＝lw·(1 − (k+0.5)/K)
 			const u0 = h0 + head * k / K, u1 = h0 + head * (k + 1) / K, s0 = Math.max(u0, d), s1 = Math.min(u1, d + L);
-			if (s1 > s0) { const p = at(s0), q = at(s1); out.push(p[0], p[1], q[0], q[1], Math.max(0.5, lw * (1 - (k + 0.5) / K)), 0, 0); }
+			if (s1 > s0) { const p = at(s0), q = at(s1); out.push(p[0], p[1], q[0], q[1], Math.max(0.5, lw * (1 - (k + 0.5) / K)), 0, 0, p[2], q[2]); }
 		}
 		d += L;
 	}

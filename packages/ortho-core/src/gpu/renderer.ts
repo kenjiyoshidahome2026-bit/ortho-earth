@@ -173,6 +173,7 @@ export interface MeshSetData {
 	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexSrc | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
+	preOpaque?: boolean;   // a BLEND batch whose opaque texels (alpha 1) also go in the opaque pass with depth (a 3D Tiles batch put up as BLEND because the style made some features translucent: Cesium draws the opaque features opaque)
 	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number; sh?: ArrayLike<number> | null; outline?: ArrayLike<number> | null; noClip?: boolean; imagery?: string | null;   // imagery＝重ねる絵（set "meshDrape"）の id・outline＝CESIUM_primitive_outline の色 rgba（法線の 4 バイト目に辺の座標）   // Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 /** set("customShader", spec, id) の登録＝モジュールとパイプラインは初めて描く時に非同期で組む（出来るまで・失敗は素の模型で描く） */
@@ -185,6 +186,7 @@ interface CsVarG { code: string | null; bgl: GPUBindGroupLayout | null; textures
 interface CsTexInG { name: string; tex: MeshTexSrc; nearest?: boolean; repeat?: boolean }
 interface MeshBatch {
 	vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer; textured: boolean; blend: boolean; cut: number; uvbo: GPUBuffer | null; cbo: GPUBuffer | null;
+	pre: boolean;   // preOpaque: drawn twice, its alpha-1 texels first in the opaque pass (depth written, a slot of its own), then the whole batch blended
 	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; csLit: string; wind: boolean; count: number; origin: number[]; bbox: number[]; ward: string;
 	lodH: number[] | null; lodCounts: number[] | null; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
@@ -256,6 +258,8 @@ const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, me
 const N_ROLES = 12;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
 const PAINT_BINDING = 99;   // group(3) の塗る絵（meshPaint）＝利用者のシェーダの束縛（6〜）と重ならない番号
+/** the opaque pass of a preOpaque batch keeps the texels with alpha 1 (vertex colour alpha 255 x texture alpha; 8-bit, so under 1 by at most half a step) */
+const PRE_OPAQUE_CUT = 254.5 / 255;
 const PL_BATCH_SLOT = 1280; // dr0/dr1/dr2（重ねる絵・float 256〜267）で 1024 を越えた＝256 の倍数へ。 mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）＋xf/xt（196〜211）＋sl0/sl1/cs（212〜223・style の light と頂点色の色空間）＋csL/csC/csI（224〜235）＋eyeRel（236〜239）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 影・解析の落とす側の可視バッチ上限（超過は打ち切り）＝本体の受け皿の初期の大きさ
 const PL_BATCH_CEIL = 16384;  // 本体の可視バッチの天井（受け皿は 512 から倍々に広げる・2026-10-31 cdb-yemen：CDB の地形と建物で 512 を越え、地形のタイルが落ちて平らな基図が見えた）
@@ -2315,7 +2319,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const pb = data.pbr || null;   // 材質の数値（metallic, roughness, normalScale, occlusion, emissive[3]）＝無ければ既定（金属 0・粗さ 1）
 			// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", wind: !!data.wind, count: data.idx.length, origin: data.origin || [0, 0, 0],
+			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, pre: blend && !!data.preOpaque, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", wind: !!data.wind, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
 				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
@@ -3349,7 +3353,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);   // 画面1pxが何m（LOD打ち切りの物差し）
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180), foot = betaGeo(st.eye);   // foot＝目の足元（bbox 内なら無条件で可視）
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
-			const draws: { p: MeshBatch; count: number; slot: number }[] = [];
+			const draws: { p: MeshBatch; count: number; slot: number; pre?: boolean }[] = [];
 			const liftGroundR = 1 + Math.max(0, cam.centerAlt || 0) / worldRadiusM();   // 注視点の地面の高さ（持ち上げる束の間引きの第 2 候補・camera.ts liftedBboxVisible）
 			for (const p of meshes.values()) {
 				if (draws.length >= plCap && !growPlBatch(draws.length + 1)) { if (!warnedPL) { warnedPL = true; console.warn(`[gpu] mesh visible batches exceed ${PL_BATCH_CEIL} = truncated`); } break; }   // 受け皿は倍々に広げる・天井を越えた分だけ打ち切り（警告は 1 回）
@@ -3399,6 +3403,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				plBatchCPU[o + 221] = p.textured || p.two ? 0 : cityLights; plBatchCPU[o + 222] = post?.grade ? 1 : 0;   // cs.y＝街明かりの強さ（素の建物メッシュだけ・橋梁 two は点けない）・cs.z＝窓の印を α に（夜の色 grade の間）
 				if (clipOPt) { plBatchCPU[o + 60] = p.origin[0] - clipOPt[0]; plBatchCPU[o + 61] = p.origin[1] - clipOPt[1]; plBatchCPU[o + 62] = p.origin[2] - clipOPt[2]; }   // clipO＝バッチ原点 − main 原点（f64 で引く・断面の派生だけが読む）
 				draws.push({ p, count, slot });
+				// preOpaque＝不透明の段にも α 1 の画素だけ（深度を書く）＝同じ uniform の写しに alpha.x（捨てる閾）・alpha.y 0（不透明の出力）
+				if (p.pre && p.textured && (draws.length < plCap || growPlBatch(draws.length + 1))) {
+					const s2 = draws.length, o2 = s2 * (PL_BATCH_SLOT / 4);
+					plBatchCPU.copyWithin(o2, o, o + PL_BATCH_SLOT / 4); plBatchCPU[o2 + 8] = PRE_OPAQUE_CUT; plBatchCPU[o2 + 9] = 0;
+					draws.push({ p, count, slot: s2, pre: true });
+				}
 			}
 			dbg.pl = draws.length;   // ?drawhud=1：メッシュの可視バッチ数（「建物は出ているのに紙が無い」の裏取り）
 			if (draws.length) {
@@ -3409,8 +3419,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (customs.size) csFrame++;
 				const meshPipe = PX.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
-				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && !blendOf(d.p))], [TX.meshTexBlend, draws.filter(d => d.p.textured && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]];
-				const sils = draws.filter(d => d.p.textured && d.p.sil && !blendOf(d.p));   // 半透明の束は殻を出さない
+				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]];
+				const sils = draws.filter(d => d.p.textured && d.p.sil && !d.pre && !blendOf(d.p));   // 半透明の束は殻を出さない
 				if (sils.length) {   // 模型の輪郭線（Model.silhouette）＝模型より先に・深度を書かずに押し出した殻を塗る（模型が内側を塗り直す）。素の束縛（PB だけの group(2)）
 					pass.setPipeline(P.meshSil); pass.setBindGroup(0, bg0.bld); pass.setBindGroup(1, paramBG[ROLE.mesh]);
 					for (const { p, count, slot } of sils) {

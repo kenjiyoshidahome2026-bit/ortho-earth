@@ -59,9 +59,9 @@ console.log("rayMeshes");
 	ok(slant && Math.abs(slant.t - 0.0045) < 1e-6, `dir は単位でなくてよい（t は dir の倍数）: ${slant?.t}`);
 }
 
-// czml-draw の線の模様（Cesium の PolylineDash・PolylineArrow）：線分は [x0,y0,x1,y1,幅,継ぎ前,継ぎ後]
+// czml-draw の線の模様（Cesium の PolylineDash・PolylineArrow）：線分は [x0,y0,x1,y1,幅,継ぎ前,継ぎ後,w0,w1]
 {
-	const segs = out => { const r = []; for (let i = 0; i < out.length; i += 7) r.push(out.slice(i, i + 7)); return r; };
+	const segs = out => { const r = []; for (let i = 0; i < out.length; i += 9) r.push(out.slice(i, i + 9)); return r; };
 	let out = []; dashRun([[0, 0], [32, 0]], 4, 16, 255, out);   // 255＝下位 8 ビット＝各巡の前半が線（8px 線・8px 隙）
 	const d = segs(out), lenOn = d.reduce((a, q) => a + Math.hypot(q[2] - q[0], q[3] - q[1]), 0);
 	ok(Math.abs(lenOn - 16) < 1e-6 && d.every(q => q[0] % 16 < 8), `dash 255: half of 32px drawn, at the start of each 16px (${lenOn})`);
@@ -71,6 +71,13 @@ console.log("rayMeshes");
 	out = []; arrowRun([[0, 0], [100, 0]], 9, out);
 	const a = segs(out), shaft = a[0], tip = a[a.length - 1];
 	ok(Math.abs(shaft[2] - (100 - 13.5)) < 1e-6 && shaft[4] === 3 && tip[2] === 100 && tip[4] < 1 && a.slice(1).every((q, i, r) => !i || q[4] < r[i - 1][4]), `arrow: thin shaft to 1.5 widths from the tip, then a narrowing head (${a.map(q => q[4].toFixed(2)).join(" ")})`);
+	// clip w at the ends (depth against the scene): 1/w runs straight on the screen; no w = 0 (not compared)
+	out = []; arrowRun([[0, 0, 10], [100, 0, 30]], 9, out);
+	const aw = segs(out), mid = 1 / (0.5 / 10 + 0.5 / 30);
+	ok(aw[0][7] === 10 && Math.abs(aw[aw.length - 1][8] - 30) < 1e-9 && a.every(q => q[7] === 0 && q[8] === 0), `arrow carries the ends' clip w (${aw[0][7]} … ${aw[aw.length - 1][8]})`);
+	out = []; dashRun([[0, 0, 10], [32, 0, 30]], 4, 32, 0xffff, out);
+	const dw = segs(out), half = dw.find(q => q[2] === 16);
+	ok(dw[0][7] === 10 && Math.abs(dw[dw.length - 1][8] - 30) < 1e-9 && half && Math.abs(half[8] - mid) < 1e-9, `dash: w at the ends of each dash, perspective-correct at the middle (${half?.[8]} vs ${mid})`);
 }
 
 // Cesium's NearFarScalar (czm_nearFarScalar): the squared distances' fraction to the power 0.2. KML marks: scale 1 → 0.1 from 2414 km to 16093 km
