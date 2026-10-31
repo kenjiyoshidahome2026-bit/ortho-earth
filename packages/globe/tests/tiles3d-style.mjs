@@ -1,5 +1,5 @@
 // 3D Tiles のスタイル（color・show）の純関数の検定（node・網なし）。MapLibre の式の評価と、束の頂点色の塗り直し（地物ごと・NaN＝元のまま）。
-import { compileStyle, paintBatch } from "../src/tiles3d-style.ts";
+import { compileStyle, paintBatch, lineWidths } from "../src/tiles3d-style.ts";
 import { NO_FEATURE } from "../src/mesh-features.ts";
 
 let fail = 0;
@@ -24,6 +24,10 @@ const out = paintBatch(col0, ids, () => 0, (id, t) => { seen.push(`${id}:${t}`);
 ok("paintBatch＝地物ごと・NaN＝元のまま・null＝そのまま", out.join() === "255,0,0,200,255,0,0,200,30,30,30,0,40,40,40,200" && col0[0] === 10, out.join());
 ok("paintBatch＝同じ地物が続けば 1 回・NO_FEATURE は (null,null)", seen.join(" ") === "0:0 1:0 null:null", seen.join(" "));
 ok("paintBatch＝地物が無い束は 1 回で全部", paintBatch(col0, null, () => null, () => [1, 2, 3, 4]).join() === "1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4");
+// lineWidths＝線の帯の法線の 4 バイト目（−(2·¼px＋側)）を地物ごとの幅に書き換える・線でない頂点（≥0）はそのまま・null＝1 px
+const nrm0 = new Int8Array([0, 0, 127, -8, 0, 0, 127, -9, 0, 127, 0, 5, 0, 0, 127, -9]), lseen = [];
+const lw = lineWidths(nrm0, new Uint32Array([0, 0, 0, 1]), () => 0, (id) => { lseen.push(id); return id === 0 ? 2.6 : null; });
+ok("lineWidths＝地物ごとの幅・側は保つ・線でない頂点はそのまま", [...lw].filter((_, i) => i % 4 === 3).join() === "-20,-21,5,-9" && nrm0[3] === -8 && lseen.join() === "0,1", [...lw].join());
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ tiles3d-style 全 PASS");
 process.exit(fail ? 1 : 0);
