@@ -2,7 +2,7 @@
 //   the camera bridge (Cesium pose ⇄ the globe's look-at camera, both ways) · glTF bounding spheres · 3D Tiles bounding volumes ·
 //   imagery providers → raster sources · the unsupported report
 // The browser part (Viewer, entities, the widgets) is the examples gate: packages/globe/tests/csexamples/run.mjs
-import { Cartesian3, Ellipsoid, Matrix4, Rectangle } from "@cesium/core";
+import { Cartesian3, Cartographic, Ellipsoid, Matrix4, Rectangle } from "@cesium/core";
 import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
 import { gltfSphere, modelTintOf, modelSilOf } from "../src/gltf.ts";
 import { sphereOfVolume, Cesium3DTileset } from "../src/tileset.ts";
@@ -24,7 +24,8 @@ import { Color, Material, HeightReference } from "@cesium/engine";
 import { CustomShader, UniformType, LightingModel, CustomShaderTranslucencyMode, TextureUniform } from "@cesium/engine";
 import { customShaderId } from "../src/custom-shader.ts";
 import { terrainSourceOf } from "../src/terrain.ts";
-import { groundHeights, ellipsePts } from "../src/display.ts";
+import { groundHeights, ellipsePts, rectStOf, rectRing } from "../src/display.ts";
+import RectangleGeometryLibrary from "../../../node_modules/@cesium/core/Source/RectangleGeometryLibrary.js";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -579,6 +580,27 @@ for (const g of [
 	const e0 = far(ellipsePts(400, 250, 0)), e45 = far(ellipsePts(400, 250, Math.PI / 4));
 	ok("ellipse: rotation 0 = major along east", near(Math.abs(e0[0]), 400, 1e-6) && near(e0[1], 0, 1e-6), JSON.stringify(e0));
 	ok("ellipse: rotation 45° = major to the north-east", near(Math.abs(Math.atan2(e45[1], e45[0])) % Math.PI, Math.PI / 4, 0.1), JSON.stringify(e45));
+}
+
+// surface rectangles turned by rotation and their pictures by stRotation, as RectangleGeometryLibrary lays both (rectangle: the turning Cesium logo)
+{
+	const D = 180 / Math.PI, rc = Rectangle.fromDegrees(-92, 30, -76, 40), rect = [-92, 30, -76, 40];
+	for (const [rot, str] of [[0.6, 0], [0.6, 0.6], [0.6, 0.2], [0, 0.4]]) {
+		const o = RectangleGeometryLibrary.computeOptions(rc, 0.01, rot, str, new Rectangle(), new Cartographic(), new Cartographic());
+		o.lonScalar = 1 / rc.width; o.latScalar = 1 / rc.height;
+		const f = rectStOf({ rect, rot, str });
+		let worstSt = 0, worstPos = 0;
+		const ring = rectRing(rect, rot, 1);   // corners: sw, se, ne, nw
+		for (const [row, col] of [[0, 0], [o.height - 1, o.width - 1], [o.height >> 1, o.width >> 2], [3, o.width - 4], [o.height - 1, 0], [0, o.width - 1]]) {
+			const p = new Cartesian3(), st = { x: 0, y: 0 };
+			RectangleGeometryLibrary.computePosition(o, Ellipsoid.WGS84, true, row, col, p, st);
+			const c = Ellipsoid.WGS84.cartesianToCartographic(p), lon = c.longitude * D, lat = c.latitude * D, mine = f(lon, lat);
+			worstSt = Math.max(worstSt, Math.abs(mine[0] - st.x), Math.abs(mine[1] - st.y));
+			if (row === 0 && col === 0) worstPos = Math.max(worstPos, Math.hypot(lon - ring[3][0], lat - ring[3][1]));   // the north-west corner
+			if (row === o.height - 1 && col === o.width - 1) worstPos = Math.max(worstPos, Math.hypot(lon - ring[1][0], lat - ring[1][1]));   // the south-east corner
+		}
+		ok(`rectangle rotation ${rot} stRotation ${str}: corners and st as Cesium's`, worstSt < 1e-6 && worstPos < 1e-6, `st ${worstSt} pos ${worstPos}`);
+	}
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
