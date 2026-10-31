@@ -30,10 +30,11 @@ const LAZY_VIEWS: Record<string, LazyView> = {
     'fault':             { load: () => import('./jishin/ui.ts'), fn: 'showFault' },
     'nps':               { load: () => import('./nps/ui.ts'),    fn: 'renderNpsView' },
     'munic':             { load: () => import('./munic/ui.ts'),  fn: 'renderMunicList' },
-    'census2025':        { load: () => import('./census/ui.ts'), fn: 'renderCensus2025List' },
-    'census2020':        { load: () => import('./census/ui.ts'), fn: 'renderCensus2020List' },
-    'census2015':        { load: () => import('./census/ui.ts'), fn: 'renderCensus2015List' },
-    'census-small-2020': { load: () => import('./census/ui.ts'), fn: 'renderCensusSmall2020' },
+    // 国勢調査の 4 つの入口＝census2020 アプリへの案内（census/link.ts）
+    'census2025':        { load: () => import('./census/link.ts'), fn: 'renderCensusLink' },
+    'census2020':        { load: () => import('./census/link.ts'), fn: 'renderCensusLink' },
+    'census2015':        { load: () => import('./census/link.ts'), fn: 'renderCensusLink' },
+    'census-small-2020': { load: () => import('./census/link.ts'), fn: 'renderCensusLink' },
 };
 
 async function runLazyView(code: string) {
