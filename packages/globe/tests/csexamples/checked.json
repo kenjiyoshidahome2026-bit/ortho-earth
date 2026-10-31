@@ -1,0 +1,8 @@
+{
+	"_": "Examples the gate does not grade (real Cesium starts in 2D, has no viewer, or the gate saw no load end) whose pictures were compared by eye (Kenji 2026-10-30: the excluded examples that check out at level 2 or more go on the list). publish.mjs gives them this level and note.",
+	"geojson-simplestyle": { "level": 2, "note": "checked by eye: Cesium starts in 2D, ortho shows the same pins on the 3D globe" },
+	"multiple-synced-views": { "level": 2, "note": "checked by eye: Cesium shows a 3D and a 2D view, ortho two synced 3D globes" },
+	"timeline": { "level": 3, "note": "checked by eye: no viewer, the timeline widget alone" },
+	"viewerless": { "level": 3, "note": "checked by eye: no viewer, an HTML panel alone" },
+	"multifrustum-snapping-dev": { "level": 3, "note": "checked by eye: the same picture although the gate saw no load end" }
+}
