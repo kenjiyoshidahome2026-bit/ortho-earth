@@ -21,3 +21,5 @@ The patch is an experiment on the WebGPU path only. The GL path uses the same fo
 ## add-3d-terrain-from-quantized-mesh-tiles
 
 Not caused by the near layer: near off and wider step both give 0.00 vs 666c49f1.
+
+Bisect on this example (mean below 3 is good; pictures with mean above 100 skipped): first change is 4e4faf1b, which makes setTerrain exaggeration take effect. 823fe410 gives 0.00, 4e4faf1b gives 42.33 / 42.04. Example's exaggeration setting: exaggeration: 1.2.
