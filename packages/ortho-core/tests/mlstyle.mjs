@@ -1,7 +1,7 @@
 // 外来の MapLibre style の読み替え（src/mlstyle.js・#33）と評価器の追加分（色の補間・常用の演算子・色名/HSL）の検定。
 // node packages/ortho-core/tests/mlstyle.mjs
 import assert from "node:assert/strict";
-import { convertFilter, convertValue, splitMapLibreStyle, shiftLayerZoom, tileUrlOf, isExpressionFilter, validateMLStyle } from "../src/mlstyle.ts";
+import { convertFilter, convertValue, splitMapLibreStyle, shiftLayerZoom, tileUrlOf, isExpressionFilter, validateMLStyle, normalizeMLLayer, DZ_KEY } from "../src/mlstyle.ts";
 import { evalExpr, truthy } from "../src/expr.ts";
 import { parseRGBA } from "../src/color.ts";
 let n = 0;
@@ -104,5 +104,15 @@ t("型紙が複数＝MapLibre と同じく tiles[(x+y) % 本数]（呼ぶ順に�
 	assert.equal(f(1, 1, 1), "https://c/1/1/1");
 	assert.equal(f(1, 1, 1), "https://c/1/1/1");   // 2 度目も同じ URL
 	assert.equal(tileUrlOf({ tiles: ["https://a/{z}/{x}/{y}", "https://b/{z}/{x}/{y}"], scheme: "tms" })(2, 0, 0), "https://a/2/0/3");   // 選ぶのは反転前の y（MapLibre と同じ）
+});
+t("入口で足した dz を ortho:dzApplied に残す（タイルの z と層の出しズームを同じ目盛りで比べる・2026-10-31）", () => {
+	const L0 = { id: "m", type: "line", minzoom: 5, paint: { "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 6, 0.6] } };
+	const A = normalizeMLLayer(L0, 1.36);
+	assert.equal(A.minzoom, 6.36);
+	assert.equal(A.metadata["ortho:dzApplied"], 1.36);
+	const B = normalizeMLLayer(A, 1.36);   // 通し直し（getStyle → setStyle の基図＝ortho:dz 0）＝もうずらさない・累計も不変
+	assert.equal(B.minzoom, 6.36);
+	assert.equal(B.metadata["ortho:dzApplied"], 1.36);
+	assert.equal(B.metadata[DZ_KEY], 0);
 });
 console.log(`\n${n} passed`);
