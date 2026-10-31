@@ -695,7 +695,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// シーンの rev・ゲート」の鍵が変わった時だけ＝静止中はゼロコスト。unit10＝合成時のタイル・unit13/14/15＝窓 0/1/2。
 	// raster.js の契約：rasterTex/rasterMesh/rasterFree/setRasterDraws（rd={rev,hideFills,layers}）。
 	let rasterDraws: GLRasterDraws | null = null, memRaster = 0, dbgC: DbgCounters | null = null, sceneRev = 0;
-	const gnd = { w: [null, null, null, null] as (GndWin | null)[], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // w[i]＝{ tex, fbo, size, win:[W,S,spanLon,spanLat], bytes }・段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
+	const gnd = { split: false, w: [null, null, null, null] as (GndWin | null)[], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // w[i]＝{ tex, fbo, size, win:[W,S,spanLon,spanLat], bytes }・段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
 	function rasterTex(bitmap: ImageBitmap): GLRasterTex {
 		const tex = gl.createTexture()!;
 		gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -753,13 +753,13 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	let groundHook: ((cam: CameraPose, target: GintAtlasTarget) => number) | null = null, groundSig: (() => string) | null = null;   // gint の面を窓へ焼くフック（renderworker が bakeFaces/bakeSig を結線）：fn(cam, { fbo, win, size })・sig()＝合成鍵
 	function setGroundHook(fn?: ((cam: CameraPose, target: GintAtlasTarget) => number) | null, sig?: (() => string) | null): void { groundHook = fn || null; groundSig = sig || null; }
 	// ラスタタイルを窓へ（order＝"under"|"over"）
-	function drawRasterInto(a: GndWin, bb: number[], order: string): void {
+	function drawRasterInto(a: GndWin, bb: number[], order: string, side = 0): void {   // side＝分割の半分（-1 左・+1 右・0 分割なし）＝反対側の層（splitDirection）は焼かない
 		gl.useProgram(rasAtlasProg);
 		gl.uniform2f(loc(gl, rasAtlasProg, "u_winInv"), 1 / a.win[2], 1 / a.win[3]);
 		gl.uniform1i(loc(gl, rasAtlasProg, "u_tex"), 10);
 		gl.activeTexture(gl.TEXTURE10);
 		for (const L of rasterDraws!.layers) {
-			if (L.order !== order) continue;
+			if (L.order !== order || (side && L.split && L.split !== side)) continue;
 			const nearest = L.resampling === "nearest";   // raster-resampling（C4）＝層の設定をテクスチャに掛ける（1 枚のテクスチャは 1 層のもの＝毎回掛け直して安い）
 			for (const d of L.draws) {
 				const b = d.bounds;
@@ -838,11 +838,13 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		const rasterOn = !!(rasterDraws && rasterDraws.layers.length);
 		const wantFills = fillsIn && !(rasterOn && rasterDraws!.hideFills);
 		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
-		if (!rasterOn && !wantFills && !(fillsIn && groundHook)) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; gnd.faces = 0; return; }
+		if (!rasterOn && !wantFills && !(fillsIn && groundHook)) { gnd.split = false; gnd.n = 0; gnd.key = ""; gnd.tiles = 0; gnd.faces = 0; return; }
 		const wins = groundWindows(cam, canvas.width, canvas.height, far.has ? far.maxElev || 0 : 0);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（利用者のデータ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
+		const split = rasterOn && rasterDraws!.layers.some(l => l.split);   // 左右に分けて焼く層がある（rev の署名に split が入る＝変われば焼き直し）
+		gnd.split = split;
 		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws!.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) return;
 		gnd.key = key; gnd.tiles = 0; gnd.faces = 0;
@@ -856,24 +858,30 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.disable(gl.SCISSOR_TEST); gl.disable(gl.CULL_FACE); gl.depthMask(true); gl.colorMask(true, true, true, true);
 			gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 			gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-			if (rasterOn) drawRasterInto(a, bb, "under");
-			// 差し込み（#123）：基図の最後の枠（host）を境で分け、間に利用者の塗りを焼く（直描きの drawSlot と同じ計画）。表に無い物は今どおり基図の塗りの後
-			const ua = userAnchorPlan(userIn && wantFills ? [...baseSlots].reverse().find(sl => sceneHasDraws(scenes[sl])) : null);
-			if (wantFills) for (const sl of baseSlots) {
-				if (sl !== ua.host) { drawFillsInto(a, st, land, [sl], seaOff, baseA); continue; }
-				let lo = -Infinity;
-				for (const an of ua.anchors) { drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, an); drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, d => ua.anchorOf(d.li) === an); lo = an; }
-				drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, Infinity);
+			// 分割（Cesium の ImageryLayer.splitDirection）＝窓を左右の半分へ 2 度焼く（左半分＝左の層＋両方の層・右半分＝右＋両方）。
+			// FS は画面の x と分割位置で半分を選ぶ（gndSide）。窓の写像はそのまま＝viewport を半分にするだけで経度が半分の幅に詰まる
+			for (const side of split ? [-1, 1] : [0]) {
+				const vx = side > 0 ? size >> 1 : 0, vw = side ? size >> 1 : size;
+				gl.viewport(vx, 0, vw, size);
+				if (rasterOn) drawRasterInto(a, bb, "under", side);
+				// 差し込み（#123）：基図の最後の枠（host）を境で分け、間に利用者の塗りを焼く（直描きの drawSlot と同じ計画）。表に無い物は今どおり基図の塗りの後
+				const ua = userAnchorPlan(userIn && wantFills ? [...baseSlots].reverse().find(sl => sceneHasDraws(scenes[sl])) : null);
+				if (wantFills) for (const sl of baseSlots) {
+					if (sl !== ua.host) { drawFillsInto(a, st, land, [sl], seaOff, baseA); continue; }
+					let lo = -Infinity;
+					for (const an of ua.anchors) { drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, an); drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, d => ua.anchorOf(d.li) === an); lo = an; }
+					drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, Infinity);
+				}
+				if (userIn) drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null);
+				if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
+					try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", (e as Error | null)?.message); }
+					gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(vx, 0, vw, size);
+					gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.colorMask(true, true, true, true);
+					gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD);
+					gl.bindVertexArray(null);
+				}
+				if (rasterOn) drawRasterInto(a, bb, "over", side);
 			}
-			if (userIn) drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null);
-			if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
-				try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", (e as Error | null)?.message); }
-				gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(0, 0, size, size);
-				gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.colorMask(true, true, true, true);
-				gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD);
-				gl.bindVertexArray(null);
-			}
-			if (rasterOn) drawRasterInto(a, bb, "over");
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 			gl.bindTexture(gl.TEXTURE_2D, a.tex); gl.generateMipmap(gl.TEXTURE_2D); gl.bindTexture(gl.TEXTURE_2D, null);   // 斜め視のちらつき防止
 		}
@@ -884,6 +892,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	function bindGnd(prog: WebGLProgram): void {
 		for (let i = 0; i < 4; i++) gl.uniform1i(loc(gl, prog, "u_gnd" + i), GND_UNITS[i]);
 		gl.uniform1f(loc(gl, prog, "u_gndN"), gnd.n);
+		gl.uniform1f(loc(gl, prog, "u_gndSplit"), gnd.n && gnd.split ? splitPos * canvas.width : -1);   // 分割の画面 x（device px）｜-1＝分割なし
 		for (let i = 0; i < 4; i++) { gl.activeTexture(gl.TEXTURE0 + GND_UNITS[i]); gl.bindTexture(gl.TEXTURE_2D, i < gnd.n && gnd.w[i] ? gnd.w[i]!.tex : null); }
 		gl.activeTexture(gl.TEXTURE0);
 	}
