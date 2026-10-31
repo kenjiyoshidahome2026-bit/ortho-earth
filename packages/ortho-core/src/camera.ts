@@ -99,6 +99,7 @@ export const betaRadiusOf = (p: ArrayLike<number>): number => Math.hypot(p[0], p
 export function betaGeo(p: ArrayLike<number>): [number, number, number] {
 	if (R_AX === 1) { const [lon, lat] = betaToLonLat(p); return [lon, lat, Math.hypot(p[0], p[1], p[2])]; }
 	const rho = Math.hypot(p[0], p[2]), z = p[1] * R_AX, e2 = 1 - R_AX * R_AX;   // world (equator radius 1, polar R_AX)
+	if (Math.hypot(rho, z) < 0.5) { const [lon, lat] = betaToLonLat(p); return [lon, lat, Math.hypot(p[0], p[1], p[2])]; }   // deep inside (a whole-globe batch turning about the centre: the cloud shell): no normal to follow; N/(N+h) blew up to NaN and culled it (t-clouds windCovers)
 	let lat = Math.atan2(z, rho * (1 - e2)), h = 0;
 	for (let i = 0; i < 4; i++) {
 		const s = Math.sin(lat), N = 1 / Math.sqrt(1 - e2 * s * s);
