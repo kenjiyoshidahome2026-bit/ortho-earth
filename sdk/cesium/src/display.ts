@@ -21,6 +21,7 @@ import type { ClusterState } from "./clusters.ts";
 import { matKey, matOfProperty, paint } from "./materials.ts";
 import type { MatDesc } from "./materials.ts";
 import type { Host, OrthoScene } from "./scene.ts";
+import { timed } from "./perf.ts";
 
 type Any = any;
 const { BoundingSphereState, Property, ColorGeometryInstanceAttribute } = engine as Any;   // runtime exports the d.ts leaves out (and Property's static helpers)
@@ -370,7 +371,8 @@ export class EntityDisplay {
 		if (t.ts) { const list = (this.scene as Any).__tilesets ?? [], i = list.indexOf(t.ts); if (i >= 0) list.splice(i, 1); t.ts.destroy(); }
 	}
 
-	update(time: JulianDate): boolean {
+	update(time: JulianDate): boolean { return timed("display", () => this.#update(time)); }   // timed＝?perf=1 の [csperf] 行（perf.ts）
+	#update(time: JulianDate): boolean {
 		if (this.#destroyed) return true;
 		const map = this.host.map;
 		const ents = this.#entities(), live = new Set(ents);

@@ -32,7 +32,7 @@ export class CollectionDrawer {
 	/** entities for the display (not the viewer's) */
 	readonly source = new CustomDataSource("__csshim-collections");
 	lines: PrimLine[] = [];
-	#colls = new Set<Any>(); #recs = new Map<Any, Rec>(); #linesKey = "";
+	#colls = new Set<Any>(); #recs = new Map<Any, Rec>(); #linesKey = ""; #arcs = new WeakMap<Any, { k: string; p: number[] }>();
 	/** a PolylineCollection with a material the globe has no line style for (glow, arrow, outline, dash, fade…): Cesium's renderer draws it (rawdraw.ts) */
 	toCesium: ((c: Any) => void) | null = null;
 	add(c: Any) { this.#colls.add(c); }
@@ -56,10 +56,14 @@ export class CollectionDrawer {
 					if (m?.type && m.type !== "Color" && m.type !== "PolylineOutline" && m.type !== "PolylineGlow") unsupported(`polyline material ${m.type} (drawn in its colour)`);
 					const k = `${pl.positions.length}:${pl.positions[0].x}:${pl.positions[pl.positions.length - 1].x}:${pl.width}:${col.toCssColorString()}:${pl.loop}`;
 					lk += k + ";";
-					const ps = pl.loop ? [...pl.positions, pl.positions[0]] : pl.positions;
-					let p: number[];
-					try { p = Array.from(PolylinePipeline.generateArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84), granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { p = ps.flatMap((q: Any) => [q.x, q.y, q.z]); }
-					lines.push({ p, color: col.toCssColorString(), width: pl.width ?? 1 });
+					let arc = this.#arcs.get(pl);   // the arc only when its key changed (it was built every tick before being compared; this.lines only took it when lk changed)
+					if (arc?.k !== k) {
+						const ps = pl.loop ? [...pl.positions, pl.positions[0]] : pl.positions;
+						let p: number[];
+						try { p = Array.from(PolylinePipeline.generateArc({ positions: ps, height: (PolylinePipeline as Any).extractHeights(ps, Ellipsoid.WGS84), granularity: 0.01, ellipsoid: Ellipsoid.WGS84 })); } catch { p = ps.flatMap((q: Any) => [q.x, q.y, q.z]); }
+						this.#arcs.set(pl, arc = { k, p });
+					}
+					lines.push({ p: arc.p, color: col.toCssColorString(), width: pl.width ?? 1 });
 				}
 				continue;
 			}
