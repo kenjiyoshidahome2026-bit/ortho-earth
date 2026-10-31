@@ -996,7 +996,7 @@ struct PlOut {
 		let dc = F.mvp * vec4f(o.n, 0.0);
 		var sd = (dc.xy * p.w - p.xy * dc.w) * F.viewport;
 		if (dot(sd, sd) < 1e-30) { sd = vec2f(1.0, 0.0); }
-		p = vec4f(p.xy + normalize(vec2f(-sd.y, sd.x)) * ((lb % 2.0) * 2.0 - 1.0) * hp * 2.0 / F.viewport * p.w, p.zw);
+		p = vec4f(p.xy + normalize(vec2f(-sd.y, sd.x)) * ((lb % 2.0) * 2.0 - 1.0) * hp * 2.0 / F.viewport * p.w, p.zw) * 0.999;   // 0.1% nearer the eye (gl/glsl.ts LINE_RIBBON)
 		o.ol = vec3f(0.0);
 		o.n = o.toEye;   // faces the eye (the FS's back-face test; lines are unlit in Cesium)
 	}
