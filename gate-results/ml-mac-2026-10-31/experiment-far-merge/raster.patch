@@ -1,0 +1,66 @@
+diff --git a/packages/ortho-core/src/raster.ts b/packages/ortho-core/src/raster.ts
+index b38cf796..1c275416 100644
+--- a/packages/ortho-core/src/raster.ts
++++ b/packages/ortho-core/src/raster.ts
+@@ -198,35 +198,45 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
+ 		}
+ 	}
+ 
++	// 遠い順に親へまとめる（4 枚→1 枚）＝done が真になるか、まとめられなくなるまで
++	function mergeFar(sel: (TileXYZ & { _d?: number })[], cam: CameraPose, minZoom: number, done: (s: TileXYZ[]) => boolean): (TileXYZ & { _d?: number })[] {
++		const c = cam.center, minZ = Math.max(0, minZoom);
++		const dist = (t: TileXYZ): number => { const [w, s, e, n] = tileBounds(t.x, t.y, t.z); return Math.hypot((w + e) / 2 - c[0], (s + n) / 2 - c[1]); };
++		for (let guard = 0; !done(sel) && guard < 32; guard++) {
++			for (const t of sel) t._d = dist(t);
++			sel.sort((a, b) => a._d! - b._d!);
++			const far = Math.max(1, Math.ceil(sel.length / 8)), up = new Map<string, TileXYZ>();
++			for (let i = sel.length - 1; i >= 0 && sel.length - i <= far; i--) { const t = sel[i]; if (t.z > minZ) up.set(keyOf(t.z - 1, t.x >> 1, t.y >> 1), { z: t.z - 1, x: t.x >> 1, y: t.y >> 1 }); }
++			if (!up.size) break;
++			const covered = (t: TileXYZ): boolean => { for (let z = t.z, x = t.x, y = t.y; z > minZ;) { z--; x >>= 1; y >>= 1; if (up.has(keyOf(z, x, y))) return true; } return false; };
++			const next = sel.filter(t => !covered(t) && !up.has(keyOf(t.z, t.x, t.y)));
++			for (const t of up.values()) if (!covered(t)) next.push(t);
++			if (next.length >= sel.length) break;
++			sel = next;
++		}
++		return sel;
++	}
++
+ 	function selectFor(L: Layer, cam: CameraPose, W: number, H: number, opts: RasterUpdateOptions | null | undefined): TileXYZ[] {
+ 		const src = L.source!;
+ 		// 可視集合そのものが予算を超えるなら一段粗く（tilePx を上げる＝分割を早く止める）：退避は「今描いている物」を触れない
+ 		// ので、可視集合を予算内に収めるのは選抜の責任（LOW_MEM 24MB＝写真 256²+mips≈350KB×68 枚）。層が複数なら分け合う。
+ 		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
+ 		let tilePx = src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
++		// 予算を超えたら、まず遠い順に親へまとめる＝足元の解像度を保つ（旧＝全体の tilePx を上げた＝地平線まで選ぶと足元まで一段粗くなった・2026-10-31・公式例の門）。まとめ切れない時だけ tilePx を上げる
++		const budgetN = Math.floor(share / perTile), fits = (s: TileXYZ[]): boolean => s.length + coarseN(s, src.minZoom) <= budgetN;
+ 		for (let step = 0; step < 4; step++) {
+ 			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1, farR: opts?.farR ?? opts?.groundR ?? 1 });
+-			if ((sel.length + coarseN(sel, src.minZoom)) * perTile <= share) break;   // 先に取る粗い祖先も在庫に居る＝予算に数える
++			if (fits(sel)) break;
++			sel = mergeFar(sel, cam, src.minZoom, fits);
++			if (fits(sel)) break;
+ 			tilePx *= 1.6;
+ 		}
+ 		// 枚数の上限（低 z の巨大視野・極端なチルト）：遠い順に親へまとめる（4 枚→1 枚）＝遠景を粗くして埋める。
+ 		// 旧＝遠い順に捨てる＝地平線の手前に下地の色（Cesium 例の既定は青）の帯が残った（2026-10-25・公式例の門）。まとめ切れない時だけ捨てる
+ 		if (sel.length > maxTiles) {
+-			const c = cam.center, minZ = Math.max(0, src.minZoom);
+-			const dist = (t: TileXYZ): number => { const [w, s, e, n] = tileBounds(t.x, t.y, t.z); return Math.hypot((w + e) / 2 - c[0], (s + n) / 2 - c[1]); };
+-			for (let guard = 0; sel.length > maxTiles && guard < 32; guard++) {
+-				for (const t of sel) t._d = dist(t);
+-				sel.sort((a, b) => a._d! - b._d!);
+-				const far = Math.max(1, Math.ceil((sel.length - maxTiles) * 4 / 3)), up = new Map<string, TileXYZ>();
+-				for (let i = sel.length - 1; i >= 0 && sel.length - i <= far; i--) { const t = sel[i]; if (t.z > minZ) up.set(keyOf(t.z - 1, t.x >> 1, t.y >> 1), { z: t.z - 1, x: t.x >> 1, y: t.y >> 1 }); }
+-				if (!up.size) break;
+-				const covered = (t: TileXYZ): boolean => { for (let z = t.z, x = t.x, y = t.y; z > minZ;) { z--; x >>= 1; y >>= 1; if (up.has(keyOf(z, x, y))) return true; } return false; };
+-				const next = sel.filter(t => !covered(t) && !up.has(keyOf(t.z, t.x, t.y)));
+-				for (const t of up.values()) if (!covered(t)) next.push(t);
+-				if (next.length >= sel.length) break;
+-				sel = next;
+-			}
+-			if (sel.length > maxTiles) { for (const t of sel) t._d = dist(t); sel.sort((a, b) => a._d! - b._d!); sel.length = maxTiles; }
++			sel = mergeFar(sel, cam, src.minZoom, s => s.length <= maxTiles);
++			if (sel.length > maxTiles) { const c = cam.center, dist = (t: TileXYZ): number => { const [w, s, e, n] = tileBounds(t.x, t.y, t.z); return Math.hypot((w + e) / 2 - c[0], (s + n) / 2 - c[1]); }; for (const t of sel) t._d = dist(t); sel.sort((a, b) => a._d! - b._d!); sel.length = maxTiles; }
+ 		}
+ 		L.sticky = new Set();
+ 		for (const t of sel) { let z = t.z, x = t.x, y = t.y; while (z > src.minZoom) { z--; x >>= 1; y >>= 1; const k = tileId(z, x, y); if (L.sticky.has(k)) break; L.sticky.add(k); } }   // selectLOD の sticky は tileId の番号鍵

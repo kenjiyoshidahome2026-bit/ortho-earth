@@ -73,3 +73,9 @@ Summary: {"0 動かない": 0, "1 動く": 11, "2 同じ答え": 46, "3 同じ�
 | display-a-popup-on-hover | 2 | 3 | 7.35 | 5.46 | level+picture |
 
 Canvas missing in one run: none
+
+## Findings
+
+- Net misses rose from 333 to 1582. Bisect (draw-a-circle, add-a-hillshade-layer, add-a-wms-source) points to 53333145, which fetches ancestors three levels up (preloadAncestors). Those tiles are not in r7, and each failed tile is retried, so the replay count overstates real extra requests. Only the three bisected examples tie directly to this commit.
+- The ref for the terrain examples shows OSM "Access blocked" tiles while ortho shows a mix of blocked and real map tiles, so these pictures can't be compared to ref pixel for pixel.
+- Not landed: experiment-far-merge/raster.patch merges far tiles first when over the texture budget. Near-field tile scale in add-3d-terrain-from-quantized-mesh-tiles moved close to ref, but 3d-terrain lost its map and went blurry in all three replay runs. Replay can't separate a real fault from tiles missing in r7, so the patch is unverified.
