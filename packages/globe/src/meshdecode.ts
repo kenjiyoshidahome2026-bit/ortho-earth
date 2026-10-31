@@ -1105,6 +1105,15 @@ function linePrimAsTubes(pr: GltfPrimitive, mode: number): GltfPrimitive | null 
 	}
 	const attributes: Record<string, GltfAccessor> = { POSITION: { value: P } as GltfAccessor };
 	if (C) attributes.COLOR_0 = { value: C } as GltfAccessor;
+	// the feature ids (EXT_mesh_features _FEATURE_ID_n / b3dm _BATCHID) follow their vertices onto the tube corners: without them the implicit
+	// numbering took the vertex index as the feature, and a style by property (3d-tiles-property-lod-river's ORD_FLOW) painted the wrong rows (2026-10-31)
+	for (const k of Object.keys(pr.attributes || {})) {
+		if (!/^(_FEATURE_ID_\d+|_BATCHID)$/.test(k)) continue;
+		const src = pr.attributes![k], F = src?.value as ArrayLike<number> | undefined; if (!F || !F.length) continue;
+		const fN = Math.max(1, (F.length / n) | 0), out = new (F.constructor as new (n: number) => typeof F & { [i: number]: number })(ns * 8 * fN) as unknown as Record<number, number>;
+		for (let s = 0; s < ns; s++) for (let e = 0; e < 2; e++) { const sv = segs[s * 2 + e]; for (let c = 0; c < 4; c++) for (let j = 0; j < fN; j++) out[(s * 8 + e * 4 + c) * fN + j] = F[sv * fN + j]; }
+		attributes[k] = { ...src, value: out } as unknown as GltfAccessor;
+	}
 	return { ...pr, mode: 4, attributes, indices: { value: idx } as GltfAccessor };
 }
 export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false, upAxis = null }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
