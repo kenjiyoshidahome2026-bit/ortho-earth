@@ -33,6 +33,8 @@ export interface LabelLine { lp?: 1 | 2; path?: Float64Array; ai?: number; cum?:
 export interface Label extends Partial<LabelLayout>, Partial<LabelIcon>, LabelLine {
 	anchor: [number, number]; text: string; size: number; font: string; color: RGBA; halo: RGBA; haloW: number; sort: number; code: number; li: number; minZ: number | null; maxZ: number | null;
 	key?: string; szn?: [number, number]; sec?: LabelSection[]; icon?: string;
+	/** szn を焼いた z とタイルの z の差（MapLibre 形の層の dz＝表示の z と比べる時に tz へ足す） */
+	tdz?: number;
 	/** 利用者の層の注記：層の順を焼く前の sort（symbol-sort-key）＝labels2d の setUserOrder が層の順を後から当てる材料 */
 	usk?: number;
 	/** 球の縁の近くは出さない（視線と地面のなす角の余弦の下限・ネイティブの記号の層の horizon＝MapLibre に無い拡張・0／無し＝全部） */
@@ -197,11 +199,13 @@ export function buildLabels({ layers, z, x, y, stateOf = null }: LabelsTile, sty
 		const src = (layers as DecodedTile)[L["source-layer"] as string]; if (!src) continue;
 		const ml = originOfLayer(L) === "ml";   // MapLibre の文書から来た層＝padding の既定 2（MapLibre）・ネイティブの層＝従来の 5（この地図の注記の間合い）
 
-		const sizeZ = lo["text-size"] != null && usesZoom(lo["text-size"]);   // text-size が zoom を読む（連続な大きさの材料を焼く）
+		const sizeZ = lo["text-size"] != null && usesZoom(lo["text-size"]);
+		// 式の ["zoom"] はエンジンの目盛り（MapLibre 形の層は入口で dz を足してある）＝タイルの z に足して評価する（build.ts と同じ・2026-10-31）。錨・線の幾何はタイルの z のまま
+		const dzA = (L.metadata?.["ortho:dzApplied"] as number) || 0, zL = z + dzA;   // text-size が zoom を読む（連続な大きさの材料を焼く）
 		let fi = 0;
 		for (const f of src.features) {
 			fi++;
-			const ctx: ExprContext = { zoom: z, props: f.props, geom: f.gt ?? f.type, vars: {}, origin: originOfLayer(L), state: undefined, feat: f, tile: { z, x, y, E: src.extent || 4096 } };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）。feat/tile＝within/distance（C2）
+			const ctx: ExprContext = { zoom: zL, props: f.props, geom: f.gt ?? f.type, vars: {}, origin: originOfLayer(L), state: undefined, feat: f, tile: { z, x, y, E: src.extent || 4096 } };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）。feat/tile＝within/distance（C2）
 			const place = String(evalExpr(placeE, ctx) ?? "point"), onLine = place === "line" || place === "line-center";   // 線に沿う注記（段 4）
 			if (onLine ? f.type !== "LineString" : f.type === "Polygon") continue;   // 線の注記は線だけ（面の輪郭は置かない・記録）。点の注記＝点と、線の各部分の先頭の頂点（MapLibre の点置き＝低 z の道路の盾）
 			if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
@@ -215,7 +219,7 @@ export function buildLabels({ layers, z, x, y, stateOf = null }: LabelsTile, sty
 			// ズームに連続な文字の大きさ（MapLibre は text-size を表示の z で評価＝タイルの z で焼くと段が替わる時に跳ぶ）：式が zoom を読む層は z−1・z+1 の値も焼き、
 			// 描く側（labels2d）が表示の z で線形に補間する（錨・鍵・size（タイルの z の値）は不変＝差分配達の鍵も不変）。ハロー幅は文字と同じ倍率で伸びる
 			let szn: [number, number] | null = null;
-			if (sizeZ) { ctx.zoom = z - 1; const a = num(evalExpr(lo["text-size"], ctx), size); ctx.zoom = z + 1; const b = num(evalExpr(lo["text-size"], ctx), size); ctx.zoom = z; if (a !== size || b !== size) szn = [a, b]; }
+			if (sizeZ) { ctx.zoom = zL - 1; const a = num(evalExpr(lo["text-size"], ctx), size); ctx.zoom = zL + 1; const b = num(evalExpr(lo["text-size"], ctx), size); ctx.zoom = zL; if (a !== size || b !== size) szn = [a, b]; }
 			// 線の錨に「回さず」置く＝text-rotation-alignment viewport（記号だけなら icon-rotation-alignment viewport）＝道路の盾（road_shield_us）。点の注記として錨に置く（記号も文字も回さない・spacing だけ課す）
 			const upright = onLine && String(evalExpr(text ? traE : (lo["icon-rotation-alignment"] ?? "auto"), ctx) ?? "auto") === "viewport";
 			// 線の錨：px→タイル単位は extent/256（このエンジンのタイルは 256px 世界＝タイル z＝エンジン z で 16 単位/px。MapLibre の 512px タイル z と同じ地面）。文字の長さは字数×size×0.7 の見積もり（本物の幅は描く側・記号だけなら 16px×icon-size）。候補の間隔＝max(文字の長さ/2, spacing/4)（曲がった線でも真っ直ぐな所を拾えるよう密に・spacing は描く側）・最初＝文字の半分＋1 字分（MapLibre は 2 字分＝過拡大で厳しすぎるので 1 字）・窓＝文字の長さ＋余白
@@ -243,7 +247,7 @@ export function buildLabels({ layers, z, x, y, stateOf = null }: LabelsTile, sty
 				return { lp: 2, path, cum: sp.cum, lc: sp.lc, tz: z, upp, tbx: [w[0], e2[1], e2[0], w[1]], mw: 0, sp: spacingPx, lg, ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false };   // lp 2＝部分を丸ごと（錨は描く側）・tbx＝タイルの枠（西・南・東・北＝錨はこの中だけ）
 			})() : ((): LabelLine => { const sPath = sp.path!, path = new Float64Array(sPath.length); for (let i = 0; i < sPath.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sPath[i], sPath[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
 			const tx = (s: string): string => lay.transform === "uppercase" ? s.toUpperCase() : lay.transform === "lowercase" ? s.toLowerCase() : s;
-			const rec: Label = { anchor: [lon, lat], text: tx(text), size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...(szn ? { szn, tz: z } : {}), ...lay.rec, ...(sec ? { sec: sec.map(q => ({ ...q, t: tx(q.t) })) } : {}), ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
+			const rec: Label = { anchor: [lon, lat], text: tx(text), size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...(szn ? { szn, tz: z, ...(dzA ? { tdz: dzA } : {}) } : {}), ...lay.rec, ...(sec ? { sec: sec.map(q => ({ ...q, t: tx(q.t) })) } : {}), ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
 			if (rec.wm && !allowsVertical(rec.text)) delete rec.wm;   // 縦書きにできない文字（ラテンだけ）＝横書き
 			rec.key = labelKey(rec);   // 鍵＝文字・記号・錨（ML の層は li も）。文字や錨を変える写しは付け直す
 			out.push(rec);   // minZ/maxZ＝style の z（main が地図の z の目盛りへ寄せる）・lay＝配置の layout（labels2d の箱）・icon＝記号（段 3）   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
