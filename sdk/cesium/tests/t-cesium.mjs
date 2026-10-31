@@ -20,10 +20,11 @@ import { cesiumSphereOf } from "../src/spheres.ts";
 import { cesiumEnvSH, cesiumEvalSH, cesiumEnvRadiance, CESIUM_SH_UNIFORM_L00 } from "../src/envmap.ts";
 import { Entity, JulianDate as EJulianDate } from "@cesium/engine";
 import { bandRamp, groundMaterialOf, materialKey, createElevationBandMaterial } from "../src/globe-material.ts";
-import { Color, Material } from "@cesium/engine";
+import { Color, Material, HeightReference } from "@cesium/engine";
 import { CustomShader, UniformType, LightingModel, CustomShaderTranslucencyMode, TextureUniform } from "@cesium/engine";
 import { customShaderId } from "../src/custom-shader.ts";
 import { terrainSourceOf } from "../src/terrain.ts";
+import { groundHeights } from "../src/display.ts";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -557,6 +558,19 @@ for (const g of [
 	ok("terrain source: CWT keeps negative heights, bathymetry the sea floor", all[0].negative === true && all[0].ion.assetId === 1 && all[1].seafloor === true && all[1].ion.assetId === 2426648);
 	ok("terrain source: a bridged provider keeps its own bounds", JSON.stringify(terrainSourceOf({ bridged: { type: "raster-dem", bounds: [1, 2, 3, 4] } }).bounds) === "[1,2,3,4]");
 	ok("terrain source: nothing readable = null", terrainSourceOf({}) === null);
+}
+
+// ground-referenced extrusions (geometry-height-reference): flat tops at the centre's ground + height, clamped bottoms under the lowest ground
+{
+	const N = HeightReference.NONE, C = HeightReference.CLAMP_TO_GROUND, R = HeightReference.RELATIVE_TO_GROUND, gh = { off: 1965, min: 1900 };
+	const a = groundHeights(40, 0, R, C, gh);
+	ok("ground heights: relative 40 m over a clamped extrusion", near(a.top, 2005) && near(a.base, 1850), JSON.stringify(a));
+	const b = groundHeights(40, 10, R, R, gh);
+	ok("ground heights: both relative", near(b.top, 2005) && near(b.base, 1975), JSON.stringify(b));
+	const c = groundHeights(500, 0, C, N, gh);
+	ok("ground heights: clamped height = the centre's ground, absolute extrusion", near(c.top, 1965) && near(c.base, 0), JSON.stringify(c));
+	const d = groundHeights(30, undefined, R, N, gh);
+	ok("ground heights: no extrusion = a 1 m slab at 30 m over the ground", near(d.base, 1994.5) && near(d.top, 1995.5), JSON.stringify(d));
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
