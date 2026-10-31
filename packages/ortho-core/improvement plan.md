@@ -42,10 +42,10 @@
 
 | 候補 | 根拠 | 扱い | 状態 |
 |---|---|---|---|
-| facade の線：全 Polyline の弧（generateArc）を毎 tick 作り直してから比べる（sdk/cesium/src/collections.ts） | 読んだ | 線ごとに鍵で弧を写して持つ | **#815** |
-| 3D Tiles の選び：辿る全ノードで worldOf（ecef2geo）と obbAxes（worldOf 6 回）を毎フレーム（gadgets/tiles3d.ts の visible） | 読んだ | ノードに写しを持ち、sphere か lift が変わった時だけ | **#815** |
-| 3D Tiles の点群スタイル：点ごとに JSON.stringify の鍵（stylePoints） | 読んだ | 値そのものを鍵に・POSITION を引く式は覚えない | **#815** |
-| facade の変更検出：線・面を毎 tick JSON.stringify で比べる（display.ts 7 か所） | 読んだ | 変更カウンタへ | [csperf] の display で重ければ |
+| facade の線：全 Polyline の弧（generateArc）を毎 tick 作り直してから比べる（sdk/cesium/src/collections.ts） | 読んだ | 線ごとに鍵で弧を写して持つ | **#815 済** |
+| 3D Tiles の選び：辿る全ノードで worldOf（ecef2geo）と obbAxes（worldOf 6 回）を毎フレーム（gadgets/tiles3d.ts の visible） | 読んだ | ノードに写しを持ち、sphere か lift が変わった時だけ | **#815 済** |
+| 3D Tiles の点群スタイル：点ごとに JSON.stringify の鍵（stylePoints） | 読んだ | 値そのものを鍵に・POSITION を引く式は覚えない | **#815 済** |
+| facade の変更検出：線・面を毎 tick JSON.stringify で比べる（display.ts 7 か所） | 読んだ | 変更カウンタへ | 見送り（[csperf] の display が 0.1 ms 以下・§5） |
 | 1 フレームの模型バッチ上限 512（gpu/renderer.ts MAX_PL_BATCH・超過は log して打ち切り） | 読んだ | 速さより絵の問題 | 大きな tileset で log が出るか見る |
 | 起動：hillshade・colorrelief・customgl・sky を globe.ts が静的に読む | 読んだ | 使う時だけ import() | 初期バンドルを測ってから |
 | 3D Tiles のピック用の形を main に複写（タイルの約 7 割） | 読んだ | メモリが減るが pick は同期 API＝設計の判断 | 保留 |
@@ -59,8 +59,8 @@
 
 | 段階 | 中身 | 門 | 状態 |
 |---|---|---|---|
-| 0 | 計器：`?perf=1` の `[csperf]`（sdk/cesium/src/perf.ts の timed＝display・prims・colls・voxels・particles・clouds・timePoints の平均/最大 ms と回数を 2 秒ごと）と `[t3perf]`（選びの ms・1 フレームに見たノード数）。初期バンドルの大きさの関門。Mac で perf plan の 3 シーン＋Cesium の重い例 5 本、iPhone は本人に一度 | 表が §5 に埋まる | 計器は #815、測定は Mac で実行中 |
-| 1 | §2 の「#815」の 3 件。静的 import の遅延は段階 0 の数字で選ぶ | Sandcastle を撮り直して段が下がらない・3D Tiles の頁が main と同じ | #815 |
+| 0 | 計器：`?perf=1` の `[csperf]`（sdk/cesium/src/perf.ts の timed＝display・prims・colls・voxels・particles・clouds・timePoints の平均/最大 ms と回数を 2 秒ごと）と `[t3perf]`（選びの ms・1 フレームに見たノード数）。初期バンドルの大きさの関門。Mac で perf plan の 3 シーン＋Cesium の重い例 5 本、iPhone は本人に一度 | 表が §5 に埋まる | #815・Mac の計測は §5（iPhone・Windows・動かした時は未） |
+| 1 | §2 の「#815」の 3 件。静的 import の遅延は段階 0 の数字で選ぶ | Sandcastle を撮り直して段が下がらない・3D Tiles の頁が main と同じ | **#815 済**（§5） |
 | 2 | 既存の速さの計画の残り（paint 表・T-P1 の門・render bundle・topology） | MapLibre の門・verify:webgpu・verify:ui 緑、perf plan の表に数字 | 未着手 |
 | 3 | 重複の残り（sdk の定型・gl/gpu の純関数） | 門の出力が前後で同じ | #813・#814・#816（census）済、残りは未着手 |
 | 4 | 構造：globe.ts と gpu/renderer.ts の分割、facade の any（cesium 約 700・leaflet 約 570・gmaps 約 200）を公開 API の型から | 機能追加の邪魔になった時 | 後回し |
@@ -74,13 +74,24 @@
 
 ## 5. 計測（段階 0）
 
-（Mac M5 Pro・`?perf=1`・#815 の head。埋まり次第ここへ）
+2026-10-31・Mac M5 Pro 実 GPU・`?perf=1`・#815 の head（d7dfa06e）・Sandcastle の例を開いて 30 秒置いた最後の 3 回（カメラ静止）。
 
-| 場面 | [csperf] / [t3perf] / [perf] | 備考 |
-|---|---|---|
-| | | |
+| 例 | [csperf] display（平均/最大 ms） | [t3perf] 選び（平均/最大 ms・節点/フレーム） | [perf] map / gpuMap（ms） |
+|---|---|---|---|
+| google-photorealistic-3d-tiles | 0.00〜0.01 / ≤0.1 | 0.34〜0.97 / 0.6〜11.6・393〜541 | 0.36〜1.42 / 1.06〜**14.73** |
+| 3d-tiles-photogrammetry | 0.03〜0.05 / 0.1 | （静止で行なし） | 0.70〜0.89 / 2.00〜4.36 |
+| aerometrex-san-francisco | 0.00〜0.01 / 0.0 | 0.24 / 3.0・255 | 0.71〜1.45 / 1.64〜**12.32** |
+| polyline | 0.08〜0.09 / 0.1 | （行なし） | 0.37 / 1.96（gpuGint 0.97） |
+| 3d-tiles-point-cloud-styling | 0.00 / 0.0 | （行なし） | （測定行なし） |
+
+- [csperf] の他の項目（prims・colls・voxels・particles・clouds・timePoints）は全部 0.00 ms。
+- 読み：静止時の CPU（Cesium の層・3D Tiles の選び）は既に 1 ms 前後以下＝**残りは GPU**（写実タイルと aerometrex の gpuMap の山 12〜15 ms）。
+  段階 2 は CPU の発行より GPU 側（模型の描き・影・後段）を先に測る。display の JSON 比較（§2）は直さない（0.1 ms 以下）。
+- 未計測：カメラを動かした時（[t3perf] は動いた時に出る）・#815 前の値（main に計器が無かった）・iPhone・Windows。
+- 門：#815 は verify:ui の 3D Tiles 10 頁・verify:webgpu t-tiles3d が main と同じ。Sandcastle 46 本（3d-tiles-*・polyline*・point-cloud*）は PR 17/27/1/0・main 18/27/0/0。
+  差の 1 本 3d-tiles-1.1-photogrammetry は起動時のカメラが 2 通り（高さ 586 m＝L1／277 m＝L3）に分かれる揺れで main でも出る（7 回中 L3 は 2 回）＝v220 の L3 は良い方に当たった可能性。別件で追う。
 
 ## 6. 履歴
 
 - 2026-10-31：起案（Claude Doc「ortho-earth 2.2 以後の改善計画」）。本人裁定＝重複の削除 → 段階 0・1。
-- 2026-10-31：#813（i18n の門の共通化）・#814（GL 描き手の program と pick 窓の共通化）マージ。#815（段階 0・1）を出す。
+- 2026-10-31：#813（i18n の門の共通化）・#814（GL 描き手の program と pick 窓の共通化）・#815（段階 0・1）マージ。§5 に Mac の計測。#816 で census の写しを消す。
