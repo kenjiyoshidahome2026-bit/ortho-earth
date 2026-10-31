@@ -38,17 +38,30 @@ float elevFar(vec2 ll) {
 }
 // 近景層（near）＝目の足元の細密窓（1 セル・2026-10-28）：近窓（R01＝108m/texel）の内側に外来 DEM／R01 生タイルから焼いた
 // 1/64°〜1/2° の窓を重ねる。縁は近窓の値へ溶かす（far の一般則の内側版）＝近景層なし（u_hasNear=0）は base をそのまま返す＝挙動不変
+// 近景テクスチャは 2 セル幅：左半分＝近景層（near）・右半分＝足元層（fine・2026-10-31）＝画面下端の視線が目から 1.5 km 以内で当たる地面の 1/512°〜1/32° の窓
+// （≈1〜7 m/texel）。足元層は近景層の値へ縁で溶かす（near が近窓へ溶けるのと同じ一般則）＝無し（u_hasFine=0）は近景層のまま
 uniform sampler2D u_nearElevTex;
 uniform vec4 u_nearBounds;
 uniform float u_hasNear;
 uniform float u_nearEdgeFade;
+uniform vec4 u_fineBounds;
+uniform float u_hasFine;
+uniform float u_fineEdgeFade;
+float elevFine(vec2 ll, float base) {
+	if (u_hasFine < 0.5) return base;
+	vec2 uv = (ll - u_fineBounds.xy) / u_fineBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return base;
+	vec2 w = vec2(u_fineEdgeFade) / u_fineBounds.zw;
+	float f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	return mix(base, texture(u_nearElevTex, vec2(0.5 + uv.x * 0.5, uv.y)).r, f);
+}
 float elevNear(vec2 ll, float base) {
 	if (u_hasNear < 0.5) return base;
 	vec2 uv = (ll - u_nearBounds.xy) / u_nearBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return base;
 	vec2 w = vec2(u_nearEdgeFade) / u_nearBounds.zw;
 	float f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
-	return mix(base, texture(u_nearElevTex, uv).r, f);
+	return elevFine(ll, mix(base, texture(u_nearElevTex, vec2(uv.x * 0.5, uv.y)).r, f));
 }
 float elev(vec2 ll) {
 	if (u_hasElev < 0.5) return 0.0;
@@ -165,6 +178,7 @@ float elevQ(vec2 ll) {
 	// 近景層（順 1a）の窓の内側は近景メッシュパス（同じ単位格子を窓へ縮めた物）が地面＝その格子で量子化（主パスはそこを discard 済み・2026-10-28）
 	vec4 win = u_meshQ;
 	if (u_hasNear > 0.5) { vec2 gn = (ll - u_nearBounds.xy) / u_nearBounds.zw; if (gn.x >= 0.0 && gn.x <= 1.0 && gn.y >= 0.0 && gn.y <= 1.0) win = u_nearBounds; }
+	if (u_hasFine > 0.5) { vec2 gf = (ll - u_fineBounds.xy) / u_fineBounds.zw; if (gf.x >= 0.0 && gf.x <= 1.0 && gf.y >= 0.0 && gf.y <= 1.0) win = u_fineBounds; }   // 足元層の窓の内側は足元メッシュパスの格子
 	vec2 g = (ll - win.xy) / win.zw;
 	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) return elev(ll);
 	float N = u_meshG - 1.0;                        // セル数
@@ -762,6 +776,10 @@ void main() {
 		vec2 uvF = (v_ll - u_nearBounds.xy) / u_nearBounds.zw;
 		if (uvF.x >= 0.0 && uvF.x <= 1.0 && uvF.y >= 0.0 && uvF.y <= 1.0) discard;
 	}
+	if (u_farPass > 1.5 && u_farPass < 2.5 && u_hasFine > 0.5) {   // 近景メッシュパスは足元層の窓の内側を塗らない（足元メッシュパス u_farPass=3 の担当）
+		vec2 uvG = (v_ll - u_fineBounds.xy) / u_fineBounds.zw;
+		if (uvG.x >= 0.0 && uvG.x <= 1.0 && uvG.y >= 0.0 && uvG.y <= 1.0) discard;
+	}
 	// 海〜低地は地形を透明化し、海岸線は精細なベクタに委ねる。低地から滑らかに陰影を立ち上げ、
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
 	// 帯の上端＝画素 2 個分の標高（1〜100m）：透けた先は海抜0の球の床（同じ地面アトラス）＝チルトで h·tanθ ずれた
@@ -781,7 +799,8 @@ void main() {
 	if (u_farPass > 1.5) {   // 近景メッシュパス：歩幅は近景層の 1 texel（下限 0.004° を外す）・陰影の利得は歩幅比で揃える（＝勾配換算・見た目の濃さ不変）
 		// ただし R16F の刻み q（1024〜2048 m で 1 m）の 32 倍を下限に＝1 texel 差分が丸め 1 段を勾配に化けさせて粒々の陰影になった（2026-10-31・wgsl と同式）
 		float q = exp2(floor(log2(max(abs(h0), 1.0))) - 10.0);
-		dTex = max(u_nearBounds.w / float(textureSize(u_nearElevTex, 0).y), q * 32.0 / 111320.0);
+		float nbw = u_farPass > 2.5 ? u_fineBounds.w : u_nearBounds.w;   // 足元メッシュパス（3）は足元層の 1 texel
+		dTex = max(nbw / float(textureSize(u_nearElevTex, 0).y), q * 32.0 / 111320.0);
 		shadeK = 0.004 / max(dTex, 1e-6); d = dTex;
 	}
 	float hx = elev(v_ll + vec2(d, 0.0)) - h0;
