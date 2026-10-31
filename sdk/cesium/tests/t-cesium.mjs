@@ -66,6 +66,9 @@ for (const g of [
 	const hill = globeCamOf(pose.position, pose.direction, pose.up, null, () => 1500);
 	// the ray meets the plateau where its height is 1500: 2000 − t·cos60° = 1500 → t = 1000 m
 	ok("target on a 1500 m plateau", !!hill && near(hill.distance, 1000, 2) && near(hill.height, 1500, 0.5) && !hill.pending, JSON.stringify(hill));
+	// the ground under the target goes along (the globe measures its imagery windows on a sphere at that height, 2026-10-31): the plateau = 1500, the ellipsoid = 0, no terrain = left out
+	ok("groundAlt = the plateau under the target", !!hill && hill.groundAlt === 1500 && flat && flat.groundAlt === 0, JSON.stringify([hill?.groundAlt, flat?.groundAlt]));
+	ok("no terrain = no groundAlt", globeCamOf(pose.position, pose.direction, pose.up).groundAlt === undefined, "");
 	let asked = 0;
 	const late = globeCamOf(pose.position, pose.direction, pose.up, null, (lng, lat) => (++asked % 7 === 0 ? null : 1500));
 	ok("unknown heights mark the result pending, the known ones still place the target", !!late && late.pending === true && near(late.distance, 1000, 5), JSON.stringify(late));

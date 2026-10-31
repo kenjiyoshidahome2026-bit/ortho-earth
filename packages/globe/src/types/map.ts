@@ -345,7 +345,7 @@ export interface CameraApi {
 	follow(target: CameraTarget | null, options?: FollowOptions): FollowHandle | null;   // api/camera.ts:172
 	isFollowing(): boolean;   // api/camera.ts:179
 	/** Navara の setCamera の形を 1 対 1 で受ける（即時・1.16.0〜）。省いた物は今の値。zoom を渡せば distance より優先 */
-	setCamera(camera: Partial<NavaraCamera> & { lon?: number; alt?: number; bearing?: number; zoom?: number; near?: number | null }): GlobeMap;   // api/camera.ts:196。near＝near 面の上限［m］（注視点より手前の物を切らない・省けば今の値）
+	setCamera(camera: Partial<NavaraCamera> & { lon?: number; alt?: number; bearing?: number; zoom?: number; near?: number | null; groundAlt?: number | null }): GlobeMap;   // groundAlt＝注視点の下の地面の高さ［m］（画像窓の距離の物差し・省けば今の値・null＝海面）   // api/camera.ts:196。near＝near 面の上限［m］（注視点より手前の物を切らない・省けば今の値）
 	getCamera(): NavaraCamera;   // api/camera.ts:204
 	/** style の light（MapLibre 同名・1.16.0〜）＝押し出し・glTF・LOD2 の陰影の向き・強さ・色（WebGL2・WebGPU とも。WebGPU の fx.pbr の経路は太陽＋環境光のまま）。null＝従来の固定光に戻す。style の根の light は起動と setStyle で読む */
 	setLight(light: LightSpecification | null): GlobeMap;   // api/camera.ts:206

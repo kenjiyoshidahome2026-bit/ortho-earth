@@ -97,6 +97,8 @@ struct Frame {
 	cgC: vec4f,        // 光の色（czm_lightColor）
 	nearBounds: vec4f, // 近景層（near・順 1a 2026-10-28）＝目の足元の細密窓（1 セル）の被覆。末尾に足す＝前の欄の詰め順は不変（tests/frame-layout.mjs）
 	nearP: vec4f,      // hasNear(0/1), nearEdgeFade(deg), 0, 0
+	fineBounds: vec4f, // 足元層（fine・2026-10-31）＝近景層の窓の内側の 1/512°〜1/32° の窓（近景テクスチャの右半分）
+	fineP: vec4f,      // hasFine(0/1), fineEdgeFade(deg), 0, 0
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 ${RAY}
@@ -365,13 +367,22 @@ fn elevFar(ll: vec2f) -> f32 {
 	return textureSampleLevel(farElevTex, elevSamp, uv, 0.0).r * f;
 }
 // 近景層（near）＝近窓の内側に重ねる細密窓。縁は近窓の値へ溶かす（far の一般則の内側版）。無し（nearP.x=0）は base＝挙動不変。glsl.ts ELEV と同式
+// 近景テクスチャは 2 セル幅：左半分＝近景層・右半分＝足元層（fine）。足元層は近景層の値へ縁で溶かす。無し（fineP.x=0）は近景層のまま。glsl.ts ELEV と同式
+fn elevFine(ll: vec2f, base: f32) -> f32 {
+	if (F.fineP.x < 0.5) { return base; }
+	let uv = (ll - F.fineBounds.xy) / F.fineBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return base; }
+	let w = vec2f(F.fineP.y) / F.fineBounds.zw;
+	let f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	return mix(base, textureSampleLevel(nearElevTex, elevSamp, vec2f(0.5 + uv.x * 0.5, uv.y), 0.0).r, f);
+}
 fn elevNear(ll: vec2f, base: f32) -> f32 {
 	if (F.nearP.x < 0.5) { return base; }
 	let uv = (ll - F.nearBounds.xy) / F.nearBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return base; }
 	let w = vec2f(F.nearP.y) / F.nearBounds.zw;
 	let f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
-	return mix(base, textureSampleLevel(nearElevTex, elevSamp, uv, 0.0).r, f);
+	return elevFine(ll, mix(base, textureSampleLevel(nearElevTex, elevSamp, vec2f(uv.x * 0.5, uv.y), 0.0).r, f));
 }
 fn elev(ll: vec2f) -> f32 {
 	if (F.elevP.y < 0.5) { return 0.0; }
@@ -388,6 +399,7 @@ fn elevQ(ll: vec2f) -> f32 {
 	// 近景層（順 1a）の窓の内側は近景メッシュパス（同じ単位格子を窓へ縮めた物）が地面＝その格子で量子化（主パスはそこを discard 済み・2026-10-28）
 	var win = F.mesh;
 	if (F.nearP.x > 0.5) { let gn = (ll - F.nearBounds.xy) / F.nearBounds.zw; if (gn.x >= 0.0 && gn.x <= 1.0 && gn.y >= 0.0 && gn.y <= 1.0) { win = F.nearBounds; } }
+	if (F.fineP.x > 0.5) { let gf = (ll - F.fineBounds.xy) / F.fineBounds.zw; if (gf.x >= 0.0 && gf.x <= 1.0 && gf.y >= 0.0 && gf.y <= 1.0) { win = F.fineBounds; } }   // 足元層の窓の内側は足元メッシュパスの格子
 	let g = (ll - win.xy) / win.zw;
 	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) { return elev(ll); }
 	let N = G - 1.0;
@@ -807,6 +819,10 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 		let uvF = (in.ll - F.nearBounds.xy) / F.nearBounds.zw;
 		if (uvF.x >= 0.0 && uvF.x <= 1.0 && uvF.y >= 0.0 && uvF.y <= 1.0) { discard; }
 	}
+	if (F.farP.z > 1.5 && F.farP.z < 2.5 && F.fineP.x > 0.5) {   // 近景メッシュパス：足元層の窓の内側は足元メッシュパス（farP.z=3）の担当＝discard
+		let uvG = (in.ll - F.fineBounds.xy) / F.fineBounds.zw;
+		if (uvG.x >= 0.0 && uvG.x <= 1.0 && uvG.y >= 0.0 && uvG.y <= 1.0) { discard; }
+	}
 	// 海〜低地は地形を透明化し海岸線は精細なベクタに委ねる（粗いメッシュの海岸の崖・平野ノイズを消す）。
 	// 帯の上端＝画素 2 個分の標高（1〜100m）：透けた先は海抜0の球の床（同じ地面アトラスを貼る）＝チルトで
 	// h·tanθ ずれた二重像になる（京都 40m×60° で堀が 70m ずれて水色の四角が浮く）。ずれが 2px 未満の高さでだけ透かす＝
@@ -822,7 +838,8 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	if (F.farP.z > 1.5) {   // 近景メッシュパス：歩幅は近景層の 1 texel（下限 0.004° を外す）・陰影の利得は歩幅比で揃える（gl と同式）
 		// ただし r16float の刻み q（1024〜2048 m で 1 m）の 32 倍を下限に＝1 texel 差分が丸め 1 段を勾配に化けさせて粒々の陰影になった（2026-10-31・MapLibre 例 adding-3d-models-using-threejs-on-terrain）。低地（q≤1/32 m）は 1 texel のまま
 		let q = exp2(floor(log2(max(abs(h0), 1.0))) - 10.0);
-		dTex = max(F.nearBounds.w / f32(textureDimensions(nearElevTex, 0).y), q * 32.0 / 111320.0);
+		let nbw = select(F.nearBounds.w, F.fineBounds.w, F.farP.z > 2.5);   // 足元メッシュパス（3）は足元層の 1 texel
+		dTex = max(nbw / f32(textureDimensions(nearElevTex, 0).y), q * 32.0 / 111320.0);
 		shadeK = 0.004 / max(dTex, 1e-6); d = dTex;
 	}
 	let hx = elev(in.ll + vec2f(d, 0.0)) - h0;

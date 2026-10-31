@@ -2,11 +2,11 @@
 // R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
-import { unproject, cameraState, lonlatTo3D, worldToLonLat, WORLD_PX } from "./camera.ts";
+import { unproject, cameraState, lonlatTo3D, worldToLonLat, betaToLonLat, WORLD_PX } from "./camera.ts";
 import { downsampleFlipped, cropResample, SEA_FLOOR } from "./elevation.ts";
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.ts";
 import { createDemSource } from "./dem-src.ts";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
-import type { CameraPose } from "./camera.ts";
+import type { CameraPose, CameraState, LonLat } from "./camera.ts";
 import type { ElevGrid, ElevTileGrid } from "./elevation.ts";
 import type { DtmDecl, TileLoader, ElevTile } from "./elevation/index.ts";
 import type { DemCell, DemSource, DemSpecInput } from "./dem-src.ts";
@@ -30,7 +30,7 @@ export interface CellWindow { range: number; originCX: number; originCY: number;
 export interface TerrainSize { w: number; h: number }
 export interface TerrainDebug {
 	gen: string; loader: string | null; atlasKey: string; staging: boolean; stagePending: number; pendingElev: number; loaded: number; written: number; fails: [string, number][];
-	farKey: string; farLoaded: number; farWritten: number; farFails: [string, number][]; nearKey: string; nearFails: [string, number][]; lru: number; bytes: number; world: string;
+	farKey: string; farLoaded: number; farWritten: number; farFails: [string, number][]; nearKey: string; nearFails: [string, number][]; fineKey: string; lru: number; bytes: number; world: string;
 	lastCam: { z: number; c: number[]; p: number } | null; lastSize: TerrainSize | null;
 }
 export interface Terrain {
@@ -105,6 +105,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 窓は 2 の冪の幅（カメラ高さ×3）・原点は幅/8 の格子に丸める＝微動で焼き直さない。焼けてから張る（舞台裏なし・古い近窓は焼き上がりまで残す）
 	let nearKey = "", nearFails = new Map<string, number>();
 	const nearCache = new Map<string, CellPayload>();   // "lng0,lat0,span,res" → 焼いたセル（直近 12 窓＝行き来で再焼きしない）
+	// 足元層（fine・2026-10-31）＝近景層の窓の内側にもう一段：画面下端の視線が目から 1.5 km 以内で地面に当たる時（fog・high-dynamic-range＝目から 170〜270 m の山）、
+	// その当たり所を含む 1/512°〜1/32° の窓（≈1〜7 m/texel・CWT の最深段）を近景アトラスの右半分（cx=1）へ焼く＝新しいテクスチャ束縛を増やさない。
+	// 近景層（13〜27 m/texel）は目から数百 m では 1 texel が数十画素＝崖が団子だった。elev() が近景層の値へ縁で溶かす（near と同じ一般則）
+	let nearReady = false, fineKey = "", fineSent = "", fineFails = new Map<string, number>();
+	const fineCache = new Map<string, CellPayload>();
+	let nearWin: { lng0: number; lat0: number; span: number; res: number } | null = null;   // 今の近景窓（焼いたセルを足元の判定に引く）
 	const gridMax = (t: { data: ArrayLike<number> }): number => { let m = 0; const d = t.data; for (let i = 0; i < d.length; i += 2) if (d[i] > m) m = d[i]; return m; };
 	console.log("[terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)");   // 版印＝タブが古い世代を掴んだままの切り分け用（HMR跨ぎ事故の実績 9/2）
 	let writtenCells = new Set<string>();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
@@ -255,6 +261,63 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// 外来の DEM が無ければ近景層は焼かない（2026-10-28）：R01 の生タイル（ALOS 30m＝DSM）を目の足元に素のまま出すと、街では建物が地面の瘤になり、
 		// 頂点ごとに標高を引くドレープ（列チャンク層・注記）が瘤の下に沈む（t-columnar?g=depth の手前の面が消えた）。近窓（108m/texel）は従来どおり
 		return null;
+	}
+	// 足元層（fine）の窓替え：画面下端の視線が目から 1.5 km 以内で地面に当たる時だけ。窓は当たり所から視線方向へ幅/4 寄せ・原点は幅/8 の格子。
+	// 地面は近景層の焼いたセル（CWT z13〜14）で引く（R01 の生タイルは外来 DEM の時は LRU に無く 0 だった）＝近景が焼けてから判定が立つ（put が呼び直す）
+	function ensureFine(cam: CameraPose, size: TerrainSize): void {
+		const st = cameraState(cam, size.w, size.h), res = lowMem ? 512 : 1024;
+		const fw = footWindow(st, size, cam, earthM, sampleNearElev);
+		const fkey = fw ? ["F", demGen, fw.span, fw.lng0.toFixed(6), fw.lat0.toFixed(6), res].join(",") : "";
+		if (fkey !== fineKey && (!fkey || (fineFails.get(fkey) || 0) < 3)) {
+			fineKey = fkey; fineSent = "";
+			console.log(`[terrain] fine ${fkey ? `${fw!.span}° at ${fw!.lng0.toFixed(4)},${fw!.lat0.toFixed(4)} (ground ${fw!.dist.toFixed(0)} m from the eye)` : "off"}`);   // 足元層の窓替え（門の切り分け用・近景と同じ頻度）
+			if (!fkey) { renderer.set("elevFineOff"); requestDraw(); }
+			else if (fineCache.has(fkey)) putFine();
+			else {
+				pendingElev++; notifyPending(1);
+				bakeNear(fw!.lng0, fw!.lat0, fw!.span, res).then(payload => {
+					pendingElev--; notifyPending(1);
+					if (fineKey !== fkey) return;
+					if (!payload) { fineFails.set(fkey, (fineFails.get(fkey) || 0) + 1); fineKey = ""; return; }
+					fineCache.set(fkey, payload); if (fineCache.size > 12) fineCache.delete(fineCache.keys().next().value!);
+					putFine();
+				});
+			}
+		}
+	}
+	// 近景層の焼いたセルで標高を引く（足元の判定用）：CPU 再標本化（Float32・row0=南・画素中心）と GPU 再標本化の記述子（DemCell・row0=北・格子点）の両方。窓の外・未焼きは sampleElev
+	function sampleNearElev(lon: number, lat: number): number {
+		const w = nearWin, payload = w ? nearCache.get(nearKey) : null;
+		if (w && payload) {
+			const u = (lon - w.lng0) / w.span, v = (lat - w.lat0) / w.span;
+			if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
+				if (payload instanceof Float32Array) {
+					const n = w.res, gx = Math.min(n - 1, Math.max(0, u * n - 0.5)), gy = Math.min(n - 1, Math.max(0, v * n - 0.5));
+					const x0 = Math.min(n - 2, gx | 0), y0 = Math.min(n - 2, gy | 0), tx = gx - x0, ty = gy - y0;
+					const H = (x: number, y: number): number => payload[(n - 1 - y) * n + x];
+					const top = H(x0, y0) + (H(x0 + 1, y0) - H(x0, y0)) * tx, bot = H(x0, y0 + 1) + (H(x0 + 1, y0 + 1) - H(x0, y0 + 1)) * tx;
+					return top + (bot - top) * ty;
+				}
+				const t = (payload as { tile?: ElevTileGrid }).tile;
+				if (t && t.data && t.width) {
+					const N = t.width, D = t.data, gx = Math.min(N - 1, Math.max(0, u * (N - 1))), gy = Math.min(N - 1, Math.max(0, (1 - v) * (N - 1)));
+					const x0 = Math.min(N - 2, gx | 0), y0 = Math.min(N - 2, gy | 0), tx = gx - x0, ty = gy - y0;
+					const a = D[y0 * N + x0], b = D[y0 * N + x0 + 1], c = D[(y0 + 1) * N + x0], d = D[(y0 + 1) * N + x0 + 1];
+					const v0 = (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+					if (v0 === v0) return v0;
+				}
+			}
+		}
+		return sampleElev(lon, lat);
+	}
+	// 足元層のセルを張る：近景テクスチャがあり（nearReady）・焼けていて・まだ張っていない時。近景の窓替えで張り直す（fineSent を空に）
+	function putFine(): void {
+		if (!fineKey || !nearReady || fineSent === fineKey) return;
+		const payload = fineCache.get(fineKey); if (!payload) return;
+		const [, , spanS, lng0S, lat0S, resS] = fineKey.split(","), span = +spanS, res = +resS;
+		renderer.set("elevFineOn", { originLng: +lng0S, originLat: +lat0S, span, edgeFade: span / 8 });
+		putCell("elevCellNear", payload, 1, 0, res);
+		fineSent = fineKey; requestDraw();
 	}
 	// 全球アトラス（WORLD_ATLAS＝uploader が R90 8 枚から焼いた 1 本・4096×2048 Int16・row0=北・3.25MB）：
 	// R90 固定窓（z<5.5 の近窓・z<8 の far 床）はこれ 1 本で埋める＝従来の R90 8 枚（55MB・復号 8 回・downsampleFlipped 8 回）が
@@ -600,17 +663,22 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			const camDeg = st.camDist * 180 / Math.PI;
 			let span = 1 / 64; while (span < 0.5 && span < camDeg * 3) span *= 2;   // 2 の冪（1/64°〜1/2°）＝カメラ高さの 3 倍を覆う
 			// 窓の中心＝画面下端中央の地面（最も近い見えている地面）。空なら目の足元。そこから注視点へ幅/4 だけ寄せる
-			const foot = worldToLonLat(st.eye), bot = unproject(st, size.w / 2, size.h) || foot;
+			// 下端の地面は注視点の地面の高さの球（centerAlt）で取る：海面球（R=1）だと山岳（fog＝目 3,640 m・地面 2,836 m）で下端の交点が
+			// 実際の手前の尾根より数 km 先へ飛び、窓が目の足元を外して手前の山が R01（108 m/texel）の団子になった（2026-10-31）
+			const groundR = 1 + Math.max(0, cam.centerAlt || 0) / earthM;
+			const foot = betaToLonLat(st.eye), bot = unproject(st, size.w / 2, size.h, groundR) || foot;   // 目の足元（eye は β空間＝betaToLonLat）
 			const dx = cam.center[0] - bot[0], dy = cam.center[1] - bot[1], dd = Math.hypot(dx, dy), reach = Math.min(dd, span / 4);
 			const cx0 = bot[0] + (dd > 1e-9 ? dx / dd * reach : 0), cy0 = bot[1] + (dd > 1e-9 ? dy / dd * reach : 0);
 			const q = span / 8, lng0 = Math.round((cx0 - span / 2) / q) * q, lat0 = Math.max(-90, Math.min(90 - span, Math.round((cy0 - span / 2) / q) * q));
 			const res = lowMem ? 512 : 1024;
 			const nkey = ["N", demGen, span, lng0.toFixed(6), lat0.toFixed(6), res].join(",");
 			if (nkey !== nearKey && (nearFails.get(nkey) || 0) < 3) {
-				nearKey = nkey;
+				nearKey = nkey; nearReady = false; fineSent = ""; nearWin = { lng0, lat0, span, res };   // 近景テクスチャが作り直される＝足元層のセルも張り直す
 				const put = (payload: CellPayload): void => {
 					renderer.set("elevAtlasNear", { originLng: lng0, originLat: lat0, cellsX: 1, cellsY: 1, cellRes: res, cellSpan: span, edgeFade: span / 8 });
 					putCell("elevCellNear", payload, 0, 0, res);
+					nearReady = true; putFine();
+					ensureFine(cam, size);   // 近景のセルが焼けた＝足元の判定（近景のセルで地面を引く）をやり直す
 					requestDraw();
 				};
 				const hit = nearCache.get(nkey);
@@ -626,8 +694,9 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 					});
 				}
 			}
-		} else if (nearKey) {   // 深ズーム離脱＝近景層を畳む
-			nearKey = ""; renderer.set("elevAtlasNearOff"); requestDraw();
+			ensureFine(cam, size);   // 足元層（fine）：画面下端の視線が近くの地面に当たる時だけ
+		} else if (nearKey) {   // 深ズーム離脱＝近景層（と足元層）を畳む
+			nearKey = ""; nearReady = false; fineKey = ""; fineSent = ""; renderer.set("elevAtlasNearOff"); requestDraw();
 		}
 		scheduleAudit();   // 取り込みの顛末を後から突合＝失敗セルを静止中でも埋め直す（リロード不要の自己修復）
 		return true;
@@ -639,9 +708,37 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		atlasKey, staging, stagePending: stagePending.size, pendingElev,
 		loaded: loadedCells.size, written: writtenCells.size, fails: [...cellFails.entries()],
 		farKey, farLoaded: farLoaded.size, farWritten: farWritten.size, farFails: [...farFails.entries()],
-		nearKey, nearFails: [...nearFails.entries()],
+		nearKey, nearFails: [...nearFails.entries()], fineKey,
 		lru: r10Tiles.size, bytes: tileBytes, world: worldAtlas ? "atlas" : worldP ? "loading" : "none",
 		lastCam: lastEnsureCam ? { z: +lastEnsureCam.zoom.toFixed(2), c: [+lastEnsureCam.center[0].toFixed(2), +lastEnsureCam.center[1].toFixed(2)], p: +(lastEnsureCam.pitch || 0).toFixed(2) } : null,
 		lastSize: lastEnsureSize });
 	return { ensure, sampleElev, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug, setDem, demHeight, farMaxElev: () => farMax };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
+}
+
+/** 足元層（fine）の窓：画面下端（左・中央・右）の視線を目から下へ辿り（注視点の高さの球を h ごとに下げて unproject＝同じ視線上の点）、地面（sampleElev）に当たる所を探す。
+ *  最も近い当たりが目から 1.5 km 以内なら、その距離×6 を覆う 2 の冪の窓（1/512°〜1/32°）を当たり所から注視点の方へ幅/4 寄せて返す。当たらない・遠い＝null（足元層なし）。
+ *  fog（目 3,639 m・下端の山 174 m 先）→ 1/64°。high-dynamic-range（左下の崖 222 m 先・中央の谷底は 1.1 km）→ 崖に合わせて 1/64°。海面近くの平地（目 2 km 上）→ null */
+export function footWindow(st: CameraState, size: TerrainSize, cam: CameraPose, earthM: number, sampleElev: (lon: number, lat: number) => number): { lng0: number; lat0: number; span: number; dist: number } | null {
+	const eye = st.eye, hEye = (Math.hypot(eye[0], eye[1], eye[2]) - 1) * earthM, foot = betaToLonLat(eye);   // cameraState().eye は β空間＝betaToLonLat（worldToLonLat だと楕円体で緯度が 0.1° ずれ、足元が 10 km 北に飛んだ）
+	const hMin = Math.max(-500, hEye - 2500), step = Math.max(4, (hEye - hMin) / 400);
+	let hit: LonLat | null = null, dist = Infinity;
+	for (const sx of [size.w * 0.1, size.w / 2, size.w * 0.9]) {
+		for (let h = hEye - step; h >= hMin; h -= step) {
+			const p = unproject(st, sx, size.h, 1 + h / earthM);
+			if (!p) continue;
+			const g = sampleElev(p[0], p[1]);
+			if (!(g === g && g >= h)) continue;
+			const cosL = Math.cos(p[1] * Math.PI / 180), horiz = Math.hypot((p[0] - foot[0]) * cosL, p[1] - foot[1]) * earthM * Math.PI / 180;
+			const d = Math.hypot(horiz, hEye - h);
+			if (d < dist) { dist = d; hit = p; }
+			break;
+		}
+	}
+	if (!hit || dist > 1500) return null;
+	const wantDeg = dist * 6 / (earthM * Math.PI / 180);
+	let span = 1 / 512; while (span < 1 / 32 && span < wantDeg) span *= 2;
+	const dx = cam.center[0] - hit[0], dy = cam.center[1] - hit[1], dd = Math.hypot(dx, dy), reach = Math.min(dd, span / 4);
+	const cx0 = hit[0] + (dd > 1e-9 ? dx / dd * reach : 0), cy0 = hit[1] + (dd > 1e-9 ? dy / dd * reach : 0);
+	const q = span / 8, lng0 = Math.round((cx0 - span / 2) / q) * q, lat0 = Math.max(-90, Math.min(90 - span, Math.round((cy0 - span / 2) / q) * q));
+	return { lng0, lat0, span, dist };
 }

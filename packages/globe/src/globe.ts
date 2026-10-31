@@ -806,6 +806,7 @@ function syncCenterAlt() {
 	if (centerElevMode === "ground" && !noTerr) sampleGroundElev();   // 基図の無い地図（style 無し・基図の門の外）でも中心の地面を引く（基図圏の tiles.update の前でも呼ぶ＝二重は geKey で潰れる）
 	const v = centerElevMode === "ground" && !noTerr ? groundElevM : (centerElevFixed ?? 0);
 	if ((cam.centerAlt || 0) !== v) { cam.centerAlt = v; requestDraw(); }
+	if (centerElevMode === "ground" && !noTerr && (cam.groundAlt || 0) !== v) { cam.groundAlt = v; requestDraw(); }   // 地面に乗せた注視点＝其の下の地面も同じ高さ（画像窓の距離の物差し）
 }
 const GMAX = +(/[?&]gmax=(\d+)/.exec(location.search)?.[1] ?? 0) || null;   // 地形メッシュ格子の天井（perf plan §1 計器 c・?gmax=768＝P4 の上限見積り。既定 null＝1536/lowMem 1024）
 const GNDFAST = !/[?&]gndfast=0/.test(location.search);   // perf plan P6 の逃げ道＝0 で gndMix0 を旧順序（4 本標本化してから捨てる）へ。既定 true
