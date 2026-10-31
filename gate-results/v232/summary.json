@@ -1,0 +1,9371 @@
+{
+ "at": "2026-10-31T21:57:17.334Z",
+ "cesium": "1.146.0",
+ "n": 309,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 92,
+  "3": 206,
+  "null": 11
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 78,
+  "3": 148,
+  "null": 8
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 92,
+   "examples": [
+    "3d-tiles-batch-table-hierarchy",
+    "3d-tiles-bim",
+    "3d-tiles-clipping-planes",
+    "3d-tiles-compare",
+    "3d-tiles-edge-visibility",
+    "3d-tiles-feature-styling",
+    "3d-tiles-formats",
+    "3d-tiles-gaussian-splatting",
+    "3d-tiles-gaussian-splatting-comparison",
+    "3d-tiles-inspector",
+    "3d-tiles-nga-gpm-visualization",
+    "3d-tiles-photogrammetry-classification",
+    "3d-tiles-picking-dev",
+    "3d-tiles-point-cloud",
+    "3d-tiles-point-cloud-classification",
+    "3d-tiles-point-cloud-shading",
+    "3d-tiles-property-lod-river",
+    "3d-tiles-split-dev",
+    "3d-tiles-terrain-classification",
+    "3d-tiles-vertical-exaggeration",
+    "aec-architectural-design",
+    "aec-elements-api-query",
+    "aec-isolate-by-category",
+    "aec-metadata-styling",
+    "aec-snapping",
+    "aerometrex-san-francisco",
+    "atmosphere",
+    "billboards-instancing-dev",
+    "bing-maps-labels-only",
+    "bloom",
+    "camera-controllers",
+    "cartographic-limit-rectangle",
+    "cesium-widget",
+    "clamp-entities-to-ground",
+    "classification",
+    "classification-types",
+    "client-side-snapping-dev",
+    "clipping-performance-dev",
+    "clipping-regions",
+    "custom-datasource",
+    "custom-per-feature-post-process",
+    "cylinders-and-cones",
+    "czml-custom-properties",
+    "czml-model",
+    "czml-model-articulations",
+    "czml-path",
+    "czml-polygon-interpolating-references",
+    "depth-of-field",
+    "drawing-on-terrain",
+    "fog",
+    "fxaa",
+    "geometry-and-appearances",
+    "geometry-height-reference",
+    "globe-interior",
+    "google-2d-tiles",
+    "google-photorealistic-3d-tiles",
+    "google-streetview-panorama",
+    "gpx",
+    "ground-polyline-material-dev",
+    "ground-primitive-dev",
+    "ground-primitive-materials-dev",
+    "headingpitchroll",
+    "high-dynamic-range",
+    "hybrid-snapping-dev",
+    "imagery-assets-available-from-ion",
+    "imagery-layers-split",
+    "imodel-mesh-export-service",
+    "interpolation",
+    "ion-snapping-dev",
+    "japan-buildings",
+    "labels",
+    "lighting",
+    "material-with-custom-glsl",
+    "msaa",
+    "particle-system",
+    "particle-system-weather",
+    "pbr-lighting-dev",
+    "physically-based-materials",
+    "pick-from-ray-dev",
+    "post-processing",
+    "projection",
+    "rectangle",
+    "shadows",
+    "shadows-dev",
+    "show-or-hide-entities",
+    "terrain-clipping-planes",
+    "terrain-entity-batching-dev",
+    "terrain-exaggeration",
+    "time-dynamic-wheels",
+    "video",
+    "voxels",
+    "web-map-tile-service-with-time"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-models",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1961,
+    "n": 2092,
+    "colour": 0.9541108986615678,
+    "edge": 0.9775334608030593,
+    "blob": 14,
+    "masked": 980
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-models-articulations-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2097,
+    "n": 2099,
+    "colour": 0.9995235826584088,
+    "edge": 0.9995235826584088,
+    "blob": 0,
+    "masked": 973
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "3d-models-coloring",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1488,
+    "n": 1593,
+    "colour": 0.9428750784682988,
+    "edge": 0.9887005649717514,
+    "blob": 10,
+    "masked": 1479
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-models-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1772,
+    "n": 1883,
+    "colour": 0.9628252788104089,
+    "edge": 0.9622942113648434,
+    "blob": 11,
+    "masked": 1189
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "3d-models-node-explorer-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1923,
+    "n": 1990,
+    "colour": 0.978391959798995,
+    "edge": 0.9854271356783919,
+    "blob": 5,
+    "masked": 1082
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "3d-tiles-1.1-cdb-yemen",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1964,
+    "n": 2010,
+    "colour": 0.9895522388059701,
+    "edge": 0.9796019900497512,
+    "blob": 5,
+    "masked": 1062
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-1.1-photogrammetry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1705,
+    "n": 1835,
+    "colour": 0.9667574931880109,
+    "edge": 0.9569482288828338,
+    "blob": 12,
+    "masked": 1237
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-1.1-photogrammetry-classification",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1930,
+    "n": 2048,
+    "colour": 0.9560546875,
+    "edge": 0.982421875,
+    "blob": 4,
+    "masked": 1024
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-1.1-s2-globe",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1933,
+    "n": 2062,
+    "colour": 0.9922405431619786,
+    "edge": 0.937439379243453,
+    "blob": 1,
+    "masked": 1010
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-3d-native-vector",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2048,
+    "n": 2143,
+    "colour": 0.9822678488100793,
+    "edge": 0.9701353243117126,
+    "blob": 10,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-adjust-height",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2013,
+    "n": 2063,
+    "colour": 0.9975763451284537,
+    "edge": 0.9781871061560834,
+    "blob": 0,
+    "masked": 1009
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-tiles-batch-table-hierarchy",
+   "level": 2,
+   "reasons": [
+    "picture: colour 98% · edges 99% of the cells match · a patch of 21 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2043,
+    "n": 2080,
+    "colour": 0.9836538461538461,
+    "edge": 0.9855769230769231,
+    "blob": 21,
+    "masked": 992
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-tiles-bim",
+   "level": 2,
+   "reasons": [
+    "picture: colour 94% · edges 94% of the cells match · a patch of 86 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1905,
+    "n": 2107,
+    "colour": 0.9411485524442335,
+    "edge": 0.9425723777883246,
+    "blob": 86,
+    "masked": 965
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-clipping-planes",
+   "level": 2,
+   "reasons": [
+    "picture: colour 98% · edges 93% of the cells match · a patch of 30 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1895,
+    "n": 2050,
+    "colour": 0.9775609756097561,
+    "edge": 0.9253658536585366,
+    "blob": 30,
+    "masked": 1022
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-compare",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 88% of the cells match · a patch of 37 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1723,
+    "n": 2071,
+    "colour": 0.9198454852728151,
+    "edge": 0.8783196523418638,
+    "blob": 37,
+    "masked": 1001
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-edge-visibility",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 93% of the cells match · a patch of 162 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1746,
+    "n": 2017,
+    "colour": 0.8988596926127913,
+    "edge": 0.9291026276648487,
+    "blob": 162,
+    "masked": 1055
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-feature-picking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1889,
+    "n": 2143,
+    "colour": 0.9444703686420906,
+    "edge": 0.9141390573961736,
+    "blob": 9,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-feature-styling",
+   "level": 2,
+   "reasons": [
+    "picture: colour 82% · edges 92% of the cells match · a patch of 23 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1545,
+    "n": 1975,
+    "colour": 0.8182278481012658,
+    "edge": 0.920506329113924,
+    "blob": 23,
+    "masked": 1097
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-formats",
+   "level": 2,
+   "reasons": [
+    "picture: colour 94% · edges 98% of the cells match · a patch of 27 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1792,
+    "n": 1926,
+    "colour": 0.9397715472481828,
+    "edge": 0.9750778816199377,
+    "blob": 27,
+    "masked": 1146
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-tiles-gaussian-splats-with-lod",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2074,
+    "n": 2383,
+    "colour": 0.9156525388166177,
+    "edge": 0.9332773814519513,
+    "blob": 17,
+    "masked": 689
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-gaussian-splatting",
+   "level": 2,
+   "reasons": [
+    "picture: colour 93% · edges 97% of the cells match · a patch of 26 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1958,
+    "n": 2143,
+    "colour": 0.9281381241250584,
+    "edge": 0.9701353243117126,
+    "blob": 26,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-gaussian-splatting-comparison",
+   "level": 2,
+   "reasons": [
+    "picture: colour 80% · edges 83% of the cells match · a patch of 40 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1407,
+    "n": 2067,
+    "colour": 0.8040638606676342,
+    "edge": 0.8301886792452831,
+    "blob": 40,
+    "masked": 1005
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-inspector",
+   "level": 2,
+   "reasons": [
+    "picture: colour 81% · edges 85% of the cells match · a patch of 51 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1382,
+    "n": 2041,
+    "colour": 0.8074473297403234,
+    "edge": 0.8486036256736894,
+    "blob": 51,
+    "masked": 1031
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-interactivity",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1969,
+    "n": 2033,
+    "colour": 0.9945892769306444,
+    "edge": 0.9739301524840138,
+    "blob": 1,
+    "masked": 1039
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-interior",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2124,
+    "n": 2143,
+    "colour": 1,
+    "edge": 0.9911339244050397,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-nga-gpm-visualization",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 93% of the cells match · a patch of 37 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1313,
+    "n": 1462,
+    "colour": 0.9117647058823529,
+    "edge": 0.9343365253077975,
+    "blob": 37,
+    "masked": 1610
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-performance-testing-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2061,
+    "n": 2065,
+    "colour": 0.9995157384987894,
+    "edge": 0.998547215496368,
+    "blob": 0,
+    "masked": 1007
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-photogrammetry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2070,
+    "n": 2143,
+    "colour": 0.9869342043863742,
+    "edge": 0.973401773215119,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-photogrammetry-classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 93% · edges 96% of the cells match · a patch of 32 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1919,
+    "n": 2110,
+    "colour": 0.9327014218009478,
+    "edge": 0.9649289099526066,
+    "blob": 32,
+    "masked": 962
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-picking-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 93% · edges 90% of the cells match · a patch of 109 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2241,
+    "n": 2489,
+    "colour": 0.9272800321414223,
+    "edge": 0.9015668943350743,
+    "blob": 109,
+    "masked": 583
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-point-cloud",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 93% of the cells match · a patch of 38 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1827,
+    "n": 2143,
+    "colour": 0.9029398040130658,
+    "edge": 0.9314045730284648,
+    "blob": 38,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-point-cloud-classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 93% of the cells match · a patch of 38 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1814,
+    "n": 2143,
+    "colour": 0.8982734484367709,
+    "edge": 0.9295380307979468,
+    "blob": 38,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-point-cloud-shading",
+   "level": 2,
+   "reasons": [
+    "picture: colour 77% · edges 91% of the cells match · a patch of 218 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1055,
+    "n": 1453,
+    "colour": 0.7708189951823813,
+    "edge": 0.9084652443220922,
+    "blob": 218,
+    "masked": 1619
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-point-cloud-styling",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2049,
+    "n": 2089,
+    "colour": 0.9832455720440402,
+    "edge": 0.9937769267592149,
+    "blob": 1,
+    "masked": 983
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "3d-tiles-property-lod-river",
+   "level": 2,
+   "reasons": [
+    "picture: colour 80% · edges 92% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1349,
+    "n": 1793,
+    "colour": 0.8047964305633017,
+    "edge": 0.920803123257111,
+    "blob": 2,
+    "masked": 1279
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-split-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 95% of the cells match · a patch of 59 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1706,
+    "n": 1896,
+    "colour": 0.9187763713080169,
+    "edge": 0.9535864978902954,
+    "blob": 59,
+    "masked": 1176
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "3d-tiles-terrain-classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 98% · edges 55% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1130,
+    "n": 2092,
+    "colour": 0.9837476099426387,
+    "edge": 0.5525812619502868,
+    "blob": 8,
+    "masked": 980
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-vertical-exaggeration",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 88% of the cells match · a patch of 30 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1787,
+    "n": 2266,
+    "colour": 0.8640776699029126,
+    "edge": 0.8751103265666372,
+    "blob": 30,
+    "masked": 806
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aec-architectural-design",
+   "level": 2,
+   "reasons": [
+    "picture: colour 78% · edges 94% of the cells match · a patch of 263 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1558,
+    "n": 2056,
+    "colour": 0.7840466926070039,
+    "edge": 0.9406614785992218,
+    "blob": 263,
+    "masked": 1016
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aec-clipping",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2283,
+    "n": 2306,
+    "colour": 0.9900260190806591,
+    "edge": 0.9995663486556808,
+    "blob": 2,
+    "masked": 766
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aec-elements-api-query",
+   "level": 2,
+   "reasons": [
+    "picture: colour 76% · edges 80% of the cells match · a patch of 396 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1739,
+    "n": 2440,
+    "colour": 0.7635245901639345,
+    "edge": 0.7979508196721311,
+    "blob": 396,
+    "masked": 632
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aec-isolate-by-category",
+   "level": 2,
+   "reasons": [
+    "picture: colour 78% · edges 94% of the cells match · a patch of 263 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1545,
+    "n": 2032,
+    "colour": 0.7849409448818898,
+    "edge": 0.9409448818897638,
+    "blob": 263,
+    "masked": 1040
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aec-metadata-styling",
+   "level": 2,
+   "reasons": [
+    "picture: colour 66% · edges 73% of the cells match · a patch of 265 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 955,
+    "n": 2044,
+    "colour": 0.6565557729941291,
+    "edge": 0.726027397260274,
+    "blob": 265,
+    "masked": 1028
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aec-snapping",
+   "level": 2,
+   "reasons": [
+    "picture: colour 63% · edges 74% of the cells match · a patch of 52 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1042,
+    "n": 1987,
+    "colour": 0.6295923502767992,
+    "edge": 0.7357825868142929,
+    "blob": 52,
+    "masked": 1085
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aec-tileset-metadata-filtering",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 930,
+    "n": 1131,
+    "colour": 0.9266136162687887,
+    "edge": 0.8647214854111406,
+    "blob": 7,
+    "masked": 1941
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aerometrex-san-francisco",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 93% of the cells match · a patch of 43 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1843,
+    "n": 2107,
+    "colour": 0.9017560512577124,
+    "edge": 0.9311817750355956,
+    "blob": 43,
+    "masked": 965
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ambient-occlusion",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1654,
+    "n": 1775,
+    "colour": 0.9391549295774648,
+    "edge": 0.9904225352112676,
+    "blob": 3,
+    "masked": 1297
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "arcgis-mapserver",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2032,
+    "n": 2037,
+    "colour": 0.997545409916544,
+    "edge": 0.9995090819833088,
+    "blob": 1,
+    "masked": 1035
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "arcgis-tiled-elevation-terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2122,
+    "n": 2143,
+    "colour": 0.997200186654223,
+    "edge": 0.9911339244050397,
+    "blob": 2,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "arcticdem",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1869,
+    "n": 2107,
+    "colour": 0.9269102990033222,
+    "edge": 0.920265780730897,
+    "blob": 19,
+    "masked": 965
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "atmosphere",
+   "level": 2,
+   "reasons": [
+    "picture: colour 66% · edges 87% of the cells match · a patch of 162 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 473,
+    "n": 817,
+    "colour": 0.6585067319461444,
+    "edge": 0.8714810281517748,
+    "blob": 162,
+    "masked": 2255
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "azure-2d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2059,
+    "n": 2757,
+    "colour": 0.8585418933623504,
+    "edge": 0.780195865070729,
+    "blob": 14,
+    "masked": 315
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "bathymetry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1385,
+    "n": 1924,
+    "colour": 0.9797297297297297,
+    "edge": 0.7276507276507277,
+    "blob": 1,
+    "masked": 1148
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "billboardclamptoground-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1970,
+    "n": 1989,
+    "colour": 0.9994972347913524,
+    "edge": 0.9909502262443439,
+    "blob": 0,
+    "masked": 1083
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "billboards",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2057,
+    "n": 2062,
+    "colour": 0.9995150339476236,
+    "edge": 0.9980601357904947,
+    "blob": 0,
+    "masked": 1010
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "billboards-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2075,
+    "n": 2080,
+    "colour": 0.9995192307692308,
+    "edge": 0.9980769230769231,
+    "blob": 0,
+    "masked": 992
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "billboards-instancing-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 75% · edges 83% of the cells match · a patch of 485 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1516,
+    "n": 2031,
+    "colour": 0.7508616445100935,
+    "edge": 0.8261939931068439,
+    "blob": 485,
+    "masked": 1041
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "bing-maps-labels-only",
+   "level": 2,
+   "reasons": [
+    "picture: colour 87% · edges 68% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1177,
+    "n": 1892,
+    "colour": 0.8747357293868921,
+    "edge": 0.6754756871035941,
+    "blob": 16,
+    "masked": 1180
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "bloom",
+   "level": 2,
+   "reasons": [
+    "picture: colour 74% · edges 98% of the cells match · a patch of 55 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1349,
+    "n": 1837,
+    "colour": 0.738704409363092,
+    "edge": 0.9831246597713663,
+    "blob": 55,
+    "masked": 1235
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "blue-marble",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2140,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.999066728884741,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "box",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2040,
+    "n": 2143,
+    "colour": 0.9701353243117126,
+    "edge": 0.9813345776948204,
+    "blob": 5,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "box-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2140,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.999066728884741,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "box-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "callback-position-property",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1583,
+    "n": 2143,
+    "colour": 0.9878674755016332,
+    "edge": 0.7452169855342977,
+    "blob": 6,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "callback-property",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1705,
+    "n": 2143,
+    "colour": 0.8992067195520299,
+    "edge": 0.8609426038264115,
+    "blob": 6,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "camera",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2020,
+    "n": 2023,
+    "colour": 0.9995056846267919,
+    "edge": 0.9990113692535838,
+    "blob": 0,
+    "masked": 1049
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "camera-controllers",
+   "level": 2,
+   "reasons": [
+    "picture: colour 97% · edges 93% of the cells match · a patch of 35 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1597,
+    "n": 1727,
+    "colour": 0.9669947886508397,
+    "edge": 0.9253039953676896,
+    "blob": 35,
+    "masked": 1345
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "camera-tutorial",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1861,
+    "n": 1864,
+    "colour": 0.9994635193133047,
+    "edge": 0.9989270386266095,
+    "blob": 0,
+    "masked": 1208
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "cardboard",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1632,
+    "n": 2143,
+    "colour": 0.9491367242183855,
+    "edge": 0.7909472701819878,
+    "blob": 5,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cartographic-limit-rectangle",
+   "level": 2,
+   "reasons": [
+    "picture: colour 76% · edges 87% of the cells match · a patch of 442 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1590,
+    "n": 2098,
+    "colour": 0.7640610104861774,
+    "edge": 0.8708293612964728,
+    "blob": 442,
+    "masked": 974
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cesium-inspector",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2126,
+    "n": 2139,
+    "colour": 0.9995324918186068,
+    "edge": 0.9943899018232819,
+    "blob": 0,
+    "masked": 933
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cesium-osm-buildings",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1817,
+    "n": 2143,
+    "colour": 0.9160055996266916,
+    "edge": 0.9099393373775082,
+    "blob": 7,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cesium-widget",
+   "level": 2,
+   "reasons": [
+    "picture: colour 96% · edges 92% of the cells match · a patch of 61 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2766,
+    "n": 3036,
+    "colour": 0.9647562582345192,
+    "edge": 0.9229249011857708,
+    "blob": 61,
+    "masked": 36
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "cesium-world-terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2015,
+    "n": 2143,
+    "colour": 0.9883341110592627,
+    "edge": 0.9514699020065329,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "circle-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2139,
+    "n": 2143,
+    "colour": 0.999066728884741,
+    "edge": 0.999066728884741,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "circle-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2140,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.999066728884741,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "circles-and-ellipses",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2061,
+    "n": 2143,
+    "colour": 0.974335044330378,
+    "edge": 0.9874008399440037,
+    "blob": 6,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "clamp-entities-to-ground",
+   "level": 2,
+   "reasons": [
+    "picture: colour 77% · edges 87% of the cells match · a patch of 128 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1651,
+    "n": 2326,
+    "colour": 0.7656921754084265,
+    "edge": 0.8671539122957868,
+    "blob": 128,
+    "masked": 746
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "clamp-model-to-ground",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1939,
+    "n": 2015,
+    "colour": 0.9751861042183623,
+    "edge": 0.9796526054590571,
+    "blob": 9,
+    "masked": 1057
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "clamp-to-3d-model",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1834,
+    "n": 2143,
+    "colour": 0.9491367242183855,
+    "edge": 0.8791413905739618,
+    "blob": 8,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 94% of the cells match · a patch of 38 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1637,
+    "n": 1795,
+    "colour": 0.9186629526462395,
+    "edge": 0.9420612813370474,
+    "blob": 38,
+    "masked": 1277
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "classification-types",
+   "level": 2,
+   "reasons": [
+    "picture: colour 96% · edges 96% of the cells match · a patch of 77 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1915,
+    "n": 2078,
+    "colour": 0.9552454282964389,
+    "edge": 0.9629451395572666,
+    "blob": 77,
+    "masked": 994
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "client-side-snapping-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 93% of the cells match · a patch of 162 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1810,
+    "n": 2078,
+    "colour": 0.9032723772858517,
+    "edge": 0.9311838306063522,
+    "blob": 162,
+    "masked": 994
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "clipping-performance-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 72% · edges 96% of the cells match · a patch of 503 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1303,
+    "n": 1890,
+    "colour": 0.7201058201058201,
+    "edge": 0.9597883597883597,
+    "blob": 503,
+    "masked": 1182
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "clipping-regions",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 97% of the cells match · a patch of 118 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1871,
+    "n": 2072,
+    "colour": 0.9131274131274131,
+    "edge": 0.972972972972973,
+    "blob": 118,
+    "masked": 1000
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "clock",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2007,
+    "n": 2050,
+    "colour": 0.995609756097561,
+    "edge": 0.9834146341463414,
+    "blob": 1,
+    "masked": 1022
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "cloud-parameters",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1526,
+    "n": 1591,
+    "colour": 0.9767441860465116,
+    "edge": 0.9635449402891263,
+    "blob": 19,
+    "masked": 1481
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "clouds",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2023,
+    "n": 2143,
+    "colour": 0.974335044330378,
+    "edge": 0.9636024265048997,
+    "blob": 8,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "clustering",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1904,
+    "n": 1918,
+    "colour": 0.9932221063607924,
+    "edge": 0.997393117831074,
+    "blob": 2,
+    "masked": 1154
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "constant-lod-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1778,
+    "n": 1973,
+    "colour": 0.9244804865686771,
+    "edge": 0.9483020780537252,
+    "blob": 18,
+    "masked": 1099
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "coplanar-polygon-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "coplanar-polygon-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "corridor",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2056,
+    "n": 2143,
+    "colour": 0.974335044330378,
+    "edge": 0.9836677554829678,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "corridor-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2140,
+    "n": 2143,
+    "colour": 0.999066728884741,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "corridor-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "custom-datasource",
+   "level": 2,
+   "reasons": [
+    "picture: colour 97% · edges 96% of the cells match · a patch of 27 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2246,
+    "n": 2353,
+    "colour": 0.9660008499787506,
+    "edge": 0.9626009349766256,
+    "blob": 27,
+    "masked": 719
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "custom-geocoder",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2205,
+    "n": 2251,
+    "colour": 0.9822301199466904,
+    "edge": 0.9906708129720124,
+    "blob": 4,
+    "masked": 821
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "custom-per-feature-post-process",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 93% of the cells match · a patch of 38 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1915,
+    "n": 2143,
+    "colour": 0.9155389640690621,
+    "edge": 0.9253383107792814,
+    "blob": 38,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "custom-post-process",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2031,
+    "n": 2143,
+    "colour": 0.9482034531031265,
+    "edge": 0.9958002799813346,
+    "blob": 15,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "custom-primitive-dev",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [
+    {
+     "what": "scene.primitives.add(CustomPrimitive)",
+     "n": 1
+    }
+   ],
+   "refWhy": "never finished loading",
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "custom-shaders-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2044,
+    "n": 2119,
+    "colour": 0.975932043416706,
+    "edge": 0.9830108541764984,
+    "blob": 18,
+    "masked": 953
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "custom-shaders-models",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1980,
+    "n": 2080,
+    "colour": 0.95625,
+    "edge": 0.989423076923077,
+    "blob": 8,
+    "masked": 992
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "custom-shaders-property-textures",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1917,
+    "n": 2098,
+    "colour": 0.9790276453765491,
+    "edge": 0.9204003813155386,
+    "blob": 3,
+    "masked": 974
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cylinder-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "cylinder-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "cylinders-and-cones",
+   "level": 2,
+   "reasons": [
+    "picture: colour 84% · edges 95% of the cells match · a patch of 54 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1713,
+    "n": 2143,
+    "colour": 0.8413439104059729,
+    "edge": 0.9482034531031265,
+    "blob": 54,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2067,
+    "n": 2107,
+    "colour": 0.9990507831039392,
+    "edge": 0.9814902705268154,
+    "blob": 0,
+    "masked": 965
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2074,
+    "n": 2143,
+    "colour": 0.9780681287914139,
+    "edge": 0.9869342043863742,
+    "blob": 9,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-billboard-and-label",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2133,
+    "n": 2143,
+    "colour": 0.9958002799813346,
+    "edge": 0.997200186654223,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-box",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2041,
+    "n": 2143,
+    "colour": 0.9701353243117126,
+    "edge": 0.9818012132524498,
+    "blob": 5,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-circles-and-ellipses",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2054,
+    "n": 2143,
+    "colour": 0.9710685954269715,
+    "edge": 0.9869342043863742,
+    "blob": 6,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-colors",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2063,
+    "n": 2143,
+    "colour": 0.9850676621558563,
+    "edge": 0.9776014932337844,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-cones-and-cylinders",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1779,
+    "n": 2143,
+    "colour": 0.8740083994400373,
+    "edge": 0.9547363509099394,
+    "blob": 8,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-corridor",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2067,
+    "n": 2143,
+    "colour": 0.9799346710219319,
+    "edge": 0.9836677554829678,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-custom-properties",
+   "level": 2,
+   "reasons": [
+    "picture: colour 62% · edges 91% of the cells match · a patch of 699 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1218,
+    "n": 2104,
+    "colour": 0.6197718631178707,
+    "edge": 0.9115969581749049,
+    "blob": 699,
+    "masked": 968
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-model",
+   "level": 2,
+   "reasons": [
+    "picture: colour 78% · edges 79% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1460,
+    "n": 2143,
+    "colour": 0.781614559029398,
+    "edge": 0.7928138124125058,
+    "blob": 13,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-model-articulations",
+   "level": 2,
+   "reasons": [
+    "picture: colour 73% · edges 77% of the cells match · a patch of 27 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1322,
+    "n": 2143,
+    "colour": 0.732151189920672,
+    "edge": 0.7685487634157723,
+    "blob": 27,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-model-data-url",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1759,
+    "n": 2143,
+    "colour": 0.8959402706486235,
+    "edge": 0.8637424171721885,
+    "blob": 9,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-model-node-transformations",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2049,
+    "n": 2143,
+    "colour": 0.9906672888474102,
+    "edge": 0.9631357909472702,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-path",
+   "level": 2,
+   "reasons": [
+    "picture: colour 96% · edges 6% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 130,
+    "n": 2152,
+    "colour": 0.9632899628252788,
+    "edge": 0.06366171003717472,
+    "blob": 20,
+    "masked": 920
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "czml-point",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1860,
+    "n": 2143,
+    "colour": 0.974335044330378,
+    "edge": 0.8912739150723286,
+    "blob": 2,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-point-time-dynamic",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2121,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9902006532897807,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-polygon",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2028,
+    "n": 2143,
+    "colour": 0.9645356976201587,
+    "edge": 0.9818012132524498,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-polygon-interpolating-references",
+   "level": 2,
+   "reasons": [
+    "picture: colour 94% · edges 98% of the cells match · a patch of 47 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2003,
+    "n": 2143,
+    "colour": 0.9435370975268316,
+    "edge": 0.976201586560896,
+    "blob": 47,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-polygon-intervals-availability",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2120,
+    "n": 2143,
+    "colour": 0.998133457769482,
+    "edge": 0.9911339244050397,
+    "blob": 1,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-polyline",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2115,
+    "n": 2143,
+    "colour": 0.9930004666355576,
+    "edge": 0.9934671021931871,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-polyline-volume",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2021,
+    "n": 2143,
+    "colour": 0.9561362575828278,
+    "edge": 0.9864675688287448,
+    "blob": 14,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-position-definitions",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-rectangle",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2108,
+    "n": 2143,
+    "colour": 0.9911339244050397,
+    "edge": 0.9920671955202987,
+    "blob": 1,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-reference-properties",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2088,
+    "n": 2143,
+    "colour": 0.9822678488100793,
+    "edge": 0.9771348576761549,
+    "blob": 6,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-spheres-and-ellipsoids",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2031,
+    "n": 2143,
+    "colour": 0.9631357909472702,
+    "edge": 0.9846010265982268,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-wall",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2107,
+    "n": 2143,
+    "colour": 0.9916005599626692,
+    "edge": 0.9916005599626692,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-zindex",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2091,
+    "n": 2143,
+    "colour": 0.9804013065795614,
+    "edge": 0.9934671021931871,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "datasource-ordering",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2123,
+    "n": 2125,
+    "colour": 0.9995294117647059,
+    "edge": 0.9995294117647059,
+    "blob": 0,
+    "masked": 947
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "depth-of-field",
+   "level": 2,
+   "reasons": [
+    "picture: colour 85% · edges 66% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1025,
+    "n": 1915,
+    "colour": 0.8480417754569191,
+    "edge": 0.66266318537859,
+    "blob": 19,
+    "masked": 1157
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "display-conditions-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2093,
+    "n": 2098,
+    "colour": 0.9990467111534795,
+    "edge": 0.998093422306959,
+    "blob": 0,
+    "masked": 974
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "distance-display-conditions",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2090,
+    "n": 2098,
+    "colour": 0.9985700667302193,
+    "edge": 0.9971401334604385,
+    "blob": 0,
+    "masked": 974
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "drape-imagery-on-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2156,
+    "n": 2386,
+    "colour": 0.9761106454316848,
+    "edge": 0.9161777032690696,
+    "blob": 3,
+    "masked": 686
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "drawing-on-terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 80% · edges 76% of the cells match · a patch of 23 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1262,
+    "n": 2031,
+    "colour": 0.8010832102412605,
+    "edge": 0.7612013786312162,
+    "blob": 23,
+    "masked": 1041
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "earth-at-night",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2113,
+    "n": 2113,
+    "colour": 1,
+    "edge": 1,
+    "blob": 0,
+    "masked": 959
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "edge-visibility-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "elevation-band-material",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1506,
+    "n": 1735,
+    "colour": 0.90835734870317,
+    "edge": 0.9331412103746398,
+    "blob": 15,
+    "masked": 1337
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ellipse-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.999066728884741,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "ellipse-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "ellipsoid-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "ellipsoid-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "ellipsoid-surface-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2119,
+    "n": 2143,
+    "colour": 0.9944003733084461,
+    "edge": 0.9944003733084461,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "entity-tracking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1977,
+    "n": 2023,
+    "colour": 0.9812160158180919,
+    "edge": 0.995551161641127,
+    "blob": 0,
+    "masked": 1049
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "export-kml",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2059,
+    "n": 2098,
+    "colour": 0.9990467111534795,
+    "edge": 0.9818875119161106,
+    "blob": 0,
+    "masked": 974
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "fog",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 44% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 650,
+    "n": 1519,
+    "colour": 0.9137590520079,
+    "edge": 0.43647136273864384,
+    "blob": 7,
+    "masked": 1553
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "fog-post-process",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2125,
+    "n": 2143,
+    "colour": 0.9976668222118525,
+    "edge": 0.9934671021931871,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "frustum-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2128,
+    "n": 2143,
+    "colour": 0.9934671021931871,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "fxaa",
+   "level": 2,
+   "reasons": [
+    "picture: colour 68% · edges 80% of the cells match · a patch of 253 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1356,
+    "n": 2125,
+    "colour": 0.6814117647058824,
+    "edge": 0.7990588235294117,
+    "blob": 253,
+    "masked": 947
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "geojson-and-topojson",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1992,
+    "n": 2068,
+    "colour": 0.9772727272727273,
+    "edge": 0.9850096711798839,
+    "blob": 11,
+    "masked": 1004
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "geojson-simplestyle",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [
+    {
+     "what": "sceneMode other than SCENE3D (the globe is 3D only)",
+     "n": 1
+    }
+   ],
+   "refWhy": "starts in 2D / Columbus view: not graded (the globe is 3D only)",
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "geometry-and-appearances",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 96% of the cells match · a patch of 23 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1930,
+    "n": 2143,
+    "colour": 0.9206719552029865,
+    "edge": 0.9636024265048997,
+    "blob": 23,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "geometry-and-appearances-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2065,
+    "n": 2143,
+    "colour": 0.9771348576761549,
+    "edge": 0.9771348576761549,
+    "blob": 14,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "geometry-height-reference",
+   "level": 2,
+   "reasons": [
+    "picture: colour 92% · edges 92% of the cells match · a patch of 155 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1741,
+    "n": 2057,
+    "colour": 0.91541079241614,
+    "edge": 0.9173553719008265,
+    "blob": 155,
+    "masked": 1015
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "geometry-offset-attribute-box-cylinder-ellipsoid-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2059,
+    "n": 2071,
+    "colour": 0.9975857073877354,
+    "edge": 0.9956542732979237,
+    "blob": 2,
+    "masked": 1001
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "geometry-offset-attribute-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2115,
+    "n": 2122,
+    "colour": 0.9995287464655985,
+    "edge": 0.9971724787935909,
+    "blob": 0,
+    "masked": 950
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "globe-interior",
+   "level": 2,
+   "reasons": [
+    "picture: colour 71% · edges 80% of the cells match · a patch of 567 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1433,
+    "n": 2068,
+    "colour": 0.7055125725338491,
+    "edge": 0.7988394584139265,
+    "blob": 567,
+    "masked": 1004
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-materials",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1674,
+    "n": 1779,
+    "colour": 0.941540191118606,
+    "edge": 0.9780775716694773,
+    "blob": 19,
+    "masked": 1293
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-materials-3d-tiles-terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2509,
+    "n": 2541,
+    "colour": 0.9893742621015348,
+    "edge": 0.9980322707595435,
+    "blob": 1,
+    "masked": 531
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-materials-water-mask-elevation-map",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2358,
+    "n": 2388,
+    "colour": 0.9899497487437185,
+    "edge": 0.9970686767169179,
+    "blob": 6,
+    "masked": 684
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-translucency",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1611,
+    "n": 1873,
+    "colour": 0.8830752802989856,
+    "edge": 0.9684997330485852,
+    "blob": 6,
+    "masked": 1199
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "gltf-pbr-extensions",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1949,
+    "n": 2307,
+    "colour": 0.8899003034243607,
+    "edge": 0.9211096662332033,
+    "blob": 18,
+    "masked": 765
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "gltf-planar-fill-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1222,
+    "n": 1260,
+    "colour": 1,
+    "edge": 0.9698412698412698,
+    "blob": 0,
+    "masked": 1812
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "google-2d-tiles",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 69% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1868,
+    "n": 2757,
+    "colour": 0.9136742836416395,
+    "edge": 0.6913311570547697,
+    "blob": 16,
+    "masked": 315
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "google-2d-tiles-with-custom-styles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2369,
+    "n": 2757,
+    "colour": 0.887196227783823,
+    "edge": 0.9604642727602466,
+    "blob": 6,
+    "masked": 315
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "google-earth-enterprise",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2147,
+    "n": 2152,
+    "colour": 0.9976765799256505,
+    "edge": 1,
+    "blob": 0,
+    "masked": 920
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "google-photorealistic-3d-tiles",
+   "level": 2,
+   "reasons": [
+    "picture: colour 95% · edges 98% of the cells match · a patch of 87 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2274,
+    "n": 2410,
+    "colour": 0.9497925311203319,
+    "edge": 0.9755186721991701,
+    "blob": 87,
+    "masked": 662
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "google-photorealistic-3d-tiles-with-building-insert",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2256,
+    "n": 2340,
+    "colour": 0.9884615384615385,
+    "edge": 0.9743589743589743,
+    "blob": 3,
+    "masked": 732
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "google-streetview-panorama",
+   "level": 2,
+   "reasons": [
+    "picture: colour 45% · edges 96% of the cells match · a patch of 140 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1127,
+    "n": 2585,
+    "colour": 0.4506769825918762,
+    "edge": 0.9597678916827853,
+    "blob": 140,
+    "masked": 487
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "gpx",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 94% of the cells match · a patch of 41 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1833,
+    "n": 2086,
+    "colour": 0.9055608820709492,
+    "edge": 0.9367209971236817,
+    "blob": 41,
+    "masked": 986
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ground-polyline-material-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 77% · edges 74% of the cells match · a patch of 22 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1216,
+    "n": 2143,
+    "colour": 0.7704153056462902,
+    "edge": 0.7391507232851143,
+    "blob": 22,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "ground-primitive-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 56% · edges 88% of the cells match · a patch of 457 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1089,
+    "n": 2020,
+    "colour": 0.556930693069307,
+    "edge": 0.8782178217821782,
+    "blob": 457,
+    "masked": 1052
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "ground-primitive-materials-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 83% · edges 89% of the cells match · a patch of 51 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1495,
+    "n": 1963,
+    "colour": 0.8273051451859399,
+    "edge": 0.8925114620478859,
+    "blob": 51,
+    "masked": 1109
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "headingpitchroll",
+   "level": 2,
+   "reasons": [
+    "picture: colour 85% · edges 94% of the cells match · a patch of 107 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1347,
+    "n": 1633,
+    "colour": 0.8499693815064299,
+    "edge": 0.9381506429883649,
+    "blob": 107,
+    "masked": 1439
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "hello-world",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2140,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.999066728884741,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "high-dynamic-range",
+   "level": 2,
+   "reasons": [
+    "picture: colour 68% · edges 67% of the cells match · a patch of 102 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1138,
+    "n": 2233,
+    "colour": 0.6780116435288849,
+    "edge": 0.670846394984326,
+    "blob": 102,
+    "masked": 839
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "html-overlays",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2136,
+    "n": 2142,
+    "colour": 0.9990662931839402,
+    "edge": 0.9976657329598506,
+    "blob": 0,
+    "masked": 930
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "hybrid-snapping-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 64% · edges 75% of the cells match · a patch of 52 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1124,
+    "n": 2076,
+    "colour": 0.6425818882466281,
+    "edge": 0.7451830443159922,
+    "blob": 52,
+    "masked": 996
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "i3s-3d-object-layer",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2340,
+    "n": 2392,
+    "colour": 0.9824414715719063,
+    "edge": 0.9937290969899666,
+    "blob": 3,
+    "masked": 680
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "i3s-building-scene-layer",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1863,
+    "n": 2280,
+    "colour": 0.874561403508772,
+    "edge": 0.9175438596491228,
+    "blob": 19,
+    "masked": 792
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "i3s-feature-picking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2330,
+    "n": 2392,
+    "colour": 0.9753344481605352,
+    "edge": 0.9979096989966555,
+    "blob": 4,
+    "masked": 680
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "i3s-integratedmesh-layer",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2049,
+    "n": 2392,
+    "colour": 0.9510869565217391,
+    "edge": 0.8900501672240803,
+    "blob": 4,
+    "masked": 680
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "image-based-lighting",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1934,
+    "n": 2086,
+    "colour": 0.9482262703739214,
+    "edge": 0.962607861936721,
+    "blob": 17,
+    "masked": 986
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "imagery-adjustment",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1818,
+    "n": 1857,
+    "colour": 0.9789983844911146,
+    "edge": 1,
+    "blob": 1,
+    "masked": 1215
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "imagery-assets-available-from-ion",
+   "level": 2,
+   "reasons": [
+    "picture: colour 99% · edges 98% of the cells match · a patch of 22 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2632,
+    "n": 2691,
+    "colour": 0.990709773318469,
+    "edge": 0.979933110367893,
+    "blob": 22,
+    "masked": 381
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "imagery-color-to-alpha",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2059,
+    "n": 2075,
+    "colour": 0.9980722891566265,
+    "edge": 0.9942168674698795,
+    "blob": 0,
+    "masked": 997
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "imagery-cutout",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2038,
+    "n": 2050,
+    "colour": 0.9985365853658537,
+    "edge": 0.9946341463414634,
+    "blob": 2,
+    "masked": 1022
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "imagery-layers",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2081,
+    "n": 2152,
+    "colour": 0.9972118959107806,
+    "edge": 0.9693308550185874,
+    "blob": 0,
+    "masked": 920
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "imagery-layers-manipulation",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1531,
+    "n": 1560,
+    "colour": 0.9923076923076923,
+    "edge": 0.982051282051282,
+    "blob": 8,
+    "masked": 1512
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "imagery-layers-split",
+   "level": 2,
+   "reasons": [
+    "picture: colour 80% · edges 91% of the cells match · a patch of 396 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1761,
+    "n": 2243,
+    "colour": 0.8029424877396344,
+    "edge": 0.9121711992866697,
+    "blob": 396,
+    "masked": 829
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "imagery-layers-texture-filters",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2024,
+    "n": 2055,
+    "colour": 0.9888077858880778,
+    "edge": 0.9941605839416059,
+    "blob": 2,
+    "masked": 1017
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "imodel-mesh-export-service",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 96% of the cells match · a patch of 23 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1752,
+    "n": 1994,
+    "colour": 0.90320962888666,
+    "edge": 0.9638916750250752,
+    "blob": 23,
+    "masked": 1078
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "interpolation",
+   "level": 2,
+   "reasons": [
+    "picture: colour 60% · edges 75% of the cells match · a patch of 57 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 956,
+    "n": 1947,
+    "colour": 0.5993836671802774,
+    "edge": 0.7452491011813046,
+    "blob": 57,
+    "masked": 1125
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ion-snapping-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 64% · edges 77% of the cells match · a patch of 48 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1098,
+    "n": 2005,
+    "colour": 0.6438902743142144,
+    "edge": 0.7660847880299252,
+    "blob": 48,
+    "masked": 1067
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "itwin-feature-service",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "refWhy": "never finished loading",
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "itwin-gaussian-splats",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2115,
+    "n": 2392,
+    "colour": 0.9122073578595318,
+    "edge": 0.9368729096989966,
+    "blob": 18,
+    "masked": 680
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "japan-buildings",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 95% of the cells match · a patch of 23 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2022,
+    "n": 2344,
+    "colour": 0.8959044368600683,
+    "edge": 0.9492320819112628,
+    "blob": 23,
+    "masked": 728
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "khr-mesh-primitive-restart-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1964,
+    "n": 2008,
+    "colour": 0.9865537848605578,
+    "edge": 0.9890438247011952,
+    "blob": 4,
+    "masked": 1064
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "kml",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2066,
+    "n": 2068,
+    "colour": 0.9995164410058027,
+    "edge": 0.9995164410058027,
+    "blob": 0,
+    "masked": 1004
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "kml-tours",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2108,
+    "n": 2110,
+    "colour": 0.999526066350711,
+    "edge": 0.999526066350711,
+    "blob": 0,
+    "masked": 962
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "labels",
+   "level": 2,
+   "reasons": [
+    "picture: colour 98% · edges 98% of the cells match · a patch of 27 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2036,
+    "n": 2080,
+    "colour": 0.9831730769230769,
+    "edge": 0.9822115384615384,
+    "blob": 27,
+    "masked": 992
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "labels-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2067,
+    "n": 2089,
+    "colour": 0.9923408329344183,
+    "edge": 0.9937769267592149,
+    "blob": 5,
+    "masked": 983
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "lensflare",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1830,
+    "n": 1891,
+    "colour": 0.9904812268640931,
+    "edge": 0.9762030671602326,
+    "blob": 2,
+    "masked": 1181
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "lighting",
+   "level": 2,
+   "reasons": [
+    "picture: colour 66% · edges 95% of the cells match · a patch of 634 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1359,
+    "n": 2110,
+    "colour": 0.6649289099526067,
+    "edge": 0.9511848341232227,
+    "blob": 634,
+    "masked": 962
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "localtofixedframe",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1478,
+    "n": 1783,
+    "colour": 0.9304542905215928,
+    "edge": 0.8401570386988222,
+    "blob": 19,
+    "masked": 1289
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "manually-controlled-animation",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1952,
+    "n": 2143,
+    "colour": 0.9533364442370509,
+    "edge": 0.946803546430238,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "many-clipping-planes-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1655,
+    "n": 1679,
+    "colour": 0.9946396664681358,
+    "edge": 0.9898749255509232,
+    "blob": 1,
+    "masked": 1393
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "map-pins",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2167,
+    "n": 2392,
+    "colour": 0.9368729096989966,
+    "edge": 0.9640468227424749,
+    "blob": 4,
+    "masked": 680
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "mars",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "refWhy": "another body than the Earth: not graded (separate work)",
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "material-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "material-with-custom-glsl",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 96% of the cells match · a patch of 266 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1830,
+    "n": 2143,
+    "colour": 0.8562762482501166,
+    "edge": 0.9580027998133458,
+    "blob": 266,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "materials",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1926,
+    "n": 1927,
+    "colour": 0.9994810586403736,
+    "edge": 1,
+    "blob": 0,
+    "masked": 1145
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "montreal-point-cloud",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1643,
+    "n": 1791,
+    "colour": 0.9357900614182021,
+    "edge": 0.9754327191513121,
+    "blob": 4,
+    "masked": 1281
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "moon",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "refWhy": "another body than the Earth: not graded (separate work)",
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "msaa",
+   "level": 2,
+   "reasons": [
+    "picture: colour 67% · edges 77% of the cells match · a patch of 253 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1283,
+    "n": 2083,
+    "colour": 0.672107537205953,
+    "edge": 0.7700432069131061,
+    "blob": 253,
+    "masked": 989
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "multi-part-czml",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1851,
+    "n": 1913,
+    "colour": 0.9785676947203346,
+    "edge": 0.9837950862519603,
+    "blob": 12,
+    "masked": 1159
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "multifrustum-snapping-dev",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "refWhy": "never finished loading",
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "multiple-shadows-dev",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [
+    {
+     "what": "scene.primitives.add(CustomPrimitive)",
+     "n": 1
+    }
+   ],
+   "refWhy": "never finished loading",
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "multiple-synced-views",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [
+    {
+     "what": "sceneMode other than SCENE3D (the globe is 3D only)",
+     "n": 1
+    }
+   ],
+   "refWhy": "starts in 2D / Columbus view: not graded (the globe is 3D only)",
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "natural-earth-ii",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2137,
+    "n": 2143,
+    "colour": 0.998133457769482,
+    "edge": 0.9976668222118525,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "offline",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2316,
+    "n": 2320,
+    "colour": 0.9982758620689656,
+    "edge": 1,
+    "blob": 3,
+    "masked": 752
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "pamap-terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1876,
+    "n": 2101,
+    "colour": 0.9861970490242742,
+    "edge": 0.8957639219419324,
+    "blob": 14,
+    "masked": 971
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "panorama",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2744,
+    "n": 2872,
+    "colour": 0.9905988857938719,
+    "edge": 0.9596100278551533,
+    "blob": 8,
+    "masked": 200
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "parallels-and-meridians",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2007,
+    "n": 2008,
+    "colour": 0.9995019920318725,
+    "edge": 1,
+    "blob": 0,
+    "masked": 1064
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "partial-ellipsoids",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2035,
+    "n": 2143,
+    "colour": 0.9654689687354177,
+    "edge": 0.9832011199253383,
+    "blob": 8,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "particle-system",
+   "level": 2,
+   "reasons": [
+    "picture: colour 95% · edges 96% of the cells match · a patch of 37 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1485,
+    "n": 1615,
+    "colour": 0.9467492260061919,
+    "edge": 0.9560371517027864,
+    "blob": 37,
+    "masked": 1457
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "particle-system-fireworks",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2060,
+    "n": 2143,
+    "colour": 0.9668688754083061,
+    "edge": 0.973401773215119,
+    "blob": 19,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "particle-system-tails",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2027,
+    "n": 2107,
+    "colour": 0.9776934029425723,
+    "edge": 0.9715234931181775,
+    "blob": 12,
+    "masked": 965
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "particle-system-weather",
+   "level": 2,
+   "reasons": [
+    "picture: colour 59% · edges 87% of the cells match · a patch of 423 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1155,
+    "n": 2093,
+    "colour": 0.5862398471094123,
+    "edge": 0.8686096512183469,
+    "blob": 423,
+    "masked": 979
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "pbr-lighting-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 96% · edges 85% of the cells match · a patch of 23 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1299,
+    "n": 1535,
+    "colour": 0.9570032573289903,
+    "edge": 0.8514657980456026,
+    "blob": 23,
+    "masked": 1537
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "per-feature-post-processing",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1872,
+    "n": 2089,
+    "colour": 0.9310674964097654,
+    "edge": 0.9243657252273815,
+    "blob": 13,
+    "masked": 983
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "per-instance-color-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2075,
+    "n": 2143,
+    "colour": 0.9827344843677088,
+    "edge": 0.9855342977134858,
+    "blob": 14,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "physically-based-materials",
+   "level": 2,
+   "reasons": [
+    "picture: colour 87% · edges 39% of the cells match · a patch of 38 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 697,
+    "n": 2053,
+    "colour": 0.8728689722357525,
+    "edge": 0.3935703848027277,
+    "blob": 38,
+    "masked": 1019
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "pick-from-ray-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 85% · edges 97% of the cells match · a patch of 55 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1783,
+    "n": 2122,
+    "colour": 0.8501413760603205,
+    "edge": 0.971253534401508,
+    "blob": 55,
+    "masked": 950
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "picking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2001,
+    "n": 2002,
+    "colour": 0.9995004995004995,
+    "edge": 1,
+    "blob": 0,
+    "masked": 1070
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "picking-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2096,
+    "n": 2101,
+    "colour": 0.9995240361732508,
+    "edge": 0.9980961446930033,
+    "blob": 0,
+    "masked": 971
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "plane",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2061,
+    "n": 2143,
+    "colour": 0.9776014932337844,
+    "edge": 0.9841343910405973,
+    "blob": 1,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "pointprimitives-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2085,
+    "n": 2086,
+    "colour": 0.9995206136145733,
+    "edge": 1,
+    "blob": 0,
+    "masked": 986
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "points",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2085,
+    "n": 2086,
+    "colour": 0.9995206136145733,
+    "edge": 1,
+    "blob": 0,
+    "masked": 986
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "polygon",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2005,
+    "n": 2143,
+    "colour": 0.948670088660756,
+    "edge": 0.9836677554829678,
+    "blob": 1,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "polygon-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2139,
+    "n": 2143,
+    "colour": 0.998133457769482,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polygon-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polygon-texture-coordinates-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9995333644423705,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polyline",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2121,
+    "n": 2143,
+    "colour": 0.9939337377508166,
+    "edge": 0.9953336444237051,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "polyline-color-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2091,
+    "n": 2143,
+    "colour": 0.9902006532897807,
+    "edge": 0.9850676621558563,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polyline-dash",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2036,
+    "n": 2143,
+    "colour": 0.9636024265048997,
+    "edge": 0.9780681287914139,
+    "blob": 14,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "polyline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polyline-material-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2127,
+    "n": 2143,
+    "colour": 0.999066728884741,
+    "edge": 0.9934671021931871,
+    "blob": 1,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polyline-volume",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2018,
+    "n": 2143,
+    "colour": 0.9589360709286048,
+    "edge": 0.9808679421371909,
+    "blob": 15,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "polyline-volume-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polyline-volume-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polylines-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2129,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9939337377508166,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polylines-on-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1906,
+    "n": 2107,
+    "colour": 0.9387755102040817,
+    "edge": 0.9311817750355956,
+    "blob": 14,
+    "masked": 965
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "polylines-on-terrain-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1735,
+    "n": 1827,
+    "colour": 0.9638752052545156,
+    "edge": 0.9824849480021893,
+    "blob": 5,
+    "masked": 1245
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "post-processing",
+   "level": 2,
+   "reasons": [
+    "picture: colour 89% · edges 92% of the cells match · a patch of 51 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1681,
+    "n": 1923,
+    "colour": 0.8923556942277691,
+    "edge": 0.9157566302652106,
+    "blob": 51,
+    "masked": 1149
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "procedural-terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1893,
+    "n": 2122,
+    "colour": 0.9651272384542884,
+    "edge": 0.913760603204524,
+    "blob": 9,
+    "masked": 950
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "projection",
+   "level": 2,
+   "reasons": [
+    "picture: colour 81% · edges 85% of the cells match · a patch of 62 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1598,
+    "n": 2134,
+    "colour": 0.8074039362699157,
+    "edge": 0.8542642924086223,
+    "blob": 62,
+    "masked": 938
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "rectangle",
+   "level": 2,
+   "reasons": [
+    "picture: colour 95% · edges 89% of the cells match · a patch of 31 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1827,
+    "n": 2143,
+    "colour": 0.947736817545497,
+    "edge": 0.8875408306112926,
+    "blob": 31,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "rectangle-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2135,
+    "n": 2143,
+    "colour": 0.9962669155389641,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "rectangle-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "relative-paths",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2004,
+    "n": 2042,
+    "colour": 1,
+    "edge": 0.9813907933398629,
+    "blob": 0,
+    "masked": 1030
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "resolution-scaling",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1617,
+    "n": 1939,
+    "colour": 0.9953584321815369,
+    "edge": 0.8380608561113976,
+    "blob": 1,
+    "masked": 1133
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "rotatable-2d-map",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [
+    {
+     "what": "sceneMode other than SCENE3D (the globe is 3D only)",
+     "n": 1
+    }
+   ],
+   "refWhy": "starts in 2D / Columbus view: not graded (the globe is 3D only)",
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "sample-height-from-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2089,
+    "n": 2143,
+    "colour": 0.9818012132524498,
+    "edge": 0.9897340177321512,
+    "blob": 2,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "scene-rendering-performance",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1754,
+    "n": 1768,
+    "colour": 0.9994343891402715,
+    "edge": 0.9926470588235294,
+    "blob": 0,
+    "masked": 1304
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "sentinel-2",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2141,
+    "n": 2143,
+    "colour": 0.999066728884741,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "shadows",
+   "level": 2,
+   "reasons": [
+    "picture: colour 79% · edges 98% of the cells match · a patch of 291 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1553,
+    "n": 1987,
+    "colour": 0.7916456970306995,
+    "edge": 0.9778560644187216,
+    "blob": 291,
+    "masked": 1085
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "shadows-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 60% · edges 94% of the cells match · a patch of 155 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 867,
+    "n": 1459,
+    "colour": 0.5990404386566142,
+    "edge": 0.9410555174777244,
+    "blob": 155,
+    "masked": 1613
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "shared-context",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1450,
+    "n": 1582,
+    "colour": 0.9702907711757269,
+    "edge": 0.9279393173198482,
+    "blob": 12,
+    "masked": 1490
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "show-or-hide-entities",
+   "level": 2,
+   "reasons": [
+    "picture: colour 88% · edges 95% of the cells match · a patch of 23 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1730,
+    "n": 2062,
+    "colour": 0.8787584869059166,
+    "edge": 0.9524733268671193,
+    "blob": 23,
+    "masked": 1010
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "simple-polyline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2107,
+    "n": 2143,
+    "colour": 0.999066728884741,
+    "edge": 0.9841343910405973,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "sphere-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "sphere-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2138,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.998133457769482,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "spheres-and-ellipsoids",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1970,
+    "n": 2143,
+    "colour": 0.9570695286980868,
+    "edge": 0.9612692487167522,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "splitdirection",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2054,
+    "n": 2116,
+    "colour": 0.9806238185255198,
+    "edge": 0.9829867674858223,
+    "blob": 13,
+    "masked": 956
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "star-burst",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2134,
+    "n": 2139,
+    "colour": 0.9995324918186068,
+    "edge": 0.9981299672744273,
+    "blob": 0,
+    "masked": 933
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "styled-gltf-lines-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "styled-gltf-points-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "terrain",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1599,
+    "n": 1763,
+    "colour": 0.9682359614293817,
+    "edge": 0.9262620533182075,
+    "blob": 5,
+    "masked": 1309
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain-clipping-planes",
+   "level": 2,
+   "reasons": [
+    "picture: colour 89% · edges 83% of the cells match · a patch of 99 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1595,
+    "n": 2032,
+    "colour": 0.8892716535433071,
+    "edge": 0.8336614173228346,
+    "blob": 99,
+    "masked": 1040
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain-entity-batching-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 80% · edges 93% of the cells match · a patch of 303 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1568,
+    "n": 2143,
+    "colour": 0.8021465235650956,
+    "edge": 0.9281381241250584,
+    "blob": 303,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "terrain-exaggeration",
+   "level": 2,
+   "reasons": [
+    "picture: colour 80% · edges 89% of the cells match · a patch of 58 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1400,
+    "n": 1903,
+    "colour": 0.7950604308985811,
+    "edge": 0.8880714661061482,
+    "blob": 58,
+    "masked": 1169
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain-performance-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1997,
+    "n": 1999,
+    "colour": 0.9994997498749375,
+    "edge": 0.9994997498749375,
+    "blob": 0,
+    "masked": 1073
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "terrain-tweaks-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1840,
+    "n": 1843,
+    "colour": 0.9983722192078134,
+    "edge": 1,
+    "blob": 0,
+    "masked": 1229
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "time-dependent-path-graphics",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1479,
+    "n": 1519,
+    "colour": 0.9861751152073732,
+    "edge": 0.9835418038183015,
+    "blob": 3,
+    "masked": 1553
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "time-dynamic-point-cloud",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2099,
+    "n": 2143,
+    "colour": 0.9827344843677088,
+    "edge": 0.9897340177321512,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "time-dynamic-wheels",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 93% of the cells match · a patch of 119 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1850,
+    "n": 2143,
+    "colour": 0.9085394307046197,
+    "edge": 0.9309379374708353,
+    "blob": 119,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "timeline",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "refWhy": "no viewer",
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "underground-color",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1708,
+    "n": 1821,
+    "colour": 0.9840746842394289,
+    "edge": 0.9516749038989566,
+    "blob": 3,
+    "masked": 1251
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "vector-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1745,
+    "n": 1783,
+    "colour": 0.9826135726303982,
+    "edge": 0.9955131800336512,
+    "blob": 3,
+    "masked": 1289
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "video",
+   "level": 2,
+   "reasons": [
+    "picture: colour 48% · edges 91% of the cells match · a patch of 486 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 794,
+    "n": 1753,
+    "colour": 0.482030804335425,
+    "edge": 0.9070165430690246,
+    "blob": 486,
+    "masked": 1319
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "viewerless",
+   "level": null,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "refWhy": "no viewer",
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "volumecloud",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1823,
+    "n": 1891,
+    "colour": 0.9910100475938657,
+    "edge": 0.973030142781597,
+    "blob": 0,
+    "masked": 1181
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "volumes-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2129,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9939337377508166,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "voxel-picking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2378,
+    "n": 2426,
+    "colour": 0.9872217642209398,
+    "edge": 0.9905193734542457,
+    "blob": 6,
+    "masked": 646
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "voxels",
+   "level": 2,
+   "reasons": [
+    "picture: colour 75% · edges 96% of the cells match · a patch of 108 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1790,
+    "n": 2414,
+    "colour": 0.7547638773819387,
+    "edge": 0.9565037282518641,
+    "blob": 108,
+    "masked": 658
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "voxels-in-3d-tiles",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2369,
+    "n": 2429,
+    "colour": 0.9831206257719226,
+    "edge": 0.9868258542610128,
+    "blob": 9,
+    "masked": 643
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "wall",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2068,
+    "n": 2143,
+    "colour": 0.9832011199253383,
+    "edge": 0.9818012132524498,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "wall-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "wall-outline-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2142,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 1,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "washington-dc-2017",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2097,
+    "n": 2143,
+    "colour": 0.9939337377508166,
+    "edge": 0.9841343910405973,
+    "blob": 1,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "web-map-service-wms",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2125,
+    "n": 2143,
+    "colour": 0.9995333644423705,
+    "edge": 0.9920671955202987,
+    "blob": 0,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "web-map-tile-service-picking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1980,
+    "n": 2078,
+    "colour": 0.9581328200192493,
+    "edge": 0.9932627526467758,
+    "blob": 17,
+    "masked": 994
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "web-map-tile-service-with-time",
+   "level": 2,
+   "reasons": [
+    "picture: colour 75% · edges 82% of the cells match · a patch of 294 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1544,
+    "n": 2143,
+    "colour": 0.754083061129258,
+    "edge": 0.8170788614092394,
+    "blob": 294,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "z-indexing-geometry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2045,
+    "n": 2143,
+    "colour": 0.9710685954269715,
+    "edge": 0.9776014932337844,
+    "blob": 11,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  }
+ ],
+ "round": {
+  "engine": "6a0ec74e",
+  "rows": [
+   {
+    "name": "3d-tiles-interactivity",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "94.1",
+     "99.5"
+    ],
+    "edge": [
+     "91.8",
+     "97.4"
+    ],
+    "blob": [
+     9,
+     1
+    ]
+   },
+   {
+    "name": "3d-tiles-nga-gpm-visualization",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "91.2",
+     "91.2"
+    ],
+    "edge": [
+     "93.4",
+     "93.4"
+    ],
+    "blob": [
+     37,
+     37
+    ]
+   },
+   {
+    "name": "billboardclamptoground-dev",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "99.9",
+     "99.9"
+    ],
+    "edge": [
+     "99.1",
+     "99.1"
+    ],
+    "blob": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "billboards",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "100.0",
+     "100.0"
+    ],
+    "edge": [
+     "99.8",
+     "99.8"
+    ],
+    "blob": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "camera",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "100.0",
+     "100.0"
+    ],
+    "edge": [
+     "99.9",
+     "99.9"
+    ],
+    "blob": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "cartographic-limit-rectangle",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "76.4",
+     "76.4"
+    ],
+    "edge": [
+     "87.1",
+     "87.1"
+    ],
+    "blob": [
+     442,
+     442
+    ]
+   },
+   {
+    "name": "clamp-entities-to-ground",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "76.6",
+     "76.6"
+    ],
+    "edge": [
+     "86.0",
+     "86.7"
+    ],
+    "blob": [
+     128,
+     128
+    ]
+   },
+   {
+    "name": "clamp-model-to-ground",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "97.5",
+     "97.5"
+    ],
+    "edge": [
+     "98.0",
+     "98.0"
+    ],
+    "blob": [
+     9,
+     9
+    ]
+   },
+   {
+    "name": "clamp-to-3d-model",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "94.8",
+     "94.9"
+    ],
+    "edge": [
+     "88.0",
+     "87.9"
+    ],
+    "blob": [
+     8,
+     8
+    ]
+   },
+   {
+    "name": "czml-billboard-and-label",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "99.6",
+     "99.6"
+    ],
+    "edge": [
+     "99.7",
+     "99.7"
+    ],
+    "blob": [
+     5,
+     4
+    ]
+   },
+   {
+    "name": "czml-colors",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "98.5",
+     "98.5"
+    ],
+    "edge": [
+     "97.7",
+     "97.8"
+    ],
+    "blob": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "czml-rectangle",
+    "level": [
+     2,
+     3
+    ],
+    "colour": [
+     "97.2",
+     "99.1"
+    ],
+    "edge": [
+     "98.8",
+     "99.2"
+    ],
+    "blob": [
+     42,
+     1
+    ]
+   },
+   {
+    "name": "czml-zindex",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "98.0",
+     "98.0"
+    ],
+    "edge": [
+     "99.3",
+     "99.3"
+    ],
+    "blob": [
+     4,
+     4
+    ]
+   },
+   {
+    "name": "datasource-ordering",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "100.0",
+     "100.0"
+    ],
+    "edge": [
+     "100.0",
+     "100.0"
+    ],
+    "blob": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "distance-display-conditions",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "99.9",
+     "99.9"
+    ],
+    "edge": [
+     "99.7",
+     "99.7"
+    ],
+    "blob": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "drawing-on-terrain",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "80.1",
+     "80.1"
+    ],
+    "edge": [
+     "76.1",
+     "76.1"
+    ],
+    "blob": [
+     23,
+     23
+    ]
+   },
+   {
+    "name": "geometry-and-appearances",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "92.1",
+     "92.1"
+    ],
+    "edge": [
+     "96.4",
+     "96.4"
+    ],
+    "blob": [
+     23,
+     23
+    ]
+   },
+   {
+    "name": "geometry-height-reference",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "91.5",
+     "91.5"
+    ],
+    "edge": [
+     "91.7",
+     "91.7"
+    ],
+    "blob": [
+     155,
+     155
+    ]
+   },
+   {
+    "name": "labels-dev",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "99.2",
+     "99.2"
+    ],
+    "edge": [
+     "99.4",
+     "99.4"
+    ],
+    "blob": [
+     5,
+     5
+    ]
+   },
+   {
+    "name": "labels",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "98.3",
+     "98.3"
+    ],
+    "edge": [
+     "98.2",
+     "98.2"
+    ],
+    "blob": [
+     27,
+     27
+    ]
+   },
+   {
+    "name": "manually-controlled-animation",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "95.2",
+     "95.3"
+    ],
+    "edge": [
+     "94.6",
+     "94.7"
+    ],
+    "blob": [
+     8,
+     3
+    ]
+   },
+   {
+    "name": "mars",
+    "level": [
+     null,
+     null
+    ],
+    "colour": [
+     "-",
+     "-"
+    ],
+    "edge": [
+     "-",
+     "-"
+    ],
+    "blob": [
+     null,
+     null
+    ]
+   },
+   {
+    "name": "moon",
+    "level": [
+     null,
+     null
+    ],
+    "colour": [
+     "-",
+     "-"
+    ],
+    "edge": [
+     "-",
+     "-"
+    ],
+    "blob": [
+     null,
+     null
+    ]
+   },
+   {
+    "name": "parallels-and-meridians",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "100.0",
+     "100.0"
+    ],
+    "edge": [
+     "100.0",
+     "100.0"
+    ],
+    "blob": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "physically-based-materials",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "87.3",
+     "87.3"
+    ],
+    "edge": [
+     "39.4",
+     "39.4"
+    ],
+    "blob": [
+     38,
+     38
+    ]
+   },
+   {
+    "name": "picking",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "100.0",
+     "100.0"
+    ],
+    "edge": [
+     "100.0",
+     "100.0"
+    ],
+    "blob": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "rectangle",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "93.8",
+     "94.8"
+    ],
+    "edge": [
+     "95.5",
+     "88.8"
+    ],
+    "blob": [
+     87,
+     31
+    ]
+   },
+   {
+    "name": "shadows",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "79.2",
+     "79.2"
+    ],
+    "edge": [
+     "97.8",
+     "97.8"
+    ],
+    "blob": [
+     291,
+     291
+    ]
+   },
+   {
+    "name": "terrain-entity-batching-dev",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "80.2",
+     "80.2"
+    ],
+    "edge": [
+     "92.8",
+     "92.8"
+    ],
+    "blob": [
+     303,
+     303
+    ]
+   },
+   {
+    "name": "terrain-exaggeration",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "79.5",
+     "79.5"
+    ],
+    "edge": [
+     "88.8",
+     "88.8"
+    ],
+    "blob": [
+     58,
+     58
+    ]
+   },
+   {
+    "name": "terrain",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "96.9",
+     "96.8"
+    ],
+    "edge": [
+     "96.0",
+     "92.6"
+    ],
+    "blob": [
+     5,
+     5
+    ]
+   },
+   {
+    "name": "time-dependent-path-graphics",
+    "level": [
+     3,
+     3
+    ],
+    "colour": [
+     "98.6",
+     "98.6"
+    ],
+    "edge": [
+     "98.4",
+     "98.4"
+    ],
+    "blob": [
+     3,
+     3
+    ]
+   },
+   {
+    "name": "time-dynamic-wheels",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "90.9",
+     "90.9"
+    ],
+    "edge": [
+     "93.4",
+     "93.1"
+    ],
+    "blob": [
+     119,
+     119
+    ]
+   },
+   {
+    "name": "z-indexing-geometry",
+    "level": [
+     2,
+     3
+    ],
+    "colour": [
+     "91.9",
+     "97.1"
+    ],
+    "edge": [
+     "96.3",
+     "97.8"
+    ],
+    "blob": [
+     76,
+     11
+    ]
+   },
+   {
+    "name": "terrain-clipping-planes",
+    "level": [
+     2,
+     2
+    ],
+    "colour": [
+     "86.2",
+     "88.9"
+    ],
+    "edge": [
+     "79.8",
+     "83.4"
+    ],
+    "blob": [
+     141,
+     99
+    ]
+   }
+  ]
+ }
+}

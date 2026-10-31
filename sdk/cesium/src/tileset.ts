@@ -38,9 +38,9 @@ export class Cesium3DTileset {
 	clippingPlanes: Any = undefined; clippingPolygons: Any = undefined; imageBasedLighting: Any = undefined; customShader: Any = undefined;
 	backFaceCulling = true; enableCollision = false; preloadWhenHidden = false; preloadFlightDestinations = true; skipLevelOfDetail = false;
 	dynamicScreenSpaceError = true; foveatedScreenSpaceError = true; cullRequestsWhileMoving = true; cullWithChildrenBounds = true;
-	splitDirection = 0; showOutline = true; outlineColor = Color.clone(Color.BLACK); pointCloudShading: Any = { attenuation: false, geometricErrorScale: 1, maximumAttenuation: undefined, baseResolution: undefined, eyeDomeLighting: true, eyeDomeLightingStrength: 1, eyeDomeLightingRadius: 1, backFaceCulling: false, normalShading: true };   // PointCloudShading's defaults
+	splitDirection = 0; edgeDisplayMode = 0; showOutline = true; outlineColor = Color.clone(Color.BLACK); pointCloudShading: Any = { attenuation: false, geometricErrorScale: 1, maximumAttenuation: undefined, baseResolution: undefined, eyeDomeLighting: true, eyeDomeLightingStrength: 1, eyeDomeLightingRadius: 1, backFaceCulling: false, normalShading: true };   // PointCloudShading's defaults
 	#shadeKey = ""; #csId: string | null = null; #blendKey = "";
-	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null; #olKey = "";
+	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null; #olKey = ""; #edges = 0;
 	#opts: Any;
 	#split: string | null = null;
 	#tiles = new Map<number, Any>(); #drape: TilesetDrape | null = null;   // the loaded tiles tileLoad was raised for (tileUnload gets the same object)
@@ -57,6 +57,7 @@ export class Cesium3DTileset {
 		if (opts.clippingPlanes != null) this.clippingPlanes = opts.clippingPlanes;   // drawn by the scene (clipping.ts)
 		if (opts.clippingPolygons != null) this.clippingPolygons = opts.clippingPolygons;   // drawn by the scene (clipping.ts)
 		if (opts.showOutline === false) this.showOutline = false;
+		if (opts.edgeDisplayMode != null) this.edgeDisplayMode = opts.edgeDisplayMode;   // EdgeDisplayMode SURFACES_ONLY 0 / SURFACES_AND_EDGES 1 / EDGES_ONLY 2 (EXT_mesh_primitive_edge_visibility)
 		if (opts.outlineColor) this.outlineColor = Color.clone(opts.outlineColor);
 		if (opts.customShader != null) this.customShader = opts.customShader;   // drawn by the globe (custom-shader.ts), followed in __sync
 	}
@@ -141,7 +142,7 @@ export class Cesium3DTileset {
 				const ps = pointSizeOf(this.#style), sent = this.#style;
 				const cid = customShaderId(map, this.customShader); this.#csId = cid;
 				const mm = Matrix4.equals(this.modelMatrix, Matrix4.IDENTITY) ? null : Matrix4.toArray(this.modelMatrix);   // the tileset's modelMatrix as it is when added (itwin-gaussian-splats moves the dam onto the terrain with it)
-				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(mm && { modelMatrix: mm }), ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, outline: this.showOutline !== false ? [this.outlineColor.red, this.outlineColor.green, this.outlineColor.blue, this.outlineColor.alpha] : null, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }), ...((this.heightReference === 1 || this.heightReference === 3) && { ground: "terrain" }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
+				const h = await map.add3DTiles(url, { maxSSE: this.maximumScreenSpaceError, fit: false, pointSize: ps, ...(mm && { modelMatrix: mm }), ...(requestTransform && { requestTransform }), ...(sent && { style: styleOf(sent) }), pickable: true, pointShape: "square", customShader: cid, edges: (this.#edges = this.edgeDisplayMode | 0), outline: this.showOutline !== false ? [this.outlineColor.red, this.outlineColor.green, this.outlineColor.blue, this.outlineColor.alpha] : null, mc: !!cid, ...(clsOf(this.classificationType) && { classificationType: clsOf(this.classificationType) }), ...((this.heightReference === 1 || this.heightReference === 3) && { ground: "terrain" }) });   // positionMC only for a tileset that starts with a shader (photogrammetry is large)
 				if (this.#destroyed || !this.#host) { h?.remove(); return; }
 				this.#h = h;
 				if (this.#style !== sent) h.setStyle(styleOf(this.#style));   // the style set while the tileset was being added
@@ -164,6 +165,7 @@ export class Cesium3DTileset {
 		if (env !== this.#env) { this.#env = env; this.#h.setOptions({ environment: env }); }
 		const oc = this.outlineColor, ol = this.showOutline !== false && oc ? [oc.red, oc.green, oc.blue, oc.alpha] : null, ok = String(ol);   // CESIUM_primitive_outline: showOutline / outlineColor
 		if (ok !== this.#olKey) { this.#olKey = ok; this.#h.setOptions({ outline: ol }); }
+		const ed = this.edgeDisplayMode | 0; if (ed !== this.#edges) { this.#edges = ed; this.#h.setOptions({ edges: ed }); }   // edgeDisplayMode: the globe re-decodes the loaded tiles
 		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
 		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
 		const cam = scene?.camera, cull = this.tileVisible.numberOfListeners && cam?.frustum?.computeCullingVolume ? cam.frustum.computeCullingVolume(cam.positionWC, cam.directionWC, cam.upWC) : null;
