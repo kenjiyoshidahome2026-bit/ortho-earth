@@ -135,6 +135,8 @@ interface GintBldData extends GintBldIn { origin: ArrayLike<number>; batches?: G
 interface GintBldBatch { lineVAO: WebGLVertexArrayObject | null; lineCount: number; pointVAO: WebGLVertexArrayObject | null; pointCount: number; bufs: WebGLBuffer[]; color: number[] | null }
 interface StarBuf { vao: WebGLVertexArrayObject; buf: WebGLBuffer; count: number }
 type MeshTexIn = { bitmap: ImageBitmap } | { bitmap?: null; rgba: Uint8Array; w: number; h: number };
+/** the opaque pass of a preOpaque batch keeps the texels with alpha 1 (vertex colour alpha 255 x texture alpha; 8-bit, so under 1 by at most half a step) */
+const PRE_OPAQUE_CUT = 254.5 / 255;
 /** set("meshSet", data, key) の data（建物メッシュ・模型） */
 interface MeshIn {
 	pos: Float32Array; idx: Uint32Array; nrm: Int8Array | Float32Array; uv?: Float32Array | null; col?: Uint8Array | null; tex?: MeshTexIn | null;
@@ -142,10 +144,12 @@ interface MeshIn {
 	lodH?: ArrayLike<number> | null; lodCounts?: ArrayLike<number> | null; twoSided?: boolean; noCull?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	mask?: ArrayLike<number> | null; maskCells?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[] | null;
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexIn | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
+	preOpaque?: boolean;   // a BLEND batch whose opaque texels (alpha 1) also go in the opaque pass with depth (a 3D Tiles batch put up as BLEND because the style made some features translucent: Cesium draws the opaque features opaque)
 	mc?: Float32Array | null; mcJ?: ArrayLike<number> | null; custom?: string | null; split?: number; sh?: ArrayLike<number> | null; outline?: ArrayLike<number> | null; noClip?: boolean; imagery?: string | null;   // imagery＝重ねる絵（set "meshDrape"）の id・Cesium の CustomShader：頂点の glTF 座標（xyz＋地物番号）・J＝d(世界)/d(MC)（列優先）・差し込むシェーダの id
 }
 interface MeshBatch {
 	vao: WebGLVertexArrayObject; bufs: WebGLBuffer[]; tex: WebGLTexture | null; textured: boolean; blend: boolean; cut: number; count: number;
+	pre: boolean;   // preOpaque: drawn twice, its alpha-1 texels first in the opaque pass (depth written), then the whole batch blended
 	origin: ArrayLike<number>; bbox: number[]; ward: string; lodH: ArrayLike<number> | null; lodCounts: ArrayLike<number> | null;
 	two: number; noCull: boolean; noLift: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: Float32Array | null;
 	pbr: { metallic: number; roughness: number; clearcoat: number[] | null } | null;   // 材質の係数（Cesium の照明が読む）・clearcoat＝KHR_materials_clearcoat [factor, roughness]
@@ -1664,7 +1668,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", wind: !!data.wind, custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, pre: blend && !!data.preOpaque, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d, noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), pbr: data.pbr ? { metallic: data.pbr.metallic, roughness: data.pbr.roughness, clearcoat: data.pbr.clearcoat ?? null } : null, csLit: data.csLit || "pbr", wind: !!data.wind, custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mc: textured && !!data.mc?.length, uvm: textured && !!data.uvm?.length,
 			meta: textured && data.meta?.props && data.meta.texs?.length ? { props: data.meta.props, sig: JSON.stringify(data.meta.props), texs: data.meta.texs.map(t => t ? csTexture({ name: "", tex: t, nearest: true, repeat: false }) : whiteTex) } : null });   // 影を落とさない（WebGPU と同じ）   // noCull＝裏面を捨てない（面の向きが揃っていない建物・間引きは残す）／noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
@@ -2551,7 +2555,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明）。半透明は奥から手前（バッチ重心とカメラの距離）・深度書き込み無し・
 			// 前乗算 α（既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）。バッチ内の三角形順は並べ替えない（自己重なりの前後は割り切り）
 			const ex = st.eye, d2 = (p: MeshBatch): number => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
-			const order = [...vis.filter(v => !v.p.textured), ...vis.filter(v => v.p.textured && !blendOf(v.p)), ...vis.filter(v => v.p.textured && blendOf(v.p)).sort((x, y) => d2(y.p) - d2(x.p))];
+			// preOpaque の束＝不透明の段にも α 1 の画素だけ（深度を書く）＋半透明の段に束ごと（同じ画素は同じ色で塗り直す＝絵は変わらない）
+			const order: Array<{ p: MeshBatch; count: number; pre?: boolean }> = [...vis.filter(v => !v.p.textured), ...vis.filter(v => v.p.textured && !blendOf(v.p)), ...vis.filter(v => v.p.textured && v.p.pre).map(v => ({ ...v, pre: true })), ...vis.filter(v => v.p.textured && blendOf(v.p)).sort((x, y) => d2(y.p) - d2(x.p))];
 			let zOff = false;
 			const common = new Set();   // 共通 uniform（カメラ・霧・標高窓・建物色）を入れ終えたプログラム＝バッチ毎でなくプログラム毎に 1 回（GL の uniform はプログラムに残る）
 			const sils = order.filter(v => v.p.textured && v.p.sil && !blendOf(v.p));   // 半透明の束（プロペラの円盤など）は殻を出さない＝透けて殻が見える
@@ -2575,7 +2580,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			}
 			let csV: Float32Array | null = null;   // CustomShader の世界→目（EC）の回転＝フレームに 1 度
 			if (customs.size) csFrame++;
-			for (const { p, count } of order) {
+			for (const { p, count, pre } of order) {
 				const cse = csOf(p), csp = cse ? csProg(cse, p) : null;
 				const pg = csp ?? (p.textured ? (clipOn && p.noClip ? (shOn ? varProgs(false, true).meshTex : meshTexProg0) : meshTexProg) : meshProg);   // 模型（uv＋頂点色＋テクスチャ）は派生プログラム＝切替は模型の分だけ・CustomShader は束ごとのプログラム
 				if (pg !== curProg) { gl.useProgram(pg); curProg = pg; }
@@ -2602,7 +2607,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				}
 				if (p.textured) {
 					gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, p.tex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_tex"), 7);   // unit 7＝未使用（1=elev 2..5=mask 6=line 8=far 9=cog 12=clim）
-					gl.uniform1f(loc(gl, pg, "u_alphaCut"), p.cut); gl.uniform1f(loc(gl, pg, "u_blend"), blendOf(p));
+					gl.uniform1f(loc(gl, pg, "u_alphaCut"), pre ? PRE_OPAQUE_CUT : p.cut); gl.uniform1f(loc(gl, pg, "u_blend"), pre ? 0 : blendOf(p));
 					gl.uniform1f(loc(gl, pg, "u_tintB"), p.tint ? p.tint[4] : -1); if (p.tint) gl.uniform4f(loc(gl, pg, "u_tint"), p.tint[0], p.tint[1], p.tint[2], p.tint[3]);   // Cesium の Model.color（-1＝無し）
 					gl.activeTexture(gl.TEXTURE0 + PAINT_UNIT); gl.bindTexture(gl.TEXTURE_2D, p.paint ?? whiteTex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_paint"), PAINT_UNIT); gl.uniform1f(loc(gl, pg, "u_paintB"), p.paint ? p.paintB ?? 0 : -1);   // 塗る絵（-1＝無し）
 					const dr = p.imagery && !p.paint ? drapes.get(p.imagery) : undefined;   // 重ねる絵（Cesium3DTileset.imageryLayers）＝窓の平面写像を束の原点に合わせて（double）・塗る絵のある束には重ねない（WebGPU は同じ枠＝絵を揃える）
@@ -2611,7 +2616,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 					gl.uniform4f(loc(gl, pg, "u_drU"), drU[0], drU[1], drU[2], drU[3]); gl.uniform4f(loc(gl, pg, "u_drV"), drU[4], drU[5], drU[6], drU[7]); gl.uniform1f(loc(gl, pg, "u_drOn"), drU[8]);
 				}
 				gl.uniform2f(loc(gl, pg, "u_split"), p.split ? Math.sign(p.split) * (1 + splitPos) : 0, canvas.width);   // Cesium splitDirection
-				const bl = p.textured && !!blendOf(p);
+				const bl = p.textured && !!blendOf(p) && !pre;
 				if (bl !== zOff) { zOff = bl; gl.depthMask(!zOff); }   // 半透明＝深度を書かない（後ろの半透明が消えない）
 				if (!common.has(pg)) {
 					common.add(pg); setCommonUniforms(pg, st, [0, 0], land); gl.uniform3f(loc(gl, pg, "u_bldColor"), c[0], c[1], c[2]);
