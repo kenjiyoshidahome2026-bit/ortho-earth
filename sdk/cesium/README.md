@@ -46,3 +46,7 @@ What the facade does not do yet is reported once in the console as `[csshim] uns
   1. `node tests/csexamples/corpus.mjs` fetches the pinned examples into `.cache/`.
   2. `npx vite --config tests/csexamples/vite.config.mjs --port 5460` serves both sides.
   3. `CHROME=<chromium> node tests/csexamples/run.mjs` runs and grades them, and writes `summary.md`.
+
+## Release notes
+
+- 0.1.0 (2026-10-31): first release, part of Ortho Earth 2.2. [Release article](https://www.ortho-earth.com/docs/release-2-2) ([日本語](https://www.ortho-earth.com/docs/release-2-2-jp)) · [Sandcastle side by side](https://www.ortho-earth.com/sandcastle/). All releases: [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md) · [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases)

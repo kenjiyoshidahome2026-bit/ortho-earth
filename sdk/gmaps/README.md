@@ -81,3 +81,7 @@ Each of these is reported once in the console as `[gmshim] unsupported: …` (ne
 `map.getMapLibre()` returns the MapLibre map underneath for anything else.
 
 Tests: `npm test -w @ortho-earth/gmaps` (node, with a fake `maplibregl`: values, geometry, options and camera, events, markers, info windows, shapes, Data, the unsupported report; and with a fake `fetch`: every service's request and the reshaped result, the key only on `googleapis.com`, `REQUEST_DENIED` without a key) and, in `packages/globe`, `npm run verify:ui -- t-gmaps` (on the real globe: zoom shift, shapes drawn and hit by `queryRenderedFeatures`, a shape click is not a map click, marker and info window in the DOM, Data styled by function).
+
+## Release notes
+
+- 0.2.0 (2026-10-31): part of Ortho Earth 2.2. [Release article](https://www.ortho-earth.com/docs/release-2-2) ([日本語](https://www.ortho-earth.com/docs/release-2-2-jp)) · [From Google Maps](https://www.ortho-earth.com/docs/from-google-maps). All releases: [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md) · [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases)
