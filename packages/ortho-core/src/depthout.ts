@@ -25,6 +25,17 @@ highp float sceneDepthAt(highp vec2 uv) {
 }
 highp float log2p1D(highp float w) { if (w < 0.1) return (w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715))))))) * 1.4426950; return log2(1.0 + w); }   // 1.0+w の桁落ちを避ける（glsl.ts PROJECT の log2p1 と同じ）
 highp float depthOfW(highp float w) { return 0.5 * log2p1D(max(w, 1e-30)) * u_sceneLogCoef; }
+// 海面の球（深度に書かれない）の w（目からの距離・clip w と同じ尺度）＝画面の uv の光線が単位球に当たる所。当たらない・目が球の中＝−1（2026-10-31）。
+// 使うかは各オーバーレイの自由（#ifdef SCENE_GLOBE）＝地球を包む物（Cesium の地球を囲むボクセルの箱）を地球の向こうで切る。光線は camera.ts viewRays（w の行で 1 に揃えた向き）
+#define SCENE_GLOBE 1
+uniform highp vec3 u_sgF; uniform highp vec3 u_sgX; uniform highp vec3 u_sgY; uniform highp vec3 u_sgE; uniform highp float u_sgC; uniform highp float u_sgOn;
+highp float sceneGlobeW(highp vec2 uv) {
+	if (u_sgOn < 0.5 || u_sgC <= 0.0) return -1.0;
+	highp vec3 d = u_sgF + u_sgX * (uv.x * 2.0 - 1.0) + u_sgY * (uv.y * 2.0 - 1.0);
+	highp float A = dot(d, d), b = dot(u_sgE, d), h = b * b - A * u_sgC;
+	if (h < 0.0 || b >= 0.0) return -1.0;
+	return u_sgC / (-b + sqrt(h));   // 近い根（桁落ちなし）
+}
 highp float sceneOcclusion(highp vec2 uv, highp float w) {
 	if (u_sceneDepthOn < 0.5) return 0.0;
 	highp float s = sceneDepthAt(uv);
@@ -37,10 +48,14 @@ const DEPTH_EPS = 2e-6;
 // render worker 側：1 フレーム分の深度（{ pixels | bitmap, w, h, logCoef }）を、オーバーレイの gl へテクスチャとして上げる口を作る。
 // 同じフレームで同じ gl が二度呼んでも上げ直さない（gl ごとに WeakMap）。上げる時は gl の束縛と unpack の状態を戻す。
 /** 1 フレーム分の深度（GL2＝pixels の RGBA8・下の行から／WebGPU＝bitmap（関数なら求めた時に作る）と gpu＝本体の device の GPUTexture）。logCoef＝本体の対数深度の係数 */
-export interface DepthFrame { pixels?: Uint8Array | null; bitmap?: ImageBitmap | (() => ImageBitmap) | null; gpu?: { device: GPUDevice; texture: GPUTexture } | null; w: number; h: number; logCoef: number }
+/** 海面の球の光線（camera.ts sphereRayUniforms の F・X・Y・E・c＝|E|²−1）＝DEPTH_GLSL sceneGlobeW の元 */
+export interface DepthGlobe { F: ArrayLike<number>; X: ArrayLike<number>; Y: ArrayLike<number>; E: ArrayLike<number>; c: number }
+export interface DepthFrame { globe?: DepthGlobe | null; pixels?: Uint8Array | null; bitmap?: ImageBitmap | (() => ImageBitmap) | null; gpu?: { device: GPUDevice; texture: GPUTexture } | null; w: number; h: number; logCoef: number }
 /** オーバーレイへ配る深度の口（render worker の api.depth） */
 export interface DepthApi {
 	w: number; h: number; logCoef: number; backend: "webgpu" | "webgl2"; glsl: string;
+	/** 海面の球の光線（無い＝null）。WebGPU のオーバーレイは自分の uniform へ写して sceneGlobeW と同じ式で使う */
+	globe: DepthGlobe | null;
 	/** オーバーレイの gl へこのフレームの深度テクスチャを上げて返す（同じフレーム・同じ gl は上げ直さない） */
 	texture(gl: WebGL2RenderingContext): WebGLTexture;
 	/** オーバーレイの GPUDevice で読める深度テクスチャ（rgba8unorm・行は下から）。本体と同じ device＝本体のテクスチャそのもの（コピーなし）・
@@ -113,7 +128,10 @@ export function makeDepthApi(f: DepthFrame, id: number): DepthApi {
 		gl.uniform1f(u("u_sceneLogCoef"), f.logCoef);
 		gl.uniform1f(u("u_sceneDepthEps"), eps);
 		gl.uniform1f(u("u_sceneDepthOn"), 1);
+		const g = f.globe;
+		gl.uniform1f(u("u_sgOn"), g ? 1 : 0);
+		if (g) { gl.uniform3f(u("u_sgF"), g.F[0], g.F[1], g.F[2]); gl.uniform3f(u("u_sgX"), g.X[0], g.X[1], g.X[2]); gl.uniform3f(u("u_sgY"), g.Y[0], g.Y[1], g.Y[2]); gl.uniform3f(u("u_sgE"), g.E[0], g.E[1], g.E[2]); gl.uniform1f(u("u_sgC"), g.c); }
 	}
-	return { w: f.w, h: f.h, logCoef: f.logCoef, backend: f.pixels ? "webgl2" : "webgpu", glsl: DEPTH_GLSL, texture, gpuTexture, bind };
+	return { w: f.w, h: f.h, logCoef: f.logCoef, backend: f.pixels ? "webgl2" : "webgpu", glsl: DEPTH_GLSL, globe: f.globe ?? null, texture, gpuTexture, bind };
 }
 // 深度が無いフレーム（申し出前・LOW_MEM・作れない環境）＝オーバーレイは自分で u_sceneDepthOn を 0 にする（依存ゼロ＝この module は import できない）

@@ -809,6 +809,8 @@ export interface OverlayDepth {
 	backend: "webgl2" | "webgpu";
 	/** FS に貼る GLSL（#version・precision の後）。sceneDepthAt(uv)・depthOfW(w)・sceneOcclusion(uv, w)（1＝本体の物の陰・0＝見える）。捨てる（discard）か薄めるかはオーバーレイの自由 */
 	glsl: string;
+	/** 海面の球（深度に書かれない）の光線：w＝c/(−b＋√(b²−A·c))（d＝F＋X·ndcX＋Y·ndcY・A＝d·d・b＝E·d・c＝|E|²−1）。glsl の sceneGlobeW(uv) と同じ（#ifdef SCENE_GLOBE）。無い＝null */
+	globe: { F: ArrayLike<number>; X: ArrayLike<number>; Y: ArrayLike<number>; E: ArrayLike<number>; c: number } | null;
 	/** このフレームの深度をその gl のテクスチャとして返す（同じフレームで二度上げない・gl の束縛と unpack の状態は戻す） */
 	texture(gl: WebGL2RenderingContext): WebGLTexture;
 	/** このフレームの深度を GPUDevice で読めるテクスチャとして返す（rgba8unorm・行は下から）。本体と同じ device なら本体のテクスチャそのもの（コピーなし） */
