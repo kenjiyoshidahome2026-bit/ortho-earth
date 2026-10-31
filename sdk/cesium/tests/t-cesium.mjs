@@ -151,7 +151,7 @@ for (const g of [
 	const r1 = mercatorRows(1, 1, 2, 4);   // level 1, southern tile: rows run from the equator (tile row 1) to −85°
 	ok("Mercator rows at level 1", near(r1[0], 1, 1e-9) && r1[4] < 2 && r1[4] > 1.9, `${r1[0]},${r1[4]}`);
 	class SingleTileImageryProvider { constructor(o) { Object.assign(this, o); } }
-	const one = rasterSourceOf(new SingleTileImageryProvider({ _resource: { _url: "https://x.example/a.png" }, rectangle: Rectangle.fromDegrees(-10, -5, 10, 5) }));
+	const one = rasterSourceOf(new SingleTileImageryProvider({ _resource: { _url: "https://x.example/a.png" }, rectangle: Rectangle.fromDegrees(-10, -5, 10, 5), tilingScheme: new (class GeographicTilingScheme {})(), requestImage() {} }));   // Cesium's has a geographic scheme over its rectangle: not the world re-tiling
 	ok("SingleTile → image source", one?.type === "image" && near(one.coordinates[0][0], -10, 1e-9) && near(one.coordinates[0][1], 5, 1e-9), JSON.stringify(one));
 }
 
