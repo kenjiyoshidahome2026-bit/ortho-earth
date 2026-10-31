@@ -7,7 +7,7 @@ import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
 import { gltfSphere, modelTintOf, modelSilOf } from "../src/gltf.ts";
 import { sphereOfVolume, Cesium3DTileset } from "../src/tileset.ts";
 import { Resource } from "@cesium/engine";
-import { clippingOriginOf, clipSpecOf } from "../src/clipping.ts";
+import { clippingOriginOf, clipSpecOf, globeClipOf } from "../src/clipping.ts";
 import { pntsSphere } from "../src/timepoints.ts";
 import { readFileSync, existsSync } from "node:fs";
 import { extentOfLayerJson, unionExtents } from "../src/i3s.ts";
@@ -579,6 +579,21 @@ for (const g of [
 	const e0 = far(ellipsePts(400, 250, 0)), e45 = far(ellipsePts(400, 250, Math.PI / 4));
 	ok("ellipse: rotation 0 = major along east", near(Math.abs(e0[0]), 400, 1e-6) && near(e0[1], 0, 1e-6), JSON.stringify(e0));
 	ok("ellipse: rotation 45° = major to the north-east", near(Math.abs(Math.atan2(e45[1], e45[0])) % Math.PI, Math.PI / 4, 0.1), JSON.stringify(e45));
+}
+
+// Globe.clippingPlanes (terrain-clipping-planes): four upright planes, union false = a 1400 m square hole in the terrain = the polygon clip
+{
+	const { ClippingPlane, ClippingPlaneCollection, Transforms } = await import("@cesium/engine");
+	const C = Cartesian3.fromRadians(-2.0862979473351286, 0.6586620013036164, 1400);
+	const planes = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]].map(n => new ClippingPlane(new Cartesian3(...n), -700));
+	const coll = new ClippingPlaneCollection({ modelMatrix: Transforms.eastNorthUpToFixedFrame(C), planes, edgeWidth: 1 });
+	const r = globeClipOf(coll), ring = r.spec?.polygon?.[0] ?? [];
+	const lon0 = -2.0862979473351286 * 180 / Math.PI, lat0 = 0.6586620013036164 * 180 / Math.PI;
+	const ew = ring.length ? (Math.max(...ring.map(q => q[0])) - Math.min(...ring.map(q => q[0]))) * Math.PI / 180 * 6378137 * Math.cos(lat0 * Math.PI / 180) : 0;
+	const cx = ring.length ? ring.reduce((s, q) => s + q[0], 0) / ring.length : NaN;
+	ok("globe clipping planes: union false = a square polygon hole on the terrain", ring.length === 4 && r.spec.inverse === false && r.spec.targets[0] === "terrain" && near(ew, 1400, 15) && near(cx, lon0, 1e-4) && r.spec.edge?.width === 1, JSON.stringify({ n: ring.length, ew, cx, lon0 }));
+	coll.unionClippingRegions = true;
+	ok("globe clipping planes: union true = the planes (keep in front of every one)", globeClipOf(coll).spec?.ecef?.length === 4);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
