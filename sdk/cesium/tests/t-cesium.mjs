@@ -7,7 +7,7 @@ import { globeCamOf, poseOfGlobeCam, sameGlobeCam } from "../src/camera.ts";
 import { gltfSphere, modelTintOf, modelSilOf } from "../src/gltf.ts";
 import { sphereOfVolume, Cesium3DTileset } from "../src/tileset.ts";
 import { Resource } from "@cesium/engine";
-import { clippingOriginOf, clipSpecOf, globeClipOf } from "../src/clipping.ts";
+import { clippingOriginOf, clipSpecOf, globeClipOf, limitRectClipOf } from "../src/clipping.ts";
 import { pntsSphere } from "../src/timepoints.ts";
 import { readFileSync, existsSync } from "node:fs";
 import { extentOfLayerJson, unionExtents } from "../src/i3s.ts";
@@ -594,6 +594,16 @@ for (const g of [
 	ok("globe clipping planes: union false = a square polygon hole on the terrain", ring.length === 4 && r.spec.inverse === false && r.spec.targets[0] === "terrain" && near(ew, 1400, 15) && near(cx, lon0, 1e-4) && r.spec.edge?.width === 1, JSON.stringify({ n: ring.length, ew, cx, lon0 }));
 	coll.unionClippingRegions = true;
 	ok("globe clipping planes: union true = the planes (keep in front of every one)", globeClipOf(coll).spec?.ecef?.length === 4);
+}
+
+// Globe.cartographicLimitRectangle (cartographic-limit-rectangle): the tropics band = two latitude planes; a 90° box adds two meridians
+{
+	const band = limitRectClipOf(Rectangle.fromDegrees(-180, -23.43687, 180, 23.43687)).spec?.ecef ?? [];
+	const keep = (P, pl) => pl.every(q => q[0] * P.x + q[1] * P.y + q[2] * P.z + q[3] >= -1e-6);
+	ok("limit rectangle: the tropics = 2 planes, 10°N kept, 30°N cut", band.length === 2 && keep(Cartesian3.fromDegrees(40, 10), band) && !keep(Cartesian3.fromDegrees(40, 30), band) && !keep(Cartesian3.fromDegrees(40, -30), band));
+	const box = limitRectClipOf(Rectangle.fromDegrees(0, 0, 90, 45)).spec?.ecef ?? [];
+	ok("limit rectangle: a 90° box = 4 planes, (45,20) kept, (100,20) and (-10,20) cut", box.length === 4 && keep(Cartesian3.fromDegrees(45, 20), box) && !keep(Cartesian3.fromDegrees(100, 20), box) && !keep(Cartesian3.fromDegrees(-10, 20), box));
+	ok("limit rectangle: the whole world = nothing", limitRectClipOf(Rectangle.MAX_VALUE).spec === null);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
