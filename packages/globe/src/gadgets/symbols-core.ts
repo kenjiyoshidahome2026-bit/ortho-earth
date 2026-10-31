@@ -1,5 +1,5 @@
 // 記号の層の評価（MapLibre の symbol 層の layout/paint → 描く記号の列）。DOM なし＝検定 t-symbols が直接読む。
-import { evalExpr, truthy, originOfLayer, parseFontStack, fontCss } from "@ortho-earth/core";
+import { evalExpr, truthy, originOfLayer, parseFontStack, fontCss, pickImage } from "@ortho-earth/core";
 import { evalColor } from "./model.ts";
 import type { ExprContext, MLLayer } from "@ortho-earth/core";
 
@@ -99,7 +99,7 @@ export function symbolItems(src: unknown, layer: Partial<MLLayer> = {}, zoom = 1
 			textVariableAnchor: strs(Ly["text-variable-anchor"]), textRadialOffset: Ly["text-radial-offset"] != null ? +ev(Ly["text-radial-offset"], 0) : null,
 			iconTextFit: ev(Ly["icon-text-fit"], "none"), iconTextFitPadding: ev(Ly["icon-text-fit-padding"], [0, 0, 0, 0]),
 		};
-		if (icon && images && !images.has(icon)) { missing?.add(icon); it.icon = null; }   // 記号帳に無い名前＝記号は描かない（main が styleimagemissing を鳴らす）＝文字だけ残る
+		if (icon && images) { const nm = pickImage(icon, n => images.has(n)); if (!images.has(nm)) { missing?.add(nm); it.icon = null; } else it.icon = nm; }   // coalesce の記号の候補＝記号帳に有る最初の名前   // 記号帳に無い名前＝記号は描かない（main が styleimagemissing を鳴らす）＝文字だけ残る
 		if (!it.icon && !it.text) continue;
 		for (const c of pts as Pos[]) out.push({ ...it, lon: c[0], lat: c[1] });
 	}

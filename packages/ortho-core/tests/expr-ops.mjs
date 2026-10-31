@@ -1,6 +1,6 @@
 // 式の残り（C2・2026-10-12）＝within・distance・config・semiliteral・number-format の unit/currency・collator・interpolate-hcl/lab・pitch・distance-from-center。
 // 期待値は MapLibre の意味（文書・color_spaces.ts）から。semiliteral は推定の意味（compat.md §4）
-import { evalExpr, unknownOps, setGlobalState, KNOWN_OPS, exprDeps, exprKind } from "../src/expr.ts";
+import { evalExpr, unknownOps, setGlobalState, KNOWN_OPS, exprDeps, exprKind, pickImage, IMG_ALT } from "../src/expr.ts";
 import { featureGeomLL } from "../src/expr-geo.ts";
 
 let fails = 0;
@@ -99,6 +99,18 @@ ok("kind: format の設定の中の式", exprKind(["format", "a", { "text-color"
 ok("kind: semiliteral の要素", exprKind(["semiliteral", [["get", "x"], 2]]) === "data");
 const fl = exprDeps(["case", ["boolean", ["feature-state", "hover"], false], ["global-state", "c"], ["*", ["pitch"], ["line-progress"]]]);
 ok("deps の旗（state・global・camera・vertex）", fl.kind === "data" && fl.state && fl.global && fl.camera && fl.vertex, JSON.stringify(fl));
+
+// coalesce の記号の候補（use-a-fallback-image・2026-10-31）＝候補を運び、記号帳に有る最初の名前を pickImage で選ぶ
+{
+	const fb = ["coalesce", ["image", ["concat", ["get", "icon"], "_11"]], ["image", "marker_11"]];
+	const v = E(fb, { ...ML, props: { icon: "bridges" } }), have = new Set(["marker_11", "monument_11"]);
+	ok("coalesce image: 候補を運ぶ", v === "bridges_11" + IMG_ALT + "marker_11", JSON.stringify(v));
+	ok("pickImage: 無い名前を飛ばす", pickImage(v, n => have.has(n)) === "marker_11");
+	ok("pickImage: 有る名前はそのまま", pickImage(E(fb, { ...ML, props: { icon: "monument" } }), n => have.has(n)) === "monument_11");
+	ok("pickImage: どれも無ければ先頭（styleimagemissing の名前）", pickImage(v, () => false) === "bridges_11");
+	ok("pickImage: 候補でない名前は触らない", pickImage("a", () => false) === "a" && pickImage("", () => true) === "");
+	ok("coalesce: image 以外は従来どおり", E(["coalesce", ["get", "x"], "d"]) === "d");
+}
 
 if (fails) { console.error(`✗ expr-ops ${fails} 件 FAIL`); process.exit(1); }
 console.log("✓ expr-ops 全 PASS");
