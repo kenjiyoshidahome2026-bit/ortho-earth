@@ -2147,7 +2147,7 @@ fn rd(idx: u32) -> f32 {
 // 派生（deriveWgsl）の錨は触らない＝この変換は mkMod の直前に最後に掛ける（元の fs を fsColor に改名して包む＝return を書き換えない）。
 // 費用＝early-Z が効かない分（東京駅 z16.5・55° で gpuMap +0.4ms・山地は差なし）。逃げ道＝?fd=0（renderer の rOpts.fragDepth=false）
 export function fragDepthWgsl(src: string, label = ""): string {
-	const m = /@fragment fn fs\(in: (\w+)\) -> @location\(0\) vec4f \{/.exec(src);
+	const m = /@fragment fn fs\(in: (\w+)(, @builtin\(front_facing\) ff: bool)?\) -> @location\(0\) vec4f \{/.exec(src);   // ff＝模型の fs だけ（Cesium の表裏）
 	if (!m) throw new Error(`fragDepth(${label}): fs not found`);
 	const out = m[1], st = src.indexOf(`struct ${out} {`);
 	if (st < 0) throw new Error(`fragDepth(${label}): struct ${out} not found`);
@@ -2157,12 +2157,13 @@ export function fragDepthWgsl(src: string, label = ""): string {
 	const vsA = "\tp.z = logDepthZ(p.w);\n\to.pos = p;";
 	if (s.split(vsA).length !== 2) throw new Error(`fragDepth(${label}): vs anchor missing/ambiguous`);
 	s = s.replace(vsA, "\tp.z = logDepthZ(p.w);\n\to.pos = p; o.cw = p.w;");
-	s = s.replace(m[0], `fn fsColor(in: ${out}) -> vec4f {`);
+	const ff = !!m[2];
+	s = s.replace(m[0], `fn fsColor(in: ${out}${ff ? ", ff: bool" : ""}) -> vec4f {`);
 	return s + `
 struct ${out}Frag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
-@fragment fn fs(in: ${out}) -> ${out}Frag {   // 色は元の fs（fsColor）・深度は画素ごとに対数深度（#62）
+@fragment fn fs(in: ${out}${ff ? ", @builtin(front_facing) ff: bool" : ""}) -> ${out}Frag {   // 色は元の fs（fsColor）・深度は画素ごとに対数深度（#62）
 	var o: ${out}Frag;
-	o.c = fsColor(in);
+	o.c = fsColor(in${ff ? ", ff" : ""});
 	o.d = fragDepthOf(in.cw);
 	return o;
 }
