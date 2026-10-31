@@ -322,6 +322,19 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	ok(span(wA[0]) > span(wZ[0]) * 1000, `aloft: windows sized by the eye's distance to the ground (${span(wA[0]).toFixed(4)}° vs ${span(wZ[0]).toFixed(7)}°)`);
 	const wAT = groundWindows({ ...camA, pitch: 0.9 }, 800, 600), mid = w => (w[1] + w[3]) / 2;
 	ok(mid(wAT[wAT.length - 3]) > cam0.center[1] + 0.5, `aloft + tilt: the near window is centred on the ground the view ray meets (lat ${mid(wAT[wAT.length - 3]).toFixed(3)})`);
+	// 注視点の下の地面の高さ（groundAlt・2026-10-31）：山岳の目（fog＝目 3,640 m・地面 2,840 m・画面下端の山は 170 m 先）は海面球で視線の距離を測ると 4〜5 倍遠い
+	// ＝前景窓が 16 km（8 m/texel）で手前の画像がぼやけた（Cesium は z18）。地面の球で測れば前景窓 ≈4.8 km（2.3 m/texel）・近窓 ≈8.7 km。無指定＝従来とビット同値
+	{
+		const D2R = Math.PI / 180, fovy = 2 * Math.atan(Math.tan(30 * D2R) * 720 / 960);
+		const fog = { center: [-119.37102309016926, 37.976781000181134], zoom: 14.806762303379891, pitch: 74.63 * D2R, bearing: 257.3648 * D2R, roll: 0, dpr: 1, near: 1, fovy, centerAlt: 2836.25 };
+		const w0 = groundWindows(fog, 960, 720, fog.centerAlt), wG = groundWindows({ ...fog, groundAlt: 2836.25 }, 960, 720, fog.centerAlt);
+		ok(w0.fg && wG.fg, `fog: both have a foreground window (${!!w0.fg}/${!!wG.fg})`);
+		ok(span(wG[0]) < 0.06 && span(wG[0]) < span(w0[0]) / 3, `fog groundAlt: foreground window ${span(wG[0]).toFixed(4)}° (sea-level sphere ${span(w0[0]).toFixed(4)}°)`);   // 4.8 km（2.3 m/texel）・従来 16 km（8 m）
+		ok(span(wG[1]) < 0.1 && span(wG[1]) < span(w0[1]) / 3, `fog groundAlt: near window ${span(wG[1]).toFixed(4)}° (sea-level ${span(w0[1]).toFixed(4)}°)`);   // 8.7 km・従来 29 km
+		ok(windowsKey(groundWindows({ ...fog, groundAlt: 0 }, 960, 720, fog.centerAlt)) === windowsKey(w0) && windowsKey(groundWindows({ ...fog, groundAlt: undefined }, 960, 720, fog.centerAlt)) === windowsKey(w0), "groundAlt 0 / unset = the old windows bit for bit");
+		const wS = groundWindows({ ...camA, groundAlt: 0 }, 800, 600);   // 宙の注視点（衛星）の下の地面は海面＝従来どおり遠くまで
+		ok(windowsKey(wS) === windowsKey(wA), "aloft target with ground at sea level: unchanged");
+	}
 	// 地平線：低い目で強く傾けると遠窓（36 倍）の外の地面が写る＝そこまで届く窓（Cesium の 3d-tiles-batch-table-hierarchy の紺の帯）
 	const camH = { ...cam0, zoom: 19, pitch: 1.35 }, wH = groundWindows(camH, 800, 600), sH = groundWindows({ ...cam0, zoom: 19 }, 800, 600);
 	const kH = span(wH[wH.length - 1]) / span(sH[0]);
