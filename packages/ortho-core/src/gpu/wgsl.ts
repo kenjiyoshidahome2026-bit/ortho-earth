@@ -292,6 +292,9 @@ fn olMix(b: vec3f) -> vec3f {
 	let o = 0.753 * clamp((olV - 1.0) / t + 1.5, vec3f(0.0), vec3f(1.0)) * min(vec3f(1.0), 1.0 / (16.0 * t));
 	return mix(b, olC.rgb, olC.a * max(o.x, max(o.y, o.z)));
 }
+// Cesium's czm_phong (the entity geometry / Primitive appearances, csL.w 3) = gl/glsl.ts csPhong: two lights at the eye, along the view (eye z)
+// and from the camera's up (eye y); ambient 0.5·diffuse; specular 0. F.rayF / F.rayY = the camera's forward and up (world)
+fn csPhong(n: vec3f) -> f32 { return 0.5 + 0.5 * (max(dot(n, -normalize(F.rayF.xyz)), 0.0) + max(dot(n, normalize(F.rayY.xyz)), 0.0)); }
 struct CsIn { base: vec3f, n: vec3f, pos: vec3f, v: vec3f, metallic: f32, rough: f32, ao: f32, emissive: vec3f, sunK: f32, cc: vec2f, ncc: vec3f };   // cc＝KHR_materials_clearcoat (factor, roughness)・ncc＝its normal (the geometric one)
 fn csLit(i: CsIn, sh: array<vec4f, 9>, csL: vec4f, csC: vec4f, csI: vec4f) -> vec3f {   // base＝リニア。戻り＝表示空間（sRGB）
 	let l = normalize(csL.xyz); let h = normalize(i.v + l);
@@ -1105,6 +1108,7 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 		var ci: CsIn; ci.base = srgbDecode(P.p1.rgb); ci.n = n; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = B.pbr0.x; ci.rough = B.pbr0.y; ci.ao = 1.0; ci.emissive = vec3f(0.0); ci.sunK = sunK; ci.cc = B.cc.xy; ci.ncc = n;
 		lit = csLit(ci, B.sh, B.csL, B.csC, B.csI);
 	}
+	if (B.csL.w > 2.5) { lit = ltBase * csPhong(n); }   // czm_phong（entity geometry）
 	if (B.ln.x > 0.5) { lit += ltBase * localLights(n, F.eye - in.toEye); }   // 局所の光源（W2）
 	let cwin = cityWin(select(n, normalize(gnRaw * sign(dot(gnRaw, n))), g2 > 1e-18), in.wl, wlx, wly);   // 夜の街明かり（cs.y＝0 のバッチ＝模型などは何もしない）・向きは面の幾何法線（面内で一定＝角で丸めた頂点法線でも壁は壁）
 	lit = mix(lit, cwin.rgb, cwin.w);
