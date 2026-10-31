@@ -3758,8 +3758,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "meshCol": { const p = meshes.get(prop as string); if (p?.cbo && (data as Uint8Array | null)?.length && (data as Uint8Array).byteLength <= p.cbo.size) device.queue.writeBuffer(p.cbo, 0, (data as Uint8Array).buffer, (data as Uint8Array).byteOffset, (data as Uint8Array).byteLength); break; }   // 頂点色だけ書き換える（feature state の色・W7）
 			case "meshPos": {   // skin の頂点の焼き直し（2026-10-28）＝pos（原点相対・Float32・3n）と法線（Int8・4n）を同じ頂点数のまま書き換える（大きさが違えば捨てる）。影の深度も描き直す
 				const p = meshes.get(prop as string), d = data as { pos?: Float32Array; nrm?: Int8Array } | null;
-				if (!p || !d?.pos?.length || ((d.pos.byteLength + 3) & ~3) !== p.vbo.size) break;
-				device.queue.writeBuffer(p.vbo, 0, d.pos.buffer, d.pos.byteOffset, d.pos.byteLength);
+				if (!p || (!d?.pos?.length && !d?.nrm?.length) || (d.pos?.length && ((d.pos.byteLength + 3) & ~3) !== p.vbo.size)) break;   // nrm alone: a line batch's widths (the style's lineWidth)
+				if (d.pos?.length) device.queue.writeBuffer(p.vbo, 0, d.pos.buffer, d.pos.byteOffset, d.pos.byteLength);
 				if (d.nrm?.length && ((d.nrm.byteLength + 3) & ~3) === p.nbo.size) device.queue.writeBuffer(p.nbo, 0, d.nrm.buffer, d.nrm.byteOffset, d.nrm.byteLength);
 				castRev++;
 				break;

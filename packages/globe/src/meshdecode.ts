@@ -76,6 +76,8 @@ export interface ModelBatchOut {
 	meta?: { props: Record<string, MetaProp>; texs: (TexOut | null)[] } | null;
 	/** 利用者のシェーダの J＝positionMC の差分 → 世界（単位球）の差分の線形部（列優先 3x3・opts.mc の時だけ） */
 	mcJ?: number[] | null;
+	/** glTF lines drawn as ribbons (the normal's 4th byte holds each vertex's side and width in px: lineByte); the style's lineWidth rewrites it */
+	lines?: boolean;
 }
 /** 模型の点（経緯度 rad と RGBA） */
 export interface ModelPoints { geo: number[]; rgba: number[] }
@@ -1064,10 +1066,17 @@ function externalSchema(uri: string, baseUri: string | null, f: typeof fetch): P
 	}
 	return p;
 }
-// glTF line primitives (LINES 1 / LINE_LOOP 2 / LINE_STRIP 3) as thin square tubes (a triangle primitive with COLOR_0 and no normals = drawn unlit,
-// as Cesium draws lines). Width = 0.24% of the lines' bounding box diagonal (about a pixel when the model fills the view). An index equal to the
-// largest value of its type restarts the strip/loop (KHR_mesh_primitive_restart)
-function linePrimAsTubes(pr: GltfPrimitive, mode: number): GltfPrimitive | null {
+// glTF line primitives (LINES 1 / LINE_LOOP 2 / LINE_STRIP 3) as ribbons that the mesh vertex shader widens to a width in pixels, as Cesium draws
+// lines (1 px unless the style's lineWidth says otherwise, unlit). 4 vertices per segment (A−, A+, B−, B+): POSITION = the end, nudged sideways by
+// a hair (0.12% of the lines' bounding box diagonal, so a ray still hits them on the CPU); NORMAL = the segment's direction (the shader turns it into
+// the screen's perpendicular); the vertex's side and width go in the normal's 4th byte (lineByte, a negative value = a line vertex). An index equal
+// to the largest value of its type restarts the strip/loop (KHR_mesh_primitive_restart). Before 2026-10-31 these were world-sized square tubes
+// (0.24% of the diagonal = a fraction of a pixel when a tile is shown at its screen-space error: 3d-tiles-property-lod-river's rivers came out
+// thin and pale beside Cesium's 2–3 px lines)
+/** the normal's 4th byte of a line vertex: −(2·round(width px × 4) + side), side 1 = +, 0 = −; widths 0.25..15.75 px */
+export const lineByte = (widthPx: number, plus: boolean) => -(2 * Math.max(1, Math.min(63, Math.round(widthPx * 4))) + (plus ? 1 : 0));
+type LinePrim = GltfPrimitive & { lineSide?: Uint8Array };
+function linePrimAsRibbons(pr: GltfPrimitive, mode: number): LinePrim | null {
 	const acc = pr.attributes?.POSITION, P0 = acc?.value; if (!P0) return null;
 	const q = acc!.normalized ? dequant(P0) : 1, n = P0.length / 3, I = pr.indices?.value ?? null;
 	const restart = I instanceof Uint8Array ? 0xff : I instanceof Uint16Array ? 0xffff : I instanceof Uint32Array ? 0xffffffff : -1;
@@ -1083,39 +1092,37 @@ function linePrimAsTubes(pr: GltfPrimitive, mode: number): GltfPrimitive | null 
 	if (!segs.length) return null;
 	let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
 	for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) { const x = P0[i * 3 + c] * q; if (x < lo[c]) lo[c] = x; if (x > hi[c]) hi[c] = x; }
-	const w = Math.max(Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) * 0.0012, 1e-6);   // half width
-	const ns = segs.length / 2, P = new Float32Array(ns * 8 * 3), idx = new Uint32Array(ns * 24);
-	const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes!.COLOR_0!.normalized ? dequant(C0) : 1) : 1, C = C0 ? new Float32Array(ns * 8 * 4) : null;
+	const w = Math.max(Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) * 0.0012, 1e-6);   // the hair's half width
+	const ns = segs.length / 2, P = new Float32Array(ns * 4 * 3), N = new Float32Array(ns * 4 * 3), side = new Uint8Array(ns * 4), idx = new Uint32Array(ns * 6);
+	const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes!.COLOR_0!.normalized ? dequant(C0) : 1) : 1, C = C0 ? new Float32Array(ns * 4 * 4) : null;
 	for (let s = 0; s < ns; s++) {
 		const a = segs[s * 2], b = segs[s * 2 + 1];
 		const A = [P0[a * 3] * q, P0[a * 3 + 1] * q, P0[a * 3 + 2] * q], B = [P0[b * 3] * q, P0[b * 3 + 1] * q, P0[b * 3 + 2] * q];
-		const d = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], dl = Math.hypot(d[0], d[1], d[2]) || 1;
-		const t = Math.abs(d[0]) < 0.9 * dl ? [1, 0, 0] : [0, 1, 0];
-		let u = [d[1] * t[2] - d[2] * t[1], d[2] * t[0] - d[0] * t[2], d[0] * t[1] - d[1] * t[0]]; const ul = Math.hypot(u[0], u[1], u[2]); u = u.map(x => x / ul * w);
-		let v = [d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]]; const vl = Math.hypot(v[0], v[1], v[2]); v = v.map(x => x / vl * w);
-		const corners = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
-		for (let e = 0; e < 2; e++) for (let c = 0; c < 4; c++) {
-			const o = (s * 8 + e * 4 + c) * 3, E = e ? B : A, [cu, cv] = corners[c];
-			for (let k = 0; k < 3; k++) P[o + k] = E[k] + cu * u[k] + cv * v[k];
-			if (C) { const src = e ? b : a; for (let k = 0; k < 4; k++) C[(s * 8 + e * 4 + c) * 4 + k] = k < cN ? C0![src * cN + k] * qc : 1; }
+		const d = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], dl = Math.hypot(d[0], d[1], d[2]);
+		const dn = dl > 0 ? d.map(x => x / dl) : [1, 0, 0];
+		const t = Math.abs(dn[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+		let u = [dn[1] * t[2] - dn[2] * t[1], dn[2] * t[0] - dn[0] * t[2], dn[0] * t[1] - dn[1] * t[0]]; const ul = Math.hypot(u[0], u[1], u[2]); u = u.map(x => x / ul * w);
+		for (let e = 0; e < 2; e++) for (let c = 0; c < 2; c++) {
+			const vi = s * 4 + e * 2 + c, E = e ? B : A, sg = c ? 1 : -1;
+			for (let k = 0; k < 3; k++) { P[vi * 3 + k] = E[k] + sg * u[k]; N[vi * 3 + k] = dn[k]; }
+			side[vi] = c;
+			if (C) { const src = e ? b : a; for (let k = 0; k < 4; k++) C[vi * 4 + k] = k < cN ? C0![src * cN + k] * qc : 1; }
 		}
-		for (let c = 0; c < 4; c++) {   // 4 side quads
-			const a0 = s * 8 + c, a1 = s * 8 + (c + 1) % 4, b0 = a0 + 4, b1 = a1 + 4, o = s * 24 + c * 6;
-			idx[o] = a0; idx[o + 1] = a1; idx[o + 2] = b1; idx[o + 3] = a0; idx[o + 4] = b1; idx[o + 5] = b0;
-		}
+		const o = s * 6, v0 = s * 4;   // A− A+ B+ · A− B+ B−
+		idx[o] = v0; idx[o + 1] = v0 + 1; idx[o + 2] = v0 + 3; idx[o + 3] = v0; idx[o + 4] = v0 + 3; idx[o + 5] = v0 + 2;
 	}
-	const attributes: Record<string, GltfAccessor> = { POSITION: { value: P } as GltfAccessor };
+	const attributes: Record<string, GltfAccessor> = { POSITION: { value: P } as GltfAccessor, NORMAL: { value: N } as GltfAccessor };
 	if (C) attributes.COLOR_0 = { value: C } as GltfAccessor;
-	// the feature ids (EXT_mesh_features _FEATURE_ID_n / b3dm _BATCHID) follow their vertices onto the tube corners: without them the implicit
+	// the feature ids (EXT_mesh_features _FEATURE_ID_n / b3dm _BATCHID) follow their vertices onto the ribbon's corners: without them the implicit
 	// numbering took the vertex index as the feature, and a style by property (3d-tiles-property-lod-river's ORD_FLOW) painted the wrong rows (2026-10-31)
 	for (const k of Object.keys(pr.attributes || {})) {
 		if (!/^(_FEATURE_ID_\d+|_BATCHID)$/.test(k)) continue;
 		const src = pr.attributes![k], F = src?.value as ArrayLike<number> | undefined; if (!F || !F.length) continue;
-		const fN = Math.max(1, (F.length / n) | 0), out = new (F.constructor as new (n: number) => typeof F & { [i: number]: number })(ns * 8 * fN) as unknown as Record<number, number>;
-		for (let s = 0; s < ns; s++) for (let e = 0; e < 2; e++) { const sv = segs[s * 2 + e]; for (let c = 0; c < 4; c++) for (let j = 0; j < fN; j++) out[(s * 8 + e * 4 + c) * fN + j] = F[sv * fN + j]; }
+		const fN = Math.max(1, (F.length / n) | 0), out = new (F.constructor as new (n: number) => typeof F & { [i: number]: number })(ns * 4 * fN) as unknown as Record<number, number>;
+		for (let s = 0; s < ns; s++) for (let e = 0; e < 2; e++) { const sv = segs[s * 2 + e]; for (let c = 0; c < 2; c++) for (let j = 0; j < fN; j++) out[(s * 4 + e * 2 + c) * fN + j] = F[sv * fN + j]; }
 		attributes[k] = { ...src, value: out } as unknown as GltfAccessor;
 	}
-	return { ...pr, mode: 4, attributes, indices: { value: idx } as GltfAccessor };
+	return { ...pr, mode: 4, attributes, indices: { value: idx } as GltfAccessor, lineSide: side };
 }
 export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false, upAxis = null }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
@@ -1189,7 +1196,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	const rig = tile ? null : rigFromGltf(gltf);
 	const animated = new Set(rig?.animated || []);
 	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）。アニメするノードは (material, node) ごと
-	const groups = new Map<GltfMaterial | string | null, { segs: ModelSeg[]; totalV: number; totalI: number; mat: GltfMaterial | null; node: number; noNrm: boolean; skin: number; ds: boolean; lin0?: ArrayLike<number>; e0?: number[]; pt?: ReturnType<typeof propTexOf>; ft?: FeatureSet | null }>();   // skin＝スキンされた primitive は (skin, material) ごとに別の束（main が束ごとに頂点を焼き直す）   // material|node → { segs, totalV, totalI, mat, node }
+	const groups = new Map<GltfMaterial | string | null, { segs: ModelSeg[]; totalV: number; totalI: number; mat: GltfMaterial | null; node: number; noNrm: boolean; lines?: boolean; skin: number; ds: boolean; lin0?: ArrayLike<number>; e0?: number[]; pt?: ReturnType<typeof propTexOf>; ft?: FeatureSet | null }>();   // skin＝スキンされた primitive は (skin, material) ごとに別の束（main が束ごとに頂点を焼き直す）   // material|node → { segs, totalV, totalI, mat, node }
 	const matNo = new Map<GltfMaterial | null, number>(); const gkOf = (prefix: string, mat: GltfMaterial | null) => { if (!matNo.has(mat)) matNo.set(mat, matNo.size); return prefix + matNo.get(mat); };
 	let minH = Infinity, nTri = 0, nVert = 0, nFid = 0, nFidTex = 0;
 	const pts: ModelPoints | null = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
@@ -1242,7 +1249,8 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 				}
 				continue;
 			}
-			if (mode4 >= 1 && mode4 <= 3) { const tp = linePrimAsTubes(pr, mode4); if (tp) { pr = tp; mode4 = 4; } }   // lines (Cesium draws them 1 px, unlit) → thin tubes
+			let lineSide: Uint8Array | null = null;
+			if (mode4 >= 1 && mode4 <= 3) { const tp = linePrimAsRibbons(pr, mode4); if (tp) { pr = tp; mode4 = 4; lineSide = tp.lineSide ?? null; } }   // lines (Cesium draws them 1 px, unlit) → ribbons widened in pixels by the shader
 			if (mode4 !== 4 && mode4 !== 5 && mode4 !== 6) continue;   // 三角形系だけ（点は建物メッシュにならない）
 			const acc = pr.attributes?.POSITION; const P = skinIn ? skinIn.P1 : acc?.value; if (!P) continue;
 			const NRM = skinIn ? skinIn.N1 : pr.attributes?.NORMAL?.value;
@@ -1252,9 +1260,9 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			const ptd = mc && !skinIn ? propTexOf(pr as { extensions?: Record<string, unknown> | null }, metaRaw) : null;   // property texture（CustomShader の fsInput.metadata）＝違えば別の束
 			const fbc = baseColorOf(pr.material || null, gltf), fset = featureSetOf(pr, featureIdSet), ft = fset?.texInfo && !skinIn && fbc.texture && !fbc.transform && (fset.texInfo.texCoord ?? 0) === fbc.texCoord ? fset : null;   // 画素ごとの地物の番号＝baseColor と同じ uv の時だけ（photogrammetry の分類）
 			const ftk = ft ? `ft${ft.texInfo!.index}:${ft.texInfo!.channels ?? ""}:${ft.nullFeatureId}:${ft.propertyTable}|` : "";
-			const mat = pr.material || null, gk = skinIn ? gkOf(`s${si}|`, mat) : ptd ? gkOf(`pt${ptd.sig}|${animNode}|${ftk}`, mat) : animNode >= 0 || ft ? gkOf(`${animNode}|${ftk}`, mat) : mat;   // アニメするノードは別の束（鍵＝ノード番号＋material）・skin も別の束・番号の画像が違えば別の束
-			let g = groups.get(gk); if (!g) groups.set(gk, g = { segs: [], totalV: 0, totalI: 0, mat, node: skinIn ? -1 : animNode, noNrm: false, skin: skinIn ? si : -1, ds: !!mat?.doubleSided, pt: ptd, ft });
-			if (!NRM) g.noNrm = true;   // 法線の無い primitive＝面法線を積むが、Cesium はこれを照明無し（unlit）で描く
+			const mat = pr.material || null, gk = lineSide ? gkOf(`ln${animNode}|`, mat) : skinIn ? gkOf(`s${si}|`, mat) : ptd ? gkOf(`pt${ptd.sig}|${animNode}|${ftk}`, mat) : animNode >= 0 || ft ? gkOf(`${animNode}|${ftk}`, mat) : mat;   // アニメするノードは別の束（鍵＝ノード番号＋material）・skin も別の束・番号の画像が違えば別の束
+			let g = groups.get(gk); if (!g) groups.set(gk, g = { segs: [], totalV: 0, totalI: 0, mat, node: skinIn ? -1 : animNode, noNrm: false, skin: skinIn ? si : -1, ds: !!mat?.doubleSided, pt: ptd, ft, lines: !!lineSide });
+			if (!NRM || lineSide) g.noNrm = true;   // a line's NORMAL is its direction (the ribbon), not a surface: unlit   // 法線の無い primitive＝面法線を積むが、Cesium はこれを照明無し（unlit）で描く
 			const base = g.totalV;
 			const geoSeg = new Float64Array(n * 3), nrmSeg = new Int8Array(n * 4), ecef = new Float64Array(n * 3);
 			const mcSeg = mc && !skinIn ? new Float32Array(n * 4) : null;   // 利用者のシェーダの positionMC（glTF の POSITION＝量子化を解いただけ）
@@ -1301,6 +1309,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 				if (l > 0) { const s = 127 / l; nrmSeg[i*4] = Math.round(nx * s); nrmSeg[i*4+1] = Math.round(ny * s); nrmSeg[i*4+2] = Math.round(nz * s); }
 				else nrmSeg[i*4+1] = 127;
 			}
+			if (lineSide) for (let i = 0; i < n; i++) nrmSeg[i*4+3] = lineByte(1, lineSide[i] === 1);   // Cesium's default lineWidth (1 px); the style's lineWidth rewrites it per feature (tiles3d)
 			// uv（baseColorTexture の TEXCOORD_n＋KHR_texture_transform）と 頂点色（baseColorFactor×COLOR_0、α＝OPAQUE なら 1）
 			const bc = baseColorOf(mat, gltf);
 			const UV = bc.texture ? pr.attributes?.["TEXCOORD_" + bc.texCoord]?.value : null;
@@ -1331,7 +1340,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			if (fset) { nFid++; if (fset.texture) nFidTex++; }
 			if (mc && !g.lin0 && n) { g.lin0 = lin; g.e0 = [ecef[0], ecef[1], ecef[2]]; }   // 束の J の素（最初の primitive の置き方・頂点）
 			const seg = { geo: geoSeg, nrm: nrmSeg, idx: idxSeg, uv: uvSeg, col: colSeg, fid: fset ? featureIdsOf(fset, n) : null, tbl: fset ? fset.propertyTable : null, skin: skinIn ? skinIn.seg : null, mc: mcSeg, uvm: uvmSeg };
-			const olE = mode4 === 4 && !skinIn ? outlineEdgesOf(pr, gltf) : null;
+			const olE = mode4 === 4 && !skinIn && !lineSide ? outlineEdgesOf(pr, gltf) : null;
 			if (olE) withOutline(seg, olE, n, base);   // CESIUM_primitive_outline＝頂点を写し足して法線の 4 バイト目に輪郭の座標（3 bit）
 			const nv = seg.geo.length / 3;
 			g.segs.push(seg);
@@ -1374,7 +1383,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		const [texMR, texN, texOcc, texEm] = textures ? await Promise.all([pb.texMR, pb.texN, pb.texOcc, pb.texEm].map(t => textureOf(t, imgCache))) : [null, null, null, null];
 		const ftex = g.ft && fids ? await featureTexOf(g.ft, gltf, imgCache) : null;   // 画素ごとの地物の番号（featureId.texture）
 		const meta = g.pt && textures ? { props: g.pt.props, texs: await Promise.all(g.pt.texIdx.map(i => textureOf(texRef({ index: i }, gltf), imgCache))) } : null;   // property texture の画像（同じ画像は複製で 1 回だけ）
-		batches.push({ ...(meta && { meta }), mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive, clearcoat: pb.clearcoat, unlit: !!g.mat?.unlit || !!g.mat?.extensions?.KHR_materials_unlit || g.noNrm },
+		batches.push({ ...(meta && { meta }), ...(g.lines && { lines: true }), mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive, clearcoat: pb.clearcoat, unlit: !!g.mat?.unlit || !!g.mat?.extensions?.KHR_materials_unlit || g.noNrm },
 			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5, node: g.node ?? -1, wind, ...(skinSegs.length && rig ? { skin: skinSegs } : {}),   // skin の区間＝rig（アニメ）がある時だけ main へ（静止の模型は焼いた物で足りる）
 			features: fids ? { ids: fids, table: tbls.length === 1 ? tbls[0] : null, tblV, ...(ftex && { tex: ftex }) } : null, ...(mcV ? { mcJ: mcJOf(g.lin0, g.e0, minH) } : {}) });   // features（W7）＝頂点ごとの地物の番号（NO_FEATURE＝無し）と property table の番号   // α の扱い＝renderer が cut/blend に畳む。node＝アニメするノード（−1＝動かない束）
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
