@@ -38,7 +38,11 @@ export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, foc
 	else if (hit && hit.stop > 0) t = Math.min(hit.stop, Math.max(1000, -c.height * 10));   // inside the ellipsoid (below sea level): a point ahead, not the far side of the earth (an underground camera had its target 2200 km away: no imagery, the near models cut, underground-color 2026-10-29)
 	else t = Math.max(1000, c.height);   // sky: a target along the ray as far as the camera is high
 	if (terrainAt && !(focus && t === ft)) {
-		const m = terrainHit(terrainAt, hit && hit.start > 0 ? hit.start : horizonDistance(c.height));
+		// the march goes on past the ellipsoid: ground under it (Cesium World Terrain is in ellipsoid heights, San Francisco Bay's shore is at −30 m,
+		// the Dead Sea at −450 m) was never met when the march stopped at the ellipsoid, so the target stayed 30 m above the ground and the camera
+		// was placed 30 m too high (3d-tiles-1.1-photogrammetry-classification: the ground slid under the buildings, 2026-10-31). Up to 600 m
+		// below the surface, along the ray (a grazing ray goes further; capped at 20 km)
+		const m = terrainHit(terrainAt, hit && hit.start > 0 ? hit.start + belowEllipsoid(hit.start) : horizonDistance(c.height));
 		if (m.t != null) t = m.t;
 		pending = m.pending;
 	}
@@ -97,6 +101,12 @@ function terrainHit(terrainAt: (lng: number, lat: number) => number | null | und
 	return { t: null, pending };
 }
 const scratchCarto = new Cartographic();
+/** how far past the ellipsoid hit (at distance t along the ray) the terrain march goes: 600 m of depth measured along the ray */
+function belowEllipsoid(t: number): number {
+	const p = Ray.getPoint(ray, t, v3), n = Ellipsoid.WGS84.geodeticSurfaceNormal(p, v2);
+	const down = n ? -Cartesian3.dot(ray.direction, n) : 1;   // the ray's share pointing into the ground (1 = straight down)
+	return Math.min(20000, 600 / Math.max(0.03, down));
+}
 /** distance (m) from a camera h m up to the sea horizon, and a little beyond for the terrain above it */
 const horizonDistance = (h: number): number => Math.sqrt(Math.max(0, h) * (2 * 6378137 + Math.max(0, h))) * 1.2 + 10000;
 // the up vector without roll for view direction d at the current axes (E, N, U): perpendicular to d, in the plane of d and U
