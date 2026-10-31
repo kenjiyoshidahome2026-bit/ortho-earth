@@ -149,10 +149,10 @@ interface GintBld { origin: number[]; batches: { line: GbMesh | null; point: GbM
 interface SkyStyle { fog: number[]; groundBlend: number; sky?: unknown }
 /** set("cogTex") の入力（等経緯度の RGBA） */
 export interface CogTexData { rgba: Uint8Array | Uint8ClampedArray; w: number; h: number; bboxLL: number[]; /** 見比べ＝同じ窓の 2 枚を縦に積んだ（h は 2 枚分・上＝A・下＝B） */ pair?: boolean }
-interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null }
+interface ElevState { bounds: number[]; scale: number; has: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; neg?: number }   // neg＝負の標高をそのまま描く（低地フェード無し）
 interface FarState { bounds: number[]; has: number; edgeFade: number; maxElev?: number }   // maxElev＝遠景層の最大標高（m・terrain.ts の elevFarMax）＝地面アトラスの地平線窓を伸ばす
 /** 標高アトラスの寸法と窓（terrain.js の set("elevAtlas")） */
-export interface ElevAtlasMeta { originLng: number; originLat: number; cellsX: number; cellsY: number; cellRes: number; cellSpan?: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; gMax?: number }
+export interface ElevAtlasMeta { originLng: number; originLat: number; cellsX: number; cellsY: number; cellRes: number; cellSpan?: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; gMax?: number; negative?: boolean }
 interface TerrainMesh { vbo: GPUBuffer; ibo: GPUBuffer; count: number; G: number; mesh: number[]; chunks: TerrainChunk[] }
 /** 標高セルの生タイル（GPU 再標本化の素） */
 type RawTile = ElevTileGrid & { data: ArrayBufferView & ArrayLike<number> };
@@ -1759,7 +1759,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	function atlasMeta(a: ElevAtlasMeta, scale: number) {
 		const span = a.cellSpan || 10;
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: scale * exagMul, exag: (a.exag || 1) * exagMul, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null, neg: a.negative ? 1 : 0 };
 		const G = Math.min(a.gMax || 1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));   // gMax＝terrain.js が lowMem で 1024 に絞る（メッシュ 75→33.5MB）
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
@@ -2570,7 +2570,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		f[52] = fogColor[0]; f[53] = fogColor[1]; f[54] = fogColor[2]; f[55] = 0;
 		f[56] = fogNear; f[57] = fogFar; f[58] = logCoef; f[59] = dpr;
 		f[60] = elev.bounds[0]; f[61] = elev.bounds[1]; f[62] = elev.bounds[2]; f[63] = elev.bounds[3];
-		f[64] = elevScaleEff; f[65] = elev.has; f[66] = elev.edgeFade || 0; f[67] = 0;
+		f[64] = elevScaleEff; f[65] = elev.has; f[66] = elev.edgeFade || 0; f[67] = elev.neg || 0;   // elevP.w＝負の標高をそのまま描く DEM（低地フェード無し・gl と同じ）
 		// mesh（地形メッシュの窓：原点lon/lat＋幅deg）＝terrain/terrainFar slot のみ。他スロットは 0（未使用）
 		f[68] = mesh ? mesh[0] : 0; f[69] = mesh ? mesh[1] : 0; f[70] = mesh ? mesh[2] : 0; f[71] = mesh ? mesh[3] : 0;
 		// 遠景層（far）：bounds/has/edgeFade は全スロット共通（elev() のフォールバック参照）・farPass は terrainFar slot のみ 1

@@ -470,7 +470,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			// 頂点+index を 75MB→33.5MB（-42MB）。メッシュは GPU 固定常駐の最大項＝3GB 機の一番効く一枠。
 			// 見た目の代償＝quad が 1.5 倍粗くなるが、スマホ/タブレットの画面密度では絵の破綻はない側。
 			renderer.set(staging ? "elevAtlasStage" : "elevAtlas",
-				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade, liftBounds, gMax: gMax || (lowMem ? 1024 : 1536) }, exag / earthM);
+				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade, liftBounds, gMax: gMax || (lowMem ? 1024 : 1536), negative: seafloor || negative }, exag / earthM);   // negative＝負の標高をそのまま描く（海底・楕円体高の CWT）＝地形面の低地フェード（海抜 1m 未満は透かして 0m の球に任せる）を止める
 			hasAtlas = true;
 			if (staging) {   // 保険：セルの一部が失敗しても4秒で必ずスワップ（古いアトラスが永久に残らない）
 				const k0 = key;
