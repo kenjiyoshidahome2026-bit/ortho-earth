@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.2 を公開しました — CesiumJS の例が地球儀で動く</title>
+<meta name="description" content="@ortho-earth/globe と core を 2.2 にしました。新しい @ortho-earth/cesium で、採点した CesiumJS の Sandcastle 297 本がすべてコードを変えずに地球儀で動き、うち 190 本は同じ絵になりました。Leaflet と Google Maps のコードも @ortho-earth/leaflet と @ortho-earth/gmaps で同じように動きます。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/release-2-2-jp">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/release-2-2">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/release-2-2-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/release-2-2">
+<meta property="og:title" content="Ortho Earth 2.2 を公開しました">
+<meta property="og:description" content="採点した CesiumJS の Sandcastle 297 本がすべて地球儀でそのまま動き、190 本は同じ絵に。Cesium・Leaflet・Google Maps のコード向けの新しいパッケージも。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/release-2-2-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-31">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Ortho Earth 2.2 を公開しました","description":"@ortho-earth/globe と core を 2.2 にしました。新しい @ortho-earth/cesium で、採点した CesiumJS の Sandcastle 297 本がすべてコードを変えずに地球儀で動き、うち 190 本は同じ絵になりました。Leaflet と Google Maps のコードも @ortho-earth/leaflet と @ortho-earth/gmaps で同じように動きます。","url":"https://www.ortho-earth.com/docs/release-2-2-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/release-2-2-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-10-31","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="release-2-2.html" lang="en">English</a></nav>
+
+<header class="masthead"><h1>Ortho Earth 2.2 を公開しました</h1><p class="subtitle">CesiumJS の例が地球儀で動き、Leaflet と Google Maps のコードも付いてきた</p><p class="byline">2026-10-31 &middot; Kenji Yoshida &middot; @ortho-earth/globe &middot; @ortho-earth/core &middot; @ortho-earth/cesium</p></header>
+<article class="reading essay">
+
+<p>
+<code>@ortho-earth/globe</code> と <code>@ortho-earth/core</code> を 2.2 にしました。
+2.1 は MapLibre の版でした。この版は CesiumJS の版です。目標は、Cesium にできて Ortho Earth にできないものを無くすことでした。
+新しいパッケージは三つです。<code>@ortho-earth/cesium</code> と、同じ考え方の <code>@ortho-earth/leaflet</code>・<code>@ortho-earth/gmaps</code> です。
+</p>
+
+<h2 id="cesium">1. CesiumJS のコードを地球儀で</h2>
+
+<p>
+<code>@ortho-earth/cesium</code> は、CesiumJS 1.146 と同じ名前の名前空間を返します。描かない部分（計算、時刻、カメラ、Entity、CZML、時計、ion、ウィジェット）は Cesium のコードそのままで、
+描くところだけが Ortho Earth の地球儀です。だから Cesium のコードは import を変えるだけで動きます。
+</p>
+
+<pre><code>import * as Cesium from "@ortho-earth/cesium";
+const viewer = new Cesium.Viewer("cesiumContainer");</code></pre>
+
+<p>
+物差しは Cesium 公式の Sandcastle 309 本です。一本ずつ、本物の CesiumJS と地球儀でコードを変えずに動かし、同じ時刻・同じカメラで撮った二枚の絵を比べます
+（採点は 297 本。月・火星、ビューアの無い例、2D で始まる例は外しています）。全部の組は <a href="/sandcastle/" target="_top">/sandcastle</a> で見られます。
+</p>
+
+<div class="table-wrap"><table>
+	<tr><th>段</th><th>最初の撮影（10 月 25 日）</th><th>2.2（10 月 31 日）</th></tr>
+	<tr><td>3　同じ絵</td><td>23</td><td><strong>190</strong></td></tr>
+	<tr><td>2　同じ答え</td><td>120</td><td>107</td></tr>
+	<tr><td>1　動く</td><td>129</td><td><strong>0</strong></td></tr>
+	<tr><td>0　動かない</td><td>24</td><td><strong>0</strong></td></tr>
+</table></div>
+
+<p>
+採点した例はすべて動き、Cesium と同じ答えを返すようになりました。およそ三分の二は同じ絵です。最後の撮影は、npm に出したのと同じコードを、実 GPU（WebGPU）で撮ったものです。
+そこまでの間にエンジン自身も多くを覚えました。どれも素の地球儀の API からも使えます。
+</p>
+
+<ul>
+	<li>太陽・HDR・環境光による模型の光、影、clearcoat や KTX2 テクスチャなどの glTF の機能。</li>
+	<li>画面の効果（ブルーム、シルエット、被写界深度、レンズフレア、自分の GLSL の stage）、粒子、雲、束ね表示。</li>
+	<li>地形の塗り（標高の段彩、等高線、傾斜）、海の深さ、半透明の地球、地下に潜れるカメラ。</li>
+	<li>平面と多角形による 3D Tiles の切り抜き、3D Tiles への画像の貼り付け、I3S、点群とボクセル、Gaussian splat、CustomShader（WebGL2 では GLSL のまま、WebGPU では WGSL に訳して）。</li>
+</ul>
+
+<p>
+地球儀そのものの API に移りたいときは、<a href="from-cesium-jp.html">CesiumJS から来た人へ</a> に Cesium の呼び出しと対応する書き方を並べています。
+</p>
+
+<h2 id="leaflet-gmaps">2. Leaflet と Google Maps のコードも</h2>
+
+<p>
+同じやり方で、ほかの二つの API も動くようになりました。<code>@ortho-earth/leaflet</code> は Leaflet 1.9 と同じ形の <code>L</code> を、<code>@ortho-earth/gmaps</code> は <code>google.maps</code> を返します。
+どちらも地球儀の上に（望めば平らな MapLibre の地図に）描き、変えるのは import だけです。Google の方は、地図に Google の鍵が要りません。
+鍵を渡せば、Geocoder・Directions・Places・Street View を Google のサービスへ中継します。
+</p>
+
+<p>
+どちらにもまだ公式の例のギャラリーは無いので、<a href="from-leaflet-jp.html">Leaflet から来た人へ</a> と <a href="from-google-maps-jp.html">Google マップから来た人へ</a> に、訳すものを正確に並べました。
+訳さないものは、コードを動かせばコンソールに出ます。
+</p>
+
+<h2 id="same">3. 使い方は 2.1 のまま</h2>
+
+<p>
+2.2 はすべて上に足した物です。2.1 向けに書いたコードは 2.2 でそのまま動きます。
+</p>
+
+<pre><code>npm i @ortho-earth/globe@2.2
+npm i @ortho-earth/cesium      # CesiumJS のコード
+npm i @ortho-earth/leaflet     # Leaflet のコード
+npm i @ortho-earth/gmaps       # Google Maps のコード</code></pre>
+
+<p>
+並べてみると、一つの式に見えてきました：Ortho Earth ＝ MapLibre × Cesium − メルカトル ＋ α。
+</p>
+
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+
+</article>
+</body>
+</html>

@@ -45,6 +45,7 @@ export const unshallowOnPages = () => {
 const SOURCES = {
 	'/': ['./index.html', './demos.json', './stories.json'].map(f => new URL(f, import.meta.url)),
 	'/maplibre/': [new URL('./public/maplibre/', import.meta.url)],
+	'/sandcastle/': [new URL('./public/sandcastle/', import.meta.url)],
 };
 export const sourcesOf = (u) => {
 	const p = u.slice(ORIGIN.length);
