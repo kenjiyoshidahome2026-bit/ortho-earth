@@ -77,6 +77,7 @@ export interface RenderView {
 	clear?: number[] | null; /** clear の α を合成に使う（利用者が clearColor に透明を明示した時だけ＝下の canvas が透ける・Cesium の facade の星空） */ clearAlpha?: boolean; land?: number[] | null; atmo?: number[] | null; bldColor?: number[] | null; sea?: number[] | null;
 	fog?: boolean; worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
 	underground?: { color: number[]; nf: number[] } | null;   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
+	meshOverGround?: boolean;   // 模型を地形の深度で隠さない（Cesium の depthTestAgainstTerrain=false・gl/renderer.ts と同じ）
 	globeAlpha?: number; baseAlpha?: number; skySolar?: boolean; clock?: ClockAnchor | null; showConst?: boolean; night?: boolean; graticule?: boolean;
 	showRail?: boolean; showContour?: boolean; hypso?: { color: number[]; amount?: number; max?: number } | null; distColor?: number[] | null;
 	contourColor?: number[] | null; contourAlpha?: number; gintSub?: boolean; gintFarPivot?: boolean;
@@ -3336,7 +3337,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 「シーン抜け」（gpu単独・東京駅〜丸の内で実測）の正体。基図退場中も街は立ち続けるのが GL の挙動。
 		// 球体が半透明（Cesium の globe.translucency）＝地面の深度を捨ててから模型を描く＝地下の模型（坑道）が地面越しに見える（gl/renderer.ts と同じ）。
 		// パスの途中で深度だけは消せない＝パスを切り直す（色・ステンシルは load）
-		if (meshes.size && (view.globeAlpha ?? 1) < 1 && terrainActive) {
+		// Cesium の depthTestAgainstTerrain=false（既定）も同じ（gl/renderer.ts と同じ条件＝地形の深度を読む物＝深度の書き出し口・後処理・AO・面の貼り付けが無いフレームだけ）
+		if (meshes.size && terrainActive && ((view.globeAlpha ?? 1) < 1 || (view.meshOverGround && !dOut && !post && !ao && !classify.size))) {
 			pass.end();
 			pass = enc.beginRenderPass({ colorAttachments: [{ view: colorView, loadOp: "load", storeOp: "store" }],
 				depthStencilAttachment: { view: t.depthView, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store", stencilLoadOp: "load", stencilStoreOp: "store" } });
@@ -3365,7 +3367,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				}
 				const slot = draws.length, o = slot * (PL_BATCH_SLOT / 4);
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で
-				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.wind && meshLight && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1;   // meshOrigin.xyz + cullBack（noCull＝面の向きが揃っていない建物＝両面・間引きは残す）
+				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.wind && (meshLight || p.csLit === "phong") && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1;   // meshOrigin.xyz + cullBack（noCull＝面の向きが揃っていない建物＝両面・間引きは残す）
 				plBatchCPU[o + 4] = cM[0]; plBatchCPU[o + 5] = cM[1]; plBatchCPU[o + 6] = cM[2]; plBatchCPU[o + 7] = cM[3];   // clipMesh
 				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = blendOf(p); plBatchCPU[o + 10] = p.noLift ? 1 : 0; plBatchCPU[o + 11] = p.drape ? 1 : 0;   // alpha.xy（模型の派生 PB だけが読む）・.z＝noLift・.w＝drape（素も派生も読む）
 				// #46 段 2：pbr0（材質の数値）・emis（発光＋fx.pbr の旗）・lp（太陽の強さ・固定光の重み）・sh[9]（空の環境光・sh[0].w＝fill）＝skyEnv はフレームで一度

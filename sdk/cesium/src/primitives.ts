@@ -101,7 +101,7 @@ const shownOf = (inst: Any) => { const s = inst.attributes?.show?.value; return 
 
 // ── a glTF (glb) of triangles in ECEF ──
 /** triangles: idx is drawn in its vertex colours; parts (with uv) each with a texture (an image URL, data: or http) multiplied in */
-export interface Tris { pos: number[]; nrm: number[] | null; col: number[]; bid: number[]; idx: number[]; uv?: number[]; parts?: Array<{ idx: number[]; tex: string; blend: boolean }>; unlit?: boolean }
+export interface Tris { pos: number[]; nrm: number[] | null; col: number[]; bid: number[]; idx: number[]; uv?: number[]; parts?: Array<{ idx: number[]; tex: string; blend: boolean }>; unlit?: boolean; closed?: boolean }
 export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 	const n = t.pos.length / 3;
 	let cx = 0, cy = 0, cz = 0;
@@ -143,7 +143,7 @@ export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 		accessors.push({ bufferView: a++, componentType: 5125, count: g.idx.length, type: "SCALAR" });
 		const pbr: Any = { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 1 };
 		if (g.tex) { pbr.baseColorTexture = { index: images.length }; images.push({ uri: g.tex }); }
-		materials.push({ pbrMetallicRoughness: pbr, doubleSided: true, alphaMode: g.blend ? "BLEND" : "OPAQUE", ...(t.unlit && { extensions: { KHR_materials_unlit: {} } }) });
+		materials.push({ pbrMetallicRoughness: pbr, doubleSided: !(t.closed && t.nrm), alphaMode: g.blend ? "BLEND" : "OPAQUE", ...(t.unlit && { extensions: { KHR_materials_unlit: {} } }) });
 		prims.push({ attributes, indices: ia, material: materials.length - 1, mode: TRIANGLES });
 		if (g.blend) blend = true;
 	}
@@ -316,6 +316,7 @@ export class PrimitiveDrawer {
 		it.loading = true;
 		const gen = (it as Any).gen = ((it as Any).gen ?? 0) + 1;
 		tris.unlit = !!p.appearance?.flat;   // MaterialAppearance flat: no lighting (EquirectangularPanorama)
+		tris.closed = !!p.appearance?.closed;   // a closed appearance culls its back faces (Cesium's renderState cull): a translucent cylinder shows one wall, not both
 		const opaque = p.appearance?.translucent === false;   // the appearance says opaque: an image is drawn so whatever its alpha
 		void Promise.all([...painted.values()].map(async g => ({ idx: g.idx, tex: (await paintSquare(g.mat, videoOf(g.mat) ? 1024 : g.mat.type === "Image" ? 4096 : 512))?.toDataURL() ?? null, blend: !opaque && matTranslucent(g.mat) }))).then(ps => {
 			if (it.dead || (it as Any).gen !== gen) return;

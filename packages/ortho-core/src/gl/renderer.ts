@@ -63,6 +63,8 @@ type GLCamState = CameraState & { mvp32: Float32Array; fogDist?: number };
 interface GLView {
 	clear: number[] | null; land: number[] | null; atmo: number[] | null; bldColor: number[] | null;
 	fog?: boolean; sea?: number[] | null; baseAlpha?: number; globeAlpha?: number;
+	/** 模型（建物メッシュ・3D Tiles）を地形の深度で隠さない（Cesium の globe.depthTestAgainstTerrain=false＝既定）。地形の深度を読む物（深度の書き出し口・面の貼り付け）が無いフレームだけ効く */
+	meshOverGround?: boolean;
 	/** 地下から見た球の裏面（Cesium の globe.undergroundColor）：color＝rgba（0..1）・nf＝α の距離 [near m, nearValue, far m, farValue] */
 	underground?: { color: number[]; nf: number[] } | null;
 	worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
@@ -2513,7 +2515,9 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		//   z-fight の元＝重複面は worker 側の頂点3つ組 dedup で断つ。
 		// バッチ単位でフラスタムカリング＝区全体(数百万tris)のうち画面に掛かるバッチだけ頂点処理へ流す。
 		// 球体が半透明（Cesium の globe.translucency）＝地面の深度を捨ててから模型を描く＝地下の模型（坑道）が地面越しに見える（地面どうしの前後は深度で済ませた後）
-		if (meshes.size && globeA < 1 && terrainActive) gl.clear(gl.DEPTH_BUFFER_BIT);
+		// Cesium の depthTestAgainstTerrain=false（既定）も同じ＝地形の深度を消してから 3D Tiles・模型を描く（細かい地形が写真測量の地面を突き抜けない）。
+		// ただし地形の深度を後で読む物（深度の書き出し口＝後処理・オーバーレイ／面の貼り付け）があるフレームは消さない（地面の深度が要る）
+		if (meshes.size && terrainActive && (globeA < 1 || (view.meshOverGround && !dOut && !classify.size))) gl.clear(gl.DEPTH_BUFFER_BIT);
 		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
 			bldStencil(true);   // 建物メッシュも建物＝bit7 を刻む
 			gl.useProgram(meshProg);
@@ -2622,7 +2626,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
 				gl.uniform1f(loc(gl, pg, "u_csOn"), p.csLit === "phong" ? 3 : !meshLight || p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1);   // Cesium の模型の照明（setMeshLighting）：1＝csLit・2＝素の色・0＝固定光・3＝czm_phong（目の光）
 				if (meshLight) { gl.uniform2f(loc(gl, pg, "u_csMR"), p.pbr ? p.pbr.metallic : 0, p.pbr ? p.pbr.roughness : 1); gl.uniform2f(loc(gl, pg, "u_csCC"), p.pbr?.clearcoat?.[0] ?? 0, p.pbr?.clearcoat?.[1] ?? 0); gl.uniform3fv(loc(gl, pg, "u_csSH"), p.sh ?? meshLight.sh); gl.uniform4fv(loc(gl, pg, "u_olC"), p.ol ?? OL_NONE); }   // バッチの材質と環境光（模型ごとの meshEnv が勝つ）   // バッチの材質（Cesium の照明）
-				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.wind && meshLight && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1);   // 2＝Cesium の表裏（巻き順で裏を捨て、法線は書かれたまま＝Cesium の back-face culling）   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
+				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.wind && (meshLight || p.csLit === "phong") && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1);   // 2＝Cesium の表裏（巻き順で裏を捨て、法線は書かれたまま＝Cesium の back-face culling）   // 橋梁＝両面（開いた薄面が裏から消えない）・noCull＝面の向きが揃っていない建物
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
 				gl.uniform3f(loc(gl, pg, "u_eyeRel"), st.eye[0] - p.origin[0], st.eye[1] - p.origin[1], st.eye[2] - p.origin[2]);   // 目 − 原点（double）＝v_toEye の錨（近接の裏面判定）
 				gl.uniform1f(loc(gl, pg, "u_xfOn"), p.xf ? 1 : 0);   // バッチの剛体変換（glTF の rigid アニメ・W4）＝L（3x3 列優先）と原点相対の平行移動
