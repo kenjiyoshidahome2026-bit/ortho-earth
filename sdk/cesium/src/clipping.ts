@@ -104,3 +104,20 @@ export function cutPrismRing(planes: number[][], C: Cartesian3): number[][] | nu
 		return [+(c.longitude * R2D).toFixed(9), +(c.latitude * R2D).toFixed(9)];
 	});
 }
+
+/** Globe.cartographicLimitRectangle (the globe draws only the tiles inside it) → terrain planes in ECEF: the latitude bounds are the planes
+ *  z = the ellipsoid's z at that latitude (exact on the surface: z grows with the geodetic latitude), the longitude bounds the meridian
+ *  planes through the axis (a span up to 180°; wider spans keep the latitude bounds alone) */
+export function limitRectClipOf(r: Any): { spec: Any | null; skipped: string[] } {
+	const skipped: string[] = [], H = Math.PI / 2, T = 2 * Math.PI;
+	if (!r || ![r.west, r.south, r.east, r.north].every(Number.isFinite)) return { spec: null, skipped };
+	const ecef: number[][] = [];
+	if (r.north < H - 1e-9) ecef.push([0, 0, -1, Cartesian3.fromRadians(0, r.north, 0).z]);   // z ≤ z(north)
+	if (r.south > -H + 1e-9) ecef.push([0, 0, 1, -Cartesian3.fromRadians(0, r.south, 0).z]);   // z ≥ z(south)
+	let span = r.east - r.west; if (span < 0) span += T;
+	if (span < T - 1e-9) {
+		if (span <= Math.PI + 1e-9) { ecef.push([-Math.sin(r.west), Math.cos(r.west), 0, 0]); ecef.push([Math.sin(r.east), -Math.cos(r.east), 0, 0]); }
+		else skipped.push("Globe.cartographicLimitRectangle wider than 180° in longitude (the latitude bounds alone)");
+	}
+	return { spec: ecef.length ? { ecef, targets: ["terrain"], cap: false, edge: false } : null, skipped };
+}
