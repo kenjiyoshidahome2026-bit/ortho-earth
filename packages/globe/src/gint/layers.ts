@@ -680,6 +680,10 @@ let admin0Vis = true;     // 独立層の表示台帳（変更時だけ post＝�
 const USER_GINT_MINZ = 7;
 const WORLD_BAND_Z = env.worldBandZ ?? 6.5;   // 世界帯の上限＝湖・海面下の陸が見える範囲（app.js BASEMAP_MINZOOM と同値＝地域の申告が無い器は上限まで）
 const ADMIN0_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
+// 世界の線（河川・海洋境界線）の上限＝世界帯と海岸線の上限の低い方。地域の申告が無い器は世界帯が上限まで（20.8）伸びるが、NE 10m の線は
+// 海岸線（z9）より寄って見せる精度が無い＝海岸線と一緒に退場する。旧＝世界帯のまま z12〜14 でも全球の線を描き続け、自前の DEM の地形が
+// 組み上がるまで（SwiftShader で 40 秒超）画面が海の色のままだった（#670）
+const WORLD_LINES_MAXZ = Math.min(WORLD_BAND_Z, ADMIN0_Z);
 const WORLD_ADMIN0_MINZ = 2.5;   // world 時の coast 下限＝これ未満は線なしの純粋な地球（本人裁定 2026-09-01）
 // worldContent（世界帯に Equal Earth と同じ中身・2026-09-24）＝equal と同じ出し方：海岸線・国境は全ズーム・河川/海洋境界は z1.5 から・
 // 国境は起動 50m（軽い）→ 州境が出る z4 で NE 10m（州境・都市の ne-cultural と同じ線＝海岸線が二重に見えない）。LOW_MEM は従来どおり 50m
@@ -843,7 +847,7 @@ function clearUserGint() {
 function updateGintSlot() {
 	// 海面下の陸地・湖＝見える帯（世界帯 z<6.5＝whK 連動・app の BASEMAP_MINZOOM と同値）に入った時に一度だけ取得（wdepr/lakes＝gint と独立・自己ガード）。
 	// 旧＝z<9 で取得＝列島ビュー（z6.6）の起動で見えない 0.9MB を読んでいた（2026-09-22 本人裁定で見える帯へ）。飛行中は app 側が待たせる（着地で再評価）。
-	if (WORLD_VT && cam.zoom < WORLD_BAND_Z) { env.loadBelowSea(); env.loadLakes(); if (!env.flying) loadWorldLines(); }   // 河川・海洋境界線も同じ帯（飛行の通過点では読まない）
+	if (WORLD_VT && cam.zoom < WORLD_BAND_Z) { env.loadBelowSea(); env.loadLakes(); if (!env.flying && cam.zoom < WORLD_LINES_MAXZ) loadWorldLines(); }   // 河川・海洋境界線は世界帯かつ z<WORLD_LINES_MAXZ（飛行の通過点では読まない）
 	// 国名 tip はズームだけで z5.5 を跨いでも消す（ホバーイベントが来ない＝出しっぱなしになる件の根治 2026-09-02）
 	if (worldTipOn && cam.zoom >= WORLD_TIP_MAXZ) { gintHoverTip?.(null); worldTipOn = false; }
 	if (noGint) return;   // ?nogint=1＝admin0 ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
@@ -907,7 +911,7 @@ async function loadAdmin0Now(res = "50m") {
 	console.log(`[admin0] loaded ${res} as independent layer (z<9 = engine-gated)`);
 }
 dbgHost.__admin0 = (res?: string) => loadAdmin0(res);   // 手動リロード用
-// ── 世界の線＝河川・海洋境界線（NE 10m）＝世界帯（z<WORLD_BAND_Z）の独立層（本人 2026-09-23「河川・湖・海洋境界線はエンジンの世界層側で持つ」・湖は既に renderer の lakes スロット）──
+// ── 世界の線＝河川・海洋境界線（NE 10m）＝世界帯（z<WORLD_LINES_MAXZ）の独立層（本人 2026-09-23「河川・湖・海洋境界線はエンジンの世界層側で持つ」・湖は既に renderer の lakes スロット）──
 // 出し方は equal（packages/equal/src/layers.ts の rivers/maritime）と同じ物差し：出すズーム＝NE の min_zoom（止まるたびに評価し直す）・
 // 河川の太さ＝scalerank の 3 段・湖の中の中心線は描かない。bucket に無ければ NE S3 の生 zip（geopbf が shp を焼く＝初回だけ重い・IDB に残る）。
 // LOW_MEM（モバイル）は読まない＝「動く・落ちない」が大前提の器に線を足さない。
@@ -933,7 +937,7 @@ async function loadWorldLines() {
 		let pbf = await geopbf(def.name).catch(() => null);
 		if (!pbf?.unPackGint) pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${def.dir}/${def.name}.zip`, { name: def.name }).catch(e => { console.warn("[world-lines]", def.name, e); return null; });
 		if (!pbf?.unPackGint) continue;
-		const h = addGint(pbf, { order: def.order, interactive: false, minZoom: WORLD_LINES_MINZ, maxZoom: WORLD_BAND_Z, fillMaxEdges: 0, _internal: true });
+		const h = addGint(pbf, { order: def.order, interactive: false, minZoom: WORLD_LINES_MINZ, maxZoom: WORLD_LINES_MAXZ, fillMaxEdges: 0, _internal: true });
 		if (!h) continue;
 		h.setVisible(false);            // 絞る（min_zoom）まで出さない
 		h.style({ fillColor: [0, 0, 0, 0] });
@@ -941,7 +945,7 @@ async function loadWorldLines() {
 		await h.setPaint(def.paint(env.worldStyle), def.filter);
 		worldLineHandles.push({ h, def });
 		h.setVisible(true);
-		console.log(`[world-lines] ${def.name}: ${pbf.length} features (z<${WORLD_BAND_Z})`);
+		console.log(`[world-lines] ${def.name}: ${pbf.length} features (z<${WORLD_LINES_MAXZ})`);
 	}
 	worldLinesState = 2;
 }
