@@ -23,6 +23,7 @@ import { bandRamp, groundMaterialOf, materialKey, createElevationBandMaterial } 
 import { Color, Material } from "@cesium/engine";
 import { CustomShader, UniformType, LightingModel, CustomShaderTranslucencyMode, TextureUniform } from "@cesium/engine";
 import { customShaderId } from "../src/custom-shader.ts";
+import { terrainSourceOf } from "../src/terrain.ts";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -545,6 +546,17 @@ for (const g of [
 	ok("tileset metadata: class default", m.getProperty("b") === "d");
 	ok("tileset metadata: by semantic", m.getPropertyBySemantic("NAME") === "n");
 	ok("tileset metadata: hasProperty", m.hasProperty("a") && !m.hasProperty("z"));
+}
+
+// terrain sources: every Cesium terrain is ground the globe may lift clamped models onto, the whole world over (physically-based-materials' truck, 2026-10-31)
+{
+	const W = [-180, -90, 180, 90], all = [
+		terrainSourceOf({ cwt: true, token: "t" }), terrainSourceOf({ bathy: true, token: "t" }), terrainSourceOf({ ionId: 3956, token: "t" }),
+		terrainSourceOf({ url: "https://x.test/layer.json" }), terrainSourceOf({ bridged: { type: "raster-dem", tiles: ["csterr://1/{z}/{x}/{y}"], encoding: "terrarium" } })];
+	ok("terrain source: dtm + world bounds on every kind", all.every(s => s && s.dtm === true && JSON.stringify(s.bounds) === JSON.stringify(W)), JSON.stringify(all.map(s => [s?.type, s?.dtm, s?.bounds])));
+	ok("terrain source: CWT keeps negative heights, bathymetry the sea floor", all[0].negative === true && all[0].ion.assetId === 1 && all[1].seafloor === true && all[1].ion.assetId === 2426648);
+	ok("terrain source: a bridged provider keeps its own bounds", JSON.stringify(terrainSourceOf({ bridged: { type: "raster-dem", bounds: [1, 2, 3, 4] } }).bounds) === "[1,2,3,4]");
+	ok("terrain source: nothing readable = null", terrainSourceOf({}) === null);
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
