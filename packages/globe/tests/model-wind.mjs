@@ -18,9 +18,9 @@ function glbOf(json, views) {
 }
 const B = a => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
 // 縦の板（x–y 面・法線 +z＝反時計回りの表）。idx＝表の 1 枚と、同じ 3 点の裏向きの 1 枚
-const model = ({ ds = false, normals = true, scale = null, back = true } = {}) => {
+const model = ({ ds = false, normals = true, scale = null, rotation = null, back = true } = {}) => {
 	const attrs = { POSITION: 0, ...(normals && { NORMAL: 2 }) };
-	const json = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0, ...(scale && { scale }) }],
+	const json = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0, ...(scale && { scale }), ...(rotation && { rotation }) }],
 		materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1] }, ...(ds && { doubleSided: true }) }],
 		meshes: [{ primitives: [{ attributes: attrs, indices: 1, material: 0 }] }],
 		accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [0, 0, 0], max: [10, 10, 0] }, { bufferView: 1, componentType: 5123, count: back ? 6 : 3, type: "SCALAR" },
@@ -41,7 +41,17 @@ const side = m => { const p = m.pos, n = m.nrm, [a, b, c] = m.idx; const u = [0,
 	ok("wind.noNormals", nn.batches[0].wind === false && nn.batches[0].pbr.unlit === true);
 	const s0 = side((await decodeModel(model({ back: false }), at)).batches[0].mesh);
 	const s1 = side((await decodeModel(model({ back: false, scale: [-1, 1, 1] }), at)).batches[0].mesh);
-	ok("wind.mirror", s0 !== 0 && s0 === s1, `${s0} ${s1}`);   // 鏡の置き方でも表（巻き順）と法線の向きの関係が変わらない
+	ok("wind.mirror", s0 !== 0 && s0 === s1, `${s0} ${s1}`);
+	// rotations are not mirrors (2026-10-31: the det was read off the wrong column and turned S2 globe tiles inside out)
+	const h = Math.SQRT1_2, rots = [[0.5, 0.5, 0.5, 0.5], [-0.5, -0.5, -0.5, 0.5], [h, 0, 0, h], [0, h, 0, h], [0, 0, h, h], [h, h, 0, 0], [0, h, h, 0], [h, 0, h, 0]];
+	const ss = []; for (const rotation of rots) ss.push(side((await decodeModel(model({ back: false, rotation }), at)).batches[0].mesh));
+	ok("wind.rotationNotMirror", ss.every(v => v === s0), `${s0} ${ss}`);   // 鏡の置き方でも表（巻き順）と法線の向きの関係が変わらない
+	// 回転は鏡でない＝1 枚の板の巻き順（idx）を返さない（誤った det は回転を鏡と見て巻き順と法線を一緒に返した＝side では見えない）
+	const i0 = Array.from((await decodeModel(model({ back: false }), at)).batches[0].mesh.idx).join(), bad = [];
+	for (let k = 0; k < 24; k++) { const t = k * 2.399, ax = [Math.cos(t) * Math.sin(k + 1), Math.sin(t) * Math.sin(k + 1), Math.cos(k + 1)], an = 0.3 + k * 0.25, sn = Math.sin(an / 2);
+		const rotation = [ax[0] * sn, ax[1] * sn, ax[2] * sn, Math.cos(an / 2)];
+		if (Array.from((await decodeModel(model({ back: false, rotation }), at)).batches[0].mesh.idx).join() !== i0) bad.push(k); }
+	ok("wind.rotationKeepsWinding", bad.length === 0, `${i0} bad=${bad}`);
 }
 if (fails) { console.log(`${fails} FAIL`); process.exit(1); }
 console.log("model-wind: all pass");
