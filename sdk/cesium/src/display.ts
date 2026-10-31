@@ -268,7 +268,7 @@ interface Desc {
 	model: { uri: string; scale: number; at: [number, number]; altitude: number; lift: boolean; heading: number; rot?: number[] | null; anim: boolean; tint?: ReturnType<typeof modelTintOf>; sil?: ReturnType<typeof modelSilOf>; minPx?: number; maxScale?: number | null; c?: number[] } | null;
 	sphere: { c: number[]; r: number } | null;
 	/** Cesium's geometry instances of the solids (fill triangles, outline lines and its width) */
-	solids: { fill: Any[]; outline: Any[]; width: number } | null;
+	solids: { fill: Any[]; outline: Any[]; width: number; closed?: boolean } | null;
 }
 /** a mark's positions over time (ms, fixed-frame xyz) */
 type MarkSamples = { t: number[]; p: number[]; dynamic: boolean; degree: number };
@@ -462,7 +462,7 @@ export class EntityDisplay {
 		for (const [e, g] of solids) {
 			if (this.#solidPrims.has(e)) continue;
 			const ps: Any[] = [];
-			if (g.fill.length) ps.push({ geometryInstances: g.fill, appearance: {}, modelMatrix: Matrix4.IDENTITY, show: true });
+			if (g.fill.length) ps.push({ geometryInstances: g.fill, appearance: { closed: !!g.closed }, modelMatrix: Matrix4.IDENTITY, show: true });
 			if (g.outline.length) ps.push({ geometryInstances: g.outline, appearance: { renderState: { lineWidth: g.width } }, modelMatrix: Matrix4.IDENTITY, show: true });
 			for (const p of ps) this.#solids.add(p);
 			this.#solidPrims.set(e, { of: g, ps });
@@ -493,6 +493,7 @@ export class EntityDisplay {
 						(inst.attributes ??= {}).color = ColorGeometryInstanceAttribute.fromColor(m ? Color.WHITE : materialColor(u.fillMaterialProperty, t));
 					}
 					g.fill.push(inst);
+					g.closed = (g.closed ?? true) && !!u.isClosed;   // Cesium's fill appearance is closed when the updater's geometry is (back faces culled: a translucent cylinder shows one wall)
 				}
 				if (u.outlineEnabled) { g.outline.push(u.createOutlineGeometryInstance(t)); g.width = Math.max(g.width, u.outlineWidth ?? 1); }
 			} catch (err) { done.delete(name); console.warn("[csshim] entity", name, err); }

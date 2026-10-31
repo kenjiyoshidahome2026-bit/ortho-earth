@@ -3367,7 +3367,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				}
 				const slot = draws.length, o = slot * (PL_BATCH_SLOT / 4);
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で
-				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.wind && meshLight && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1;   // meshOrigin.xyz + cullBack（noCull＝面の向きが揃っていない建物＝両面・間引きは残す）
+				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.wind && (meshLight || p.csLit === "phong") && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1;   // meshOrigin.xyz + cullBack（noCull＝面の向きが揃っていない建物＝両面・間引きは残す）
 				plBatchCPU[o + 4] = cM[0]; plBatchCPU[o + 5] = cM[1]; plBatchCPU[o + 6] = cM[2]; plBatchCPU[o + 7] = cM[3];   // clipMesh
 				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = blendOf(p); plBatchCPU[o + 10] = p.noLift ? 1 : 0; plBatchCPU[o + 11] = p.drape ? 1 : 0;   // alpha.xy（模型の派生 PB だけが読む）・.z＝noLift・.w＝drape（素も派生も読む）
 				// #46 段 2：pbr0（材質の数値）・emis（発光＋fx.pbr の旗）・lp（太陽の強さ・固定光の重み）・sh[9]（空の環境光・sh[0].w＝fill）＝skyEnv はフレームで一度
