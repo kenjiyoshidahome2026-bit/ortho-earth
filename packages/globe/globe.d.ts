@@ -498,7 +498,7 @@ export interface Gadgets {
 	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
 	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地。マテリアル＝baseColor の factor×頂点色×テクスチャ・マテリアルごとに 1 バッチ）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
 	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean; /** 当たりの写しを持つか（W7・既定 true） */ pickable?: boolean; /** EXT_mesh_features の何組目の番号で当てるか（W7・既定 0） */ featureIdSet?: number; /** 利用者のシェーダ（map.setCustomShader の名） */ customShader?: string | null; /** positionMC（glTF の POSITION）を頂点ごとに持つ（customShader があれば既定で持つ） */ mc?: boolean;
-		/** 置き場（既定 "default"）＝同じ slot は置き換え・別の slot は並ぶ（複数の模型） */ slot?: string; /** 地面からの高さ（m） */ altitude?: number; /** 置き方の取っ手を出す（"auto"＝錨で置いた模型だけ＝ドロップの既定） */ gizmo?: boolean | "auto"; /** 真俯瞰（pitch 0）でも描く（既定 false＝建物と同じく傾けた時だけ） */ keep2d?: boolean; /** "globe"＝setMeshLighting があっても globe の固定光で描く（Cesium の entity geometry の見た目） */ lighting?: "globe" }): Promise<ModelHandle>;
+		/** 置き場（既定 "default"）＝同じ slot は置き換え・別の slot は並ぶ（複数の模型） */ slot?: string; /** 地面からの高さ（m） */ altitude?: number; /** 置き方の取っ手を出す（"auto"＝錨で置いた模型だけ＝ドロップの既定） */ gizmo?: boolean | "auto"; /** 真俯瞰（pitch 0）でも描く（既定 false＝建物と同じく傾けた時だけ） */ keep2d?: boolean; /** "globe"＝setMeshLighting があっても globe の固定光で描く。"phong"＝Cesium の czm_phong（目の向きと上からの 2 灯・太陽に依らない＝entity geometry・Primitive の見た目） */ lighting?: "globe" | "phong" }): Promise<ModelHandle>;
 	/** 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当）。src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF・File・URL。
 	 *  height＝列名 | 定数 | (props)=>メートル（省略＝height / building:height / measuredHeight / 高さ … を自動・階数だけなら ×3m）。
 	 *  base＝下端（min_height 相当・省略＝min_height / base_height を自動）。color＝CSS 色 | (props, h)=>CSS 色（省略＝@fill → color → 高さの段彩）。
@@ -737,7 +737,7 @@ export type RasterSpec =
 export interface CanvasHandle { getCanvas(): HTMLCanvasElement | OffscreenCanvas; play(): void; pause(): void; readonly playing: boolean; setCoordinates(c: [LonLat, LonLat, LonLat, LonLat]): CanvasHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
 /** 四隅の動画の手綱（MapLibre の VideoSource と同じ名前）。setCoordinates＝四隅を差し替え（止まっていても動く） */
 export interface VideoHandle { getVideo(): HTMLVideoElement; play(): Promise<void>; pause(): void; seek(seconds: number): void; setCoordinates(corners: [LonLat, LonLat, LonLat, LonLat]): VideoHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
-export interface RasterOptions { /** layers of the same order draw by rank (low first) when both have one; the style's raster layers get their style order */ rank?: number; order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number; /** カタログの id（select／toggle が付ける・selected() の答え） */ catalogId?: string; /** 標本化（MapLibre の raster-resampling・既定 linear・C4） */ resampling?: "linear" | "nearest"; /** 到着フェード ms（MapLibre の raster-fade-duration・既定 300・0＝無し） */ fadeDuration?: number }
+export interface RasterOptions { /** layers of the same order draw by rank (low first) when both have one; the style's raster layers get their style order */ rank?: number; order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number; /** カタログの id（select／toggle が付ける・selected() の答え） */ catalogId?: string; /** 標本化（MapLibre の raster-resampling・既定 linear・C4） */ resampling?: "linear" | "nearest"; /** 到着フェード ms（MapLibre の raster-fade-duration・既定 300・0＝無し） */ fadeDuration?: number; /** Cesium ImageryLayer.splitDirection: -1 only left of map.setSplitPosition / +1 only right / 0 both (paint "raster-split": "left" | "right") */ split?: number }
 export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: Bbox | null; attribution: string | null; name: string | null; order: "under" | "over"; opacity: number; hideFills: boolean; resampling?: "linear" | "nearest"; fadeDuration?: number }
 export interface RasterAPI {
 	/** 足す（同じ id は置き換え）。戻り値＝ソースの自己申告（タイル寸・ズーム域・範囲・出典）。{ video } は VideoHandle */
@@ -774,7 +774,9 @@ export interface ExtrudeOptions { height?: string | number | ((props: Record<str
 	 *  "ground"＝大きさに関わらず建物と同じ接地（標高の申告域の中で地表へ・外は海抜 0m。広い面は引いた視点で山に埋もれ得る）。
 	 *  無指定＝ネイティブの書き方は面の外接矩形の対角の中央値で決まる：500m 以上（統計の面）は 2000m の平面・500m 未満（建物らしい面）は接地。
 	 *  MapLibre 形（paint つき・fill-extrusion の層）の無指定は大きさに関わらず接地（MapLibre と同じ） */
-	bottom?: number | "drape" | "ground" }
+	bottom?: number | "drape" | "ground";
+	/** "phong"＝Cesium の czm_phong の照明（目の向きと上からの 2 灯・太陽に依らない＝@ortho-earth/cesium の entity の押し出し）。MapLibre 形の層は層の直下に書く */
+	lighting?: "phong" | null }
 /** 同一フレームのオーバーレイ（map.overlay）の frame(cam, camState, size, api) の api（worker 内で渡る） */
 export interface OverlayFrameApi {
 	/** 経緯度 → [x, y（CSS px）, front（<0＝裏側）]（地形リフト込み） */
@@ -959,6 +961,8 @@ export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限�
 	pointShading?: { attenuation?: boolean; geometricErrorScale?: number; maximumAttenuation?: number; baseResolution?: number; eyeDomeLighting?: boolean; edlStrength?: number; edlRadius?: number } | null; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
 	/** 利用者のシェーダ（Cesium の tileset.customShader）＝map.setCustomShader の名（setOptions で替えられる）・mc＝positionMC を頂点ごとに持つ（読む前に） */
 	customShader?: string | null; mc?: boolean;
+	/** EXT_mesh_primitive_edge_visibility（Cesium の tileset.edgeDisplayMode）：0＝面だけ（既定）・1＝面と辺・2＝辺だけ（辺のある primitive の面を描かない）。辺＝硬い辺と lineStrings を 1 px の線で（輪郭の辺は無し）。setOptions で替えるとタイルを読み直す */
+	edges?: 0 | 1 | 2;
 	/** スタイルの色と元の色の混ぜ方（Cesium の tileset.colorBlendMode／colorBlendAmount）：highlight＝掛ける（既定）・replace＝置き換える・mix＝amount（0〜1・既定 0.5）で混ぜる。
 	 *  いまは地物の番号が画素ごと（EXT_mesh_features の featureId.texture＝photogrammetry の分類）の束だけ（頂点ごとの番号の束は掛ける） */
 	colorBlend?: { mode?: "highlight" | "replace" | "mix"; amount?: number } | null;
