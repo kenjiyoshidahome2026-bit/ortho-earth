@@ -58,6 +58,7 @@ import type { ClipNorm, ClipPlane } from "../clip.ts";
 import type { BuildingsGeom, DrawOp, LineTex } from "../scene.ts";
 import type { GpuText, MidTarget } from "./text.ts";   // 層の位置に描く注記の字（T-P2）＝型だけ（字の GPU は render worker の受け口が作って set("text") で渡す）
 import type { DepthOutFrame, DepthOutGPU } from "./depthout.ts";
+import type { DepthGlobe } from "../depthout.ts";
 import type { AoGPU } from "./ao.ts";
 import type { PostFrameOptions, PostGPU } from "./postfx.ts";
 import type { GintFrame, GintDepthCtx, GintClipInfo } from "./gint.ts";
@@ -3587,7 +3588,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	let lights: { n: number; data: Float32Array } | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }｜null（light.js localLightsPayload）＝PB の ln/lt に写す
 	let cityLights = 0;   // 夜の街明かりの強さ（set("cityLights")）
 	let post: PostFrameOptions | null = null, postFx: PostGPU | null = null;   // 後処理（PR-8）＝set("post") の間だけ資源を持つ
-	function depthOut(on: unknown): { begin(): boolean; abort(): void; end(): { bitmap: () => ImageBitmap; gpu: { device: GPUDevice; texture: GPUTexture }; w: number; h: number; logCoef: number } | null } | null {
+	function depthOut(on: unknown): { begin(): boolean; abort(): void; end(): { bitmap: () => ImageBitmap; gpu: { device: GPUDevice; texture: GPUTexture }; w: number; h: number; logCoef: number; globe: DepthGlobe | null } | null } | null {
 		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } lastDepth = null; return null; }
 		if (!dOut) {
 			try { dOut = createDepthOutGPU(device); }
@@ -3599,7 +3600,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			end: () => {
 				const d = lastDepth; lastDepth = null;
 				if (!d || !dOut) return null;
-				try { const r = dOut.encode(d); return { bitmap: r.bitmap, gpu: { device, texture: r.texture }, w: d.w, h: d.h, logCoef: d.logCoef }; }   // bitmap は WebGL のオーバーレイが求めた時だけ（遅延）
+				try { const r = dOut.encode(d), g = lastSt ? sphereRayUniforms(lastSt) : null; return { bitmap: r.bitmap, gpu: { device, texture: r.texture }, w: d.w, h: d.h, logCoef: d.logCoef, globe: g ? { F: g.F, X: g.X, Y: g.Y, E: g.E, c: g.c } : null }; }   // globe＝海面の球の光線（depthout.ts sceneGlobeW）   // bitmap は WebGL のオーバーレイが求めた時だけ（遅延）
 				catch (e) { dOutFailed = true; console.warn("[gpu] depthOut failed (disabled):", (e as Error)?.message || e); depthOut(false); return null; }
 			},
 		};

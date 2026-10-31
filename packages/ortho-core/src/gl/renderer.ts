@@ -46,6 +46,7 @@ import type { WorldPal } from "../worldpal.ts";
 import type { PostProcessNormalized } from "../postfx.ts";
 import type { ClockAnchor } from "@ortho-earth/ephem/clock";
 import type { DepthOutGL } from "./depthout.ts";
+import type { DepthGlobe } from "../depthout.ts";
 import type { GintDepthCtx } from "./gint/state.ts";
 import type { GintAtlasTarget } from "./gint/embed.ts";
 
@@ -1927,6 +1928,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// 10m DTM＝裸地）＝都市の起伏は本物の地形（台地・谷・扇状地）なので全ズームで見せるのが正しい。
 		// ⚠轍：都市帯の標高源を DSM 系へ戻す時はこの taper（と深度のテント問題）が再び必要になる。
 		elevScaleEff = elev.scale * pf;
+		{ const g = sphereRayUniforms(st); lastGlobe = { F: g.F, X: g.X, Y: g.Y, E: g.E, c: g.c }; }   // 海面の球の光線＝オーバーレイの深度に添える（depthout.ts sceneGlobeW）
 		terrOrigin = [cam.center[0], cam.center[1]];   // 地形パスの錨＝注視点（上の宣言を参照）
 		// 地面アトラス（RTT ドレープ）：3D（地形あり）＝ベクタ塗りもアトラスへ（直描きは伏せる）／ラスタは常にアトラス。鍵が変わった時だけ合成
 		{
@@ -2767,12 +2769,13 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 });
 	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { pixels, w, h, logCoef }, abort() }（初回に FBO 一式を作る）／
 	// depthOut(false)＝畳む（資産を返す・従来の経路へ）。begin は renderer.draw の前・end は gint.draw の後（renderworker が挟む）
+	let lastGlobe: DepthGlobe | null = null;   // 直近のフレームの海面の球の光線（depthOut の end が添える）
 	let dOut: DepthOutGL | null = null, lastLogCoef = 0, lastDpr = 1, lastFovy = 50 * Math.PI / 180, post: PostProcessNormalized | null = null;   // post＝後処理の設定（PR-8・normPost 済み）＝depthOut の FBO の写しの段で掛ける
 	function depthOut(on: boolean) {
 		if (!on) { if (dOut) { dOut.dispose(); dOut = null; } return null; }
 		if (!dOut) { dOut = createDepthOutGL(gl, canvas, () => rOpts.requestDraw?.()); dOut.setPost(post); }
 		const d = dOut;
-		return { begin: d.begin, abort: d.abort, end: (o?: { depth?: boolean } | null) => { const f = d.end({ ...(o || {}), logCoef: lastLogCoef, dpr: lastDpr, fovy: lastFovy }); return f ? { ...f, logCoef: lastLogCoef } : null; } };   // 画面の段（Cesium の postProcessStages）が使う尺を添える
+		return { begin: d.begin, abort: d.abort, end: (o?: { depth?: boolean } | null) => { const f = d.end({ ...(o || {}), logCoef: lastLogCoef, dpr: lastDpr, fovy: lastFovy }); return f ? { ...f, logCoef: lastLogCoef, globe: lastGlobe } : null; } };   // 画面の段（Cesium の postProcessStages）が使う尺を添える
 	}
 	return { gl, set, draw, dispose, depthOut, md: !!md, mdMax: MD_MAX_DRAWS, mdDash: true, pt: !!md, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数

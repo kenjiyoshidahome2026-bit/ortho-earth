@@ -12,7 +12,9 @@ import type { GeoGrid, Clip } from "./grid.ts";
 const BUF = { MAP_READ: 0x01, COPY_SRC: 0x04, COPY_DST: 0x08, VERTEX: 0x20, UNIFORM: 0x40, STORAGE: 0x80 } as const;
 const TEX = { COPY_SRC: 0x01, COPY_DST: 0x02, TEXTURE_BINDING: 0x04, RENDER_ATTACHMENT: 0x10 } as const;
 const STAGE = { VERTEX: 0x1, FRAGMENT: 0x2 } as const;
-const R_SPHERE = 6371000, R_ELL = 6378137, D2R = Math.PI / 180, UB_SIZE = 464;
+/** 本体の深度に添う海面の球の光線（ortho-core depthout.ts DepthGlobe と同じ形・依存ゼロなので写す） */
+interface SceneGlobe { F: ArrayLike<number>; X: ArrayLike<number>; Y: ArrayLike<number>; E: ArrayLike<number>; c: number }
+const R_SPHERE = 6371000, R_ELL = 6378137, D2R = Math.PI / 180, UB_SIZE = 528;
 const LIGHT = ((): number[] => { const v = [-0.35, 0.45, 0.82], l = Math.hypot(...v); return v.map(x => x / l); })();
 
 const WGSL = /* wgsl */`
@@ -37,6 +39,10 @@ struct Uni {
 	base: u32, occl: u32, depthOn: u32, pad4: u32,    // 96
 	cylM: mat3x3f,       // 100（cylinder＝東北上 m → 局所 m）
 	cyl: vec4f,          // 112（内外の半径・始めの角度・幅 度）
+	sgF: vec3f, sgC: f32,        // 116（海面の球の光線＝本体の depthout.ts sceneGlobeW と同じ式・sgC＝|E|²−1）
+	sgX: vec3f, sgOn: f32,       // 120
+	sgY: vec3f, pad5: f32,       // 124
+	sgE: vec3f, pad6: f32,       // 128
 };
 @group(0) @binding(0) var<uniform> U: Uni;
 @group(0) @binding(1) var vol: texture_3d<f32>;
@@ -101,8 +107,15 @@ fn sceneW(pos: vec2f) -> f32 {
 	let t = vec2i(clamp(uv * U.ddim, vec2f(0.0), U.ddim - 1.0));
 	let c = floor(textureLoad(dep, t, 0).rgb * 255.0 + 0.5);
 	let s = dot(c, vec3f(65536.0, 256.0, 1.0)) / 16777215.0;
-	if (s >= 1.0) { return -1.0; }
-	return exp2(2.0 * s / U.logCoef) - 1.0;
+	var ws = -1.0;
+	if (s < 1.0) { ws = exp2(2.0 * s / U.logCoef) - 1.0; }
+	// 海面の球（深度に書かれない）＝地球を包む箱は地球の向こうを見せない（Cesium と同じ）
+	if (U.sgOn > 0.5 && U.sgC > 0.0) {
+		let d = U.sgF + U.sgX * (uv.x * 2.0 - 1.0) + U.sgY * (uv.y * 2.0 - 1.0);
+		let A = dot(d, d); let b = dot(U.sgE, d); let hh = b * b - A * U.sgC;
+		if (hh >= 0.0 && b < 0.0) { let wg = U.sgC / (-b + sqrt(hh)); if (ws < 0.0 || wg < ws) { ws = wg; } }
+	}
+	return ws;
 }
 struct Hit { ok: bool, col: vec4f, id: u32 }
 fn march(pos: vec2f, vp: vec3f, pick: bool) -> Hit {
@@ -455,7 +468,7 @@ export function create(): VoxelGpuModule {
 		const behind = o[0] * d[0] + o[1] * d[1] + o[2] * d[2] < -rr * Math.hypot(...o) - 1e-9;
 		return !behind;
 	}
-	function writeU(L: Layer, w: number, h: number, dep: { tex: GPUTexture; w: number; h: number; logCoef: number } | null, pick: boolean): void {
+	function writeU(L: Layer, w: number, h: number, dep: { tex: GPUTexture; w: number; h: number; logCoef: number; globe?: SceneGlobe | null } | null, pick: boolean): void {
 		const { step, maxSteps } = stepsOf(L);
 		for (let i = 0; i < 16; i++) uF[i] = mvpC[i];
 		for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) { uF[16 + c * 4 + r] = L.nrm[c * 3 + r]; uF[28 + c * 4 + r] = L.gradM[c * 3 + r]; }
@@ -475,6 +488,10 @@ export function create(): VoxelGpuModule {
 		uF[88] = LIGHT[0]; uF[89] = LIGHT[1]; uF[90] = LIGHT[2]; uF[91] = L.lit ? 1 : 0;
 		uU[92] = L.mode; uU[93] = L.comps; uU[94] = maxSteps; uU[95] = L.geo ? (L.geo.cyl ? 2 : 1) : 0;
 		uU[96] = L.base; uU[97] = L.occl ? 1 : 0; uU[98] = dep && !pick ? 1 : 0;
+		const g = dep?.globe;   // 海面の球の光線（本体の depthout.ts sceneGlobeW と同じ）
+		uF[123] = g ? 1 : 0;
+		if (g) for (let i = 0; i < 3; i++) { uF[116 + i] = g.F[i]; uF[120 + i] = g.X[i]; uF[124 + i] = g.Y[i]; uF[128 + i] = g.E[i]; }
+		uF[119] = g ? g.c : 0;
 		device!.queue.writeBuffer(L.ub, 0, uData);
 		const tex = dep && !pick ? dep.tex : dummyDep!;
 		if (!L.bg || L.bgDep !== tex) {
@@ -502,7 +519,7 @@ export function create(): VoxelGpuModule {
 	}
 	function frame(cam: unknown, s: CamState, { w, h }: { w: number; h: number }, api: VoxelApi): boolean {
 		if (!device || !ctx || !drawPipe) return false;
-		const d = api?.depth, dep = wantDepth && d ? { tex: d.gpuTexture(device), w: d.w, h: d.h, logCoef: d.logCoef } : null;
+		const d = api?.depth, dep = wantDepth && d ? { tex: d.gpuTexture(device), w: d.w, h: d.h, logCoef: d.logCoef, globe: d.globe ?? null } : null;
 		const vis: Layer[] = [];
 		for (const L of layers.values()) { if (!L.on || !L.n || isEmpty(L) || !drawBounds(L) || !place(L, s, api)) continue; vis.push(L); }
 		settle(vis);
