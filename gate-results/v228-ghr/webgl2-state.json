@@ -1,0 +1,62 @@
+{
+ "layerTotal": 5,
+ "cs": [
+  {
+   "id": "__cs-base",
+   "type": "background"
+  },
+  {
+   "id": "__cs-imagery-0",
+   "type": "raster",
+   "source": "__cs-imagery-0",
+   "visibility": "visible"
+  },
+  {
+   "id": "__cs-fill",
+   "type": "fill",
+   "source": "__cs-shapes"
+  },
+  {
+   "id": "__cs-line",
+   "type": "line",
+   "source": "__cs-shapes"
+  },
+  {
+   "id": "__cs-ext-1",
+   "type": "fill-extrusion",
+   "source": "__cs-shapes",
+   "height": [
+    "get",
+    "_h"
+   ],
+   "base": [
+    "get",
+    "_b"
+   ]
+  }
+ ],
+ "counts": {
+  "__cs-shapes": {
+   "type": "geojson",
+   "features": 16,
+   "first": "{\"_id\":\"89dfc1ff-eca6-4c19-a590-408f58c5097e\",\"_k\":\"ext\",\"_fc\":\"rgb(177,171,31)\",\"_fo\":1,\"_b\":0,\"_h\":40,\"_z\":0}"
+  },
+  "__cs-imagery-0": {
+   "type": "raster"
+  }
+ },
+ "prims": [],
+ "entities": 16,
+ "camera": {
+  "lng": 6.953926450842201,
+  "lat": 45.79546585382328,
+  "height": 1757.458451007197,
+  "distance": 1635.9061004915568,
+  "heading": 270.00238089917383,
+  "pitch": 44.99769187654341,
+  "roll": 0,
+  "near": 1,
+  "groundAlt": 1758.3108138123644
+ },
+ "errors": []
+}

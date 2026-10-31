@@ -1,0 +1,75 @@
+[0.0s] page load
+[0.0s] error: Failed to load resource: the server responded with a status of 404 (Not Found)
+[0.7s] debug: [vite] connecting...
+[0.9s] log: [boot] hi-tier device = PLATEAU wide lanes (cores=18, bldCap=3, tileConc=16, decPool)
+[0.9s] log: [geo] world=WGS84 ellipsoid (beta-sphere x S) (opts.ellipsoid=true; ?ell=1 / ?ell=0 to override; measurement always WGS84)
+[1.0s] debug: [vite] connected.
+[1.0s] log: [mesh] catalog loaded -> 0 municipalities
+[1.0s] log: [mesh] storage persist: denied
+[1.0s] debug: [vite] connecting...
+[1.0s] debug: [vite] connected.
+[1.0s] log: [geopbf] 📥 ml/__cs-shapes (1,964 bytes) 73.26 msec
+[1.0s] debug: [vite] connecting...
+[1.0s] info: [extrude] 16 polygons, 160 tris [6.950615989890521, 45.795465899948844, 6.954615989890522, 45.79946589994886]
+[1.0s] debug: [vite] connected.
+[1.1s] log: [geopbf] 📥 ml/__cs-shapes (1,964 bytes) 124.08 msec
+[1.1s] log: [render] text=gpu (label glyphs on WebGPU, in the map pass at style layer positions)
+[1.1s] log: [render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)
+[1.1s] log: [terrain] DTM declared: none (no ground lift)
+[1.1s] log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+[1.1s] log: [scene] multi_draw enabled (tiles resident on GPU, max 4096 draw/call)
+[1.1s] debug: [gint/gpu] edges=%d chunks=%d 64 1
+[1.1s] log: [boot] frame1 received backend=webgpu
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connected.
+[1.1s] debug: [vite] connecting...
+[1.1s] log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+[1.1s] log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+[1.1s] debug: [vite] connecting...
+[1.1s] log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+[1.1s] log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+[1.1s] debug: [vite] connected.
+[1.1s] log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] debug: [vite] connecting...
+[1.1s] log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+[1.1s] log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+[1.2s] debug: [vite] connected.
+[1.2s] debug: [vite] connected.
+[1.2s] debug: [vite] connected.
+[1.2s] debug: [vite] connected.
+[1.2s] debug: [vite] connected.
+[1.2s] debug: [vite] connected.
+[1.2s] debug: [vite] connected.
+[1.2s] debug: [vite] connected.
+[1.2s] debug: [vite] connected.
+[1.3s] debug: [vite] connected.
+[1.3s] debug: [vite] connected.
+[1.3s] debug: [vite] connected.
+[1.4s] debug: [vite] connected.
+[1.9s] debug: [vite] connected.
+[2.4s] http 404: https://api.ortho-earth.com/bucket/GIS/alt/R01N045E006
+[2.4s] http 404: https://api.ortho-earth.com/bucket/GIS/alt/R01N045E007
+[2.5s] http 404: https://api.ortho-earth.com/bucket/GIS/alt/R01N046E006
+[2.5s] requestfailed: https://api.ortho-earth.com/proxy/?url=https%3A%2F%2Fwww.eorc.jaxa.jp%2FALOS%2Faw3d30%2Fdata%2Frelease_v2404%2FN045E005_N050E010.zip&nocache=179347986 net::ERR_ABORTED
+[2.5s] requestfailed: https://api.ortho-earth.com/proxy/?url=https%3A%2F%2Fwww.eorc.jaxa.jp%2FALOS%2Faw3d30%2Fdata%2Frelease_v2404%2FN045E005_N050E010.zip&nocache=179347986 net::ERR_ABORTED
+[2.5s] http 404: https://api.ortho-earth.com/bucket/GIS/alt/R01N045E006
+[2.6s] log: [boot] WebGPU present verified (pixels 256/256)
+[2.7s] log: [render] GPU tier fast (map-normalized 2.6ms) = idle near-detail allowed
+[12.1s] requestfailed: https://api.ortho-earth.com/proxy/?url=https%3A%2F%2Fwww.eorc.jaxa.jp%2FALOS%2Faw3d30%2Fdata%2Frelease_v2404%2FN045E005_N050E010.zip&nocache=179347986 net::ERR_ABORTED
+[13.9s] requestfailed: https://api.ortho-earth.com/proxy/?url=https%3A%2F%2Fwww.eorc.jaxa.jp%2FALOS%2Faw3d30%2Fdata%2Frelease_v2404%2FN045E005_N050E010.zip&nocache=179347986 net::ERR_ABORTED
+[14.1s] requestfailed: https://api.ortho-earth.com/proxy/?url=https%3A%2F%2Fwww.eorc.jaxa.jp%2FALOS%2Faw3d30%2Fdata%2Frelease_v2404%2FN045E005_N050E010.zip&nocache=179347986 net::ERR_ABORTED
+[14.2s] log: [altpbf]  📥 R01N045E006 (3600 x 3600) 12621.28 msec
+[14.3s] requestfailed: https://api.ortho-earth.com/proxy/?url=https%3A%2F%2Fwww.eorc.jaxa.jp%2FALOS%2Faw3d30%2Fdata%2Frelease_v2404%2FN045E005_N050E010.zip&nocache=179347986 net::ERR_ABORTED

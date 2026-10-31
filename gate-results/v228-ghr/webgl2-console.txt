@@ -1,0 +1,67 @@
+[0.0s] page load
+[0.0s] error: Failed to load resource: the server responded with a status of 404 (Not Found)
+[0.3s] debug: [vite] connecting...
+[0.5s] log: [boot] hi-tier device = PLATEAU wide lanes (cores=18, bldCap=3, tileConc=16, decPool)
+[0.5s] log: [geo] world=WGS84 ellipsoid (beta-sphere x S) (opts.ellipsoid=true; ?ell=1 / ?ell=0 to override; measurement always WGS84)
+[0.5s] debug: [vite] connected.
+[0.5s] log: [mesh] catalog loaded -> 0 municipalities
+[0.6s] log: [mesh] storage persist: denied
+[0.6s] debug: [vite] connecting...
+[0.6s] debug: [vite] connected.
+[0.6s] log: [geopbf] 📥 ml/__cs-shapes (1,964 bytes) 60.33 msec
+[0.6s] debug: [vite] connecting...
+[0.6s] info: [extrude] 16 polygons, 160 tris [6.950615989890521, 45.795465899948844, 6.954615989890522, 45.79946589994886]
+[0.6s] debug: [vite] connected.
+[0.6s] log: [geopbf] 📥 ml/__cs-shapes (1,964 bytes) 70.75 msec
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connected.
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+[0.7s] log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+[0.7s] debug: [vite] connected.
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] debug: [vite] connecting...
+[0.7s] log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+[0.7s] debug: [vite] connecting...
+[0.7s] log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+[0.7s] log: [mesh] IDB budget 5.4GB (origin quota 10.7GB, used 0.00GB)
+[0.7s] log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+[0.7s] log: [mesh] OPFS enabled (batch bodies=files, ledger=IDB)
+[0.7s] debug: [vite] connected.
+[0.7s] debug: [vite] connected.
+[0.7s] debug: [vite] connected.
+[0.7s] debug: [vite] connected.
+[0.8s] debug: [vite] connected.
+[0.8s] debug: [vite] connected.
+[0.8s] debug: [vite] connected.
+[0.8s] debug: [vite] connected.
+[0.8s] debug: [vite] connected.
+[0.8s] debug: [vite] connected.
+[0.8s] debug: [vite] connected.
+[0.8s] debug: [vite] connected.
+[1.1s] debug: [vite] connected.
+[1.3s] http 404: https://api.ortho-earth.com/bucket/GIS/alt/R01N045E006
+[1.3s] debug: [vite] connected.
+[1.3s] requestfailed: https://api.ortho-earth.com/proxy/?url=https%3A%2F%2Fwww.eorc.jaxa.jp%2FALOS%2Faw3d30%2Fdata%2Frelease_v2404%2FN045E005_N050E010.zip&nocache=179347992 net::ERR_ABORTED
+[1.9s] log: [render] multi_draw enabled (tiles GPU-resident)
+[2.4s] log: [terrain] DTM declared: none (no ground lift)
+[2.4s] log: [terrain] gen=far2-20260902c (R90 floor = world band z<8, R90/R10 boundary = 5.5)
+[2.4s] log: [scene] multi_draw enabled (tiles resident on GPU, max 128 draw/call)
+[2.4s] debug: [gint] edges=%d chunks=%d ck0=%s 64 1 [1869506160,1357954660,1869546160,1357994660]
+[2.4s] debug: [gint] boundary edges=%d (%.1f%%) 16 25
+[2.4s] log: [boot] frame1 received backend=webgl2
+[2.4s] info: [gint] idFill caps: %s (float_blend=%s) RGBA32F true
+[3.6s] requestfailed: https://api.ortho-earth.com/proxy/?url=https%3A%2F%2Fwww.eorc.jaxa.jp%2FALOS%2Faw3d30%2Fdata%2Frelease_v2404%2FN045E005_N050E010.zip&nocache=179347992 net::ERR_ABORTED
+[3.6s] log: [altpbf]  📥 R01N045E006 (3600 x 3600) 2544.26 msec
