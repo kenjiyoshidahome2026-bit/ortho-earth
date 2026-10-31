@@ -125,6 +125,21 @@ async function loader({ url }: { url: string }): Promise<{ data: ImageData | nul
 }
 
 /** a terrain provider with its own requestTileGeometry → a raster-dem source the globe reads through the protocol (null = not one) */
+// The globe's terrain source for a Cesium terrain provider (scene.ts onTerrain picks which kind it is).
+// negative: the sea surface of these ellipsoid heights is at the geoid height N (about −29 m in San Francisco Bay); the globe's default would lift it to 0.
+// dtm + world bounds: Cesium clamps models (HeightReference CLAMP_TO_GROUND / RELATIVE_TO_GROUND) onto whatever terrain the provider gives, so the
+// globe may lift them onto it everywhere. Without it the globe lifts only inside a declared bare-earth region (none outside Japan), and the truck of
+// physically-based-materials stayed at 0 m, 1.7 km under the Mexican hills (2026-10-31)
+export function terrainSourceOf(o: { bridged?: Any | null; cwt?: boolean; bathy?: boolean; ionId?: number; url?: string | null; headers?: Any; token?: string }): Any | null {
+	const ground = { dtm: true, bounds: [-180, -90, 180, 90] };
+	if (o.bridged) return { ...ground, ...o.bridged, dtm: true };
+	if (o.cwt) return { type: "quantized-mesh", ion: { assetId: 1, accessToken: o.token }, heights: "orthometric", negative: true, ...ground };
+	if (o.bathy) return { type: "quantized-mesh", ion: { assetId: 2426648, accessToken: o.token }, heights: "orthometric", seafloor: true, ...ground };
+	if (o.ionId! > 0) return { type: "quantized-mesh", ion: { assetId: o.ionId, accessToken: o.token }, heights: "orthometric", negative: true, ...ground };
+	if (o.url) return { type: "quantized-mesh", url: o.url, headers: o.headers, heights: "orthometric", negative: true, ...ground };
+	return null;
+}
+
 export function bridgedTerrainSource(map: Any, p: Any): Any | null {
 	if (typeof p?.requestTileGeometry !== "function" || !p.tilingScheme || typeof map.addProtocol !== "function") return null;
 	if (!installed) { map.addProtocol(SCHEME, loader); installed = true; }   // the protocol is global on the globe: once
