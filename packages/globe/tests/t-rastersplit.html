@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- 実描画の検分：画像層の左右分割（Cesium の ImageryLayer.splitDirection＋scene.splitPosition・2026-10-31）。
+     レンダラを直駆動（t-cogpair と同じ作法・地球儀は起こさない）。?gl2=1＝GL2（createRenderer）・無印＝WebGPU（createRendererGPU）。
+     試料＝東京（139.7/35.7）の ±0.02° を覆う 1 枚のタイル（単色）を 2 層：赤（split −1＝左だけ）・青（split +1＝右だけ）。真俯瞰・北向き。
+     地面アトラスの窓は左右の半分に焼かれ、FS が画面の x と分割位置で半分を選ぶ。
+     ①分割 0.5＝左半分 赤・右半分 青
+     ②分割 0.75＝赤が 3/4
+     ③分割なし（両方 split 0・青が上）＝全部 青（窓は半分に分けない＝従来の経路）
+     ④左だけの層（赤 split −1）だけ＝左 赤・右は床（灰）
+     ⑤（WebGPU）GPU の検証エラー 0 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-rastersplit</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const GL2 = /[?&]gl2=1/.test(location.search);
+try {
+	if (!GL2 && !navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const canvas = document.getElementById("g"), N = 256;
+	const r = GL2 ? (await import("@ortho-earth/core/gl")).createRenderer(canvas) : await (await import("@ortho-earth/core/gpu")).createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, D = 0.02, W = 16;
+	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.6, 0.6, 0.6, 1] });
+	const cam = { center: [LON, LAT], zoom: 15, pitch: 0, bearing: 0, dpr: 1 };
+	const solid = async rgb => { const a = new Uint8ClampedArray(W * W * 4); for (let i = 0; i < W * W; i++) { a[i * 4] = rgb[0]; a[i * 4 + 1] = rgb[1]; a[i * 4 + 2] = rgb[2]; a[i * 4 + 3] = 255; } return r.rasterTex(await createImageBitmap(new ImageData(a, W, W))); };
+	// 1 枚の四角＝北西隅（LON−D, LAT+D）からの (dlon, dlat) 度・uv＝(0..1)
+	const mesh = r.rasterMesh({ pos: new Float32Array([0, 0, 2 * D, 0, 0, -2 * D, 2 * D, -2 * D]), uv: new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), idx: new Uint16Array([0, 2, 1, 1, 2, 3]) });
+	const red = await solid([230, 30, 30]), blue = await solid([30, 60, 230]);
+	const draw = tex => ({ mesh, tex, nw: [LON - D, LAT + D], bounds: [LON - D, LAT - D, LON + D, LAT + D], uvT: [0, 0, 1, 1], z: 14, a: 1 });
+	let rev = 0;
+	const layers = ls => r.setRasterDraws({ rev: ++rev, hideFills: false, layers: ls.map(([tex, split]) => ({ order: "over", opacity: 1, resampling: "linear", split, draws: [draw(tex)] })) });
+	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async () => {
+		r.draw(cam, {}); if (r.flush) r.flush();
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		r.draw(cam, {}); if (r.flush) r.flush();
+		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
+		return rctx.getImageData(0, 0, N, N).data;
+	};
+	// 中央の横一列で赤・青・灰（床）・その他を数える
+	const row = px => { let red = 0, blue = 0, grey = 0, other = 0; const y = N >> 1; for (let x = 0; x < N; x++) { const i = (y * N + x) * 4, R = px[i], G = px[i + 1], B = px[i + 2]; if (R > 150 && B < 90) red++; else if (B > 150 && R < 90) blue++; else if (Math.abs(R - G) < 20 && Math.abs(G - B) < 20 && R > 100) grey++; else other++; } return { red, blue, grey, other }; };
+	const fmt = c => `赤 ${c.red}・青 ${c.blue}・灰 ${c.grey}・他 ${c.other}`;
+	r.set("splitPos", 0.5);
+	layers([[red, -1], [blue, 1]]);
+	let c = row(await shot());
+	ok(`①分割 0.5＝左 赤・右 青（${fmt(c)}）`, Math.abs(c.red - N / 2) <= 3 && Math.abs(c.blue - N / 2) <= 3 && c.other <= 3);
+	{ const px = await shot(), i = ((N >> 1) * N + 4) * 4, j = ((N >> 1) * N + N - 5) * 4; ok(`①左端は赤・右端は青（${px[i]}/${px[i + 2]}・${px[j]}/${px[j + 2]}）`, px[i] > 150 && px[j + 2] > 150); }
+	r.set("splitPos", 0.75);
+	c = row(await shot());
+	ok(`②分割 0.75＝赤が 3/4（${fmt(c)}）`, Math.abs(c.red - N * 0.75) <= 3 && Math.abs(c.blue - N * 0.25) <= 3);
+	layers([[red, 0], [blue, 0]]);
+	c = row(await shot());
+	ok(`③分割なし＝全部 青（${fmt(c)}）`, c.blue === N);
+	r.set("splitPos", 0.5);
+	layers([[red, -1]]);
+	c = row(await shot());
+	ok(`④左だけの層＝左 赤・右 床（${fmt(c)}）`, Math.abs(c.red - N / 2) <= 3 && Math.abs(c.grey - N / 2) <= 3);
+	if (!GL2) { await new Promise(res => setTimeout(res, 50)); ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0); }
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
