@@ -101,6 +101,14 @@ const math1 = (op: string): ((x: number) => number) | null => {
 	}
 };
 
+/** 記号の候補の区切り（coalesce の image＝"a\u001fb"）。 */
+export const IMG_ALT = "\u001f";
+/** 記号の候補から記号帳に有る最初の名前（無ければ先頭＝styleimagemissing はその名前で鳴る）。候補でない名前はそのまま。 */
+export const pickImage = (name: string, has: (n: string) => boolean): string => {
+	if (!name || !name.includes(IMG_ALT)) return name;
+	const xs = name.split(IMG_ALT).filter(Boolean);
+	return xs.find(has) ?? xs[0] ?? "";
+};
 export function truthy(v: unknown): boolean {
 	return v !== false && v != null && v !== 0 && v !== "" && !(typeof v === "number" && isNaN(v));
 }
@@ -347,7 +355,12 @@ function build(e: unknown[], o: ExprOrigin = "native", opAs: string | null = nul
 			if (ML) return ctx => { for (const f of xs) { const v = f(ctx); if (v == null || v === false) return 0; if (v === true) return 1; const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN; if (!Number.isNaN(n)) return n; } return mlFail(); };
 			const a = xs[0]; return ctx => Number(a(ctx));
 		}
-		case "coalesce": { const xs = e.slice(1).map(compile_); return ctx => { for (const f of xs) { const v = f(ctx); if (v != null) return v; } return null; }; }
+		case "coalesce": {
+			const xs = e.slice(1).map(compile_);
+			// 記号の候補（["coalesce", ["image", a], ["image", b]…]＝MapLibre は記号帳に有る最初の名前）：記号帳は評価の後に届く事がある＝候補を IMG_ALT で繋いで運び、引く側が pickImage で選ぶ（2026-10-31・公式例 use-a-fallback-image）
+			if (e.length > 2 && e.slice(1).every(x => Array.isArray(x) && x[0] === "image")) return ctx => xs.map(f => f(ctx)).filter(v => v != null && v !== "").map(String).join(IMG_ALT) || null;
+			return ctx => { for (const f of xs) { const v = f(ctx); if (v != null) return v; } return null; };
+		}
 		case "feature-state": { const k = compile_(e[1]); return ctx => ctx.state?.[k(ctx)]; }   // 層の一時状態（hover/選択…）＝gint layer.setFeatureState。基図 ctx は state 無し＝undefined（無害）
 		case "concat": { const xs = e.slice(1).map(compile_); return ctx => xs.map(f => f(ctx) ?? "").join(""); }   // text-field 用（maplibre 同名）
 		case "to-string": { const a = compile_(e[1]); return ctx => { const v = a(ctx); return v == null ? "" : String(v); }; }
