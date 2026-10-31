@@ -606,5 +606,16 @@ for (const g of [
 	ok("limit rectangle: the whole world = nothing", limitRectClipOf(Rectangle.MAX_VALUE).spec === null);
 }
 
+// a time-dynamic WMTS (web-map-tile-service-with-time): the clock's interval data fills {Time}
+{
+	const { WebMapTileServiceImageryProvider, TimeIntervalCollection, Clock, JulianDate } = await import("@cesium/engine");
+	const times = TimeIntervalCollection.fromIso8601({ iso8601: "2015-07-30/2015-08-05/P1D", dataCallback: iv => ({ Time: JulianDate.toIso8601(iv.start) }) });
+	const clock = new Clock({ currentTime: JulianDate.fromIso8601("2015-08-01T06:00:00Z") });
+	const p = new WebMapTileServiceImageryProvider({ url: "https://x.test/wmts/{Time}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.jpg", layer: "L", style: "default", tileMatrixSetID: "GM9", clock, times });
+	clock.tick();
+	const t = rasterSourceOf(p)?.tiles?.[0] ?? "";
+	ok("time-dynamic WMTS: the interval's Time in the template", /\/2015-08-01T00%3A00%3A00Z\/GM9\/\{TileMatrix\}/.test(t), t);
+}
+
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
 process.exit(fails ? 1 : 0);
