@@ -57,6 +57,9 @@ const STATE = () => {
 		for (let i = 0; i < prims.length; i++) { const q = prims.get(i); const st = q && q.show !== false && "tilesLoaded" in q ? q.statistics : null; if (!st) continue; tilesets++; tiles += st.selected || 0; triangles += st.numberOfTrianglesSelected || 0; }
 		out.drawn = { tilesets, tiles, triangles };
 	} catch (e) { out.countsError = String(e?.message || e); }
+	// each ParticleSystem's place in its own lifetime loop (when its bursts fire): it counts from the system's first frame, i.e. the page's load time,
+	// so the ortho side copies the ref's to shoot the same fireworks
+	try { const P = X.Cesium?.ParticleSystem, prims = v.scene.primitives; if (P) { const ph = []; for (let i = 0; i < prims.length; i++) { const q = prims.get(i); if (q instanceof P) ph.push(q._currentTime ?? 0); } if (ph.length) out.particlePhase = ph; } } catch { /* none */ }
 	// ours: the camera the globe really drew with (the camera above is the Cesium-side pose; a wrong conversion, such as roll 180 looking straight down, only shows here)
 	try { const g = v.orthoMap?.getCamera?.(); if (g) out.globeCam = { heading: g.heading, pitch: g.pitch - 90, roll: g.roll, distance: g.distance, lng: g.lng, lat: g.lat }; } catch (e) { out.globeCamError = String(e?.message || e); }
 	return out;
@@ -124,10 +127,10 @@ async function runOne(browser, side, ex) {
 	page.on("requestfailed", () => rec.failedRequests++);
 	page.on("load", () => rec.loads = (rec.loads || 0) + 1);   // more than 1 = the dev server reloaded the page (a dependency re-optimised)
 	await page.addInitScript(() => { try { localStorage.removeItem("cesium-hasSeenNavHelp"); } catch { /* none */ } });   // the help panel opens as on a first visit, also after a reload
-	let refClock = null;
+	let refClock = null, refPhase = null;
 	if (TIME_FROM) {   // the ref's start: the record's own t0; a ref shot with --time-from itself: its page started at its timeFrom; older records: the file's mtime less the run time (a copy that did not keep the mtime moves the clock)
 		const j = path.join(TIME_FROM, "ref", `${ex.name}.json`);
-		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")), t0 = r.t0 ?? (r.timeFrom ? Date.parse(r.timeFrom) : st.mtimeMs - (r.ms || 0)); rec.timeFrom = new Date(t0).toISOString(); await page.addInitScript(shiftDate, t0 - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; }
+		if (fs.existsSync(j)) { const st = fs.statSync(j), r = JSON.parse(fs.readFileSync(j, "utf8")), t0 = r.t0 ?? (r.timeFrom ? Date.parse(r.timeFrom) : st.mtimeMs - (r.ms || 0)); rec.timeFrom = new Date(t0).toISOString(); await page.addInitScript(shiftDate, t0 - Date.now()); refClock = (r.clock?.animating || r.paused) && r.clock.time || null; refPhase = r.particlePhase ?? null; }
 	}
 	try {
 		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/${side === "ortho" && ORTHO_QUERY ? `?${ORTHO_QUERY}` : ""}`, { timeout: 60000 });
@@ -142,7 +145,26 @@ async function runOne(browser, side, ex) {
 			rec.clockFrom = refClock;
 			const CAM = () => { const c = window.__csx?.viewers?.[0]?.camera?.positionWC; return c ? `${c.x.toFixed(1)},${c.y.toFixed(1)},${c.z.toFixed(1)}` : ""; };
 			const cam0 = await page.evaluate(CAM).catch(() => "");
-			const tracked = await page.evaluate(iso => { const X = window.__csx, v = X?.viewers?.[0]; if (!v || !X.Cesium?.JulianDate) return false; v.clock.shouldAnimate = false; v.clock.currentTime = X.Cesium.JulianDate.fromIso8601(iso); return !!v.trackedEntity; }, refClock).catch(() => false);
+			const tracked = await page.evaluate(([iso, phase]) => {
+				const X = window.__csx, v = X?.viewers?.[0], C = X?.Cesium;
+				if (!v || !C?.JulianDate) return false;
+				v.clock.shouldAnimate = false;
+				const at = C.JulianDate.fromIso8601(iso);
+				// particle systems live on their history: a jump straight to the ref's time kills every particle and fires the bursts at once (the
+				// fireworks became one cluster of dots). Step the last 2 s at 30 frames a second, as a clock that kept running would have, from the ref's
+				// place in each system's loop (rec.particlePhase: the bursts fire at the same moments)
+				const prims = v.scene?.primitives, systems = C.ParticleSystem && prims ? Array.from({ length: prims.length }, (_, i) => prims.get(i)).filter(p => p instanceof C.ParticleSystem) : [];
+				const PRE = 2;
+				if (phase?.length === systems.length) systems.forEach((ps, i) => {
+					const L = ps.lifetime, t0 = Number.isFinite(L) && L < Number.MAX_VALUE ? (((phase[i] - PRE) % L) + L) % L : Math.max(0, phase[i] - PRE);
+					ps._currentTime = t0;
+					for (const b of ps.bursts ?? []) b._complete = b.time < t0;
+					ps._previousTime = C.JulianDate.addSeconds(at, -PRE, new C.JulianDate());
+				});
+				if (systems.length) for (let k = PRE * 30; k > 0; k--) { const t = C.JulianDate.addSeconds(at, -k / 30, new C.JulianDate()); v.clock.currentTime = t; try { v.scene.render(t); } catch { /* the next frame draws */ } }
+				v.clock.currentTime = at;
+				return !!v.trackedEntity;
+			}, [refClock, refPhase]).catch(() => false);
 			// a tracked entity's camera follows the new time a few frames later (seconds on a busy SwiftShader): wait until it has moved (at most 20 s), then until it has stood still for a second (at most 8 s)
 			await page.waitForTimeout(2000);
 			for (let i = 0; tracked && i < 36; i++) { if (await page.evaluate(CAM).catch(() => "") !== cam0) break; await page.waitForTimeout(500); }
