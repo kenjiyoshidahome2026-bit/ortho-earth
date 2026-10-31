@@ -7,7 +7,7 @@
 |---|---|
 | URL | `/gishub-jp/` |
 | 言語 | 日本語のみ（UI・データ名とも）＝www のカードも `lang: "ja"` |
-| データ | 各カタログ（`census/ estat/ jishin/ jma/ maff/ moj/ munic/ nlftp/ nps/ zipcode/`）＝取得スクリプトは各フォルダ、重量データは R2（`shared-data/`） |
+| データ | 各カタログ（`estat/ jishin/ jma/ maff/ moj/ munic/ nlftp/ nps/`）。国勢調査の画面は census2020 アプリ（`/japan/census2020/`）へ一本化＝`census/link.ts` は案内だけ（2026-10-31）＝取得スクリプトは各フォルダ、重量データは R2（`shared-data/`） |
 | head | 日本語の `<head>`・共有カード（og:image＝www のサムネイル）・canonical・theme-color |
 
 ## 開発

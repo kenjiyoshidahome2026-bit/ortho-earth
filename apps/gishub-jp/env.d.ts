@@ -3,7 +3,7 @@
 // ・geopbf の convert/pool.ts は Node でも動く（typeof process で見分ける）＝その判定が読む欄だけ（@types/node は入れない＝setTimeout 等の型をブラウザのまま保つ）
 // ・globalThis._execGlobeView＝将来の外部連携用の口
 // ・__DATA_JAPAN__＝vite.config の define
-// ・census/ui.ts が読む jp の国勢調査 JSON＝市区町村コードで引く表（JSON の推論型は 1,900 個の固定キー＝変数で引けない）
+// ・jp の国勢調査 JSON＝市区町村コードで引く表（JSON の推論型は 1,900 個の固定キー＝変数で引けない）
 /// <reference path="../../packages/common/src/ambient.d.ts" />
 declare var process: { versions?: { node?: string } } | undefined;
 declare var _execGlobeView: unknown;
