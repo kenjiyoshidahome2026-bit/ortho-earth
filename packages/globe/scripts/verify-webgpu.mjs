@@ -24,7 +24,7 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",
 	"t-copc", "t-copc?v=depth",   // COPC の点群の WebGPU の描き手（copc-gpu.ts＝本体の device と深度を共有・2026-10-23）・?v=depth＝本体の深度で隠れる   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
 	"t-cluster",   // map.gadget.cluster＝集約の source と層（丸は gint・件数は注記層の GPU の字・2026-10-22）
-	"t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-cogpair",   // t-cogpair＝COG の見比べ（2 枚組アトラス＋境の経度・tellus）
+	"t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-cogpair", "t-rastersplit",   // t-rastersplit＝画像層の左右分割（Cesium の splitDirection）・t-cogpair＝COG の見比べ（2 枚組アトラス＋境の経度・tellus）
 	
 	"t-elevcell", "t-elevcell?cpuelev=1",   // 標高セルの GPU 再標本化＝CPU 経路と |Δ|≤f16 1ulp（perf plan P1 step 1）・cpuelev=1＝逃げ道は bit 一致
 	"t-mlcompat?g=layers", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=before", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt", "t-mlcompat?g=cover", "t-container?v=abs", "t-container?v=zero", "t-container?v=novec", "t-container?v=ug", "t-qm", "t-multimap", "t-multimap?v=default", "t-multimap?v=lowmem", "t-multimap?v=gs", "t-multimap?v=sync", "t-compare", "t-compare?v=h", "t-compare?v=ml", "t-inspect", "t-inspect?v=world", "t-inspect?v=ml",   // t-inspect＝検査表示（#174）
@@ -52,7 +52,7 @@ const fail = await runPages({
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], p.startsWith("t-mlcompat") || p.startsWith("t-mdparity") ? 240 : p.startsWith("t-three") || p.startsWith("t-psplat") || p.startsWith("t-pvoxel") || p.startsWith("t-tiles3d-splat") || p.startsWith("t-tiles3d-voxel") || p.startsWith("t-classify") ? 300 : p.startsWith("t-czml-scene") ? 420 : p.startsWith("t-clipmap") ? 150 : p.startsWith("t-mlboot") ? 180 : p.startsWith("t-ellparity") ? 300 : p.startsWith("t-shadow-terrain") || p.startsWith("t-sungpu") ? 150 : p.startsWith("t-qmesh") ? 200 : p.startsWith("t-gintexpr") ? 180 : p.startsWith("t-clouds") || p.startsWith("t-postfx") || p.startsWith("t-plugin") || p.startsWith("t-linepattern") ? 150 : 90])),   // t-mlcompat＝場面が多い（段 8⑤）
 	jobs: +process.env.VG_JOBS || 4,   // 4 本ずつ並べる（2026-09-29・実 GPU でも全頁 PASS を 2 回確認）・VG_JOBS=1 で直列
 	flags: REALGPU, drag: true, profilePrefix: "og-webgpu", cdpBase: +process.env.VGW_CDP || 9335, pad: 18,
-	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-clip", "t-clipgint", "t-meshmask", "t-meshmany", "t-gintgpu", "t-gintlayers", "t-gintexpr", "t-gintmulti", "t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-cogpair", "t-elevcell", "t-meshfs", "t-linegrad"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
+	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-clip", "t-clipgint", "t-meshmask", "t-meshmany", "t-gintgpu", "t-gintlayers", "t-gintexpr", "t-gintmulti", "t-wgsl", "t-textgpu", "t-textpass", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-cogpair", "t-rastersplit", "t-elevcell", "t-meshfs", "t-linegrad"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
 	urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}`,
 });
 stop();
