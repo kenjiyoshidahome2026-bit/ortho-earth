@@ -89,8 +89,10 @@ export async function paint(d: MatDesc, W: number, H: number, stOf: (x: number, 
 	if (d.type === "Image") {
 		const v = videoOf(d), src = v ? null : imageUrl(d.u.image);
 		const im = v ? (v.readyState >= 2 && v.videoWidth > 0 ? v : null) : src ? await loadImage(src) : null;   // a video: the frame it shows now
-		if (!im) return null;
 		const [rx, ry] = xy(d.u.repeat, 1), tint = rgba(d.u.color, [255, 255, 255, 255]);
+		// an image that did not load: Cesium's Image material keeps its default texture (white) times the color, so the shape still shows
+		// (terrain-entity-batching-dev's ellipse when ../images/Cesium_Logo_Color.jpg is missing). A video not playing yet draws nothing
+		if (!im) { if (v || !src) return null; ctx.fillStyle = `rgba(${tint[0]},${tint[1]},${tint[2]},${tint[3] / 255})`; ctx.fillRect(0, 0, W, H); return cv; }
 		const tile = document.createElement("canvas"); tile.width = v ? v.videoWidth : (im as HTMLImageElement).naturalWidth; tile.height = v ? v.videoHeight : (im as HTMLImageElement).naturalHeight;
 		const tc = tile.getContext("2d")!; tc.drawImage(im, 0, 0);
 		let src4: Uint8ClampedArray;
