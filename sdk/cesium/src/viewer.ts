@@ -28,6 +28,7 @@ import { VoxelDrawer, isVoxelPrimitive } from "./voxels.ts";
 import { ParticleDrawer, isParticleSystem } from "./particles.ts";
 import { CloudDrawer, isCloudCollection } from "./clouds.ts";
 import { CollectionDrawer, isCollection } from "./collections.ts";
+import { timed } from "./perf.ts";
 import { unsupported } from "./report.ts";
 
 type Any = any;
@@ -153,7 +154,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	const cloudsDr = new CloudDrawer(host);
 	const timePoints = new TimePointsDrawer(host);
 	this._orthoClouds = cloudsDr;
-	scene.preRender.addEventListener((_s: Any, time: Any) => { prims.update(); colls.update(); voxels.update(); particles.update(time ?? this._clock.currentTime); cloudsDr.update(); timePoints.update(time ?? this._clock.currentTime); });
+	scene.preRender.addEventListener((_s: Any, time: Any) => { timed("prims", () => prims.update()); timed("colls", () => colls.update()); timed("voxels", () => voxels.update()); timed("particles", () => particles.update(time ?? this._clock.currentTime)); timed("clouds", () => cloudsDr.update()); timed("timePoints", () => timePoints.update(time ?? this._clock.currentTime)); });   // timed＝?perf=1 の [csperf] 行（perf.ts）
 	(scene as Any).__tilesets = tilesets;
 	const debugAxes = new Map<Any, Any>();
 	// EquirectangularPanorama's sphere is 100 km round its centre, past where the globe draws a model for an eye at its middle; seen from
