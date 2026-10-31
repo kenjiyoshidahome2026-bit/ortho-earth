@@ -62,6 +62,14 @@ fn ${fn}(h: f32, gEN: vec2f, dh: f32, gm: vec4f, gmC: vec4f, gmP: vec4f) -> vec4
 	m.a *= gmP.z;
 	return m;
 }`;
+const GND_UV_WGSL = /* wgsl */`
+// 窓 uv → テクスチャ uv（v 反転）。分割（Cesium の ImageryLayer.splitDirection・p.y ≥ 0）は窓が左右の半分に焼いてある＝画面の x（fx）で半分を選ぶ（gl/glsl.ts gndUV と同式）
+fn gndUV0(uv: vec2f, fx: f32, sp: f32) -> vec2f {
+	var t = vec2f(clamp(uv.x, 0.0, 1.0), 1.0 - clamp(uv.y, 0.0, 1.0));
+	if (sp >= 0.0) { t.x = clamp(t.x * 0.5, 0.002, 0.498) + select(0.0, 0.5, fx >= sp); }
+	return t;
+}
+`;
 const FRAME = /* wgsl */`
 struct Frame {
 	mvp: mat4x4f,
@@ -133,13 +141,14 @@ fn cogTexMix0(col: vec3f, uv: vec2f) -> vec3f {
 @group(0) @binding(9) var<uniform> GD0: GndP;
 @group(0) @binding(10) var gndSamp: sampler;
 @group(0) @binding(11) var gndTex3: texture_2d<f32>;
-struct GndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };   // w*=[W,S,spanLon,spanLat]・p.x=有効な窓の数（0..4・細かい順）
-fn gndMix0(col: vec3f, uv0: vec2f, uv1: vec2f, uv2: vec2f, uv3: vec2f) -> vec3f {
+struct GndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };   // w*=[W,S,spanLon,spanLat]・p.x=有効な窓の数（0..4・細かい順）・p.y=分割の画面 x（device px・負＝なし）
+${GND_UV_WGSL}
+fn gndMix0(col: vec3f, uv0: vec2f, uv1: vec2f, uv2: vec2f, uv3: vec2f, fx: f32) -> vec3f {
 	if (GD0.p.x < 0.5) { return col; }   // 地面アトラス無し＝標本化しない（perf plan P6・2026-09-27）。GD0 は var<uniform>＝一様な分岐＝以後の textureSample は合法。GL の gndMix と同順（旧＝4 本標本化してから捨てていた）
-	let c0 = textureSample(gndTex0, gndSamp, vec2f(clamp(uv0.x, 0.0, 1.0), 1.0 - clamp(uv0.y, 0.0, 1.0)));
-	let c1 = textureSample(gndTex1, gndSamp, vec2f(clamp(uv1.x, 0.0, 1.0), 1.0 - clamp(uv1.y, 0.0, 1.0)));
-	let c2 = textureSample(gndTex2, gndSamp, vec2f(clamp(uv2.x, 0.0, 1.0), 1.0 - clamp(uv2.y, 0.0, 1.0)));
-	let c3 = textureSample(gndTex3, gndSamp, vec2f(clamp(uv3.x, 0.0, 1.0), 1.0 - clamp(uv3.y, 0.0, 1.0)));
+	let c0 = textureSample(gndTex0, gndSamp, gndUV0(uv0, fx, GD0.p.y));
+	let c1 = textureSample(gndTex1, gndSamp, gndUV0(uv1, fx, GD0.p.y));
+	let c2 = textureSample(gndTex2, gndSamp, gndUV0(uv2, fx, GD0.p.y));
+	let c3 = textureSample(gndTex3, gndSamp, gndUV0(uv3, fx, GD0.p.y));
 	// 窓の縁 4% はひとつ外の窓へクロスフェード＝解像度の段差を溶かす（gl/glsl.js gndMix と同式）
 	let w0 = gndEdge(uv0);
 	let w1 = select(0.0, gndEdge(uv1), GD0.p.x > 1.5);
@@ -423,7 +432,7 @@ fn elevQ(ll: vec2f) -> f32 {
 // ?gndfast=0 の逃げ道（perf plan P6）＝gndMix0 を旧順序（4 本標本化してから GD0.p.x で捨てる）へ機械変換する。renderer の mkMod が rOpts.gndFast===false の時だけ通す。
 // 変換漏れ（原本の書式が変わった）は例外で知らせる＝黙って新順序のまま走らない
 const GND_FAST_HEAD = "\tif (GD0.p.x < 0.5) { return col; }   // 地面アトラス無し＝標本化しない（perf plan P6・2026-09-27）。GD0 は var<uniform>＝一様な分岐＝以後の textureSample は合法。GL の gndMix と同順（旧＝4 本標本化してから捨てていた）\n";
-const GND_SAMPLE_TAIL = "\tlet c3 = textureSample(gndTex3, gndSamp, vec2f(clamp(uv3.x, 0.0, 1.0), 1.0 - clamp(uv3.y, 0.0, 1.0)));\n";
+const GND_SAMPLE_TAIL = "\tlet c3 = textureSample(gndTex3, gndSamp, gndUV0(uv3, fx, GD0.p.y));\n";
 export function gndMixSlow(code: string): string {
 	if (!code.includes("fn gndMix0(")) return code;   // FRAME を含まないモジュール（AO・深度の書き出し等）はそのまま
 	if (!code.includes(GND_FAST_HEAD) || !code.includes(GND_SAMPLE_TAIL)) throw new Error("gndMixSlow: rewrite markers missing = the gndMix0 source format changed");   // runtime 文字列は英語（verify:regionless の和文の爪車）
@@ -480,7 +489,7 @@ fn fillColor(in0: FillOut) -> vec4f {
 	let pt = textureSample(patTex, patSamp, fract((P.patP.xy + in.pat) * P.patP.zw));
 	if (P.patP.z > 0.0) { af *= pt.a; in.color = vec4f(select(vec3f(0.0), pt.rgb / max(pt.a, 1e-6), pt.a > 0.0), in.color.a); }
 	if (af <= 0.003) { discard; }
-	return vec4f(mix(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3), F.fogColor, in.fog) * af, af);   // ユーザ COG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
+	return vec4f(mix(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3, in.pos.x), F.fogColor, in.fog) * af, af);   // ユーザ COG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
 }
 @fragment fn fs(in: FillOut) -> @location(0) vec4f {
 	if (in.front < -0.0015) { discard; }
@@ -866,7 +875,7 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	// 陰影の立ち上がりは従来の 1〜100m 帯のまま（低地＝陰影なしの紙色）：不透明化した分（t≧tS）を「床と同色＝陰影なし」で埋める
 	// ＝ t·X + (1−t)·床 が旧 tS·地形 + (1−tS)·床 と一致（床≈landC）。低ズーム（t＝tS）は旧式と恒等
 	let tS = smoothstep(1.0, 100.0, in.h);
-	var colBase = gndMix0(cogTexMix0(landC * mix(1.0, shade, min(tS / t, 1.0)), in.cuv), in.guv0, in.guv1, in.guv2, in.guv3);
+	var colBase = gndMix0(cogTexMix0(landC * mix(1.0, shade, min(tS / t, 1.0)), in.cuv), in.guv0, in.guv1, in.guv2, in.guv3, in.pos.x);
 	if (P.tr.x > 0.5) { let m = gmColor(h0, gmEN, gmDh, P.tr, P.lx, P.dashP); colBase = mix(colBase, m.rgb, m.a); }   // 地面の材質（Cesium の globe.material）＝画像の上・照明の下
 	if (F.cg.w > 0.5) { colBase *= F.cgC.rgb * cgK; }   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	var col = mix(colBase, F.fogColor, in.fog);
@@ -985,6 +994,15 @@ struct PlOut {
 	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
 	let h = elev(vec2f(lon, lat)) * F.elevP.x * select(inX * inY, 1.0, B.alpha.w > 0.5) * (1.0 - B.alpha.z);   // noLift＝平面に浮かせた統計・drape＝全域で地形に沿わせる
 	var p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線
+	if (a_normal.w < -0.004) {   // a glTF line's ribbon (gl/glsl.ts LINE_RIBBON): across the line's direction on screen by half its width (CSS px × dpr)
+		let lb = floor(-a_normal.w * 127.0 + 0.5); let hp = floor(lb * 0.5) * 0.125 * max(F.params.w, 1.0);
+		let dc = F.mvp * vec4f(o.n, 0.0);
+		var sd = (dc.xy * p.w - p.xy * dc.w) * F.viewport;
+		if (dot(sd, sd) < 1e-30) { sd = vec2f(1.0, 0.0); }
+		p = vec4f(p.xy + normalize(vec2f(-sd.y, sd.x)) * ((lb % 2.0) * 2.0 - 1.0) * hp * 2.0 / F.viewport * p.w, p.zw);
+		o.ol = vec3f(0.0);
+		o.n = o.toEye;   // faces the eye (the FS's back-face test; lines are unlit in Cesium)
+	}
 	p.z = logDepthZ(p.w);
 	o.pos = p;
 	return o;
@@ -1046,7 +1064,7 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	let m = mix(on * ex * ey, rate * 1.1, far);
 	return vec4f(mix(col, farCol, far), clamp(m * k, 0.0, 1.0));
 }
-@fragment fn fs(in: PlOut) -> @location(0) vec4f {
+@fragment fn fs(in: PlOut, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
 	let wlx = dpdx(in.wl); let wly = dpdy(in.wl);   // 街明かりの窓の画素幅（discard より前＝一様制御フロー）
 	olV = in.ol; olW = fwidth(in.ol);   // the outline's screen-space width (uniform control flow: before any discard)
 	let olPk = u32(B.cc.w); olC = vec4f(f32((olPk >> 16u) & 255u), f32((olPk >> 8u) & 255u), f32(olPk & 255u), 255.0 * B.cc.z) / 255.0;   // cc.z = alpha, cc.w = rgb packed 8 bits each
@@ -1061,7 +1079,8 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 	// 前提が深ズーム(z20)で崩れ点描ゴーストになった（glsl.js MESH_FS と同文・2026-08-02）。
 	// 向きは属性法線で採決＝巻き順非依存。退化面（微分ゼロ）だけ旧判定へフォールバック。
 	let g2 = dot(gnRaw, gnRaw);
-	let fe = select(dot(n, normalize(in.toEye)), dot(normalize(gnRaw * sign(dot(gnRaw, n))), normalize(in.toEye)), g2 > 1e-18);
+	var fe = select(dot(n, normalize(in.toEye)), dot(normalize(gnRaw * sign(dot(gnRaw, n))), normalize(in.toEye)), g2 > 1e-18);
+	if (B.meshOrigin.w > 1.5) { fe = select(-1.0, max(abs(fe), 1e-3), ff); }   // 2＝Cesium の表裏（gl/glsl.ts MESH_FS と同文）：巻き順で裏を捨て、法線は書かれたまま。glTF の表（反時計回り）＝front_facing
 	// 裏面カリング。cullBack=B.meshOrigin.w
 	if (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }
 	if (fe < 0.0) { n = -n; }   // 両面時は法線を視線側へ＝裏から見ても陰影が成立
@@ -1330,7 +1349,8 @@ struct GCogP { bbox: vec4f, p: vec4f };   // p＝(has, 組か, 境の u, 半テ�
 @group(0) @binding(12) var gGnd3: texture_2d<f32>;
 @group(0) @binding(13) var gGmRamp: texture_2d<f32>;   // 地面の材質のランプ（無ければ dummy＝G.gm.x=0 で不使用）
 ${GM_WGSL("gGmColor", "gGmRamp", "gSamp")}
-struct GGndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };
+struct GGndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };   // GndP と同じバッファ（p.y＝分割の画面 x）
+${GND_UV_WGSL}
 ${WORLD_HYPSO_WGSL}
 const R2Dg: f32 = 57.29577951308232;
 fn gElevFar(ll0: vec2f) -> f32 {   // far床＝近窓の外の受け（GL elevFar と同式）
@@ -1518,10 +1538,10 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let w1 = select(0.0, clamp(min(d1.x, d1.y) / 0.04, 0.0, 1.0), GGD.p.x > 1.5);
 		let w2 = select(0.0, clamp(min(d2.x, d2.y) / 0.04, 0.0, 1.0), GGD.p.x > 2.5);
 		let w3 = select(0.0, clamp(min(d3.x, d3.y) / 0.04, 0.0, 1.0), GGD.p.x > 3.5);
-		let g0 = textureSampleLevel(gGnd0, gSamp, vec2f(clamp(u0.x, 0.0, 1.0), 1.0 - clamp(u0.y, 0.0, 1.0)), 0.0);
-		let g1 = textureSampleLevel(gGnd1, gSamp, vec2f(clamp(u1.x, 0.0, 1.0), 1.0 - clamp(u1.y, 0.0, 1.0)), 0.0);
-		let g2 = textureSampleLevel(gGnd2, gSamp, vec2f(clamp(u2.x, 0.0, 1.0), 1.0 - clamp(u2.y, 0.0, 1.0)), 0.0);
-		let g3 = textureSampleLevel(gGnd3, gSamp, vec2f(clamp(u3.x, 0.0, 1.0), 1.0 - clamp(u3.y, 0.0, 1.0)), 0.0);
+		let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(u0, in.pos.x, GGD.p.y), 0.0);
+		let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(u1, in.pos.x, GGD.p.y), 0.0);
+		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
+		let g3 = textureSampleLevel(gGnd3, gSamp, gndUV0(u3, in.pos.x, GGD.p.y), 0.0);
 		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
 		base = base * (1.0 - gc.a) + gc.rgb;
 	}
@@ -1798,7 +1818,7 @@ export const TERRAIN_SH_WGSL = deriveWgsl(TERRAIN_WGSL, [
 export const FILL_SH_WGSL = deriveWgsl(FILL_WGSL, [
 	["\t@location(9) guv3: vec2f,\n};", "\t@location(9) guv3: vec2f,\n\t@location(10) sc: vec4f,\n};"],
 	["\to.pos = p;\n\to.color = a_color;", "\to.pos = p;\n\to.sc = shClip(rel + (F.originPt - SH.anchor.xyz));\n\to.color = a_color;"],
-	["mix(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3), F.fogColor, in.fog)", "mix(shShade(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3), in.sc), F.fogColor, in.fog)"],
+	["mix(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3, in.pos.x), F.fogColor, in.fog)", "mix(shShade(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3, in.pos.x), in.sc), F.fogColor, in.fog)"],
 ], "FILL_SH_WGSL") + SHADOW_WGSL(2);
 export const LINE_SH_WGSL = deriveWgsl(LINE_WGSL, [
 	["\t@location(6) fog: f32,\n};", "\t@location(6) fog: f32,\n\t@location(7) sc: vec4f,\n};"],
@@ -2150,7 +2170,7 @@ fn rd(idx: u32) -> f32 {
 // 派生（deriveWgsl）の錨は触らない＝この変換は mkMod の直前に最後に掛ける（元の fs を fsColor に改名して包む＝return を書き換えない）。
 // 費用＝early-Z が効かない分（東京駅 z16.5・55° で gpuMap +0.4ms・山地は差なし）。逃げ道＝?fd=0（renderer の rOpts.fragDepth=false）
 export function fragDepthWgsl(src: string, label = ""): string {
-	const m = /@fragment fn fs\(in: (\w+)\) -> @location\(0\) vec4f \{/.exec(src);
+	const m = /@fragment fn fs\(in: (\w+)(, @builtin\(front_facing\) ff: bool)?\) -> @location\(0\) vec4f \{/.exec(src);   // ff＝模型の fs だけ（Cesium の表裏）
 	if (!m) throw new Error(`fragDepth(${label}): fs not found`);
 	const out = m[1], st = src.indexOf(`struct ${out} {`);
 	if (st < 0) throw new Error(`fragDepth(${label}): struct ${out} not found`);
@@ -2160,12 +2180,13 @@ export function fragDepthWgsl(src: string, label = ""): string {
 	const vsA = "\tp.z = logDepthZ(p.w);\n\to.pos = p;";
 	if (s.split(vsA).length !== 2) throw new Error(`fragDepth(${label}): vs anchor missing/ambiguous`);
 	s = s.replace(vsA, "\tp.z = logDepthZ(p.w);\n\to.pos = p; o.cw = p.w;");
-	s = s.replace(m[0], `fn fsColor(in: ${out}) -> vec4f {`);
+	const ff = !!m[2];
+	s = s.replace(m[0], `fn fsColor(in: ${out}${ff ? ", ff: bool" : ""}) -> vec4f {`);
 	return s + `
 struct ${out}Frag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
-@fragment fn fs(in: ${out}) -> ${out}Frag {   // 色は元の fs（fsColor）・深度は画素ごとに対数深度（#62）
+@fragment fn fs(in: ${out}${ff ? ", @builtin(front_facing) ff: bool" : ""}) -> ${out}Frag {   // 色は元の fs（fsColor）・深度は画素ごとに対数深度（#62）
 	var o: ${out}Frag;
-	o.c = fsColor(in);
+	o.c = fsColor(in${ff ? ", ff" : ""});
 	o.d = fragDepthOf(in.cw);
 	return o;
 }

@@ -265,6 +265,18 @@ void main() {
 	fragColor = vec4(c, 1.0);
 }`;
 
+// a glTF line's ribbon (globe meshdecode linePrimAsRibbons, 2026-10-31): the normal is the line's direction and the 4th byte −(2·w + side), w = width
+// in quarter CSS px. The vertex moves across the line's direction on screen by half the width (Cesium draws lines this many pixels wide whatever
+// the distance). gpu/wgsl.ts MESH_WGSL has the same
+const LINE_RIBBON = `if (a_ol < -0.004) {
+		float lb = floor(-a_ol * 127.0 + 0.5), hp = floor(lb * 0.5) * 0.125 * max(u_lineDpr, 1.0);
+		vec4 dc = u_mvp * vec4(v_n, 0.0);
+		vec2 sd = (dc.xy * gl_Position.w - gl_Position.xy * dc.w) * u_viewport;
+		if (dot(sd, sd) < 1e-30) sd = vec2(1.0, 0.0);
+		gl_Position.xy += normalize(vec2(-sd.y, sd.x)) * (mod(lb, 2.0) * 2.0 - 1.0) * hp * 2.0 / u_viewport * gl_Position.w;
+		v_ol = vec3(0.0);
+		v_n = v_toEye;   // a ribbon faces the eye (the FS's back-face test and light read v_n; lines are unlit in Cesium)
+	}`;
 // 建物メッシュ（LOD2 等）（任意三角形）。頂点は ortho 単位球座標へ変換済み。
 // 面法線は FS で dFdx/dFdy から算出＝CPU法線/un-index 不要のフラット陰影。裏半球カリング＋深度で前後解決。
 export const MESH_VS = `#version 300 es
@@ -278,8 +290,9 @@ uniform float u_xfOn;        // バッチの剛体変換（glTF の rigid アニ
 uniform mat3 u_xfL;
 uniform vec3 u_xfT;
 uniform vec3 u_eyeRel;       // u_eye − u_meshOrigin（CPU double）＝視線ベクトルを原点相対で組む（下の v_toEye）
-in float a_ol;      // CESIUM_primitive_outline: the normal's 4th byte = 3 bits, which outline coordinates are 1 at this vertex (unset = 0 = none)
+in float a_ol;      // CESIUM_primitive_outline: the normal's 4th byte = 3 bits, which outline coordinates are 1 at this vertex (unset = 0 = none); negative = a glTF line's ribbon (below)
 out vec3 v_ol;
+uniform float u_lineDpr;   // device px per CSS px (the ribbons' widths are CSS px)
 ${PROJECT}
 // Cesium の霧（csatmo.ts csFogV・頂点で色と量）：u_csFogD＝濃さ（0＝なし）・u_csFogL＝xyz 光へ向く単位ベクトル・w 照明あり 1／なし −1
 uniform float u_csFogD;
@@ -320,6 +333,7 @@ void main() {
 	float inY = smoothstep(0.0, 0.05, min(lat - u_liftBounds.y, u_liftBounds.y + u_liftBounds.w - lat));
 	float h = elev(vec2(lon, lat)) * u_elevScale * inX * inY;
 	gl_Position = u_clipMesh + u_mvp * vec4(ap + h * liftDir(vec2(lon, lat), dir), 0.0);   // 楕円体＝測地法線で接地リフト
+	${LINE_RIBBON}
 	applyLogDepth();
 }`;
 
@@ -461,6 +475,7 @@ void main() {
 	// 採決＝巻き順非依存・面単位で一定。退化面（微分ゼロ）だけ旧判定へフォールバック。
 	float g2 = dot(gn, gn);
 	float fe = g2 > 1e-18 ? dot(normalize(gn * sign(dot(gn, n))), normalize(v_toEye)) : dot(n, normalize(v_toEye));
+	if (u_cullBack > 1.5) fe = gl_FrontFacing ? max(abs(fe), 1e-3) : -1.0;   // 2＝Cesium の表裏（glTF・doubleSided でない材質）：巻き順で裏を捨て、法線は書かれたまま（反転しない）。glTF の表（反時計回り）＝gl_FrontFacing（世界軸の鏡像は投影の行列が戻す・砂場で確認）
 	if (u_cullBack > 0.5 && fe < -0.02) discard;
 	if (fe < 0.0) n = -n;                                         // 両面時は法線を視線側へ＝裏から見ても陰影が成立
 	vec3 L = normalize(vec3(-0.35, 0.85, 0.30));                  // 斜め上の光＝屋根が立つ
@@ -638,16 +653,22 @@ uniform sampler2D u_gnd1;
 uniform sampler2D u_gnd2;
 uniform sampler2D u_gnd3;
 uniform float u_gndN;   // 有効な窓の数（0..4・細かい順＝前景/近/中/遠）
+uniform float u_gndSplit;   // 分割（Cesium の ImageryLayer.splitDirection）の画面 x（device px）｜負＝分割なし。窓は左右の半分に焼いてある
 float gndEdge(vec2 uv) {   // 窓内 1・縁 4% で 0 へ・外 0
 	vec2 d = min(uv, 1.0 - uv);
 	return clamp(min(d.x, d.y) / 0.04, 0.0, 1.0);
 }
+vec2 gndUV(vec2 uv) {   // 窓 uv → テクスチャ uv（分割時は画面の x で左右の半分を選ぶ。半分の縁は数 texel 内へ寄せる＝隣の半分が滲まない）
+	uv = clamp(uv, 0.0, 1.0);
+	if (u_gndSplit >= 0.0) uv.x = clamp(uv.x * 0.5, 0.002, 0.498) + (gl_FragCoord.x >= u_gndSplit ? 0.5 : 0.0);
+	return uv;
+}
 vec3 gndMix(vec3 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
 	if (u_gndN < 0.5) return col;
-	vec4 c0 = texture(u_gnd0, clamp(uv0, 0.0, 1.0));
-	vec4 c1 = texture(u_gnd1, clamp(uv1, 0.0, 1.0));
-	vec4 c2 = texture(u_gnd2, clamp(uv2, 0.0, 1.0));
-	vec4 c3 = texture(u_gnd3, clamp(uv3, 0.0, 1.0));
+	vec4 c0 = texture(u_gnd0, gndUV(uv0));
+	vec4 c1 = texture(u_gnd1, gndUV(uv1));
+	vec4 c2 = texture(u_gnd2, gndUV(uv2));
+	vec4 c3 = texture(u_gnd3, gndUV(uv3));
 	// 窓の縁 4% はひとつ外の窓へクロスフェード＝解像度の段差を溶かす（w=1 で内側・0 で外側。前乗算同士の線形補間）
 	float w0 = gndEdge(uv0), w1 = u_gndN > 1.5 ? gndEdge(uv1) : 0.0, w2 = u_gndN > 2.5 ? gndEdge(uv2) : 0.0, w3 = u_gndN > 3.5 ? gndEdge(uv3) : 0.0;
 	vec4 c = mix(mix(mix(mix(vec4(0.0), c3, w3), c2, w2), c1, w1), c0, w0);
@@ -656,10 +677,10 @@ vec3 gndMix(vec3 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
 // 前乗算の床（rgb·a, a）の上にアトラスを over（B5＝background 層の無い MapLibre の地図は床が透明＝塗りだけが残る。a=1 なら gndMix と同じ値）
 vec4 gndOver(vec4 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
 	if (u_gndN < 0.5) return col;
-	vec4 c0 = texture(u_gnd0, clamp(uv0, 0.0, 1.0));
-	vec4 c1 = texture(u_gnd1, clamp(uv1, 0.0, 1.0));
-	vec4 c2 = texture(u_gnd2, clamp(uv2, 0.0, 1.0));
-	vec4 c3 = texture(u_gnd3, clamp(uv3, 0.0, 1.0));
+	vec4 c0 = texture(u_gnd0, gndUV(uv0));
+	vec4 c1 = texture(u_gnd1, gndUV(uv1));
+	vec4 c2 = texture(u_gnd2, gndUV(uv2));
+	vec4 c3 = texture(u_gnd3, gndUV(uv3));
 	float w0 = gndEdge(uv0), w1 = u_gndN > 1.5 ? gndEdge(uv1) : 0.0, w2 = u_gndN > 2.5 ? gndEdge(uv2) : 0.0, w3 = u_gndN > 3.5 ? gndEdge(uv3) : 0.0;
 	vec4 c = mix(mix(mix(mix(vec4(0.0), c3, w3), c2, w2), c1, w1), c0, w0);
 	return col * (1.0 - c.a) + c;
