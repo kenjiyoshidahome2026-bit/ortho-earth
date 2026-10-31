@@ -62,3 +62,7 @@ Each of these is reported once in the console as `[lfshim] unsupported: …` (ne
 `map.getMapLibre()` returns the MapLibre map underneath for anything else.
 
 Tests: `npm test -w @ortho-earth/leaflet` (node, with a fake `maplibregl`: values, `L.Class`, events, options and camera, `fitBounds`, tile / WMS sources and their order, the shared path source, GeoJSON, where a click goes, popups, tooltips, markers and drag, the layers control, the unsupported report) and, in `packages/globe`, `npm run verify:ui -- t-leaflet` (on the real globe: zoom shift, a `GridLayer` drawn through the protocol, paths drawn and hit by `queryRenderedFeatures`, a path click reaches the path then the map, a marker click opens its popup and does not reach the map, tooltips, GeoJSON styled by function, controls in their corners).
+
+## Release notes
+
+- 0.1.0 (2026-10-31): first release, part of Ortho Earth 2.2. [Release article](https://www.ortho-earth.com/docs/release-2-2) ([日本語](https://www.ortho-earth.com/docs/release-2-2-jp)) · [From Leaflet](https://www.ortho-earth.com/docs/from-leaflet). All releases: [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md) · [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases)
