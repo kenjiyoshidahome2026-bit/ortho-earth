@@ -10,7 +10,7 @@ import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
+import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, liftedBboxVisible, worldRadiusM, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
 import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
 import type { DrapeIn, DrapeMap } from "../drape.ts";
 import { viewRays } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
@@ -2501,10 +2501,11 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
 			const vis: { p: MeshBatch; count: number }[] = [];   // 可視バッチ（カリング＋LOD 済み）＝描く順を並べ替えるため一度溜める
+			const liftGroundR = 1 + Math.max(0, cam.centerAlt || 0) / worldRadiusM();   // 注視点の地面の高さ（持ち上げる束の間引きの第 2 候補・camera.ts liftedBboxVisible）
 			for (const p of meshes.values()) {
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
-				if (!bboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2])) continue;   // 重心の高さで射影（camera.ts bboxVisible）
+				if (!liftedBboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2], p.noLift ? 0 : liftGroundR)) continue;   // 重心の高さで射影（camera.ts bboxVisible）・持ち上げる束は注視点の地面の高さでも（liftedBboxVisible・2026-10-31）
 				let count = p.count;
 				// LOD打ち切りは建物のみ。橋梁（two＝両面）は「高さ3〜5m×長さ数百m」＝高さ基準だと小物と誤判定され
 				// 桁が距離で歯抜けになる（横浜ベイブリッジで実測）ため適用しない。橋梁データは軽い＝全描画で問題ない。
