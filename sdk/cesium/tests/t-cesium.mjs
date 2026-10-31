@@ -24,7 +24,7 @@ import { Color, Material, HeightReference } from "@cesium/engine";
 import { CustomShader, UniformType, LightingModel, CustomShaderTranslucencyMode, TextureUniform } from "@cesium/engine";
 import { customShaderId } from "../src/custom-shader.ts";
 import { terrainSourceOf } from "../src/terrain.ts";
-import { groundHeights } from "../src/display.ts";
+import { groundHeights, ellipsePts } from "../src/display.ts";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
@@ -571,6 +571,14 @@ for (const g of [
 	ok("ground heights: clamped height = the centre's ground, absolute extrusion", near(c.top, 1965) && near(c.base, 0), JSON.stringify(c));
 	const d = groundHeights(30, undefined, R, N, gh);
 	ok("ground heights: no extrusion = a 1 m slab at 30 m over the ground", near(d.base, 1994.5) && near(d.top, 1995.5), JSON.stringify(d));
+}
+
+// ellipse outlines as Cesium's EllipseGeometryLibrary lays them: rotation 0 = semi-major east-west, rotation turns it counter-clockwise
+{
+	const far = pts => pts.reduce((m, p) => Math.hypot(p[0], p[1]) > Math.hypot(m[0], m[1]) ? p : m);
+	const e0 = far(ellipsePts(400, 250, 0)), e45 = far(ellipsePts(400, 250, Math.PI / 4));
+	ok("ellipse: rotation 0 = major along east", near(Math.abs(e0[0]), 400, 1e-6) && near(e0[1], 0, 1e-6), JSON.stringify(e0));
+	ok("ellipse: rotation 45° = major to the north-east", near(Math.abs(Math.atan2(e45[1], e45[0])) % Math.PI, Math.PI / 4, 0.1), JSON.stringify(e45));
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");

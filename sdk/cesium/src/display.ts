@@ -132,10 +132,12 @@ function enuRing(center: Cartesian3, pts: Array<[number, number]>, h: number): n
 	void c; void h;
 	return out;
 }
-const ellipsePts = (a: number, b: number, rot: number, n = 64): Array<[number, number]> => {
+/** an ellipse's outline in local east/north metres: a = semi-major along east, b = semi-minor along north, then rot counter-clockwise (Cesium's
+ *  EllipseGeometryLibrary: rotation 0 lays the major axis east-west; before 2026-10-31 it was north-south and every surface ellipse stood upright) */
+export const ellipsePts = (a: number, b: number, rot: number, n = 64): Array<[number, number]> => {
 	const out: Array<[number, number]> = [];
 	for (let i = 0; i < n; i++) {
-		const t = (i / n) * 2 * Math.PI, x = b * Math.cos(t), y = a * Math.sin(t);   // semi-major along north before rotation
+		const t = (i / n) * 2 * Math.PI, x = a * Math.cos(t), y = b * Math.sin(t);   // semi-major along east before rotation
 		out.push([x * Math.cos(rot) - y * Math.sin(rot), x * Math.sin(rot) + y * Math.cos(rot)]);
 	}
 	return out;
@@ -690,7 +692,7 @@ export class EntityDisplay {
 				const c = common(es), K = 10;   // a stack of discs
 				for (let i = 0; i < K; i++) {
 					const z0 = -rad.z + (2 * rad.z * i) / K, z1 = z0 + (2 * rad.z) / K, zm = (z0 + z1) / 2, k = Math.sqrt(Math.max(0, 1 - (zm / rad.z) ** 2));
-					addShape([enuRing(ecef(ll[0], ll[1], 0), ellipsePts(rad.y * k, rad.x * k, 0, 40), 0)], { ...c, outline: false, base: ll[2] + z0, top: ll[2] + z1 });
+					addShape([enuRing(ecef(ll[0], ll[1], 0), ellipsePts(rad.x * k, rad.y * k, 0, 40), 0)], { ...c, outline: false, base: ll[2] + z0, top: ll[2] + z1 });
 				}
 			}
 		}
