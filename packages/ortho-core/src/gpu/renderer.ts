@@ -202,10 +202,10 @@ interface RasterTexH { kind: "tex"; tex: GPUTexture; bg: GPUBindGroup; bgN: GPUB
 interface RasterMeshH { kind: "mesh"; bPos: GPUBuffer; bUv: GPUBuffer; bIdx: GPUBuffer; count: number; bufs: GPUBuffer[]; bytes: number }
 interface RasterDraw { bounds: number[]; nw: number[]; uvT: number[]; a?: number; tex: RasterTexH; mesh: RasterMeshH }
 /** setRasterDraws の入力（raster.js） */
-export interface RasterDraws { rev: number; hideFills?: boolean; layers: { order: string; opacity: number; resampling?: string; draws: RasterDraw[] }[] }
+export interface RasterDraws { rev: number; hideFills?: boolean; layers: { order: string; opacity: number; resampling?: string; split?: number; draws: RasterDraw[] }[] }
 interface GndWin { tex: GPUTexture; view: GPUTextureView; view0: GPUTextureView; size: number; levels: number; win: number[]; bytes: number }
 /** 地面アトラスの窓 1 枚へ gint の面を焼くフック（gint の bakeFaces） */
-export type GroundHook = (cam: CameraPose, target: { enc: GPUCommandEncoder; view: GPUTextureView; size: number; win: number[]; index: number }) => number;
+export type GroundHook = (cam: CameraPose, target: { enc: GPUCommandEncoder; view: GPUTextureView; size: number; win: number[]; index: number; vp?: number[] }) => number;   // vp＝[x, w]：分割時の半分（viewport）
 interface GroundJob { wins: number[][]; rasterOn: boolean; wantFills: boolean; seaOff: boolean; baseA: number; cam: CameraPose; hook: GroundHook | null | false; userIn: boolean; baseSlots: string[] }
 // lxk＝層の画面効果の鍵（null＝無い＝役割の DrawP をそのまま）。fill：fx（translate）・pat（模様）。line：cj（端と継ぎ）・dash（破線）・fx（translate・ぼかし）＝S-P1-1/3/4/5（2026-10-22・WebGPU 版）
 interface FillDraw { kind: "fill"; li: number; bufs: GPUBuffer[]; bPos: GPUBuffer; bCol: GPUBuffer; bIdx: GPUBuffer | null; count: number; fx: number[] | null; pat: string | null; lxk: string | null }
@@ -1671,7 +1671,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	let bg0: Record<string, GPUBindGroup> = null!;   // group(0) の5スロット bind group（elevTex/farTex 差し替えで作り直し）
 	let bg0Atl: Record<string, GPUBindGroup> = null!;   // 地面アトラス合成パス用（アトラス自身を dummy にした bg0）
 	// 地面アトラスの状態（rebuildBG0 が bind group に張る＝先に宣言・TDZ 回避）：w[i]＝{ tex, view, size, levels, win:[W,S,spanLon,spanLat], bytes }
-	const gnd: { w: (GndWin | null)[]; n: number; key: string; tiles: number; bytes: number; rasterOn: boolean; fillsIn: boolean; faces: number } = { w: [null, null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // 段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
+	const gnd: { split: boolean; w: (GndWin | null)[]; n: number; key: string; tiles: number; bytes: number; rasterOn: boolean; fillsIn: boolean; faces: number } = { split: false, w: [null, null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // 段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
 	const gndPBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // GndP/GGndP：w0..w3,p
 	const rasSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });   // CLAMP＝隣接タイルの滲み防止
 	const rasSamplerN = device.createSampler({ magFilter: "nearest", minFilter: "nearest", mipmapFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });   // raster-resampling:"nearest"（C4）＝拡大は最近傍・縮小は最近傍の mip
@@ -2053,6 +2053,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const f = new Float32Array(20);
 		for (let i = 0; i < 4; i++) { const a = i < gnd.n ? gnd.w[i] : null; f[i * 4] = a ? a.win[0] : 0; f[i * 4 + 1] = a ? a.win[1] : 0; f[i * 4 + 2] = a ? a.win[2] : 1; f[i * 4 + 3] = a ? a.win[3] : 1; }
 		f[16] = gnd.n;
+		f[17] = gnd.n && gnd.split ? splitPos * canvas.width : -1;   // 分割（Cesium の ImageryLayer.splitDirection）の画面 x（device px）｜-1＝なし＝窓は左右の半分に焼いてある
 		device.queue.writeBuffer(gndPBuf, 0, f);
 	}
 	function gndAlloc(size: number): GndWin {
@@ -2073,13 +2074,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const wantFills = fillsIn && !(rasterOn && rasterDraws!.hideFills);
 		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
 		const hook = fillsIn && groundHook;   // gint の面（3D＝地面アトラス側）
-		if (!rasterOn && !wantFills && !hook) { if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } gndWins = null; return null; }
+		if (!rasterOn && !wantFills && !hook) { gnd.split = false; if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } gndWins = null; return null; }
+		gnd.split = rasterOn && rasterDraws!.layers.some(l => l.split);   // 左右に分けて焼く層がある（rev の署名に split が入る＝変われば焼き直し）
 		const wins = groundWindows(cam, canvas.width, canvas.height, far.has ? far.maxElev || 0 : 0);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（gl/renderer.js と同じ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
 		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws!.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
-		if (key === gnd.key) return null;
+		if (key === gnd.key) { if (gnd.split) writeGndP(); return null; }   // 分割の位置（scene.splitPosition）・画面の幅は鍵に入らない＝分割中は毎フレーム書く（80 B）
 		let rebuilt = false;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = groundSizes(wins, N);   // 前景・近は N（ground.ts）
 		for (let i = 0; i < wins.length; i++) {
@@ -2112,10 +2114,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// per-draw uniform：ラスタタイル（rasBuf）と塗り（atlBuf：窓×スロット×ゲート）を先に全部書く（writeBuffer は submit より先に着地）
 		let n = 0, m = 0;
-		const jobs: { a: GndWin; tiles: { d: RasterDraw; slot: number; order: string; nearest: boolean }[]; fills: AtlasFill[]; index: number }[] = [];
+		const jobs: { a: GndWin; tiles: { d: RasterDraw; slot: number; order: string; nearest: boolean; split: number }[]; fills: AtlasFill[]; index: number }[] = [];
 		for (let i = 0; i < wins.length; i++) {
 			const a = gnd.w[i]!, bb = wins[i];
-			const tiles: { d: RasterDraw; slot: number; order: string; nearest: boolean }[] = [];
+			const tiles: { d: RasterDraw; slot: number; order: string; nearest: boolean; split: number }[] = [];
 			if (rasterOn) for (const order of ["under", "over"]) for (const L of rasterDraws!.layers) {
 				if (L.order !== order) continue;
 				for (const d of L.draws) {
@@ -2126,7 +2128,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					rasCPU[o] = d.nw[0] - a.win[0]; rasCPU[o + 1] = d.nw[1] - a.win[1]; rasCPU[o + 2] = 1 / a.win[2]; rasCPU[o + 3] = 1 / a.win[3];
 					rasCPU[o + 4] = d.uvT[0]; rasCPU[o + 5] = d.uvT[1]; rasCPU[o + 6] = d.uvT[2]; rasCPU[o + 7] = d.uvT[3];
 					rasCPU[o + 8] = L.opacity * (d.a ?? 1); rasCPU[o + 9] = 0; rasCPU[o + 10] = 0; rasCPU[o + 11] = 0;   // a＝到着フェード（raster-fade-duration）
-					tiles.push({ d, slot: n, order, nearest: L.resampling === "nearest" }); n++; gnd.tiles++;
+					tiles.push({ d, slot: n, order, nearest: L.resampling === "nearest", split: L.split || 0 }); n++; gnd.tiles++;
 				}
 			}
 			const fills: AtlasFill[] = [], atOf: Record<string, number[]> = {};   // atOf[slot][gate]＝その窓の uniform の置き場（範囲で分けても同じ置き場を使う）
@@ -2159,56 +2161,62 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const enc = device.createCommandEncoder();
 		for (const { a, tiles, fills, index } of jobs) {
 			let pass = enc.beginRenderPass({ colorAttachments: [{ view: a.view0, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
-			const drawTiles = (order: string) => {
-				let any = false;
-				for (const t of tiles) {
-					if (t.order !== order) continue;
-					if (!any) { pass.setPipeline(rasAtlasPipe!); any = true; }
-					pass.setBindGroup(0, rasBG, [t.slot * RAS_SLOT]); pass.setBindGroup(1, t.d.tex.bgOf ? t.d.tex.bgOf(t.nearest) : t.d.tex.bg);
-					pass.setVertexBuffer(0, t.d.mesh.bPos); pass.setVertexBuffer(1, t.d.mesh.bUv);
-					pass.setIndexBuffer(t.d.mesh.bIdx, "uint16"); pass.drawIndexed(t.d.mesh.count);
-				}
-			};
-			drawTiles("under");
-			if (fills.length) {
-				pass.setPipeline(atlasFillPipe);
-				pass.setBindGroup(1, paramBG[ROLE.normal]);
-				for (const { slot, gate, at, user, lo = -Infinity, hi = Infinity, pick = null } of fills) {
-					const scene = scenes[slot];
-					pass.setBindGroup(0, bg0Atl[slot]);   // アトラス自身を読まない版（同期スコープの衝突回避）
-					pass.setBindGroup(2, atlBG, [at * RAS_SLOT]);
-					if (scene.md) {   // md シーン＝プールのレンジ列をタイルごとに（ゲートは classic と同一）
-						pass.setPipeline(atlasFillPipeMD!);
-						pass.setVertexBuffer(0, md!.fillV.buf!); pass.setIndexBuffer(md!.fillI.buf!, "uint32");
-						for (const e of scene.md.layers) {
-							if (e.kind !== "fill" || !(pick ? pick(e) : e.li >= lo && e.li < hi) || e.pat) continue;   // 模様の塗り（S-P1-4/5）は 3D の地面アトラスには焼かない（ATLAS_FILL_WGSL は模様を読まない＝残る差・GL2 は焼く）
-							const seaFB = seaFbReal(e.li) != null, waterC = e.li === sea.li || e.li === sea.li2;
-							if ((seaFB ? 1 : 0) !== gate) continue;
-							if (!user && (seaFB || waterC) && seaOff) continue;
-							if (bldFill.li >= 0 && e.li === bldFill.li) continue;
-							pass.setVertexBuffer(1, scene.md.orgBuf, e.orgOff);
-							for (let j = 0; j < e.counts.length; j++) pass.drawIndexed(e.counts[j], 1, e.offsets![j] >> 2, 0, j);
+			// 分割（Cesium の ImageryLayer.splitDirection）＝窓を左右の半分へ 2 度焼く（gl/renderer.ts と同じ）。FS は画面の x で半分を選ぶ
+			for (const side of gnd.split ? [-1, 1] : [0]) {
+				const vx = side > 0 ? a.size >> 1 : 0, vw = side ? a.size >> 1 : a.size;
+				pass.setViewport(vx, 0, vw, a.size, 0, 1);
+				const drawTiles = (order: string) => {
+					let any = false;
+					for (const t of tiles) {
+						if (t.order !== order || (side && t.split && t.split !== side)) continue;
+						if (!any) { pass.setPipeline(rasAtlasPipe!); any = true; }
+						pass.setBindGroup(0, rasBG, [t.slot * RAS_SLOT]); pass.setBindGroup(1, t.d.tex.bgOf ? t.d.tex.bgOf(t.nearest) : t.d.tex.bg);
+						pass.setVertexBuffer(0, t.d.mesh.bPos); pass.setVertexBuffer(1, t.d.mesh.bUv);
+						pass.setIndexBuffer(t.d.mesh.bIdx, "uint16"); pass.drawIndexed(t.d.mesh.count);
+					}
+				};
+				drawTiles("under");
+				if (fills.length) {
+					pass.setPipeline(atlasFillPipe);
+					pass.setBindGroup(1, paramBG[ROLE.normal]);
+					for (const { slot, gate, at, user, lo = -Infinity, hi = Infinity, pick = null } of fills) {
+						const scene = scenes[slot];
+						pass.setBindGroup(0, bg0Atl[slot]);   // アトラス自身を読まない版（同期スコープの衝突回避）
+						pass.setBindGroup(2, atlBG, [at * RAS_SLOT]);
+						if (scene.md) {   // md シーン＝プールのレンジ列をタイルごとに（ゲートは classic と同一）
+							pass.setPipeline(atlasFillPipeMD!);
+							pass.setVertexBuffer(0, md!.fillV.buf!); pass.setIndexBuffer(md!.fillI.buf!, "uint32");
+							for (const e of scene.md.layers) {
+								if (e.kind !== "fill" || !(pick ? pick(e) : e.li >= lo && e.li < hi) || e.pat) continue;   // 模様の塗り（S-P1-4/5）は 3D の地面アトラスには焼かない（ATLAS_FILL_WGSL は模様を読まない＝残る差・GL2 は焼く）
+								const seaFB = seaFbReal(e.li) != null, waterC = e.li === sea.li || e.li === sea.li2;
+								if ((seaFB ? 1 : 0) !== gate) continue;
+								if (!user && (seaFB || waterC) && seaOff) continue;
+								if (bldFill.li >= 0 && e.li === bldFill.li) continue;
+								pass.setVertexBuffer(1, scene.md.orgBuf, e.orgOff);
+								for (let j = 0; j < e.counts.length; j++) pass.drawIndexed(e.counts[j], 1, e.offsets![j] >> 2, 0, j);
+							}
+							pass.setPipeline(atlasFillPipe);
+							continue;
 						}
-						pass.setPipeline(atlasFillPipe);
-						continue;
-					}
-					for (const d of scene.draws) {
-						if (d.kind !== "fill" || !(pick ? pick(d) : d.li >= lo && d.li < hi)) continue;   // 範囲・利用者の群（#123）
-						const seaFB = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
-						if ((seaFB ? 1 : 0) !== gate) continue;   // ゲート別に 2 周（uniform は dynamic offset＝ドロー毎の書換不要）
-						if (!user && (seaFB || waterC) && seaOff) continue;   // 海の点火ゲート（直描きと同じ）
-						if (bldFill.li >= 0 && d.li === bldFill.li) continue;   // 3D＝フットプリント塗りは伏せる
-						pass.setVertexBuffer(0, d.bPos); pass.setVertexBuffer(1, d.bCol);
-						if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); } else pass.draw(d.count);
+						for (const d of scene.draws) {
+							if (d.kind !== "fill" || !(pick ? pick(d) : d.li >= lo && d.li < hi)) continue;   // 範囲・利用者の群（#123）
+							const seaFB = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
+							if ((seaFB ? 1 : 0) !== gate) continue;   // ゲート別に 2 周（uniform は dynamic offset＝ドロー毎の書換不要）
+							if (!user && (seaFB || waterC) && seaOff) continue;   // 海の点火ゲート（直描きと同じ）
+							if (bldFill.li >= 0 && d.li === bldFill.li) continue;   // 3D＝フットプリント塗りは伏せる
+							pass.setVertexBuffer(0, d.bPos); pass.setVertexBuffer(1, d.bCol);
+							if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); } else pass.draw(d.count);
+						}
 					}
 				}
+				if (hook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）＝pass を切り、gint が自分の pass（stencil 付き）を同じエンコーダへ足す
+					pass.end();
+					try { gnd.faces += hook(cam, { enc, view: a.view0, size: a.size, win: a.win, index, ...(side ? { vp: [vx, vw] } : {}) }) | 0; } catch (e) { console.error("[gpu] ground hook", (e as Error)?.message); }
+					pass = enc.beginRenderPass({ colorAttachments: [{ view: a.view0, loadOp: "load", storeOp: "store" }] });
+					pass.setViewport(vx, 0, vw, a.size, 0, 1);
+				}
+				drawTiles("over");
 			}
-			if (hook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）＝pass を切り、gint が自分の pass（stencil 付き）を同じエンコーダへ足す
-				pass.end();
-				try { gnd.faces += hook(cam, { enc, view: a.view0, size: a.size, win: a.win, index }) | 0; } catch (e) { console.error("[gpu] ground hook", (e as Error)?.message); }
-				pass = enc.beginRenderPass({ colorAttachments: [{ view: a.view0, loadOp: "load", storeOp: "store" }] });
-			}
-			drawTiles("over");
 			pass.end();
 		}
 		device.queue.submit([enc.finish()]);
