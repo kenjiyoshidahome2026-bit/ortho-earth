@@ -75,6 +75,12 @@ for (const g of [
 	const focus = Cartesian3.fromDegrees(138.7, 35.3 + 500 / 111320, 1800);   // a tracked model on the ray before the plateau keeps the camera's distance to it
 	const f = globeCamOf(pose.position, pose.direction, pose.up, Cartesian3.add(pose.position, Cartesian3.multiplyByScalar(pose.direction, 400, new Cartesian3()), new Cartesian3()), () => 1500);
 	ok("a focus on the ray wins over the terrain", !!f && near(f.distance, 400, 1), JSON.stringify(f) + String(focus.x));
+	// ground under the ellipsoid (Cesium World Terrain's ellipsoid heights: San Francisco's shore at −30 m): the march goes on past the ellipsoid hit
+	// and the target is on that ground (2000 + 30 = 2030 m down the 60° ray: t = 4060 m), not 30 m above it on the ellipsoid (2026-10-31)
+	const low = globeCamOf(pose.position, pose.direction, pose.up, null, () => -30);
+	ok("target on ground 30 m under the ellipsoid", !!low && near(low.distance, 4060, 2) && near(low.height, -30, 0.5) && !low.pending, JSON.stringify(low));
+	const deep = globeCamOf(pose.position, pose.direction, pose.up, null, () => -450);   // the Dead Sea: t = (2000 + 450) / cos 60° = 4900 m
+	ok("target on ground 450 m under the ellipsoid", !!deep && near(deep.distance, 4900, 2) && near(deep.height, -450, 0.5), JSON.stringify(deep));
 }
 
 {   // I3S: the extent read from a scene layer's JSON (fullExtent, or store.extent), and the union over a service's layers
