@@ -1,0 +1,7774 @@
+{
+ "refLabel": "r7",
+ "orthoLabel": "o1023f",
+ "summary": {
+  "levels": {
+   "0 動かない": 0,
+   "1 動く": 11,
+   "2 同じ答え": 47,
+   "3 同じ絵": 79,
+   "分母の外": 2
+  },
+  "n": 137,
+  "plainN": 111,
+  "plain3": 62,
+  "pictureOnly": 80,
+  "pictureN": 122,
+  "text": {
+   "examples": 96,
+   "n": 2422,
+   "hit": 2066,
+   "ink": 2080,
+   "inkN": 2171,
+   "extra": 482,
+   "line": 723,
+   "lineHit": 444,
+   "linePlaced": 789,
+   "low": [
+    "display-buildings-in-3d",
+    "fill-extrusion-rounded-corners",
+    "fly-to-a-location-based-on-scroll-position",
+    "walk-around-a-map-in-first-person"
+   ]
+  }
+ },
+ "ranking": [
+  {
+   "blocker": "basemap looks different",
+   "n": 25,
+   "examples": [
+    "3d-terrain",
+    "add-3d-terrain-from-quantized-mesh-tiles",
+    "add-3d-tiles-using-threejs",
+    "add-a-custom-layer-with-tiles-to-a-globe",
+    "add-a-generated-icon-to-the-map",
+    "add-a-raster-tile-source",
+    "add-a-stretchable-image-to-the-map",
+    "add-an-icon-to-the-map",
+    "adding-3d-models-using-threejs-on-terrain",
+    "display-a-hybrid-satellite-map-with-terrain-elevation",
+    "display-a-popup-on-click",
+    "display-a-popup-on-hover",
+    "display-a-remote-svg-symbol",
+    "display-buildings-in-3d",
+    "display-line-that-crosses-180th-meridian",
+    "elevate-symbols-above-the-terrain",
+    "filter-symbols-by-text-input",
+    "filter-symbols-by-toggling-a-list",
+    "filter-within-a-layer",
+    "generate-and-add-a-missing-icon-to-the-map",
+    "level-of-detail-control",
+    "measure-distances",
+    "offset-the-vanishing-point-using-padding",
+    "render-world-copies",
+    "sky-fog-terrain"
+   ]
+  },
+  {
+   "blocker": "added layers look different",
+   "n": 15,
+   "examples": [
+    "add-a-geojson-line",
+    "add-a-pattern-to-a-polygon",
+    "add-a-stretchable-image-to-the-map",
+    "add-an-icon-to-the-map",
+    "change-the-case-of-labels",
+    "create-a-heatmap-layer",
+    "display-a-remote-svg-symbol",
+    "display-buildings-in-3d",
+    "draw-geojson-points",
+    "extrude-polygons-for-3d-indoor-mapping",
+    "filter-symbols-by-text-input",
+    "filter-symbols-by-toggling-a-list",
+    "select-features-with-boxzoomend-callback",
+    "variable-label-placement-with-offset",
+    "variable-label-placement"
+   ]
+  },
+  {
+   "blocker": "camera differs",
+   "n": 5,
+   "examples": [
+    "add-live-realtime-data",
+    "customize-the-map-transform-constrain",
+    "display-html-clusters-with-custom-properties",
+    "update-a-feature-in-realtime",
+    "walk-around-a-map-in-first-person"
+   ]
+  },
+  {
+   "blocker": "query: extra line hits",
+   "n": 4,
+   "examples": [
+    "animate-map-camera-around-a-point",
+    "fill-extrusion-rounded-corners",
+    "navigate-the-map-with-game-like-controls",
+    "walk-around-a-map-in-first-person"
+   ]
+  },
+  {
+   "blocker": "query: missed fill-extrusion hits",
+   "n": 4,
+   "examples": [
+    "animate-map-camera-around-a-point",
+    "fill-extrusion-rounded-corners",
+    "navigate-the-map-with-game-like-controls",
+    "set-center-point-above-ground"
+   ]
+  },
+  {
+   "blocker": "query: extra fill hits",
+   "n": 2,
+   "examples": [
+    "animate-map-camera-around-a-point",
+    "fill-extrusion-rounded-corners"
+   ]
+  },
+  {
+   "blocker": "query: extra fill-extrusion hits",
+   "n": 2,
+   "examples": [
+    "animate-map-camera-around-a-point",
+    "fill-extrusion-rounded-corners"
+   ]
+  },
+  {
+   "blocker": "query: missed fill hits",
+   "n": 2,
+   "examples": [
+    "animate-map-camera-around-a-point",
+    "fill-extrusion-rounded-corners"
+   ]
+  },
+  {
+   "blocker": "query: missed line hits",
+   "n": 2,
+   "examples": [
+    "animate-map-camera-around-a-point",
+    "fill-extrusion-rounded-corners"
+   ]
+  },
+  {
+   "blocker": "engine error: addLayer: Request failed",
+   "n": 1,
+   "examples": [
+    "add-a-cog-raster-source"
+   ]
+  },
+  {
+   "blocker": "markers differ",
+   "n": 1,
+   "examples": [
+    "display-html-clusters-with-custom-properties"
+   ]
+  },
+  {
+   "blocker": "query: extra circle hits",
+   "n": 1,
+   "examples": [
+    "create-a-heatmap-layer-on-a-globe-with-terrain-elevation"
+   ]
+  },
+  {
+   "blocker": "query: extra heatmap hits",
+   "n": 1,
+   "examples": [
+    "create-a-heatmap-layer-on-a-globe-with-terrain-elevation"
+   ]
+  },
+  {
+   "blocker": "query: missed heatmap hits",
+   "n": 1,
+   "examples": [
+    "create-a-heatmap-layer-on-a-globe-with-terrain-elevation"
+   ]
+  }
+ ],
+ "grades": [
+  {
+   "name": "3d-terrain",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 40/128"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 128,
+    "ok": 128,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-3d-terrain-from-quantized-mesh-tiles",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 31/141"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 141,
+    "ok": 141,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-3d-tiles-using-threejs",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 125/160"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "custom layer depth shared with the map (3d models are drawn above the map; pass url of a layer module to draw in the worker with depth)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 157,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 3,
+    "hit": 3,
+    "extra": 1,
+    "placedN": 4,
+    "ink": 3,
+    "inkN": 3,
+    "line": 5,
+    "lineHit": 3,
+    "linePlaced": 31,
+    "layers": {
+     "poi_r1": {
+      "n": 3,
+      "hit": 3
+     }
+    },
+    "lineLayers": {
+     "highway-name-major": {
+      "n": 1,
+      "ours": 0
+     },
+     "highway-name-minor": {
+      "n": 2,
+      "ours": 1
+     },
+     "road_oneway": {
+      "n": 2,
+      "ours": 30
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-3d-model-to-globe-using-threejs",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "custom layer depth shared with the map (3d models are drawn above the map; pass url of a layer module to draw in the worker with depth)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 104,
+    "ok": 101,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-3d-model-using-threejs",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "custom layer depth shared with the map (3d models are drawn above the map; pass url of a layer module to draw in the worker with depth)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 1,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {
+     "highway-name-minor": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-3d-model-with-babylonjs",
+   "level": null,
+   "refLevel": 0,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "custom layer depth shared with the map (3d models are drawn above the map; pass url of a layer module to draw in the worker with depth)"
+    ]
+   },
+   "refWhy": "reference capture invalid: real MapLibre draws nothing here: babylon issues 32 draw calls per frame but GL_INVALID_OPERATION (1282) follows and no pixel changes (materials/effects ready, matrices in view) — MapLibre×babylon interop in this rig; ours draws the two dishes"
+  },
+  {
+   "name": "add-a-3d-model-with-shadow-using-threejs",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "custom layer depth shared with the map (3d models are drawn above the map; pass url of a layer module to draw in the worker with depth)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 1,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {
+     "highway-name-minor": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-canvas-source",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (animated/animated)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 5,
+    "hit": 5,
+    "extra": 0,
+    "placedN": 5,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 5,
+      "hit": 5
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-cog-raster-source",
+   "level": 1,
+   "refLevel": 3,
+   "reasons": [
+    "engine errors: addLayer"
+   ],
+   "blockers": [
+    "engine error: addLayer: Request failed"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": false,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 157,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 69,
+    "hit": 55,
+    "extra": 16,
+    "placedN": 70,
+    "ink": 62,
+    "inkN": 69,
+    "line": 24,
+    "lineHit": 17,
+    "linePlaced": 32,
+    "layers": {
+     "place-city": {
+      "n": 1,
+      "hit": 1
+     },
+     "place-other": {
+      "n": 7,
+      "hit": 7
+     },
+     "poi-railway": {
+      "n": 1,
+      "hit": 1
+     },
+     "poi-level-1": {
+      "n": 59,
+      "hit": 46
+     },
+     "water-name-other": {
+      "n": 1,
+      "hit": 0
+     }
+    },
+    "lineLayers": {
+     "highway-shield": {
+      "n": 11,
+      "ours": 26
+     },
+     "highway-name-major": {
+      "n": 13,
+      "ours": 6
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-color-relief-layer",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash",
+     "option renderWorldCopies: false (the globe has no world copies)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-custom-layer-with-tiles-to-a-globe",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 96/156"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 156,
+    "ok": 156,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 70,
+    "hit": 63,
+    "extra": 2,
+    "placedN": 65,
+    "ink": 70,
+    "inkN": 70,
+    "line": 2,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 70,
+      "hit": 63
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 2,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-custom-style-layer",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 35,
+    "hit": 35,
+    "extra": 3,
+    "placedN": 38,
+    "ink": 35,
+    "inkN": 35,
+    "line": 1,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 35,
+      "hit": 35
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-default-marker",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-generated-icon-to-the-map",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 78/106"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 108,
+    "ok": 108,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "points": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-geojson-line",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 4/6"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 15,
+    "hit": 10,
+    "extra": 1,
+    "placedN": 11,
+    "ink": 15,
+    "inkN": 15,
+    "line": 18,
+    "lineHit": 11,
+    "linePlaced": 14,
+    "layers": {
+     "poi_transit": {
+      "n": 1,
+      "hit": 0
+     },
+     "poi_r1": {
+      "n": 13,
+      "hit": 9
+     },
+     "water_name_point_label": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 2,
+      "ours": 4
+     },
+     "highway-name-minor": {
+      "n": 9,
+      "ours": 10
+     },
+     "road_oneway": {
+      "n": 7,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-geojson-polygon",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-hillshade-layer",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash",
+     "option renderWorldCopies: false (the globe has no world copies)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-multidirectional-hillshade-layer",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash",
+     "option renderWorldCopies: false (the globe has no world copies)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-new-layer-below-labels",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 63,
+    "hit": 55,
+    "extra": 2,
+    "placedN": 57,
+    "ink": 57,
+    "inkN": 63,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_country_1": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_country_3": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 58,
+      "hit": 50
+     },
+     "water_name_point_label": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-pattern-to-a-polygon",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 2/12"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 96,
+    "ok": 96,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 5,
+    "lineHit": 5,
+    "linePlaced": 6,
+    "layers": {},
+    "lineLayers": {
+     "geolines-label": {
+      "n": 5,
+      "ours": 6
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-raster-tile-source",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 38/56"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true
+   },
+   "query": {
+    "n": 56,
+    "ok": 56,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-simple-custom-layer-on-a-globe",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 39,
+    "hit": 38,
+    "extra": 0,
+    "placedN": 38,
+    "ink": 39,
+    "inkN": 39,
+    "line": 1,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 39,
+      "hit": 38
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-stretchable-image-to-the-map",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 8/17",
+    "basemap 9/39"
+   ],
+   "blockers": [
+    "added layers look different",
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true
+   },
+   "query": {
+    "n": 56,
+    "ok": 56,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 5,
+    "hit": 5,
+    "extra": 0,
+    "placedN": 5,
+    "ink": 5,
+    "inkN": 5,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "original": {
+      "n": 1,
+      "hit": 1
+     },
+     "points": {
+      "n": 4,
+      "hit": 4
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-vector-tile-source",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 37,
+    "lineHit": 25,
+    "linePlaced": 71,
+    "layers": {
+     "label_other": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "contour-labels": {
+      "n": 11,
+      "ours": 54
+     },
+     "road_shield_us": {
+      "n": 3,
+      "ours": 6
+     },
+     "highway-name-major": {
+      "n": 23,
+      "ours": 11
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-a-video",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (moving/moving)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-a-wms-source",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-an-animated-icon-to-the-map",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (moving/moving)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 108,
+    "ok": 108,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "points": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-an-icon-to-the-map",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 2/4",
+    "basemap 77/104"
+   ],
+   "blockers": [
+    "added layers look different",
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 108,
+    "ok": 108,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "points": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-contour-lines",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 9,
+    "lineHit": 9,
+    "linePlaced": 26,
+    "layers": {},
+    "lineLayers": {
+     "contour-text": {
+      "n": 9,
+      "ours": 26
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-custom-icons-with-markers",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "add-live-realtime-data",
+   "level": 1,
+   "refLevel": 2,
+   "reasons": [
+    "camera (Δz 0.02 · Δc 1273720m)"
+   ],
+   "blockers": [
+    "camera differs"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": false
+   },
+   "query": {
+    "n": 160,
+    "ok": 147,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 6,
+    "hit": 5,
+    "extra": 6,
+    "placedN": 32,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "drone": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_country_2": {
+      "n": 5,
+      "hit": 4
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "add-multiple-geometries-from-one-geojson-source",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 1,
+    "placedN": 2,
+    "ink": 1,
+    "inkN": 1,
+    "line": 1,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_village": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "adding-3d-models-using-threejs-on-terrain",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 14/58"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "custom layer depth shared with the map (3d models are drawn above the map; pass url of a layer module to draw in the worker with depth)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 58,
+    "ok": 58,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "animate-a-line",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (animated/animated)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 68,
+    "ok": 68,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "animate-a-marker",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (animated/animated)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 81,
+    "hit": 51,
+    "extra": 1,
+    "placedN": 52,
+    "ink": 0,
+    "inkN": 0,
+    "line": 3,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 81,
+      "hit": 51
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "animate-a-point-along-a-route",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (animated/animated)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 65,
+    "hit": 55,
+    "extra": 20,
+    "placedN": 75,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "point": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_country_1": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_country_2": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_country_3": {
+      "n": 3,
+      "hit": 2
+     },
+     "label_city_capital": {
+      "n": 6,
+      "hit": 4
+     },
+     "label_city": {
+      "n": 48,
+      "hit": 43
+     },
+     "water_name_point_label": {
+      "n": 3,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "animate-a-point",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (animated/animated)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 81,
+    "hit": 51,
+    "extra": 1,
+    "placedN": 52,
+    "ink": 0,
+    "inkN": 0,
+    "line": 3,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 81,
+      "hit": 51
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "animate-a-series-of-images",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (animated/animated)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "animate-an-icon-on-the-gpu",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (moving/moving)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 108,
+    "ok": 108,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "points": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "animate-map-camera-around-a-point",
+   "level": 1,
+   "refLevel": 2,
+   "reasons": [
+    "query 128/158 · extra fill-extrusion,line,fill · missing fill-extrusion,line,fill"
+   ],
+   "blockers": [
+    "query: extra fill-extrusion hits",
+    "query: extra line hits",
+    "query: extra fill hits",
+    "query: missed fill-extrusion hits",
+    "query: missed line hits",
+    "query: missed fill hits"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": false,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 158,
+    "ok": 128,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "animate-symbol-to-follow-the-mouse",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 81,
+    "hit": 51,
+    "extra": 1,
+    "placedN": 52,
+    "ink": 80,
+    "inkN": 81,
+    "line": 3,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 81,
+      "hit": 51
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "attach-a-popup-to-a-marker-instance",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "center-the-map-on-a-clicked-symbol",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 3,
+    "hit": 3,
+    "extra": 0,
+    "placedN": 3,
+    "ink": 3,
+    "inkN": 3,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "symbols": {
+      "n": 3,
+      "hit": 3
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "change-a-layers-color-with-buttons",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 152,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 17,
+    "hit": 16,
+    "extra": 3,
+    "placedN": 18,
+    "ink": 15,
+    "inkN": 17,
+    "line": 20,
+    "lineHit": 17,
+    "linePlaced": 41,
+    "layers": {
+     "poi_transit": {
+      "n": 1,
+      "hit": 1
+     },
+     "poi_r1": {
+      "n": 15,
+      "hit": 14
+     },
+     "water_name_point_label": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "highway-shield-non-us": {
+      "n": 2,
+      "ours": 3
+     },
+     "highway-name-major": {
+      "n": 2,
+      "ours": 4
+     },
+     "highway-name-minor": {
+      "n": 9,
+      "ours": 7
+     },
+     "waterway_line_label": {
+      "n": 1,
+      "ours": 0
+     },
+     "road_oneway": {
+      "n": 6,
+      "ours": 27
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "change-a-maps-language",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 52,
+    "hit": 48,
+    "extra": 8,
+    "placedN": 56,
+    "ink": 50,
+    "inkN": 52,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_country_1": {
+      "n": 9,
+      "hit": 9
+     },
+     "label_country_2": {
+      "n": 21,
+      "hit": 20
+     },
+     "label_country_3": {
+      "n": 20,
+      "hit": 17
+     },
+     "water_name_point_label": {
+      "n": 2,
+      "hit": 2
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "change-building-color-based-on-zoom-level",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 11,
+    "hit": 11,
+    "extra": 1,
+    "placedN": 12,
+    "ink": 11,
+    "inkN": 11,
+    "line": 3,
+    "lineHit": 3,
+    "linePlaced": 4,
+    "layers": {
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_village": {
+      "n": 9,
+      "hit": 9
+     }
+    },
+    "lineLayers": {
+     "highway-shield-non-us": {
+      "n": 1,
+      "ours": 1
+     },
+     "highway-name-major": {
+      "n": 1,
+      "ours": 2
+     },
+     "waterway_line_label": {
+      "n": 1,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "change-the-case-of-labels",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 22/34"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 12,
+    "hit": 9,
+    "extra": 2,
+    "placedN": 11,
+    "ink": 9,
+    "inkN": 12,
+    "line": 4,
+    "lineHit": 4,
+    "linePlaced": 9,
+    "layers": {
+     "off-leash-areas": {
+      "n": 7,
+      "hit": 5
+     },
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_other": {
+      "n": 2,
+      "hit": 1
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 2,
+      "ours": 2
+     },
+     "highway-shield-us-interstate": {
+      "n": 2,
+      "ours": 7
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "change-the-default-position-for-attribution",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "AttributionControl (the map shows its own attribution)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 31,
+    "hit": 29,
+    "extra": 8,
+    "placedN": 37,
+    "ink": 31,
+    "inkN": 31,
+    "line": 3,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 31,
+      "hit": 29
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "check-if-webgl-is-supported",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 32,
+    "hit": 31,
+    "extra": 7,
+    "placedN": 38,
+    "ink": 32,
+    "inkN": 32,
+    "line": 3,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 32,
+      "hit": 31
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "cooperative-gestures",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 2,
+    "hit": 2,
+    "extra": 0,
+    "placedN": 2,
+    "ink": 2,
+    "inkN": 2,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 2,
+      "hit": 2
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "create-a-draggable-marker",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 81,
+    "hit": 51,
+    "extra": 1,
+    "placedN": 52,
+    "ink": 80,
+    "inkN": 81,
+    "line": 3,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 81,
+      "hit": 51
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "create-a-draggable-point",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 81,
+    "hit": 51,
+    "extra": 1,
+    "placedN": 52,
+    "ink": 80,
+    "inkN": 81,
+    "line": 3,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 81,
+      "hit": 51
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "create-a-gradient-dashed-line-using-an-expression",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 15,
+    "hit": 15,
+    "extra": 0,
+    "placedN": 15,
+    "ink": 15,
+    "inkN": 15,
+    "line": 14,
+    "lineHit": 11,
+    "linePlaced": 12,
+    "layers": {
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_other": {
+      "n": 12,
+      "hit": 12
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 8,
+      "ours": 5
+     },
+     "highway-shield-us-interstate": {
+      "n": 4,
+      "ours": 5
+     },
+     "waterway_line_label": {
+      "n": 2,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "create-a-gradient-line-using-an-expression",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 15,
+    "hit": 15,
+    "extra": 0,
+    "placedN": 15,
+    "ink": 15,
+    "inkN": 15,
+    "line": 14,
+    "lineHit": 11,
+    "linePlaced": 12,
+    "layers": {
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_other": {
+      "n": 12,
+      "hit": 12
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 8,
+      "ours": 5
+     },
+     "highway-shield-us-interstate": {
+      "n": 4,
+      "ours": 5
+     },
+     "waterway_line_label": {
+      "n": 2,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "create-a-heatmap-layer-on-a-globe-with-terrain-elevation",
+   "level": 1,
+   "refLevel": 3,
+   "reasons": [
+    "query 85/110 · extra heatmap,circle · missing heatmap"
+   ],
+   "blockers": [
+    "query: extra heatmap hits",
+    "query: extra circle hits",
+    "query: missed heatmap hits"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": false,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 110,
+    "ok": 85,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 28,
+    "hit": 25,
+    "extra": 17,
+    "placedN": 42,
+    "ink": 27,
+    "inkN": 28,
+    "line": 6,
+    "lineHit": 6,
+    "linePlaced": 11,
+    "layers": {
+     "label_city": {
+      "n": 17,
+      "hit": 14
+     },
+     "label_state": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_town": {
+      "n": 9,
+      "hit": 9
+     }
+    },
+    "lineLayers": {
+     "highway-shield-us-interstate": {
+      "n": 6,
+      "ours": 11
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "create-a-heatmap-layer",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 11/17"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 156,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 16,
+    "hit": 13,
+    "extra": 7,
+    "placedN": 20,
+    "ink": 15,
+    "inkN": 16,
+    "line": 2,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 16,
+      "hit": 13
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 2,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "create-a-hover-effect",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 157,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 20,
+    "hit": 17,
+    "extra": 7,
+    "placedN": 24,
+    "ink": 20,
+    "inkN": 20,
+    "line": 3,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 20,
+      "hit": 17
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "create-a-time-slider",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 78,
+    "ok": 78,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 10,
+    "placedN": 10,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "create-and-style-clusters",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 145,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 29,
+    "hit": 27,
+    "extra": 12,
+    "placedN": 39,
+    "ink": 29,
+    "inkN": 29,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 2,
+    "layers": {
+     "cluster-count": {
+      "n": 20,
+      "hit": 20
+     },
+     "countries-label": {
+      "n": 9,
+      "hit": 7
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "create-deckgl-layer-using-rest-api",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 51,
+    "hit": 49,
+    "extra": 15,
+    "placedN": 62,
+    "ink": 49,
+    "inkN": 51,
+    "line": 10,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 4,
+      "hit": 4
+     },
+     "label_town": {
+      "n": 43,
+      "hit": 41
+     },
+     "label_other": {
+      "n": 2,
+      "hit": 2
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "customize-camera-animations",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 13,
+    "hit": 10,
+    "extra": 6,
+    "placedN": 16,
+    "ink": 12,
+    "inkN": 13,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 2,
+    "layers": {
+     "center": {
+      "n": 1,
+      "hit": 1
+     },
+     "countries-label": {
+      "n": 12,
+      "hit": 9
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "customize-the-map-transform-constrain",
+   "level": 1,
+   "refLevel": 3,
+   "reasons": [
+    "camera (Δz 2.00 · Δc 0m)"
+   ],
+   "blockers": [
+    "camera differs"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option renderWorldCopies: false (the globe has no world copies)"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": false
+   },
+   "query": {
+    "n": 16,
+    "ok": 16,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "disable-map-rotation",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 3,
+    "hit": 3,
+    "extra": 2,
+    "placedN": 5,
+    "ink": 3,
+    "inkN": 3,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 3,
+      "hit": 3
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "disable-scroll-zoom",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 3,
+    "hit": 3,
+    "extra": 2,
+    "placedN": 5,
+    "ink": 3,
+    "inkN": 3,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 3,
+      "hit": 3
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-a-globe-with-a-fill-extrusion-layer",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not comparable (10/160 probes)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true
+   },
+   "query": {
+    "n": 10,
+    "ok": 10,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-a-globe-with-a-vector-map",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 88,
+    "ok": 88,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 56,
+    "hit": 49,
+    "extra": 3,
+    "placedN": 52,
+    "ink": 56,
+    "inkN": 56,
+    "line": 4,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 56,
+      "hit": 49
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 4,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-a-globe-with-an-atmosphere",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not comparable (12/160 probes)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 12,
+    "ok": 12,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-a-hybrid-satellite-map-with-terrain-elevation",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 60/128"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 128,
+    "ok": 128,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 29,
+    "hit": 26,
+    "extra": 16,
+    "placedN": 42,
+    "ink": 29,
+    "inkN": 29,
+    "line": 11,
+    "lineHit": 8,
+    "linePlaced": 11,
+    "layers": {
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 3,
+      "hit": 3
+     },
+     "label_village": {
+      "n": 8,
+      "hit": 5
+     },
+     "label_other": {
+      "n": 16,
+      "hit": 16
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "highway-shield-non-us": {
+      "n": 9,
+      "ours": 6
+     },
+     "waterway_line_label": {
+      "n": 2,
+      "ours": 5
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-a-map-with-mlt",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option maplibreLogo"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 96,
+    "ok": 96,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 5,
+    "lineHit": 5,
+    "linePlaced": 6,
+    "layers": {},
+    "lineLayers": {
+     "geolines-label": {
+      "n": 5,
+      "ours": 6
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-a-map",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option maplibreLogo"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 96,
+    "ok": 96,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 5,
+    "lineHit": 5,
+    "linePlaced": 6,
+    "layers": {},
+    "lineLayers": {
+     "geolines-label": {
+      "n": 5,
+      "ours": 6
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-a-non-interactive-map",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 27,
+    "hit": 26,
+    "extra": 27,
+    "placedN": 53,
+    "ink": 27,
+    "inkN": 27,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 2,
+    "layers": {
+     "countries-label": {
+      "n": 27,
+      "hit": 26
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-a-popup-on-click",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 120/157"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 47,
+    "hit": 43,
+    "extra": 1,
+    "placedN": 43,
+    "ink": 46,
+    "inkN": 47,
+    "line": 9,
+    "lineHit": 9,
+    "linePlaced": 17,
+    "layers": {
+     "places": {
+      "n": 8,
+      "hit": 8
+     },
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 7,
+      "hit": 6
+     },
+     "label_village": {
+      "n": 11,
+      "hit": 10
+     },
+     "label_other": {
+      "n": 18,
+      "hit": 16
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 7,
+      "ours": 10
+     },
+     "highway-shield-us-interstate": {
+      "n": 2,
+      "ours": 7
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-a-popup-on-hover",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 119/155"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 45,
+    "hit": 41,
+    "extra": 1,
+    "placedN": 41,
+    "ink": 44,
+    "inkN": 45,
+    "line": 9,
+    "lineHit": 9,
+    "linePlaced": 18,
+    "layers": {
+     "places": {
+      "n": 9,
+      "hit": 9
+     },
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 7,
+      "hit": 6
+     },
+     "label_village": {
+      "n": 11,
+      "hit": 10
+     },
+     "label_other": {
+      "n": 15,
+      "hit": 13
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 6,
+      "ours": 10
+     },
+     "highway-shield-us-interstate": {
+      "n": 3,
+      "ours": 8
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-a-popup",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 16,
+    "hit": 14,
+    "extra": 6,
+    "placedN": 20,
+    "ink": 16,
+    "inkN": 16,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 2,
+    "layers": {
+     "countries-label": {
+      "n": 16,
+      "hit": 14
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-a-remote-svg-symbol",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 56/80",
+    "basemap 0/16"
+   ],
+   "blockers": [
+    "added layers look different",
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option maplibreLogo"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 96,
+    "ok": 96,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 5,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "svg-symbol": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 5,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-a-satellite-map",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-and-style-rich-text-labels",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 61,
+    "hit": 54,
+    "extra": 14,
+    "placedN": 66,
+    "ink": 53,
+    "inkN": 61,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_country_1": {
+      "n": 3,
+      "hit": 3
+     },
+     "label_country_2": {
+      "n": 8,
+      "hit": 8
+     },
+     "label_country_3": {
+      "n": 14,
+      "hit": 11
+     },
+     "label_city_capital": {
+      "n": 10,
+      "hit": 9
+     },
+     "label_city": {
+      "n": 24,
+      "hit": 21
+     },
+     "water_name_point_label": {
+      "n": 2,
+      "hit": 2
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-buildings-in-3d",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 74/105",
+    "basemap 39/55"
+   ],
+   "blockers": [
+    "added layers look different",
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 137,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 18,
+    "hit": 10,
+    "extra": 8,
+    "placedN": 20,
+    "ink": 17,
+    "inkN": 18,
+    "line": 77,
+    "lineHit": 72,
+    "linePlaced": 95,
+    "layers": {
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_other": {
+      "n": 3,
+      "hit": 3
+     },
+     "poi_transit": {
+      "n": 10,
+      "hit": 4
+     },
+     "poi_r1": {
+      "n": 4,
+      "hit": 2
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 1,
+      "ours": 3
+     },
+     "highway-name-major": {
+      "n": 18,
+      "ours": 21
+     },
+     "highway-name-minor": {
+      "n": 24,
+      "ours": 19
+     },
+     "road_oneway": {
+      "n": 34,
+      "ours": 52
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-html-clusters-with-custom-properties",
+   "level": 1,
+   "refLevel": 3,
+   "reasons": [
+    "markers 13/6",
+    "camera (Δz 0.00 · Δc 1263992m)"
+   ],
+   "blockers": [
+    "markers differ",
+    "camera differs"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": false,
+    "popups": true,
+    "camera": false
+   },
+   "query": {
+    "n": 66,
+    "ok": 66,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-line-that-crosses-180th-meridian",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 47/66"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true
+   },
+   "query": {
+    "n": 66,
+    "ok": 64,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 2,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {
+     "route-two-label": {
+      "n": 1,
+      "ours": 0
+     },
+     "route-label": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "display-map-navigation-controls",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 32,
+    "hit": 31,
+    "extra": 7,
+    "placedN": 38,
+    "ink": 32,
+    "inkN": 32,
+    "line": 3,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 32,
+      "hit": 31
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 3,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "display-performance-metrics",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 96,
+    "ok": 96,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 5,
+    "lineHit": 5,
+    "linePlaced": 6,
+    "layers": {},
+    "lineLayers": {
+     "geolines-label": {
+      "n": 5,
+      "ours": 6
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "draw-a-circle",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "draw-geojson-points",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 2/4"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 96,
+    "ok": 96,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 5,
+    "hit": 3,
+    "extra": 1,
+    "placedN": 4,
+    "ink": 5,
+    "inkN": 5,
+    "line": 5,
+    "lineHit": 3,
+    "linePlaced": 3,
+    "layers": {
+     "conferences": {
+      "n": 5,
+      "hit": 3
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 5,
+      "ours": 3
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "draw-geometries-with-terra-draw",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 4,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_village": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 3,
+      "ours": 0
+     },
+     "highway-shield-non-us": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "draw-polygon-with-mapbox-gl-draw",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 4,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_village": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 3,
+      "ours": 0
+     },
+     "highway-shield-non-us": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "elevate-symbols-above-the-terrain",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 51/127"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 128,
+    "ok": 128,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 3,
+    "hit": 1,
+    "extra": 2,
+    "placedN": 3,
+    "ink": 0,
+    "inkN": 3,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "balloons": {
+      "n": 3,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "enter-a-360-photosphere",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "extrude-polygons-for-3d-indoor-mapping",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 0/15"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 157,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "fill-extrusion-rounded-corners",
+   "level": 1,
+   "refLevel": 3,
+   "reasons": [
+    "query 134/160 · extra fill-extrusion,fill,line · missing fill,fill-extrusion,line"
+   ],
+   "blockers": [
+    "query: extra fill-extrusion hits",
+    "query: extra fill hits",
+    "query: extra line hits",
+    "query: missed fill hits",
+    "query: missed fill-extrusion hits",
+    "query: missed line hits"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": false,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 134,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 18,
+    "hit": 10,
+    "extra": 8,
+    "placedN": 20,
+    "ink": 15,
+    "inkN": 18,
+    "line": 77,
+    "lineHit": 38,
+    "linePlaced": 43,
+    "layers": {
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_other": {
+      "n": 3,
+      "hit": 3
+     },
+     "poi_transit": {
+      "n": 10,
+      "hit": 4
+     },
+     "poi_r1": {
+      "n": 4,
+      "hit": 2
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 1,
+      "ours": 3
+     },
+     "highway-name-major": {
+      "n": 18,
+      "ours": 21
+     },
+     "highway-name-minor": {
+      "n": 24,
+      "ours": 19
+     },
+     "road_oneway": {
+      "n": 34,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "filter-layer-symbols-using-global-state",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 5,
+    "hit": 5,
+    "extra": 0,
+    "placedN": 5,
+    "ink": 0,
+    "inkN": 5,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "railways_and_lifts_labels": {
+      "n": 5,
+      "hit": 5
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "filter-symbols-by-text-input",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 2/5",
+    "basemap 120/155"
+   ],
+   "blockers": [
+    "added layers look different",
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 44,
+    "hit": 38,
+    "extra": 2,
+    "placedN": 39,
+    "ink": 41,
+    "inkN": 44,
+    "line": 10,
+    "lineHit": 10,
+    "linePlaced": 18,
+    "layers": {
+     "poi-music": {
+      "n": 3,
+      "hit": 2
+     },
+     "poi-bicycle": {
+      "n": 1,
+      "hit": 1
+     },
+     "poi-bar": {
+      "n": 1,
+      "hit": 1
+     },
+     "poi-theatre": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 7,
+      "hit": 6
+     },
+     "label_village": {
+      "n": 11,
+      "hit": 10
+     },
+     "label_other": {
+      "n": 16,
+      "hit": 13
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 7,
+      "ours": 10
+     },
+     "highway-shield-us-interstate": {
+      "n": 3,
+      "ours": 8
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "filter-symbols-by-toggling-a-list",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 0/3",
+    "basemap 118/157"
+   ],
+   "blockers": [
+    "added layers look different",
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 47,
+    "hit": 43,
+    "extra": 2,
+    "placedN": 44,
+    "ink": 41,
+    "inkN": 47,
+    "line": 10,
+    "lineHit": 10,
+    "linePlaced": 17,
+    "layers": {
+     "poi-music": {
+      "n": 3,
+      "hit": 3
+     },
+     "poi-bicycle": {
+      "n": 1,
+      "hit": 1
+     },
+     "poi-bar": {
+      "n": 1,
+      "hit": 1
+     },
+     "poi-theatre": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 7,
+      "hit": 6
+     },
+     "label_village": {
+      "n": 11,
+      "hit": 10
+     },
+     "label_other": {
+      "n": 19,
+      "hit": 17
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 7,
+      "ours": 10
+     },
+     "highway-shield-us-interstate": {
+      "n": 3,
+      "ours": 7
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "filter-within-a-layer",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 35/60"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true
+   },
+   "query": {
+    "n": 66,
+    "ok": 60,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "fit-a-map-to-a-bounding-box",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 46,
+    "hit": 46,
+    "extra": 22,
+    "placedN": 67,
+    "ink": 44,
+    "inkN": 46,
+    "line": 22,
+    "lineHit": 2,
+    "linePlaced": 11,
+    "layers": {
+     "label_city": {
+      "n": 4,
+      "hit": 4
+     },
+     "label_town": {
+      "n": 34,
+      "hit": 34
+     },
+     "label_village": {
+      "n": 8,
+      "hit": 8
+     }
+    },
+    "lineLayers": {
+     "highway-shield-us-interstate": {
+      "n": 2,
+      "ours": 11
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "fit-to-the-bounds-of-a-linestring",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 17,
+    "hit": 17,
+    "extra": 0,
+    "placedN": 16,
+    "ink": 17,
+    "inkN": 17,
+    "line": 12,
+    "lineHit": 9,
+    "linePlaced": 9,
+    "layers": {
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_other": {
+      "n": 14,
+      "hit": 14
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 6,
+      "ours": 4
+     },
+     "highway-shield-us-interstate": {
+      "n": 4,
+      "ours": 4
+     },
+     "waterway_line_label": {
+      "n": 2,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "fly-to-a-location-based-on-scroll-position",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 143,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 8,
+    "hit": 3,
+    "extra": 3,
+    "placedN": 5,
+    "ink": 5,
+    "inkN": 8,
+    "line": 29,
+    "lineHit": 28,
+    "linePlaced": 48,
+    "layers": {
+     "label_other": {
+      "n": 1,
+      "hit": 1
+     },
+     "poi_transit": {
+      "n": 5,
+      "hit": 2
+     },
+     "poi_r1": {
+      "n": 2,
+      "hit": 0
+     }
+    },
+    "lineLayers": {
+     "highway-shield-non-us": {
+      "n": 7,
+      "ours": 10
+     },
+     "highway-name-major": {
+      "n": 3,
+      "ours": 6
+     },
+     "highway-name-minor": {
+      "n": 12,
+      "ours": 16
+     },
+     "highway-name-path": {
+      "n": 1,
+      "ours": 0
+     },
+     "road_oneway": {
+      "n": 6,
+      "ours": 16
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "fly-to-a-location",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 46,
+    "hit": 46,
+    "extra": 22,
+    "placedN": 67,
+    "ink": 44,
+    "inkN": 46,
+    "line": 22,
+    "lineHit": 2,
+    "linePlaced": 11,
+    "layers": {
+     "label_city": {
+      "n": 4,
+      "hit": 4
+     },
+     "label_town": {
+      "n": 34,
+      "hit": 34
+     },
+     "label_village": {
+      "n": 8,
+      "hit": 8
+     }
+    },
+    "lineLayers": {
+     "highway-shield-us-interstate": {
+      "n": 2,
+      "ours": 11
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "generate-and-add-a-missing-icon-to-the-map",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 71/102"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 108,
+    "ok": 108,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 3,
+    "hit": 3,
+    "extra": 0,
+    "placedN": 3,
+    "ink": 3,
+    "inkN": 3,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "points": {
+      "n": 3,
+      "hit": 3
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "geocode-with-nominatim",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 153,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 12,
+    "hit": 9,
+    "extra": 1,
+    "placedN": 10,
+    "ink": 11,
+    "inkN": 12,
+    "line": 23,
+    "lineHit": 11,
+    "linePlaced": 21,
+    "layers": {
+     "poi_transit": {
+      "n": 3,
+      "hit": 2
+     },
+     "poi_r1": {
+      "n": 9,
+      "hit": 7
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 1,
+      "ours": 5
+     },
+     "highway-shield-non-us": {
+      "n": 1,
+      "ours": 1
+     },
+     "highway-name-major": {
+      "n": 3,
+      "ours": 4
+     },
+     "highway-name-minor": {
+      "n": 4,
+      "ours": 5
+     },
+     "highway-name-path": {
+      "n": 1,
+      "ours": 5
+     },
+     "road_oneway": {
+      "n": 13,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "get-coordinates-of-the-mouse-pointer",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 13,
+    "hit": 13,
+    "extra": 8,
+    "placedN": 21,
+    "ink": 13,
+    "inkN": 13,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 2,
+    "layers": {
+     "countries-label": {
+      "n": 13,
+      "hit": 13
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "get-features-under-the-mouse-pointer",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 64,
+    "hit": 54,
+    "extra": 20,
+    "placedN": 74,
+    "ink": 60,
+    "inkN": 64,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_country_1": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_country_2": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_country_3": {
+      "n": 3,
+      "hit": 2
+     },
+     "label_city_capital": {
+      "n": 6,
+      "hit": 4
+     },
+     "label_city": {
+      "n": 48,
+      "hit": 43
+     },
+     "water_name_point_label": {
+      "n": 3,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "hash-routing",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (animated/animated)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option maplibreLogo",
+     "option hash"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 96,
+    "ok": 96,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 5,
+    "lineHit": 5,
+    "linePlaced": 6,
+    "layers": {},
+    "lineLayers": {
+     "geolines-label": {
+      "n": 5,
+      "ours": 6
+     }
+    }
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "jump-to-a-series-of-locations",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 32,
+    "hit": 31,
+    "extra": 18,
+    "placedN": 49,
+    "ink": 32,
+    "inkN": 32,
+    "line": 13,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 7,
+      "hit": 7
+     },
+     "label_town": {
+      "n": 21,
+      "hit": 21
+     },
+     "label_village": {
+      "n": 3,
+      "hit": 2
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "level-of-detail-control",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 48/122"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 122,
+    "ok": 122,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "locale-switching",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 2,
+    "hit": 2,
+    "extra": 0,
+    "placedN": 2,
+    "ink": 2,
+    "inkN": 2,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 2,
+      "hit": 2
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "locate-the-user",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 64,
+    "hit": 54,
+    "extra": 20,
+    "placedN": 74,
+    "ink": 60,
+    "inkN": 64,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_country_1": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_country_2": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_country_3": {
+      "n": 3,
+      "hit": 2
+     },
+     "label_city_capital": {
+      "n": 6,
+      "hit": 4
+     },
+     "label_city": {
+      "n": 48,
+      "hit": 43
+     },
+     "water_name_point_label": {
+      "n": 3,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "measure-distances",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 125/160"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 39,
+    "hit": 37,
+    "extra": 2,
+    "placedN": 39,
+    "ink": 37,
+    "inkN": 39,
+    "line": 2,
+    "lineHit": 2,
+    "linePlaced": 3,
+    "layers": {
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 2,
+      "hit": 2
+     },
+     "label_other": {
+      "n": 36,
+      "hit": 34
+     }
+    },
+    "lineLayers": {
+     "highway-shield-non-us": {
+      "n": 1,
+      "ours": 1
+     },
+     "waterway_line_label": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "navigate-the-map-with-game-like-controls",
+   "level": 1,
+   "refLevel": 3,
+   "reasons": [
+    "query 112/160 · extra line · missing fill-extrusion"
+   ],
+   "blockers": [
+    "query: extra line hits",
+    "query: missed fill-extrusion hits"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": false,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 112,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 31,
+    "hit": 20,
+    "extra": 15,
+    "placedN": 39,
+    "ink": 29,
+    "inkN": 31,
+    "line": 11,
+    "lineHit": 9,
+    "linePlaced": 29,
+    "layers": {
+     "poi_transit": {
+      "n": 1,
+      "hit": 0
+     },
+     "poi_r20": {
+      "n": 30,
+      "hit": 20
+     }
+    },
+    "lineLayers": {
+     "highway-name-major": {
+      "n": 5,
+      "ours": 3
+     },
+     "highway-name-path": {
+      "n": 1,
+      "ours": 1
+     },
+     "road_one_way_arrow": {
+      "n": 5,
+      "ours": 25
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "offset-the-vanishing-point-using-padding",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 79/125"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 125,
+    "ok": 125,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 2,
+    "hit": 2,
+    "extra": 0,
+    "placedN": 2,
+    "ink": 2,
+    "inkN": 2,
+    "line": 1,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 2,
+      "hit": 2
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "pmtiles-source-and-protocol",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "render-world-copies",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 42/56"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true
+   },
+   "query": {
+    "n": 56,
+    "ok": 56,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "restrict-map-panning-to-an-area",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 4,
+    "hit": 3,
+    "extra": 0,
+    "placedN": 3,
+    "ink": 3,
+    "inkN": 4,
+    "line": 25,
+    "lineHit": 20,
+    "linePlaced": 34,
+    "layers": {
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     },
+     "water_name_point_label": {
+      "n": 2,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 2,
+      "ours": 13
+     },
+     "highway-shield-us-interstate": {
+      "n": 2,
+      "ours": 5
+     },
+     "highway-shield-non-us": {
+      "n": 1,
+      "ours": 0
+     },
+     "highway-name-major": {
+      "n": 19,
+      "ours": 15
+     },
+     "waterway_line_label": {
+      "n": 1,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "select-features-with-boxzoomend-callback",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 2/5"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 157,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 19,
+    "hit": 16,
+    "extra": 6,
+    "placedN": 22,
+    "ink": 19,
+    "inkN": 19,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 3,
+    "layers": {
+     "countries-label": {
+      "n": 19,
+      "hit": 16
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 3
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "set-center-point-above-ground",
+   "level": 1,
+   "refLevel": 3,
+   "reasons": [
+    "query 8/32 · missing fill-extrusion"
+   ],
+   "blockers": [
+    "query: missed fill-extrusion hits"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": false,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 32,
+    "ok": 8,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "set-pitch-and-bearing",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 130,
+    "ok": 130,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 2,
+    "hit": 2,
+    "extra": 0,
+    "placedN": 2,
+    "ink": 2,
+    "inkN": 2,
+    "line": 1,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 2,
+      "hit": 2
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "show-polygon-information-on-click",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 12,
+    "hit": 10,
+    "extra": 7,
+    "placedN": 17,
+    "ink": 12,
+    "inkN": 12,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 2,
+    "layers": {
+     "countries-label": {
+      "n": 12,
+      "hit": 10
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "sky-fog-terrain",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "basemap 25/100"
+   ],
+   "blockers": [
+    "basemap looks different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 100,
+    "ok": 100,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 0,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "slowly-fly-to-a-location",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 46,
+    "hit": 46,
+    "extra": 22,
+    "placedN": 67,
+    "ink": 44,
+    "inkN": 46,
+    "line": 22,
+    "lineHit": 2,
+    "linePlaced": 11,
+    "layers": {
+     "label_city": {
+      "n": 4,
+      "hit": 4
+     },
+     "label_town": {
+      "n": 34,
+      "hit": 34
+     },
+     "label_village": {
+      "n": 8,
+      "hit": 8
+     }
+    },
+    "lineLayers": {
+     "highway-shield-us-interstate": {
+      "n": 2,
+      "ours": 11
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "style-labels-with-font-faces",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 6,
+    "hit": 6,
+    "extra": 0,
+    "placedN": 6,
+    "ink": 6,
+    "inkN": 6,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "places": {
+      "n": 6,
+      "hit": 6
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "style-labels-with-local-fonts",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 2,
+    "hit": 2,
+    "extra": 0,
+    "placedN": 2,
+    "ink": 2,
+    "inkN": 2,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "places": {
+      "n": 2,
+      "hit": 2
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "style-labels-with-web-fonts",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 2,
+    "hit": 2,
+    "extra": 0,
+    "placedN": 2,
+    "ink": 2,
+    "inkN": 2,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "places": {
+      "n": 2,
+      "hit": 2
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "style-lines-with-a-data-driven-property",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 3,
+    "hit": 3,
+    "extra": 0,
+    "placedN": 4,
+    "ink": 3,
+    "inkN": 3,
+    "line": 6,
+    "lineHit": 4,
+    "linePlaced": 8,
+    "layers": {
+     "poi_r1": {
+      "n": 3,
+      "hit": 3
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 1,
+      "ours": 3
+     },
+     "highway-name-minor": {
+      "n": 2,
+      "ours": 4
+     },
+     "highway-name-path": {
+      "n": 1,
+      "ours": 1
+     },
+     "road_oneway": {
+      "n": 2,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "sync-movement-of-multiple-maps",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option maplibreLogo",
+     "option maplibreLogo",
+     "option maplibreLogo"
+    ]
+   },
+   "sharedExceptions": [
+    "Uncaught ReferenceError: module is not defined"
+   ],
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 3,
+    "ink": 0,
+    "inkN": 0,
+    "line": 5,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {},
+    "lineLayers": {
+     "geolines-label": {
+      "n": 5,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "toggle-deckgl-layer",
+   "level": null,
+   "refLevel": 0,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "refWhy": "reference capture invalid: the example's style URL (clockworkmicro) is behind an API key locked to the Referer https://maplibre.org/ — 401 from this rig for both sides (real MapLibre never reaches load); ours falls back to the default basemap and the deck.gl overlay draws"
+  },
+  {
+   "name": "toggle-interactions",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 15,
+    "hit": 15,
+    "extra": 7,
+    "placedN": 22,
+    "ink": 15,
+    "inkN": 15,
+    "line": 1,
+    "lineHit": 1,
+    "linePlaced": 2,
+    "layers": {
+     "countries-label": {
+      "n": 15,
+      "hit": 15
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "update-a-feature-in-realtime",
+   "level": 1,
+   "refLevel": 2,
+   "reasons": [
+    "camera (Δz 0.00 · Δc 669m)"
+   ],
+   "blockers": [
+    "camera differs"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": false
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 0,
+    "hit": 0,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 0,
+    "inkN": 0,
+    "line": 2,
+    "lineHit": 2,
+    "linePlaced": 6,
+    "layers": {},
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 1,
+      "ours": 5
+     },
+     "highway-name-major": {
+      "n": 1,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "update-geojson-polygons",
+   "level": 2,
+   "refLevel": 2,
+   "reasons": [
+    "picture not compared (animated/animated)"
+   ],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 152,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 5,
+    "hit": 5,
+    "extra": 0,
+    "placedN": 5,
+    "ink": 0,
+    "inkN": 0,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "rectangles-label": {
+      "n": 5,
+      "hit": 5
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "use-a-fallback-image",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 49,
+    "hit": 44,
+    "extra": 3,
+    "placedN": 47,
+    "ink": 46,
+    "inkN": 49,
+    "line": 2,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "points": {
+      "n": 3,
+      "hit": 3
+     },
+     "label_city": {
+      "n": 40,
+      "hit": 37
+     },
+     "label_state": {
+      "n": 6,
+      "hit": 4
+     }
+    },
+    "lineLayers": {
+     "water_name_line_label": {
+      "n": 2,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "use-addprotocol-to-transform-feature-properties",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": [
+     "option hash"
+    ]
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 13,
+    "hit": 13,
+    "extra": 1,
+    "placedN": 14,
+    "ink": 13,
+    "inkN": 13,
+    "line": 0,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "countries-label": {
+      "n": 13,
+      "hit": 13
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "use-locally-generated-ideographs",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 12,
+    "hit": 12,
+    "extra": 0,
+    "placedN": 12,
+    "ink": 12,
+    "inkN": 12,
+    "line": 7,
+    "lineHit": 5,
+    "linePlaced": 7,
+    "layers": {
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_village": {
+      "n": 4,
+      "hit": 4
+     },
+     "label_other": {
+      "n": 6,
+      "hit": 6
+     }
+    },
+    "lineLayers": {
+     "highway-shield-non-us": {
+      "n": 4,
+      "ours": 6
+     },
+     "water_name_line_label": {
+      "n": 1,
+      "ours": 0
+     },
+     "waterway_line_label": {
+      "n": 2,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "variable-label-placement-with-offset",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 13/21"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 43,
+    "hit": 39,
+    "extra": 4,
+    "placedN": 43,
+    "ink": 41,
+    "inkN": 43,
+    "line": 8,
+    "lineHit": 8,
+    "linePlaced": 16,
+    "layers": {
+     "poi-labels": {
+      "n": 7,
+      "hit": 6
+     },
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 7,
+      "hit": 6
+     },
+     "label_village": {
+      "n": 12,
+      "hit": 12
+     },
+     "label_other": {
+      "n": 15,
+      "hit": 13
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 6,
+      "ours": 8
+     },
+     "highway-shield-us-interstate": {
+      "n": 2,
+      "ours": 8
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "variable-label-placement",
+   "level": 2,
+   "refLevel": 3,
+   "reasons": [
+    "added layers 10/16"
+   ],
+   "blockers": [
+    "added layers look different"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 159,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 44,
+    "hit": 41,
+    "extra": 3,
+    "placedN": 44,
+    "ink": 42,
+    "inkN": 44,
+    "line": 8,
+    "lineHit": 8,
+    "linePlaced": 17,
+    "layers": {
+     "poi-labels": {
+      "n": 7,
+      "hit": 6
+     },
+     "label_city_capital": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_town": {
+      "n": 7,
+      "hit": 6
+     },
+     "label_village": {
+      "n": 12,
+      "hit": 12
+     },
+     "label_other": {
+      "n": 16,
+      "hit": 15
+     },
+     "airport": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "road_shield_us": {
+      "n": 6,
+      "ours": 9
+     },
+     "highway-shield-us-interstate": {
+      "n": 2,
+      "ours": 8
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": false
+  },
+  {
+   "name": "view-a-fullscreen-map",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 1,
+    "hit": 1,
+    "extra": 0,
+    "placedN": 1,
+    "ink": 1,
+    "inkN": 1,
+    "line": 9,
+    "lineHit": 8,
+    "linePlaced": 10,
+    "layers": {
+     "label_city": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "highway-name-major": {
+      "n": 5,
+      "ours": 4
+     },
+     "waterway_line_label": {
+      "n": 4,
+      "ours": 6
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "view-local-geojson-experimental",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 33,
+    "hit": 33,
+    "extra": 18,
+    "placedN": 52,
+    "ink": 33,
+    "inkN": 33,
+    "line": 11,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_town": {
+      "n": 32,
+      "hit": 32
+     },
+     "label_other": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "view-local-geojson",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 33,
+    "hit": 33,
+    "extra": 18,
+    "placedN": 52,
+    "ink": 32,
+    "inkN": 33,
+    "line": 11,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_town": {
+      "n": 32,
+      "hit": 32
+     },
+     "label_other": {
+      "n": 1,
+      "hit": 1
+     }
+    },
+    "lineLayers": {}
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "visualize-population-density",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 160,
+    "ok": 160,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 41,
+    "hit": 39,
+    "extra": 1,
+    "placedN": 39,
+    "ink": 40,
+    "inkN": 41,
+    "line": 1,
+    "lineHit": 0,
+    "linePlaced": 0,
+    "layers": {
+     "label_country_2": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_country_3": {
+      "n": 1,
+      "hit": 1
+     },
+     "label_city": {
+      "n": 18,
+      "hit": 17
+     },
+     "label_state": {
+      "n": 4,
+      "hit": 4
+     },
+     "label_town": {
+      "n": 17,
+      "hit": 16
+     }
+    },
+    "lineLayers": {
+     "water_name_line_label": {
+      "n": 1,
+      "ours": 0
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  },
+  {
+   "name": "walk-around-a-map-in-first-person",
+   "level": 1,
+   "refLevel": 2,
+   "reasons": [
+    "query 0/14 · extra line",
+    "camera (Δz -2.75 · Δc 0m)"
+   ],
+   "blockers": [
+    "query: extra line hits",
+    "camera differs"
+   ],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": false,
+    "markers": true,
+    "popups": true,
+    "camera": false
+   },
+   "query": {
+    "n": 14,
+    "ok": 0,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 6,
+    "hit": 1,
+    "extra": 5,
+    "placedN": 15,
+    "ink": 0,
+    "inkN": 0,
+    "line": 4,
+    "lineHit": 1,
+    "linePlaced": 2,
+    "layers": {
+     "poi_r20": {
+      "n": 6,
+      "hit": 1
+     }
+    },
+    "lineLayers": {
+     "highway-name-major": {
+      "n": 2,
+      "ours": 0
+     },
+     "highway-name-path": {
+      "n": 1,
+      "ours": 0
+     },
+     "road_one_way_arrow": {
+      "n": 1,
+      "ours": 2
+     }
+    }
+   },
+   "pictureCompared": false,
+   "pictureOnly": false
+  },
+  {
+   "name": "zoom-and-planet-size-relation-on-globe",
+   "level": 3,
+   "refLevel": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": {
+    "semantic": [],
+    "cosmetic": []
+   },
+   "checks": {
+    "unsupported": true,
+    "engine": true,
+    "layers": true,
+    "query": true,
+    "markers": true,
+    "popups": true,
+    "camera": true
+   },
+   "query": {
+    "n": 92,
+    "ok": 92,
+    "extra": {},
+    "missing": {}
+   },
+   "text": {
+    "n": 55,
+    "hit": 48,
+    "extra": 4,
+    "placedN": 52,
+    "ink": 55,
+    "inkN": 55,
+    "line": 4,
+    "lineHit": 1,
+    "linePlaced": 1,
+    "layers": {
+     "countries-label": {
+      "n": 55,
+      "hit": 48
+     }
+    },
+    "lineLayers": {
+     "geolines-label": {
+      "n": 4,
+      "ours": 1
+     }
+    }
+   },
+   "pictureCompared": true,
+   "pictureOnly": true
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+diff --git a/packages/ortho-core/src/gpu/wgsl.ts b/packages/ortho-core/src/gpu/wgsl.ts
+index b37df005..0f879df3 100644
+--- a/packages/ortho-core/src/gpu/wgsl.ts
++++ b/packages/ortho-core/src/gpu/wgsl.ts
+@@ -820,7 +820,7 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
+ 	var shadeK = 1.0;
+ 	if (F.farP.z > 1.5) {   // 近景メッシュパス：歩幅は近景層の 1 texel（下限 0.004° を外す）・陰影の利得は歩幅比で揃える（gl と同式）
+ 		dTex = F.nearBounds.w / f32(textureDimensions(nearElevTex, 0).y);
+-		shadeK = 0.004 / max(dTex, 1e-6); d = dTex;
++		d = max(dTex, 0.004 / 16.0); shadeK = 0.004 / d;
+ 	}
+ 	let h0 = elev(in.ll);
+ 	let hx = elev(in.ll + vec2f(d, 0.0)) - h0;
