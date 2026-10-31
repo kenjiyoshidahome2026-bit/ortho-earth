@@ -776,11 +776,13 @@ void main() {
 	float d = max(0.004, u_elevBounds.w / tsz.y);
 	float dTex = u_elevBounds.w / tsz.y;   // アトラス 1 texel（勾配・材質用）
 	float shadeK = 1.0;
+	float h0 = elev(v_ll);
 	if (u_farPass > 1.5) {   // 近景メッシュパス：歩幅は近景層の 1 texel（下限 0.004° を外す）・陰影の利得は歩幅比で揃える（＝勾配換算・見た目の濃さ不変）
-		dTex = u_nearBounds.w / float(textureSize(u_nearElevTex, 0).y);
+		// ただし R16F の刻み q（1024〜2048 m で 1 m）の 32 倍を下限に＝1 texel 差分が丸め 1 段を勾配に化けさせて粒々の陰影になった（2026-10-31・wgsl と同式）
+		float q = exp2(floor(log2(max(abs(h0), 1.0))) - 10.0);
+		dTex = max(u_nearBounds.w / float(textureSize(u_nearElevTex, 0).y), q * 32.0 / 111320.0);
 		shadeK = 0.004 / max(dTex, 1e-6); d = dTex;
 	}
-	float h0 = elev(v_ll);
 	float hx = elev(v_ll + vec2(d, 0.0)) - h0;
 	float hy = elev(v_ll + vec2(0.0, d)) - h0;
 	float shade = clamp(0.82 + (-hx + hy) * 0.0007 * shadeK, 0.45, 1.15);

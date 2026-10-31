@@ -818,11 +818,13 @@ fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 	var d = max(0.004, F.elevBounds.w / tsz.y);
 	var dTex = F.elevBounds.w / tsz.y;   // アトラス 1 texel（勾配・材質用）
 	var shadeK = 1.0;
+	let h0 = elev(in.ll);
 	if (F.farP.z > 1.5) {   // 近景メッシュパス：歩幅は近景層の 1 texel（下限 0.004° を外す）・陰影の利得は歩幅比で揃える（gl と同式）
-		dTex = F.nearBounds.w / f32(textureDimensions(nearElevTex, 0).y);
+		// ただし r16float の刻み q（1024〜2048 m で 1 m）の 32 倍を下限に＝1 texel 差分が丸め 1 段を勾配に化けさせて粒々の陰影になった（2026-10-31・MapLibre 例 adding-3d-models-using-threejs-on-terrain）。低地（q≤1/32 m）は 1 texel のまま
+		let q = exp2(floor(log2(max(abs(h0), 1.0))) - 10.0);
+		dTex = max(F.nearBounds.w / f32(textureDimensions(nearElevTex, 0).y), q * 32.0 / 111320.0);
 		shadeK = 0.004 / max(dTex, 1e-6); d = dTex;
 	}
-	let h0 = elev(in.ll);
 	let hx = elev(in.ll + vec2f(d, 0.0)) - h0;
 	let hy = elev(in.ll + vec2f(0.0, d)) - h0;
 	var shade = clamp(0.82 + (-hx + hy) * 0.0007 * shadeK, 0.45, 1.15);
