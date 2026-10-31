@@ -104,7 +104,7 @@ export default async function world(opts: WorldOptions = {}): Promise<WorldSelec
 		emit("lang", { lang: state.lang, rtl: isRTL(state.lang) });
 	};
 	let data: WorldPack;   // IDB 優先（温＝即）・初回だけ一段並列（冷）。裏の更新は描画後の refresh() で
-	try { data = await loadWorld(state.lang); state.i18n = data.i18n as State["i18n"]; } catch (e) { loading.html(`<span>Failed to load: ${(e as Error).message}</span>`); throw e; }
+	try { data = await loadWorld(state.lang); state.i18n = data.i18n as State["i18n"]; } catch (e) { loading.html("<span></span>").select("span").text(`Failed to load: ${(e as Error).message}`); throw e; }
 	applyLang();
 	// 旗/地図PNG＝bucket の個別ファイル URL（<img loading=lazy> で見えた分だけ取得・edge 1h キャッシュ）。
 	// 旗の有無は NationDB の key 集合＋領有国代替で決める（zip を丸ごと落とさない）
@@ -119,7 +119,7 @@ export default async function world(opts: WorldOptions = {}): Promise<WorldSelec
 	let model: ReturnType<typeof buildModel>;
 	try { model = buildModel(data, assets); }
 	catch (e) {
-		if (!data.warm) { loading.html(`<span>Failed to build: ${(e as Error).message}</span>`); throw e; }
+		if (!data.warm) { loading.html("<span></span>").select("span").text(`Failed to build: ${(e as Error).message}`); throw e; }
 		console.warn("cached data is from an older schema; dropping the cache and refetching.", e);
 		await dropCache();
 		data = await loadWorld(state.lang); state.i18n = data.i18n as State["i18n"];

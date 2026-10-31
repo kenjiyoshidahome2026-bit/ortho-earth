@@ -43,7 +43,7 @@ async function runLazyView(code: string) {
         const mod = await load();
         await (mod as Record<string, () => unknown>)[fn]();
     } catch (e) {
-        console.error(`[lazy-view] ${code}:`, e);
+        console.error("[lazy-view]", code, e);
         showToast('モジュールの読み込みに失敗しました。再読み込みしてください');
     }
 }
