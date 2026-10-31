@@ -265,6 +265,18 @@ void main() {
 	fragColor = vec4(c, 1.0);
 }`;
 
+// a glTF line's ribbon (globe meshdecode linePrimAsRibbons, 2026-10-31): the normal is the line's direction and the 4th byte −(2·w + side), w = width
+// in quarter CSS px. The vertex moves across the line's direction on screen by half the width (Cesium draws lines this many pixels wide whatever
+// the distance). gpu/wgsl.ts MESH_WGSL has the same
+const LINE_RIBBON = `if (a_ol < -0.004) {
+		float lb = floor(-a_ol * 127.0 + 0.5), hp = floor(lb * 0.5) * 0.125 * max(u_lineDpr, 1.0);
+		vec4 dc = u_mvp * vec4(v_n, 0.0);
+		vec2 sd = (dc.xy * gl_Position.w - gl_Position.xy * dc.w) * u_viewport;
+		if (dot(sd, sd) < 1e-30) sd = vec2(1.0, 0.0);
+		gl_Position.xy += normalize(vec2(-sd.y, sd.x)) * (mod(lb, 2.0) * 2.0 - 1.0) * hp * 2.0 / u_viewport * gl_Position.w;
+		v_ol = vec3(0.0);
+		v_n = v_toEye;   // a ribbon faces the eye (the FS's back-face test and light read v_n; lines are unlit in Cesium)
+	}`;
 // 建物メッシュ（LOD2 等）（任意三角形）。頂点は ortho 単位球座標へ変換済み。
 // 面法線は FS で dFdx/dFdy から算出＝CPU法線/un-index 不要のフラット陰影。裏半球カリング＋深度で前後解決。
 export const MESH_VS = `#version 300 es
@@ -278,8 +290,9 @@ uniform float u_xfOn;        // バッチの剛体変換（glTF の rigid アニ
 uniform mat3 u_xfL;
 uniform vec3 u_xfT;
 uniform vec3 u_eyeRel;       // u_eye − u_meshOrigin（CPU double）＝視線ベクトルを原点相対で組む（下の v_toEye）
-in float a_ol;      // CESIUM_primitive_outline: the normal's 4th byte = 3 bits, which outline coordinates are 1 at this vertex (unset = 0 = none)
+in float a_ol;      // CESIUM_primitive_outline: the normal's 4th byte = 3 bits, which outline coordinates are 1 at this vertex (unset = 0 = none); negative = a glTF line's ribbon (below)
 out vec3 v_ol;
+uniform float u_lineDpr;   // device px per CSS px (the ribbons' widths are CSS px)
 ${PROJECT}
 // Cesium の霧（csatmo.ts csFogV・頂点で色と量）：u_csFogD＝濃さ（0＝なし）・u_csFogL＝xyz 光へ向く単位ベクトル・w 照明あり 1／なし −1
 uniform float u_csFogD;
@@ -320,6 +333,7 @@ void main() {
 	float inY = smoothstep(0.0, 0.05, min(lat - u_liftBounds.y, u_liftBounds.y + u_liftBounds.w - lat));
 	float h = elev(vec2(lon, lat)) * u_elevScale * inX * inY;
 	gl_Position = u_clipMesh + u_mvp * vec4(ap + h * liftDir(vec2(lon, lat), dir), 0.0);   // 楕円体＝測地法線で接地リフト
+	${LINE_RIBBON}
 	applyLogDepth();
 }`;
 

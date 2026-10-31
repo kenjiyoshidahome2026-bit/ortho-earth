@@ -1,7 +1,7 @@
 // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm の batch table・画面の当たり・feature state の色（DOM 無し）
 import { featureSetOf, featureIdsOf, featureTextureOf, decodePropertyTables, batchTableOf, featureProperties, NO_FEATURE, ncompOf } from "../src/mesh-features.ts";
 import { pickMeshes, tintColors, lngLatOfWorld } from "../src/meshpick.ts";
-import { decodeModel } from "../src/meshdecode.ts";
+import { decodeModel, lineByte } from "../src/meshdecode.ts";
 globalThis.self ??= globalThis;
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
 const J = v => JSON.stringify(v);
@@ -124,7 +124,8 @@ const strs = list => { const bs = list.map(enc), all = new Uint8Array(bs.reduce(
 	ok("decode.none", r2.batches[0].features === null && r2.features === null && !r2.stats.features);
 }
 
-// glTF の線（LINES）＝細い管にして描く：地物の番号（_FEATURE_ID_n）が管の頂点にも付く（2026-10-31・3d-tiles-property-lod-river の川の色分け）
+// glTF の線（LINES）＝画面で px 幅に広げる帯（2026-10-31）：地物の番号（_FEATURE_ID_n）が帯の頂点にも付く（3d-tiles-property-lod-river の川の色分け）・
+// 法線＝線の向き・4 バイト目＝lineByte（負＝線の頂点・幅 1 px・左右）・照明なし
 {
 	const json = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
 		meshes: [{ primitives: [{ mode: 1, attributes: { POSITION: 0, _FEATURE_ID_0: 2 }, indices: 1, extensions: { EXT_mesh_features: { featureIds: [{ featureCount: 2, attribute: 0 }] } } }] }],
@@ -132,9 +133,13 @@ const strs = list => { const bs = list.map(enc), all = new Uint8Array(bs.reduce(
 		extensionsUsed: ["EXT_mesh_features"] };
 	const glb = glbOf(json, [B(Float32Array.of(0, 0, 0, 10, 0, 0, 10, 0, 10, 20, 0, 10)), B(Uint16Array.of(0, 1, 2, 3)), B(Float32Array.of(0, 0, 1, 1))]);
 	const r = await decodeModel(glb.slice(0), { at: [139.7671, 35.6812] });
-	const f = r?.batches?.[0]?.features, ids = f ? [...f.ids] : null;
-	ok("lines.tubes", !!r && r.batches.length === 1 && !!ids && ids.length === 16, `vertices ${ids?.length}`);   // 2 本の線分 × 8 頂点の管
-	ok("lines.ids", !!ids && ids.length === 16 && ids.slice(0, 8).every(v => v === 0) && ids.slice(8).every(v => v === 1), J(ids));
+	const b0 = r?.batches?.[0], f = b0?.features, ids = f ? [...f.ids] : null;
+	ok("lines.ribbons", !!r && r.batches.length === 1 && !!ids && ids.length === 8 && b0.lines === true && b0.pbr.unlit === true && b0.mesh.idx.length === 12, `vertices ${ids?.length} lines ${b0?.lines}`);   // 2 本の線分 × 4 頂点の帯
+	ok("lines.ids", !!ids && ids.length === 8 && ids.slice(0, 4).every(v => v === 0) && ids.slice(4).every(v => v === 1), J(ids));
+	const w = b0 ? [...b0.mesh.nrm].filter((_, i) => i % 4 === 3) : [];
+	ok("lines.byte", J(w) === J([-8, -9, -8, -9, -8, -9, -8, -9]) && lineByte(2.6, true) === -21 && lineByte(0, false) === -2 && lineByte(99, true) === -127, J(w));
+	const n0 = b0 ? [...b0.mesh.nrm.slice(0, 3)] : [], n4 = b0 ? [...b0.mesh.nrm.slice(16, 19)] : [];
+	ok("lines.dir", Math.abs(Math.hypot(...n0) - 127) < 2 && J(n0) === J(n4), `${J(n0)} ${J(n4)}`);   // 法線＝線の向き（2 本とも glTF の +x）の単位ベクトル
 }
 // 型 → 成分の数（own の名前だけ＝旧 NCOMP[type] は "constructor" 等で Object.prototype の物を返した）
 {

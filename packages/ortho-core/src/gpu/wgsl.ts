@@ -982,6 +982,15 @@ struct PlOut {
 	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
 	let h = elev(vec2f(lon, lat)) * F.elevP.x * select(inX * inY, 1.0, B.alpha.w > 0.5) * (1.0 - B.alpha.z);   // noLift＝平面に浮かせた統計・drape＝全域で地形に沿わせる
 	var p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線
+	if (a_normal.w < -0.004) {   // a glTF line's ribbon (gl/glsl.ts LINE_RIBBON): across the line's direction on screen by half its width (CSS px × dpr)
+		let lb = floor(-a_normal.w * 127.0 + 0.5); let hp = floor(lb * 0.5) * 0.125 * max(F.params.w, 1.0);
+		let dc = F.mvp * vec4f(o.n, 0.0);
+		var sd = (dc.xy * p.w - p.xy * dc.w) * F.viewport;
+		if (dot(sd, sd) < 1e-30) { sd = vec2f(1.0, 0.0); }
+		p = vec4f(p.xy + normalize(vec2f(-sd.y, sd.x)) * ((lb % 2.0) * 2.0 - 1.0) * hp * 2.0 / F.viewport * p.w, p.zw);
+		o.ol = vec3f(0.0);
+		o.n = o.toEye;   // faces the eye (the FS's back-face test; lines are unlit in Cesium)
+	}
 	p.z = logDepthZ(p.w);
 	o.pos = p;
 	return o;
