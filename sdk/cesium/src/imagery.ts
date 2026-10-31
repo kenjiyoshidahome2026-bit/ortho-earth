@@ -157,6 +157,7 @@ export function syncImagery(scene: Any, map: Any): void {
 	if (!coll) return;
 	if (!geoInstalled && typeof map.addProtocol === "function") { map.addProtocol(GEO_SCHEME, geoLoader); geoInstalled = true; }   // the protocol is global on the globe: once
 	let placed: string[] = [];
+	const sse = (): number => { const v = Number(scene.globe?.maximumScreenSpaceError); return v > 0 ? v : 2; };
 	const ids = new WeakMap<object, string>(), adjSigs = new Map<string, string>(); let n = 0;
 	const sync = () => {
 		const want: Array<{ id: string; src: Any; layer: Any }> = [];
@@ -173,10 +174,12 @@ export function syncImagery(scene: Any, map: Any): void {
 		const before = () => map.getStyle?.()?.layers?.find((l: Any) => /^__cs-(fill|line|ext)/.test(l.id))?.id;
 		for (const w of want) {
 			const sd = w.layer.splitDirection < 0 ? "left" : w.layer.splitDirection > 0 ? "right" : "none";   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 → paint raster-split (the globe's extension; scene.splitPosition → map.setSplitPosition in viewer.ts)
-			const adj = adjustPaint(w.layer), paint = { "raster-opacity": w.layer.alpha ?? 1, "raster-split": sd, ...adj }, adjSig = JSON.stringify(adj);
+			// raster-sse: the globe picks each tile's z as Cesium's globe does (terrain level by maximumScreenSpaceError, then the imagery level matching its error):
+			// with its own rule the tiles came one level finer than Cesium's (google-2d-tiles: labels half Cesium's size, 2026-10-31)
+			const adj = adjustPaint(w.layer), paint = { "raster-opacity": w.layer.alpha ?? 1, "raster-split": sd, "raster-sse": sse(), ...adj }, adjSig = JSON.stringify(adj);
 			if (map.getSource?.(w.id) && adjSigs.get(w.id) !== adjSig) { map.removeLayer(w.id); map.removeSource(w.id); }   // the globe bakes the colour adjustment into the tiles at decode: a change re-mounts the layer
 			if (!map.getSource?.(w.id)) { map.addSource(w.id, w.src); map.addLayer({ id: w.id, type: "raster", source: w.id, paint, layout: { visibility: w.layer.show ? "visible" : "none" } }, before()); adjSigs.set(w.id, adjSig); }
-			else { map.setPaintProperty(w.id, "raster-opacity", paint["raster-opacity"]); if (map.getPaintProperty?.(w.id, "raster-split") !== sd) map.setPaintProperty(w.id, "raster-split", sd); map.setLayoutProperty(w.id, "visibility", w.layer.show ? "visible" : "none"); }
+			else { map.setPaintProperty(w.id, "raster-opacity", paint["raster-opacity"]); if (map.getPaintProperty?.(w.id, "raster-split") !== sd) map.setPaintProperty(w.id, "raster-split", sd); if (map.getPaintProperty?.(w.id, "raster-sse") !== paint["raster-sse"]) map.setPaintProperty(w.id, "raster-sse", paint["raster-sse"]); map.setLayoutProperty(w.id, "visibility", w.layer.show ? "visible" : "none"); }
 		}
 		for (const w of want) map.moveLayer?.(w.id, before());   // collection order = bottom to top
 		placed = want.map(w => w.id);
@@ -186,7 +189,7 @@ export function syncImagery(scene: Any, map: Any): void {
 	let last = "";
 	scene.postRender.addEventListener(() => {
 		let k = "";
-		for (let i = 0; i < coll.length; i++) { const L = coll.get(i), c = L.colorToAlpha, r = L.cutoutRectangle; k += `${L.alpha},${L.show},${L.splitDirection},${L.brightness},${L.saturation},${L.contrast},${L.hue},${L.ready},${c ? `${c.red},${c.green},${c.blue},${L.colorToAlphaThreshold}` : ""},${r ? `${r.west},${r.south},${r.east},${r.north}` : ""};`; }
+		for (let i = 0; i < coll.length; i++) { const L = coll.get(i), c = L.colorToAlpha, r = L.cutoutRectangle; k += `${sse()},${L.alpha},${L.show},${L.splitDirection},${L.brightness},${L.saturation},${L.contrast},${L.hue},${L.ready},${c ? `${c.red},${c.green},${c.blue},${L.colorToAlphaThreshold}` : ""},${r ? `${r.west},${r.south},${r.east},${r.north}` : ""};`; }
 		if (k !== last) { last = k; sync(); }
 	});
 	sync();
