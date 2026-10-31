@@ -56,6 +56,9 @@ ok("tile beyond the horizon culled", !bboxVisible(st, [cam.center[0] + 20, cam.c
 	ok("movedBbox of a model 10 km up stays on its place", mb[1] <= 37 && mb[3] >= 37 && mb[3] - mb[1] < 1e-4, JSON.stringify(mb));
 	const g0 = betaGeo(lonlatTo3D(139.7, 35.6));
 	ok("betaGeo on the surface = betaToLonLat, radius 1", Math.abs(g0[1] - betaToLonLat(lonlatTo3D(139.7, 35.6))[1]) < 1e-9 && Math.abs(g0[2] - 1) < 1e-12, JSON.stringify(g0));
+	// the cloud shell: one whole-globe batch with its origin at the Earth's centre, turned by the wind (t-clouds windCovers, 2026-10-31)
+	const ws = movedBbox([-180, -90, 180, 90], [0, 0, 0], [0.998, 0, 0.069, 0, 1, 0, -0.069, 0, 0.998, 0, 0, 0]);
+	ok("movedBbox of a whole-globe batch about the centre stays finite and covers the view", ws.every(Number.isFinite) && bboxVisible(st, ws, cam.center, foot, pad, betaGeo([0, 0, 0])[2]), JSON.stringify(ws));
 }
 const o = lonlatTo3D(foot[0], foot[1]).map(v => v * ground);
 ok("betaRadiusOf(centroid) = radius", Math.abs(betaRadiusOf(o) - ground) < 1e-9, String(betaRadiusOf(o)));
