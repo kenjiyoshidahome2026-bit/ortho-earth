@@ -1567,12 +1567,15 @@ for (const b of document.querySelectorAll("nav button")) b.onclick = () => { doc
 $("cat").onchange = e => { cat = e.target.value; apply(); };
 for (const b of document.querySelectorAll(".meta .cat")) b.onclick = e => { e.stopPropagation(); cat = cat === b.dataset.label ? "" : b.dataset.label; $("cat").value = cat; apply(); window.scrollTo({ top: 0, behavior: "smooth" }); };
 apply();
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c]);
 const open = name => {
-	const p = P[name]; if (!p) return;
-	$("dt").textContent = p.t; $("sc").href = "https://sandcastle.cesium.com/?id=X".replace("X", encodeURIComponent(name));
-	$("ir").src = "pics/" + name + ".ref.webp"; $("io").src = "pics/" + name + ".ortho.webp";
-	$("dm").innerHTML = "<p>" + esc(LV[p.l]) + (p.pc == null ? "" : " · picture " + p.pc + "%") + (p.note ? " · " + esc(p.note) : "") + "</p>" + (p.cr.length ? "<p>Imagery: " + esc(p.cr.join(" · ")) + "</p>" : "");
+	const key = Object.keys(P).find(k => k === name); if (!key) return;   // only names from the payload reach the URLs
+	const p = P[key], dm = $("dm");
+	$("dt").textContent = p.t; $("sc").href = "https://sandcastle.cesium.com/?id=X".replace("X", encodeURIComponent(key));
+	$("ir").src = "pics/" + key + ".ref.webp"; $("io").src = "pics/" + key + ".ortho.webp";
+	const line = t => { const e = document.createElement("p"); e.textContent = t; dm.append(e); };
+	dm.replaceChildren();
+	line(LV[p.l] + (p.pc == null ? "" : " · picture " + p.pc + "%") + (p.note ? " · " + p.note : ""));
+	if (p.cr.length) line("Imagery: " + p.cr.join(" · "));
 	$("dlg").showModal();
 };
 for (const c of document.querySelectorAll(".card")) { c.onclick = () => open(c.dataset.name); c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(c.dataset.name); } }; }
