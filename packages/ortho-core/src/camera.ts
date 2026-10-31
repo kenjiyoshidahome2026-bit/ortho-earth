@@ -25,6 +25,9 @@ export interface CameraPose {
 	dpr?: number;
 	/** 注視点の高さ［m］（MapLibre の centerClampedToGround 相当・無指定＝0）。 */
 	centerAlt?: number;
+	/** 注視点の下の地面の高さ［m］（画像窓の距離の物差し・2026-10-31）：地面アトラスの窓は、この高さの球で視線が当たる所までの距離で切る。
+	 *  無指定＝海面（従来）。山岳で注視点が地面（centerAlt＝地面）なら同じ値、宙の注視点（追跡中の衛星）なら其の下の地面。 */
+	groundAlt?: number;
 	/** 注視点を画面の中心からずらす量［CSS px・右・下が正］＝MapLibre の centerOffset（padding の中身の中心）。消失点も動く。無指定＝[0,0]。 */
 	offset?: [number, number];
 	/** near 面の上限［m］（無指定＝従来＝注視距離の 3〜30%）。注視点より手前に描く物がある時（Cesium の frustum.near＝1 m・目標点が楕円体で 3D Tiles の地面の下）に下げる。深度は対数なので far との比は問わない */
