@@ -167,34 +167,6 @@
 			}
 		},
 		{
-			"id": "splat",
-			"href": "/globe/splat",
-			"group": "earth",
-			"icon": "✨",
-			"title": "Gaussian splats on the globe",
-			"lang": "26",
-			"desc": "Two photoreal 3D scans drawn as Gaussian splats on a real place on the globe: streamed as 3D Tiles (KHR_gaussian_splatting, SPZ) or read from one .spz file, WebGPU with spherical harmonics. Drop your own .ply / .splat / .spz / .ksplat / .sog.",
-			"img": "/thumbs/splat.webp",
-			"shot": {
-				"url": "/globe/splat?lang=en",
-				"wait": 30
-			}
-		},
-		{
-			"id": "voxel",
-			"href": "/globe/voxel",
-			"group": "earth",
-			"icon": "🧊",
-			"title": "Voxels on the globe",
-			"lang": "26",
-			"desc": "One voxel grid drawn three ways on the real globe: as a volume (a cloud over Mt. Fuji, earthquake density under Japan), as blocks (Mt. Fuji from the terrain) or as an isosurface, with slicing and picking. WebGPU or WebGL2, and 3D Tiles voxels (EXT_primitive_voxels).",
-			"img": "/thumbs/voxel.webp",
-			"shot": {
-				"url": "/globe/voxel?lang=en&v=fuji",
-				"wait": 30
-			}
-		},
-		{
 			"id": "quakes",
 			"href": "/globe/quakes/",
 			"group": "earth",
@@ -302,6 +274,19 @@
 			"lang": "en",
 			"desc": "All 139 official MapLibre GL JS examples, run unchanged on the ortho-earth globe. Each card shows how closely it matches MapLibre; press Run to try it, or copy the code.",
 			"img": "/thumbs/maplibre.webp",
+			"shot": {
+				"wait": 3
+			}
+		},
+		{
+			"id": "sandcastle",
+			"href": "/sandcastle/",
+			"group": "tools",
+			"icon": "🏰",
+			"title": "Sandcastle",
+			"lang": "en",
+			"desc": "The official CesiumJS Sandcastle examples, run unchanged on the Ortho Earth globe through its Cesium-compatible facade. Each card puts CesiumJS and Ortho Earth side by side, with how closely the pictures match.",
+			"img": "/thumbs/sandcastle.webp",
 			"shot": {
 				"wait": 3
 			}
@@ -471,19 +456,6 @@
 			"img": "/thumbs/edo-map.webp",
 			"shot": {
 				"wait": 25
-			}
-		},
-		{
-			"id": "pointcloud",
-			"href": "/japan/pointcloud",
-			"group": "japan",
-			"icon": "☁️",
-			"title": "Point clouds of Shizuoka",
-			"lang": "26",
-			"desc": "Laser point clouds of Shizuoka Prefecture (VIRTUAL SHIZUOKA): pick a survey and a map sheet, and the open data is read straight from the prefecture's files and drawn on the 3D map. Change the point size and colours, and fit the heights to the terrain.",
-			"img": "/thumbs/pointcloud.webp",
-			"shot": {
-				"wait": 35
 			}
 		},
 		{
