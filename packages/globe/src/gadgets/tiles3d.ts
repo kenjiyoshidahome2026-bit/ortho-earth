@@ -113,6 +113,7 @@ interface T3dNode {
 	/** 分類の立体（.geom）と、いま renderer に出している柱の名・点群の内外の判定（β 空間） */ vols?: GeomOut[] | null; volKeys?: string[] | null; volTests?: VolTest[] | null;
 	/** 点群の写し（分類の立体がある時だけ）＝点ごとに内側の立体の色を混ぜ直す元（pos・origin＝β・base＝スタイル後の色） */ ptsSrc?: Array<{ pos: Float32Array; origin: number[]; base: Uint8Array; tinted: boolean }> | null;
 	/** 点の層ごとの間隔の見積もり（世界単位・attenuation の誤差が無いタイルの代わり） */ ptsSp?: number[];
+	/** 境界の世界座標の写し（sphere と持ち上げ lift が同じ間は使い回す） */ wb?: { s: Sphere; lift: number; c: number[]; axes: number[][] | null };
 }
 /** 分類の立体 1 つの内外の判定（β 空間）：単位の形の座標 u＝Q·(β−bc)＋q0（Q＝列優先 3x3）・r2＝β の外接球の半径²・color＝0..1（α＝混ぜる量） */
 interface VolTest { shape: number; Q: Float64Array; q0: number[]; bc: number[]; r2: number; color: number[] }
@@ -585,15 +586,17 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const stylePoints = (set: T3dSet, f: PointsFeat, n: number): { rgba: Uint8Array; size: Float32Array | null } | null => {
 		const sty = set.style; if (!sty) return null;
 		const refs = [...new Set(JSON.stringify(set.styleSpec && (isCesiumStyle(set.styleSpec) ? cesiumToSpec(set.styleSpec) : set.styleSpec)).match(/\["get","([^"]+)"/g) ?? [])].map(m => m.slice(8, -1));
-		const rgba = new Uint8Array(f.rgba), size = sty.pointSize ? new Float32Array(n) : null, cols = f.table?.columns ?? {}, cache = new Map<string, [number[] | null, boolean, number | null]>();
+		const rgba = new Uint8Array(f.rgba), size = sty.pointSize ? new Float32Array(n) : null, cols = f.table?.columns ?? {}, cache = new Map<unknown, [number[] | null, boolean, number | null]>();
 		const valOf = (r: string, i: number, id: number) => r === "POSITION" ? [f.local[i * 3], f.local[i * 3 + 1], f.local[i * 3 + 2]] : r === "COLOR" ? `rgba(${f.rgba[i * 4]},${f.rgba[i * 4 + 1]},${f.rgba[i * 4 + 2]},${f.rgba[i * 4 + 3] / 255})` : cols[r]?.[id];
+		// 覚える鍵＝値の組（1 列ならその値のまま・数列は \u0001 で繋ぐ）。POSITION を引く式は点ごとに違う＝覚えない（旧＝点ごとの JSON.stringify が毎点の費用だった）
+		const memo = !refs.includes("POSITION"), keyOf = refs.length === 1 ? (v: unknown[]) => v[0] : (v: unknown[]) => v.map(String).join("\u0001");
 		for (let i = 0; i < n; i++) {
-			const id = f.ids ? f.ids[i] : i, vals = refs.map(r => valOf(r, i, id)), key = JSON.stringify(vals);
-			let e = cache.get(key);
+			const id = f.ids ? f.ids[i] : i, vals = refs.map(r => valOf(r, i, id)), key = memo ? keyOf(vals) : null;
+			let e = memo ? cache.get(key) : undefined;
 			if (!e) {
 				const props: Record<string, unknown> = {}; refs.forEach((r, k) => { props[r] = vals[k]; });
 				const x = { props, id, state: null };
-				e = [sty.color?.(x) ?? null, sty.show ? sty.show(x) : true, sty.pointSize?.(x) ?? null]; cache.set(key, e);
+				e = [sty.color?.(x) ?? null, sty.show ? sty.show(x) : true, sty.pointSize?.(x) ?? null]; if (memo) cache.set(key, e);
 			}
 			const [c, shown, ps] = e;
 			if (c) { rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = c[3]; }
@@ -823,7 +826,18 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 
 	// 選び（毎移動・rAF に畳む）
 	let frameNo = 0;
+	// ?perf=1＝選びの CPU ms と見た節点の数を 2 秒ごとに [t3perf] 行で console へ（改善計画 段階 0）
+	const perf = typeof location !== "undefined" && /[?&]perf=1/.test(location.search) ? { n: 0, ms: 0, max: 0, nodes: 0, since: 0 } : null;
 	function update() {
+		if (!perf) { select(); return; }
+		const t0 = performance.now();
+		select();
+		const t1 = performance.now(), ms = t1 - t0;
+		perf.n++; perf.ms += ms; if (ms > perf.max) perf.max = ms;
+		if (!perf.since) perf.since = t1;
+		else if (t1 - perf.since > 2000) { console.log(`[t3perf] update=${(perf.ms / perf.n).toFixed(2)}/${perf.max.toFixed(1)}ms×${perf.n} nodes/frame=${Math.round(perf.nodes / perf.n)}`); perf.n = perf.ms = perf.max = perf.nodes = 0; perf.since = t1; }
+	}
+	function select() {
 		if (!sets.size) return;
 		frameNo++;
 		const W = size().w, H = size().h, s = cameraState(cam, W, H), planes = planesOf(s.mvp), eye = s.eye, fpx = s.focal / (cam.dpr || dpr || 1);
@@ -835,9 +849,12 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			const show = new Set<T3dNode>();
 			const maxSSE = (set.opts.maxSSE ?? (lowMem ? 24 : 16)) * (set.sse ?? 1);
 			const visible = (n: T3dNode): { ok: true; dist: number; distC?: number } | { ok: false } => {
+				if (perf) perf.nodes++;
 				if (!n.sphere) return { ok: true, dist: 1 };
-				const c = worldOf(n.sphere.c, -liftOf(set, n), ell, EARTH_M), r = n.sphere.r / EARTH_M;
-				const axes = n.sphere.obb ? obbAxes(n.sphere.obb, -liftOf(set, n), ell, EARTH_M) : null;   // a box volume: culled by the box, as Cesium
+				const lift = -liftOf(set, n);
+				let wb = n.wb;   // 世界の中心と箱の軸は境界と持ち上げが変わった時だけ求め直す（毎フレーム全節点の ecef2geo を省く）
+				if (wb?.s !== n.sphere || wb.lift !== lift) n.wb = wb = { s: n.sphere, lift, c: worldOf(n.sphere.c, lift, ell, EARTH_M), axes: n.sphere.obb ? obbAxes(n.sphere.obb, lift, ell, EARTH_M) : null };
+				const c = wb.c, r = n.sphere.r / EARTH_M, axes = wb.axes;   // a box volume: culled by the box, as Cesium
 				for (const p of planes) if (p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3] < -(axes ? axes.reduce((m, a) => m + Math.abs(p[0] * a[0] + p[1] * a[1] + p[2] * a[2]), 0) : r)) return { ok: false };
 				// 地平線の向こう（球の裏側）＝地平面（接点の面 dot(X,E)=1）より向こうに境界球ごと居る
 				const d = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], dl = len(d), el = len(eye);
