@@ -13,7 +13,7 @@
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
 import { viewRays } from "../camera.ts";
-import { cameraState, lonlatTo3D, ellNormal3D, project, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
+import { cameraState, lonlatTo3D, ellNormal3D, project, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, liftedBboxVisible, worldRadiusM, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
 import { evalPaintZoom } from "../paintzoom.ts";   // 破線でずらす md の列のずらし（線分プールの語 6 が距離＝層で 1 つの値を uniform で置く）
 import type { PaintZoom } from "../paintzoom.ts";
@@ -3319,11 +3319,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180), foot = betaGeo(st.eye);   // foot＝目の足元（bbox 内なら無条件で可視）
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
 			const draws: { p: MeshBatch; count: number; slot: number }[] = [];
+			const liftGroundR = 1 + Math.max(0, cam.centerAlt || 0) / worldRadiusM();   // 注視点の地面の高さ（持ち上げる束の間引きの第 2 候補・camera.ts liftedBboxVisible）
 			for (const p of meshes.values()) {
 				if (draws.length >= plCap && !growPlBatch(draws.length + 1)) { if (!warnedPL) { warnedPL = true; console.warn(`[gpu] mesh visible batches exceed ${PL_BATCH_CEIL} = truncated`); } break; }   // 受け皿は倍々に広げる・天井を越えた分だけ打ち切り（警告は 1 回）
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;
-				if (!bboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2])) continue;   // 重心の高さで射影（camera.ts bboxVisible）
+				if (!liftedBboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2], p.noLift ? 0 : liftGroundR)) continue;   // 重心の高さで射影（camera.ts bboxVisible）・持ち上げる束は注視点の地面の高さでも（liftedBboxVisible・2026-10-31）
 				let count = p.count;
 				if (p.lodH && !p.two && !p.keep2d) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」（橋梁 two は全描画・keep2d＝統計は間引かない）
 					const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - cam.center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - cam.center[1]) * 111320);

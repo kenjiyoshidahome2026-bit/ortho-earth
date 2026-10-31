@@ -1,7 +1,7 @@
 // bboxVisible（メッシュのバッチのカリング・2026-10-28）：Cesium 例 google-photorealistic-3d-tiles-with-building-insert＝globe:false で注視点が楕円体（Google タイルの
 // 地面＝楕円体高 1600 m の 1.6 km 下）、目は地面の 260 m 上。旧 meshBboxVisible は bbox を海面（radius 1）で射影したので、目の手前 750 m のタイルが
 // 画面の下へ外れて落とされ、足元が床の色（白）になった。重心の高さ（radius）で射影すれば見える。目の足元が bbox 内／目の面を跨ぐ bbox も可視。
-import { cameraState, worldRadiusM, bboxVisible, movedBbox, betaToLonLat, betaRadiusOf, betaGeo, ellNormal3D, lonlatTo3D, setEllipsoid } from "../src/camera.ts";
+import { cameraState, worldRadiusM, bboxVisible, liftedBboxVisible, movedBbox, betaToLonLat, betaRadiusOf, betaGeo, ellNormal3D, lonlatTo3D, setEllipsoid } from "../src/camera.ts";
 let fails = 0;
 const ok = (name, c, info = "") => { console.log((c ? "PASS " : "FAIL ") + name + (c ? "" : "  " + info)); if (!c) fails++; };
 for (const ell of [false, true]) {
@@ -24,6 +24,20 @@ ok("tile under the foot visible (foot inside)", bboxVisible(st, tile(0), cam.cen
 ok("tile 2 km behind the camera culled", !bboxVisible(st, tile(-2000), cam.center, foot, pad, ground));
 ok("tile 2 km ahead visible", bboxVisible(st, tile(2000), cam.center, foot, pad, ground));
 ok("tile beyond the horizon culled", !bboxVisible(st, [cam.center[0] + 20, cam.center[1], cam.center[0] + 21, cam.center[1] + 1], cam.center, foot, pad, ground));
+
+// liftedBboxVisible（2026-10-31）：地形へ持ち上げる模型（CLAMP_TO_GROUND＝原点は海面・持ち上げはシェーダ）は、注視点の地面が高い所（Cesium の
+// physically-based-materials＝標高 1,740 m のメキシコの砂漠・目の 156 m 先のトラック）で原点の高さ（海面）だと画面の下へ外れて落ちた。注視点の地面の高さでも試す
+if (ell) {
+	const D2R = Math.PI / 180, fovy = 60 * D2R, dist = 156.51, H2 = 720, W2 = 960;
+	const zoom = Math.log2(Math.PI * H2 * R / (Math.tan(fovy / 2) * 256 * dist));
+	const cam2 = { center: [-103.97638108842978, 27.231362741748466], zoom, pitch: 74.535 * D2R, bearing: 80.536 * D2R, roll: 0, dpr: 1, near: 1, fovy, centerAlt: 1738.89 };
+	const st2 = cameraState(cam2, W2, H2), pad2 = 0.5 * Math.max(W2, H2), truck = [-103.97717802518181, 27.231195893408035, -103.97654764013281, 27.231397880138157];
+	const groundR = 1 + 1738.89 / R;
+	ok("truck at sea level (origin) culled", !bboxVisible(st2, truck, cam2.center, null, pad2, 1));
+	ok("truck lifted: visible by the target ground height", liftedBboxVisible(st2, truck, cam2.center, null, pad2, 1, groundR));
+	ok("truck noLift (groundRadius 0) stays culled", !liftedBboxVisible(st2, truck, cam2.center, null, pad2, 1, 0));
+	ok("2 km behind the camera stays culled even lifted", !liftedBboxVisible(st, tile(-2000), cam.center, foot, pad, 1, ground));
+}
 // movedBbox（2026-10-28）：setTransform で動かした模型（Cesium の牛乳トラック）は読み込んだ場所の bbox で間引かれて消えた＝xf（L＋xt）で動いた先の箱
 {
 	const box = tile(0, 10), oll = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2], org = lonlatTo3D(oll[0], oll[1]);

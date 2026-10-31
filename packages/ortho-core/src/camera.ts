@@ -129,6 +129,12 @@ export function bboxVisible(st: CameraState, bbox: ArrayLike<number>, center: Ar
 	if (nf < pts.length) return true;   // 目の面（か地平線）を跨ぐ＝画面矩形では縛れない
 	return !(maxx < -pad || minx > st.W + pad || maxy < -pad || miny > st.H + pad);
 }
+// 地形へ持ち上げる束（模型の CLAMP_TO_GROUND・接地の押し出し）の間引き（2026-10-31）：束の原点は海面（radius 1）で、持ち上げはシェーダ（elevQ）＝CPU は地面の高さを知らない。
+// 原点の高さで射影すると、目が高い地面（標高 1,740 m のメキシコの砂漠）にある時に足元の模型が画面の 1.7 km 下へ外れて落ちる（Cesium の physically-based-materials のトラック）。
+// 原点の高さで見えなければ、注視点の地面の高さ（cam.centerAlt＝groundRadius）でもう一度試す＝近くの持ち上げた物は注視点とほぼ同じ高さに居る。centerAlt 0 の地図は従来と同じ
+export function liftedBboxVisible(st: CameraState, bbox: ArrayLike<number>, center: ArrayLike<number>, foot: ArrayLike<number> | null, pad: number, radius: number, groundRadius: number): boolean {
+	return bboxVisible(st, bbox, center, foot, pad, radius) || (groundRadius > radius && bboxVisible(st, bbox, center, foot, pad, groundRadius));
+}
 // projectInto の「手前半球」（u·E ≥ radius）は目より高い物を地平線の向こうと見なす（目の高さ 5000 m・5 km 先の 5500 m の模型が消えた＝
 // Cesium の localtofixedframe 2026-10-29）。地面より上の点は、目から点への線分が海面の球に当たらず、カメラの前なら見える＝画面の位置を q に入れて true
 function clearOfGround(st: CameraState, lon: number, lat: number, radius: number, q: number[]): boolean {
