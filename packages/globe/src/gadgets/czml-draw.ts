@@ -34,7 +34,7 @@ type CzmlDrawMsg = { type: "probe"; id?: unknown } | { type: "tracks"; tracks?: 
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 interface Prog { p: WebGLProgram; u: Uniforms }
 /** アトラスの中の絵（u0,v0,u1,v1＝0..1・w,h＝device px） */
-interface Slot { u0: number; v0: number; u1: number; v1: number; w: number; h: number }
+interface Slot { u0: number; v0: number; u1: number; v1: number; w: number; h: number; pad?: number }   // pad＝札の字の左の余白（px・背景つきの札は背景の余白の分だけ広い）
 
 const D2R = Math.PI / 180, MIN_EARTH_PX = 14;   // 地球の見かけの半径（CSS px）がこれ未満＝太陽系圏の奥＝描かない（衛星と同じ）
 const FONT = '"Noto Sans",system-ui,sans-serif';   // 地域の書体は名指ししない（regionless）＝各言語の文字は OS の書体が受ける
@@ -166,23 +166,27 @@ const imageSlot = (src: string, img: ImageBitmap) => {
 // 札＝白抜きの縁（3px）と字を canvas2D で一度だけ焼く。pad＝字の左端・縦の中心までの片寄り（置く側が引く）
 const LABEL_PAD = 2;
 // 改行（"\n"）＝行を重ねる（Cesium の Label と同じく各行を align で揃える・行の間隔＝字の高さ×1.2）。縦の中心＝全行の中心
-function labelSlot(text: string, px: number, color: string, outline: string, dpr: number, align = "left") {
-	const k = `t:${px * dpr}|${color}|${outline}|${align}|${text}`; if (slots.has(k)) return slots.get(k)!;
+// bg＝背景の色（Cesium の Label.showBackground・backgroundColor）・bgPad＝背景の余白［px］（backgroundPadding）＝字の箱のまわりを角丸無しで塗る
+function labelSlot(text: string, px: number, color: string, outline: string, dpr: number, align = "left", bg: string | null = null, bgPad: [number, number] = [7, 5]) {
+	const k = `t:${px * dpr}|${color}|${outline}|${align}|${bg}|${bgPad}|${text}`; if (slots.has(k)) return slots.get(k)!;
+	const pad = LABEL_PAD + (bg ? bgPad[0] * dpr : 0), padY = LABEL_PAD + (bg ? bgPad[1] * dpr : 0);
 	bake ??= new OffscreenCanvas(64, 64); bctx ??= bake.getContext("2d")!;
 	const font = `${px * dpr}px ${FONT}`, ow = 3 * dpr, rows = text.split("\n"), lh = px * dpr * 1.2; bctx.font = font;
 	const tws = rows.map(r => bctx!.measureText(r).width), tw = Math.ceil(Math.max(...tws));
-	const w = Math.ceil(tw + ow + LABEL_PAD * 2), h = Math.ceil(px * dpr * 1.5 + lh * (rows.length - 1) + ow + LABEL_PAD * 2);
+	const w = Math.ceil(tw + ow + pad * 2), h = Math.ceil(px * dpr * 1.5 + lh * (rows.length - 1) + ow + padY * 2);
 	if (bake.width < w || bake.height < h) { bake.width = Math.max(bake.width, w); bake.height = Math.max(bake.height, h); }
 	bctx.clearRect(0, 0, bake.width, bake.height);
 	bctx.font = font; bctx.textBaseline = "middle"; bctx.textAlign = "left";
-	const x = LABEL_PAD + ow / 2, y0 = h / 2 - lh * (rows.length - 1) / 2;
+	if (bg) { bctx.fillStyle = bg; bctx.fillRect(LABEL_PAD, LABEL_PAD, w - LABEL_PAD * 2, h - LABEL_PAD * 2); }
+	const x = pad + ow / 2, y0 = h / 2 - lh * (rows.length - 1) / 2;
 	rows.forEach((r, i) => {
 		const xi = x + (align === "right" ? tw - tws[i] : align === "center" ? (tw - tws[i]) / 2 : 0), y = y0 + lh * i;
 		bctx!.lineWidth = ow; bctx!.strokeStyle = outline; bctx!.strokeText(r, xi, y);
 		bctx!.fillStyle = color; bctx!.fillText(r, xi, y);
 	});
 	const img = bctx.getImageData(0, 0, w, h);
-	return place(k, img, w, h);
+	const sl = place(k, img, w, h); if (sl) sl.pad = pad;
+	return sl;
 }
 
 export function init(cv: OffscreenCanvas, opts: unknown, h: OverlayHost) {
@@ -346,10 +350,10 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		const lb = st.label, la = lb?.tbd ? nearFar(lb.tbd, dM) : 1;
 		if (lb && la > 0 && boolAt(lb.show, ms, true) && lb.text) {
 			const k = lb.sbd ? nearFar(lb.sbd, dM) : 1;
-			const L = labelSlot(lb.text, lb.px * k, lb.color, lb.outline || "rgba(0,0,0,0.85)", dpr, lb.text.includes("\n") ? lb.align : "left");
+			const L = labelSlot(lb.text, lb.px * k, lb.color, lb.outline || "rgba(0,0,0,0.85)", dpr, lb.text.includes("\n") ? lb.align : "left", lb.bg ?? null, lb.bgPad ?? [7, 5]);
 			if (L) {
-				const x = P[0] + lb.offset[0] * k * dpr, y = P[1] + lb.offset[1] * k * dpr, ink = L.w - LABEL_PAD * 2 - 3 * dpr;   // ink＝字の幅
-				const x0 = lb.align === "left" ? x - LABEL_PAD - 1.5 * dpr : lb.align === "right" ? x - ink - LABEL_PAD - 1.5 * dpr : x - L.w / 2;
+				const LP = L.pad ?? LABEL_PAD, x = P[0] + lb.offset[0] * k * dpr, y = P[1] + lb.offset[1] * k * dpr, ink = L.w - LP * 2 - 3 * dpr;   // ink＝字の幅
+				const x0 = lb.align === "left" ? x - LP - 1.5 * dpr : lb.align === "right" ? x - ink - LP - 1.5 * dpr : x - L.w / 2;
 				push(Math.round(x0) + L.w / 2, Math.round(y - L.h / 2) + L.h / 2, L.w / 2, L.h / 2, Z4, Z4, [0, 0, 1, 1 - la], [L.u0, L.v0, L.u1, L.v1]);
 			}
 		}
