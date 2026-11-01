@@ -1,0 +1,62 @@
+{
+ "at": "2026-11-01T02:36:08.676Z",
+ "cesium": "1.146.0",
+ "n": 1,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 1,
+  "3": 0,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 1,
+  "3": 0,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 1,
+   "examples": [
+    "aec-metadata-styling"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "aec-metadata-styling",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 70% of the cells match"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1280,
+    "n": 2044,
+    "colour": 0.8586105675146771,
+    "edge": 0.6971624266144814,
+    "blob": 17,
+    "masked": 1028
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
