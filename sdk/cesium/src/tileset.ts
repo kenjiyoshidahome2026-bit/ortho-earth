@@ -19,6 +19,8 @@ export function sphereOfVolume(bv: Any, transform?: number[]): BoundingSphere | 
 	return s;
 }
 
+import { tileVolume } from "./tile-volume.ts";
+
 import { customShaderId } from "./custom-shader.ts";
 import { tilesetEnvSH } from "./lighting.ts";
 export interface TilesetHost { map: Any | null; ready: Promise<Any> }
@@ -51,7 +53,7 @@ export class Cesium3DTileset {
 		if (opts.modelMatrix) this.modelMatrix = Matrix4.clone(opts.modelMatrix);
 		if (opts.show === false) this.#show = false;
 		if (opts.featureIdLabel != null) this.featureIdLabel = opts.featureIdLabel;
-		const bs = sphereOfVolume(json?.root?.boundingVolume, json?.root?.transform) ?? new BoundingSphere(Cartesian3.ZERO, 6378137);
+		const bs = sphereOfVolume(tileVolume(json, json?.root), json?.root?.transform) ?? new BoundingSphere(Cartesian3.ZERO, 6378137);
 		this.#sphere = BoundingSphere.transform(bs, this.modelMatrix, new BoundingSphere());
 		if (opts.pointCloudShading) Object.assign(this.pointCloudShading, opts.pointCloudShading);
 		if (opts.clippingPlanes != null) this.clippingPlanes = opts.clippingPlanes;   // drawn by the scene (clipping.ts)
