@@ -33,3 +33,6 @@ updates:
       # TypeScript 7（Go 版）は型検査の差（TS7022）と JS API（t-dts が使う ts.parseJsonConfigFileContent）の移行が要る＝別作業（#620・2026-10-24）
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # lerc 4 は default export を無くし wasm の load() が要る＝sdk/cesium terrain.ts の `import Lerc from "lerc"` が落ち、facade 全体が読み込めない（#887 で入り 2026-11-01 に 3 へ戻した）
+      - dependency-name: "lerc"
+        update-types: ["version-update:semver-major"]
