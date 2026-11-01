@@ -13,13 +13,13 @@
 		"build": "tsc -p .",
 		"prepack": "node ../../scripts/pack-ts.mjs pre",
 		"postpack": "node ../../scripts/pack-ts.mjs post",
-		"test": "node tests/t-cesium.mjs"
+		"test": "node tests/t-cesium.mjs && node tests/t-tile-volume.mjs"
 	},
 	"dependencies": {
 		"@cesium/core": "0.1.0",
 		"@cesium/engine": "26.4.0",
 		"@cesium/widgets": "16.3.0",
-		"lerc": "^4.2.0"
+		"lerc": "^3.0.0"
 	},
 	"peerDependencies": {
 		"@ortho-earth/globe": "^2.0.0",
