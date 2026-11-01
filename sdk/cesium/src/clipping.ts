@@ -3,6 +3,7 @@
 // Earth-fixed frame here (the globe's spec.ecef) each frame the collection or its planes change (the examples drag a plane's distance).
 import { Cartesian3, Cartographic, Ellipsoid, FixedFrameTransforms, Matrix4, Plane } from "@cesium/core";
 import { sphereOfVolume } from "./tileset.ts";
+import { tileVolume } from "./tile-volume.ts";
 
 type Any = any;
 const MIN_TERRAIN_HEIGHT = -100000;   // ApproximateTerrainHeights._defaultMinTerrainHeight
@@ -14,7 +15,7 @@ const MIN_TERRAIN_HEIGHT = -100000;   // ApproximateTerrainHeights._defaultMinTe
 export function clippingOriginOf(json: Any, modelMatrix: Matrix4): Matrix4 {
 	const rt = json?.root?.transform?.length === 16 ? Matrix4.unpack(json.root.transform) : Matrix4.IDENTITY;
 	const computed = Matrix4.multiply(modelMatrix, rt, new Matrix4());
-	const c = sphereOfVolume(json?.root?.boundingVolume)?.center;
+	const c = sphereOfVolume(tileVolume(json, json?.root))?.center;
 	const carto = c && !Cartesian3.equals(c, Cartesian3.ZERO) ? Ellipsoid.WGS84.cartesianToCartographic(c, new Cartographic()) : undefined;
 	const initial = carto && carto.height > MIN_TERRAIN_HEIGHT ? FixedFrameTransforms.eastNorthUpToFixedFrame(c!) : Matrix4.IDENTITY;
 	return Matrix4.multiply(computed, initial, new Matrix4());
