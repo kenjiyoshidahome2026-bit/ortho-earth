@@ -1,0 +1,49 @@
+{
+ "at": "2026-11-01T18:48:45.145Z",
+ "cesium": "1.146.0",
+ "n": 1,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [],
+ "graded": [
+  {
+   "name": "3d-tiles-1.1-photogrammetry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1767,
+    "n": 1835,
+    "colour": 0.9749318801089918,
+    "edge": 0.9831062670299727,
+    "blob": 12,
+    "masked": 1237
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
