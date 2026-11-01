@@ -14,6 +14,7 @@ import type { GlobeMap, CogHandle, Bbox } from "@ortho-earth/globe";
 // クイックルックの絵（56px 以下・RGBA）と、それを持つ一覧の行（_thumb＝描けた絵・_cv＝今の行の canvas）
 type Thumb = { key: string; w: number; h: number; rgba: Uint8ClampedArray };
 type Item = Scene & { _thumb?: Thumb; _cv?: HTMLCanvasElement | null };
+type Fit = boolean | "small";   // load の fit："small"＝シーンが画面に比べて小さい時だけ寄る
 
 const t = tr();
 const DESC: Record<string, string> = { palsar2: "L-band SAR, HH/HV polarisation, ortho-corrected (2016–)", palsar: "L-band SAR on ALOS (2006–2011)", avnir2: "Optical 10 m, true colour (2006–2011)", sst: "SGLI sea surface temperature, 8-day mean, global (2018–)" };
@@ -186,11 +187,50 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 	let items: Item[] = [], sel = -1, ac: AbortController | null = null, cogCtl: CogHandle | null = null, lastClick: number[] | null = null, metricsTimer: ReturnType<typeof setInterval> | null = null;
 	let other = -1;   // 見比べの右（東）の行＝-1 は見比べなし。左（西）は sel
 	const urls = new Map<string, { url: string; ts: number }>();   // scene id → {url, ts}（署名 URL は 1 時間＝50 分まで使い回す・クイックルックと本番読みで共用）
-	const freshUrl = async (it: Item) => {
+	// fit＝"small"：シーンが画面の幅の 4 割より小さい時だけ寄る（AVNIR-2 の 70 km 四方を、東京の広い初期画面で探した時など）
+	const smallInView = (it: Item) => {
+		const xs: number[] = [];
+		const walk = (c: unknown): void => { if (Array.isArray(c)) { if (typeof c[0] === "number") xs.push(c[0]); else c.forEach(walk); } };
+		walk((it.geometry as { coordinates?: unknown } | null)?.coordinates);
+		const H = mapEl.clientHeight / 2, a = map.unprojectXY(0, H), b = map.unprojectXY(mapEl.clientWidth, H);
+		if (!xs.length) return false;
+		if (!a || !b) return true;   // 画面の端が地球の外＝地球全体が見えるほど引いている＝どのシーンも小さい
+		return Math.max(...xs) - Math.min(...xs) < Math.abs(b[0] - a[0]) * 0.4;
+	};
+	// シーンの範囲（＋周り 15%）へ寄る＝「この場所に寄る」ボタンとタブ切替の小さいシーン
+	const flyToScene = (it: Item) => {
+		const bb = bboxOf(it.geometry); if (!bb) return;
+		const z = map.fitZoomForBbox([bb[0] - (bb[2] - bb[0]) * .15, bb[1] - (bb[3] - bb[1]) * .15, bb[2] + (bb[2] - bb[0]) * .15, bb[3] + (bb[3] - bb[1]) * .15]);
+		map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(1.2, Math.min(17, z)), 0, 0);
+	};
+	const freshUrl = async (it: Item, ds: Dataset = src) => {
 		const u = urls.get(it.id);
 		if (u && Date.now() - u.ts < 50 * 60e3) return u.url;
-		const { url } = await cogUrl(src, it.id);
+		const { url } = await cogUrl(ds, it.id);
 		urls.set(it.id, { url, ts: Date.now() }); return url;
+	};
+	// シーンの読み口。先頭の Range（IFD＝ヘッダ 64 KB）は端末（IDB）に置き、2 回目からは署名 URL の発行もヘッダの読みも撃たない
+	//（タイル本体は cog ガジェットの IDB 保管が持つ＝全部当たれば開き直しは通信ゼロ）。署名 URL は本当に読む時に初めて取る。
+	// ds は作った時のデータセットで固定（読んでいる途中でタブを替えても別のデータセットの URL を取らない）。
+	const sceneFetch = (it: Item) => {
+		const ds = src, key = `head:${ds.key}/${it.id}`;
+		let net: ((u: unknown, init?: RequestInit) => Promise<Response>) | null = null;
+		const go = async (u: unknown, init?: RequestInit) => {
+			net ??= renewingFetch(await freshUrl(it, ds), async () => { urls.delete(it.id); return freshUrl(it, ds); });
+			return net(u, init);
+		};
+		return async (u: unknown, init?: RequestInit): Promise<Response> => {
+			const range = new Headers(init?.headers).get("range") || "";
+			if (!/^bytes=0-\d+$/.test(range)) return go(u, init);
+			const hit = await quickDb.get(`${key}:${range}`) as { b: Uint8Array; cr: string } | null;
+			if (hit?.b && hit.cr) return new Response(hit.b as Uint8Array<ArrayBuffer>, { status: 206, headers: { "content-range": hit.cr, "content-length": String(hit.b.byteLength) } });
+			const r = await go(u, init);
+			const cr = r.headers.get("content-range");
+			if (r.status !== 206 || !cr) return r;
+			const b = new Uint8Array(await r.arrayBuffer());
+			quickDb.set(`${key}:${range}`, { b, cr });
+			return new Response(b, { status: 206, statusText: r.statusText, headers: r.headers });
+		};
 	};
 	const drawOpts = () => cogOpts(src, { pol });                       // 見せ方（openCog オプション）
 	const drawSig = () => (src.pol ? pol : "") + (src.cog ? JSON.stringify(src.cog) : "");   // 見せ方の指紋（クイックルックの鍵）
@@ -293,7 +333,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		}
 		return [...m.values()].map(v => v.it);
 	};
-	const search = async (ll: number[], { autoLoad = true, fit = false } = {}) => {
+	const search = async (ll: number[], { autoLoad = true, fit = false as Fit } = {}) => {
 		lastClick = ll;
 		if (show) applySrc(src.key, { keepItems: true });   // 見どころから地図クリックへ移った＝案内文を元へ
 		ac?.abort(); ac = new AbortController(); endCompare();
@@ -307,17 +347,19 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		} catch (e) { if ((e as Error)?.name !== "AbortError") { console.warn("[tellus] search", e); status(t("Search failed")); } }
 	};
 
-	const load = async (i: number, { fit = false } = {}) => {
+	const load = async (i: number, { fit: fit0 = false as Fit } = {}) => {
 		if (!items[i]) return;
 		select(i); status(t("Loading…"), true);
 		const it = items[i];
+		// "small"＝小さい時だけ、読む前に「この場所に寄る」と同じ枠へ飛ぶ（先に寄る＝粗い段を読まずに済む・エンジンの fit より枠が安定）
+		if (fit0 === "small" && smallInView(it)) flyToScene(it);
+		const fit = fit0 === true;
 		try {
-			const url = await freshUrl(it);
-			const renew = renewingFetch(url, async () => { urls.delete(it.id); return freshUrl(it); });
 			// 読込の進み具合＝届いた量を地図の上のローダーに出す（最初の 1 枚が出るまで数秒〜十数秒かかる回線でも「止まっていない」と分かる）
-			const counted = track(renew);
-			// cacheKey＝データセット/シーン＝生タイルのメモリキャッシュの鍵（署名 URL は発行ごとに変わる＝URL では鍵にならない）
-			cogCtl = await map.gadget.cog(url, { fit, fetch: counted, cacheKey: `${src.key}/${it.id}`, ...drawOpts() });
+			const counted = track(sceneFetch(it));
+			// cacheKey＝データセット/シーン＝生タイルのキャッシュの鍵（署名 URL は発行ごとに変わる＝URL では鍵にならない）。
+			// src は読み口が URL を見ない（sceneFetch が差し替える）ので名札だけ
+			cogCtl = await map.gadget.cog(`tellus:${src.key}/${it.id}`, { fit, fetch: counted, cacheKey: `${src.key}/${it.id}`, ...drawOpts() });
 			if (sel !== i) return;   // 読んでいる間に別の行へ移った＝古い方の後始末はしない（新しい load が上書き済み）
 			status(""); shareUrl(it);
 			if (!metricsTimer) metricsTimer = setInterval(showMetrics, 1000);
@@ -381,8 +423,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		const it = items[r];
 		try {
 			status(t("Loading…"), true);
-			const url = await freshUrl(it);
-			await cogCtl.compare(url, { fetch: track(renewingFetch(url, async () => { urls.delete(it.id); return freshUrl(it); })), cacheKey: `${src.key}/${it.id}`, ...drawOpts() });
+			await cogCtl.compare(`tellus:${src.key}/${it.id}`, { fetch: track(sceneFetch(it)), cacheKey: `${src.key}/${it.id}`, ...drawOpts() });
 			if (seq !== cmpSeq) return;
 			status("");
 			(knob.querySelector(".l") as HTMLElement).textContent = items[l].date;
@@ -419,7 +460,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 	const here = () => lastClick || map.unprojectXY(mapEl.clientWidth / 2, mapEl.clientHeight / 2);
 	side.querySelectorAll<HTMLElement>(".tab").forEach(b => b.addEventListener("click", () => { if (b.dataset.k === src.key) return; applySrc(b.dataset.k!); const ll = here(); if (!ll) return;
 		if (src.global && map.getZoom() > 6.5) map.flyTo(ll[0], ll[1], 5, 0, 0);   // 全球 1 枚（SST 4.6 km）＝寄ったままでは陸しか見えない＝海が入る高さへ引く
-		search(ll);
+		search(ll, { fit: "small" });   // 小さいシーン（AVNIR-2）は画面の片隅に小さく載るだけ＝写った範囲へ寄る
 	}));
 	side.querySelectorAll<HTMLElement>(".seg").forEach(b => b.addEventListener("click", () => {   // 偽色⇄グレー＝同じシーンを見せ方だけ変えて載せ直す（生タイルはキャッシュ済＝通信なし）
 		if (b.dataset.pol === pol) return;
@@ -443,11 +484,7 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		if (e.altKey || e.ctrlKey || e.metaKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "")) return;
 		if (e.key === "ArrowLeft") { step(-1); e.preventDefault(); } else if (e.key === "ArrowRight") { step(+1); e.preventDefault(); }
 	});
-	$("#tl-fit").addEventListener("click", () => {
-		const bb = items[sel] && bboxOf(items[sel].geometry); if (!bb) return;
-		const z = map.fitZoomForBbox([bb[0] - (bb[2] - bb[0]) * .15, bb[1] - (bb[3] - bb[1]) * .15, bb[2] + (bb[2] - bb[0]) * .15, bb[3] + (bb[3] - bb[1]) * .15]);
-		map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(1.2, Math.min(17, z)), 0, 0);
-	});
+	$("#tl-fit").addEventListener("click", () => { if (items[sel]) flyToScene(items[sel]); });
 	$("#tl-clear").addEventListener("click", () => { endCompare(); cogCtl?.clear(); select(-1); });
 	$("#tl-opac").addEventListener("input", e => map.setOpacity?.({ base: (+(e.target as HTMLInputElement).value) / 100 }));
 	map.setOpacity?.({ base: 0.55 });   // 衛星画像を主役に＝基図の線は少し引く（スライダーで戻せる）
