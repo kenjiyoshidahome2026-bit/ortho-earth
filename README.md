@@ -50,7 +50,7 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 Or keep your MapLibre code as it is:
 
 ```js
-import maplibregl from "@ortho-earth/globe/maplibre";
+import * as maplibregl from "@ortho-earth/globe/maplibre";
 
 const map = new maplibregl.Map({ container: "map", style: "https://demotiles.maplibre.org/style.json", center: [139.77, 35.68], zoom: 3 });
 ```
