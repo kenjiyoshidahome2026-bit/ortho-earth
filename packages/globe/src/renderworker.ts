@@ -167,6 +167,7 @@ function overlayAdd(m: RwMsg) {
 	const host: OverlayHost = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL,
 		customArgs: (cam, w, h, projection) => makeCustomArgs(cam, w, h, { earthM: worldRadiusM(), globe: cam.zoom < GLOBE_MAX_Z && projection === "globe" }),
 		stage: (st, extra) => { if (overlays.get(m.name!) === o) stage(st, extra); },
+		wantDepth: on => { if (o.depth !== !!on) { o.depth = !!on; dirty = true; armRaf(); } },   // 深度を要る間だけ（czml＝高さのある線か尾がある時）
 		gpuDevice: () => backendName === "webgpu" ? ((renderer as RenderBackendGPU | null)?.device as unknown as GPUDevice | undefined) ?? null : null };   // 本体の GPUDevice（WebGPU の時）＝共有して描くオーバーレイ（three の WebGPURenderer）が深度をコピーなしで読む   // モジュールが非同期の準備を済ませた段（three の "setup"・失敗の "failed"）を名乗る
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
 	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
