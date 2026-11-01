@@ -323,7 +323,7 @@
 			"group": "japan",
 			"icon": "🏙️",
 			"title": "Yokohama digital twin",
-			"lang": "ja",
+			"lang": "26",
 			"desc": "A citizen-first digital twin of Yokohama: tap your home to see your school districts, nearest stations, flood risk and nearest evacuation site on one card. Walking distance from stations, facility search and hazard maps over PLATEAU 3D buildings, in 26 languages.",
 			"img": "/thumbs/yokohama.webp",
 			"shot": {
@@ -342,7 +342,7 @@
 			"shot": {
 				"wait": 18
 			},
-			"lang": "en"
+			"lang": "26"
 		},
 		{
 			"id": "japan",
