@@ -1,0 +1,109 @@
+<!doctype html>
+<!-- 実描画の検分：場面の効果（2026-11-01・WebGPU）＝接触影・高さ霧・光芒・雨・イラスト風。createRendererGPU をメインスレッドで直駆動（t-ssr と同じ試料）。
+     試料＝東京（139.7/35.7）に 20m 角×高さ 100m の明るい箱メッシュ 1 棟・床は暗い球の床。z17・チルト 60°・南から北を見る。時計は 2026-10-01 14:00 JST で止める（太陽は南西の空）。
+     ①基準 ②contactShadow＝箱の東か西の床（壁から 8m）の片方だけが暗くなる・離れた床と空は変わらない ③heightFog（底 0 m・尺 40 m）＝遠い床が霧の色へ明るくなる・箱の上の方は床ほど変わらない
+     ④godRays＝太陽が画面に無ければ何も変わらない ⑤rain（筋なし）＝離れた床が濡れて暗くなる ⑥toon＝箱の縁に墨の線 ⑦null で外す＝元どおり ⑧GPU の検証エラー 0 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-scenefx</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("@ortho-earth/core/gpu");
+	const { cameraState, project, lonlatTo3D } = await import("@ortho-earth/core/camera");
+	const canvas = document.getElementById("g"), N = 256;
+	const r = await createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180);
+	const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];
+	const origin = lonlatTo3D(LON, LAT);
+	const P = (e, n, h) => { const [lo, la] = ll(e, n), p = lonlatTo3D(lo, la), s = 1 + h / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
+	const V = []; for (const h of [0, 100]) for (const [e, n] of [[-10, -10], [10, -10], [10, 10], [-10, 10]]) V.push(...P(e, n, h));
+	const F = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
+	const [bw, bs] = ll(-10, -10), [be, bn] = ll(10, 10);
+	r.set("meshSet", { pos: new Float32Array(V), idx: new Uint32Array(F.flat()), origin, bbox: [bw, bs, be, bn], ward: "box" }, "box#0");
+	const T0 = Date.UTC(2026, 9, 1, 5, 0);
+	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.12, 0.14, 0.18, 1], bldColor: [0.95, 0.9, 0.6], clock: { sim: T0, wall: Date.now(), rate: 0 } });
+	const cam = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: 0, dpr: 1 };
+	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async () => {
+		r.draw(cam, {}); r.flush();
+		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, N, N).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const st = cameraState(cam, N, N);
+	const lumXY = (px, x, y) => { let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = ((y + dy) * N + (x + dx)) * 4; s += (px[i] + px[i + 1] + px[i + 2]) / 3; } return s / 9; };
+	const lum1 = (px, x, y) => { const i = (y * N + x) * 4; return (px[i] + px[i + 1] + px[i + 2]) / 3; };
+	const lum = (px, e, n) => { const [lo, la] = ll(e, n), p = project(st, lo, la), x = Math.round(p[0]), y = Math.round(p[1]); return lumXY(px, x, y); };
+	const fx = o => ({ contact: null, fog: null, rays: null, rain: null, toon: null, ...o });
+	const off = await shot();
+	const E0 = lum(off, 18, 0), W0 = lum(off, -18, 0), far0 = lum(off, 100, -40), sky0 = lumXY(off, 128, 4);
+	const footY = Math.round(project(st, ...ll(0, -10))[1]), footX = Math.round(project(st, ...ll(0, -10))[0]);
+	let topY = footY - 3; while (topY > 4 && lumXY(off, footX, topY - 8) > 90) topY -= 1;
+	const wallY = Math.round((footY + topY) / 2), wallHiY = topY + 6;
+	ok(`基準（東 ${E0.toFixed(1)}・西 ${W0.toFixed(1)}・遠い床 ${far0.toFixed(1)}・空 ${sky0.toFixed(1)}・壁 ${lumXY(off, footX, wallY).toFixed(1)}）`, lumXY(off, footX, wallY) > 90 && Math.abs(E0 - W0) < 3);
+	// ② 接触影
+	r.set("sceneFx", fx({ contact: { strength: 0.8, length: 0.3, thickness: 0.05, steps: 24 } }));
+	const c = await shot();
+	const dE = E0 - lum(c, 18, 0), dW = W0 - lum(c, -18, 0);
+	ok(`contactShadow＝東西の片方だけ影（東 −${dE.toFixed(1)}・西 −${dW.toFixed(1)}）`, Math.max(dE, dW) > 8 && Math.min(dE, dW) < 3);
+	ok(`contactShadow＝離れた床と空は変わらない（${far0.toFixed(1)} → ${lum(c, 100, -40).toFixed(1)}・空 ${lumXY(c, 128, 4).toFixed(1)}）`, Math.abs(lum(c, 100, -40) - far0) < 3 && Math.abs(lumXY(c, 128, 4) - sky0) < 1.5);
+	// ③ 高さ霧
+	r.set("sceneFx", fx({ fog: { density: 8, height: 40, base: 0, color: [0.85, 0.88, 0.92], sun: 0, anisotropy: 0.75 } }));
+	const f = await shot();
+	const dFar = lum(f, 100, -40) - far0, dTop = lumXY(f, footX, wallHiY) - lumXY(off, footX, wallHiY);
+	ok(`heightFog＝遠い床が霧の色へ（${far0.toFixed(1)} → ${lum(f, 100, -40).toFixed(1)}）`, dFar > 20);
+	ok(`heightFog＝箱の上の方は床ほど変わらない（上 ${dTop.toFixed(1)}・床 ${dFar.toFixed(1)}）`, Math.abs(dTop) < dFar * 0.6);
+	// ④ 光芒（試料の太陽は画面の外＝何も変わらない）
+	r.set("sceneFx", fx({ rays: { strength: 1, decay: 0.96, length: 0.85, samples: 32 } }));
+	const g = await shot();
+	ok(`godRays＝太陽が画面に無ければ変わらない（遠い床 Δ${(lum(g, 100, -40) - far0).toFixed(1)}・空 Δ${(lumXY(g, 128, 4) - sky0).toFixed(1)}）`, Math.abs(lum(g, 100, -40) - far0) < 1.5 && Math.abs(lumXY(g, 128, 4) - sky0) < 1.5);
+	// ⑤ 雨（筋なし）
+	r.set("sceneFx", fx({ rain: { intensity: 1, wetness: 1, darken: 0.5, streaks: 0 } }));
+	const w = await shot();
+	ok(`rain＝濡れた床は暗い（${far0.toFixed(1)} → ${lum(w, 100, -40).toFixed(1)}）・壁は変わらない（Δ${(lumXY(w, footX, wallY) - lumXY(off, footX, wallY)).toFixed(1)}）`, lum(w, 100, -40) < far0 - 3 && Math.abs(lumXY(w, footX, wallY) - lumXY(off, footX, wallY)) < 3);
+	// ⑥ イラスト風＝箱の東の縁（壁の中ほどの行で明るい箱が切れる所）の内側が墨で暗くなる
+	r.set("sceneFx", fx({ toon: { levels: 4, edge: 1, threshold: 0.004, saturation: 1.15 } }));
+	const k = await shot();
+	let ex = footX; while (ex < N - 2 && lum1(off, ex + 1, wallY) > 60) ex++;
+	const inkMin = Math.min(lum1(k, ex, wallY), lum1(k, ex - 1, wallY)), boxIn = lum1(off, ex - 3, wallY);
+	ok(`toon＝箱の縁に墨（x=${ex}・縁 ${inkMin.toFixed(1)}・箱の内 ${boxIn.toFixed(1)}）`, inkMin < boxIn - 40);
+	let shots = {};
+	try { const du = px => { const c2 = document.createElement("canvas"); c2.width = c2.height = N; c2.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px), N, N), 0, 0); return c2.toDataURL(); }; shots = { off: du(off), contact: du(c), fog: du(f), rain: du(w), toon: du(k) }; window.__fxShots = shots; } catch { /* 絵は見せるためだけ */ }
+	// ⑦ 全部＋雨の筋（エラーが出ないこと）→ 外す
+	r.set("sceneFx", fx({ contact: { strength: 0.6, length: 0.15, thickness: 0.03, steps: 16 }, fog: { density: 0.4, height: 150, base: 0, color: [0.82, 0.86, 0.9], sun: 0.6, anisotropy: 0.75 }, rays: { strength: 0.6, decay: 0.96, length: 0.85, samples: 32 }, rain: { intensity: 1, wetness: 0.8, darken: 0.35, streaks: 0.6 }, toon: { levels: 4, edge: 1, threshold: 0.004, saturation: 1.15 } }));
+	r.set("ssr", { intensity: 1, maxDistance: 2000, thickness: 2, steps: 32, ocean: 0.5, ground: 0.4, facades: 0, rain: 0.8 });
+	await shot();
+	r.set("ssr", null); r.set("sceneFx", null);
+	const back = await shot();
+	// ⑧ 光芒（太陽を画面に入れる）＝夕方 16:45 JST・西を向いて水平近くまで起こす・西に箱を 4 棟足す＝空の太陽の周りが明るくなる
+	const box = (e0, n0, h, key) => { const V2 = []; for (const hh of [0, h]) for (const [e, n] of [[e0 - 10, n0 - 10], [e0 + 10, n0 - 10], [e0 + 10, n0 + 10], [e0 - 10, n0 + 10]]) V2.push(...P(e, n, hh));
+		const [w2, s2] = ll(e0 - 10, n0 - 10), [e2, n2] = ll(e0 + 10, n0 + 10); r.set("meshSet", { pos: new Float32Array(V2), idx: new Uint32Array(F.flat()), origin, bbox: [w2, s2, e2, n2], ward: key }, key + "#0"); };
+	box(-300, -40, 160, "w1"); box(-330, 60, 90, "w2"); box(-420, -120, 220, "w3"); box(-460, 20, 130, "w4");
+	r.set("view", { clock: { sim: Date.UTC(2026, 9, 1, 7, 45), wall: Date.now(), rate: 0 } });
+	const cam2 = { center: [LON, LAT], zoom: 17, pitch: 1.42, bearing: 258 * Math.PI / 180, dpr: 1 };
+	const shot2 = async () => { r.draw(cam2, {}); r.flush(); rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0); const px = rctx.getImageData(0, 0, N, N).data; await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10))); return px; };
+	const sum = px => { let a2 = 0; for (let i = 0; i < px.length; i += 4) a2 += px[i] + px[i + 1] + px[i + 2]; return a2 / (px.length / 4) / 3; };
+	const ro = await shot2();
+	r.set("sceneFx", fx({ rays: { strength: 1, decay: 0.96, length: 0.85, samples: 32 } }));
+	const rr = await shot2();
+	ok(`godRays＝太陽が画面にあると明るくなる（平均 ${sum(ro).toFixed(1)} → ${sum(rr).toFixed(1)}）`, sum(rr) > sum(ro) + 2);
+	r.set("sceneFx", fx({ rays: { strength: 1, decay: 0.96, length: 0.85, samples: 32 }, fog: { density: 0.6, height: 120, base: 0, color: [0.82, 0.86, 0.9], sun: 0.8, anisotropy: 0.75 }, contact: { strength: 0.6, length: 0.15, thickness: 0.03, steps: 16 } }));
+	const ra = await shot2();
+	r.set("sceneFx", fx({ toon: { levels: 4, edge: 1, threshold: 0.004, saturation: 1.15 } }));
+	const rt = await shot2();
+	try { const du = px => { const c2 = document.createElement("canvas"); c2.width = c2.height = N; c2.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px), N, N), 0, 0); return c2.toDataURL(); }; Object.assign(shots, { sunOff: du(ro), sunRays: du(rr), sunAll: du(ra), sunToon: du(rt) }); } catch { /* 絵は見せるためだけ */ }
+	r.set("sceneFx", null);
+	ok(`外すと元どおり（Δ=${Math.abs(lum(back, 100, -40) - far0).toFixed(1)}）`, Math.abs(lum(back, 100, -40) - far0) < 1.5 && Math.abs(lum(back, 18, 0) - E0) < 1.5);
+	await new Promise(res => setTimeout(res, 50));
+	ok(`GPU の検証エラーなし（${r.gpuErrors.length}${r.gpuErrors.length ? "：" + r.gpuErrors[0] : ""}）`, r.gpuErrors.length === 0);
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
