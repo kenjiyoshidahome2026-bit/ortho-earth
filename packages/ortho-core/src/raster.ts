@@ -214,7 +214,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
 		let tilePx = L.sse > 0 ? cesiumTilePx(L.sse, cam.center[1], src.tileSize) : src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
 		for (let step = 0; step < 4; step++) {
-			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1, farR: opts?.farR ?? opts?.groundR ?? 1, nearEye: L.sse > 0 });   // nearEye: Cesium's distance with its z rule
+			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1, farR: opts?.farR ?? opts?.groundR ?? 1 });   // nearEye (Cesium's distance) is off: on the Mac gate it made geometry-height-reference sharp (2→3) but gpx, arcticdem and 3d-tiles-point-cloud-shading dropped 3→2 (far slopes coarse/blown out, 2026-11-01 bisect against e3cfee6a); the option stays in selectLOD for a later, narrower use
 			if (sel.length * perTile <= share) break;   // 選抜だけで数える＝先に取る粗い祖先は余りの枠だけ（updateLayer）。旧（2026-10-26〜）＝祖先も数えて超えたら tilePx を上げた＝足元まで一段粗くなった（2026-10-31・MapLibre 公式例の門 3d-terrain）
 			tilePx *= 1.6;
 		}
