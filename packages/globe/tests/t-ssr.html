@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- 実描画の検分：SSR（画面空間の映り込み・2026-11-01・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-ao と同じ作法）。
+     試料＝東京（139.7/35.7）に 20m 角×高さ 100m の明るい箱メッシュ 1 棟・床は暗い球の床（深度の無い地面）。z17・チルト 60°・南から北を見る。
+     ①set("ssr") 無し＝基準 ②ground 0.6＝箱の手前の床（南壁の足元 5m）に箱が映って明るくなる・箱から離れた床（東 100m）と空は変わらない
+     ③facades だけ＝南壁に暗い床が映って壁が暗くなる・床は変わらない ④ocean だけ（標高が無い試料）＝何も変わらない ⑤null で外す＝元どおり ⑥GPU の検証エラー 0 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-ssr</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("@ortho-earth/core/gpu");
+	const { cameraState, project, lonlatTo3D } = await import("@ortho-earth/core/camera");
+	const canvas = document.getElementById("g"), N = 256;
+	const r = await createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180);
+	const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];
+	const origin = lonlatTo3D(LON, LAT);
+	const P = (e, n, h) => { const [lo, la] = ll(e, n), p = lonlatTo3D(lo, la), s = 1 + h / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
+	const V = []; for (const h of [0, 100]) for (const [e, n] of [[-10, -10], [10, -10], [10, 10], [-10, 10]]) V.push(...P(e, n, h));
+	const F = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
+	const [bw, bs] = ll(-10, -10), [be, bn] = ll(10, 10);
+	r.set("meshSet", { pos: new Float32Array(V), idx: new Uint32Array(F.flat()), origin, bbox: [bw, bs, be, bn], ward: "box" }, "box#0");
+	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.12, 0.14, 0.18, 1], bldColor: [0.95, 0.9, 0.6] });
+	const cam = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: 0, dpr: 1 };
+	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async () => {
+		r.draw(cam, {}); r.flush();
+		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, N, N).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const st = cameraState(cam, N, N);
+	const lumXY = (px, x, y) => { let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = ((y + dy) * N + (x + dx)) * 4; s += (px[i] + px[i + 1] + px[i + 2]) / 3; } return s / 9; };
+	const lum = (px, e, n) => { const [lo, la] = ll(e, n), p = project(st, lo, la), x = Math.round(p[0]), y = Math.round(p[1]); return lumXY(px, x, y); };
+	const opt = o => ({ intensity: 1, maxDistance: 2000, thickness: 2, steps: 32, ocean: 0, ground: 0, facades: 0, ...o });
+	const off = await shot();
+	const nearOff = lum(off, 0, -15), farOff = lum(off, 100, -40), skyOff = lumXY(off, 128, 4);
+	// 南壁の中ほど（高さ 50m）＝画面の位置は h 付きの project が無い時もあるので、壁の足元の画素から上へ探す（明るい箱の画素）
+	const footY = Math.round(project(st, ...ll(0, -10))[1]), footX = Math.round(project(st, ...ll(0, -10))[0]);
+	let wallY = footY - 3; while (wallY > 4 && lumXY(off, footX, wallY - 8) > 90) wallY -= 1;
+	wallY = Math.round((footY + wallY) / 2);
+	const wallOff = lumXY(off, footX, wallY);
+	ok(`基準（足元 ${nearOff.toFixed(1)}・遠い床 ${farOff.toFixed(1)}・壁 ${wallOff.toFixed(1)}・空 ${skyOff.toFixed(1)}）`, wallOff > 90 && Math.abs(nearOff - farOff) < 3);
+	r.set("ssr", opt({ ground: 0.6 }));
+	const g = await shot();
+	const nearG = lum(g, 0, -15), farG = lum(g, 100, -40);
+	ok(`ground＝足元の床に箱が映る（${nearOff.toFixed(1)} → ${nearG.toFixed(1)}）`, nearG > nearOff + 25);
+	ok(`ground＝離れた床は変わらない（${farOff.toFixed(1)} → ${farG.toFixed(1)}）`, Math.abs(farG - farOff) < 3);
+	ok(`空は変わらない（${skyOff.toFixed(1)} → ${lumXY(g, 128, 4).toFixed(1)}）`, Math.abs(lumXY(g, 128, 4) - skyOff) < 1.5);
+	r.set("ssr", opt({ facades: 0.8 }));
+	const f = await shot();
+	const wallF = lumXY(f, footX, wallY);
+	ok(`facades＝南壁に暗い床が映る（${wallOff.toFixed(1)} → ${wallF.toFixed(1)}）`, wallF < wallOff - 15);
+	ok(`facades＝床は変わらない（${nearOff.toFixed(1)} → ${lum(f, 0, -15).toFixed(1)}）`, Math.abs(lum(f, 0, -15) - nearOff) < 3);
+	r.set("ssr", opt({ ocean: 1 }));
+	const o = await shot();
+	ok(`ocean＝標高が無ければ何も映さない（足元 ${lum(o, 0, -15).toFixed(1)}・壁 ${lumXY(o, footX, wallY).toFixed(1)}）`, Math.abs(lum(o, 0, -15) - nearOff) < 1.5 && Math.abs(lumXY(o, footX, wallY) - wallOff) < 1.5);
+	try { const du = px => { const c = document.createElement("canvas"); c.width = c.height = N; c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px), N, N), 0, 0); return c.toDataURL(); }; window.__ssrShots = { off: du(off), ground: du(g), facades: du(f) }; } catch { /* 絵は見せるためだけ */ }
+	r.set("ssr", null);
+	const back = await shot();
+	ok(`外すと元どおり（Δ=${Math.abs(lum(back, 0, -15) - nearOff).toFixed(1)}）`, Math.abs(lum(back, 0, -15) - nearOff) < 1.5);
+	await new Promise(res => setTimeout(res, 50));
+	ok(`GPU の検証エラーなし（${r.gpuErrors.length}${r.gpuErrors.length ? "：" + r.gpuErrors[0] : ""}）`, r.gpuErrors.length === 0);
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

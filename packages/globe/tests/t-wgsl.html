@@ -20,6 +20,9 @@ try {
 	const AO = await import("@ortho-earth/core/src/gpu/ao.ts");   // AO（#46 段 3）＝1x/4x の 2 変種
 	for (const ms of [false, true]) mods.push([`AO_WGSL(${ms})`, AO.AO_WGSL(ms)], [`AO_COMP_WGSL(${ms})`, AO.AO_COMP_WGSL(ms)]);   // 合成も深度を読む（深度を見た拡大）＝1x/4x
 	mods.push(["AO_BLUR_WGSL(H)", AO.AO_BLUR_WGSL([1, 0])], ["AO_BLUR_WGSL(V)", AO.AO_BLUR_WGSL([0, 1])]);
+	const SR = await import("@ortho-earth/core/src/gpu/ssr.ts");   // SSR（2026-11-01）＝映り込み（深度・stencil を読む＝1x/4x）と合成
+	for (const ms of [false, true]) mods.push([`SSR_WGSL(${ms})`, SR.SSR_WGSL(ms)]);
+	mods.push(["SSR_COMP_WGSL", SR.SSR_COMP_WGSL]);
 	const PF = await import("@ortho-earth/core/src/gpu/postfx.ts");   // 後処理（PR-8・W1 の fxaa/tonemap/lut）＝明部・ぼかし・合成の 3 本
 	for (const [k, v] of Object.entries(PF.POST_WGSL)) mods.push([k, v]);
 	const PS = await import("@ortho-earth/core/src/gpu/poststage.ts");   // 画面の段（Cesium の postProcessStages 相当・2026-10-28）＝縁取り・白黒・明るさ・暗視・深度の写し（1x/4x）
