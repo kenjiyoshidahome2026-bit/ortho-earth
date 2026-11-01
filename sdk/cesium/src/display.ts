@@ -461,7 +461,7 @@ export class EntityDisplay {
 			if (coords.length > 1) shapes.push(...groundLineFeatures(`cesium-ground-line:${i}`, coords, mp, time, mt?.uniforms?.color ?? c, l.width));
 		});
 		if (!map) return true;
-		this.#ov ??= map.overlay({ builtin: "czml" }, { name: "cesium-entities", opts: { depth: true } });   // depth: the lines and tails hide behind the 3D Tiles, models and terrain (pick-from-ray-dev: the arrow ran over an opaque building)
+		this.#ov ??= map.overlay({ builtin: "czml" }, { name: "cesium-entities", opts: { depthTest: true } });   // depthTest: the lines and tails hide behind the 3D Tiles, models and terrain (pick-from-ray-dev: the arrow ran over an opaque building)
 		const tk = tracksKey(tracks);
 		if (tk !== this.#lastTracks) {
 			this.#lastTracks = tk;

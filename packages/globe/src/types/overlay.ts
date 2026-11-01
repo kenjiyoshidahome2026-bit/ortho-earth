@@ -12,7 +12,9 @@ export interface OverlaySize { w: number; h: number }
 /** オーバーレイの host（init の 3 つ目） */
 /** customArgs＝MapLibre の custom 層の args（customgl-args.ts の makeCustomArgs・この worker の楕円体の設定で）＝host から渡す（2026-10-17 まで ?url のモジュールは import を持てなかった名残）（customgl-draw） */
 /** gpuDevice＝本体の GPUDevice（WebGPU で描いている時・他は null）。stage＝モジュールが非同期の準備の段を名乗る（main の __overlay に残る・"failed" は失敗＝addThree の ready が reject）（three-draw の "setup"） */
-export interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string; customArgs(cam: CameraPose, w: number, h: number, projection?: string): ReturnType<typeof makeCustomArgs>; stage?(st: string, extra?: Record<string, unknown>): void; gpuDevice?(): GPUDevice | null }
+export interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string; customArgs(cam: CameraPose, w: number, h: number, projection?: string): ReturnType<typeof makeCustomArgs>; stage?(st: string, extra?: Record<string, unknown>): void; gpuDevice?(): GPUDevice | null;
+	/** ask for the scene depth (#47) only while it is needed (every frame with depth costs a copy that waits for the GPU): true = from the next frame on, false = stop */
+	wantDepth?(on: boolean): void }
 /** オーバーレイの frame の api（main の makeProjector と同じ規約） */
 export interface OverlayApi {
 	project(lon: number, lat: number): number[]; projectH(lon: number, lat: number, hM?: number): number[]; clipH(lon: number, lat: number, hM?: number): number[];
