@@ -1,0 +1,90 @@
+{
+ "at": "2026-11-01T02:27:41.452Z",
+ "cesium": "1.146.0",
+ "n": 2,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 1,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 1,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 1,
+   "examples": [
+    "aec-isolate-by-category"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "aec-isolate-by-category",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 82% of the cells match · a patch of 24 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1506,
+    "n": 2032,
+    "colour": 0.8636811023622047,
+    "edge": 0.8213582677165354,
+    "blob": 24,
+    "masked": 1040
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "aec-metadata-styling",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1809,
+    "n": 2044,
+    "colour": 0.9290606653620352,
+    "edge": 0.9422700587084148,
+    "blob": 11,
+    "masked": 1028
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
