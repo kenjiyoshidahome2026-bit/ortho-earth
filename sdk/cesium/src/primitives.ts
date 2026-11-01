@@ -101,7 +101,7 @@ const shownOf = (inst: Any) => { const s = inst.attributes?.show?.value; return 
 
 // ── a glTF (glb) of triangles in ECEF ──
 /** triangles: idx is drawn in its vertex colours; parts (with uv) each with a texture (an image URL, data: or http) multiplied in */
-export interface Tris { pos: number[]; nrm: number[] | null; col: number[]; bid: number[]; idx: number[]; uv?: number[]; parts?: Array<{ idx: number[]; tex: string; blend: boolean }>; unlit?: boolean; closed?: boolean }
+export interface Tris { pos: number[]; nrm: number[] | null; col: number[]; bid: number[]; idx: number[]; uv?: number[]; parts?: Array<{ idx: number[]; tex: string; blend: boolean }>; unlit?: boolean; closed?: boolean; faceForward?: boolean }
 export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 	const n = t.pos.length / 3;
 	let cx = 0, cy = 0, cz = 0;
@@ -143,7 +143,8 @@ export function glbOf(t: Tris): { glb: Uint8Array; blend: boolean } {
 		accessors.push({ bufferView: a++, componentType: 5125, count: g.idx.length, type: "SCALAR" });
 		const pbr: Any = { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 1 };
 		if (g.tex) { pbr.baseColorTexture = { index: images.length }; images.push({ uri: g.tex }); }
-		materials.push({ pbrMetallicRoughness: pbr, doubleSided: !(t.closed && t.nrm), alphaMode: g.blend ? "BLEND" : "OPAQUE", ...(t.unlit && { extensions: { KHR_materials_unlit: {} } }) });
+		materials.push({ pbrMetallicRoughness: pbr, doubleSided: !(t.closed && t.nrm && !g.blend),   // a translucent closed appearance draws both sides (Primitive twoPasses: back faces, then front)
+		 alphaMode: g.blend ? "BLEND" : "OPAQUE", ...(t.unlit && { extensions: { KHR_materials_unlit: {} } }) });
 		prims.push({ attributes, indices: ia, material: materials.length - 1, mode: TRIANGLES });
 		if (g.blend) blend = true;
 	}
@@ -316,7 +317,8 @@ export class PrimitiveDrawer {
 		it.loading = true;
 		const gen = (it as Any).gen = ((it as Any).gen ?? 0) + 1;
 		tris.unlit = !!p.appearance?.flat;   // MaterialAppearance flat: no lighting (EquirectangularPanorama)
-		tris.closed = !!p.appearance?.closed;   // a closed appearance culls its back faces (Cesium's renderState cull): a translucent cylinder shows one wall, not both
+		tris.closed = !!(p.appearance?.renderState?.cull?.enabled ?? p.appearance?.closed);   // Cesium culls back faces when the render state says so (closed by default; an opaque solid shows its front only); the panorama's closed sphere turns culling off (seen from inside)
+		tris.faceForward = p.appearance?.faceForward ?? !p.appearance?.closed;   // PerInstanceColorAppearance / MaterialAppearance: faceForward defaults to !closed (a closed solid's inner walls keep their outward normals = dark)
 		const opaque = p.appearance?.translucent === false;   // the appearance says opaque: an image is drawn so whatever its alpha
 		void Promise.all([...painted.values()].map(async g => ({ idx: g.idx, tex: (await paintSquare(g.mat, videoOf(g.mat) ? 1024 : g.mat.type === "Image" ? 4096 : 512))?.toDataURL() ?? null, blend: !opaque && matTranslucent(g.mat) }))).then(ps => {
 			if (it.dead || (it as Any).gen !== gen) return;
@@ -331,7 +333,7 @@ export class PrimitiveDrawer {
 		for (let k = 0; k < tris.pos.length; k += 3) { const c = Ellipsoid.WGS84.cartesianToCartographic(Cartesian3.fromElements(tris.pos[k], tris.pos[k + 1], tris.pos[k + 2], v3)); if (c && c.height < minH) minH = c.height; }
 		it.loading = true;
 		const file = new File([glb as BlobPart], `${it.key}.glb`, { type: "model/gltf-binary" });
-		map.gadget.model(file, { slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true, ...(!tris.unlit && { lighting: "phong" }), ...(minH < -10000 ? { ground: "absolute" } : { altitude: Number.isFinite(minH) ? minH : 0 }), lift: false })   // Cesium shades geometry with czm_phong (lights at the eye, not the sun): the globe's phong mode   // the globe grounds a model's lowest point: lift it back to its (ellipsoid) height, absolute = not onto the terrain
+		map.gadget.model(file, { slot: it.key, name: it.key, fit: false, gizmo: false, keep2d: true, ...(!tris.unlit && { lighting: tris.faceForward === false ? "phong-closed" : "phong" }), ...(minH < -10000 ? { ground: "absolute" } : { altitude: Number.isFinite(minH) ? minH : 0 }), lift: false })   // Cesium shades geometry with czm_phong (lights at the eye, not the sun): the globe's phong mode   // the globe grounds a model's lowest point: lift it back to its (ellipsoid) height, absolute = not onto the terrain
 			.then((h: Any) => {
 				it.loading = false;
 				if (it.dead) { h.clear(); return; }
