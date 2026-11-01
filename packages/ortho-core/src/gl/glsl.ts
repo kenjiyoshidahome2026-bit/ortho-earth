@@ -274,6 +274,7 @@ const LINE_RIBBON = `if (a_ol < -0.004) {
 		vec2 sd = (dc.xy * gl_Position.w - gl_Position.xy * dc.w) * u_viewport;
 		if (dot(sd, sd) < 1e-30) sd = vec2(1.0, 0.0);
 		gl_Position.xy += normalize(vec2(-sd.y, sd.x)) * (mod(lb, 2.0) * 2.0 - 1.0) * hp * 2.0 / u_viewport * gl_Position.w;
+		gl_Position *= 0.999;   // 0.1% nearer the eye (same place on screen): a line lying on a surface (3D Tiles edges, SURFACES_AND_EDGES) wins the depth test
 		v_ol = vec3(0.0);
 		v_n = v_toEye;   // a ribbon faces the eye (the FS's back-face test and light read v_n; lines are unlit in Cesium)
 	}`;
