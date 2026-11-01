@@ -131,7 +131,7 @@ export interface GlobeCoreApi {
 	/** 次フレームの描画を1回点火（オーバレイ更新後に） */
 	requestDraw(): void;   // globe.js:2487
 	// ── post-processing
-	/** 後処理の鎖（F3・2026-10-12）＝順番つきの pass。描くのは bloom・vignette・fxaa・tonemap・lut（W1・掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。smaa/dof/ssr は保つだけ。知らない type は投げる（plugin は registry.postEffects に足す）。null＝全部外す */
+	/** 後処理の鎖（F3・2026-10-12）＝順番つきの pass。描くのは bloom・vignette・fxaa・tonemap・lut（W1・掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。ssr は WebGPU で描く（2026-11-01）。smaa/dof は保つだけ。知らない type は投げる（plugin は registry.postEffects に足す）。null＝全部外す */
 	setPostChain(chain: PostPass[] | PostPass | PostProcessOptions | null): this;   // globe.js:2501
 	/** 保っている鎖（正規化済み・順番どおり） */
 	getPostChain(): PostPass[];   // globe.js:2502
