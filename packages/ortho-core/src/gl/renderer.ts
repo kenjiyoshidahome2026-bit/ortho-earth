@@ -132,6 +132,7 @@ interface StarBuf { vao: WebGLVertexArrayObject; buf: WebGLBuffer; count: number
 type MeshTexIn = { bitmap: ImageBitmap } | { bitmap?: null; rgba: Uint8Array; w: number; h: number };
 /** the opaque pass of a preOpaque batch keeps the texels with alpha 1 (vertex colour alpha 255 x texture alpha; 8-bit, so under 1 by at most half a step) */
 const PRE_OPAQUE_CUT = 254.5 / 255;
+const PRE_CAST_CUT = 0.5 / 255;   // preOpaque の束の影＝α 0 の地物（style の show:false）だけ落とさない
 /** set("meshSet", data, key) の data（建物メッシュ・模型） */
 interface MeshIn {
 	pos: Float32Array; idx: Uint32Array; nrm: Int8Array | Float32Array; uv?: Float32Array | null; col?: Uint8Array | null; tex?: MeshTexIn | null;
@@ -519,11 +520,11 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		const O = lonlatTo3D(mo[0], mo[1]);
 		const common = new Set<WebGLProgram>();
 		for (const b of meshes.values()) {
-			if (meshHidden.has(b.ward) || b.noCast || b.blend) continue;
+			if (meshHidden.has(b.ward) || b.noCast || (b.blend && !b.pre)) continue;   // preOpaque＝様式が BLEND にした 3D Tiles の束も落とす（Cesium は半透明の地物も影を落とす・α 0＝隠した地物だけ抜く）
 			if (!bboxInShadowWindow(win.mvp, b.bbox, SH_CAST_HMAX_M)) continue;   // 窓に太陽方向で投げて掛からない束は落とさない
-			const kind: CastKind = b.textured ? (b.cut > 0 ? "meshTexCut" : "meshTex") : "mesh", p = castProg(kind, clipOn);
+			const kind: CastKind = b.textured ? (b.cut > 0 || b.pre ? "meshTexCut" : "meshTex") : "mesh", p = castProg(kind, clipOn);
 			if (!common.has(p)) { common.add(p); setCommonUniforms(p, sS, [0, 0], land); } else gl.useProgram(p);
-			if (kind === "meshTexCut") { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, b.tex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, p, "u_tex"), 7); gl.uniform1f(loc(gl, p, "u_alphaCut"), b.cut); }
+			if (kind === "meshTexCut") { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, b.tex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, p, "u_tex"), 7); gl.uniform1f(loc(gl, p, "u_alphaCut"), b.pre ? PRE_CAST_CUT : b.cut); }
 			if (clipOn) { clipBind(b.textured ? "models" : "buildings", mo); gl.uniform3f(loc(gl, p, "u_clO"), b.origin[0] - O[0], b.origin[1] - O[1], b.origin[2] - O[2]); }
 			const lb = b.noLift ? null : b.drape ? DRAPE_ALL : elev.liftBounds;
 			gl.uniform4f(loc(gl, p, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
