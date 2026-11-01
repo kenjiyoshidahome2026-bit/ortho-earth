@@ -67,7 +67,7 @@ The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts ar
 |---|---|---|
 | core | [`packages/ortho-core`](packages/ortho-core) (`@ortho-earth/core`) | Rendering, camera, projection, Gint, overlay contract. Knows no region |
 | globe | [`packages/globe`](packages/globe) (`@ortho-earth/globe`) | The globe host: boot, world layers, region-independent gadgets, the MapLibre face, plugins, SDK types, gates |
-| region pack | [`packages/jp`](packages/jp) (`@ortho-earth/jp`) | A region's declaration (terrain, buildings, basemap, rasters, search, POI, rail) and the parts only that region needs |
+| region pack | [`packages/jp`](packages/jp) (`@ortho-earth/jp`), [`packages/nl`](packages/nl) (`@ortho-earth/nl`) | A region's declaration (terrain, buildings, basemap, rasters, search, POI, rail) and the parts only that region needs. [`packages/regions`](packages/regions) is the switch that picks one; the packs never know each other |
 | apps | [`apps/*`](apps) | Shells. `japan` = globe + jp pack + Japanese UI; `world`, `equal`, `census2020`, `solar`, … |
 | sdk | [`sdk/*`](sdk) | SDKs and standalone tools for outside users: `@ortho-earth/japan` (the Japan SDK bundle), React bindings, KTX2, Google 3D Tiles, Google Maps API on MapLibre, scene and splat plugins, `glbconv` |
 
@@ -80,6 +80,9 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 | [`@ortho-earth/core`](packages/ortho-core) | 2.2.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
 | [`@ortho-earth/globe`](packages/globe) | 2.2.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 (private) | GPL-3.0-or-later | Japan region pack |
+| [`@ortho-earth/nl`](packages/nl) | 0.0.1 (private) | GPL-3.0-or-later | Netherlands region pack (3D Basisvoorziening buildings, basemap, elevation) |
+| [`@ortho-earth/regions`](packages/regions) | 0.0.1 (private) | GPL-3.0-or-later | Region switch (`orthoJapan`): the globe plus the region chosen by URL (Japan or the Netherlands) |
+| [`@ortho-earth/equal`](packages/equal) | 0.0.1 (private) | GPL-3.0-or-later | Equal Earth world map (`createEqual`), shared by `/equal/`, `/globe/` and `/japan/` through the shared engine |
 | [`@ortho-earth/h3`](packages/h3) | 0.2.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
 | [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.2.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |
 | [`@ortho-earth/ephem`](packages/ephem) | 1.3.0 | GPL-3.0-or-later | Solar-system ephemeris, shared clock, SGP4/SDP4 satellites |
@@ -108,6 +111,7 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/scene`](sdk/scene) | 0.2.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
 | [`@ortho-earth/splat`](sdk/splat) | 0.6.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz` / `.ksplat` / `.sog`, and 3D Tiles with `KHR_gaussian_splatting`) as a `map.addData` kind: WebGPU renderer with spherical harmonics, GPU sort and LoD, files read in a worker, WebGL2 fallback |
 | [`@ortho-earth/voxel`](sdk/voxel) | 0.6.0 | GPL-3.0-or-later | Voxel grids (box or longitude × latitude × height region, scalar or RGBA, and 3D Tiles with `EXT_primitive_voxels`) as a `map.addData` kind: ray-marched as a volume, blocks or isosurface, with slicing, scene depth and picking; WebGPU (shared device and depth) or WebGL2 |
+| [`@ortho-earth/cesium`](sdk/cesium) | 0.1.0 | GPL-3.0-or-later | CesiumJS API on ortho-earth: a `Cesium` namespace (Viewer, Camera, entities, data sources, clock, 3D Tiles, picking) drawn by `@ortho-earth/globe`; math, time, Entity/Property and CZML parsing come from `@cesium/engine` unchanged |
 | [`glbconv`](sdk/glbconv) | 0.2.0 | MIT | GLB to other 3D formats, browser and Node |
 
 ### Apps
@@ -116,12 +120,14 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 
 | URL | App | What it shows |
 |---|---|---|
-| [/japan/](https://www.ortho-earth.com/japan/) | `apps/japan-map` (served by `apps/japan-host`) | The flagship: Japan from public data only (GSI, PLATEAU, JAXA). Also `/japan/terrain`, `/japan/parks`, `/japan/models`, `/japan/fireworks`, `/japan/scene`, `/japan/tellus`, `/japan/geoedit` |
-| [/globe/](https://www.ortho-earth.com/globe/) | `apps/globe-map` (served by `apps/globe-host`) | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
+| [/japan/](https://www.ortho-earth.com/japan/) | `apps/japan-map` (served by `apps/japan-host`) | The flagship: Japan from public data only (GSI, PLATEAU, JAXA). Also `/japan/terrain`, `/japan/parks`, `/japan/models`, `/japan/onsen`, `/japan/pointcloud`, `/japan/fireworks`, `/japan/scene`, `/japan/tellus`, `/japan/geoedit` (each page is its own folder under `apps/`) |
+| [/globe/](https://www.ortho-earth.com/globe/) | `apps/globe-map` (served by `apps/globe-host`) | The world globe. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/sats`, `/globe/clouds`, `/globe/hex` (population in H3), `/globe/arcs`, `/globe/clock`, `/globe/voxel`, `/globe/splat`, `/globe/?start=equal` (Equal Earth) (each page is its own folder under `apps/`) |
 | [/globe/engine/](https://www.ortho-earth.com/globe/engine/current.json) | `apps/engine` | The shared engine: one versioned build of `@ortho-earth/globe` and the modules two or more apps use, loaded by URL |
 | [/globe/quakes/](https://www.ortho-earth.com/globe/quakes/) | `apps/quakes` | World earthquakes since 1967 at their true hypocenter depth (data: `apps/quakes-mirror` + USGS, fetched by the browser) |
 | [/world/](https://www.ortho-earth.com/world/) | `apps/world` | Nations of the world as cards |
-| [/quiz/](https://www.ortho-earth.com/quiz/) | `apps/world-quiz` | Geography quiz on the globe |
+| [/equal/](https://www.ortho-earth.com/equal/) | `apps/equal` | Equal Earth world map with choropleths |
+| [/yokohama/](https://www.ortho-earth.com/yokohama/) | `apps/yokohama` | Yokohama digital twin for citizens: PLATEAU 3D city, disaster risk, transport, walking routes |
+| [/quiz/](https://www.ortho-earth.com/quiz/) | `apps/quiz` | Geography quiz on the globe |
 | [/japan/census2020/](https://www.ortho-earth.com/japan/census2020/) | `apps/census2020` | Japan's 2020 census, small-area statistics and risk zones |
 | [/solar/](https://www.ortho-earth.com/solar/) | `apps/solar` | The planets and their moons, now and replayed over time |
 | [/himekuri/](https://www.ortho-earth.com/himekuri/) | `apps/himekuri` | Daily calendar with sunrise, sunset, twilight and the Moon. Owns the npm package [`himekuri`](apps/himekuri/lib) (2.0.0, MIT, tear-off calendar and world-clock SVG widgets) |
@@ -143,7 +149,7 @@ Node 22.18 or newer (the tests import `.ts` sources directly, which needs Node's
 ## Tests
 
 `npm test` at the repository root runs every Node-only test suite in the monorepo (`scripts/test-all.mjs`: the suites of each
-workspace are unrolled to their test files, about 190 of them, and run in parallel, no browser or network needed;
+workspace are unrolled to their test files, about 290 of them, and run in parallel, no browser or network needed;
 `npm run test:list` shows the files, `npm test -- geopbf` runs a subset, `TEST_JOBS=1` runs them one by one).
 `npm run verify:i18n` at the root runs the i18n gates of all apps. Browser suites stay per package: `npm run verify:ui` / `verify:webgpu` / `verify:nocoi` / `verify:examples` in `packages/globe`,
 `npm run verify:ui` / `verify:webgpu` / `verify:prod` in `apps/japan-map` (`verify:prod` in `apps/japan-host`), `npm run verify:pages` in `packages/geopbf`,
@@ -153,12 +159,14 @@ so a running suite never blocks you from opening Chrome. The WebGPU suites need 
 
 ## Deploying
 
-There is no CI/CD workflow in this repository (only GitHub's CodeQL scan runs on push). Publishing is done from a machine with a logged-in `wrangler`:
+Production is published by GitHub Actions ([`.github/workflows`](.github/workflows)):
 
-- **Shared engine** (`apps/engine`, Worker `ortho-engine`): `npm run deploy:engine` at the root. It first builds `globe-host` and runs its `verify:prod` against the new engine, then deploys the engine, then every app that loads it (`globe-host`, `census2020`, `ortho-nl`, `quiz`, `choju`, `yokohama`, `world`, `equal`, `japan-host`). Each app's own deploy refuses to go out if the engine version it was built against is not live yet.
-- **Workers** (`ortho-japan`, `ortho-globe`, `world`, `ortho-equal`, `census2020`, `ortho-solar`, `ortho-nl`, `ortho-himekuri`, `ortho-world-quiz`, …; one `wrangler.toml` per app): `npm run deploy -w <app>`. Each app's deploy script runs its own gates first (i18n tables, `verify:prod`, tests) and then `wrangler deploy`; `apps/japan-host` uses `scripts/deploy.mjs`.
-- **www** (`www.ortho-earth.com`, Cloudflare Pages): published automatically when `main` is merged, through the Pages Git integration. No manual `wrangler pages deploy` is needed.
-- **Order matters.** Because www goes live on merge, deploy the Workers first, and the shared engine before the apps that load it (its URL is a content hash of its build; older entry points are redirected to the current version by the `ortho-engine` Worker).
+- **Tests on every pull request** (`test.yml`): `npm test` (including the type check) and `npm run verify:i18n`. GitHub's CodeQL scan also runs.
+- **Engine and apps** (`deploy.yml`): a merge to `main` that changes what is shipped (`apps/`, `packages/`, `sdk/`, the lockfile) deploys automatically; text-only, `www` and `docs` merges do not. It runs `npm run deploy:engine` on a self-hosted macOS runner, because the gates need a real GPU: first `globe-host` is built and its `verify:prod` runs against the new engine, then the shared engine (`apps/engine`, Worker `ortho-engine`) goes out, then every app that loads it (`quakes`, `globe-host`, `census2020`, `ortho-nl`, `quiz`, `choju`, `yokohama`, `world`, `equal`, `japan-host`, `solar`, `himekuri`). It stops at the first failing gate, and each app's deploy refuses to go out if the engine version it was built against is not live yet. The same workflow has a Run button for one target (engine only, single apps, mirrors, or gates only).
+- **npm packages** (`publish.yml`): a Run button publishes the packages whose version changed, then `mirror.yml` updates the standalone `geopbf` and `altpbf` repositories.
+- **Demo data** (`pages.yml`): published to GitHub Pages.
+- **www** (`www.ortho-earth.com`, Cloudflare Pages, also `/geopbf/`, `/gishub-jp/`, `/docs/`): published automatically when `main` is merged, through the Pages Git integration.
+- A single app can still be deployed by hand from a machine with a logged-in `wrangler`: `npm run deploy -w` plus the app's folder name, for example `npm run deploy -w yokohama` (each app's own gates run first).
 - Bulk data (`world`, `space`, GeoPBF archives) lives in a Cloudflare R2 bucket and is uploaded with `apps/uploader`.
 
 ## Contributors & Acknowledgments
