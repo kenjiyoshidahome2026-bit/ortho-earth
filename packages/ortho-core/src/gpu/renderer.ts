@@ -17,6 +17,9 @@ import { cameraState, lonlatTo3D, ellNormal3D, project, unproject, betaOf, ellip
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
 import { evalPaintZoom } from "../paintzoom.ts";   // 破線でずらす md の列のずらし（線分プールの語 6 が距離＝層で 1 つの値を uniform で置く）
 import type { PaintZoom } from "../paintzoom.ts";
+import { createPtStore, PT_ROW_F32 } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は GL2 と共有の純関数（ここは storage buffer への写しだけ）
+import type { PtRow } from "../painttable-store.ts";
+import type { PtLayer } from "../painttable.ts";
 import { seaFbReal, dashIntervals, chopDash } from "../scene.ts";   // dashIntervals＝破線（S-P1-3）の区間（GL2 の dashU と同じ uniform を組む）・chopDash＝?nolx=1 の逃げ道（旧＝CPU で刻む）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
@@ -211,9 +214,9 @@ interface GndWin { tex: GPUTexture; view: GPUTextureView; view0: GPUTextureView;
 export type GroundHook = (cam: CameraPose, target: { enc: GPUCommandEncoder; view: GPUTextureView; size: number; win: number[]; index: number; vp?: number[] }) => number;   // vp＝[x, w]：分割時の半分（viewport）
 interface GroundJob { wins: number[][]; rasterOn: boolean; wantFills: boolean; seaOff: boolean; baseA: number; cam: CameraPose; hook: GroundHook | null | false; userIn: boolean; baseSlots: string[] }
 // lxk＝層の画面効果の鍵（null＝無い＝役割の DrawP をそのまま）。fill：fx（translate）・pat（模様）。line：cj（端と継ぎ）・dash（破線）・fx（translate・ぼかし）＝S-P1-1/3/4/5（2026-10-22・WebGPU 版）
-interface FillDraw { kind: "fill"; li: number; bufs: GPUBuffer[]; bPos: GPUBuffer; bCol: GPUBuffer; bIdx: GPUBuffer | null; count: number; fx: number[] | null; pat: string | null; lxk: string | null }
+interface FillDraw { kind: "fill"; li: number; bufs: GPUBuffer[]; bPos: GPUBuffer; bCol: GPUBuffer; bIdx: GPUBuffer | null; count: number; fx: number[] | null; pat: string | null; lxk: string | null; pz: PaintZoom | null }
 // pad＝端と継ぎを持つ層＝P1 の前・P2 の後ろに 1 線分の余白（同じバッファを 8B ずらして前の始点 p0・次の終点 p3 として読む＝GL2 と同じ）。bCH＝色と半幅の interleave（頂点バッファ 8 本の上限に収める）・bJd＝[jf, dist]
-interface LineDraw { kind: "line"; li: number; bufs: GPUBuffer[]; bP1: GPUBuffer; bP2: GPUBuffer; bCH: GPUBuffer; bOff: GPUBuffer | null; bJd: GPUBuffer | null; pad: boolean; count: number; cj: number; dash: DashU | null; fx: number[] | null; lxk: string | null; lt: LineTex | null }
+interface LineDraw { kind: "line"; li: number; bufs: GPUBuffer[]; bP1: GPUBuffer; bP2: GPUBuffer; bCH: GPUBuffer; bOff: GPUBuffer | null; bJd: GPUBuffer | null; pad: boolean; count: number; cj: number; dash: DashU | null; fx: number[] | null; lxk: string | null; lt: LineTex | null; pz: PaintZoom | null }
 /** 破線（S-P1-3）の uniform の中身＝周期・区間の数・丸い端・区間 [a, b]×4（gl/renderer.ts の DashU と同じ） */
 interface DashU { P: number; n: number; round: number; iv: Float32Array }
 function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
@@ -226,12 +229,12 @@ type SceneDraw = FillDraw | LineDraw;
 interface SceneBld { bufs: GPUBuffer[]; bPos: GPUBuffer; bSh: GPUBuffer; bAnc: GPUBuffer; count: number }
 interface SceneSlot { origin: number[]; draws: SceneDraw[]; bld: SceneBld | null; fadePrev?: { draws: SceneDraw[]; bld: SceneBld | null } | null; fadeT0?: number; md?: MDScene | null }
 /** タイル GPU 常駐プールのシーン（scene worker の dl＝プール内レンジの列・vt perf plan §4）。orgOff＝origins（タイル原点−シーン原点）の頂点バッファ内 byte 位置 */
-interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number; pat?: string; cj: number; dash: DashU | null; fx: number[] | null; lxk: string | null; dOff: PaintZoom | null; lt: LineTex | null }
+interface MDLayer { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; orgOff: number; pat?: string; cj: number; dash: DashU | null; fx: number[] | null; lxk: string | null; pz: PaintZoom | null; pt: number; lt: LineTex | null }   // pz＝ズーム連続の式（V-Ph3）・pt＝表を読む描く列（paint 表の (b) 類・1＝色・2＝色と線の半幅）
 interface MDBldRun { counts: Int32Array; firsts: Int32Array; orgOff: number }
 interface MDScene { layers: MDLayer[]; bld: MDBldRun[] | null; orgBuf: GPUBuffer }
 interface MDPool { buf: GPUBuffer | null; bytes: number }
-interface MDUpload { fill?: { base: number; buf: ArrayBuffer } | null; bld?: { base: number; arr: Float32Array } | null; idx?: { base: number; arr: Uint32Array } | null; line?: { base: number; arr: Uint32Array } | null }
-interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array; pat?: string; cj?: number; dash?: number[]; fx?: number[]; pz?: PaintZoom; lt?: LineTex }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
+interface MDUpload { fill?: { base: number; buf: ArrayBuffer } | null; bld?: { base: number; arr: Float32Array } | null; idx?: { base: number; arr: Uint32Array } | null; line?: { base: number; arr: Uint32Array } | null; rows?: PtRow[] }   // rows＝paint 表の (b) 類の行（scene worker の ptGlobal）
+interface MDSceneMsg { slot: string; origin: number[]; layers: { kind: "fill" | "line"; li: number; counts: Int32Array; offsets?: Int32Array; firsts?: Int32Array; origins: Float32Array; pat?: string; cj?: number; dash?: number[]; fx?: number[]; pz?: PaintZoom; pt?: number; lt?: LineTex }[]; bld: { counts: Int32Array; firsts: Int32Array; origins: Float32Array }[] | null }
 interface MDPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; bld: GPURenderPipeline }
 type DrawSrc = SceneDraw[] | MDScene;
 /** set("scene") の入力（classic merge のシーン） */
@@ -240,7 +243,7 @@ interface AtlasFill { slot: string; gate: number; at: number; user: boolean; lo?
 interface RenderTargets { tex: GPUTexture | null; depth: GPUTexture; view: GPUTextureView | null; depthView: GPUTextureView; w: number; h: number }
 interface ParamsIn { cityLift: number; land: number[]; bldColor: number[]; contour: { color: number[]; interval: number; major: number; alpha: number }; liftBounds?: number[] | null; fadeK?: number; worldHypsoK?: number; hasClim?: number; dpr?: number }
 interface DrawDbg {
-	baseFill: number; baseLine: number; mainFill: number; mainLine: number; textMid: number; skipMain: boolean; skipBase: boolean; fadeK: number; terrainDepth: boolean; zoom: number; aa: number;
+	baseFill: number; baseLine: number; mainFill: number; mainLine: number; pt: number; ptw: number; textMid: number; skipMain: boolean; skipBase: boolean; fadeK: number; terrainDepth: boolean; zoom: number; aa: number;
 	readonly raster: number; readonly fillsIn: boolean; readonly gndFaces: number; shadow?: number; pl?: number;
 }
 interface PerfSelf { __perfElev?: boolean; __perfElevLast?: { f16: number; write: number; gpu?: number; raw?: number }; __perfScene?: boolean; __perfHitch?: { elev: number; scene: number } }
@@ -252,7 +255,7 @@ const FRAME_SLOT = 768;    // frame UBO のスロット境界（実使用528B＝
 const FRAME_F32 = 148;     // 592B/4（末尾 nearBounds/nearP＝近景層・順 1a、fineBounds/fineP＝足元層 2026-10-31）（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5, terrainNear: 6, terrainFine: 7 };   // terrainFine＝足元メッシュパス（farPass=3・2026-10-31）   // terrainNear＝近景メッシュパス（順 1a）   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP のスロット境界
-const DRAWP_B = 144;       // DrawP（9×vec4＝p0〜p2＋tr/lx/dashP/dashI0/dashI1/patP）の大きさ（wgsl.ts FRAME と対）
+const DRAWP_B = 192;       // DrawP（12×vec4＝p0〜p2＋tr/lx/dashP/dashI0/dashI1/patP＋pz/pzC/pzO）の大きさ（wgsl.ts DrawP と対）
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, mesh: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10, user: 11 };   // fade*=クロスフェード中の新シーン用（p0.w=α）・user＝利用者の vector の層（基図の濃さに従わない＝p0.w=1・段 8⑤）
 const N_ROLES = 12;
@@ -1220,12 +1223,39 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		}
 		return p;
 	}
-	function lxFill(role: number, key: string, fx: number[] | null, pat: string | null, origin: ArrayLike<number>): GPUBindGroup | null {
+	// ズーム連続（V-Ph3＝S-P1-2・paintzoom.ts・gl/renderer.ts setPz と同式）：地物に依らない色・線幅・ずらしは今の z で評価して頂点の値に差し替える（DrawP の pz/pzC/pzO）。
+	// 層の値は z が変わった時だけ評価し直す（pzMemo）。破線の尺の線幅は floor(外来の z) の値（MapLibre の floorwidth＝dashDz の段）。
+	// setPaintProperty の速い道（main の pzOver）：基図の層の添字 → 差し替えの式＝作ったタイルの pz より先に読む（作り直さずに今の値）
+	interface PzV { c: number[] | null; hw: number | null; hwF: number; off: number | null }
+	const pzMemo = new WeakMap<PaintZoom, PzV & { z: number }>();
+	let pzOver = new Map<number, PaintZoom>();
+	function pzEval(pz: PaintZoom): PzV {
+		const z = lxCam.zoom;
+		let m = pzMemo.get(pz);
+		if (!m || m.z !== z) {
+			const v = evalPaintZoom(pz, z), dz = view.dashDz ?? 1;
+			m = { z, c: v.c, hw: v.hw, hwF: v.hw == null ? 0 : evalPaintZoom({ o: pz.o, w: pz.w }, Math.floor(z - dz) + dz).hw!, off: v.off };
+			pzMemo.set(pz, m);
+		}
+		return m;
+	}
+	// 層の鍵に足す分（値はフレームの頭で空になる鍵表＝今の z の値で引く）・pt＝表を読む描く列（paint 表の (b) 類）
+	const pzKey = (m: PzV | null, pt: number): string => (m ? `|pz${m.c ? m.c.join(",") : ""}:${m.hw ?? ""}:${m.hwF}:${m.off ?? ""}` : "") + (pt ? `|pt${pt}` : "");
+	function lxPz(o: number, m: PzV | null, pt: number): void {   // DrawP の pz（+24）・pzC（+28）・pzO（+32）＝fill(o) の o は tr の先頭
+		const f = lxCPU;
+		if (m) {
+			f[o + 24] = m.c ? 1 : 0; f[o + 25] = m.hw != null ? 1 : 0; f[o + 26] = m.hw ?? 0; f[o + 27] = m.hwF;
+			if (m.c) { f[o + 28] = m.c[0]; f[o + 29] = m.c[1]; f[o + 30] = m.c[2]; f[o + 31] = m.c[3]; }
+			f[o + 32] = m.off != null ? 1 : 0; f[o + 33] = m.off ?? 0;
+		}
+		f[o + 34] = pt;
+	}
+	function lxFill(role: number, key: string, fx: number[] | null, pat: string | null, origin: ArrayLike<number>, pzv: PzV | null = null, pt = 0): GPUBindGroup | null {
 		let p: NonNullable<ReturnType<typeof pats.get>> | undefined;
 		if (pat) { p = patOf(pat) ?? undefined; if (!p) return null; }
 		const k = pat ? `${key}|${origin[0]},${origin[1]}` : key;   // 模様の位相はシーン原点に依る
 		return lxSlot(role, k, pat || "", p ? p.view! : patDummyView, o => {
-			lxFx(o, fx, false);
+			lxFx(o, fx, false); lxPz(o, pzv, pt);
 			if (!p) return;
 			const dz = view.dashDz ?? 1, fz = Math.floor(lxCam.zoom - dz) + dz, n = 256 * 2 ** fz, W = p.bm.width / p.pr, H = p.bm.height / p.pr;
 			const X = (origin[0] + 180) / 360 * n, s = Math.sin(origin[1] * Math.PI / 180), Y = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n;
@@ -1249,10 +1279,11 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		return t.view;
 	}
 	// line-pattern（G-4）＝塗りの模様と同じ画像を binding 1 に・patP＝(2, 破線と同じ尺, 層の line-opacity)。null＝画像がまだ無い（描かない＝塗りの模様と同じ）
-	function lxLine(role: number, key: string, cj: number, dash: DashU | null, fx: number[] | null, off = 0, lt: LineTex | null = null): GPUBindGroup | null {
+	function lxLine(role: number, key: string, cj: number, dash: DashU | null, fx: number[] | null, off = 0, lt: LineTex | null = null, pzv: PzV | null = null, pt = 0): GPUBindGroup | null {
 		const g = lt?.lut ? lt : null, pp = lt?.pat ? patOf(lt.pat) : null;
 		if (lt?.pat && !pp) return null;
 		return lxSlot(role, off ? `${key}|${off}` : key, g ? "lt:" + g.key : pp ? lt!.pat! : "", g ? ltView(g) : pp ? pp.view! : patDummyView, o => {
+			lxPz(o, pzv, pt);
 			if (g) lxCPU[o + 20] = 1;   // patP.x＝line-gradient
 			if (pp) { const zs = lxCam.zoom - (view.dashDz ?? 1); lxCPU[o + 20] = 2; lxCPU[o + 21] = 2 ** (lxCam.zoom - 24 - (zs - Math.floor(zs))) * lxCam.cosLat; lxCPU[o + 22] = lt!.o ?? 1; }   // patP＝line-pattern
 			lxFx(o, fx, true);
@@ -2114,7 +2145,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			primitive: { topology: "triangle-list" } });
 		if (md && !atlasFillPipeMD) {   // md シーンの塗りを地面アトラスへ（GL の ATLAS_FILL_MD_VS と対）
 			const mod = mkMod(mdFillWgsl(ATLAS_FILL_WGSL, "AFOut", "ATLAS_FILL_MD"), "atlasFillMd");
-			atlasFillPipeMD = device.createRenderPipeline({ layout: atlasFillLayout, vertex: { module: mod, entryPoint: "vs", buffers: MD_FILL_BUFS },
+			atlasFillPipeMD = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglRasP, bglPt] }), vertex: { module: mod, entryPoint: "vs", buffers: MD_FILL_BUFS },
 				fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] }, primitive: { topology: "triangle-list" } });
 		}
 		// per-draw uniform：ラスタタイル（rasBuf）と塗り（atlBuf：窓×スロット×ゲート）を先に全部書く（writeBuffer は submit より先に着地）
@@ -2190,6 +2221,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						pass.setBindGroup(2, atlBG, [at * RAS_SLOT]);
 						if (scene.md) {   // md シーン＝プールのレンジ列をタイルごとに（ゲートは classic と同一）
 							pass.setPipeline(atlasFillPipeMD!);
+							pass.setBindGroup(3, ptBG());   // paint 表の (b) 類
 							pass.setVertexBuffer(0, md!.fillV.buf!); pass.setIndexBuffer(md!.fillI.buf!, "uint32");
 							for (const e of scene.md.layers) {
 								if (e.kind !== "fill" || !(pick ? pick(e) : e.li >= lo && e.li < hi) || e.pat) continue;   // 模様の塗り（S-P1-4/5）は 3D の地面アトラスには焼かない（ATLAS_FILL_WGSL は模様を読まない＝残る差・GL2 は焼く）
@@ -2197,10 +2229,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 								if ((seaFB ? 1 : 0) !== gate) continue;
 								if (!user && (seaFB || waterC) && seaOff) continue;
 								if (bldFill.li >= 0 && e.li === bldFill.li) continue;
+								pass.setBindGroup(1, e.pt ? ptAtlBG[e.pt - 1] : paramBG[ROLE.normal]);   // 表を読む描く列（gl の u_pt と対・アトラスはズーム連続の色を差し替えない＝GL2 と同じ）
 								pass.setVertexBuffer(1, scene.md.orgBuf, e.orgOff);
 								for (let j = 0; j < e.counts.length; j++) pass.drawIndexed(e.counts[j], 1, e.offsets![j] >> 2, 0, j);
 							}
 							pass.setPipeline(atlasFillPipe);
+							pass.setBindGroup(1, paramBG[ROLE.normal]);
 							continue;
 						}
 						for (const d of scene.draws) {
@@ -2394,7 +2428,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		lineBG: null as GPUBindGroup | null, lineOver: false,
 	};
 	let memPool = 0, mdSceneRev = 0;   // プール 4 本の確保量（?hud=1 の台帳）・dl の版（影を落とす側の鍵）
-	const bglSeg = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } }] });
+	const bglSeg = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } }, { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } }] });   // 線分プール＋paint 表
+	const bglPt = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } }] });   // 塗りの md の派生＝group(3) に paint 表だけ
 	const bglEmpty = device.createBindGroupLayout({ entries: [] });   // 線の MD 派生＝group(3) に線分プール・素の派生では group(2) が空
 	const emptyBG = device.createBindGroup({ layout: bglEmpty, entries: [] });
 	const MD_FILL_BUFS: GPUVertexBufferLayout[] = [
@@ -2411,8 +2446,28 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	function mdLineBG(): void {   // 線分プールの束縛（成長で作り直す）。binding 上限（既定 128MB＝4M 線分）を超える分は描けない＝警告だけ（テクスチャ退避は後段）
 		const lim = device.limits.maxStorageBufferBindingSize, p = md!.line;
 		if (p.bytes > lim && !md!.lineOver) { md!.lineOver = true; console.warn(`[gpu] md line pool ${p.bytes >> 20}MB exceeds maxStorageBufferBindingSize ${lim >> 20}MB = segments beyond the limit are not drawn`); }
-		md!.lineBG = device.createBindGroup({ layout: bglSeg, entries: [{ binding: 0, resource: { buffer: p.buf!, offset: 0, size: Math.min(p.bytes, lim) } }] });
+		md!.lineBG = device.createBindGroup({ layout: bglSeg, entries: [{ binding: 0, resource: { buffer: p.buf!, offset: 0, size: Math.min(p.bytes, lim) } }, { binding: 1, resource: { buffer: pt.buf } }] });
 	}
+	// paint 表の (b) 類（painttable-store.ts・vt perf plan §5・GL2 の RGBA32F と対）：行の値（2 語＝色・線の半幅）を storage buffer に。行は scene worker が常駐の荷（mdUp の rows）に添える＝塊より先に着く。
+	// 書き換えは描く前に一度（汚れた行の範囲＝ptFlush・地面アトラスの前）。伸びた時は作り直して全部＝表を掴む束縛（塗り＝ptBG・線＝lineBG）も作り直す
+	const ptStore = createPtStore(), pt = { buf: device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }), bytes: 64, bg: null as GPUBindGroup | null };
+	const ptBG = (): GPUBindGroup => pt.bg ??= device.createBindGroup({ layout: bglPt, entries: [{ binding: 0, resource: { buffer: pt.buf } }] });
+	function ptFlush(): void {
+		const dirty = ptStore.takeDirty(); if (!dirty) return;
+		const data = ptStore.data, B = PT_ROW_F32 * 4;
+		if (data.byteLength > pt.bytes) {
+			pt.buf.destroy();
+			pt.buf = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); pt.bytes = data.byteLength; pt.bg = null;
+			device.queue.writeBuffer(pt.buf, 0, data);
+			if (md && md.line.buf) mdLineBG();
+			return;
+		}
+		device.queue.writeBuffer(pt.buf, dirty[0] * B, data.buffer, dirty[0] * B, (dirty[1] - dirty[0] + 1) * B);
+	}
+	// 地面アトラス（3D の塗り）の表を読む描く列の DrawP＝役割 normal の写しに pzO.z（1・2）を足した 2 スロット（アトラスの合成は層の鍵表（lxSlot）より先に走る＝専用の束縛）
+	const ptAtlBuf = device.createBuffer({ size: PARAM_SLOT * 2, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const ptAtlBG = [1, 2].map(k => device.createBindGroup({ layout: bgl1, entries: [{ binding: 0, resource: { buffer: ptAtlBuf, offset: (k - 1) * PARAM_SLOT, size: DRAWP_B } }, ...patEntries(patDummyView)] }));
+	const ptAtlCPU = new Float32Array(PARAM_SLOT / 4 * 2);
 	function mdGrow(pool: string, units: number): void {   // 新バッファ確保＋GPU 内コピー（CPU の再アップロード無し）。copy と後続の up は同じ queue 順＝up が成長を追い越さない
 		const p = (md as unknown as Record<string, MDPool | undefined>)[pool]; if (!p || !MD_STRIDE[pool]) return;
 		const bytes = units * MD_STRIDE[pool];
@@ -2433,6 +2488,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (u.idx && md!.fillI.buf) device.queue.writeBuffer(md!.fillI.buf, u.idx.base * 4, u.idx.arr);
 		if (u.line && md!.line.buf) device.queue.writeBuffer(md!.line.buf, u.line.base * 32, u.line.arr);
 		if (u.bld && md!.bldV.buf) device.queue.writeBuffer(md!.bldV.buf, u.bld.base * 24, u.bld.arr);
+		if (u.rows) ptStore.rows(u.rows);   // paint 表の (b) 類の行（塊より先）
 	}
 	function mdScene(m: MDSceneMsg): void {   // draw list 差し替え＝GPU 転送は origins（8B×draw 数）だけ。layers は li 昇順＝painter 順
 		if (!scenes[m.slot]) return;
@@ -2448,7 +2504,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const layers: MDLayer[] = m.layers.map(L => {
 			const cj = L.cj || 0, dash = L.kind === "line" ? dashU(L.dash, cj) : null, fx = L.fx || null;
 			return { kind: L.kind, li: L.li, counts: L.counts, offsets: L.offsets, firsts: L.firsts, orgOff: put(L.origins), ...(L.pat ? { pat: L.pat } : {}), cj, dash, fx,
-				lxk: L.kind === "fill" ? fillLxk(fx, L.pat) : lineLxk(cj, L.dash, fx, L.lt), dOff: (dash || L.lt?.pat) && L.pz?.of != null ? L.pz : null, lt: L.lt || null };
+				lxk: L.kind === "fill" ? fillLxk(fx, L.pat) : lineLxk(cj, L.dash, fx, L.lt), pz: L.pz || null, pt: L.pt || 0, lt: L.lt || null };
 		});
 		const bld = m.bld ? m.bld.map(e => ({ counts: e.counts, firsts: e.firsts, orgOff: put(e.origins) })) : null;
 		const orgBuf = device.createBuffer({ size: org.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -2471,7 +2527,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const src = variant === "p" ? { fill: FILL_WGSL, line: LINE_WGSL, bld: BUILDING_WGSL, lbl: "" } : variant === "r" ? { fill: FILL_SH_WGSL, line: LINE_SH_WGSL, bld: BUILDING_SH_WGSL, lbl: "Sh" }
 			: variant === "c" ? { fill: FILL_CLIP_WGSL, line: LINE_CLIP_WGSL, bld: BUILDING_CLIP_WGSL, lbl: "Clip" } : { fill: FILL_SH_CLIP_WGSL, line: LINE_SH_CLIP_WGSL, bld: BUILDING_SH_CLIP_WGSL, lbl: "ShClip" };
 		const g2 = variant === "p" ? bglEmpty : variant === "r" ? sh!.bgl : variant === "c" ? cl!.bgl : cl!.bglShCl;   // その派生が group(2) に張る物
-		const layFill = variant === "p" ? layout : variant === "r" ? sh!.lay.fill : variant === "c" ? cl!.lay.fill : cl!.laySh.fill;
+		const layFill = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, g2, bglPt] });   // 塗りの md＝group(3) に paint 表（素の派生は group(2) が空）
 		const layBld = variant === "p" ? bldLayout : variant === "r" ? sh!.lay.bld : variant === "c" ? cl!.lay.bld : cl!.laySh.bld;
 		const layLine = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, g2, bglSeg] });
 		const mf = mdMod(`fill${src.lbl}`, mdFillWgsl(src.fill, "FillOut", `FILL_MD${src.lbl}`), `fill${src.lbl}`);
@@ -2519,7 +2575,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const hasIdx = L.idx && L.idx.length;
 				const bIdx = hasIdx ? makeBuf(L.idx instanceof Uint32Array ? L.idx : Uint32Array.from(L.idx), GPUBufferUsage.INDEX) : null;
 				const fx = L.fx || null, pat = L.pat || null;
-				draws.push({ kind: "fill", li: L.li, bufs: bIdx ? [bPos, bCol, bIdx] : [bPos, bCol], bPos, bCol, bIdx, count: hasIdx ? L.idx.length : L.pos.length / 2, fx, pat, lxk: fillLxk(fx, pat) });
+				draws.push({ kind: "fill", li: L.li, bufs: bIdx ? [bPos, bCol, bIdx] : [bPos, bCol], bPos, bCol, bIdx, count: hasIdx ? L.idx.length : L.pos.length / 2, fx, pat, lxk: fillLxk(fx, pat), pz: L.pz || null });
 			} else {
 				if (NO_LX && L.dist) L = chopDash(L, s.origin);   // ?nolx=1＝破線は CPU で刻む（旧＝作ったタイルの z の尺）
 				if (!L.half.length) continue;
@@ -2536,7 +2592,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (!bOff || !bJd) zeroOffFit(n);
 				const cj = J ? L.cj ?? 0 : 0, dash = L.dist ? dashU(L.dash, cj) : null, fx = L.fx || null;
 				const bufs = [bP1, bP2, bCH]; if (bOff) bufs.push(bOff); if (bJd) bufs.push(bJd);
-				draws.push({ kind: "line", li: L.li, bufs, bP1, bP2, bCH, bOff, bJd, pad, count: n, cj, dash, fx, lxk: lineLxk(cj, dash ? L.dash : undefined, fx, L.lt), lt: L.lt || null });
+				draws.push({ kind: "line", li: L.li, bufs, bP1, bP2, bCH, bOff, bJd, pad, count: n, cj, dash, fx, lxk: lineLxk(cj, dash ? L.dash : undefined, fx, L.lt), lt: L.lt || null, pz: L.pz || null });
 			}
 		}
 		let bld: SceneBld | null = null;
@@ -2929,6 +2985,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			});
 			device.queue.writeBuffer(cl!.buf, 0, cl!.cpu);
 		}
+		ptFlush();   // paint 表の (b) 類＝汚れた行を storage へ（地面アトラスと md の描く列が読む）
 		composeGround(gndJob, slotsG);   // 鍵が変わった時だけ（Frame 書込の後＝塗りの焼き込みが bg0[slot] の origin を読む）
 		// 等高線：真俯瞰でだけ茶の等高線（gl/renderer.js と同式のフェード・間隔）
 		const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));
@@ -2959,6 +3016,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			liftBounds: elev.liftBounds,   // メッシュ接地リフトの DTM 保証域
 			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
+		for (let k = 0; k < 2; k++) { const o = k * (PARAM_SLOT / 4); ptAtlCPU.set(paramF32.subarray(ROLE.normal * (PARAM_SLOT / 4), ROLE.normal * (PARAM_SLOT / 4) + 12), o); ptAtlCPU[o + 46] = k + 1; }   // 地面アトラスの表を読む列＝役割 normal＋pzO.z
+		device.queue.writeBuffer(ptAtlBuf, 0, ptAtlCPU);
 		if (!flat2d) {
 			const g = new Float32Array(124);   // +ugC/ugNF（地下から見た球の裏面 2026-10-29）   // +gm/gmC/gmP（地面の材質 2026-10-28）   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
 			packRays(g, 0, st);   // 視線の基底（#65・旧 invMvp の枠）
@@ -3137,7 +3196,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// dbg＝?drawhud=1 の実機計器（描いた枚数と状態）。「背景が黒＝塗りが一枚も出ていない」時に、
 		// 犯人が CPU 側（シーンが空・スロット退場）か GPU 側（描いたのに出ない）かを画面で名指しするための物差し
 		// （Android 実機の反転 2026-08-03。数え上げは加算だけ＝常時オンでも実害なし）。
-		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, textMid: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return gnd.rasterOn ? gnd.tiles : 0; }, get fillsIn() { return gnd.fillsIn; }, get gndFaces() { return gnd.fillsIn ? gnd.faces : 0; } };
+		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, pt: 0, ptw: 0, textMid: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return gnd.rasterOn ? gnd.tiles : 0; }, get fillsIn() { return gnd.fillsIn; }, get gndFaces() { return gnd.fillsIn ? gnd.faces : 0; } };
 		dbg.shadow = shWin ? +(shWin.alt * 180 / Math.PI).toFixed(1) : 0;   // ?drawhud=1：影の窓が立ったか（太陽高度°・0＝影なしのフレーム）
 		const slots = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
 		if (userOn) slots.push("user");   // 利用者の vector の層（段 8⑤）＝基図の塗りと線の後
@@ -3157,7 +3216,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (hideBldFill && d.li === bldFill.li) return;            // 3D時＝フットプリント塗りを伏せる
 				const roof = R && !C && d.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根＝影を受けない（地面の高さに描くと自分の屋根の影に沈む）
 				const role = userSlot ? ROLE.user : useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal);
-				const bg1 = d.lxk ? lxFill(role, d.lxk, d.fx, d.pat, scenes[slot].origin) : paramBG[role];
+				const pz = pzOver.get(d.li) ?? d.pz, pm = pz ? pzEval(pz) : null;   // ズーム連続の色（V-Ph3＝S-P1-2）
+				const bg1 = d.lxk || pm ? lxFill(role, (d.lxk ?? "f") + pzKey(pm, 0), d.fx, d.pat, scenes[slot].origin, pm) : paramBG[role];
 				if (!bg1) return;   // 模様の画像がまだ無い層＝描かない（MapLibre・GL2 と同じ）
 				pass.setPipeline(roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
 				pass.setBindGroup(0, bg0[slot]);
@@ -3171,7 +3231,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			} else {
 				if (slot === "base" && mainLinesOn) return;   // 本命の線が出ている間は下地の線を伏せる
 				const role = userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal;   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
-				const bgL = d.lxk ? lxLine(role, d.lxk, d.cj, d.dash, d.fx, 0, d.lt) : paramBG[role];
+				const pz = pzOver.get(d.li) ?? d.pz, pm = pz ? pzEval(pz) : null;   // ズーム連続の色・線幅・ずらし（V-Ph3＝S-P1-2）
+				const bgL = d.lxk || pm ? lxLine(role, (d.lxk ?? "l") + pzKey(pm, 0), d.cj, d.dash, d.fx, 0, d.lt, pm) : paramBG[role];
 				if (!bgL) return;   // 線の模様の画像がまだ無い層＝描かない（G-4）
 				pass.setPipeline(linePipe);
 				pass.setBindGroup(0, bg0[slot]);
@@ -3200,21 +3261,25 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const roof = R && !C && e.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根（classic と同じ＝素の派生）
 				const PM = roof ? mdPipeSet("p", S) : MDX!;
 				const role = seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal;
-				const bg1 = e.lxk ? lxFill(role, e.lxk, e.fx, e.pat || null, scenes[slot].origin) : paramBG[role];
+				const pz = pzOver.get(e.li) ?? e.pz, pm = pz ? pzEval(pz) : null;   // ズーム連続の色（V-Ph3＝S-P1-2）・pt＝表を読む（paint 表の (b) 類）
+				const bg1 = e.lxk || pm || e.pt ? lxFill(role, (e.lxk ?? "f") + pzKey(pm, e.pt), e.fx, e.pat || null, scenes[slot].origin, pm, e.pt) : paramBG[role];
 				if (!bg1) return;   // 模様の画像がまだ無い層＝描かない
 				pass.setPipeline(terrainDepth ? PM.fillTest : PM.fillOff);
 				pass.setBindGroup(0, bg0[slot]);
 				pass.setBindGroup(1, bg1);
-				if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
+				pass.setBindGroup(2, (roof ? null : grp(slot)) || emptyBG);   // 屋根（素の派生）は group(2) が空
+				pass.setBindGroup(3, ptBG());   // paint 表の (b) 類
 				pass.setVertexBuffer(0, md!.fillV.buf!); pass.setVertexBuffer(1, orgBuf, e.orgOff);
 				pass.setIndexBuffer(md!.fillI.buf!, "uint32");
 				const c = e.counts, o = e.offsets!;
 				for (let j = 0; j < c.length; j++) pass.drawIndexed(c[j], 1, o[j] >> 2, 0, j);   // offsets＝byte（scene worker）→ firstIndex・index 値はプール絶対＝baseVertex 0
 				if (slot === "base") dbg!.baseFill += c.length; else dbg!.mainFill += c.length;
+				if (e.pt) dbg!.pt += c.length;   // 表を読んだ描く列（paint 表の (b) 類・t-painttable）
 			} else {
 				if (slot === "base" && mainLinesOn) return;   // 本命の線が出ている間は下地の線を伏せる
 				if (!md!.lineBG) return;
-				const bgL = e.lxk ? lxLine(ROLE.normal, e.lxk, e.cj, e.dash, e.fx, e.dOff ? evalPaintZoom(e.dOff, lxCam.zoom).off! : 0, e.lt) : paramBG[ROLE.normal];
+				const pz = pzOver.get(e.li) ?? e.pz, pm = pz ? pzEval(pz) : null;   // ズーム連続の色・線幅・ずらし（V-Ph3＝S-P1-2）・pt＝表を読む（paint 表の (b) 類・2＝線の半幅も）
+				const bgL = e.lxk || pm || e.pt ? lxLine(ROLE.normal, (e.lxk ?? "l") + pzKey(pm, e.pt), e.cj, e.dash, e.fx, (e.dash || e.lt?.pat) && pm?.off != null ? pm.off : 0, e.lt, pm, e.pt) : paramBG[ROLE.normal];
 				if (!bgL) return;   // 線の模様の画像がまだ無い層＝描かない（G-4）
 				pass.setPipeline(terrainDepth ? MDX!.lineTest : MDX!.lineOff);
 				pass.setBindGroup(0, bg0[slot]);
@@ -3225,6 +3290,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const c = e.counts, f = e.firsts!;
 				for (let j = 0; j < c.length; j++) pass.draw(c[j], 1, f[j], j);   // firsts＝先頭頂点番号（6 頂点/線分）
 				if (slot === "base") dbg!.baseLine += c.length; else dbg!.mainLine += c.length;
+				if (e.pt) dbg!.pt += c.length;
+				if (e.pt === 2) dbg!.ptw += c.length;   // 線の半幅も表から（段 2b）
 			}
 		};
 		const runSlot = (slot: string, list: DrawSrc, useFade: boolean, lo: number, hi: number, pick: ((d: { li: number }) => boolean) | null = null) => {
@@ -3822,7 +3889,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "celequator":  celeq = setStarBuf(celeq, data as ArrayLike<number> | null, 3); break;         // 天の赤道の大円
 			case "cogSplit":    setCogSplit(data as number | null); break;                                // 見比べの境の経度（null＝境なし）
 			case "cogTex":      setCogTex(data as CogTexData | null); break;                             // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
-			case "ptOver": case "ptFsLayers": case "ptFs": case "pzOver": break;   // paint 表の (b) 類・paintFast（GL2 の md 専用）＝WebGPU は表を読まず組み直しで描く＝素通し・警告しない（GL2 の shadow／clip の裏返し）
+			case "pzOver":    pzOver = new Map(data as [number, PaintZoom][] | null ?? []); break;   // setPaintProperty の速い道（build.ts paintFast）＝基図の層の添字 → 差し替えの式（全部を置き換える）
+			case "ptOver":    ptStore.setOver(data as [string, PtLayer][] | null); break;   // setPaintProperty の (b) 類（painttable.ts の paintTableFast）＝層 id → 後の式（全部を置き換える）
+			case "ptFsLayers": ptStore.setFsLayers(data as [string, string, PtLayer][] | null); break;   // feature-state を読む基図の層（段 3）＝層 id・source-layer・式
+			case "ptFs":      ptStore.setFs(data as [string | null, string | null, Record<string, unknown> | null][]); break;   // 基図の source の setFeatureState／removeFeatureState（段 3）
 			default:
 				if (IGNORE.has(cmd)) { if (!ignored.has(cmd)) { ignored.add(cmd); console.log(`[gpu] set("${cmd}") not implemented = ignored (next phase of WebGPU port)`); } }
 				else console.warn("[gpu] renderer.set: unknown cmd", cmd);
@@ -3863,7 +3933,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	device.popErrorScope().then(e => { if (e) gpuErr("init検証", e.message); }).catch(() => {});
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
-	return { set, draw, flush, readback, dispose, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
+	return { set, draw, flush, readback, dispose, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },

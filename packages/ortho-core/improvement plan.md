@@ -50,10 +50,10 @@
 | 起動：hillshade・colorrelief・customgl・sky を globe.ts が静的に読む | 読んだ | 使う時だけ import() | 初期バンドルを測ってから |
 | 3D Tiles のピック用の形を main に複写（タイルの約 7 割） | 読んだ | メモリが減るが pick は同期 API＝設計の判断 | 保留 |
 | 最初の 4x 静止フレームで同期のパイプライン作成 | 推測 | 非同期で先に温める | 引っ掛かりの計器で確かめてから |
-| WebGPU の paint 表 | 計画（render roadmap 14） | GL2 と揃える | 段階 2 |
+| WebGPU の paint 表 | 計画（render roadmap 14） | GL2 と揃える | **2026-11-01 実装**（pz・pzOver・(b) 類の表＝`vt perf plan.md` §5「WebGPU 版」・表の中身は `painttable-store.ts` で gl/gpu 共有＝段階 3 の「純関数の抜き出し」の 1 本目） |
 | 文字の GPU 化 T-P1 の実機の門・T-P2 | 計画（text gpu plan） | 門を通して既定に | 段階 2 |
 | render bundle（step B） | 計画（vt perf plan §4・棚） | Mac の bench で go/no-go | 段階 2 |
-| geopbf の topology（BigInt Map の dedup が 55%・12.3 s） | 計画（perf plan P5） | uint32 の hash（出力 byte 一致が門） | 段階 2 |
+| geopbf の topology（BigInt Map の dedup が 55%・12.3 s） | 計画（perf plan P5） | uint32 の hash（出力 byte 一致が門） | ~~段階 2~~ **済み**＝2026-09-16 に JS の位相経路ごと Rust（`wasm/src/topology.rs`・FxHashMap の u64 鍵）へ移っていた＝起案時の見落とし |
 
 ## 3. 段階と門
 
@@ -61,7 +61,7 @@
 |---|---|---|---|
 | 0 | 計器：`?perf=1` の `[csperf]`（sdk/cesium/src/perf.ts の timed＝display・prims・colls・voxels・particles・clouds・timePoints の平均/最大 ms と回数を 2 秒ごと）と `[t3perf]`（選びの ms・1 フレームに見たノード数）。初期バンドルの大きさの関門。Mac で perf plan の 3 シーン＋Cesium の重い例 5 本、iPhone は本人に一度 | 表が §5 に埋まる | #815・Mac の計測は §5（iPhone・Windows・動かした時は未） |
 | 1 | §2 の「#815」の 3 件。静的 import の遅延は段階 0 の数字で選ぶ | Sandcastle を撮り直して段が下がらない・3D Tiles の頁が main と同じ | **#815 済**（§5） |
-| 2 | 既存の速さの計画の残り（paint 表・T-P1 の門・render bundle・topology） | MapLibre の門・verify:webgpu・verify:ui 緑、perf plan の表に数字 | 未着手 |
+| 2 | 既存の速さの計画の残り（paint 表・T-P1 の門・render bundle・~~topology~~） | MapLibre の門・verify:webgpu・verify:ui 緑、perf plan の表に数字 | WebGPU の paint 表＝2026-11-01 実装。T-P1 の門（字の質の目視）と render bundle（1,000 draw/フレームの場面待ち）は実機・場面待ち |
 | 3 | 重複の残り（sdk の定型・gl/gpu の純関数） | 門の出力が前後で同じ | #813・#814・#816（census）済、残りは未着手 |
 | 4 | 構造：globe.ts と gpu/renderer.ts の分割、facade の any（cesium 約 700・leaflet 約 570・gmaps 約 200）を公開 API の型から | 機能追加の邪魔になった時 | 後回し |
 
@@ -95,3 +95,4 @@
 
 - 2026-10-31：起案（Claude Doc「ortho-earth 2.2 以後の改善計画」）。本人裁定＝重複の削除 → 段階 0・1。
 - 2026-10-31：#813（i18n の門の共通化）・#814（GL 描き手の program と pick 窓の共通化）・#815（段階 0・1）マージ。§5 に Mac の計測。#816 で census の写しを消す。
+- 2026-11-01：段階 2 の 1 本目＝WebGPU の paint 表（ズーム連続・setPaintProperty の速い道・(b) 類の表）。表の中身を `painttable-store.ts` に抜いて gl/gpu で共有（段階 3 の形）。topology P5 は 9/16 に Rust 化済みと判明＝表を直した。

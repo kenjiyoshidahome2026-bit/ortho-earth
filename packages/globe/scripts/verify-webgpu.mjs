@@ -20,7 +20,8 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
 	"t-spotlight", "t-linedeco", "t-linegrad", "t-mdparity", "t-shotov",
-	"t-linejoin?md=1", "t-linejoin?nomd=1", "t-linedash?md=1", "t-linedash?nomd=1", "t-linefx?md=1", "t-linefx?nomd=1", "t-fillpattern?md=1", "t-fillpattern?nomd=1", "t-linepattern?md=1", "t-linepattern?nomd=1",   // t-linepattern＝線の模様（G-4）   // S-P1-1/3/4/5 の WebGPU 版（2026-10-22）＝線の端と継ぎ・破線・translate/blur・塗りの模様を md／classic の両経路で読み戻す   // t-linedeco＝基図の line-offset を WGSL でも（#49）・t-mdparity＝タイル GPU 常駐プール（md）と classic の絵一致（vt perf plan §4 step A）
+	"t-linejoin?md=1", "t-linejoin?nomd=1", "t-linedash?md=1", "t-linedash?nomd=1", "t-linefx?md=1", "t-linefx?nomd=1", "t-fillpattern?md=1", "t-fillpattern?nomd=1", "t-linepattern?md=1", "t-linepattern?nomd=1",   // t-linepattern＝線の模様（G-4）
+	"t-paintzoom?md=1", "t-paintzoom?nomd=1", "t-paintfast?md=1", "t-paintfast?nomd=1", "t-painttable?md=1&drawhud=1", "t-painttable?md=1&drawhud=1&pt=0", "t-painttable?nomd=1&drawhud=1",   // paint 表の WebGPU 版（2026-11-01）＝ズーム連続（pz）・setPaintProperty の速い道・(b) 類の表（storage）を md／classic で読み戻す   // S-P1-1/3/4/5 の WebGPU 版（2026-10-22）＝線の端と継ぎ・破線・translate/blur・塗りの模様を md／classic の両経路で読み戻す   // t-linedeco＝基図の line-offset を WGSL でも（#49）・t-mdparity＝タイル GPU 常駐プール（md）と classic の絵一致（vt perf plan §4 step A）
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",
 	"t-copc", "t-copc?v=depth",   // COPC の点群の WebGPU の描き手（copc-gpu.ts＝本体の device と深度を共有・2026-10-23）・?v=depth＝本体の深度で隠れる   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
 	"t-cluster",   // map.gadget.cluster＝集約の source と層（丸は gint・件数は注記層の GPU の字・2026-10-22）
