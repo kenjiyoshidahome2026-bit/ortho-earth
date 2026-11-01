@@ -13,7 +13,7 @@
 		"build": "tsc -p .",
 		"prepack": "node ../../scripts/pack-ts.mjs pre",
 		"postpack": "node ../../scripts/pack-ts.mjs post",
-		"test": "node tests/t-cesium.mjs"
+		"test": "node tests/t-cesium.mjs && node tests/t-tile-volume.mjs"
 	},
 	"dependencies": {
 		"@cesium/core": "0.1.0",
