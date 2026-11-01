@@ -316,7 +316,7 @@ export class PrimitiveDrawer {
 		it.loading = true;
 		const gen = (it as Any).gen = ((it as Any).gen ?? 0) + 1;
 		tris.unlit = !!p.appearance?.flat;   // MaterialAppearance flat: no lighting (EquirectangularPanorama)
-		tris.closed = !!p.appearance?.closed;   // a closed appearance culls its back faces (Cesium's renderState cull): a translucent cylinder shows one wall, not both
+		tris.closed = !!(p.appearance?.renderState?.cull?.enabled ?? p.appearance?.closed);   // Cesium culls back faces when the render state says so (closed by default): a translucent cylinder shows one wall, not both; the panorama's closed sphere turns culling off (seen from inside)
 		const opaque = p.appearance?.translucent === false;   // the appearance says opaque: an image is drawn so whatever its alpha
 		void Promise.all([...painted.values()].map(async g => ({ idx: g.idx, tex: (await paintSquare(g.mat, videoOf(g.mat) ? 1024 : g.mat.type === "Image" ? 4096 : 512))?.toDataURL() ?? null, blend: !opaque && matTranslucent(g.mat) }))).then(ps => {
 			if (it.dead || (it as Any).gen !== gen) return;
