@@ -70,7 +70,7 @@ fn gndUV0(uv: vec2f, fx: f32, sp: f32) -> vec2f {
 	return t;
 }
 `;
-const FRAME = /* wgsl */`
+export const FRAME = /* wgsl */`
 struct Frame {
 	mvp: mat4x4f,
 	rayF: vec4f,       // 全画面レイキャスト（#65・旧 invMvp の枠）：視線の基底（CPU f64・camera.js viewRays）v(ndc)＝F＋x·X＋y·Y。等高線が読む

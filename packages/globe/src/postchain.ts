@@ -1,5 +1,5 @@
 // 後処理の鎖（第 2 波 F3・2026-10-12）＝map.setPostChain([{ type, ...}, …])／getPostChain()。順番つきの pass の並びを受けて既定を補い**保つ**。
-//   描くのは bloom・vignette（PR-8）と fxaa・tonemap・lut（第 3 波 W1・2026-10-12）＝normPost の形で renderer の "post" へ（掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。smaa/dof/ssr は受けて保つだけ（capabilities "spec"）＝plugin が描く。
+//   描くのは bloom・vignette（PR-8）と fxaa・tonemap・lut（第 3 波 W1・2026-10-12）＝normPost の形で renderer の "post" へ（掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。ssr は WebGPU で描く（2026-11-01・renderer の "ssr"）。smaa/dof は受けて保つだけ（capabilities "spec"）＝plugin が描く。
 //   plugin の type＝registry.postEffects.add(type, { apply(map, passes) })＝setPostChain のたびに、その type の pass の配列（無ければ []）で呼ぶ（自前の overlay／CSS filter で描く約束）。
 //   setPostProcess({ bloom, vignette }) は従来どおり＝鎖の bloom→vignette の 2 段に写る。DOM 無し＝tests/postchain.mjs。
 import { normPost, normStages } from "@ortho-earth/core/postfx";
@@ -19,7 +19,10 @@ export type NormStagePass = PassBase & PostStage;
 export type NormBuiltinPass = NormBloom | NormVignette | NormTonemap | NormLut | NormStagePass
 	| PassBase | (PassBase & { preset: string })
 	| (PassBase & { focusDistance: number; focalLength: number; aperture: number; maxBlur: number })
-	| (PassBase & { intensity: number; maxDistance: number; thickness: number; steps: number });
+	| NormSsr;
+/** SSR（画面空間の映り込み・2026-11-01・WebGPU だけ）：intensity＝全体の強さ・maxDistance＝反射の光線を歩く長さ（m）・thickness＝当たりと見る物の厚み（m）・steps＝歩数。
+ *  ocean／ground／facades＝映す面の反射率（0..1＝真上から見た時・斜めほど強い）：標高 0 m 以下の地面／上を向いた面すべて（濡れた地面）／建物と模型の立った面（ガラスの壁） */
+export type NormSsr = PassBase & { intensity: number; maxDistance: number; thickness: number; steps: number; ocean: number; ground: number; facades: number };
 export type PluginPass = { type: string; enabled: boolean; [k: string]: unknown };
 export type NormPass = NormBuiltinPass | PluginPass;
 // 1 つの pass → 既定を補った新しい object（knownType 以外は null）
@@ -35,13 +38,14 @@ export function normPass(p: unknown): NormBuiltinPass | null {
 		case "tonemap": return { ...base, enabled, mode: ["linear", "reinhard", "aces", "agx", "filmic"].includes(o.mode as string) ? o.mode as TonemapMode : "aces", exposure: nn(o.exposure, 1, 0, 16) };
 		case "lut": return { ...base, enabled, url: typeof o.url === "string" ? o.url : null, size: [16, 32, 64].includes(+(o.size as number)) ? +(o.size as number) : 32, intensity: nn(o.intensity, 1, 0, 1) };
 		case "dof": return { ...base, enabled, focusDistance: nn(o.focusDistance, 500), focalLength: nn(o.focalLength, 50, 1, 1200), aperture: nn(o.aperture, 2.8, 0.5, 64), maxBlur: nn(o.maxBlur, 8, 0, 64) };
-		case "ssr": return { ...base, enabled, intensity: nn(o.intensity, 0.5, 0, 1), maxDistance: nn(o.maxDistance, 2000), thickness: nn(o.thickness, 2), steps: Math.round(nn(o.steps, 32, 4, 256)) };
+		case "ssr": return { ...base, enabled, intensity: nn(o.intensity, 1, 0, 1), maxDistance: nn(o.maxDistance, 2000, 1, 1e6), thickness: nn(o.thickness, 2, 0, 1e4), steps: Math.round(nn(o.steps, 32, 4, 256)),
+			ocean: nn(o.ocean, 0.5, 0, 1), ground: nn(o.ground, 0, 0, 1), facades: nn(o.facades, 0, 0, 1) };   // SSR（2026-11-01・WebGPU）＝何が映すか：ocean＝標高 0 m 以下の地面・ground＝上を向いた面すべて・facades＝建物と模型の立った面
 		case "silhouette": case "grey": case "brightness": case "nightVision": case "glsl": case "lensFlare": case "depthOfField": case "cesiumBloom": { const st = normStages([o])[0]; return st ? { ...base, enabled, ...st } : null; }   // 画面の段（src の無い glsl は null）
 		default: return null;
 	}
 }
 // 鎖（配列・1 つ・{ bloom, vignette } の旧形・null）→ { passes（正規化・順番どおり）, post（renderer へ渡す normPost の形＝bloom/vignette＋fxaa/tonemap/lut・無ければ null） }。知らない type は投げる（known(type) が true なら plugin の pass としてそのまま保つ）
-export function normPostChain(list: unknown, known: (type: string) => boolean = () => false): { passes: NormPass[]; post: PostProcessNormalized | null } {
+export function normPostChain(list: unknown, known: (type: string) => boolean = () => false): { passes: NormPass[]; post: PostProcessNormalized | null; ssr: SsrNormalized | null } {
 	let arr: unknown[];
 	if (list == null || list === false) arr = [];
 	else if (Array.isArray(list)) arr = list;
@@ -60,5 +64,9 @@ export function normPostChain(list: unknown, known: (type: string) => boolean = 
 	const stages = passes.filter(x => x.enabled && STAGE_TYPES.has(x.type)).map(x => { const { id: _i, enabled: _e, ...rest } = x as NormStagePass; return rest as PostStage; });   // 画面の段＝並び順どおり（on の物だけ）
 	const post = normPost(({ bloom: bloom ? { threshold: bloom.threshold, strength: bloom.strength, radius: bloom.radius } : null, vignette: vig ? { strength: vig.strength, radius: vig.radius, softness: vig.softness } : null,
 		fxaa: !!fx, tonemap: tm ? { mode: tm.mode, exposure: tm.exposure } : null, lut: lut && lut.url ? { url: lut.url, size: lut.size, intensity: lut.intensity } : null, stages }) as PostProcessOptions);
-	return { passes, post };
+	const sp = on("ssr") as NormSsr | undefined;   // SSR＝renderer の "ssr"（"post" とは別の口＝WebGL2 は読まない）。映す面が 1 つも無ければ null
+	const ssr = sp && sp.intensity > 0 && (sp.ocean > 0 || sp.ground > 0 || sp.facades > 0) ? { intensity: sp.intensity, maxDistance: sp.maxDistance, thickness: sp.thickness, steps: sp.steps, ocean: sp.ocean, ground: sp.ground, facades: sp.facades } : null;
+	return { passes, post, ssr };
 }
+/** renderer.set("ssr", …) の形（正規化済み・id/enabled/type 無し）。 */
+export type SsrNormalized = Omit<NormSsr, "id" | "type" | "enabled">;
