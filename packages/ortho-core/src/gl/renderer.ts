@@ -2520,8 +2520,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// バッチ単位でフラスタムカリング＝区全体(数百万tris)のうち画面に掛かるバッチだけ頂点処理へ流す。
 		// 球体が半透明（Cesium の globe.translucency）＝地面の深度を捨ててから模型を描く＝地下の模型（坑道）が地面越しに見える（地面どうしの前後は深度で済ませた後）
 		// Cesium の depthTestAgainstTerrain=false（既定）も同じ＝地形の深度を消してから 3D Tiles・模型を描く（細かい地形が写真測量の地面を突き抜けない）。
-		// ただし地形の深度を後で読む物（深度の書き出し口＝後処理・オーバーレイ／面の貼り付け）があるフレームは消さない（地面の深度が要る）
-		if (meshes.size && terrainActive && (globeA < 1 || (view.meshOverGround && !dOut && !classify.size))) gl.clear(gl.DEPTH_BUFFER_BIT);
+		// ただし地形の深度を後で読む物（後処理・面の貼り付け）があるフレームは消さない（地面の深度が要る）。オーバーレイ（Cesium の線・尾）は消した後の深度で良い＝Cesium も地球の深度を消してから線を描く
+		if (meshes.size && terrainActive && (globeA < 1 || (view.meshOverGround && !post && !classify.size))) gl.clear(gl.DEPTH_BUFFER_BIT);
 		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
 			bldStencil(true);   // 建物メッシュも建物＝bit7 を刻む
 			gl.useProgram(meshProg);
