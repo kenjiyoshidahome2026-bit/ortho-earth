@@ -43,7 +43,9 @@ export function rasterSourceOf(p: Any): Any | null {
 		// the scheme Bing gave for the page's (Cesium asks the metadata with uriScheme = the page's protocol): https only on an https page — the road map's
 		// ak.dynamic.t*.tiles.virtualearth.net answers https with a certificate for another name (itwin-gaussian-splats drew no map, 748 failed requests, 2026-10-30)
 		const scheme = typeof location !== "undefined" && location.protocol === "https:" ? "https:" : null;
-		return { type: "raster", tiles: subs.map(s => nz(tpl.replace("{subdomain}", s).replace("{culture}", p._culture || "").replace(/^http:/, scheme ?? "http:"))), ...range, tileSize: 256, attribution: "© Microsoft" };
+		// no level 0: a quadkey has one digit per level, so level 0 is "" and the globe asks "0" (the north-west quarter) = that quarter stretched over
+		// the whole Earth. Cesium never shows Bing at level 0 (its globe starts at 2 tiles); at resolutionScale 0.25 the globe picked z0 (resolution-scaling, v242)
+		return { type: "raster", tiles: subs.map(s => nz(tpl.replace("{subdomain}", s).replace("{culture}", p._culture || "").replace(/^http:/, scheme ?? "http:"))), ...range, minzoom: Math.max(1, range.minzoom), tileSize: 256, attribution: "© Microsoft" };
 	}
 	if (name === "ArcGisMapServerImageryProvider") {
 		const base = raw(p._resource).replace(/\/$/, "");
