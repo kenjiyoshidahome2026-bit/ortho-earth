@@ -55,7 +55,7 @@ interface Entry { status: EntryStatus; z: number; x: number; y: number; tex: Ras
 interface QueueItem { key: string; z: number; x: number; y: number; dist: number }
 interface Layer {
 	id: string; spec: RasterSpec; source: RasterSource | null; error: string | null; gen: number; rank: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; tileBias: number; sse: number;
-	resampling: RasterResampling; fadeDur: number; split: number; showMin: number; showMax: number; cache: Map<string, Entry>; queue: QueueItem[]; sticky: Set<number> | null; pxStep?: number; draws: RasterDraw[];
+	resampling: RasterResampling; fadeDur: number; split: number; showMin: number; showMax: number; cache: Map<string, Entry>; queue: QueueItem[]; sticky: Set<number> | null; draws: RasterDraw[];
 	dirty: boolean; camKey: string; selN: number; warned: boolean; fresh: boolean; inView: boolean; info?: RasterInfo;
 }
 
@@ -172,10 +172,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 
 	// 取得（並列上限つき・距離順）。ready で層を dirty＝次フレームで描画リストが更新される
 	function pump(): void {
-		// Cesium's z (sse layers) is not throttled while moving: Cesium keeps loading under a moving or tracked camera, and a tracked camera
-		// (czml-path, viewer.trackedEntity) never lands = 2 fetches for ever = the ground stayed coarse (v243)
-		let cesium = false; for (const L of layers.values()) if (L.sse > 0) { cesium = true; break; }
-		while (inflight < (moving && !cesium ? CONC_MOVING : CONC)) {
+		while (inflight < (moving ? CONC_MOVING : CONC)) {
 			let best: QueueItem | null = null, bestL: Layer | null = null;
 			for (const L of layers.values()) {
 				if (!L.source || !L.queue.length) continue;
@@ -216,16 +213,11 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		// ので、可視集合を予算内に収めるのは選抜の責任（LOW_MEM 24MB＝写真 256²+mips≈350KB×68 枚）。層が複数なら分け合う。
 		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
 		let tilePx = L.sse > 0 ? cesiumTilePx(L.sse, cam.center[1], src.tileSize) : src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
-		// Cesium's z (sse): a coarser step is left only with 15 % to spare = a moving camera (czml-path, 10x) near the share's edge flipped between
-		// two steps every frame, aborting both sets of fetches = the ground stayed the base colour (navy) where the fine tiles had not come (v243)
-		const prevStep = L.pxStep ?? 0;
-		let step = 0;
-		for (; step < 4; step++) {
+		for (let step = 0; step < 4; step++) {
 			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1, farR: opts?.farR ?? opts?.groundR ?? 1, nearEye: L.sse > 0 });   // nearEye: Cesium's distance with its z rule
-			if (sel.length * perTile <= share * (L.sse > 0 && step < prevStep ? 0.85 : 1)) break;   // 選抜だけで数える＝先に取る粗い祖先は余りの枠だけ（updateLayer）。旧（2026-10-26〜）＝祖先も数えて超えたら tilePx を上げた＝足元まで一段粗くなった（2026-10-31・MapLibre 公式例の門 3d-terrain）
+			if (sel.length * perTile <= share) break;   // 選抜だけで数える＝先に取る粗い祖先は余りの枠だけ（updateLayer）。旧（2026-10-26〜）＝祖先も数えて超えたら tilePx を上げた＝足元まで一段粗くなった（2026-10-31・MapLibre 公式例の門 3d-terrain）
 			tilePx *= 1.6;
 		}
-		L.pxStep = Math.min(step, 3);
 		// 枚数の上限（低 z の巨大視野・極端なチルト）：遠い順に親へまとめる（4 枚→1 枚）＝遠景を粗くして埋める。
 		// 旧＝遠い順に捨てる＝地平線の手前に下地の色（Cesium 例の既定は青）の帯が残った（2026-10-25・公式例の門）。まとめ切れない時だけ捨てる
 		if (sel.length > maxTiles) {
@@ -295,21 +287,13 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		// 粗い祖先を先に（Cesium の preloadAncestors と同じ考え・2026-10-26）：選抜タイルの COARSE_UP 段上の祖先を距離より先に取る＝
 		// 数枚で視野全体が粗く埋まり、細かいタイルが届くまで地平線側に下地の色（Cesium 例の既定は青）が残らない（旧＝距離順だけ＝遠景が最後）
 		// 枠＝予算の残り（選抜が先・祖先は余りで取る）。足りなければ遠い祖先から＝近くの細かいタイルは距離順ですぐ届く・粗い埋めが効くのは地平線側
-		// Cesium's z (sse): at least a quarter of the share for the coarse ancestors (in the 30 % the share leaves of the budget) = Cesium's finer
-		// selection filled the share and no ancestor was fetched = navy where the fine tiles had not come yet (v243 fog, czml-path)
-		const shareN = Math.floor(BUDGET * 0.7 / Math.max(1, layers.size) / (src.tileSize * src.tileSize * 4 * 4 / 3)), room = Math.max(shareN - sel.length, L.sse > 0 ? Math.floor(shareN / 4) : 0);
-		// Cesium's z (sse): more ancestors than room = go further up (to MAX_UP, still drawn as a partial uv) rather than leave the near ones out =
-		// a camera that keeps moving (czml-path) never gets its near fine tiles either, and the ground under it stayed the base colour
-		let coarse = new Map<string, { z: number; x: number; y: number; dist: number }>();
-		for (let up = COARSE_UP; up <= (L.sse > 0 ? MAX_UP : COARSE_UP); up++) {
-			coarse = new Map();
-			for (const t of sel) {
-				const d = Math.min(up, t.z - Math.max(0, src.minZoom)); if (d <= 0) continue;
-				const z = t.z - d, x = t.x >> d, y = t.y >> d, k = keyOf(z, x, y);
-				if (coarse.has(k) || keep.has(k) && L.cache.get(k)?.status === "ready") continue;
-				const [w, s_, ea, n] = tileBounds(x, y, z); coarse.set(k, { z, x, y, dist: Math.hypot((w + ea) / 2 - c[0], (s_ + n) / 2 - c[1]) });
-			}
-			if (coarse.size <= room) break;
+		const room = Math.floor(BUDGET * 0.7 / Math.max(1, layers.size) / (src.tileSize * src.tileSize * 4 * 4 / 3)) - sel.length;
+		const coarse = new Map<string, { z: number; x: number; y: number; dist: number }>();
+		for (const t of sel) {
+			const d = Math.min(COARSE_UP, t.z - Math.max(0, src.minZoom)); if (d <= 0) continue;
+			const z = t.z - d, x = t.x >> d, y = t.y >> d, k = keyOf(z, x, y);
+			if (coarse.has(k) || keep.has(k) && L.cache.get(k)?.status === "ready") continue;
+			const [w, s_, ea, n] = tileBounds(x, y, z); coarse.set(k, { z, x, y, dist: Math.hypot((w + ea) / 2 - c[0], (s_ + n) / 2 - c[1]) });
 		}
 		const coarseList = [...coarse].sort((a, b) => b[1].dist - a[1].dist).slice(0, Math.max(0, room));
 		for (const [k, { z, x, y, dist }] of coarseList) {
