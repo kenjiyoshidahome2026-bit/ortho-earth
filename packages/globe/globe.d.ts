@@ -1120,7 +1120,10 @@ export type PostPass =
 	/** 3D LUT＝url は .cube（LUT_3D_SIZE が勝つ）か、横に size 枚の板を並べた size²×size の画像（x＝B の板×size＋R・y＝G）。intensity＝混ぜる量 0〜1 */
 	| { id?: string; type: "lut"; enabled?: boolean; url: string; size?: 16 | 32 | 64; intensity?: number }
 	| { id?: string; type: "dof"; enabled?: boolean; focusDistance?: number; focalLength?: number; aperture?: number; maxBlur?: number }
-	| { id?: string; type: "ssr"; enabled?: boolean; intensity?: number; maxDistance?: number; thickness?: number; steps?: number }
+	/** 画面空間の映り込み（WebGPU だけ・2026-11-01）。intensity＝全体の強さ 0..1（既定 1）・maxDistance＝反射を探す距離 m（既定 2000）・thickness＝当たりと見る厚み m（既定 2）・steps＝歩数（既定 32）。
+	 *  映す面（反射率 0..1＝真上から見た値・斜めほど強い）：ocean＝標高 0 m 以下の地面（既定 0.5・地形の標高が要る）・ground＝上を向いた面すべて（濡れた地面・既定 0）・facades＝建物と模型の立った面（ガラスの壁・既定 0）。
+	 *  画面に写っている物だけが映る（画面の外・物の裏は映らない）。傾けた 3D の時だけ掛かる。WebGL2 では何もしない */
+	| { id?: string; type: "ssr"; enabled?: boolean; intensity?: number; maxDistance?: number; thickness?: number; steps?: number; ocean?: number; ground?: number; facades?: number }
 	| { id?: string; type: string; enabled?: boolean; [k: string]: unknown };
 /** registry.postEffects に足す pass の type＝setPostChain のたびに、その type の pass の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／CSS filter で描く約束） */
 export interface PostEffectImpl { apply(map: GlobeMap, passes: PostPass[]): void }

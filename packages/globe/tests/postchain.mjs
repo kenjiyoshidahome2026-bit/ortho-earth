@@ -18,8 +18,8 @@ ok("types", POST_TYPES.join() === "bloom,vignette,fxaa,smaa,tonemap,lut,dof,ssr,
 	const cb = normPostChain([{ type: "cesiumBloom", contrast: 128, brightness: -0.3, sigma: 3.78, stepSize: 5, glowOnly: 1 }]).post.stages[0];
 	ok("stage.cesiumBloom", J(cb) === J({ type: "cesiumBloom", contrast: 128, brightness: -0.3, delta: 1, sigma: 3.78, stepSize: 5, glowOnly: false }), J(cb));
 }
-ok("legacy", J(normPostChain({ bloom: true, vignette: { strength: 0.3 } })) === J({ passes: [{ type: "bloom", enabled: true, threshold: 0.75, strength: 0.5, radius: 1 }, { type: "vignette", enabled: true, strength: 0.3, radius: 0.8, softness: 0.5 }], post: { bloom: { threshold: 0.75, strength: 0.5, radius: 1 }, vignette: { strength: 0.3, radius: 0.8, softness: 0.5 } } }), J(normPostChain({ bloom: true, vignette: { strength: 0.3 } })));
-ok("null", J(normPostChain(null)) === J({ passes: [], post: null }) && normPostChain([]).post === null);
+ok("legacy", J(normPostChain({ bloom: true, vignette: { strength: 0.3 } })) === J({ passes: [{ type: "bloom", enabled: true, threshold: 0.75, strength: 0.5, radius: 1 }, { type: "vignette", enabled: true, strength: 0.3, radius: 0.8, softness: 0.5 }], post: { bloom: { threshold: 0.75, strength: 0.5, radius: 1 }, vignette: { strength: 0.3, radius: 0.8, softness: 0.5 } }, ssr: null }), J(normPostChain({ bloom: true, vignette: { strength: 0.3 } })));
+ok("null", J(normPostChain(null)) === J({ passes: [], post: null, ssr: null }) && normPostChain([]).post === null);
 const c = normPostChain([{ type: "tonemap", mode: "agx" }, { type: "vignette" }, { type: "bloom", strength: 2 }, { type: "fxaa", enabled: false }, "smaa"]);
 ok("order", c.passes.map(p => p.type).join() === "tonemap,vignette,bloom,fxaa,smaa");
 ok("spec.kept", c.passes[0].mode === "agx" && c.passes[0].exposure === 1 && c.passes[3].enabled === false && c.passes[4].preset === "medium");
@@ -31,6 +31,13 @@ ok("w1.off", normPostChain([{ type: "fxaa", enabled: false }, { type: "lut" }, {
 ok("disabledBloom", normPostChain([{ type: "bloom", enabled: false }]).post === null);
 ok("zeroStrength", normPostChain([{ type: "bloom", strength: 0 }]).post === null && normPostChain([{ type: "bloom", strength: 0 }]).passes[0].strength === 0);
 ok("pass.defaults", J(normPass({ type: "dof" })) === J({ type: "dof", enabled: true, focusDistance: 500, focalLength: 50, aperture: 2.8, maxBlur: 8 }) && normPass({ type: "lut" }).url === null && normPass({ type: "ssr", steps: 1000 }).steps === 256);
+{	// SSR（2026-11-01・WebGPU）＝既定・範囲・renderer への形（"post" とは別の ssr）・映す面が無い／強さ 0／off は null
+	const d = normPass({ type: "ssr" });
+	ok("ssr.defaults", J(d) === J({ type: "ssr", enabled: true, intensity: 1, maxDistance: 2000, thickness: 2, steps: 32, ocean: 0.5, ground: 0, facades: 0 }));
+	const c = normPostChain([{ type: "ssr", ground: 0.3, facades: 2, ocean: -1, intensity: 0.8 }, { type: "fxaa" }]);
+	ok("ssr.chain", J(c.ssr) === J({ intensity: 0.8, maxDistance: 2000, thickness: 2, steps: 32, ocean: 0, ground: 0.3, facades: 1 }) && c.post.fxaa === true && !("ssr" in c.post));
+	ok("ssr.off", normPostChain([{ type: "ssr", enabled: false }]).ssr === null && normPostChain([{ type: "ssr", ocean: 0 }]).ssr === null && normPostChain([{ type: "ssr", intensity: 0 }]).ssr === null && normPostChain(null).ssr === null && normPostChain([{ type: "ssr" }]).post === null);
+}
 ok("pass.id", normPass({ id: "a", type: "fxaa" }).id === "a" && normPass("fxaa").type === "fxaa");
 ok("pass.unknownNull", normPass({ type: "crt" }) === null);
 let threw = false; try { normPostChain([{ type: "crt" }]); } catch { threw = true; } ok("unknownThrows", threw);
