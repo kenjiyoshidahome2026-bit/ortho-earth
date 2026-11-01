@@ -80,7 +80,7 @@ export interface ModelLoadOptions {
 	/** 姿勢を丸ごと（ModelTransform.rot＝ENU での回転 3x3・列優先）＝heading より勝つ */
 	rot?: number[] | null;
 	/** "globe"＝setMeshLighting（Cesium の照明）があっても globe の固定光で描く（Cesium の entity geometry＝Phong の見た目・@ortho-earth/cesium の primitives が使う） */
-	lighting?: "globe" | "phong";
+	lighting?: "globe" | "phong" | "phong-closed";
 }
 /** worker の stats（公開の ModelHandle.stats＋地物の番号の数） */
 type ModelStats = NonNullable<ModelHandle["stats"]> & { features?: { primitives: number; texture: number; tables: number } };
@@ -596,7 +596,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 			clearExtrude(slot);
 			const key = `extrude/${++seq}`;
 			exts.set(slot, { name: key, stats: r.stats, used, mode, lift: lift ?? 0 });   // mode/lift＝問い合わせの立体の当たり（描いた地面と同じ所で当てる）
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, noLift: mode === "plane", drape: mode === "drape", keep2d: true, castShadow: buildingLike, ward: key, tex: null, ...(lighting === "phong" && { csLit: "phong", twoSided: 0 }), alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, noLift: mode === "plane", drape: mode === "drape", keep2d: true, castShadow: buildingLike, ward: key, tex: null, ...(lighting === "phong" && (blend ? { csLit: "phongc" } : { csLit: "phong", twoSided: 0 }))   /* Cesium's extrusions are closed: opaque culls back faces; translucent draws both (Primitive twoPasses), the back lit by its own normal (no faceForward) */, alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
 			console.info(`[extrude] ${r.stats.polygons} polygons, ${r.stats.triangles} tris`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);
 			return r.stats;
@@ -635,7 +635,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				xfM: null, animRaf: 0, animLast: null, handle: null as unknown as ModelHandle, gizmo: null, gizmoAuto: gizmo === "auto" || gizmo === true, tfListeners: new Set(), noLift: lift === false };
 			it.handle = makeHandle(it);
 			models.set(slot, it); cur = it;
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, wind: !!b.wind, ...((lighting === "phong" || lighting === "globe") && { colSrgb: true }), /* the @ortho-earth/cesium geometry writes its style colours (sRGB) into COLOR_0 = WebGPU decodes them like an extrusion */ csLit: lighting === "phong" ? "phong" : lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: customShader ?? null }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, wind: !!b.wind, ...((lighting === "phong" || lighting === "phong-closed" || lighting === "globe") && { colSrgb: true }), /* the @ortho-earth/cesium geometry writes its style colours (sRGB) into COLOR_0 = WebGPU decodes them like an extrusion */ csLit: lighting === "phong" ? "phong" : lighting === "phong-closed" ? "phongc" : lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: customShader ?? null }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (altitude || (rot && r.stats.mode === "anchor")) setTransform(it, { altitude, ...(rot && r.stats.mode === "anchor" ? { rot } : {}) });   // rot＝姿勢を丸ごと（pitch・roll も）
 			if (gizmo === true || (gizmo === "auto" && r.stats.mode === "anchor")) gizmoOf(it, true);

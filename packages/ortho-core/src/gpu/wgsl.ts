@@ -1108,7 +1108,7 @@ fn cityWin(n: vec3f, wl: vec3f, wx: vec3f, wy: vec3f) -> vec4f {
 		var ci: CsIn; ci.base = srgbDecode(P.p1.rgb); ci.n = n; ci.pos = F.eye - in.toEye; ci.v = normalize(in.toEye); ci.metallic = B.pbr0.x; ci.rough = B.pbr0.y; ci.ao = 1.0; ci.emissive = vec3f(0.0); ci.sunK = sunK; ci.cc = B.cc.xy; ci.ncc = n;
 		lit = csLit(ci, B.sh, B.csL, B.csC, B.csI);
 	}
-	if (B.csL.w > 2.5) { lit = ltBase * csPhong(n); }   // czm_phong（entity geometry）
+	if (B.csL.w > 2.5) { lit = min(ltBase * csPhong(select(n, -n, B.csL.w > 3.5 && fe < 0.0)), vec3f(1.0)); }   /* clamped as Cesium's 8-bit target does before blending: a translucent face lit over 1 is not brighter */   // czm_phong（entity geometry）・4＝閉じた外観（faceForward なし＝裏は書かれた法線のまま）
 	if (B.ln.x > 0.5) { lit += ltBase * localLights(n, F.eye - in.toEye); }   // 局所の光源（W2）
 	let cwin = cityWin(select(n, normalize(gnRaw * sign(dot(gnRaw, n))), g2 > 1e-18), in.wl, wlx, wly);   // 夜の街明かり（cs.y＝0 のバッチ＝模型などは何もしない）・向きは面の幾何法線（面内で一定＝角で丸めた頂点法線でも壁は壁）
 	lit = mix(lit, cwin.rgb, cwin.w);
