@@ -2739,14 +2739,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const list: { p: MeshBatch; slot: number; mask: boolean }[] = [];
 			for (const p of meshes.values()) {
 				if (list.length >= MAX_PL_BATCH) break;
-				if (meshHidden.has(p.ward) || p.noCast || p.blend) continue;
+				if (meshHidden.has(p.ward) || p.noCast || (p.blend && !p.pre)) continue;   // preOpaque＝様式が BLEND にした 3D Tiles の束も落とす（Cesium は半透明の地物も影を落とす・α 0＝隠した地物だけ抜く）
 				if (!bboxInShadowWindow(win.mvp, p.bbox, SH_CAST_HMAX_M)) continue;   // 窓の矩形に太陽方向で投げて掛からない束は落とさない（#112 段 3・旧＝窓の半幅×1.5＋影の長さの円）
 				const slot = list.length, o = slot * (PL_BATCH_SLOT / 4), b = L.batchCPU;
 				const cM = mat.transform(win.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);
 				b[o] = p.origin[0]; b[o + 1] = p.origin[1]; b[o + 2] = p.origin[2]; b[o + 3] = 0;
 				b[o + 4] = cM[0]; b[o + 5] = cM[1]; b[o + 6] = cM[2]; b[o + 7] = cM[3];
-				const mask = p.textured && p.cut > 0;   // 模型の MASK（葉など）＝α で抜く落とす側（#112 段 4）
-				b[o + 8] = mask ? p.cut : -1; b[o + 9] = 0; b[o + 10] = p.noLift ? 1 : 0; b[o + 11] = p.drape ? 1 : 0;
+				const mask = p.textured && (p.cut > 0 || p.pre);   // 模型の MASK（葉など）＝α で抜く落とす側（#112 段 4）
+				b[o + 8] = mask ? (p.pre ? 0.5 / 255 : p.cut) : -1; b[o + 9] = 0; b[o + 10] = p.noLift ? 1 : 0; b[o + 11] = p.drape ? 1 : 0;
 				if (clipPl) { const O = lonlatTo3D(...(scenes.main.origin || [0, 0]) as [number, number]); b[o + 60] = p.origin[0] - O[0]; b[o + 61] = p.origin[1] - O[1]; b[o + 62] = p.origin[2] - O[2]; }   // clipO（#111 段 2）
 				writeXf(b, o, p.xf);   // バッチの剛体変換（W4）＝影も同じ位置に落ちる
 				list.push({ p, slot, mask });
