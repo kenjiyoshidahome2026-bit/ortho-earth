@@ -141,6 +141,25 @@ const strs = list => { const bs = list.map(enc), all = new Uint8Array(bs.reduce(
 	const n0 = b0 ? [...b0.mesh.nrm.slice(0, 3)] : [], n4 = b0 ? [...b0.mesh.nrm.slice(16, 19)] : [];
 	ok("lines.dir", Math.abs(Math.hypot(...n0) - 127) < 2 && J(n0) === J(n4), `${J(n0)} ${J(n4)}`);   // 法線＝線の向き（2 本とも glTF の +x）の単位ベクトル
 }
+// EXT_mesh_primitive_edge_visibility（Cesium の edgeDisplayMode・2026-10-31）：三角形の辺ごとに 2 bit（0 隠す・1 輪郭・2 硬い・3 硬い辺の 2 度目）。
+// 正方形 2 枚＝外周 4 本が硬い（1 本は 3）・対角線は 1（輪郭＝描かない）→ 線の帯 4 本（16 頂点）。0＝面だけ・1＝面と線・2＝線だけ
+{
+	const json = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }], materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 0, 0, 1] } }],
+		meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0, extensions: { EXT_mesh_primitive_edge_visibility: { visibility: 2 } } }] }],
+		accessors: [{ bufferView: 0, componentType: 5126, count: 4, type: "VEC3", min: [0, 0, 0], max: [10, 0, 10] }, { bufferView: 1, componentType: 5123, count: 6, type: "SCALAR" }, { bufferView: 2, componentType: 5121, count: 2, type: "SCALAR" }],
+		extensionsUsed: ["EXT_mesh_primitive_edge_visibility"] };
+	// 辺の順＝(0,2) 0・(2,1) 2・(1,0) 2・(0,3) 2 → 0b10_10_10_00 = 168；(3,2) 3・(2,0) 1 → 0b01_11 = 7
+	const glb = glbOf(json, [B(Float32Array.of(0, 0, 0, 10, 0, 0, 10, 0, 10, 0, 0, 10)), B(Uint16Array.of(0, 2, 1, 0, 3, 2)), B(Uint8Array.of(168, 7))]);
+	const at = [139.7671, 35.6812];
+	const r0 = await decodeModel(glb.slice(0), { at }), r1 = await decodeModel(glb.slice(0), { at, edges: 1 }), r2 = await decodeModel(glb.slice(0), { at, edges: 2 });
+	ok("edges.off", r0?.batches.length === 1 && !r0.batches[0].lines, `${r0?.batches.length}`);
+	const ln1 = r1?.batches.filter(b => b.lines) ?? [];
+	ok("edges.both", r1?.batches.length === 2 && ln1.length === 1 && ln1[0].mesh.idx.length === 24, `${r1?.batches.length} ${ln1[0]?.mesh.idx.length}`);   // 4 本 × 2 三角形
+	const b2 = r2?.batches ?? [];
+	ok("edges.only", b2.length === 1 && b2[0].lines === true && b2[0].mesh.nrm.length === 16 * 4, `${b2.length} ${b2[0]?.mesh.nrm.length}`);
+	const c = b2[0] ? [...b2[0].mesh.col.slice(0, 4)] : [];
+	ok("edges.colour", J(c) === J([255, 0, 0, 255]), J(c));   // 面の material の色
+}
 // 型 → 成分の数（own の名前だけ＝旧 NCOMP[type] は "constructor" 等で Object.prototype の物を返した）
 {
 	const want = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };

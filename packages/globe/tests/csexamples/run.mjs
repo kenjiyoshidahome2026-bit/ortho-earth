@@ -11,6 +11,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { THRESH, cells, decodePng, grade, rankBlockers } from "./grade.mjs";
+import { ensureCorpus } from "./corpus.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)), REPO = path.resolve(HERE, "../../../..");
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ? d : process.argv[i + 1]; };
@@ -27,7 +28,9 @@ function shiftDate(off) {
 	F.prototype = D.prototype; F.now = () => now() + off; F.parse = D.parse; F.UTC = D.UTC;
 	globalThis.Date = F;
 }
-const corpus = JSON.parse(fs.readFileSync(path.join(HERE, "corpus.json"), "utf8"));
+// the cache checked against corpus.json first (missing or changed files are fetched again): a cache from before a corpus change (2026-10-31: the
+// Sandcastle images) would otherwise be shot silently without them
+const corpus = ensureCorpus();
 let examples = corpus.examples;
 if (arg("only")) { const s = new Set(arg("only").split(",")); examples = examples.filter(e => s.has(e.name)); }
 if (flag("skip-dev")) examples = examples.filter(e => !e.flags.dev);
