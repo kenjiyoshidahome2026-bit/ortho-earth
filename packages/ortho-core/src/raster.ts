@@ -37,8 +37,8 @@ export interface RasterDrawLayer { order: RasterOrder; opacity: number; resampli
 export interface RasterDraws { rev: number; hideFills: boolean; layers: RasterDrawLayer[] }
 /** renderer 契約（gl/renderer.js・gpu/renderer.js が実装） */
 export interface RasterRenderer { rasterTex(bitmap: ImageBitmap): RasterHandle; rasterMesh(m: TileMesh): RasterHandle; rasterFree(h: RasterHandle): void; setRasterDraws(rd: RasterDraws | null): void }
-export interface RasterLayerOptions { rank?: number; order?: string; opacity?: number; visible?: boolean; hideFills?: boolean; tileBias?: number; resampling?: string; fadeDuration?: number; minZoom?: number; maxZoom?: number; split?: number }
-export interface RasterLayerSet { rank?: number | null; opacity?: number | null; visible?: boolean | null; order?: string; hideFills?: boolean | null; minZoom?: number | null; maxZoom?: number | null; resampling?: string; fadeDuration?: number | null; split?: number | null }
+export interface RasterLayerOptions { rank?: number; order?: string; opacity?: number; visible?: boolean; hideFills?: boolean; tileBias?: number; resampling?: string; fadeDuration?: number; minZoom?: number; maxZoom?: number; split?: number; /** Cesium globe.maximumScreenSpaceError: >0 = pick the tile z as Cesium's ImageryLayer does (cesiumTilePx) */ sse?: number }
+export interface RasterLayerSet { rank?: number | null; opacity?: number | null; visible?: boolean | null; order?: string; hideFills?: boolean | null; minZoom?: number | null; maxZoom?: number | null; resampling?: string; fadeDuration?: number | null; split?: number | null; sse?: number | null }
 export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: number[] | null; attribution: string | null; name: string | null; tileType: string | null; order: RasterOrder; opacity: number; hideFills: boolean; resampling: RasterResampling; fadeDuration: number }
 export interface RasterPending { total: number; layers: Record<string, number>; fading: boolean }
 export interface RasterLayerStats { id: string; kind: string | null; ready: number; loading: number; empty: number; error: number; selected: number; draws: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; resampling: RasterResampling; fadeDuration: number; fading: boolean }
@@ -54,9 +54,19 @@ type EntryStatus = "queued" | "loading" | "ready" | "empty" | "error" | "retry";
 interface Entry { status: EntryStatus; z: number; x: number; y: number; tex: RasterHandle | null; bytes: number; seen: number; tries: number; ac?: AbortController | null; at?: number | null; err?: string }
 interface QueueItem { key: string; z: number; x: number; y: number; dist: number }
 interface Layer {
-	id: string; spec: RasterSpec; source: RasterSource | null; error: string | null; gen: number; rank: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; tileBias: number;
+	id: string; spec: RasterSpec; source: RasterSource | null; error: string | null; gen: number; rank: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; tileBias: number; sse: number;
 	resampling: RasterResampling; fadeDur: number; split: number; showMin: number; showMax: number; cache: Map<string, Entry>; queue: QueueItem[]; sticky: Set<number> | null; draws: RasterDraw[];
 	dirty: boolean; camKey: string; selN: number; warned: boolean; fresh: boolean; inView: boolean; info?: RasterInfo;
+}
+
+/** the split threshold (on-screen px of one tile) that picks the imagery level Cesium's globe picks (Cesium 1.13x ImageryLayer._createTileImagerySkeletons):
+ *  the terrain tile level L is the coarsest whose geometric error E0/2^L (E0 = R·2π/512: a 64-sample heightmap, 2 tiles at level 0) is ≤ sse metres-per-pixel,
+ *  then the imagery level is round(log2(T0/E_L)) with T0 = R·2π·cosφ/tileSize (Web Mercator, φ the latitude) = L + round(log2(512·cosφ/tileSize)).
+ *  A Web Mercator tile is R·2π·cosφ/(2^z·m) px on screen (m metres per px), so "z ≥ that level" ⇔ the tile is ≤ 512·sse·cosφ/2^k px (k = that round).
+ *  For 256-px tiles at 40°N this is 392 px (the globe's own rule splits at 282): labels come out at Cesium's size, not half of it (google-2d-tiles, 2026-10-31) */
+export function cesiumTilePx(sse: number, latDeg: number, tileSize = 256): number {
+	const c = Math.max(1e-3, Math.cos(Math.min(89.9, Math.abs(latDeg || 0)) * Math.PI / 180)), k = Math.round(Math.log2(512 * c / (tileSize || 256)));
+	return 512 * sse * c / 2 ** k;
 }
 
 const keyOf = (z: number, x: number, y: number): string => `${z}/${x}/${y}`;
@@ -202,7 +212,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		// 可視集合そのものが予算を超えるなら一段粗く（tilePx を上げる＝分割を早く止める）：退避は「今描いている物」を触れない
 		// ので、可視集合を予算内に収めるのは選抜の責任（LOW_MEM 24MB＝写真 256²+mips≈350KB×68 枚）。層が複数なら分け合う。
 		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
-		let tilePx = src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
+		let tilePx = L.sse > 0 ? cesiumTilePx(L.sse, cam.center[1], src.tileSize) : src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
 		for (let step = 0; step < 4; step++) {
 			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1, farR: opts?.farR ?? opts?.groundR ?? 1 });
 			if (sel.length * perTile <= share) break;   // 選抜だけで数える＝先に取る粗い祖先は余りの枠だけ（updateLayer）。旧（2026-10-26〜）＝祖先も数えて超えたら tilePx を上げた＝足元まで一段粗くなった（2026-10-31・MapLibre 公式例の門 3d-terrain）
@@ -405,6 +415,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			visible: opts.visible !== false,
 			hideFills: opts.hideFills !== undefined ? !!opts.hideFills : opts.order !== "over",   // 基図（under）は塗りを伏せる（裁定：線と注記は残す）
 			tileBias: Number.isFinite(opts.tileBias) && opts.tileBias! > 0 ? opts.tileBias! : 1,
+			sse: Number.isFinite(opts.sse) && opts.sse! > 0 ? opts.sse! : 0,   // Cesium の口（globe.maximumScreenSpaceError）＝Cesium の ImageryLayer と同じ z を選ぶ（cesiumTilePx）
 			resampling: opts.resampling === "nearest" ? "nearest" : "linear",   // MapLibre の raster-resampling（C4）＝層ごとの標本化
 			split: Math.sign(opts.split || 0),   // Cesium ImageryLayer.splitDirection（-1 左・+1 右・0 両方）＝地面アトラスの左右半分へ焼き分ける
 			fadeDur: Number.isFinite(opts.fadeDuration) ? Math.max(0, opts.fadeDuration!) : 300,   // MapLibre の raster-fade-duration（ms・既定 300）＝到着フェード   // 分割の閾の倍率（目盛り "mercator"＝タイルの z を MapLibre と同じに・globe.js の TILE_BIAS）
@@ -456,6 +467,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		if (o.maxZoom != null) L.showMax = o.maxZoom;
 		if (o.resampling === "nearest" || o.resampling === "linear") L.resampling = o.resampling;
 		if (o.split != null) L.split = Math.sign(o.split || 0);
+		if (o.sse != null) L.sse = Number.isFinite(o.sse) && o.sse > 0 ? o.sse : 0;
 		if (o.fadeDuration != null && Number.isFinite(o.fadeDuration)) L.fadeDur = Math.max(0, o.fadeDuration);
 		L.dirty = true; sigDirty = true; requestDraw && requestDraw();
 		return true;
