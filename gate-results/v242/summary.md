@@ -1,13 +1,12 @@
-# Cesium examples gate (CesiumJS 1.146.0) — 2026-11-01T03:26:47.875Z
+# Cesium examples gate (CesiumJS 1.146.0) — 2026-11-01T03:34:25.530Z
 
-309 examples · not graded (real Cesium does not run it here, it starts in 2D, or it is the Moon / Mars): 11 · ours does not run: 3 · runs: 1 · same answers: 75 · same picture: 219
+309 examples · not graded (real Cesium does not run it here, it starts in 2D, or it is the Moon / Mars): 11 · ours does not run: 0 · runs: 1 · same answers: 76 · same picture: 221
 
 ## Blockers
 
 | n | blocker | examples |
 |---|---|---|
-| 75 | picture differs | 3d-models-dev, 3d-tiles-batch-table-hierarchy, 3d-tiles-bim, 3d-tiles-clipping-planes, 3d-tiles-compare, 3d-tiles-formats … |
-| 3 | harness error: page.waitForTimeout: Target page, context or browser has been closed | per-feature-post-processing, physically-based-materials, pick-from-ray-dev |
+| 76 | picture differs | 3d-models-dev, 3d-tiles-batch-table-hierarchy, 3d-tiles-bim, 3d-tiles-clipping-planes, 3d-tiles-compare, 3d-tiles-formats … |
 | 1 | camera differs | 3d-tiles-1.1-photogrammetry |
 
 ## Examples
@@ -248,10 +247,10 @@
 | particle-system-tails | 3 |  |
 | particle-system-weather | 2 | picture: colour 59% · edges 83% of the cells match · a patch of 427 cells differs |
 | pbr-lighting-dev (dev) | 2 | picture: colour 96% · edges 85% of the cells match · a patch of 24 cells differs |
-| per-feature-post-processing | 0 | harness error: page.waitForTimeout: Target page, context or browser has been closed |
+| per-feature-post-processing | 3 |  |
 | per-instance-color-dev (dev) | 3 |  |
-| physically-based-materials | 0 | harness error: page.waitForTimeout: Target page, context or browser has been closed |
-| pick-from-ray-dev (dev) | 0 | harness error: page.waitForTimeout: Target page, context or browser has been closed |
+| physically-based-materials | 2 | picture: colour 87% · edges 37% of the cells match · a patch of 36 cells differs |
+| pick-from-ray-dev (dev) | 3 |  |
 | picking | 3 |  |
 | picking-dev (dev) | 3 |  |
 | plane | 3 |  |
@@ -324,7 +323,7 @@
 | web-map-tile-service-with-time | 3 |  |
 | z-indexing-geometry | 3 |  |
 
-## v242: ortho 全本を撮り直し（前半 --wait 20000・残りは既定（揺れる例だけ 20 秒）・ref は white-rect 30 本＋v237）（engine e3cfee6a）
+## v242: ortho 全本（238 本は --wait 20000・残りは既定）（engine e3cfee6a）
 
 | 例 | 段 v241→v242 | 色 % | エッジ % |
 |---|---|---|---|
@@ -562,10 +561,10 @@
 | particle-system-tails | 3→3 | 97.8→97.8 | 97.2→97.5 |
 | particle-system-weather | 2→2 | 59.2→59.1 | 85.9→83.0 |
 | pbr-lighting-dev | 2→2 | 95.7→95.7 | 85.1→85.0 |
-| per-feature-post-processing | 3→0 | 97.6→- | 96.1→- |
+| per-feature-post-processing | 3→3 | 97.6→93.1 | 96.1→92.1 |
 | per-instance-color-dev | 3→3 | 100.0→100.0 | 98.6→98.6 |
-| physically-based-materials | 2→0 | 87.3→- | 39.3→- |
-| pick-from-ray-dev | 3→0 | 96.4→- | 99.1→- |
+| physically-based-materials | 2→2 | 87.3→87.3 | 39.3→37.2 |
+| pick-from-ray-dev | 3→3 | 96.4→96.4 | 99.1→99.1 |
 | picking | 3→3 | 100.0→100.0 | 100.0→100.0 |
 | picking-dev | 3→3 | 100.0→100.0 | 100.0→100.0 |
 | plane | 3→3 | 98.3→98.3 | 98.4→98.4 |

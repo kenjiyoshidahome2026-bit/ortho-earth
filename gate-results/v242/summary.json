@@ -1,25 +1,25 @@
 {
- "at": "2026-11-01T03:26:47.875Z",
+ "at": "2026-11-01T03:34:25.530Z",
  "cesium": "1.146.0",
  "n": 309,
  "levels": {
-  "0": 3,
+  "0": 0,
   "1": 1,
-  "2": 75,
-  "3": 219,
+  "2": 76,
+  "3": 221,
   "null": 11
  },
  "levelsNonDev": {
-  "0": 2,
+  "0": 0,
   "1": 1,
-  "2": 64,
-  "3": 159,
+  "2": 65,
+  "3": 160,
   "null": 8
  },
  "blockers": [
   {
    "blocker": "picture differs",
-   "n": 75,
+   "n": 76,
    "examples": [
     "3d-models-dev",
     "3d-tiles-batch-table-hierarchy",
@@ -86,6 +86,7 @@
     "particle-system",
     "particle-system-weather",
     "pbr-lighting-dev",
+    "physically-based-materials",
     "post-processing",
     "projection",
     "rectangle",
@@ -96,15 +97,6 @@
     "terrain-exaggeration",
     "time-dynamic-wheels",
     "voxels"
-   ]
-  },
-  {
-   "blocker": "harness error: page.waitForTimeout: Target page, context or browser has been closed",
-   "n": 3,
-   "examples": [
-    "per-feature-post-processing",
-    "physically-based-materials",
-    "pick-from-ray-dev"
    ]
   },
   {
@@ -6613,14 +6605,28 @@
   },
   {
    "name": "per-feature-post-processing",
-   "level": 0,
-   "reasons": [
-    "harness error: page.waitForTimeout: Target page, context or browser has been closed"
-   ],
-   "blockers": [
-    "harness error: page.waitForTimeout: Target page, context or browser has been closed"
-   ],
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
    "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1868,
+    "n": 2089,
+    "colour": 0.9310674964097654,
+    "edge": 0.9205361416945907,
+    "blob": 10,
+    "masked": 983
+   },
    "dev": false,
    "ion": false
   },
@@ -6653,27 +6659,60 @@
   },
   {
    "name": "physically-based-materials",
-   "level": 0,
+   "level": 2,
    "reasons": [
-    "harness error: page.waitForTimeout: Target page, context or browser has been closed"
+    "picture: colour 87% · edges 37% of the cells match · a patch of 36 cells differs"
    ],
    "blockers": [
-    "harness error: page.waitForTimeout: Target page, context or browser has been closed"
+    "picture differs"
    ],
    "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 656,
+    "n": 2053,
+    "colour": 0.873356064296152,
+    "edge": 0.37213833414515346,
+    "blob": 36,
+    "masked": 1019
+   },
    "dev": false,
    "ion": true
   },
   {
    "name": "pick-from-ray-dev",
-   "level": 0,
-   "reasons": [
-    "harness error: page.waitForTimeout: Target page, context or browser has been closed"
-   ],
-   "blockers": [
-    "harness error: page.waitForTimeout: Target page, context or browser has been closed"
-   ],
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
    "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 2036,
+    "n": 2122,
+    "colour": 0.9641847313854854,
+    "edge": 0.9905749293119699,
+    "blob": 3,
+    "masked": 950
+   },
    "dev": true,
    "ion": false
   },
@@ -13045,19 +13084,19 @@
     "name": "per-feature-post-processing",
     "level": [
      3,
-     0
+     3
     ],
     "colour": [
      "97.6",
-     "-"
+     "93.1"
     ],
     "edge": [
      "96.1",
-     "-"
+     "92.1"
     ],
     "blob": [
      8,
-     null
+     10
     ]
    },
    {
@@ -13083,38 +13122,38 @@
     "name": "physically-based-materials",
     "level": [
      2,
-     0
+     2
     ],
     "colour": [
      "87.3",
-     "-"
+     "87.3"
     ],
     "edge": [
      "39.3",
-     "-"
+     "37.2"
     ],
     "blob": [
      36,
-     null
+     36
     ]
    },
    {
     "name": "pick-from-ray-dev",
     "level": [
      3,
-     0
+     3
     ],
     "colour": [
      "96.4",
-     "-"
+     "96.4"
     ],
     "edge": [
      "99.1",
-     "-"
+     "99.1"
     ],
     "blob": [
      3,
-     null
+     3
     ]
    },
    {
