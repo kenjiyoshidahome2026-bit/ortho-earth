@@ -19,6 +19,7 @@ if (!runs.length) { console.error("usage: publish.mjs <run dir> [<run dir> …] 
 const corpus = JSON.parse(fs.readFileSync(path.join(HERE, "corpus.json"), "utf8"));
 const checked = JSON.parse(fs.readFileSync(path.join(HERE, "checked.json"), "utf8"));
 const engine = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version;
+const series = engine.replace(/^(\d+\.\d+)\..*$/, "$1.x");   // the pictures come from main after that release, so not exactly that version
 // per example: the last run that has both pictures (a partial re-shoot overrides the full one for what it shot)
 const pick = new Map();
 let cesium = corpus.cesium?.version ?? corpus.cesium ?? "", at = "";
@@ -91,7 +92,7 @@ dialog{border:0;border-radius:16px;padding:0;width:min(1080px,calc(100vw - 32px)
 .dm{padding:0 18px 18px;font-size:13.5px;color:var(--muted)} .dm p{margin:0} .dm p+p{margin-top:4px}
 </style></head><body><main>
 <header class="top"><p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="/maplibre/">MapLibre examples</a></p>
-<h1>Sandcastle <span class="ver">v${esc(engine)}</span></h1>
+<h1>Sandcastle <span class="ver">v${esc(series)}</span></h1>
 <p>A comparison of the official <a href="https://sandcastle.cesium.com/" target="_blank" rel="noopener">CesiumJS Sandcastle</a> examples run on Ortho Earth — not the official Sandcastle.</p>
 <p>Each of the ${n} examples runs unchanged: once on CesiumJS ${esc(cesium)}, once on the Ortho Earth globe through its Cesium-compatible facade (<code>@ortho-earth/cesium</code>: Cesium's own coordinates, time, CZML, entities and 3D Tiles loading, with Ortho Earth doing the drawing), at the same time and from the same camera. Each card shows CesiumJS on the left and Ortho Earth on the right. Click a card for the larger pictures and the example on the official Sandcastle.</p></header>
 <nav><button data-f="all" class="on">All · ${n}</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}" title="${esc(LV[l][1])}">${lvDot(l)}${esc(LV[l][0])} · ${cnt(l)}</button>`).join("")}<span class="count" id="count"></span><span class="sp"></span>
@@ -99,7 +100,7 @@ dialog{border:0;border-radius:16px;padding:0;width:min(1080px,calc(100vw - 32px)
 <div class="grid">${rows.map(card).join("\n")}</div>
 <footer>Levels: ${[3, 2, 1, 0].map(l => `${lvDot(l)}${l} ${esc(LV[l][0])} = ${esc(LV[l][1])}`).join(" · ")}.<br>
 Picture % = the cells of a 64×48 grid over the 800×600 picture whose colour matches CesiumJS (the Cesium widgets masked). The level is a guide; the pictures are what to judge by.<br>
-Pictures: CesiumJS ${esc(cesium)} and Ortho Earth (@ortho-earth/globe ${esc(engine)}) on a real GPU (Apple M5 Pro, WebGPU), captured ${esc(at.slice(0, 10))}. Examples whose pictures are not compared (the Moon, Mars, examples without a 3D view) are left out.<br>
+Pictures: CesiumJS ${esc(cesium)} and Ortho Earth (@ortho-earth/globe ${esc(series)}) on a real GPU (Apple M5 Pro, WebGPU), captured ${esc(at.slice(0, 10))}. Examples whose pictures are not compared (the Moon, Mars, examples without a 3D view) are left out.<br>
 Examples © Cesium GS, Inc. and contributors (Apache-2.0), run unchanged from CesiumJS ${esc(cesium)}; CesiumJS draws the left pictures. Ortho Earth is not affiliated with or endorsed by Cesium GS, Inc. Imagery, terrain and 3D Tiles in the pictures belong to their providers (Google, Microsoft Bing, Cesium ion and the others each example credits); the providers named under a card are those the example asks for.</footer>
 </main>
 <dialog id="dlg"><div class="dh"><h3 id="dt"></h3><a id="sc" target="_blank" rel="noopener">Open on Sandcastle</a><button type="button" id="cl">Close</button></div>
