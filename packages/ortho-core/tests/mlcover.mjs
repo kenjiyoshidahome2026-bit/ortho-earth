@@ -62,4 +62,14 @@ t("zOf を渡さない既定の選び方は不変（z11.15・560×bias で z11�
 	assert.deepEqual(zs(selectLOD(camOf(11.1), W, H, { minZ: 0, maxZ: 14, tilePx: 560 * bias })), [11]);
 	assert.deepEqual(zs(selectLOD(camOf(11.6), W, H, { minZ: 0, maxZ: 14, tilePx: 560 * bias })), [12]);
 });
+// nearEye（Cesium の口の距離・2026-11-01 v242 geometry-height-reference：Cesium z16・ortho z14）：目の真下に近い所・地面の球（groundR）で測る
+t("nearEye：真上から＝既定と同じ。傾き 60°＝足元が細かく（既定より深い z）。地面が持ち上がる（groundR）＝さらに細かい", () => {
+	const o = { minZ: 0, maxZ: 22, tilePx: 392 }, top = camOf(14), tilt = camOf(15, 60);
+	assert.deepEqual(zs(selectLOD(top, W, H, { ...o, nearEye: true })), zs(selectLOD(top, W, H, o)));
+	const deep = sel => { const m = Math.max(...sel.map(t => t.z)); return [m, sel.filter(t => t.z === m).length]; };   // [最細の z, その枚数]
+	const fin = ([z, k]) => z * 1e4 + k, d = deep(selectLOD(tilt, W, H, o)), e = deep(selectLOD(tilt, W, H, { ...o, nearEye: true }));
+	assert.ok(fin(e) > fin(d), `tilted 60°: nearEye ${e} finer than default ${d}`);
+	const g = 1 + 1500 / 6371008.8, eg = deep(selectLOD(tilt, W, H, { ...o, nearEye: true, groundR: g }));
+	assert.ok(fin(eg) >= fin(e), `ground 1.5 km up: ${eg} ≥ ${e}`);
+});
 console.log(`mlcover: ${n} passed`);
