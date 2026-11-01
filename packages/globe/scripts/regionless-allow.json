@@ -243,6 +243,12 @@
 				"why": "形式：データの在り処＝JAXA の全球 DSM（ALOS AW3D30）の URL（ドメイン eorc.jaxa.jp と経路 /jp/）＝全球のデータで地域の知識ではない（2026-09-25 に altpbf から core へ移設）"
 			}
 		},
+		"packages/ortho-core/src/framek.ts": {
+			"cos35°": {
+				"n": 1,
+				"why": "較正（地域の語ではない）：z は正射スケール＝m/px は緯度に依らない。0.819 は LOD 打ち切りを approxViewBbox と同じ物差しにそろえた係数で、全球に同じく掛かる＝cos(lat) にしない（gl/gpu の renderer から framek.ts mppxOf へ移した 2026-11-01）"
+			}
+		},
 		"packages/ortho-core/src/gl/gint/textures.ts": {
 			"和文": {
 				"n": 2,
@@ -255,12 +261,6 @@
 				"why": "言語（地域ではない）：開発者向けのエラー文（mdize の置換漏れ）"
 			}
 		},
-		"packages/ortho-core/src/gl/renderer.ts": {
-			"cos35°": {
-				"n": 1,
-				"why": "較正（地域の語ではない）：z は正射スケール＝m/px は緯度に依らない。0.819 は LOD 打ち切りを approxViewBbox と同じ物差しにそろえた係数で、全球に同じく掛かる＝cos(lat) にしない"
-			}
-		},
 		"packages/ortho-core/src/gpu/gintwgsl.ts": {
 			"和文": {
 				"n": 1,
@@ -268,10 +268,6 @@
 			}
 		},
 		"packages/ortho-core/src/gpu/renderer.ts": {
-			"cos35°": {
-				"n": 1,
-				"why": "較正（地域の語ではない）：z は正射スケール＝m/px は緯度に依らない。0.819 は LOD 打ち切りを approxViewBbox と同じ物差しにそろえた係数で、全球に同じく掛かる＝cos(lat) にしない"
-			},
 			"和文": {
 				"n": 2,
 				"why": "言語（地域ではない）：開発者向けの GPU 検証エラーの見出し（初回フレーム検証・init検証）"

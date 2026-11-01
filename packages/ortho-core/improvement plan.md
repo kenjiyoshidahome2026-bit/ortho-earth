@@ -33,7 +33,7 @@
 | gadgets の GL 描き手 7 つ（arcs・points・trips・sprites・copc・customgl・columnar）の program 作成と pick 窓の読み | 各 10〜20 行 | `gadgets/glprog.ts`（glProgram・readPickWindow・decodeId・nearestId） | **#814 済**（Mac 実 GPU で main と同じ。t-copc の backend 待ちも直した） |
 | apps/census2020 と apps/gishub-jp の census/ui.ts・small-area.ts | 1,193 と 1,132 行 | census2020 を正とし、gishub-jp の画面は census2020 への案内に（本人裁定 2026-10-31「消す方向」。経緯＝8/12 に census2020 を 1 日で出した時の写しが残り、7/16 の方針で gishub-jp の描画は消える側） | **#816** |
 | sdk の voxel・splat・scene の -gl/-gpu の定型 | voxel 547/570・splat 275/426 行 | globe の glprog を export して使う | 後回し（sdk は globe を型だけで読む＝globe のリリースが要る） |
-| core の gl/ と gpu/（renderer・シェーダ・gint・poststage・classify・depthout） | GL 9,000・GPU 10,500 行。10 月に renderer を触った 55 コミットのうち 43 が両方 | 一つのソースにはしない。カリング・バッチの選び・影の範囲などの純関数だけ terrainlod.ts の形で抜く | 段階 3 |
+| core の gl/ と gpu/（renderer・シェーダ・gint・poststage・classify・depthout） | GL 9,000・GPU 10,500 行。10 月に renderer を触った 55 コミットのうち 43 が両方 | 一つのソースにはしない。カリング・バッチの選び・影の範囲などの純関数だけ terrainlod.ts の形で抜く | 段階 3・**2026-11-01 抜いた**（framek.ts＝霧・チルト・都市帯・ハイプソ・星空・対数深度の係数、meshcull.ts＝LOD 打ち切り・マスクの選抜、drawshared.ts＝破線 uniform・差し込みの計画・強調の塗り・世界扇のレンジ、elevcell.ts＝再標本化の uniform と CPU 退避、paintzoom.ts の memo、terrainlod.ts の uv。renderer 2 本から −243 行・門 tests/shared-purefns.mjs） |
 | 各アプリの vite.config、physical と terrain、parks と parks-us | 小 | 共通の設定関数へ | 急がない |
 
 ## 2. 高速化の候補
@@ -62,7 +62,7 @@
 | 0 | 計器：`?perf=1` の `[csperf]`（sdk/cesium/src/perf.ts の timed＝display・prims・colls・voxels・particles・clouds・timePoints の平均/最大 ms と回数を 2 秒ごと）と `[t3perf]`（選びの ms・1 フレームに見たノード数）。初期バンドルの大きさの関門。Mac で perf plan の 3 シーン＋Cesium の重い例 5 本、iPhone は本人に一度 | 表が §5 に埋まる | #815・Mac の計測は §5（iPhone・Windows・動かした時は未） |
 | 1 | §2 の「#815」の 3 件。静的 import の遅延は段階 0 の数字で選ぶ | Sandcastle を撮り直して段が下がらない・3D Tiles の頁が main と同じ | **#815 済**（§5） |
 | 2 | 既存の速さの計画の残り（paint 表・T-P1 の門・render bundle・~~topology~~） | MapLibre の門・verify:webgpu・verify:ui 緑、perf plan の表に数字 | WebGPU の paint 表＝2026-11-01 実装。T-P1 の門（字の質の目視）と render bundle（1,000 draw/フレームの場面待ち）は実機・場面待ち |
-| 3 | 重複の残り（sdk の定型・gl/gpu の純関数） | 門の出力が前後で同じ | #813・#814・#816（census）済、残りは未着手 |
+| 3 | 重複の残り（sdk の定型・gl/gpu の純関数） | 門の出力が前後で同じ | #813・#814・#816（census）済。gl/gpu の純関数＝2026-11-01 抜いた（§1）。残り＝sdk の voxel/splat の glprog（globe が `gadgets/glprog` を公開してから） |
 | 4 | 構造：globe.ts と gpu/renderer.ts の分割、facade の any（cesium 約 700・leaflet 約 570・gmaps 約 200）を公開 API の型から | 機能追加の邪魔になった時 | 後回し |
 
 ## 4. やらないこと・決めてほしいこと
@@ -96,3 +96,4 @@
 - 2026-10-31：起案（Claude Doc「ortho-earth 2.2 以後の改善計画」）。本人裁定＝重複の削除 → 段階 0・1。
 - 2026-10-31：#813（i18n の門の共通化）・#814（GL 描き手の program と pick 窓の共通化）・#815（段階 0・1）マージ。§5 に Mac の計測。#816 で census の写しを消す。
 - 2026-11-01：段階 2 の 1 本目＝WebGPU の paint 表（ズーム連続・setPaintProperty の速い道・(b) 類の表）。表の中身を `painttable-store.ts` に抜いて gl/gpu で共有（段階 3 の形）。topology P5 は 9/16 に Rust 化済みと判明＝表を直した。
+- 2026-11-01：段階 3＝gl/ と gpu/ の renderer が「同式」と注記して二重に持っていた純関数を src 直下へ（framek・meshcull・drawshared・elevcell・paintzoom の memo・terrainlod の uv）。式は字句どおり移した＝値は bit 同値（tests/shared-purefns.mjs が旧 inline の写しと突き合わせ・両 renderer から旧の式が消えたことも grep で守る）。
