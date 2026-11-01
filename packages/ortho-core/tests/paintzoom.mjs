@@ -75,7 +75,10 @@ t("シェーダと描き手：u_pz で色と線幅を差し替える・破線の
 	assert.equal(gl.match(/setPz\((md!\.)?(fill|line)Prog, pzOver\.get\((e|d)\.li\) \?\? (e|d)\.pz, cam\);/g).length, 4);
 	assert.match(gl, /gl\.uniform4f\(lineL\("u_pz"\), 0, 0, 0, 0\); gl\.uniform2f\(lineL\("u_pzO"\), 0, 0\);[^\n]*\};/);   // 境界線などの線は差し替えない
 	const gpu = src("../src/gpu/renderer.ts");
-	assert.equal(gpu.match(/\bpz\b/g).length, 3);   // WebGPU は色・線幅を読まない（破線でずらす md の列のずらしだけ＝⑥）
+	assert.equal(gpu.match(/pzOver\.get\((e|d)\.li\) \?\? (e|d)\.pz/g).length, 4);   // WebGPU も層の上書きを先に読む（classic・md の塗りと線＝2026-11-01）
+	const wgsl = src("../src/gpu/wgsl.ts");
+	assert.match(wgsl, /if \(P\.pz\.y > 0\.5\) \{ hw0 = P\.pz\.z; \}/); assert.match(wgsl, /if \(P\.pz\.x > 0\.5\) \{ col0 = P\.pzC; \}/); assert.match(wgsl, /max\(2\.0 \* hwD, 1e-3\)/);   // 線＝今の z の線幅と色・破線の尺は floor(z) の線幅
+	assert.equal(wgsl.match(/\tif \(P\.pz\.x > 0\.5\) \{ o\.color = P\.pzC; \}/g).length, 2); assert.match(wgsl, /else if \(P\.pzO\.z > 0\.5\) \{ o\.color = PT\[ptRowOf\(a_color\) \* 2u\]; \}/);   // 塗り（FILL・ATLAS_FILL）＝md の派生が表の色を挟む
 });
 const ZO = ["interpolate", ["linear"], ["zoom"], 12, 0, 16, 8];
 t("ずらし：地物に依らない式（定数も）は pz.of・0・地物を読む式・隙間つきは持たない", () => {
@@ -111,7 +114,8 @@ t("ずらし：シェーダは u_pzO・md の破線の列は語 7 の角の継�
 	assert.match(sw, /if \(d32\) seg\[o \+ 6\] = d32\[i\]; else if \(f32\) seg\[o \+ 6\] = f32\[i \* 3\];/);
 	assert.match(sw, /if \(f32\) seg\[o \+ 7\] = /);
 	assert.match(src("../src/gpu/wgsl.ts"), /dist0 = bitcast<f32>\(B\.z\); off0\.x = P\.tr\.w;/);
-	assert.match(src("../src/gpu/renderer.ts"), /dOff: \(dash \|\| L\.lt\?\.pat\) && L\.pz\?\.of != null \? L\.pz : null/);   // 線の模様（G-4）も語 6 が距離
+	assert.match(src("../src/gpu/wgsl.ts"), /if \(P\.pzO\.x > 0\.5\) \{ off0\.x = P\.pzO\.y; \}/);
+	assert.match(src("../src/gpu/renderer.ts"), /\(e\.dash \|\| e\.lt\?\.pat\) && pm\?\.off != null \? pm\.off : 0/);   // 線の模様（G-4）も語 6 が距離＝破線でずらす md の列のずらしは tr.w
 });
 t("setPaintProperty の速い道：地物に依らない新しい値だけ・形を焼く性質は作り直す", () => {
 	const F = (type, prev, next, key) => paintFast(type, prev, next, key, "ml");

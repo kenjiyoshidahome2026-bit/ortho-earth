@@ -170,7 +170,9 @@ fn gndEdge(uv: vec2f) -> f32 {   // 窓内 1・縁 4% で 0 へ・外 0
 //   tr = (東 px, 南 px, 今の zoom の 1px の弧（度）, 破線でずらす md の列のずらし（CSS px・線分プールの語 6 が距離＝paintzoom.ts の層で 1 つの値）)  lx = (blur（px か半径の割合）, blur の種類 0 線/1 円, cj＝cap|join<<2|round(ml×8)<<4, patK＝模様の 1 度の px)
 //   dashP = (周期 P, 線の区間の数（0＝破線でない）, 丸い端 1/0, floor(zoom) の px ÷ z24 の px)  dashI0/1 = 区間 [a,b]×4  patP = (原点の位相 x, y, 1/幅, 1/高さ・z＝0 で模様なし)
 //   役割だけのスロット（paramBG）は全部 0＝今までの絵。層ごとの値は renderer の lxBind が別のスロットに詰める
-struct DrawP { p0: vec4f, p1: vec4f, p2: vec4f, tr: vec4f, lx: vec4f, dashP: vec4f, dashI0: vec4f, dashI1: vec4f, patP: vec4f };
+//   ズーム連続（V-Ph3＝S-P1-2・paintzoom.ts・gl の u_pz/u_pzC/u_pzO と同じ意味・2026-11-01 WebGPU 版）＝pz = (色を差し替える 1, 線幅を差し替える 1, 半幅（CSS px）, floor(z) の半幅（破線の尺）)
+//   pzC = 差し替える色（RGBA・不透明度を掛けた値）  pzO = (ずらしを差し替える 1, 今の z のずらし（CSS px）, paint 表の (b) 類＝描く列が表を読む（1＝色・2＝色と線の半幅）, 0)。全部 0＝頂点の値
+struct DrawP { p0: vec4f, p1: vec4f, p2: vec4f, tr: vec4f, lx: vec4f, dashP: vec4f, dashI0: vec4f, dashI1: vec4f, patP: vec4f, pz: vec4f, pzC: vec4f, pzO: vec4f };
 @group(1) @binding(0) var<uniform> P: DrawP;
 const D2R: f32 = 0.017453292519943295;
 // 層の *-translate（S-P1-4/5）：地面の上でずらす（gl FX_TR の trLL と同式）＝経度だけ cos φ で割る。P.tr.z＝0 で 0
@@ -470,6 +472,7 @@ struct FillOut {
 	p.z = logDepthZ(p.w);
 	o.pos = p;
 	o.color = a_color;
+	if (P.pz.x > 0.5) { o.color = P.pzC; }   // ズーム連続の色（V-Ph3＝S-P1-2・paint 表の (b) 類は md の派生がここを差し替える）
 	o.front = select(dot(dir, F.eye) - 1.0, 1.0, dot(F.eye, F.eye) < 1.0);
 	o.fog = fogOf(dir);
 	o.ll = ll;
@@ -571,6 +574,10 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 ) -> LineOut {
 	var o: LineOut;
 	var hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;
+	var col0 = col; let hwD = select(hw0, P.pz.w, P.pz.y > 0.5);   // ズーム連続（V-Ph3＝S-P1-2・gl LINE_MAIN と同式）：破線の尺の線幅＝floor(z) の線幅（MapLibre の floorwidth）・差し替えない層は作ったタイルの z の値
+	if (P.pz.y > 0.5) { hw0 = P.pz.z; }   // 今の z の線幅と色
+	if (P.pz.x > 0.5) { col0 = P.pzC; }
+	if (P.pzO.x > 0.5) { off0.x = P.pzO.y; }   // 今の z のずらし（破線の列は md の派生が P.tr.w＝同じ値を入れる）
 	o.gp = select(vec2f(0.0), vec2f(col.x + col.y * 256.0, col.z + col.w * 256.0) * (255.0 / 65535.0), P.patP.x > 0.5 && P.patP.x < 1.5);   // line-gradient（G-3）＝色の語の 4 バイト → unorm16×2（gl LINE_MAIN と同式）
 	var q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;   // LINEX：端と継ぎの相手の点と旗・破線の距離（classic の X 派生と md の派生が差し替える）
 	if (P.tr.z != 0.0) { let tr = trLL(F.origin + q1); q0 += tr; q1 += tr; q2 += tr; q3 += tr; }   // line-translate（S-P1-4/5）＝線分ごとに同じだけ（継ぎの相手も）
@@ -615,13 +622,13 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	o.dd = vec2f(0.0);
 	if (P.dashP.y > 0.5 || P.patP.x > 1.5) {   // line-pattern（G-4）の横の位相も同じ（尺は P.patP.y）
 		let my = (q2.y - q1.y) * D2R / cos((F.origin.y + (q1.y + q2.y) * 0.5) * D2R) / 6.2831853;
-		o.dd = vec2f(dist0, length(vec2f((q2.x - q1.x) / 360.0, my)) * 4294967296.0) * (select(P.patP.y, P.dashP.w, P.dashP.y > 0.5) / max(2.0 * hw0, 1e-3));
+		o.dd = vec2f(dist0, length(vec2f((q2.x - q1.x) / 360.0, my)) * 4294967296.0) * (select(P.patP.y, P.dashP.w, P.dashP.y > 0.5) / max(2.0 * hwD, 1e-3));
 	}
 	var base = sb; var capSign = 1.0; var ext = eB;
 	if (corner.x < 0.5) { base = sa; capSign = -1.0; ext = eA; }
 	let posS = base + perp * (hw * corner.y) + dirS * (capSign * ext);
 	o.a = sa; o.b = sb; o.halfw = hw0 * F.params.w; o.sp = posS;
-	o.color = col; o.front = min(fa, fb);
+	o.color = col0; o.front = min(fa, fb);
 	o.fog = fogOf((wa + wb) * 0.5);
 	// 端点の深度は対数系＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
 	let wz = select(cb.w, ca.w, corner.x < 0.5);
@@ -1721,6 +1728,7 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 	let p = (A.off.xy + a_delta) * A.off.zw;
 	o.pos = vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 	o.color = a_color;
+	if (P.pz.x > 0.5) { o.color = P.pzC; }   // ズーム連続の色（V-Ph3＝S-P1-2・paint 表の (b) 類は md の派生がここを差し替える）
 	o.ll = F.origin + a_delta;
 	return o;
 }
@@ -2198,9 +2206,13 @@ struct ${out}Frag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 // （小さい値同士を先に・大きい F.origin は本体の式で 1 回＝classic と丸め回数が同じ＝GL の u_tileOff[gl_DrawID] と同順）。
 // 発行＝タイルごとに draw(count, 1, first, firstInstance=j)＝a_tile は origins[j]（WEBGL_multi_draw の代わり・render bundle は step B）。
 // 本体（素／影／面／影＋面）の文字列に後から掛ける＝派生の掛け順は影・面の後。anchor は vs の署名行だけ＝影・面の派生が触らない行。
+// paint 表の (b) 類（painttable.ts・vt perf plan §5・gl の PT と対）：P.pzO.z＝1 の描く列は色の語が表の行（下位 16bit）＝表（storage・行ごとに 2 語＝0 色・1 線の半幅（x））から読む。
+// 塗りの頂点の色は正規化した RGBA8 の属性のまま読む＝行＝r＋g×256（バイトに戻す）。表は group(3)（塗り＝binding 0・線＝線分プールの隣の binding 1）＝md の派生だけ（表を作るのは scene worker の常駐の時）
+export const PT_WGSL = "fn ptRowOf(c: vec4f) -> u32 { return u32(c.r * 255.0 + 0.5) + u32(c.g * 255.0 + 0.5) * 256u; }\n";
 export const mdFillWgsl = (src: string, out: "FillOut" | "AFOut", label: string): string => deriveWgsl(src, [
 	[`@vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> ${out} {\n\tvar o: ${out};\n`,
-	 `@vertex fn vs(@location(0) a_delta0: vec2f, @location(1) a_color: vec4f, @location(2) a_tile: vec2f) -> ${out} {\n\tvar o: ${out};\n\tlet a_delta = a_tile + a_delta0;   // タイル原点差（小）を先に足す＝原点相対 delta を確定\n`],
+	 `@group(3) @binding(0) var<storage, read> PT: array<vec4f>;   // paint 表の (b) 類（2 語/行）\n${PT_WGSL}@vertex fn vs(@location(0) a_delta0: vec2f, @location(1) a_color: vec4f, @location(2) a_tile: vec2f) -> ${out} {\n\tvar o: ${out};\n\tlet a_delta = a_tile + a_delta0;   // タイル原点差（小）を先に足す＝原点相対 delta を確定\n`],
+	["\tif (P.pz.x > 0.5) { o.color = P.pzC; }", "\tif (P.pz.x > 0.5) { o.color = P.pzC; } else if (P.pzO.z > 0.5) { o.color = PT[ptRowOf(a_color) * 2u]; }   // ズーム連続の色・paint 表の (b) 類（色の語が行）"],
 ], label);
 // 線は頂点属性を持たない（インスタンス属性の常駐プール化はタイルごとの firstInstance と両立しない）＝線分レコード（8×u32＝scene worker の
 // ensureUploaded・[bits(p1.xy), bits(p2.xy)] [RGBA8, bits(half), bits(off), snorm16×2(tS/2,tE/2)]）を storage で持ち @builtin(vertex_index)/6 から引く
@@ -2208,7 +2220,7 @@ export const mdFillWgsl = (src: string, out: "FillOut" | "AFOut", label: string)
 export const LINEX_ANCHOR = "\tvar q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;   // LINEX：端と継ぎの相手の点と旗・破線の距離（classic の X 派生と md の派生が差し替える）\n";
 export const mdLineWgsl = (src: string, label: string): string => deriveWgsl(src, [
 	["@vertex fn vs(\n\t@location(0) corner: vec2f,\n\t@location(1) p1: vec2f, @location(2) p2: vec2f,\n\t@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,\n) -> LineOut {\n\tvar o: LineOut;\n",
-	 "@group(3) @binding(0) var<storage, read> SEG: array<vec4u>;   // 線分プール（2 語組/線分）\n@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a_tile: vec2f) -> LineOut {\n\tvar o: LineOut;\n\tlet seg = vi / 6u; let k = vi - seg * 6u;\n\tlet corner = vec2f(select(0.0, 1.0, k == 2u || k == 3u || k == 5u), select(-1.0, 1.0, k == 1u || k == 4u || k == 5u));   // CORNERS＝(0,-1)(0,1)(1,-1)(1,-1)(0,1)(1,1)\n\tlet A = SEG[seg * 2u]; let B = SEG[seg * 2u + 1u];\n\tlet p1 = bitcast<vec2f>(A.xy) + a_tile; let p2 = bitcast<vec2f>(A.zw) + a_tile;   // タイル原点差はここ（小さい値同士）で足す\n\tlet col = unpack4x8unorm(B.x); let halfPx = bitcast<f32>(B.y & ~15u);   // 下位 4 bit＝端と継ぎの旗（S-P1-1・GL2 の LINE_MD_VS と同じ読み方）\n\tlet offT = vec3f(bitcast<f32>(B.z), unpack2x16snorm(B.w) * 2.0);\n"],
+	 "@group(3) @binding(0) var<storage, read> SEG: array<vec4u>;   // 線分プール（2 語組/線分）\n@group(3) @binding(1) var<storage, read> PT: array<vec4f>;   // paint 表の (b) 類（2 語/行）\n@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a_tile: vec2f) -> LineOut {\n\tvar o: LineOut;\n\tlet seg = vi / 6u; let k = vi - seg * 6u;\n\tlet corner = vec2f(select(0.0, 1.0, k == 2u || k == 3u || k == 5u), select(-1.0, 1.0, k == 1u || k == 4u || k == 5u));   // CORNERS＝(0,-1)(0,1)(1,-1)(1,-1)(0,1)(1,1)\n\tlet A = SEG[seg * 2u]; let B = SEG[seg * 2u + 1u];\n\tlet p1 = bitcast<vec2f>(A.xy) + a_tile; let p2 = bitcast<vec2f>(A.zw) + a_tile;   // タイル原点差はここ（小さい値同士）で足す\n\tlet ptRow = B.x & 65535u;   // paint 表の (b) 類＝語 4 が行（P.pzO.z＝1 色・2 色と線の半幅＝段 2b・gl LINE_MD_VS と同式）\n\tlet col = select(unpack4x8unorm(B.x), PT[ptRow * 2u], P.pzO.z > 0.5); let halfPx = select(bitcast<f32>(B.y & ~15u), bitcast<f32>(bitcast<u32>(PT[ptRow * 2u + 1u].x) & ~15u), P.pzO.z > 1.5);   // 下位 4 bit＝端と継ぎの旗（S-P1-1・GL2 の LINE_MD_VS と同じ読み方）＝表の半幅も旗の 4 bit を落とす（焼いた半幅と bit 同値）\n\tlet offT = vec3f(bitcast<f32>(B.z), unpack2x16snorm(B.w) * 2.0);\n"],
 	[LINEX_ANCHOR,
 	 "\tvar q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;\n\tif (P.dashP.y > 0.5 || P.patP.x > 1.5) { dist0 = bitcast<f32>(B.z); off0.x = P.tr.w; }   // 破線の列（S-P1-3）・線の模様（G-4）＝語 6 は始点までの線に沿う距離・ずらしは層で 1 つの値（P.tr.w・語 7＝角の継ぎ）\n\tif (P.lx.z > 0.5) {   // 端と継ぎ（S-P1-1）：旗は半幅の下位 4 bit・継ぐ相手は同じ塊のすぐ前後の線分（旗が立つ時だけ読む）＝p1/p2 と同じ足し算でビット同値\n\t\tjf0 = B.y & 15u;\n\t\tif ((jf0 & 1u) != 0u) { let Pv = SEG[seg * 2u - 2u]; q0 = bitcast<vec2f>(Pv.xy) + a_tile; }\n\t\tif ((jf0 & 2u) != 0u) { let Nv = SEG[seg * 2u + 2u]; q3 = bitcast<vec2f>(Nv.zw) + a_tile; }\n\t}\n"],
 ], label);
