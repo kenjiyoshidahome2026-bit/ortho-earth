@@ -208,7 +208,7 @@ export interface GlobeCoreApi {
 	setSplitPosition(f: number): GlobeMap;
 	/** the globe's underside seen from below the ground (Cesium globe.undergroundColor): color rgba 0..1, nf = its alpha by distance [near m, nearValue, far m, farValue]; null = off */
 	setUnderground(u: { color: number[]; nf: number[] } | null): GlobeMap;
-	/** meshes (3D Tiles, models, building meshes) are not hidden by the terrain (Cesium globe.depthTestAgainstTerrain = false, its default): the terrain's depth is dropped before they draw. Frames that read the ground's depth later (post-processing, overlay depth, classification) keep it. Default false */
+	/** meshes (3D Tiles, models, building meshes) are not hidden by the terrain (Cesium globe.depthTestAgainstTerrain = false, its default): the terrain's depth is dropped before they draw. Frames that read the ground's depth later (post-processing, AO, classification) keep it; overlays read the depth left after the drop, as Cesium draws its lines after clearing the globe depth. Default false */
 	setMeshOverGround(on: boolean): GlobeMap;
 	/** imagery draped on 3D Tiles (Cesium3DTileset.imageryLayers): one picture over a window (degrees, Web Mercator rows, north up), read by the tilesets whose Tiles3DOptions.imagery is this id, by each pixel's place
 	 *  (straight down). The ImageBitmap is transferred. Same id again = a new picture; null = remove */

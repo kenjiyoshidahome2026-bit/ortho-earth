@@ -3341,8 +3341,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 「シーン抜け」（gpu単独・東京駅〜丸の内で実測）の正体。基図退場中も街は立ち続けるのが GL の挙動。
 		// 球体が半透明（Cesium の globe.translucency）＝地面の深度を捨ててから模型を描く＝地下の模型（坑道）が地面越しに見える（gl/renderer.ts と同じ）。
 		// パスの途中で深度だけは消せない＝パスを切り直す（色・ステンシルは load）
-		// Cesium の depthTestAgainstTerrain=false（既定）も同じ（gl/renderer.ts と同じ条件＝地形の深度を読む物＝深度の書き出し口・後処理・AO・面の貼り付けが無いフレームだけ）
-		if (meshes.size && terrainActive && ((view.globeAlpha ?? 1) < 1 || (view.meshOverGround && !dOut && !post && !ao && !classify.size))) {
+		// Cesium の depthTestAgainstTerrain=false（既定）も同じ（gl/renderer.ts と同じ条件＝地形の深度を読む物＝後処理・AO・面の貼り付けが無いフレームだけ。オーバーレイの深度は消した後で良い）
+		if (meshes.size && terrainActive && ((view.globeAlpha ?? 1) < 1 || (view.meshOverGround && !post && !ao && !classify.size))) {
 			pass.end();
 			pass = enc.beginRenderPass({ colorAttachments: [{ view: colorView, loadOp: "load", storeOp: "store" }],
 				depthStencilAttachment: { view: t.depthView, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store", stencilLoadOp: "load", stencilStoreOp: "store" } });
@@ -3391,7 +3391,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					const sh = p.sh ?? meshLight.sh;   // 模型ごとの環境（meshEnv）が勝つ
 					for (let i = 0; i < 9; i++) { plBatchCPU[o + 24 + i * 4] = sh[i * 3]; plBatchCPU[o + 25 + i * 4] = sh[i * 3 + 1]; plBatchCPU[o + 26 + i * 4] = sh[i * 3 + 2]; }
 				} else plBatchCPU[o + 227] = 0;
-				if (p.csLit === "phong") plBatchCPU[o + 227] = 3;   // csL.w 3＝czm_phong（目の光・entity geometry）
+				if (p.csLit === "phong" || p.csLit === "phongc") plBatchCPU[o + 227] = p.csLit === "phongc" ? 4 : 3;   // 4＝閉じた外観の czm_phong（裏も描き、法線は反転しない＝Cesium の twoPasses）   // csL.w 3＝czm_phong（目の光・entity geometry）
 				plBatchCPU[o + 244] = p.tint ? p.tint[4] : -1; if (p.tint) plBatchCPU.set(p.tint.subarray(0, 4), o + 240); plBatchCPU[o + 246] = p.paint ? p.paintB ?? 0 : -1;   // tintB.z＝塗る絵の混ぜ方（−1＝無し）   // tint/tintB＝Cesium の Model.color（−1＝無し）
 				plBatchCPU[o + 247] = p.split ? Math.sign(p.split) * (1 + splitPos) : 0;   // tintB.w＝Cesium splitDirection
 				plBatchCPU[o + 252] = pb?.clearcoat?.[0] ?? 0; plBatchCPU[o + 253] = pb?.clearcoat?.[1] ?? 0;   // cc.xy＝KHR_materials_clearcoat（float 252〜253）
