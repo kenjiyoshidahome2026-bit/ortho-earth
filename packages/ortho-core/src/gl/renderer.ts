@@ -10,15 +10,19 @@ import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, liftedBboxVisible, worldRadiusM, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
+import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, liftedBboxVisible, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
 import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
 import type { DrapeIn, DrapeMap } from "../drape.ts";
 import { viewRays } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
-import { downsampleFlipped, cropResample } from "../elevation.ts";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
-import { worldAtlasCell } from "../elevation/worldatlas.ts";
-import { evalPaintZoom } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
+import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標高セルの再標本化の係数と CPU 退避（段階 3・gpu と共通）
+import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gpu と共通）
+import type { DashU, UserAnchorPlan } from "../drawshared.ts";
+import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gpu と同式の正本）
+import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gpu と共通）
+import { terrainGridUV } from "../terrainlod.ts";
+import { evalPaintZoomMemo } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
 import { createPtStore } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は WebGPU と共有の純関数
 import type { PtLayer } from "../painttable.ts";
 import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）・破線の区間（S-P1-3）
@@ -35,7 +39,7 @@ import { FAR_PIVOT } from "./gint/utility.ts";   // 塗り扇の遠方の要の�
 import type { Renderer } from "../../types/gpu.js";
 import type { CameraPose, CameraState, SphereRayUniforms } from "../camera.ts";
 import type { BuildingsGeom, LineTex, MergedScene } from "../scene.ts";
-import type { PaintZoom } from "../paintzoom.ts";
+import type { PaintZoom, PzV } from "../paintzoom.ts";
 import type { RasterDraw, RasterDrawLayer, RasterDraws, TileMesh } from "../raster.ts";
 import type { CellPayload } from "../terrain.ts";
 import type { ElevGrid, ElevTileGrid } from "../elevation.ts";
@@ -106,14 +110,6 @@ type GLRasterDraws = Omit<RasterDraws, "layers"> & { layers: (Omit<RasterDrawLay
 interface GndWin { tex: WebGLTexture; fbo: WebGLFramebuffer; rb: WebGLRenderbuffer; size: number; win: number[]; bytes: number }
 interface GLFillDraw { kind: "fill"; li: number; vao: WebGLVertexArrayObject; count: number; idxT: number; bufs: WebGLBuffer[]; fx: number[] | null; pat: string | null; pz: PaintZoom | null }
 interface GLLineDraw { kind: "line"; li: number; vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[]; cj: number; dash: DashU | null; fx: number[] | null; pz: PaintZoom | null; lt: LineTex | null }
-// 破線（S-P1-3）の uniform の中身＝周期・区間の数・丸い端・区間 [a, b]×4（scene.ts の dashIntervals）
-interface DashU { P: number; n: number; round: number; iv: Float32Array }
-function dashU(dash: readonly number[] | undefined, cj: number): DashU | null {
-	if (!dash) return null;
-	const round = !(cj & 3), { P, iv } = dashIntervals(dash, round), a = new Float32Array(8);
-	a.set(iv.length ? iv.slice(0, 8) : [-2 * P, -2 * P]);   // 線が無い（butt の [0, 2]）＝どの画素も届かない区間（区間の数 0 は「破線でない」＝実線になる）
-	return { P, n: Math.max(1, Math.min(4, iv.length >> 1)), round: round ? 1 : 0, iv: a };
-}
 type GLDraw = GLFillDraw | GLLineDraw;
 interface GLBld { vao: WebGLVertexArrayObject; count: number; bufs: WebGLBuffer[] }
 /** multi_draw のシーンの 1 項（常駐プールのレンジ列） */
@@ -175,7 +171,6 @@ interface OverlaySlot {
 /** overlayHi の prop＝配列は面塗り／{mask,color} は周辺マスク */
 type HiFill = number[] | { mask?: boolean; color?: number[] | null };
 interface DbgCounters { baseFill: number; baseLine: number; mainFill: number; mainLine: number; pt: number; ptw: number; skipMain: boolean; skipBase: boolean; zoom: number; terrainDepth: boolean }
-interface UserAnchorPlan { host: string | null; anchors: number[]; anchorOf: (li: number) => number }
 type LiPick = ((x: { li: number }) => boolean) | null;
 /** ?perf=1 の計器（worker の大域） */
 type PerfGlobal = { __perfElev?: unknown; __perfElevLast?: unknown; __perfElevT?: number };
@@ -186,8 +181,6 @@ const LINE_IDX = new Uint8Array([0, 1, 2, 2, 1, 3]);
 const CLIP_GL_TARGETS = ["terrain", "buildings", "models", "vector"];   // 断面の対象（注記は切らない）
 
 const DRAPE_ALL = [-180, -90, 360, 180];   // drape のバッチ＝持ち上げの範囲を全球に（DTM 保証域の外でも地形に沿わせる）
-// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。u_logCoef・gintCtx・深度の書き出し（#47）が同じ値を使う
-const logCoefOf = (st: CameraState): number => { const limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12)); return 2.0 / Math.log2(limb * 1.15 + st.camDist + 1.0); };
 export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpts: GLRendererOptions = {}): Renderer {
 	// antialias＝ブラウザ暗黙確保の MSAA（フルRetina面積で ~100MB級）。msaa1（LOW_MEM 既定・?msaa=0）＝1x 直描き。
 	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true }) as WebGL2RenderingContext;   // "webgl2" の口＝WebGL2。null は直下で投げる（宣言関数の中へは絞り込みが届かない＝型は非 null）
@@ -218,17 +211,11 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	// 層の値は z が変わった時だけ評価し直す
 	// setPaintProperty の速い道（build.ts paintFast・main の applyPaintNow）：基図の層の添字 → 差し替えの式（定数も）。作ったタイルの pz より先に読む＝作り直さずに今の値
 	let pzOver = new Map<number, PaintZoom>();
-	const pzMemo = new WeakMap<PaintZoom, { z: number; c: number[] | null; hw: number | null; hwF: number; off: number | null }>();
+	const pzMemo = new WeakMap<PaintZoom, PzV>();
 	const setPz = (prog: WebGLProgram, pz: PaintZoom | null | undefined, cam: { zoom?: number }): void => {
 		const oL = loc(gl, prog, "u_pzO");   // 塗りは持たない（null）
 		if (!pz) { gl.uniform4f(loc(gl, prog, "u_pz"), 0, 0, 0, 0); if (oL) gl.uniform2f(oL, 0, 0); return; }
-		const z = cam.zoom || 0;
-		let m = pzMemo.get(pz);
-		if (!m || m.z !== z) {
-			const v = evalPaintZoom(pz, z), dz = view.dashDz ?? 1;
-			m = { z, c: v.c, hw: v.hw, hwF: v.hw == null ? 0 : evalPaintZoom({ o: pz.o, w: pz.w }, Math.floor(z - dz) + dz).hw!, off: v.off };
-			pzMemo.set(pz, m);
-		}
+		const m = evalPaintZoomMemo(pzMemo, pz, cam.zoom || 0, view.dashDz ?? 1);
 		gl.uniform4f(loc(gl, prog, "u_pz"), m.c ? 1 : 0, m.hw != null ? 1 : 0, m.hw ?? 0, m.hwF);
 		if (m.c) gl.uniform4f(loc(gl, prog, "u_pzC"), m.c[0], m.c[1], m.c[2], m.c[3]);
 		if (oL) gl.uniform2f(oL, m.off != null ? 1 : 0, m.off ?? 0);
@@ -959,7 +946,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// style の sky（B4）＝{ sky, horizon, fog:[r,g,b], groundBlend, horizonFogBlend, skyHorizonBlend, atmosphereBlend }｜null（従来＝宇宙へ抜けるリム光・霧は land 色）
 	// 霧：sky の fog-color が霧の色（基図・建物・地形の遠山ブルーも）。fog-ground-blend＝濃さ（0＝霧なし・0.5＝従来の距離・1＝半分の距離から）＝view.fog:false より優先
 	let sky: GLSky | null = null;
-	const fogK = () => (sky ? (sky.groundBlend <= 0 ? 1e6 : 0.5 / sky.groundBlend) : view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（gpu/renderer.js と同じ・2026-09-30）
+	const fogK = (): number => fogKOf(sky, view.fog === false);   // view.fog:false＝霧を焚かない（framek.ts＝gpu と同式）
 	const fogColorOf = (c: ArrayLike<number>): ArrayLike<number> => (sky ? sky.fog : c);
 	function setView(v: Partial<GLView>): void { view = { ...view, ...v }; }
 	let lights: GLLocalLights | null = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }（light.js localLightsPayload）｜null＝無し。メッシュ（模型・LOD2）の陰影に足す
@@ -1032,12 +1019,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// 利用者の vector の層の差し込み（#123）＝ranges [[liLo, liHi, anchor]…]：user の枠の li がその範囲の op は、基図の li が anchor 以上の項の前に描く（表に無い＝今どおり基図の上）。rev＝アトラスの鍵
 	let userAnchor: { ranges: number[][]; rev: number } = { ranges: [], rev: 0 };
 	// 描画ごとの差し込みの計画：host＝差し込む基図の枠（無ければ null＝全部最後）・anchors＝境の li（昇順・重なりなし）・anchorOf(user の li)＝境か Infinity
-	const userAnchorPlan = (host: string | null | undefined): UserAnchorPlan => {
-		const R = userAnchor.ranges;
-		const anchorOf = (li: number): number => { for (const r of R) if (li >= r[0] && li <= r[1]) return r[2]; return Infinity; };
-		if (!host || !R.length) return { host: null, anchors: [], anchorOf };
-		return { host, anchors: [...new Set(R.map(r => r[2]))].sort((x, y) => x - y), anchorOf };
-	};
+	const userAnchorPlan = (host: string | null | undefined): UserAnchorPlan => planUserAnchor(userAnchor.ranges, host);
 	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let gintBld: { origin: ArrayLike<number>; batches: GintBldBatch[] } | null = null;   // gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線＝独自 origin・BUILDING_VS 再利用・GL_LINES（各頂点 anchor=自分＝自標高に乗る）
 	const OVERLAY_LIFT_M = 3;   // overlay（外部ベクタ線/面）を地形から浮かせる(m)＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘）。WebGPU OVERLAY_LIFT と対
@@ -1408,26 +1390,12 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	const U4 = new Uint32Array(28), F4 = new Float32Array(U4.buffer);   // gpu/renderer.js の RP と同じ詰め（dim 0-3・a 4-7・lo 8-11・o 12-15・box 16-19・ix 20-23・iy 24-27）
 	function resampleCell(tex: WebGLTexture, cx: number, cy: number, N: number, src: CellSrc): boolean {
 		if (!gpuResample) return false;
-		const tile = (src.tile || src.atlas) as ElevTileGrid, w = tile.width, h = tile.height;
-		if (!(w >= 2 && h >= 2)) return false;
 		const u = U4, f = F4;
-		u.fill(0);
-		if (src.mode === "down") { u[20] = N; u[21] = w; u[22] = 2 * N; u[23] = 1; u[24] = N; u[25] = h; u[26] = 2 * N; u[27] = 1; u[16] = src.edge ?? 2; }   // box.x＝読まない最外周 M（既定 2・R10/R90 は 0）   // gx=(w(2i+1)−N)/2N＝画素中心（2026-10-02・elevation.js と同式）。分子に D を足し ix.w=1 で商から引く＝符号なしのまま
-		else if (src.mode === "crop") {
-			const rg = tile.range, dl = src.lng0 - tile.lng, dt = src.lat0 - tile.lat, sp = src.span;
-			const ints = [rg, dl, dt, sp, N].every(Number.isInteger) && dl >= 0 && dt >= 0 && rg > 0 && sp > 0;
-			// 画素中心：gx = ((dl + sp(i+½)/N)/rg)·w − ½ = (dl·2N·w + sp·w·(2i+1) − N·rg) / (2N·rg)。分子が負になり得る（dl=0 の西端）＝D を足して ix.w=1 で商から引く
-			const Ax = dl * 2 * N * w + N * rg, Ay = dt * 2 * N * h + N * rg, Bx = sp * w, By = sp * h, D = 2 * N * rg;
-			if (ints && Ax + Bx * (2 * N - 1) < 0x100000000 && Ay + By * (2 * N - 1) < 0x100000000 && D < 0x100000000) { u[3] = 2; u[20] = Ax; u[21] = Bx; u[22] = D; u[23] = 1; u[24] = Ay; u[25] = By; u[26] = D; u[27] = 1; }
-			else { u[3] = 3; f[4] = dl / rg * w - 0.5; f[5] = sp / N / rg * w; f[6] = dt / rg * h - 0.5; f[7] = sp / N / rg * h; f[8] = -1e30; f[9] = 1e30; f[10] = -1e30; f[11] = 1e30; }
-		}
-		else if (src.mode === "world") { const C = w >> 2; if (C % N) return false; u[3] = 1; u[15] = C / N; u[16] = w; u[17] = (1 - src.cy) * C; u[18] = src.cx * C; }
-		else return false;
-		const e = rawTex(tile);
+		if (!packResampleParams(u, f, src, cx, cy, N)) return false;   // 係数の詰め＝elevcell.ts（gpu と同じ正本）
+		const e = rawTex((src.tile || src.atlas) as ElevTileGrid);
 		if (!e) return false;
 		const r = rsInit(), prog = r.progs[e.kind];
-		u[0] = w; u[1] = h; u[2] = e.kind; u[12] = cx * N; u[13] = cy * N; u[14] = N;
-		if (src.mode !== "world" && src.sea) u[19] = 1;   // box.w＝海底（負値を通す・mode 0/2 だけ＝mode 1 は box.w を読まない）
+		u[2] = e.kind;
 		// 状態＝触る物だけ退避して戻す（set() は draw() の外で呼ばれる＝次の draw() が viewport を戻すが、gint 等の同居者のために戻しておく）
 		const wasBlend = gl.isEnabled(gl.BLEND), wasDepth = gl.isEnabled(gl.DEPTH_TEST), wasStencil = gl.isEnabled(gl.STENCIL_TEST), wasScissor = gl.isEnabled(gl.SCISSOR_TEST), wasCull = gl.isEnabled(gl.CULL_FACE);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, r.fbo);
@@ -1450,7 +1418,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		if ((self as unknown as PerfGlobal).__perfElev) (self as unknown as PerfGlobal).__perfElevLast = { f16: 0, write: 0, gpu: 1, raw: e.fresh };
 		return true;
 	}
-	const cpuCell = (src: CellSrc, N: number): Float32Array => src.mode === "down" ? downsampleFlipped(src.tile, N, src.edge ?? 2, !!src.sea) : src.mode === "crop" ? cropResample(src.tile, src.lng0, src.lat0, src.span, N, !!src.sea) : worldAtlasCell(src.atlas, src.cx, src.cy, N);
+	const cpuCell = cpuResampleCell;
 	function putCellAny(tex: WebGLTexture, cx: number, cy: number, data: CellPayload, N: number): void {   // data＝Float32Array（従来）か生タイルの記述子（mode あり）
 		if (data && (data as CellSrc).mode) { if (!resampleCell(tex, cx, cy, N, data as CellSrc)) writeCell(tex, cx, cy, cpuCell(data as CellSrc, N), N); }
 		else writeCell(tex, cx, cy, data as Float32Array, N);
@@ -1555,8 +1523,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// G が変わる時だけ作り直す＝実質「起動時に一度」。
 	function buildTerrainMesh(oLng: number, oLat: number, spanLng: number, spanLat: number, G: number): void {
 		if (terrain && terrain.G === G) { terrain.mesh = [oLng, oLat, spanLng, spanLat]; return; }
-		const uv = new Float32Array(G * G * 2);
-		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; uv[k] = i / (G - 1); uv[k + 1] = j / (G - 1); }
+		const uv = terrainGridUV(G);
 		const { idx, chunks } = buildChunkIndex(G);   // チャンク主導の index（P4 step B）＝三角形の分割・巻きは従来と同一・並びだけチャンク毎に連続
 		if (terrain) { gl.deleteVertexArray(terrain.vao); gl.deleteBuffer(terrain.vbo); gl.deleteBuffer(terrain.ibo); }
 		const vao = gl.createVertexArray()!, vbo = buffer(gl, uv), ibo = gl.createBuffer()!;
@@ -1631,8 +1598,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				meshMasks.set(data.ward, m);
 			}
 			m.bbox = data.maskBbox;
-			if (data.maskCells) { for (let i = 0; i < data.maskCells.length; i++) { const c = data.maskCells[i]; if (c < m.bytes.length) m.bytes[c] = 255; } }
-			else for (let i = 0; i < data.mask!.length && i < m.bytes.length; i++) if (data.mask![i]) m.bytes[i] = 255;   // 旧worker互換（全量OR＝単調なので破壊しない）
+			orMaskBytes(m.bytes, data.maskCells, data.mask);   // 旧 worker 互換の全量 OR も（meshcull.ts）
 			gl.bindTexture(gl.TEXTURE_2D, m.tex);
 			gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, N, N, 0, gl.RED, gl.UNSIGNED_BYTE, m.bytes);
@@ -1681,9 +1647,9 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	function setOverlayHi(s: OverlaySceneIn | null | undefined, fillColor?: HiFill | null): void {   // fillColor=配列は従来の面塗り／{mask,color}は周辺マスク（外側を暗く・地物は塗らない）
 		disposeOverlay(overlayHi);
 		if (!s) { overlayHi = null; return; }
-		const isMask = fillColor && !Array.isArray(fillColor);
-		overlayHi = buildOverlaySlot(s, isMask ? (fillColor.color || [0, 0, 0, 0.15]) : ((fillColor as number[] | null | undefined) || [0.95, 0.55, 0.15, 0.6]));
-		if (overlayHi) overlayHi.mask = !!(isMask && fillColor.mask);
+		const hf = hiFillOf(fillColor);
+		overlayHi = buildOverlaySlot(s, hf.color);
+		if (overlayHi) overlayHi.mask = hf.mask;
 	}
 	function setOverlayHover(s: OverlaySceneIn | null | undefined): void { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーンの lineWidth）
 	function drawOne(o: OverlaySlot | null, st: GLCamState, dpr: number, land: ArrayLike<number>): void {
@@ -1748,19 +1714,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// 球体カリング二段構え：①完全裏側 feature は CPU でレンジごと描かない（対蹠点付近は VS クランプが
 		// リング一周巻き＝全面+1 化する実測 2026-09-02＝クランプだけでは守れない）②地平線跨ぎは VS クランプ。
 		// 可視判定＝中心方向と視線の角 − 角半径 < 地平角 ⇔ dot(C,Ê) > cos(hor+rad)（cos加法・全て事前計算値）。
-		if (o.feats) {
-			const E = st.eye, eLen = Math.hypot(E[0], E[1], E[2]) || 1;
-			const cosH = Math.min(1, 1 / eLen), sinH = Math.sqrt(Math.max(0, 1 - cosH * cosH));
-			const ex = E[0] / eLen, ey = E[1] / eLen, ez = E[2] / eLen;
-			let run0 = -1, runN = 0;
-			for (const f of o.feats) {
-				const vis = f.C[0] * ex + f.C[1] * ey + f.C[2] * ez > f.cosR * cosH - f.sinR * sinH;
-				if (vis && run0 >= 0 && f.start === run0 + runN) { runN += f.count; continue; }   // 連続レンジは結合
-				if (runN) gl.drawArrays(gl.TRIANGLES, run0, runN);
-				run0 = vis ? f.start : -1; runN = vis ? f.count : 0;
-			}
-			if (runN) gl.drawArrays(gl.TRIANGLES, run0, runN);
-		} else gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
+		if (o.feats) worldFanRuns(o.feats, st.eye, (first, count) => gl.drawArrays(gl.TRIANGLES, first, count));   // drawshared.ts（gpu と同じ判定）
+		else gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
 		gl.uniform1f(loc(gl, stencilProg, "u_sphereClip"), 0);   // 共有プログラム＝通常 overlay（局所ポリゴン）へ持ち越さない
 		gl.colorMask(true, true, true, true);
 	}
@@ -1847,14 +1802,14 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.uniform1f(loc(gl, prog, "u_ell"), _ell ? 1 : 0);
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
 		gl.uniform1f(loc(gl, prog, "u_lineDpr"), lastDpr);   // the mesh VS's line ribbons (CSS px → device px)
-		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5 * fogK());
-		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0 * fogK());
+		gl.uniform1f(loc(gl, prog, "u_fogNear"), fogNearOf(st.fogDist || st.camDist, fogK()));
+		gl.uniform1f(loc(gl, prog, "u_fogFar"), fogFarOf(st.fogDist || st.camDist, fogK()));
 		fog = fogColorOf(fog);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
 		gl.uniform1f(loc(gl, prog, "u_csFogD"), csFogD);   // Cesium の霧（地形・模型の VS が持つ・他は null＝無視）
 		gl.uniform4f(loc(gl, prog, "u_csFogL"), groundLight ? groundLight.dir[0] : 0, groundLight ? groundLight.dir[1] : 0, groundLight ? groundLight.dir[2] : 1, groundLight && groundLight.night ? 1 : -1);
 		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
-		gl.uniform1f(loc(gl, prog, "u_logCoef"), logCoefOf(st));
+		gl.uniform1f(loc(gl, prog, "u_logCoef"), logCoefOf(st.camDist));
 		gl.uniform1i(loc(gl, prog, "u_elevTex"), 1);
 		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
@@ -1879,25 +1834,22 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, pt: 0, ptw: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
 		const st = cameraState(cam, canvas.width, canvas.height) as GLCamState;
 		st.mvp32 = Float32Array.from(st.mvp);
-		lastLogCoef = logCoefOf(st); lastDpr = cam.dpr || 1; lastFovy = cam.fovy || 50 * Math.PI / 180;
+		lastLogCoef = logCoefOf(st.camDist); lastDpr = cam.dpr || 1; lastFovy = cam.fovy || 50 * Math.PI / 180;
 		const clipOn = clipFrame(cam.dpr || 1);   // 断面（P0 #3）＝このフレームのプログラムを派生か base に   // 深度の書き出し（#47）が添える尺度＝u_logCoef・gintCtx.logCoef と同じ物
 		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）は camDist へ滑らかに追従（臨界減衰）：
 		// 直結だとホイール1ノッチ毎に霞の帯が跳んでチラチラし、凍結だとズームアウトで旧距離の霞が
 		// 画面を覆ってから静止時にパッと晴れる（不自然）。ローパスなら両方向とも霞が滑らかに動く。
 		// 霧を焚かない時（fogK＝1e6＝近/遠が実質無限）と、カメラが飛んだ時（1 フレームで距離が 2 倍超・半分未満＝jumpTo・初期視点）は
 		// 追わずに合わせる：追っても見えない霧のために約 60 フレーム描き直していた（ベンチの起動直後の余分な描き直し・2026-10-23）
-		if (!fogDist || fogK() >= 1e6 || st.camDist > lastCamDist * 2 || st.camDist * 2 < lastCamDist) fogDist = st.camDist;
-		else fogDist += (st.camDist - fogDist) * 0.18;
-		if (Math.abs(st.camDist - fogDist) < st.camDist * 0.002) fogDist = st.camDist;
+		fogDist = fogFollow(fogDist, lastCamDist, st.camDist, fogK());   // framek.ts（gpu と同式・同閾値）
 		lastCamDist = st.camDist;
 		st.fogDist = fogDist;
 		csFogD = view.csAtmo && view.csAtmo.ground !== false ? csFogDensity((Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - 1) * 6378137, Math.abs(Math.cos(cam.pitch || 0))) : 0;   // Cesium の霧の濃さ（csatmo.ts・800 km より下）
 		const fogAnimating = fogDist !== st.camDist;   // 収束まで追加フレームを要求（呼び出し側が dirty 継続）
 		// 視程下限のチルト係数（20°→46°）：真俯瞰0＝平面地図の縁を青く染めない／傾けるほど実距離の視程が効く
-		const pfFog = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.35) / 0.45));
+		const pfFog = pitchFogK(cam.pitch);
 		// 真俯瞰では標高オフ、傾けるほどフェードイン（3.4°→11.5°）
-		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
-		const pf = pt * pt * (3 - 2 * pt);
+		const pf = pitchElevK(cam.pitch);
 		// 都市ズームの平ら化(cityFlat: z13.5→16)は撤去（2026-07-26）。あれは ALOS AW3D30=DSM 時代の名残で、
 		// 「都市の起伏＝ビル天端がベクタ建物と二重になる」対策だった。現在 z≥12 の標高源は R01=DEM10B（地理院
 		// 10m DTM＝裸地）＝都市の起伏は本物の地形（台地・谷・扇状地）なので全ズームで見せるのが正しい。
@@ -1915,7 +1867,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		}
 		// 建物の影（P0 #3）：落とす側を太陽から描いてから受け手のプログラムを選ぶ（地形を落とすのは地形を描くフレームだけ＝真俯瞰は平ら）
 		const terrOnF = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);
-		const shOn = shadow.on ? shadowFrame(cam, st, opts, terrOnF, clipOn, view.land || [0.96, 0.96, 0.95, 1], terrOnF ? terrain!.mesh : null, { near: Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), far: Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK() }) : false;
+		const shOn = shadow.on ? shadowFrame(cam, st, opts, terrOnF, clipOn, view.land || [0.96, 0.96, 0.95, 1], terrOnF ? terrain!.mesh : null, { near: terrainFogNearOf(st.fogDist!, pfFog, fogK()), far: fogFarCapOf(st.fogDist!, pfFog, fogK()) }) : false;
 		progSwap(clipOn, shOn);
 		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
 		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
@@ -1925,7 +1877,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// 世界ハイプソの退場ズーム＝地域の基図が入場する所（日本＝6.5）。view.worldHypsoZ で動かせる＝
 		// 地域の申告が無い器（apps/world の国の地図＝globe 仕様）は基図が来ない＝最後まで世界の色で描く（2026-09-23）。
 		const whZ = view.worldHypsoZ ?? 6.5;
-		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;
+		const worldHypsoK = view.worldHypso && elev.has ? worldHypsoKOf(cam.zoom, whZ) : 0;   // framek.ts（gpu と同式）
 		const flat2d = !clipOn && !shOn && (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogSt.has && !gnd.rasterOn;   // 断面の間は球の床を描く（床の切れ目を消す＝WebGPU と同じ）   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
 		const c = flat2d ? [land[0], land[1], land[2], land[3] ?? 1] : (view.clear || [1, 1, 1, 1]);   // 2D の床も land の不透明度（B5）＝background 層の無い MapLibre の地図は透明
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
@@ -1938,7 +1890,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 
 		// 星空劇場（z<5）：globe より先に描く＝陸には上書きされ・大気ハローは星の上に薄く重なり・宇宙には星が残る。
 		// 深度無関係の背景（VSが clip.z=0 固定）。天球の向きは恒星時(GMST)＝実時刻の空。versor回転にもそのまま追随。
-		const worldFade = !flat2d && cam.zoom < 5 ? Math.min(1, (5 - cam.zoom) / 0.5) : 0;   // 星空劇場（星・夜面）共通の出現フェード
+		const worldFade = flat2d ? 0 : worldFadeOf(cam.zoom);   // 星空劇場（星・夜面）共通の出現フェード（framek.ts）
 		const starFade = (stars || constel || planets) ? worldFade : 0;
 		if (starFade > 0) {
 			const gmst = gmstAt(clockNow(view.clock));
@@ -1948,8 +1900,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			// z1 の硬クランプ（max）は天球スケールの変化が z1 で急停止＝太陽系圏の出入りで星の動きが不連続に
 			// 見えた（本人指摘 2026-09-02「上手に繋げて」）→ softplus の軟クランプ＝C∞接続：z≫1 は従来の線形・
 			// z≪1 は z1 相当へ漸近凍結（無限遠の星空はズームアウトで縮まない・負zの係数反転も防ぐ＝旧仕様を保存）。
-			const zx = cam.zoom - 1, zs = 1 + (zx > 0 ? zx + 0.25 * Math.log(1 + Math.exp(-zx / 0.25)) : 0.25 * Math.log(1 + Math.exp(zx / 0.25)));   // 数値安定形 softplus（幅0.25z）
-			const skyK = (0.4 + 0.3 * zs) / 1.6;
+			const skyK = skyKOf(cam.zoom);   // softplus の軟クランプ＝framek.ts（gpu と同式）
 			const starUniforms = (prog: WebGLProgram): void => {
 				gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
 				gl.uniform2f(loc(gl, prog, "u_gmst"), cg, sg);
@@ -2080,7 +2031,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// のを上へ逃がす。山岳帯(z<14)は 0＝従来の見た目。根治は RTT ドレープ（基図を地形に貼る）＝将来課題。
 		// z14切替はランプ化（z13.5→14 の0.5幅で連続モーフ）＝keepFine保持のズームアウトで露出した段差ポップ対策。
 		// 両端値は実測チューニングのまま＝z≥14とz≤13.5の絵は従来と完全一致。gpu/renderer.js と同式。
-		const cityK = terrainDepth ? Math.max(0, Math.min(1, (cam.zoom - 13.5) / 0.5)) : 0;
+		const cityK = cityKOf(cam.zoom, terrainDepth);   // framek.ts（gpu と同式）
 		const cityLift = 5 * cityK;   // 線の接地リフト（塗りは 3D では地面アトラス側＝リフト無し・2026-09-21）
 		// 3D（チルト）では建物フットプリント塗りを伏せる：押し出し建物と二重表現になり、起伏＋接地リフト下では
 		// 「浮いた濃い平板」として露出する（札幌 z16.9 実測・本人指摘「3Dならフットプリント不要では」）。
@@ -2109,8 +2060,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			gl.uniform3f(loc(gl, terrainProg, "u_fogColor"), dc[0], dc[1], dc[2]);
 			// 視程の下限（50km/165km）はチルト連動：真俯瞰では0＝純camDist比例（見下ろす平面地図の縁が
 			// 青く染まるのを防ぐ）。傾けるほど（20°→46°）横に大気を見通す＝実距離の視程が効く。
-			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK());
-			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK());
+			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), terrainFogNearOf(st.fogDist!, pfFog, fogK()));
+			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), fogFarCapOf(st.fogDist!, pfFog, fogK()));
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
 			gl.uniform1f(loc(gl, terrainProg, "u_landA"), land[3] ?? 1);   // 床の不透明度（B5）
 			// 標高ティント（view.hypso={color,max,amount}＝テーマのノブ）。未指定は amount=0＝恒等（従来の単色陰影）
@@ -2163,7 +2114,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			if (clipFr && clipFr.tp.terrain.length && clip!.style.capOn) {   // 地形の蓋（断面）＝地形と同じ深度の流儀・polygonOffset は外す（蓋は地形の手前で勝つ）
 				if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
 				gl.depthMask(true);
-				const fogT = { near: Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), far: Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK(), color: fogColorOf(view.distColor || [0.63, 0.72, 0.83]) };
+				const fogT = { near: terrainFogNearOf(st.fogDist!, pfFog, fogK()), far: fogFarCapOf(st.fogDist!, pfFog, fogK()), color: fogColorOf(view.distColor || [0.63, 0.72, 0.83]) };
 				drawCaps(st, clipFr.tp.terrain, terrOrigin, terrain!.mesh, cam.center, false, fogT, land);
 				if (far.has && farTex) drawCaps(st, clipFr.tp.terrain, terrOrigin, far.bounds, cam.center, true, fogT, land);
 			}
@@ -2237,7 +2188,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		const rasterHide = gnd.fillsIn || !!(rasterDraws && rasterDraws.hideFills && gnd.rasterOn);
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
-		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK();   // fog:false＝無限（gpu と同じ）
+		const fogFarCap = fogFarCapOf(st.fogDist!, pfFog, fogK());   // fog:false＝無限（framek.ts＝gpu と同じ）
 		FAR_PIVOT.on = view.gintFarPivot !== false;   // 塗り扇の遠方の要（画面カリング）の逃げ道（view.gintFarPivot=false＝?nofarpivot=1・比較用）
 		// gint（1canvas統合・埋込パス）向けの frame コンテキスト：山岳ビュー（terrainDepth）の間だけ、
 		// 対数深度係数（setCommonUniforms の u_logCoef と同式）と標高ドレープ一式を渡す＝gint 線が
@@ -2374,7 +2325,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// 10度レチクル（view.graticule・v1「地図の上に Canvas2D で重ねる」と同じ最前面・ラベルの下）：
 		// z1.7→2.2 で出現（v1 borders minZoom2）・z6.0→6.5 で退場（基図=日本帯へ委ねる）。白の細線＝v1と同じ。
 		if (view.graticule && !flat2d) {
-			const gratA = Math.max(0, Math.min(1, ((cam.zoom || 0) - 1.7) / 0.5)) * Math.max(0, Math.min(1, ((view.worldHypsoZ ?? 6.5) - (cam.zoom || 0)) / 0.5)) * 0.5;   // 罫線もハイプソと同じ帯で退場
+			const gratA = graticuleKOf(cam.zoom || 0, view.worldHypsoZ ?? 6.5) * 0.5;   // 罫線もハイプソと同じ帯で退場
 			if (gratA > 0.003) {
 				gl.useProgram(gratProg);
 				setRayUniforms(gratProg, st);   // #65：視線の基底（f64）＋目＋c
@@ -2415,10 +2366,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			// pan/zoom中だけ壁面が瞬く（対数深度係数が毎フレーム再配分・大きいビルは基図押し出しが低いぶん
 			// 下部だけ・本人実機で特定）。カメラ→区bbox距離の昇順＝画面の区が必ず枠を取る（内包=距離0・
 			// 同率はsort安定性でMap挿入順のまま＝フレーム間で選抜が揺れない）。
-			const mcx = cam.center[0], mcy = cam.center[1], mcw = Math.cos(mcy * Math.PI / 180);
-			const mdist = (m: MeshMask): number => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
-			const active = [...meshMasks.entries()].filter(([w]) => !meshHidden.has(w)).map(([, m]) => m)
-				.sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_MESH_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
+			const active = pickMeshMasks(meshMasks, meshHidden, cam.center, MAX_MESH_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る（meshcull.ts）
 			gl.uniform1i(loc(gl, prog, "u_meshCount"), active.length);
 			const mo = scenes.main.origin || [0, 0];
 			for (let i = 0; i < MAX_MESH_MASKS; i++) {
@@ -2481,25 +2429,16 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			// LOD打ち切りの物差し＝画面1pxが何mか（app.js approxViewBbox と同式。ortho-z は緯度非依存）。
 			// 「画面上~1px未満の建物は描かない」＝見た目は変えずに頂点処理を捨てる。遠方バッチは距離で緩やかに閾値を上げる
 			// （チルト時の遠景は透視で1pxがもっと大きい＝控えめ側の近似）。
-			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);
+			const mppx = mppxOf(cam.zoom);
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
 			const vis: { p: MeshBatch; count: number }[] = [];   // 可視バッチ（カリング＋LOD 済み）＝描く順を並べ替えるため一度溜める
-			const liftGroundR = 1 + Math.max(0, cam.centerAlt || 0) / worldRadiusM();   // 注視点の地面の高さ（持ち上げる束の間引きの第 2 候補・camera.ts liftedBboxVisible）
+			const liftGroundR = liftGroundROf(cam.centerAlt);   // 注視点の地面の高さ（持ち上げる束の間引きの第 2 候補・camera.ts liftedBboxVisible）
 			for (const p of meshes.values()) {
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
 				if (!liftedBboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2], p.noLift ? 0 : liftGroundR)) continue;   // 重心の高さで射影（camera.ts bboxVisible）・持ち上げる束は注視点の地面の高さでも（liftedBboxVisible・2026-10-31）
-				let count = p.count;
-				// LOD打ち切りは建物のみ。橋梁（two＝両面）は「高さ3〜5m×長さ数百m」＝高さ基準だと小物と誤判定され
-				// 桁が距離で歯抜けになる（横浜ベイブリッジで実測）ため適用しない。橋梁データは軽い＝全描画で問題ない。
-				if (p.lodH && !p.two && !p.keep2d) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」になる（keep2d＝統計＝低い値も意味がある＝間引かない）
-					const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - cam.center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - cam.center[1]) * 111320);
-					const minH = mppx * (1 + dm / 4000);
-					let li = 0;
-					for (let i = p.lodH.length - 1; i > 0; i--) if (p.lodH[i] <= minH) { li = i; break; }
-					count = p.lodCounts![li];
-					if (!count) continue;
-				}
+				const count = meshLodCount(p, cam.center, cosLat, mppx);   // LOD 打ち切り（建物だけ・meshcull.ts＝gpu と同式）
+				if (!count) continue;
 				vis.push({ p, count });
 			}
 			// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明）。半透明は奥から手前（バッチ重心とカメラの距離）・深度書き込み無し・
@@ -2595,7 +2534,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			bldStencil(false);
 		}
 		// 面の貼り付け（分類）＝描き終えた深度（地形・建物・3D Tiles・模型）に柱を当てる。bit7（建物・メッシュの画素）を読むので建物の後
-		if (classify.size) classify.draw(st, logCoefOf(st), terrain && elev.has && elev.scale > 0 ? 1 - (terrainActive ? elevScaleEff / elev.scale : 0) : 0, !terrainDepth);   // 真俯瞰の平ら化に柱を合わせる（classify.ts flatOrigin）・地面が深度を書かない時は単位球を地面に
+		if (classify.size) classify.draw(st, logCoefOf(st.camDist), terrain && elev.has && elev.scale > 0 ? 1 - (terrainActive ? elevScaleEff / elev.scale : 0) : 0, !terrainDepth);   // 真俯瞰の平ら化に柱を合わせる（classify.ts flatOrigin）・地面が深度を書かない時は単位球を地面に
 		gl.disable(gl.DEPTH_TEST);
 		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：時計の時刻の太陽直下点（ephem/sun＝solar と同じ式・均時差込み。
 		// 旧＝v1 nightJSON の赤緯正弦近似＋UTC 時刻→経度）を平行光源に、夜半球を夜紺で減光。地図の全レイヤの上に重ねる。
