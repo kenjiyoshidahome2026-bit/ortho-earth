@@ -4,7 +4,7 @@
 
 A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from scratch — zero runtime dependencies, no tile servers. Runs entirely in the browser.
 
-<img src="assets/hero.png" width="720" alt="The top page of www.ortho-earth.com: the globe behind &quot;Equal to all, fair to the Earth&quot; and the demo gallery">
+<a href="https://www.ortho-earth.com"><img src="assets/hero.png" width="720" alt="The top page of www.ortho-earth.com: the globe behind &quot;Equal to all, fair to the Earth&quot; and the demo gallery"></a>
 
 **top page:** [www.ortho-earth.com](https://www.ortho-earth.com) · **ortho-japan (flagship 3D map):** [/japan/](https://www.ortho-earth.com/japan/) · **world globe:** [/globe/](https://www.ortho-earth.com/globe/) · **GIS-HUB (apps):** [/gishub/](https://www.ortho-earth.com/gishub/) · **MapLibre examples:** [/maplibre/](https://www.ortho-earth.com/maplibre/) · **technical documents:** [/#technologies](https://www.ortho-earth.com/#technologies)
 
