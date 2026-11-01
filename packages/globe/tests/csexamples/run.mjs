@@ -4,7 +4,7 @@
 // CHROME=<path> picks the browser binary (the cloud sandbox: /opt/pw-browsers/chromium).
 // --gpu: the real GPU (Metal WebGPU + ANGLE Metal on a Mac). Without it Chrome is forced onto SwiftShader (no WebGPU → ortho falls back to GL2),
 //   which is what every Mac run before 2026-10-28 silently did; the refs and ortho shots of one run must share the flag.
-// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade] [--no-warm] [--time-from <run dir>] [--hide-ui] [--gpu]
+// Usage: node packages/globe/tests/csexamples/run.mjs [--base http://localhost:5460] [--out <dir>] [--jobs 3] [--wait 10000] [--slow-wait 20000] [--settle 20000] [--side ref|ortho] [--only a,b] [--skip-dev] [--regrade] [--no-warm] [--time-from <run dir>] [--hide-ui] [--gpu]
 //   records: <out>/<side>/<name>.json and .png (default out: <repo>/.cache/csexamples/runs/latest) · summary: <out>/summary.json and summary.md
 import fs from "node:fs";
 import path from "node:path";
@@ -18,6 +18,11 @@ const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ?
 const flag = k => process.argv.includes(`--${k}`);
 const BASE = arg("base", "http://localhost:5460"), OUT = path.resolve(arg("out", path.join(REPO, ".cache/csexamples/runs/latest")));
 const JOBS = +arg("jobs", 3), WAIT = +arg("wait", 10000), SETTLE = +arg("settle", 20000), SIDES = arg("side") ? [arg("side")] : ["ref", "ortho"];
+// examples whose content arrives after `settled` already counts its tiles loaded (warm cache: AEC pipes, sharp Google tiles, cloud sprites,
+// globe material bands): their shots flipped level between two runs of the same commit at the default wait (2026-11-01). Only these get the
+// long wait (--slow-wait, default 20 s); waiting 20 s for all 309 doubles a full shoot. Add an example here only after two runs flip.
+const SLOW = new Set(["clouds", "globe-materials", "3d-tiles-1.1-photogrammetry", "aec-metadata-styling", "aec-isolate-by-category"]);
+const SLOW_WAIT = +arg("slow-wait", 20000);
 const ORTHO_QUERY = arg("ortho-query", "");   // a query string for the ortho pages only (e.g. gl2=1 = shoot on WebGL2 to compare the backends)
 const HIDE_UI = flag("hide-ui");   // the final shoot: hide Cesium's widgets and the example's panels on the ortho side only (the grade masks those cells either way)
 const TIME_FROM = arg("time-from", "");   // the page's clock starts when that run's ref page started: the sun, the stars and the clock-driven examples at the same time of day as the ref shot; an animated example is also shot at the ref's simulation time (rec.clock, recorded by both sides)
@@ -141,7 +146,7 @@ async function runOne(browser, side, ex) {
 	try {
 		await page.goto(`${BASE}/cs/${side}/gallery/${ex.name}/${side === "ortho" && ORTHO_QUERY ? `?${ORTHO_QUERY}` : ""}`, { timeout: 60000 });
 		await page.waitForFunction(() => window.__csx?.ran || window.__csx?.errors?.some(e => /^import:/.test(e)), null, { timeout: 45000 }).catch(() => {});
-		await page.waitForTimeout(WAIT);
+		await page.waitForTimeout(SLOW.has(ex.name) ? Math.max(WAIT, SLOW_WAIT) : WAIT);
 		// then until the globe and the tilesets say everything in view is loaded (real Cesium was often shot with its imagery still blurred)
 		const t1 = Date.now();
 		rec.settled = await page.waitForFunction(SETTLED, null, { timeout: SETTLE, polling: 250 }).then(() => true, () => false);
