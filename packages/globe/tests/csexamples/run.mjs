@@ -18,10 +18,11 @@ const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ?
 const flag = k => process.argv.includes(`--${k}`);
 const BASE = arg("base", "http://localhost:5460"), OUT = path.resolve(arg("out", path.join(REPO, ".cache/csexamples/runs/latest")));
 const JOBS = +arg("jobs", 3), WAIT = +arg("wait", 10000), SETTLE = +arg("settle", 20000), SIDES = arg("side") ? [arg("side")] : ["ref", "ortho"];
-// examples whose content arrives after `settled` already counts its tiles loaded (warm cache: AEC pipes, sharp Google tiles, cloud sprites,
-// globe material bands): their shots flipped level between two runs of the same commit at the default wait (2026-11-01). Only these get the
-// long wait (--slow-wait, default 20 s); waiting 20 s for all 309 doubles a full shoot. Add an example here only after two runs flip.
-const SLOW = new Set(["clouds", "globe-materials", "3d-tiles-1.1-photogrammetry", "aec-metadata-styling", "aec-isolate-by-category"]);
+// examples whose content arrives after `settled` already counts its tiles loaded (warm cache: the AEC pipes): their shots flipped level
+// between two runs of the same commit at the default wait, and gave the same numbers three times at 20 s (v242, 2026-11-01). Only these get
+// the long wait (--slow-wait, default 20 s); waiting 20 s for all 309 doubles a full shoot. Add an example here only when a longer wait
+// is shown to steady it: clouds, globe-materials and 3d-tiles-1.1-photogrammetry still flip at 20 s (another race, not the wait).
+const SLOW = new Set(["aec-metadata-styling", "aec-isolate-by-category"]);
 const SLOW_WAIT = +arg("slow-wait", 20000);
 const ORTHO_QUERY = arg("ortho-query", "");   // a query string for the ortho pages only (e.g. gl2=1 = shoot on WebGL2 to compare the backends)
 const HIDE_UI = flag("hide-ui");   // the final shoot: hide Cesium's widgets and the example's panels on the ortho side only (the grade masks those cells either way)
