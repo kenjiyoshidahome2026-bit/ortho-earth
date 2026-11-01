@@ -18,7 +18,7 @@ import type { LonLat, OverlayFrameApi } from "../../globe.d.ts";
 import type { CzmlStyle, CzmlTrack } from "../czml-time.ts";
 
 /** render worker の host（init の第 3 引数）＝読む分 */
-interface OverlayHost { post(data: unknown): void; requestDraw(): void; depthGLSL?: string }
+interface OverlayHost { post(data: unknown): void; requestDraw(): void; depthGLSL?: string; wantDepth?(on: boolean): void }
 /** frame の api（断面＝clip は render worker が足す・#111） */
 type FrameApi = OverlayFrameApi & { clip?: { distM(lon: number, lat: number, hM?: number): number } | null };
 /** main（czml.ts）から来る軌跡（style つき・description は main に残る） */
@@ -40,7 +40,7 @@ const D2R = Math.PI / 180, MIN_EARTH_PX = 14;   // 地球の見かけの半径�
 const FONT = '"Noto Sans",system-ui,sans-serif';   // 地域の書体は名指ししない（regionless）＝各言語の文字は OS の書体が受ける
 const ATLAS = 2048, IMG_MAX = 256;   // アトラスの一辺・billboard の絵の長辺の上限（焼く時に縮める）
 let canvas: OffscreenCanvas | null = null, gl: WebGL2RenderingContext | null = null, host: OverlayHost | null = null, tracks: DrawTrack[] = [];
-let wantDepth = false;   // opts.depth（Cesium の facade）＝尾と 3D の線をシーンの深度で隠す（建物を突き抜けない）
+let wantDepth = false;   // opts.depthTest（Cesium の facade）＝尾と 3D の線をシーンの深度で隠す（建物を突き抜けない）
 let marks2: Mark[] = [], lines: DrawLine[] = [];   // 最後に描いた印＝[{ x, y, r（当たり半径・device px）, tr }]（pick が読む）
 const images = new Map<string, ImageBitmap | "loading" | "bad">();   // src → ImageBitmap | "loading" | "bad"
 const probes: unknown[] = [];
@@ -200,7 +200,7 @@ function labelSlot(text: string, px: number, color: string, outline: string, dpr
 
 export function init(cv: OffscreenCanvas, opts: unknown, h: OverlayHost) {
 	canvas = cv; host = h;
-	wantDepth = !!(opts as { depth?: unknown } | null)?.depth && !!h?.depthGLSL;
+	wantDepth = !!(opts as { depthTest?: unknown } | null)?.depthTest && !!h?.depthGLSL;   // not opts.depth: that makes the worker copy the depth every frame from the start; the overlay asks with host.wantDepth while it has lines or tails
 	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null;
 	if (!gl) return;
 	seg = compile(VS_SEG, FS_SEG(wantDepth ? h.depthGLSL! : DEPTH_STUB), ["u_scr", "u_color", "u_sceneDepthOn"]); mark = compile(VS_MARK, FS_MARK, ["u_scr", "u_atlas"]); cmp = compile(VS_CMP, FS_CMP, ["u_t", "u_a"]);
@@ -221,13 +221,16 @@ export function init(cv: OffscreenCanvas, opts: unknown, h: OverlayHost) {
 	gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, ATLAS, ATLAS);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-	return wantDepth ? { depth: true } : undefined;
+	return undefined;   // 深度は線か尾がある間だけ（message の depthNeed）＝描く物の無い Cesium の頁が毎フレーム深度を写して待たない（aec-metadata-styling の読み込みが遅れた・2026-11-01）
 }
+// the scene depth is asked for only while there is a line or a tail to hide (each frame with depth waits for the GPU to copy it)
+function depthNeed() { if (wantDepth) host?.wantDepth?.(lines.length > 0 || tracks.some(t => !!t.style?.path)); }
 export function message(d: CzmlDrawMsg | null | undefined) {
 	if (d?.type === "probe") { probes.push(d.id); host?.requestDraw(); return; }   // 検定用＝次に描いた直後の画素を main へ（dbgHost.__ovPixels）
 	if (d?.type === "tracks") tracks = d.tracks || [];
 	else if (d?.type === "lines") lines = d.lines || [];
 	else if (d?.type === "clear") { tracks = []; lines = []; }
+	depthNeed();
 	host?.requestDraw();
 }
 export function destroy() { tracks = []; lines = []; for (const v of images.values()) if (v instanceof ImageBitmap) v.close(); images.clear(); slots.clear(); gl?.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
