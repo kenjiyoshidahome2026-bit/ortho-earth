@@ -315,7 +315,7 @@ export class EntityDisplay {
 	readonly host: Host;
 	#recs = new Map<Any, Rec>();
 	#ov: Any = null; #layers = new Set<string>(); #models = new Map<Any, { h: Any; loading: boolean; uri: string; scale: number; dead?: boolean; tk?: string; sk?: string; env?: Float32Array | null }>();
-	#lastTracks = ""; #lastLines = ""; #lastShapes = ""; #pats = new Map<string, { n: number; id: string; z: number; ready: boolean; stale: boolean }>(); #patGen = 0;
+	#lastTracks = ""; #lastLines = ""; #lastShapes = ""; #pats = new Map<string, { n: number; id: string; z: number; added: number; ready: boolean; stale: boolean }>(); #patGen = 0; #patPass = 0; #patLast = new Map<string, number>();
 	#cls = new Map<string, Any>();   // classification volumes on the map (key = outline + colour → handle)
 	#gsph = new Map<string, { center: number[]; radius: number } | null | "pending">();
 	#needRedraw = false; #destroyed = false;
@@ -895,6 +895,14 @@ export class EntityDisplay {
 		const drop = (k: string, pt: { n: number }) => { const id = `__cs-pat-${pt.n}`; if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(id)) map.removeSource(id); this.#pats.delete(k); };
 		// a shape that changes (a turning rectangle: a new picture every frame) keeps its last picture until the next one is painted, and paints one
 		// picture at a time (a paint started every frame would be dropped every frame and never show)
+		const pass = ++this.#patPass;
+		// a picture counts as shown once the globe has mounted its layer (a later pass, the source loaded): only then the pictures it replaces go
+		for (const pt of [...this.#pats.values()]) {
+			if (!pt.added || pt.ready || pass <= pt.added || map.isSourceLoaded?.(`__cs-pat-${pt.n}`) === false) continue;
+			pt.ready = true;
+			for (const [k2, x] of this.#pats) if (x !== pt && x.id === pt.id && x.stale) drop(k2, x);
+			if (pt.stale) this.invalidate();   // the shape moved on while it was painted: paint the shape as it is now
+		}
 		const ids = new Set(pats.map(q => q.id));
 		for (const [k, pt] of this.#pats) {
 			if (want.has(k)) pt.stale = false;
@@ -904,7 +912,12 @@ export class EntityDisplay {
 		for (const [k, q] of want) {
 			if (this.#pats.has(k)) continue;
 			if ([...this.#pats.values()].some(x => x.id === q.id && !x.ready)) continue;   // that shape's previous picture is still being painted
-			const n = ++this.#patGen, pt = { n, id: q.id, z: q.z, ready: false, stale: false }; this.#pats.set(k, pt);
+			// a shape changing every frame is repainted at most 4 times a second: each picture is baked into the globe's tiles, and while the next one
+			// bakes both show (the turning rectangle would otherwise show two logos most of the time)
+			const now = performance.now(), last = this.#patLast.get(q.id) ?? -Infinity;
+			if (now - last < 250 && [...this.#pats.values()].some(x => x.id === q.id)) continue;
+			this.#patLast.set(q.id, now);
+			const n = ++this.#patGen, pt = { n, id: q.id, z: q.z, added: 0, ready: false, stale: false }; this.#pats.set(k, pt);
 			let w = Infinity, s = Infinity, e = -Infinity, nn = -Infinity;
 			for (const p of q.polys) for (const r of p) for (const [x, y] of r) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); nn = Math.max(nn, y); }
 			if (!(e > w && nn > s)) continue;
@@ -918,13 +931,11 @@ export class EntityDisplay {
 				ctx.fill("evenodd");
 				const id = `__cs-pat-${n}`;
 				map.addSource(id, { type: "image", url: cv.toDataURL(), coordinates: [[w, nn], [e, nn], [e, s], [w, s]] });
-				pt.ready = true;
-				for (const [k2, x] of this.#pats) if (x !== pt && x.id === pt.id && x.stale) drop(k2, x);   // the pictures it replaces
-				if (pt.stale) this.invalidate();   // the shape moved on while it was painted: paint the shape as it is now
+				pt.added = this.#patPass;
 				// stack the image layers in zIndex order (each paint lands in its own time: lay them all again)
-				const ready = [...this.#pats.values()].filter(x => x.ready).sort((a, b) => a.z - b.z || a.n - b.n);
-				for (const x of ready) if (map.getLayer?.(`__cs-pat-${x.n}`)) map.removeLayer(`__cs-pat-${x.n}`);
-				for (const x of ready) map.addLayer({ id: `__cs-pat-${x.n}`, type: "raster", source: `__cs-pat-${x.n}`, paint: { "raster-fade-duration": 0 } });
+				const ready = [...this.#pats.values()].filter(x => x.added).sort((a, b) => a.z - b.z || a.n - b.n);
+				// (moved, not removed and added again: a re-added image layer bakes its picture into tiles again, every repaint of a turning rectangle)
+				for (const x of ready) { const lid = `__cs-pat-${x.n}`; if (map.getLayer?.(lid) && map.moveLayer) map.moveLayer(lid); else { if (map.getLayer?.(lid)) map.removeLayer(lid); map.addLayer({ id: lid, type: "raster", source: lid, paint: { "raster-fade-duration": 0 } }); } }
 			});
 		}
 	}
