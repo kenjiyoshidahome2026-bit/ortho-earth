@@ -1,4 +1,4 @@
-# Cesium examples gate (CesiumJS 1.146.0) — 2026-10-31T23:23:56.020Z
+# Cesium examples gate (CesiumJS 1.146.0) — 2026-11-01T00:16:01.379Z
 
 309 examples · not graded (real Cesium does not run it here, it starts in 2D, or it is the Moon / Mars): 11 · ours does not run: 0 · runs: 0 · same answers: 89 · same picture: 209
 
@@ -68,7 +68,7 @@
 | billboardclamptoground-dev (dev) | 3 |  |
 | billboards | 3 |  |
 | billboards-dev (dev) | 3 |  |
-| billboards-instancing-dev (dev) | 2 | picture: colour 85% · edges 92% of the cells match · a patch of 295 cells differs |
+| billboards-instancing-dev (dev) | 2 | picture: colour 90% · edges 94% of the cells match · a patch of 150 cells differs |
 | bing-maps-labels-only | 3 |  |
 | bloom | 2 | picture: colour 74% · edges 98% of the cells match · a patch of 55 cells differs |
 | blue-marble | 3 |  |
@@ -89,7 +89,7 @@
 | circle-dev (dev) | 3 |  |
 | circle-outline-dev (dev) | 3 |  |
 | circles-and-ellipses | 2 | picture: colour 96% · edges 99% of the cells match · a patch of 21 cells differs |
-| clamp-entities-to-ground | 2 | picture: colour 77% · edges 86% of the cells match · a patch of 128 cells differs |
+| clamp-entities-to-ground | 2 | picture: colour 77% · edges 87% of the cells match · a patch of 128 cells differs |
 | clamp-model-to-ground | 3 |  |
 | clamp-to-3d-model | 3 |  |
 | classification | 2 | picture: colour 92% · edges 93% of the cells match · a patch of 37 cells differs |
@@ -188,7 +188,7 @@
 | gpx | 2 | picture: colour 91% · edges 94% of the cells match · a patch of 41 cells differs |
 | ground-polyline-material-dev (dev) | 2 | picture: colour 77% · edges 73% of the cells match · a patch of 23 cells differs |
 | ground-primitive-dev (dev) | 2 | picture: colour 56% · edges 70% of the cells match · a patch of 457 cells differs |
-| ground-primitive-materials-dev (dev) | 2 | picture: colour 77% · edges 85% of the cells match · a patch of 82 cells differs |
+| ground-primitive-materials-dev (dev) | 2 | picture: colour 81% · edges 87% of the cells match · a patch of 61 cells differs |
 | headingpitchroll | 2 | picture: colour 85% · edges 94% of the cells match · a patch of 107 cells differs |
 | hello-world | 3 |  |
 | high-dynamic-range | 2 | picture: colour 68% · edges 67% of the cells match · a patch of 102 cells differs |
@@ -204,7 +204,7 @@
 | imagery-color-to-alpha | 3 |  |
 | imagery-cutout | 3 |  |
 | imagery-layers | 3 |  |
-| imagery-layers-manipulation | 3 |  |
+| imagery-layers-manipulation | 2 | picture: colour 97% · edges 98% of the cells match · a patch of 23 cells differs |
 | imagery-layers-split | 2 | picture: colour 96% · edges 95% of the cells match · a patch of 25 cells differs |
 | imagery-layers-texture-filters | 3 |  |
 | imodel-mesh-export-service | 2 | picture: colour 90% · edges 96% of the cells match · a patch of 23 cells differs |
@@ -273,7 +273,7 @@
 | post-processing | 2 | picture: colour 89% · edges 92% of the cells match · a patch of 51 cells differs |
 | procedural-terrain | 3 |  |
 | projection | 2 | picture: colour 81% · edges 85% of the cells match · a patch of 62 cells differs |
-| rectangle | 2 | picture: colour 96% · edges 96% of the cells match · a patch of 30 cells differs |
+| rectangle | 2 | picture: colour 93% · edges 86% of the cells match · a patch of 94 cells differs |
 | rectangle-dev (dev) | 3 |  |
 | rectangle-outline-dev (dev) | 3 |  |
 | relative-paths | 3 |  |
@@ -296,7 +296,7 @@
 | styled-gltf-points-dev (dev) | 3 |  |
 | terrain | 3 |  |
 | terrain-clipping-planes | 2 | picture: colour 87% · edges 84% of the cells match · a patch of 143 cells differs |
-| terrain-entity-batching-dev (dev) | 2 | picture: colour 84% · edges 93% of the cells match |
+| terrain-entity-batching-dev (dev) | 3 |  |
 | terrain-exaggeration | 2 | picture: colour 79% · edges 89% of the cells match · a patch of 58 cells differs |
 | terrain-performance-dev (dev) | 3 |  |
 | terrain-tweaks-dev (dev) | 3 |  |
@@ -322,37 +322,37 @@
 | web-map-tile-service-with-time | 3 |  |
 | z-indexing-geometry | 3 |  |
 
-## white-rect: ref と ortho を撮り直し（engine 964057b1）
+## white-rect2: ref と ortho を撮り直し（Sandcastle の絵あり）（engine 80ee02eb）
 
-| 例 | 段 v237→white-rect | 色 % | エッジ % |
+| 例 | 段 v237→white-rect2 | 色 % | エッジ % |
 |---|---|---|---|
-| billboardclamptoground-dev | 3→3 | 99.9→99.9 | 99.1→98.7 |
-| billboards-dev | 3→3 | 100.0→100.0 | 99.8→98.8 |
-| billboards-instancing-dev | 2→2 | 75.1→84.9 | 82.6→92.0 |
-| billboards | 3→3 | 100.0→100.0 | 99.8→99.0 |
-| cesium-inspector | 3→3 | 100.0→100.0 | 99.4→98.6 |
-| clamp-entities-to-ground | 2→2 | 76.6→76.7 | 86.7→85.9 |
+| billboardclamptoground-dev | 3→3 | 99.9→99.9 | 99.1→99.7 |
+| billboards-dev | 3→3 | 100.0→100.0 | 99.8→99.9 |
+| billboards-instancing-dev | 2→2 | 75.1→90.3 | 82.6→93.5 |
+| billboards | 3→3 | 100.0→100.0 | 99.8→100.0 |
+| cesium-inspector | 3→3 | 100.0→100.0 | 99.4→99.5 |
+| clamp-entities-to-ground | 2→2 | 76.6→76.5 | 86.7→86.6 |
 | classification-types | 2→2 | 95.5→95.4 | 96.3→93.5 |
-| czml-rectangle | 3→3 | 97.9→99.0 | 99.2→98.3 |
-| display-conditions-dev | 3→3 | 99.9→99.9 | 99.8→98.8 |
-| distance-display-conditions | 3→3 | 99.9→99.9 | 99.7→98.8 |
-| ground-primitive-materials-dev | 2→2 | 82.7→76.8 | 88.4→85.2 |
-| imagery-color-to-alpha | 3→3 | 99.8→99.8 | 99.4→98.4 |
-| imagery-cutout | 3→3 | 99.9→99.9 | 99.5→98.9 |
-| imagery-layers-manipulation | 3→3 | 99.2→99.2 | 98.2→98.3 |
-| imagery-layers | 3→3 | 99.7→99.7 | 96.9→96.7 |
-| labels-dev | 3→3 | 99.2→99.2 | 99.4→98.7 |
-| labels | 2→2 | 98.3→98.3 | 98.2→97.5 |
-| materials | 3→3 | 99.9→99.9 | 100.0→99.4 |
-| picking-dev | 3→3 | 100.0→100.0 | 99.8→99.3 |
-| picking | 3→3 | 100.0→100.0 | 100.0→99.4 |
-| polygon-dev | 3→3 | 100.0→99.8 | 100.0→99.5 |
-| polygon-texture-coordinates-dev | 3→3 | 100.0→100.0 | 100.0→99.6 |
-| polygon | 3→3 | 97.5→95.0 | 98.2→98.0 |
-| rectangle | 2→2 | 95.0→96.1 | 95.6→95.8 |
-| splitdirection | 3→3 | 98.1→98.1 | 98.3→97.9 |
-| star-burst | 3→3 | 100.0→100.0 | 99.8→99.4 |
-| terrain-entity-batching-dev | 2→2 | 80.2→84.2 | 92.8→92.8 |
+| czml-rectangle | 3→3 | 97.9→99.0 | 99.2→99.3 |
+| display-conditions-dev | 3→3 | 99.9→100.0 | 99.8→100.0 |
+| distance-display-conditions | 3→3 | 99.9→99.9 | 99.7→100.0 |
+| ground-primitive-materials-dev | 2→2 | 82.7→80.6 | 88.4→87.1 |
+| imagery-color-to-alpha | 3→3 | 99.8→97.3 | 99.4→98.3 |
+| imagery-cutout | 3→3 | 99.9→99.9 | 99.5→99.8 |
+| imagery-layers-manipulation | 3→2 | 99.2→97.4 | 98.2→97.6 |
+| imagery-layers | 3→3 | 99.7→99.5 | 96.9→97.5 |
+| labels-dev | 3→3 | 99.2→99.2 | 99.4→99.4 |
+| labels | 2→2 | 98.3→98.3 | 98.2→98.2 |
+| materials | 3→3 | 99.9→99.9 | 100.0→100.0 |
+| picking-dev | 3→3 | 100.0→100.0 | 99.8→100.0 |
+| picking | 3→3 | 100.0→100.0 | 100.0→100.0 |
+| polygon-dev | 3→3 | 100.0→99.8 | 100.0→99.9 |
+| polygon-texture-coordinates-dev | 3→3 | 100.0→100.0 | 100.0→99.9 |
+| polygon | 3→3 | 97.5→94.7 | 98.2→97.9 |
+| rectangle | 2→2 | 95.0→92.6 | 95.6→86.1 |
+| splitdirection | 3→3 | 98.1→98.1 | 98.3→98.2 |
+| star-burst | 3→3 | 100.0→100.0 | 99.8→99.9 |
+| terrain-entity-batching-dev | 2→3 | 80.2→98.4 | 92.8→92.0 |
 | terrain | 3→3 | 96.8→96.8 | 92.6→92.2 |
 | viewerless | null→null | -→- | -→- |
-| z-indexing-geometry | 3→3 | 97.1→97.2 | 97.8→97.2 |
+| z-indexing-geometry | 3→3 | 97.1→97.2 | 97.8→98.6 |

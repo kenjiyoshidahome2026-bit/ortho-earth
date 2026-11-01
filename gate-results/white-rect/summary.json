@@ -1,5 +1,5 @@
 {
- "at": "2026-10-31T23:23:56.020Z",
+ "at": "2026-11-01T00:16:01.379Z",
  "cesium": "1.146.0",
  "n": 309,
  "levels": {
@@ -12,8 +12,8 @@
  "levelsNonDev": {
   "0": 0,
   "1": 0,
-  "2": 76,
-  "3": 150,
+  "2": 77,
+  "3": 149,
   "null": 8
  },
  "blockers": [
@@ -87,6 +87,7 @@
     "high-dynamic-range",
     "hybrid-snapping-dev",
     "imagery-assets-available-from-ion",
+    "imagery-layers-manipulation",
     "imagery-layers-split",
     "imodel-mesh-export-service",
     "interpolation",
@@ -106,7 +107,6 @@
     "shadows",
     "shadows-dev",
     "terrain-clipping-planes",
-    "terrain-entity-batching-dev",
     "terrain-exaggeration",
     "time-dynamic-wheels",
     "voxels"
@@ -1687,10 +1687,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 1962,
+    "ok": 1983,
     "n": 1989,
     "colour": 0.9994972347913524,
-    "edge": 0.9869281045751634,
+    "edge": 0.9974861739567622,
     "blob": 0,
     "masked": 1083
    },
@@ -1714,10 +1714,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2041,
+    "ok": 2060,
     "n": 2062,
     "colour": 0.9995150339476236,
-    "edge": 0.9903006789524733,
+    "edge": 0.9995150339476236,
     "blob": 0,
     "masked": 1010
    },
@@ -1741,10 +1741,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2055,
+    "ok": 2077,
     "n": 2080,
     "colour": 0.9995192307692308,
-    "edge": 0.9884615384615385,
+    "edge": 0.9990384615384615,
     "blob": 0,
     "masked": 992
    },
@@ -1755,7 +1755,7 @@
    "name": "billboards-instancing-dev",
    "level": 2,
    "reasons": [
-    "picture: colour 85% · edges 92% of the cells match · a patch of 295 cells differs"
+    "picture: colour 90% · edges 94% of the cells match · a patch of 150 cells differs"
    ],
    "blockers": [
     "picture differs"
@@ -1772,11 +1772,11 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 1696,
+    "ok": 1787,
     "n": 2031,
-    "colour": 0.8488429345150172,
-    "edge": 0.9197439684884293,
-    "blob": 295,
+    "colour": 0.9025110782865583,
+    "edge": 0.9350073855243722,
+    "blob": 150,
     "masked": 1041
    },
    "dev": true,
@@ -2163,10 +2163,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2107,
+    "ok": 2127,
     "n": 2139,
     "colour": 0.9995324918186068,
-    "edge": 0.9855072463768116,
+    "edge": 0.9948574100046751,
     "blob": 0,
     "masked": 933
    },
@@ -2347,7 +2347,7 @@
    "name": "clamp-entities-to-ground",
    "level": 2,
    "reasons": [
-    "picture: colour 77% · edges 86% of the cells match · a patch of 128 cells differs"
+    "picture: colour 77% · edges 87% of the cells match · a patch of 128 cells differs"
    ],
    "blockers": [
     "picture differs"
@@ -2365,10 +2365,10 @@
     "drawn": true
    },
    "picture": {
-    "ok": 1636,
+    "ok": 1649,
     "n": 2326,
-    "colour": 0.7665520206362855,
-    "edge": 0.8589853826311264,
+    "colour": 0.765262252794497,
+    "edge": 0.8658641444539983,
     "blob": 128,
     "masked": 746
    },
@@ -3795,11 +3795,11 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2087,
+    "ok": 2106,
     "n": 2143,
     "colour": 0.9902006532897807,
-    "edge": 0.9832011199253383,
-    "blob": 1,
+    "edge": 0.9925338310779281,
+    "blob": 2,
     "masked": 929
    },
    "dev": false,
@@ -3988,10 +3988,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2072,
+    "ok": 2096,
     "n": 2098,
-    "colour": 0.9990467111534795,
-    "edge": 0.9880838894184938,
+    "colour": 0.9995233555767398,
+    "edge": 0.9995233555767398,
     "blob": 0,
     "masked": 974
    },
@@ -4015,10 +4015,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2070,
+    "ok": 2095,
     "n": 2098,
-    "colour": 0.9985700667302193,
-    "edge": 0.9876072449952336,
+    "colour": 0.9990467111534795,
+    "edge": 0.9995233555767398,
     "blob": 0,
     "masked": 974
    },
@@ -5116,7 +5116,7 @@
    "name": "ground-primitive-materials-dev",
    "level": 2,
    "reasons": [
-    "picture: colour 77% · edges 85% of the cells match · a patch of 82 cells differs"
+    "picture: colour 81% · edges 87% of the cells match · a patch of 61 cells differs"
    ],
    "blockers": [
     "picture differs"
@@ -5133,11 +5133,11 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 1354,
+    "ok": 1427,
     "n": 1963,
-    "colour": 0.7682119205298014,
-    "edge": 0.8517575140091697,
-    "blob": 82,
+    "colour": 0.8059093224656139,
+    "edge": 0.8706062149770759,
+    "blob": 61,
     "masked": 1109
    },
    "dev": true,
@@ -5500,11 +5500,11 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2038,
+    "ok": 1992,
     "n": 2075,
-    "colour": 0.9980722891566265,
-    "edge": 0.9840963855421687,
-    "blob": 0,
+    "colour": 0.9725301204819277,
+    "edge": 0.9826506024096385,
+    "blob": 10,
     "masked": 997
    },
    "dev": false,
@@ -5527,10 +5527,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2027,
+    "ok": 2044,
     "n": 2050,
     "colour": 0.9985365853658537,
-    "edge": 0.9892682926829268,
+    "edge": 0.9975609756097561,
     "blob": 2,
     "masked": 1022
    },
@@ -5554,10 +5554,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2075,
+    "ok": 2088,
     "n": 2152,
-    "colour": 0.9972118959107806,
-    "edge": 0.966542750929368,
+    "colour": 0.9953531598513011,
+    "edge": 0.974907063197026,
     "blob": 0,
     "masked": 920
    },
@@ -5566,9 +5566,13 @@
   },
   {
    "name": "imagery-layers-manipulation",
-   "level": 3,
-   "reasons": [],
-   "blockers": [],
+   "level": 2,
+   "reasons": [
+    "picture: colour 97% · edges 98% of the cells match · a patch of 23 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
    "unsupported": [],
    "checks": {
     "unsupported": true,
@@ -5581,12 +5585,12 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 1532,
-    "n": 1560,
-    "colour": 0.9923076923076923,
-    "edge": 0.9826923076923076,
-    "blob": 8,
-    "masked": 1512
+    "ok": 1439,
+    "n": 1480,
+    "colour": 0.9736486486486486,
+    "edge": 0.9763513513513513,
+    "blob": 23,
+    "masked": 1592
    },
    "dev": false,
    "ion": true
@@ -5915,10 +5919,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2022,
+    "ok": 2036,
     "n": 2080,
     "colour": 0.9831730769230769,
-    "edge": 0.9754807692307692,
+    "edge": 0.9822115384615384,
     "blob": 27,
     "masked": 992
    },
@@ -5942,10 +5946,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2053,
+    "ok": 2067,
     "n": 2089,
     "colour": 0.9923408329344183,
-    "edge": 0.987075155576831,
+    "edge": 0.9937769267592149,
     "blob": 5,
     "masked": 983
    },
@@ -6203,10 +6207,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 1914,
+    "ok": 1926,
     "n": 1927,
     "colour": 0.9994810586403736,
-    "edge": 0.9937727036844837,
+    "edge": 1,
     "blob": 0,
     "masked": 1145
    },
@@ -6787,10 +6791,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 1989,
+    "ok": 2000,
     "n": 2002,
     "colour": 0.9995004995004995,
-    "edge": 0.994005994005994,
+    "edge": 0.9995004995004995,
     "blob": 0,
     "masked": 1070
    },
@@ -6814,10 +6818,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2085,
+    "ok": 2099,
     "n": 2101,
     "colour": 0.9995240361732508,
-    "edge": 0.9928605425987624,
+    "edge": 0.9995240361732508,
     "blob": 0,
     "masked": 971
    },
@@ -6922,10 +6926,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2001,
+    "ok": 1996,
     "n": 2143,
-    "colour": 0.949603359776015,
-    "edge": 0.9799346710219319,
+    "colour": 0.9472701819878675,
+    "edge": 0.9794680354643024,
     "blob": 2,
     "masked": 929
    },
@@ -6949,10 +6953,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2129,
+    "ok": 2137,
     "n": 2143,
     "colour": 0.998133457769482,
-    "edge": 0.9953336444237051,
+    "edge": 0.999066728884741,
     "blob": 0,
     "masked": 929
    },
@@ -7003,10 +7007,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2133,
+    "ok": 2140,
     "n": 2143,
     "colour": 0.9995333644423705,
-    "edge": 0.9958002799813346,
+    "edge": 0.999066728884741,
     "blob": 0,
     "masked": 929
    },
@@ -7404,7 +7408,7 @@
    "name": "rectangle",
    "level": 2,
    "reasons": [
-    "picture: colour 96% · edges 96% of the cells match · a patch of 30 cells differs"
+    "picture: colour 93% · edges 86% of the cells match · a patch of 94 cells differs"
    ],
    "blockers": [
     "picture differs"
@@ -7421,11 +7425,11 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 1996,
+    "ok": 1770,
     "n": 2143,
-    "colour": 0.9608026131591227,
-    "edge": 0.9575361642557163,
-    "blob": 30,
+    "colour": 0.9258049463369109,
+    "edge": 0.8609426038264115,
+    "blob": 94,
     "masked": 929
    },
    "dev": false,
@@ -7878,10 +7882,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2045,
+    "ok": 2052,
     "n": 2116,
     "colour": 0.9806238185255198,
-    "edge": 0.9787334593572778,
+    "edge": 0.9820415879017014,
     "blob": 13,
     "masked": 956
    },
@@ -7905,10 +7909,10 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2125,
+    "ok": 2135,
     "n": 2139,
     "colour": 0.9995324918186068,
-    "edge": 0.9939223936418887,
+    "edge": 0.9985974754558204,
     "blob": 0,
     "masked": 933
    },
@@ -8029,13 +8033,9 @@
   },
   {
    "name": "terrain-entity-batching-dev",
-   "level": 2,
-   "reasons": [
-    "picture: colour 84% · edges 93% of the cells match"
-   ],
-   "blockers": [
-    "picture differs"
-   ],
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
    "unsupported": [],
    "checks": {
     "unsupported": true,
@@ -8048,11 +8048,11 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 1653,
+    "ok": 1947,
     "n": 2143,
-    "colour": 0.8418105459636024,
-    "edge": 0.9281381241250584,
-    "blob": 8,
+    "colour": 0.9841343910405973,
+    "edge": 0.9197386840877275,
+    "blob": 5,
     "masked": 929
    },
    "dev": true,
@@ -8674,11 +8674,11 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 2036,
+    "ok": 2054,
     "n": 2143,
     "colour": 0.9720018665422305,
-    "edge": 0.97246850209986,
-    "blob": 11,
+    "edge": 0.9860009332711153,
+    "blob": 9,
     "masked": 929
    },
    "dev": false,
@@ -8686,7 +8686,7 @@
   }
  ],
  "round": {
-  "engine": "964057b1",
+  "engine": "80ee02eb",
   "rows": [
    {
     "name": "billboardclamptoground-dev",
@@ -8700,7 +8700,7 @@
     ],
     "edge": [
      "99.1",
-     "98.7"
+     "99.7"
     ],
     "blob": [
      0,
@@ -8719,7 +8719,7 @@
     ],
     "edge": [
      "99.8",
-     "98.8"
+     "99.9"
     ],
     "blob": [
      0,
@@ -8734,15 +8734,15 @@
     ],
     "colour": [
      "75.1",
-     "84.9"
+     "90.3"
     ],
     "edge": [
      "82.6",
-     "92.0"
+     "93.5"
     ],
     "blob": [
      485,
-     295
+     150
     ]
    },
    {
@@ -8757,7 +8757,7 @@
     ],
     "edge": [
      "99.8",
-     "99.0"
+     "100.0"
     ],
     "blob": [
      0,
@@ -8776,7 +8776,7 @@
     ],
     "edge": [
      "99.4",
-     "98.6"
+     "99.5"
     ],
     "blob": [
      0,
@@ -8791,11 +8791,11 @@
     ],
     "colour": [
      "76.6",
-     "76.7"
+     "76.5"
     ],
     "edge": [
      "86.7",
-     "85.9"
+     "86.6"
     ],
     "blob": [
      128,
@@ -8833,11 +8833,11 @@
     ],
     "edge": [
      "99.2",
-     "98.3"
+     "99.3"
     ],
     "blob": [
      1,
-     1
+     2
     ]
    },
    {
@@ -8848,11 +8848,11 @@
     ],
     "colour": [
      "99.9",
-     "99.9"
+     "100.0"
     ],
     "edge": [
      "99.8",
-     "98.8"
+     "100.0"
     ],
     "blob": [
      0,
@@ -8871,7 +8871,7 @@
     ],
     "edge": [
      "99.7",
-     "98.8"
+     "100.0"
     ],
     "blob": [
      0,
@@ -8886,15 +8886,15 @@
     ],
     "colour": [
      "82.7",
-     "76.8"
+     "80.6"
     ],
     "edge": [
      "88.4",
-     "85.2"
+     "87.1"
     ],
     "blob": [
      51,
-     82
+     61
     ]
    },
    {
@@ -8905,15 +8905,15 @@
     ],
     "colour": [
      "99.8",
-     "99.8"
+     "97.3"
     ],
     "edge": [
      "99.4",
-     "98.4"
+     "98.3"
     ],
     "blob": [
      0,
-     0
+     10
     ]
    },
    {
@@ -8928,7 +8928,7 @@
     ],
     "edge": [
      "99.5",
-     "98.9"
+     "99.8"
     ],
     "blob": [
      2,
@@ -8939,19 +8939,19 @@
     "name": "imagery-layers-manipulation",
     "level": [
      3,
-     3
+     2
     ],
     "colour": [
      "99.2",
-     "99.2"
+     "97.4"
     ],
     "edge": [
      "98.2",
-     "98.3"
+     "97.6"
     ],
     "blob": [
      8,
-     8
+     23
     ]
    },
    {
@@ -8962,11 +8962,11 @@
     ],
     "colour": [
      "99.7",
-     "99.7"
+     "99.5"
     ],
     "edge": [
      "96.9",
-     "96.7"
+     "97.5"
     ],
     "blob": [
      0,
@@ -8985,7 +8985,7 @@
     ],
     "edge": [
      "99.4",
-     "98.7"
+     "99.4"
     ],
     "blob": [
      5,
@@ -9004,7 +9004,7 @@
     ],
     "edge": [
      "98.2",
-     "97.5"
+     "98.2"
     ],
     "blob": [
      27,
@@ -9023,7 +9023,7 @@
     ],
     "edge": [
      "100.0",
-     "99.4"
+     "100.0"
     ],
     "blob": [
      0,
@@ -9042,7 +9042,7 @@
     ],
     "edge": [
      "99.8",
-     "99.3"
+     "100.0"
     ],
     "blob": [
      0,
@@ -9061,7 +9061,7 @@
     ],
     "edge": [
      "100.0",
-     "99.4"
+     "100.0"
     ],
     "blob": [
      0,
@@ -9080,7 +9080,7 @@
     ],
     "edge": [
      "100.0",
-     "99.5"
+     "99.9"
     ],
     "blob": [
      0,
@@ -9099,7 +9099,7 @@
     ],
     "edge": [
      "100.0",
-     "99.6"
+     "99.9"
     ],
     "blob": [
      0,
@@ -9114,11 +9114,11 @@
     ],
     "colour": [
      "97.5",
-     "95.0"
+     "94.7"
     ],
     "edge": [
      "98.2",
-     "98.0"
+     "97.9"
     ],
     "blob": [
      0,
@@ -9133,15 +9133,15 @@
     ],
     "colour": [
      "95.0",
-     "96.1"
+     "92.6"
     ],
     "edge": [
      "95.6",
-     "95.8"
+     "86.1"
     ],
     "blob": [
      31,
-     30
+     94
     ]
    },
    {
@@ -9156,7 +9156,7 @@
     ],
     "edge": [
      "98.3",
-     "97.9"
+     "98.2"
     ],
     "blob": [
      13,
@@ -9175,7 +9175,7 @@
     ],
     "edge": [
      "99.8",
-     "99.4"
+     "99.9"
     ],
     "blob": [
      0,
@@ -9186,19 +9186,19 @@
     "name": "terrain-entity-batching-dev",
     "level": [
      2,
-     2
+     3
     ],
     "colour": [
      "80.2",
-     "84.2"
+     "98.4"
     ],
     "edge": [
      "92.8",
-     "92.8"
+     "92.0"
     ],
     "blob": [
      303,
-     8
+     5
     ]
    },
    {
@@ -9251,11 +9251,11 @@
     ],
     "edge": [
      "97.8",
-     "97.2"
+     "98.6"
     ],
     "blob": [
      11,
-     11
+     9
     ]
    }
   ]
