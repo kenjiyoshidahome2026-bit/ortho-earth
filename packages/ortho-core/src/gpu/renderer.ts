@@ -52,7 +52,8 @@ import type { DrapeIn, DrapeMap } from "../drape.ts";   // 地面アトラスの
 import { createDepthOutGPU } from "./depthout.ts";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createClassifyGPU } from "./classify.ts";   // 面の貼り付け（分類・2026-10-25）＝gl/classify.ts と同じ手順の WebGPU 版
 import { createAoGPU } from "./ao.ts";
-import { createSsrGPU } from "./ssr.ts";   // SSR（画面空間の映り込み・2026-11-01）＝set("ssr") の間だけ AO の後に 3 パス
+import { createSsrGPU } from "./ssr.ts";
+import { createSceneFxGPU } from "./scenefx.ts";   // 場面の効果（2026-11-01）＝接触影・高さ霧・光芒・雨・イラスト風（setPostChain）＝AO の後（pre）と SSR の後（post）   // SSR（画面空間の映り込み・2026-11-01）＝set("ssr") の間だけ AO の後に 3 パス
 import { createPostGPU } from "./postfx.ts";
 import type { StageFrameGPU } from "./poststage.ts";   // 後処理 bloom・vignette（PR-8）＝flush の終端で canvas を控えに写して合成   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
 import { FAR_PIVOT } from "../gint/utility.ts";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
@@ -69,6 +70,7 @@ import type { DepthOutFrame, DepthOutGPU } from "./depthout.ts";
 import type { DepthGlobe } from "../depthout.ts";
 import type { AoGPU } from "./ao.ts";
 import type { SsrGPU, SsrOptions } from "./ssr.ts";
+import type { SceneFxGPU, SceneFxOptions, SceneFxFrame } from "./scenefx.ts";
 import type { PostFrameOptions, PostGPU } from "./postfx.ts";
 import type { GintFrame, GintDepthCtx, GintClipInfo } from "./gint.ts";
 
@@ -3476,12 +3478,19 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, focal: st.focal, logCoef,
 				strength: (view.aoStrength ?? 0.6) * aoIn * aoIn * (3 - 2 * aoIn), radiusK: view.aoRadius ?? 0.10, biasSin: view.aoBias ?? 0.15, phase: view.aoPhase ?? 0 });   // 調律ノブ（公開面には出さない）。半径＝視距離の 10%（20〜400m）・強さ 0.6（#63 本人裁定 2026-09-29＝0.5 は斑を抑える暫定で、斑は PR #61 で根治済み）・接平面の sin の下駄 0.15（地平線型・2026-09-26）。aoPhase＝模様の位相（t-ao の安定の検定）
 		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
+		// 場面の効果（2026-11-01）＝setPostChain の contactShadow/heightFog/godRays/rain/toon の間だけ・真俯瞰では掛けない。接触影の強さだけ AO と同じ入口のフェード
+		const fxNow = performance.now() / 1000, pole = lonlatTo3D(0, 90);
+		const fxFrameIn: SceneFxFrame | null = sceneOpt && !flat2d ? { depthTex: t.depth, samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, logCoef,
+			sun: [sunF[0], sunF[1], sunF[2]], dpr: cam.dpr || 1, pole, time: fxNow, opt: sceneOpt, fade: aoIn * aoIn * (3 - 2 * aoIn) } : null;
+		if (fxFrameIn) { sceneFx ??= createSceneFxGPU(device, format); sceneFx.pre(enc, fxFrameIn); }   // 接触影・雨の濡れ（SSR の前＝映る色も陰と濡れの付いた色）
+		else if (sceneFx && !sceneOpt) { sceneFx.dispose(); sceneFx = null; }
 		// SSR（画面空間の映り込み・2026-11-01）＝setPostChain の ssr の間だけ・傾けた 3D の時だけ（入口のフェードは AO と同じ）。AO の後＝陰の付いた色を映す・gint の線と注記の前
 		if (ssrOpt && !flat2d && aoIn > 0) {
 			ssr ??= createSsrGPU(device, format, bgl0, bgl1);
 			ssr.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, logCoef,
-				bg0: bg0.main, bg1: paramBG[ROLE.contour], opt: ssrOpt, fade: aoIn * aoIn * (3 - 2 * aoIn) });
+				bg0: bg0.main, bg1: paramBG[ROLE.contour], opt: ssrOpt, fade: aoIn * aoIn * (3 - 2 * aoIn), time: fxNow, pole });
 		} else if (ssr && !ssrOpt) { ssr.dispose(); ssr = null; }
+		if (fxFrameIn && sceneFx) sceneFx.post(enc, fxFrameIn);   // 高さ霧・雨の筋・光芒・イラスト風（映り込みの後＝霧は映り込みにも掛かる）
 		lastStage = { depthTex: t.depth, samples: S, logCoef, dpr: cam.dpr || 1, frame: ++stageFrame, fovy: cam.fovy || 50 * Math.PI / 180 };   // 画面の段（Cesium の postProcessStages）が flush の後処理で使う尺
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
@@ -3496,7 +3505,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			noSub: view.gintSub === false,   // 地形適応細分の逃げ道（view.gintSub=false＝?nosub=1）
 			facesInAtlas: gnd.fillsIn,       // gint の面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 		} : null;
-		return fogAnimating || fading || csPending > 0;   // fading＝クロスフェード進行中も連続フレーム・csPending＝CustomShader のパイプラインを組み中（出来たら描き直す）
+		return fogAnimating || fading || csPending > 0 || !!(sceneOpt && sceneOpt.rain && !flat2d);   // 雨＝筋と波紋が動く間は連続フレーム   // fading＝クロスフェード進行中も連続フレーム・csPending＝CustomShader のパイプラインを組み中（出来たら描き直す）
 	}
 	// フレーム確定：MSAA を canvas へ resolve して submit（gint パスが足された後＝地図と同フレーム同カメラの1枚）。
 	// 1x（遷移フレーム／?msaa=0）は直描き済み＝resolve パス自体が不要（TQ 回収と submit だけ行う）。
@@ -3556,7 +3565,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	let lastStage: StageFrameGPU | null = null, stageFrame = 0;   // 画面の段の尺（gpu/poststage.js）
 	let dOut: DepthOutGPU | null = null, lastDepth: (DepthOutFrame & { logCoef: number }) | null = null, dOutFailed = false;
 	let ao: AoGPU | null = null;   // AO（#46 段 3）＝fx.ao の間だけ
-	let ssr: SsrGPU | null = null, ssrOpt: SsrOptions | null = null;   // SSR（2026-11-01）＝set("ssr") の間だけ
+	let ssr: SsrGPU | null = null, ssrOpt: SsrOptions | null = null;
+	let sceneFx: SceneFxGPU | null = null, sceneOpt: SceneFxOptions | null = null;   // 場面の効果（2026-11-01）＝set("sceneFx") の間だけ   // SSR（2026-11-01）＝set("ssr") の間だけ
 	let groundLight: { dir: number[]; color: number[]; lambert: number[]; normal: string; fade: number[] | null; night: number[] | null } | null = null;   // 地面の照明（setGroundLighting・Cesium の globe.enableLighting）＝Frame.cg*／Globe.cg*
 	// Cesium の CustomShader＝id → 登録。束は set("meshCustom", id, key) で指す（gl/renderer.ts と同じ口）
 	const customs = new Map<string, CsEntryG>();
@@ -3737,7 +3747,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "clip":    clip = normClip(data as Parameters<typeof normClip>[0]); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
 			case "post":    post = (data as PostFrameOptions | null) || null; break;
 			case "cityLights": cityLights = Math.max(0, Math.min(1, +(data as number) || 0)); break;   // 夜の街明かり（2026-10-24）＝素の建物メッシュの壁に窓（強さ 0..1 × 夜の度合い・MESH_WGSL cityWin）   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1・normPost 済みの形）＝flush の終端で掛ける
-			case "ssr":     ssrOpt = data ? { ...(data as SsrOptions) } : null; break;   // SSR（setPostChain の ssr・正規化済み）＝null で外す（資源は次のフレームで返す）
+			case "ssr":     ssrOpt = data ? { ...(data as SsrOptions) } : null; break;
+			case "sceneFx": { const o = data as SceneFxOptions | null; sceneOpt = o && (o.contact || o.fog || o.rays || o.rain || o.toon) ? { contact: o.contact ?? null, fog: o.fog ?? null, rays: o.rays ?? null, rain: o.rain ?? null, toon: o.toon ?? null } : null; break; }   // 場面の効果（setPostChain の contactShadow/heightFog/godRays/rain/toon・正規化済み）   // SSR（setPostChain の ssr・正規化済み）＝null で外す（資源は次のフレームで返す）
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "text": textMid = (data as typeof textMid) || null; break;   // 注記の字の GPU（T-P2）＝null で外す
 			case "bldFill": bldFill = { ...bldFill, ...(data as Partial<typeof bldFill>) }; break;
@@ -3857,6 +3868,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (dOut) { dOut.dispose(); dOut = null; }
 		if (ao) { ao.dispose(); ao = null; }
 		if (ssr) { ssr.dispose(); ssr = null; }
+		if (sceneFx) { sceneFx.dispose(); sceneFx = null; }
 		if (postFx) { postFx.dispose(); postFx = null; }
 		for (const t of tgtBySc.values()) { t.tex?.destroy(); t.depth.destroy(); }
 		tgtBySc.clear();
@@ -3876,7 +3888,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		quad4: QUAD4,   // 線・点＝index の 4 頂点（perf plan P3）。gint（createGintLayerGPU）の既定がこれに揃う
 		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
-		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0, ssr: ssr ? ssr.bytes() : 0, pool: memPool }),   // pool＝タイル GPU 常駐プール 4 本（vt perf plan §4）
+		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0, ssr: ssr ? ssr.bytes() : 0, sceneFx: sceneFx ? sceneFx.bytes() : 0, pool: memPool }),   // pool＝タイル GPU 常駐プール 4 本（vt perf plan §4）
 		depthOut,   // シーンの深度をオーバーレイへ（#47）
 		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
 		textSplit,   // 層の位置に描く注記の境（T-P2）＝この層の添字より前の注記は地図のパスの中へ
