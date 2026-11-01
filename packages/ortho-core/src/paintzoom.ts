@@ -55,3 +55,16 @@ export function evalPaintZoom(pz: PaintZoom, zoom: number): { c: number[] | null
 	if (pz.of != null) { off = +(evalExpr(pz.of, ctx) as number); if (!isFinite(off)) off = 0; }
 	return { c, hw, off };
 }
+
+/** 描き手の memo の値（z で評価した差し替え）：c＝色・hw＝半幅・hwF＝破線の周期を作るタイルの z（floor(z−dz)+dz）での半幅・off＝ずらし px */
+export interface PzV { z: number; c: number[] | null; hw: number | null; hwF: number; off: number | null }
+/** 層の差し替えを今の z で（memo＝層の式 → 前回の値・同じ z なら評価しない）。両 renderer 共通（GL2 の setPz・WebGPU の pzEval） */
+export function evalPaintZoomMemo(memo: { get(k: PaintZoom): PzV | undefined; set(k: PaintZoom, v: PzV): unknown }, pz: PaintZoom, z: number, dashDz: number): PzV {
+	let m = memo.get(pz);
+	if (!m || m.z !== z) {
+		const v = evalPaintZoom(pz, z), dz = dashDz;
+		m = { z, c: v.c, hw: v.hw, hwF: v.hw == null ? 0 : evalPaintZoom({ o: pz.o, w: pz.w }, Math.floor(z - dz) + dz).hw!, off: v.off };
+		memo.set(pz, m);
+	}
+	return m;
+}

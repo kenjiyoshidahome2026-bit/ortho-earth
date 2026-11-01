@@ -102,3 +102,10 @@ export function shadowChunkRuns(chunks: TerrainChunk[], mesh: ArrayLike<number>,
 	if (stats) { stats.drawn = drawn; stats.of = chunks.length; }
 	return runs;
 }
+
+/** 単位格子 G×G の uv（i/(G−1), j/(G−1)）＝地形メッシュの頂点（両 renderer 共通・index は buildChunkIndex） */
+export function terrainGridUV(G: number): Float32Array {
+	const uv = new Float32Array(G * G * 2);
+	for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; uv[k] = i / (G - 1); uv[k + 1] = j / (G - 1); }
+	return uv;
+}
