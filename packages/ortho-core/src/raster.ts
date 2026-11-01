@@ -125,6 +125,10 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	const meshes = new Map<string, { h: RasterHandle; seen: number }>();          // "z/y/n" → { h, seen }（層をまたいで共有）
 	const MESH_CAP = 256;
 	const BUDGET = budgetMB ? Math.round(budgetMB * 1048576) : (lowMem ? 24 : 64) << 20;   // GPU テクスチャの常駐予算（mips 込み）。LOW_MEM＝iOS jetsam 対策の側。budgetMB＝検定用の明示
+	// Cesium's z (a layer with sse, the Cesium facade's imagery): twice the budget (not on LOW_MEM or an explicit budgetMB). Cesium's finer
+	// near-eye selection (selectLOD nearEye) filled the 64 MB share and the far half went a step coarser or merged into parents (v243 gpx's far
+	// slopes, aerometrex's navy horizon); Cesium keeps far more imagery on the GPU than that
+	const budgetNow = (): number => { if (!budgetMB && !lowMem) for (const L of layers.values()) if (L.sse > 0) return BUDGET * 2; return BUDGET; };
 	const CONC = lowMem ? 4 : 8;       // 同時取得数（v1 は hardwareConcurrency 本の sub-worker・ここは fetch の並列）
 	const CONC_MOVING = lowMem ? 1 : 2;   // 遷移中（飛行/入力）は絞る＝「トランジション通過点で重い層を発火させない」の一般則（着地で本来の並列へ戻る）
 	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false, rev = 0, lastSig = "", sigDirty = true, texSeq = 0;
@@ -214,7 +218,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		const src = L.source!;
 		// 可視集合そのものが予算を超えるなら一段粗く（tilePx を上げる＝分割を早く止める）：退避は「今描いている物」を触れない
 		// ので、可視集合を予算内に収めるのは選抜の責任（LOW_MEM 24MB＝写真 256²+mips≈350KB×68 枚）。層が複数なら分け合う。
-		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
+		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = budgetNow() * 0.7 / Math.max(1, layers.size);
 		let tilePx = L.sse > 0 ? cesiumTilePx(L.sse, cam.center[1], src.tileSize) : src.tileSize * 1.1 * (L.tileBias || 1), sel: (TileXYZ & { _d?: number })[] = [];   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
 		// Cesium's z (sse): a coarser step is left only with 15 % to spare = a moving camera (czml-path, 10x) near the share's edge flipped between
 		// two steps every frame, aborting both sets of fetches = the ground stayed the base colour (navy) where the fine tiles had not come (v243)
@@ -297,7 +301,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		// 枠＝予算の残り（選抜が先・祖先は余りで取る）。足りなければ遠い祖先から＝近くの細かいタイルは距離順ですぐ届く・粗い埋めが効くのは地平線側
 		// Cesium's z (sse): at least a quarter of the share for the coarse ancestors (in the 30 % the share leaves of the budget) = Cesium's finer
 		// selection filled the share and no ancestor was fetched = navy where the fine tiles had not come yet (v243 fog, czml-path)
-		const shareN = Math.floor(BUDGET * 0.7 / Math.max(1, layers.size) / (src.tileSize * src.tileSize * 4 * 4 / 3)), room = Math.max(shareN - sel.length, L.sse > 0 ? Math.floor(shareN / 4) : 0);
+		const shareN = Math.floor(budgetNow() * 0.7 / Math.max(1, layers.size) / (src.tileSize * src.tileSize * 4 * 4 / 3)), room = Math.max(shareN - sel.length, L.sse > 0 ? Math.floor(shareN / 4) : 0);
 		// Cesium's z (sse): more ancestors than room = go further up (to MAX_UP, still drawn as a partial uv) rather than leave the near ones out =
 		// a camera that keeps moving (czml-path) never gets its near fine tiles either, and the ground under it stayed the base colour
 		let coarse = new Map<string, { z: number; x: number; y: number; dist: number }>();
@@ -351,7 +355,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	}
 
 	function evict(): void {
-		if (texBytes <= BUDGET) return;
+		const budget = budgetNow();
+		if (texBytes <= budget) return;
 		// ⚠描画リストが参照中のテクスチャは絶対に退避しない：WebGPU は「破棄済みテクスチャを submit で使用」＝検証エラーで
 		// フレームが丸ごと落ちる（＝黒画面。iPhone 実機で 2026-09-21 に被弾：静止中は seen が進まないのに時計だけ進み、
 		// 予算超過の瞬間に可視タイルまで destroy していた）。可視集合が予算を超える分は selectFor の粗化が受け持つ。
@@ -360,7 +365,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		const cands: [Layer, string, Entry][] = [];
 		for (const L of layers.values()) for (const [k, e] of L.cache) if (e.status === "ready" && e.tex && !inUse.has(e.tex)) cands.push([L, k, e]);
 		cands.sort((a, b) => a[2].seen - b[2].seen);
-		for (const [L, k, e] of cands) { if (texBytes <= BUDGET) break; freeEntry(e); L.cache.delete(k); }
+		for (const [L, k, e] of cands) { if (texBytes <= budget) break; freeEntry(e); L.cache.delete(k); }
 	}
 
 	// 毎フレーム（render worker の frame から。カメラ不変・在庫不変なら選抜は走らない）
@@ -489,7 +494,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		return true;
 	}
 	function stats(): RasterStats {
-		const out: RasterStats = { layers: [], texBytes, meshBytes, draws: drawCount, meshes: meshes.size, inflight, budget: BUDGET, fading };
+		const out: RasterStats = { layers: [], texBytes, meshBytes, draws: drawCount, meshes: meshes.size, inflight, budget: budgetNow(), fading };
 		for (const L of layers.values()) {
 			let ready = 0, loading = 0, empty = 0, error = 0;
 			for (const e of L.cache.values()) { if (e.status === "ready") ready++; else if (e.status === "loading" || e.status === "queued") loading++; else if (e.status === "empty") empty++; else error++; }
