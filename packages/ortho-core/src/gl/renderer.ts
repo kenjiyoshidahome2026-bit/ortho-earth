@@ -19,9 +19,8 @@ import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セ�
 import { downsampleFlipped, cropResample } from "../elevation.ts";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
 import { worldAtlasCell } from "../elevation/worldatlas.ts";
 import { evalPaintZoom } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
-import { ptCovers, ptRowColor, ptRowHalf, PT_ID } from "../painttable.ts";   // paint 表の (b) 類＝setPaintProperty の地物を読む値で行を評価し直す
+import { createPtStore } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は WebGPU と共有の純関数
 import type { PtLayer } from "../painttable.ts";
-type PtRow = [number, string, string[], unknown[], number, number?];   // 表の行（worker-msg.ts の up.rows）
 import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）・破線の区間（S-P1-3）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
@@ -1119,73 +1118,24 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// 値＝tile worker が焼いた色（段 1＝絵は bit 同値）。setPaintProperty の (b) 類（段 2・painttable.ts の paintTableFast）は層 id → 後の式（ptOver）＝行の組を属性に戻して評価し直す
 	// （後の式が読む属性を行の鍵が持つ行だけ・持たない行と上書きの無い層は焼いた色）。書き換えは描く前に一度（汚れた行の範囲）・高さが足りなければ作り直して全部
 	const PT_UNIT = 17, PT_TEXW = 1024;
-	const pt = { tex: null as WebGLTexture | null, h: 0, data: new Float32Array(0), lo: Infinity, hi: -1, n: 0, rows: [] as PtRow[] };
-	let ptOver = new Map<string, PtLayer>();
-	// feature-state（段 3）：基図の feature-state を読む層（層 id → source-layer と式＝main が style ごとに）・置かれた状態（source-layer → 地物の id（文字列）→ 状態）・
-	// 地物の id → その地物の行（鍵に PT_ID を持つ行）。状態の置かれた地物の行だけ状態つきで評価する（置かれていない行は焼いた既定の状態の色）
-	let ptFsL = new Map<string, { sl: string; L: PtLayer }>();
-	const ptFsS = new Map<string, Map<string, Record<string, unknown>>>(), ptById = new Map<string, Set<number>>(), ptRowId: (string | undefined)[] = [];
+	const ptStore = createPtStore(PT_TEXW / 2), pt = { tex: null as WebGLTexture | null, h: 0 };   // 表の中身（行の評価・後の式・feature-state）は painttable-store.ts＝WebGPU と共有。ここは RGBA32F への写しだけ
 	const ptProg = (prog: WebGLProgram): WebGLProgram => { gl.useProgram(prog); gl.uniform1i(loc(gl, prog, "u_ptTex"), PT_UNIT); return prog; };   // 既定の 0 番は他の型の標本器と当たる
 	if (md) { ptProg(md.fillProg); ptProg(md.lineProg); ltProg(md.lineProg); gl.useProgram(null); }
-	function ptPut(row: PtRow): void {
-		const [r, id, keys, t, c, hw] = row, o = r * 8, F = ptFsL.get(id), st = F && ptRowId[r] !== undefined ? ptFsS.get(F.sl)?.get(ptRowId[r]!) : undefined;
-		const Lo = ptOver.get(id), L = Lo && ptCovers(Lo, keys) ? Lo : st && ptCovers(F!.L, keys) ? F!.L : null;
-		if (L) { ptRowColor(L, keys, t, pt.data, o, st); if (L.w != null) pt.data[o + 4] = ptRowHalf(L, keys, t, st); else if (hw !== undefined) pt.data[o + 4] = hw; }
-		else { pt.data[o] = (c & 255) / 255; pt.data[o + 1] = (c >>> 8 & 255) / 255; pt.data[o + 2] = (c >>> 16 & 255) / 255; pt.data[o + 3] = (c >>> 24) / 255; if (hw !== undefined) pt.data[o + 4] = hw; }
-		if (r < pt.lo) pt.lo = r;
-		if (r > pt.hi) pt.hi = r;
-	}
-	function ptRows(rows: PtRow[]): void {
-		for (const row of rows) {
-			const r = row[0], need = (((r * 2 + 1) / PT_TEXW) | 0) + 1;
-			if (need * PT_TEXW * 4 > pt.data.length) { const d = new Float32Array(Math.max(need, pt.data.length / (PT_TEXW * 4) * 2) * PT_TEXW * 4); d.set(pt.data); pt.data = d; }
-			pt.rows[r] = row; if (r >= pt.n) pt.n = r + 1;
-			const old = ptRowId[r], ki = row[2].indexOf(PT_ID), v = ki < 0 ? null : row[3][ki], nid = v == null ? undefined : String(v);   // 使い回された行＝前の地物の索引から外す
-			if (old !== undefined) ptById.get(old)?.delete(r);
-			ptRowId[r] = nid;
-			if (nid !== undefined) { let S = ptById.get(nid); if (!S) ptById.set(nid, S = new Set()); S.add(r); }
-			ptPut(row);
-		}
-	}
-	function setPtOver(list: [string, PtLayer][] | null): void {   // 全部を置き換える＝上書きが外れた層の行は焼いた色へ戻す
-		const prev = ptOver;
-		ptOver = new Map(list ?? []);
-		for (let r = 0; r < pt.n; r++) { const row = pt.rows[r]; if (row && (prev.has(row[1]) || ptOver.has(row[1]))) ptPut(row); }
-	}
-	function setPtFsLayers(list: [string, string, PtLayer][] | null): void {   // style ごとに全部を置き換える
-		const prev = ptFsL;
-		ptFsL = new Map((list ?? []).map(([id, sl, L]) => [id, { sl, L }]));
-		for (let r = 0; r < pt.n; r++) { const row = pt.rows[r]; if (row && ptRowId[r] !== undefined && (prev.has(row[1]) || ptFsL.has(row[1]))) ptPut(row); }
-	}
-	function setPtFs(list: [string | null, string | null, Record<string, unknown> | null][]): void {   // [source-layer, 地物の id, 状態（null＝外す）]・id が null＝その source-layer（null＝全部）の状態を外す
-		const touch = new Set<number>();
-		for (const [sl, fid, st] of list) {
-			if (fid == null) {
-				for (const k of sl == null ? [...ptFsS.keys()] : [sl]) { const M = ptFsS.get(k); if (!M) continue; for (const i of M.keys()) for (const r of ptById.get(i) ?? []) touch.add(r); ptFsS.delete(k); }
-				continue;
-			}
-			let M = ptFsS.get(sl!); if (!M) ptFsS.set(sl!, M = new Map());
-			if (st && Object.keys(st).length) M.set(fid, st); else M.delete(fid);
-			for (const r of ptById.get(fid) ?? []) touch.add(r);
-		}
-		for (const r of touch) { const row = pt.rows[r]; if (row && ptFsL.has(row[1])) ptPut(row); }
-	}
 	function ptFlush(): void {
-		if (pt.hi < 0) return;
-		const y0 = ((pt.lo * 2) / PT_TEXW) | 0, y1 = ((pt.hi * 2 + 1) / PT_TEXW) | 0, H = pt.data.length / (PT_TEXW * 4);
+		const dirty = ptStore.takeDirty(); if (!dirty) return;
+		const data = ptStore.data, y0 = ((dirty[0] * 2) / PT_TEXW) | 0, y1 = ((dirty[1] * 2 + 1) / PT_TEXW) | 0, H = data.length / (PT_TEXW * 4);
 		gl.activeTexture(gl.TEXTURE0 + PT_UNIT);
 		if (!pt.tex || H > pt.h) {
 			if (pt.tex) gl.deleteTexture(pt.tex);
 			pt.tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, pt.tex);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, PT_TEXW, H, 0, gl.RGBA, gl.FLOAT, pt.data);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, PT_TEXW, H, 0, gl.RGBA, gl.FLOAT, data);
 			pt.h = H;
 		} else {
 			gl.bindTexture(gl.TEXTURE_2D, pt.tex);
-			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, PT_TEXW, y1 - y0 + 1, gl.RGBA, gl.FLOAT, pt.data.subarray(y0 * PT_TEXW * 4, (y1 + 1) * PT_TEXW * 4));
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, PT_TEXW, y1 - y0 + 1, gl.RGBA, gl.FLOAT, data.subarray(y0 * PT_TEXW * 4, (y1 + 1) * PT_TEXW * 4));
 		}
 		gl.activeTexture(gl.TEXTURE0);
-		pt.lo = Infinity; pt.hi = -1;
 	}
 	const ptBind = (): void => { ptFlush(); gl.activeTexture(gl.TEXTURE0 + PT_UNIT); gl.bindTexture(gl.TEXTURE_2D, pt.tex); gl.activeTexture(gl.TEXTURE0); };
 	function mdRebuildFillVAO(): void {
@@ -1260,7 +1210,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// タイル1枚分のブロック転送。頂点系は COPY_WRITE 経由（VAO 状態を汚さない）。
 	// index プールは element 型ロック済み＝ELEMENT_ARRAY_BUFFER で書く（default VAO(null) に退避してから）。
 	function mdUpload(p: MDUpload): void {
-		if (p.rows) ptRows(p.rows);   // paint 表の (b) 類の行（塊より先）
+		if (p.rows) ptStore.rows(p.rows);   // paint 表の (b) 類の行（塊より先）
 		if (p.fill) { gl.bindBuffer(gl.COPY_WRITE_BUFFER, md!.fillV.buf); gl.bufferSubData(gl.COPY_WRITE_BUFFER, p.fill.base * 12, new Uint8Array(p.fill.buf)); }
 		if (p.bld) { gl.bindBuffer(gl.COPY_WRITE_BUFFER, md!.bldV.buf); gl.bufferSubData(gl.COPY_WRITE_BUFFER, p.bld.base * 24, p.bld.arr); }
 		gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
@@ -2700,9 +2650,9 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			case "sky":       sky = data && Array.isArray((data as GLSky).sky) ? data as GLSky : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
 			case "sea":       sea = { ...sea, ...(data as Partial<typeof sea>) }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "bldFill":   bldFill = { ...bldFill, ...(data as Partial<typeof bldFill>) }; break;
-			case "ptOver":    setPtOver(data as [string, PtLayer][] | null); break;
-			case "ptFsLayers": setPtFsLayers(data as [string, string, PtLayer][] | null); break;                               // feature-state を読む基図の層（段 3）＝層 id・source-layer・式
-			case "ptFs":      setPtFs(data as [string | null, string | null, Record<string, unknown> | null][]); break;        // 基図の source の setFeatureState／removeFeatureState（段 3）                                        // setPaintProperty の (b) 類（painttable.ts の paintTableFast）＝層 id → 後の式（全部を置き換える）
+			case "ptOver":    ptStore.setOver(data as [string, PtLayer][] | null); break;
+			case "ptFsLayers": ptStore.setFsLayers(data as [string, string, PtLayer][] | null); break;                               // feature-state を読む基図の層（段 3）＝層 id・source-layer・式
+			case "ptFs":      ptStore.setFs(data as [string | null, string | null, Record<string, unknown> | null][]); break;        // 基図の source の setFeatureState／removeFeatureState（段 3）                                        // setPaintProperty の (b) 類（painttable.ts の paintTableFast）＝層 id → 後の式（全部を置き換える）
 			case "pzOver":    pzOver = new Map(data as [number, PaintZoom][] | null ?? []); break;                       // setPaintProperty の速い道（build.ts paintFast）＝基図の層の添字 → 差し替えの式（全部を置き換える）
 			case "userAnchor": userAnchor = { ranges: Array.isArray((data as { ranges?: unknown } | null | undefined)?.ranges) ? (data as { ranges: number[][] }).ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
 			case "gintBld":   setGintBld(data as GintBldData | null); break;                                          // data={origin,walls,roof,color} gintユーザー層の3D押し出し（null=解放）

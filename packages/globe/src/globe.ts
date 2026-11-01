@@ -1389,7 +1389,7 @@ const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle
 	onMerged: (slot, sig) => onSceneApplied(slot as string, sig as string),
 });
 const setPipelineStyle: GlobeScope["setPipelineStyle"] = (st, keep) => { setPipelineStyle0(st, keep); if (!keep) sendUserAnchors(); sendPtFsLayers(st); };   // 基図の層の添字（li）が動く＝vector の描く層の差し込む位置も配り直す（#123）
-// 基図の feature-state を読む層（paint 表の (b) 類の段 3・GL2 の md）＝描き手が状態の置かれた地物の行を評価し直す（状態は api/style.ts の setFeatureState が "ptFs" で送る）。
+// 基図の feature-state を読む層（paint 表の (b) 類の段 3・md＝GL2・WebGPU（2026-11-01 から））＝描き手が状態の置かれた地物の行を評価し直す（状態は api/style.ts の setFeatureState が "ptFs" で送る）。
 // style が変わるたびに全部を置き換える（表を読まない描き手＝WebGPU は素通しする）
 const sendPtFsLayers = (st: Parameters<GlobeScope["setPipelineStyle"]>[0]): void => {
 	const list: [string, string, ReturnType<typeof layerPaintTable> & object][] = [];

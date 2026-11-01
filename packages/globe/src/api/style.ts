@@ -520,10 +520,10 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 	const noteOther = (id: string, fn: (n: NoteLayer) => void) => { const L = extOtherOf(id)!; const n = { ...L, paint: { ...(L.paint || {}) }, layout: { ...(L.layout || {}) } }; fn(n); extNotes.set(id, n); return n; };
 	// setPaintProperty の速い道（paint 表の (b) 類の前段・2026-10-22・GL2）：外来 style の基図の塗りと線の色・不透明度・線幅・ずらしで、新しい値が地物に依らない
 	// （core build.ts paintFast）なら組み直さない＝tile worker には新しい style を配る（次に作るタイルから）が、作ったタイルは捨てず、描き手が層の差し替えの式で焼いた値を上書きする。
-	// 上書きは層の id で覚え、style が変わるたび（restyleBase・setStyle の差分）に今の層の paint から作り直して添字（li）ごとに配る。WebGPU は読まない＝組み直し
+	// 上書きは層の id で覚え、style が変わるたび（restyleBase・setStyle の差分）に今の層の paint から作り直して添字（li）ごとに配る。GL2・WebGPU とも読む（WebGPU は 2026-11-01 から）＝描き手が立つ前（frame1 前）だけ組み直し
 	const pzFast = new Set<string>();
 	const sendPzOver = () => {
-		if (live.renderBackend !== "webgl2") return;
+		if (!live.renderBackend) return;
 		const list: [number, PaintZoom][] = [], seen = new Set<string>();
 		live.style.layers.forEach((L, li) => {
 			if (!pzFast.has(L.id)) return;
@@ -548,7 +548,7 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 		renderer.set("ptOver", list);
 	};
 	const fastBasePaint = (id: string, name: string, value: unknown): boolean => {
-		if (!live.EXT || live.renderBackend !== "webgl2") return false;
+		if (!live.EXT || !live.renderBackend) return false;
 		const L = live.style.layers.find(x => x.id === id); if (!L) return false;
 		const nv = baseValueIn(name, value), prev = L.paint as Record<string, unknown> | undefined, next = { ...(prev || {}) };
 		if (nv === undefined) delete next[name]; else next[name] = nv;
