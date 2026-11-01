@@ -3693,7 +3693,13 @@ const mountLayerRaw = async (v: UserLayerRec) => {
 	if (kind === "raster") {
 		// 層の出しズーム＝表示窓（MapLibre の maxzoom は排他・表示窓の上端は包含＝ほんの少し手前）。source の minzoom/maxzoom は tile の z（spec）
 		const ro: RasterOptions = { order: "over", rank: mlOrderOf(layer.id), opacity: layer.paint?.["raster-opacity"] as number ?? 1, hideFills: false, ...rasterPaintOpts(layer.paint), ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) }, adjust = rasterAdjust(layer.paint);
-		if (sp.type === "image") { const b = await (await fetch(sp.url!, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates as Corners4, name: layer.id }, ro); }
+		if (sp.type === "image") {
+			const b = await (await fetch(sp.url!, { credentials: "omit" })).blob();
+			// removed (or replaced) while the picture was fetched: raster.remove found nothing to drop yet, so adding now would leave an orphan layer
+			// nobody can remove (the Cesium facade's turning rectangle repaints its picture every frame: a disc of stale logos, 2026-11-01)
+			if (mlLayers.get(layer.id) !== v) throw new Error("removed");
+			return map.raster.add(layer.id, { image: b, corners: sp.coordinates as Corners4, name: layer.id }, ro);
+		}
 		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls as string[], corners: sp.coordinates as Corners4 }, ro);   // #49
 		if (sp.type === "canvas") {   // MapLibre の canvas source（C3）＝canvas は id の文字列か要素・animate（既定 true）
 			const el = typeof sp.canvas === "string" ? document.getElementById(sp.canvas) : sp.canvas;
