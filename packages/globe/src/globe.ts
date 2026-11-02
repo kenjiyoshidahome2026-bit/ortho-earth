@@ -2703,17 +2703,21 @@ const toLonLat = (ll: LonLat | { lng?: number; lon?: number; lat: number }): Lon
 map.project = ll => { const [lon, lat] = toLonLat(ll); const [x, y] = projectLL(lon, lat); return { x, y }; };
 map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const ll = unprojectXY(x, y); return ll ? { lng: ll[0], lat: ll[1] } : null; };
 // 待って解く unproject（問い合わせ・クリックの地物）＝標高を heightAt で待ちながら反復し、答えは elevOf のメモに入れる＝その後の同期の unprojectXY も同じ点を返す（2026-11-02）
+const ASYNC_UNPROJECT_MS = 400;
 const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
 	const ll = unproject(st, x * dpr, y * dpr), pf = dispPf();
 	if (!ll || pf <= 0 || !(demMain || getHeight)) return ll;
 	// 光線の上の標本の標高を先に待って elevOf のメモへ（同期の歩きと同じ点を引く＝届いてから同じ答え）。2 巡＝二分の点も埋める
+	// 待つのは合わせて ASYNC_UNPROJECT_MS まで（quantized-mesh は標本の点ごとにタイルを取りに行き、最初の 1 回が 11.7 秒かかった・2026-11-02）。過ぎたら届いた分で解く
+	const until = performance.now() + ASYNC_UNPROJECT_MS;
 	for (let pass = 0; pass < 3; pass++) {
-		const miss: LonLat[] = [];
-		const got = marchGround(st, x, y, pf, (lon, lat) => { const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000), hit = elevMemo.get(k); if (typeof hit === "number") return hit; const hs = demMain?.heightSync?.(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))); if (hs === hs && hs !== undefined) { elevMemo.set(k, hs); return hs; } miss.push([lon, lat]); return 0; });
-		if (!miss.length) return got;
-		await Promise.all(miss.slice(0, 64).map(([lon, lat]) => heightAt(lon, lat).catch(() => 0).then(h => { elevMemo.set(Math.round(lon * 1000) + "," + Math.round(lat * 1000), h); })));
+		const miss: LonLat[] = [], seen = new Set<string>();
+		const got = marchGround(st, x, y, pf, (lon, lat) => { const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000), hit = elevMemo.get(k); if (typeof hit === "number") return hit; const hs = demMain?.heightSync?.(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))); if (hs === hs && hs !== undefined) { elevMemo.set(k, hs); return hs; } if (!seen.has(k)) { seen.add(k); miss.push([lon, lat]); } return 0; });
+		const left = until - performance.now();
+		if (!miss.length || left <= 0) return got;
+		await Promise.race([Promise.all(miss.slice(0, 64).map(([lon, lat]) => heightAt(lon, lat).catch(() => 0).then(h => { if (h === h) elevMemo.set(Math.round(lon * 1000) + "," + Math.round(lat * 1000), h); }))), new Promise(r => setTimeout(r, left))]);
 	}
 	return marchGround(st, x, y, pf, elevOf);
 };
