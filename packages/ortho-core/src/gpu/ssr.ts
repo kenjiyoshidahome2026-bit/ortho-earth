@@ -23,7 +23,7 @@ struct SsrP { rF: vec4f, rX: vec4f, rY: vec4f, i0: vec4f, i1: vec4f, i2: vec4f, 
 // rF/rX/rY.xyz＝視線 v(ndc)＝rF＋ndc.x·rX＋ndc.y·rY（clip w が 1 の長さ）・rX.w＝|eye|²−1・rY.w＝2·ln2／logCoef
 // i0/i1/i2＝[rF rX rY] の逆行列の行（Q → (w, w·ndc.x, w·ndc.y)）・eye.xyz＝目（β 単位球）
 // p＝(強さ, 歩く長さ（R）, 厚み（R）, 歩数)・q＝(ocean, ground, facades, 0)・size＝(W, H, 1/W, 1/H)（本体の画素）
-// rn＝雨 (濡れ 0..1, 時刻 s, 0, 0)・an＝目−雑音の錨（β）・ex/ny＝目の所の東・北（β）＝水たまりの斑と波紋（scenefx.ts FX_NOISE_WGSL）
+// rn＝雨 (濡れ 0..1, 時刻 s, 積み上げの番目, 0)・an＝目−雑音の錨（β）・ex/ny＝目の所の東・北（β）＝水たまりの斑と波紋（scenefx.ts FX_NOISE_WGSL）
 @group(2) @binding(0) var<uniform> SS: SsrP;
 @group(2) @binding(1) var ssrDep: ${ms ? "texture_depth_multisampled_2d" : "texture_depth_2d"};
 @group(2) @binding(2) var ssrStn: ${ms ? "texture_multisampled_2d<u32>" : "texture_2d<u32>"};
@@ -113,7 +113,7 @@ ${FULL_VS}
 	// 深度の中を歩く：t＝長さ×s²（手前ほど細かい）・s のジッタは画素ごと（IGN）＝縞を拡大の双線形で均す。
 	// 当たり＝「物の手前」から「物の裏」へ入った 1 歩を見つけ、その歩の中を 6 回の二分で面まで詰め、詰めた所の深度の差が厚みの内なら当たり（厚みを超える＝物の後ろを通った＝歩き続ける）
 	let nSteps = i32(SS.p.w);
-	let jit = fract(52.9829189 * fract(dot(pos.xy, vec2f(0.06711056, 0.00583715))));
+	let jit = fract(52.9829189 * fract(dot(pos.xy + SS.rn.z * 5.588238, vec2f(0.06711056, 0.00583715))));   // rn.z＝静止の積み上げの番目（毎フレームずらす）
 	let O = Pc.xyz + n * (Pc.w * 2.0e-4);   // 自分の面に当たらない下駄（視距離の 0.02%）
 	let maxD = min(SS.p.y, max(Pc.w * 2.0, 50.0 * SSR_M));   // 歩く長さ＝maxDistance と視距離の 2 倍の小さい方（画面に写る物はその内・歩幅を細かく）
 	var tPrev = 0.0; var tHit = -1.0; var front = true;
@@ -187,7 +187,7 @@ export interface SsrFrame {
 	depthTex: GPUTexture; samples: number; W: number; H: number; colorView: GPUTextureView; canvasTex: GPUTexture | null;
 	mvp: ArrayLike<number>; invMvp: ArrayLike<number>; eye: ArrayLike<number>; logCoef: number;
 	bg0: GPUBindGroup; bg1: GPUBindGroup; opt: SsrOptions; fade: number;
-	time?: number; pole?: ArrayLike<number>;   // 雨の波紋の時刻（s）・北極の β 点（東北の基底）
+	time?: number; pole?: ArrayLike<number>; phase?: number;   // phase＝静止の積み上げの番目   // 雨の波紋の時刻（s）・北極の β 点（東北の基底）
 }
 export interface SsrGPU { encode(enc: GPUCommandEncoder, d: SsrFrame): void; dispose(): void; bytes(): number }
 // device・format（canvas の色形式）・bgl0/bgl1＝本体の group(0)/(1) のレイアウト（Frame と標高を同じ束縛で読む）
@@ -253,6 +253,7 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 		u[28] = o.intensity * d.fade; u[29] = o.maxDistance * M_PER_R; u[30] = o.thickness * M_PER_R; u[31] = o.steps;
 		u[32] = o.ocean; u[33] = o.ground; u[34] = o.facades;
 		u[36] = d.W; u[37] = d.H; u[38] = 1 / d.W; u[39] = 1 / d.H;
+		u[42] = d.phase ?? 0;
 		if (o.rain && o.rain > 0 && d.pole) { const fr = fxFrame(e, d.pole); u[40] = o.rain; u[41] = (d.time ?? 0) % 600; u.set(fr.an, 44); u.set(fr.ex, 48); u.set(fr.ny, 52); }
 		device.queue.writeBuffer(sBuf, 0, u);
 		device.queue.writeBuffer(cBuf, 0, new Float32Array([1 / d.W, 1 / d.H, 0, 0]));

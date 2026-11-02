@@ -3480,17 +3480,27 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
 		// 場面の効果（2026-11-01）＝setPostChain の contactShadow/heightFog/godRays/rain/toon の間だけ・真俯瞰では掛けない。接触影の強さだけ AO と同じ入口のフェード
 		const fxNow = performance.now() / 1000, pole = lonlatTo3D(0, 90);
+		// 静止の積み上げ（2026-11-01）＝歩き始めをずらす段（接触影・光芒・SSR）がある間・雨（筋が動く）でない間。同じカメラ・同じ的の絵だけを足す。
+		// ACC_N 枚で止める（続きのフレームを頼まない）。止まった後に別の理由（タイルの到着など）で描き直したら 0 から積み直す
+		const accOn = !flat2d && !(sceneOpt && sceneOpt.rain) && (!!(sceneOpt && (sceneOpt.contact || sceneOpt.rays)) || (!!ssrOpt && aoIn > 0));
+		// set() があれば（場面が変わった）0 から。続きを頼むのは同じカメラで ACC_N×3 枚まで（毎フレーム set が来る使い方でも描き続けない）
+		if (fogAnimating || fading) accSet = true;   // クロスフェード・霧の追従の間は積まない（動いている絵）
+		if (accOn) { const key = `${W}x${H}x${S}|${Array.from(st.mvp, v => v.toPrecision(12)).join(",")}`; if (key !== accKey) { accKey = key; accK = 0; accBudget = ACC_N * 3; } else accK = accSet || accK >= ACC_N - 1 ? 0 : accK + 1; accBudget--; }
+		else { accKey = ""; accK = 0; }
+		accSet = false;
+		accMore = accOn && accK < ACC_N - 1 && accBudget > 0;
 		const fxFrameIn: SceneFxFrame | null = sceneOpt && !flat2d ? { depthTex: t.depth, samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, logCoef,
-			sun: [sunF[0], sunF[1], sunF[2]], dpr: cam.dpr || 1, pole, time: fxNow, opt: sceneOpt, fade: aoIn * aoIn * (3 - 2 * aoIn) } : null;
+			sun: [sunF[0], sunF[1], sunF[2]], dpr: cam.dpr || 1, pole, time: fxNow, opt: sceneOpt, fade: aoIn * aoIn * (3 - 2 * aoIn), phase: accK } : null;
 		if (fxFrameIn) { sceneFx ??= createSceneFxGPU(device, format); sceneFx.pre(enc, fxFrameIn); }   // 接触影・雨の濡れ（SSR の前＝映る色も陰と濡れの付いた色）
-		else if (sceneFx && !sceneOpt) { sceneFx.dispose(); sceneFx = null; }
+		else if (sceneFx && !sceneOpt && !ssrOpt) { sceneFx.dispose(); sceneFx = null; }
 		// SSR（画面空間の映り込み・2026-11-01）＝setPostChain の ssr の間だけ・傾けた 3D の時だけ（入口のフェードは AO と同じ）。AO の後＝陰の付いた色を映す・gint の線と注記の前
 		if (ssrOpt && !flat2d && aoIn > 0) {
 			ssr ??= createSsrGPU(device, format, bgl0, bgl1);
 			ssr.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, logCoef,
-				bg0: bg0.main, bg1: paramBG[ROLE.contour], opt: ssrOpt, fade: aoIn * aoIn * (3 - 2 * aoIn), time: fxNow, pole });
+				bg0: bg0.main, bg1: paramBG[ROLE.contour], opt: ssrOpt, fade: aoIn * aoIn * (3 - 2 * aoIn), time: fxNow, pole, phase: accK });
 		} else if (ssr && !ssrOpt) { ssr.dispose(); ssr = null; }
 		if (fxFrameIn && sceneFx) sceneFx.post(enc, fxFrameIn);   // 高さ霧・雨の筋・光芒・イラスト風（映り込みの後＝霧は映り込みにも掛かる）
+		if (accOn) { sceneFx ??= createSceneFxGPU(device, format); sceneFx.accumulate(enc, { samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), k: accK }); }   // 静止の積み上げ（gint の線と注記の前）
 		lastStage = { depthTex: t.depth, samples: S, logCoef, dpr: cam.dpr || 1, frame: ++stageFrame, fovy: cam.fovy || 50 * Math.PI / 180 };   // 画面の段（Cesium の postProcessStages）が flush の後処理で使う尺
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
@@ -3566,7 +3576,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	let dOut: DepthOutGPU | null = null, lastDepth: (DepthOutFrame & { logCoef: number }) | null = null, dOutFailed = false;
 	let ao: AoGPU | null = null;   // AO（#46 段 3）＝fx.ao の間だけ
 	let ssr: SsrGPU | null = null, ssrOpt: SsrOptions | null = null;
-	let sceneFx: SceneFxGPU | null = null, sceneOpt: SceneFxOptions | null = null;   // 場面の効果（2026-11-01）＝set("sceneFx") の間だけ   // SSR（2026-11-01）＝set("ssr") の間だけ
+	let sceneFx: SceneFxGPU | null = null, sceneOpt: SceneFxOptions | null = null;
+	const ACC_N = 8; let accK = 0, accKey = "", accMore = false, accSet = false, accBudget = 0, accRasterRev = -3;   // 静止の積み上げ（2026-11-01）＝枚数・今の番目・カメラと的の鍵・まだ続きを描くか   // 場面の効果（2026-11-01）＝set("sceneFx") の間だけ   // SSR（2026-11-01）＝set("ssr") の間だけ
 	let groundLight: { dir: number[]; color: number[]; lambert: number[]; normal: string; fade: number[] | null; night: number[] | null } | null = null;   // 地面の照明（setGroundLighting・Cesium の globe.enableLighting）＝Frame.cg*／Globe.cg*
 	// Cesium の CustomShader＝id → 登録。束は set("meshCustom", id, key) で指す（gl/renderer.ts と同じ口）
 	const customs = new Map<string, CsEntryG>();
@@ -3715,6 +3726,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	const IGNORE = new Set(["mdGrow", "mdUp", "mdScene"]);
 	const ignored = new Set<string>();
 	function set(cmd: string, data?: unknown, prop?: unknown) {
+		accSet = true;   // 静止の積み上げ＝場面が変わった＝次のフレームは 0 から
 		switch (cmd) {
 			case "overlay":   setOverlay(data as OverlayScene | null, prop as number[] | null); break;    // prop=fillColor（任意）
 			case "overlayHi": setOverlayHi(data as OverlayScene | null, prop as OverlayFill); break;
@@ -3888,9 +3900,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		quad4: QUAD4,   // 線・点＝index の 4 頂点（perf plan P3）。gint（createGintLayerGPU）の既定がこれに揃う
 		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
+		accumulating: () => accMore,   // 静止の積み上げ（2026-11-01）＝まだ続きのフレームが要る（worker は 4x のまま次を描く・遷移扱いにしない）
 		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0, ssr: ssr ? ssr.bytes() : 0, sceneFx: sceneFx ? sceneFx.bytes() : 0, pool: memPool }),   // pool＝タイル GPU 常駐プール 4 本（vt perf plan §4）
 		depthOut,   // シーンの深度をオーバーレイへ（#47）
-		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
+		rasterTex: ((...a: Parameters<typeof rasterTex>) => { accSet = true; return rasterTex(...a); }) as typeof rasterTex,   // 画像タイルの到着も場面の変化（静止の積み上げを 0 から）
+		rasterMesh, rasterFree, setRasterDraws: ((...a: Parameters<typeof setRasterDraws>) => { const rv = a[0] ? (a[0] as { rev?: number }).rev ?? -1 : -2; if (rv !== accRasterRev) { accRasterRev = rv; accSet = true; } return setRasterDraws(...a); }) as typeof setRasterDraws,   // 描画リストの改訂が進んだ時だけ setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
 		textSplit,   // 層の位置に描く注記の境（T-P2）＝この層の添字より前の注記は地図のパスの中へ
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）
 }

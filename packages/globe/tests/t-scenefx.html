@@ -52,6 +52,18 @@ try {
 	const dE = E0 - lum(c, 18, 0), dW = W0 - lum(c, -18, 0);
 	ok(`contactShadow＝東西の片方だけ影（東 −${dE.toFixed(1)}・西 −${dW.toFixed(1)}）`, Math.max(dE, dW) > 8 && Math.min(dE, dW) < 3);
 	ok(`contactShadow＝離れた床と空は変わらない（${far0.toFixed(1)} → ${lum(c, 100, -40).toFixed(1)}・空 ${lumXY(c, 128, 4).toFixed(1)}）`, Math.abs(lum(c, 100, -40) - far0) < 3 && Math.abs(lumXY(c, 128, 4) - sky0) < 1.5);
+	// ②' 静止の積み上げ＝同じカメラで描き続けると粒（隣の画素との差）が減り、8 枚で続きを頼まなくなる。カメラが動けば 0 から
+	{
+		const grain = px => { let g2 = 0, n2 = 0; for (let y = footY - 30; y < footY + 20; y++) for (let x = footX + 10; x < footX + 60; x++) { const d2 = lum1(px, x + 1, y) - lum1(px, x, y); g2 += d2 * d2; n2++; } return Math.sqrt(g2 / n2); };
+		r.set("sceneFx", fx({ contact: { strength: 0.8, length: 0.3, thickness: 0.05, steps: 6 } }));
+		cam.zoom = 17.0001; const a0 = await shot(); const more0 = r.accumulating(); cam.zoom = 17;
+		const b0 = await shot(); let n8 = 1, b7 = b0; while (r.accumulating() && n8 < 20) { b7 = await shot(); n8++; }   // 8 枚目で続きを頼まなくなる（次に描けば 0 から＝別の理由の描き直し）
+		let dmax = 0; for (let i = 0; i < b0.length; i += 4) dmax = Math.max(dmax, Math.abs(b0[i] - b7[i]));
+		window.__acc = [b0, b7].map(px => { const c2 = document.createElement("canvas"); c2.width = c2.height = N; c2.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px), N, N), 0, 0); return c2.toDataURL(); });
+		ok(`静止の積み上げ＝粒が減る（${grain(b0).toFixed(2)} → ${grain(b7).toFixed(2)}・最大差 ${dmax}・more0 ${more0}）・${n8} 枚で止まる`, more0 && grain(b7) < grain(b0) * 0.85 && n8 === 8);
+		r.set("sceneFx", null); await shot();
+		ok(`効果が無ければ積まない`, !r.accumulating());
+	}
 	// ③ 高さ霧
 	r.set("sceneFx", fx({ fog: { density: 8, height: 40, base: 0, color: [0.85, 0.88, 0.92], sun: 0, anisotropy: 0.75 } }));
 	const f = await shot();
