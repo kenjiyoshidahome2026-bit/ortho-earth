@@ -2,6 +2,9 @@
 // 段 1 の分：PNG を読む・標本点の色（5×5 の中央値）・同じ側の 2 回の走りの突き合わせ（揺れの無い例の選別）。
 // 段 4 で：本物とこちらの位置合わせ・段の判定を足す。
 import zlib from "node:zlib";
+import fs from "node:fs";
+// custom 層の例で目で確かめた段（eyechecked.json）＝標本に出ない層の絵の一致の代わり（2026-11-02）
+export const EYE_CHECKED = (() => { try { const j = JSON.parse(fs.readFileSync(new URL("./eyechecked.json", import.meta.url), "utf8")); delete j._; return j; } catch { return {}; } })();
 
 // ── PNG（Chrome の captureScreenshot＝8bit・非インターレース）→ { w, h, rgba } ──
 export function decodePng(buf) {
@@ -196,7 +199,7 @@ export const REF_BROKEN = {
 	"add-a-3d-model-with-babylonjs": "real MapLibre draws nothing here: babylon issues 32 draw calls per frame but GL_INVALID_OPERATION (1282) follows and no pixel changes (materials/effects ready, matrices in view) — MapLibre×babylon interop in this rig; ours draws the two dishes",
 };
 // 1 例の段。level＝こちらの段（null＝本物が落ちる＝分母の外）・refLevel＝本物が届く段（止まって撮れたら 3・動く例は 2）
-export function grade(R, O, T = THRESH) {
+export function grade(R, O, T = THRESH, eye = EYE_CHECKED) {
 	const out = { level: 0, refLevel: 0, reasons: [], blockers: [], unsupported: splitUnsupported(O?.unsupported) };
 	const rb = REF_BROKEN[R?.name ?? O?.name]; if (rb) { out.level = null; out.refWhy = `reference capture invalid: ${rb}`; return out; }
 	const shared = new Set((R?.exceptions || []).filter(e => O?.exceptions?.includes(e)));
@@ -263,6 +266,17 @@ export function grade(R, O, T = THRESH) {
 	// 段 3＝同じ絵
 	if (out.refLevel < 3 || !STILL_END.has(O.end)) { out.reasons.push(`picture not compared (${R.end}/${O.end})`); if (out.refLevel === 3) out.blockers.push(`picture never settled (${O.end})`); return out; }
 	if (cm.comparable < T.minComparable * cm.total) { out.reasons.push(`picture not comparable (${cm.comparable}/${cm.total} probes)`); out.level = Math.min(out.level, 2); out.refLevel = 2; return out; }
+	// custom 層（queryRenderedFeatures に出ない＝標本点が「足した層」に分かれない）は、絵の一致を基図だけで測ってしまう＝模型が無くても閾値を越える（threejs の例・2026-11-02）。
+	// 本物の絵と見比べる手段が無いうちは段 3 にしない（段 2＝答えは同じ・絵は未確認）
+	// custom 層の見分け：走らせ台が addLayer で記録した型（O.addedTypes・R.addedTypes＝本物の r7 には無い）か、getStyle の layers（MapLibre の getStyle には custom が出ない）
+	const typeOf = id => O?.addedTypes?.[id] || R?.addedTypes?.[id] || (R.layers || []).find(l => l.id === id)?.type || (O?.layers || []).find(l => l.id === id)?.type;
+	const customAdded = [...new Set([...(R.added || []), ...(O?.added || [])])].filter(id => typeOf(id) === "custom");
+	if (customAdded.length && cm.added.n === 0) {
+		out.customUnsampled = true;
+		const e = eye?.[R?.name ?? O?.name];
+		if (!(e?.level >= 3)) { out.reasons.push(`custom layer not sampled (${customAdded.join(", ")})`); out.blockers.push("custom layer not compared"); return out; }
+		out.reasons.push(`custom layer checked by eye (${e.checked})`);   // 目で確かめた例＝基図の判定だけで段 3 へ進める
+	}
 	const okA = passRatio(cm.added.ok, cm.added.n, T.addedMin, T), okB = passRatio(cm.base.ok, cm.base.n, T.baseMin, T);
 	if (!okA) { out.reasons.push(`added layers ${cm.added.ok}/${cm.added.n}`); out.blockers.push("added layers look different"); }
 	if (!okB) { out.reasons.push(`basemap ${cm.base.ok}/${cm.base.n}`); out.blockers.push("basemap looks different"); }

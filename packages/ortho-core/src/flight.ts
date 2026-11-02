@@ -122,7 +122,7 @@ export function glidePlan(cam0: FlightTarget, env: FlightEnv, lon: number, lat: 
 // fly（三段振り付け）/ glide（時分割）と違い「今の姿勢のまま滑る」＝UI 操作の追従・小さな寄せ直し用。
 // target＝{ lon, lat, zoom, pitch, bearing, roll }（角はラジアン＝cam と同じ・省略=現状維持）・duration[ms]（既定 500・0 以下＝即着地）。
 // 経度は最短側（antimeridian 安全）・方位は最短回転。ズームは線形（近距離前提＝van Wijk は fly の役目）。
-export function easePlan(cam0: FlightTarget, env: FlightEnv, target: Partial<FlightTarget> = {}, duration = 500): FlightPlan {
+export function easePlan(cam0: FlightTarget, env: FlightEnv, target: Partial<FlightTarget> = {}, duration = 500, easing: (t: number) => number = ss): FlightPlan {   // easing＝時間の緩急（既定 smoothstep・MapLibre の口は ML_EASING か例の easing）
 	const { maxPitch, minZoom = 0 } = env;
 	const lon0 = cam0.lon, lat0 = cam0.lat, z0 = cam0.zoom, P0 = cam0.pitch, B0 = shortBearingOf(cam0.bearing);
 	let dLon = (target.lon ?? lon0) - lon0; dLon -= Math.round(dLon / 360) * 360;
@@ -133,8 +133,76 @@ export function easePlan(cam0: FlightTarget, env: FlightEnv, target: Partial<Fli
 	const R0 = cam0.roll || 0, dR = target.roll == null ? 0 : shortBearingOf(target.roll - R0);   // roll（MapLibre 6.x の easeTo の roll・最短回転）
 	const dur = Math.max(0, duration);
 	const at = (t: number): FlightTarget => {
-		const e = dur > 0 ? ss(Math.max(0, Math.min(1, t / dur))) : 1;
+		const e = dur > 0 ? easing(Math.max(0, Math.min(1, t / dur))) : 1;
 		return { lon: lon0 + dLon * e, lat: lat0 + dLat * e, zoom: z0 + dZ * e, pitch: P0 + dP * e, bearing: B0 + dB * e, roll: R0 + dR * e };
+	};
+	return { dur, land: dur, at };
+}
+
+// MapLibre の flyTo（6.11.2 の camera.ts の flyTo と mercator の handleFlyTo をそのまま）＝MapLibre の口（src/maplibre/）の地図だけが使う（env の外の o.dz＝エンジン z − MapLibre z）。
+// fly（三段の振り付け）と違い、方位・チルト・roll は全行程で同時に補間し、尺は MapLibre の式（1000·S／speed・既定 speed 1.2・curve 1.42）・時間の緩急は easing（既定＝MapLibre の defaultEasing）。
+// 経路は van Wijk & Nuij（ρ＝curve・ただし最小ズームの幅で頭打ち）をメルカトルの画素（512px の世界・出発の z）で解く。経緯度はメルカトルで補間＝MapLibre と同じ道筋。
+// 例 add-live-realtime-data（flyTo speed 0.5）・撮る時刻のカメラが MapLibre と同じ所に来る。
+export interface MLFlyOptions { speed?: number; curve?: number; screenSpeed?: number; duration?: number; maxDuration?: number; minZoom?: number; easing?: (t: number) => number;
+	/** エンジン z − MapLibre z */ dz?: number; /** 画面の幅と高さの大きい方（CSS px）＝MapLibre の w0 */ viewMax?: number; /** 画面の高さ（CSS px）＝メルカトルの最小ズーム（世界が画面を満たす z） */ viewH?: number }
+// MapLibre の UnitBezier（@mapbox/unitbezier）＝defaultEasing は bezier(0.25, 0.1, 0.25, 1)
+export function bezierEasing(p1x: number, p1y: number, p2x: number, p2y: number): (t: number) => number {
+	const cx = 3 * p1x, bx = 3 * (p2x - p1x) - cx, ax = 1 - cx - bx, cy = 3 * p1y, by = 3 * (p2y - p1y) - cy, ay = 1 - cy - by;
+	const sx = (t: number) => ((ax * t + bx) * t + cx) * t, sy = (t: number) => ((ay * t + by) * t + cy) * t, dx = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+	const solve = (x: number): number => {
+		let t = x;
+		for (let i = 0; i < 8; i++) { const e = sx(t) - x; if (Math.abs(e) < 1e-6) return t; const d = dx(t); if (Math.abs(d) < 1e-6) break; t -= e / d; }
+		let lo = 0, hi = 1; t = x;
+		while (lo < hi) { const v = sx(t); if (Math.abs(v - x) < 1e-6) return t; if (x > v) lo = t; else hi = t; t = (hi - lo) * 0.5 + lo; if (hi - lo < 1e-7) break; }
+		return t;
+	};
+	return (t: number) => t <= 0 ? 0 : t >= 1 ? 1 : sy(solve(t));
+}
+export const ML_EASING = bezierEasing(0.25, 0.1, 0.25, 1);
+const mercXY = (lon: number, lat: number): [number, number] => { const la = Math.max(-85.051129, Math.min(85.051129, lat)) * D2R; return [(lon + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + la / 2)) / Math.PI) / 2]; };
+const lonLatOfMerc = (x: number, y: number): [number, number] => [x * 360 - 180, 360 / Math.PI * Math.atan(Math.exp((1 - 2 * y) * Math.PI)) - 90];
+export function mlFlyPlan(cam0: FlightTarget, env: FlightEnv, target: Partial<FlightTarget>, o: MLFlyOptions = {}): FlightPlan {
+	const { maxPitch, minZoom = 0, viewW } = env;
+	const easing = o.easing ?? ML_EASING, dz = o.dz ?? 1, w0 = Math.max(1, o.viewMax ?? viewW);
+	const z0 = cam0.zoom, z1 = Math.max(minZoom, target.zoom ?? z0);
+	const P0 = cam0.pitch, P1 = Math.max(0, Math.min(maxPitch, target.pitch ?? P0));
+	const B0 = cam0.bearing, B1 = target.bearing == null ? B0 : B0 + shortBearingOf(target.bearing - B0);
+	const R0 = cam0.roll || 0, R1 = target.roll == null ? R0 : R0 + shortBearingOf(target.roll - R0);
+	let lon1 = target.lon ?? cam0.lon; lon1 = cam0.lon + (lon1 - cam0.lon) - Math.round((lon1 - cam0.lon) / 360) * 360;   // 最短側（MapLibre の normalizeCenter）
+	const [x0, y0] = mercXY(cam0.lon, cam0.lat), y1 = mercXY(lon1, target.lat ?? cam0.lat)[1], x1 = x0 + (lon1 - cam0.lon) / 360;   // x は最短側のまま（±180 を跨いでも連続）
+	const ws0 = 512 * 2 ** (z0 - dz), dX = (x1 - x0) * ws0, dY = (y1 - y0) * ws0, u1 = Math.hypot(dX, dY);
+	const scaleOfZoom = 2 ** (z1 - z0);
+	const zMinML = Math.max(Math.min(Math.max(o.minZoom ?? -2, -2), z0 - dz, z1 - dz), o.viewH ? Math.log2(o.viewH / 512) : -Infinity);   // MapLibre の handleFlyTo の最小ズーム（メルカトルの制約＝世界が画面の高さを満たす z）
+	const scaleOfMinZoom = 2 ** (zMinML + dz - z0);
+	const w1 = w0 / scaleOfZoom, wMax = w0 / scaleOfMinZoom;
+	let rho = Math.min(o.curve ?? 1.42, Math.sqrt(wMax / u1 * 2));
+	if (!Number.isFinite(rho)) rho = o.curve ?? 1.42;
+	const rho2 = rho * rho;
+	const zoomOutFactor = (descent: boolean): number => { const b = (w1 * w1 - w0 * w0 + (descent ? -1 : 1) * rho2 * rho2 * u1 * u1) / (2 * (descent ? w1 : w0) * rho2 * u1); return Math.log(Math.sqrt(b * b + 1) - b); };
+	const r0 = zoomOutFactor(false);
+	let w = (s: number): number => Math.cosh(r0) / Math.cosh(r0 + rho * s);
+	let u = (s: number): number => w0 * ((Math.cosh(r0) * Math.tanh(r0 + rho * s) - Math.sinh(r0)) / rho2) / u1;
+	let S = (zoomOutFactor(true) - r0) / rho;
+	if (Math.abs(u1) < 2e-6 || !Number.isFinite(S)) {
+		if (Math.abs(w0 - w1) < 1e-6) {   // 動かない＝MapLibre は easeTo（既定 500ms・同じ緩急）
+			const e = easePlan(cam0, env, { lon: lon1, lat: target.lat ?? cam0.lat, zoom: z1, pitch: P1, bearing: B1, roll: R1 }, o.duration ?? 500);
+			return { dur: e.dur, land: e.dur, at: t => { const k = e.dur > 0 ? easing(Math.max(0, Math.min(1, t / e.dur))) : 1; return { lon: cam0.lon + (lon1 - cam0.lon) * k, lat: cam0.lat + ((target.lat ?? cam0.lat) - cam0.lat) * k, zoom: z0 + (z1 - z0) * k, pitch: P0 + (P1 - P0) * k, bearing: B0 + (B1 - B0) * k, roll: R0 + (R1 - R0) * k }; } };
+		}
+		const kk = w1 < w0 ? -1 : 1;
+		S = Math.abs(Math.log(w1 / w0)) / rho;
+		u = () => 0;
+		w = s => Math.exp(kk * rho * s);
+	}
+	let dur: number;
+	if (o.duration != null) dur = +o.duration;
+	else { const V = o.screenSpeed != null ? +o.screenSpeed / rho : +(o.speed ?? 1.2); dur = 1000 * S / V; }
+	if (o.maxDuration && dur > o.maxDuration) dur = 0;
+	dur = Math.max(0, dur);
+	const at = (t: number): FlightTarget => {
+		const k = dur > 0 ? easing(Math.max(0, Math.min(1, t / dur))) : 1;
+		if (k >= 1) return { lon: lon1, lat: target.lat ?? cam0.lat, zoom: z1, pitch: P1, bearing: B1, roll: R1 };
+		const s = k * S, f = u(s), [lon, lat] = lonLatOfMerc(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f);
+		return { lon, lat, zoom: Math.max(minZoom, z0 + Math.log2(1 / w(s))), pitch: P0 + (P1 - P0) * k, bearing: B0 + (B1 - B0) * k, roll: R0 + (R1 - R0) * k };
 	};
 	return { dur, land: dur, at };
 }
@@ -207,7 +275,9 @@ export interface FlightController {
 	flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): Promise<void>;
 	glideTo(lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): Promise<void>;
 	glidePath(pts: PathPoint[]): Promise<void>;
-	easeTo(target?: Partial<FlightTarget>, duration?: number): Promise<void>;
+	easeTo(target?: Partial<FlightTarget>, duration?: number, easing?: (t: number) => number): Promise<void>;
+	/** MapLibre の flyTo（mlFlyPlan） */
+	flyML(target: Partial<FlightTarget>, o?: MLFlyOptions): Promise<void>;
 	cancel(): void;
 	readonly active: boolean;
 	setMaxPitch(v: number): void;
@@ -262,9 +332,10 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 	}
 	function flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): Promise<void> { return run(flyPlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
 	function glideTo(lon: number, lat: number, zoom: number, tiltDeg?: number | null, bearingDeg?: number | null): Promise<void> { return run(glidePlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
-	function easeTo(target?: Partial<FlightTarget>, duration?: number): Promise<void> { const p = easePlan(snap(), env(), target, duration); if (!(p.dur > 0)) { const c = p.at(0); if (flight) flight.cancel(); cam.center = [c.lon, c.lat]; cam.zoom = c.zoom; cam.pitch = c.pitch; cam.bearing = c.bearing; if (c.roll != null) cam.roll = c.roll; onMove(); return Promise.resolve(); } return run(p); }   // duration 0＝即着地（jumpTo と同じ）
+	function flyML(target: Partial<FlightTarget>, o?: MLFlyOptions): Promise<void> { const p = mlFlyPlan(snap(), env(), target, o); if (!(p.dur > 0)) { const c = p.at(1); if (flight) flight.cancel(); cam.center = [c.lon, c.lat]; cam.zoom = c.zoom; cam.pitch = c.pitch; cam.bearing = c.bearing; if (c.roll != null) cam.roll = c.roll; onMove(); return Promise.resolve(); } return run(p); }   // 尺 0（maxDuration 越え・duration:0）＝即着地
+	function easeTo(target?: Partial<FlightTarget>, duration?: number, easing?: (t: number) => number): Promise<void> { const p = easePlan(snap(), env(), target, duration, easing); if (!(p.dur > 0)) { const c = p.at(0); if (flight) flight.cancel(); cam.center = [c.lon, c.lat]; cam.zoom = c.zoom; cam.pitch = c.pitch; cam.bearing = c.bearing; if (c.roll != null) cam.roll = c.roll; onMove(); return Promise.resolve(); } return run(p); }   // duration 0＝即着地（jumpTo と同じ）
 	function glidePath(pts: PathPoint[]): Promise<void> { return (Array.isArray(pts) && pts.length >= 1) ? run(glidePathPlan(snap(), env(), pts)) : Promise.resolve(); }
-	return { flyTo, glideTo, glidePath, easeTo, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; }, setMaxPitch: v => { maxPitchCur = v; }, setMinZoom: v => { minZoomCur = v; },
+	return { flyTo, glideTo, glidePath, easeTo, flyML, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; }, setMaxPitch: v => { maxPitchCur = v; }, setMinZoom: v => { minZoomCur = v; },
 		plan: {
 			fly: (cam0, lon, lat, zoom, tiltDeg, bearingDeg) => flyPlan(cam0 ?? snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg),
 			glide: (cam0, lon, lat, zoom, tiltDeg, bearingDeg) => glidePlan(cam0 ?? snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg),
