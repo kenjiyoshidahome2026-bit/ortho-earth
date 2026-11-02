@@ -292,7 +292,9 @@ function publishGallery(out, { rows, refLabel, orthoLabel, notes, sources }) {
 			fs.writeFileSync(path.join(out, "examples", `${r.name}.html`), withBootStatic(runnableForm(sources[r.name], engineUrl), "map"));   // 例＝地図の load で畳む
 			for (const [side, label] of [["ortho", orthoLabel], ["ref", refLabel]]) {
 				if (PIC_UNAVAILABLE_BOTH.has(r.name) || (side === "ref" && (REF_PIC_UNAVAILABLE[r.name] || r.grade?.level == null))) continue;   // 写しを出さない例（札で説明）
-				const png = path.join(ROOT, "runs", label, side, `${r.name}.full.png`);
+				let png = path.join(ROOT, "runs", label, side, `${r.name}.full.png`);
+				const cv = path.join(ROOT, "runs", label, side, `${r.name}.canvas.png`);   // full.png が灰色一面（adding-3d-models-using-threejs-on-terrain・20KB 未満）の時は採点に使う canvas.png で代える（2026-11-02）
+				if ((!fs.existsSync(png) || fs.statSync(png).size < 20_000) && fs.existsSync(cv) && fs.statSync(cv).size > 40_000) png = cv;
 				if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "pics", `${r.name}.${side}.webp`));
 			}
 		}
