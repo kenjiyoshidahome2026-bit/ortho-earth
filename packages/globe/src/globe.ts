@@ -1330,8 +1330,9 @@ function sampleGroundElev() {
 	// 世代＝DEM の差し替え（setDem）で古い照会の答えを捨てる・3 秒で答えが無ければ手を放す（答えの来ない照会で geBusy が立ちっぱなし＝以後一度も引き直さない事故の柵・2026-09-30）
 	const gen = ++geGen, timer = setTimeout(() => { if (gen === geGen) geBusy = false; }, 3000);
 	// 外来の DEM（setTerrain・style の terrain）がある地図は描いている地形と同じ出どころ（heightAt＝外来が先・無い所は既定）。旧＝既定の DTM だけ＝mapterhorn の山で 0m（注視点の高さが効かない・2026-09-30）
+	// 中心の高さは描いた地面＝誇張込み（MapLibre の getCenterElevation と同じ）。旧＝誇張なし＝exaggeration 1.2 の例で注視点が 527 m 低かった（2026-11-02）
 	Promise.resolve(demMain ? heightAt(cam.center[0], cam.center[1]) : getHeight!(cam.center[0], cam.center[1], cam.zoom))
-		.then(h => { clearTimeout(timer); if (gen !== geGen) return; geBusy = false; geKey = k; const v = Math.max(0, +h || 0); if (Math.abs(v - groundElevM) > 1) { groundElevM = v; requestDraw(); } })
+		.then(h => { clearTimeout(timer); if (gen !== geGen) return; geBusy = false; geKey = k; const v = Math.max(0, +h || 0) * TERR_EXAG; if (Math.abs(v - groundElevM) > 1) { groundElevM = v; requestDraw(); } })
 		.catch(() => { clearTimeout(timer); if (gen === geGen) geBusy = false; });   // 失敗は geKey 据置＝次の render で再挑戦
 }
 // MapLibre の目盛りの時のタイルの z（ML_COVER）＝selectLOD の zOf。tileSize＝source のタイルの大きさ・round＝raster（roundZoom）。内製の目盛りは null＝従来の閾
