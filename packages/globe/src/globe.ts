@@ -2703,23 +2703,25 @@ const toLonLat = (ll: LonLat | { lng?: number; lon?: number; lat: number }): Lon
 map.project = ll => { const [lon, lat] = toLonLat(ll); const [x, y] = projectLL(lon, lat); return { x, y }; };
 map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const ll = unprojectXY(x, y); return ll ? { lng: ll[0], lat: ll[1] } : null; };
 // 待って解く unproject（問い合わせ・クリックの地物）＝標高を heightAt で待ちながら反復し、答えは elevOf のメモに入れる＝その後の同期の unprojectXY も同じ点を返す（2026-11-02）
-const ASYNC_UNPROJECT_MS = 400;
+// 待って解く unproject：①不動点の反復（標高を heightAt で待つ点は数点だけ＝どの DEM でも速い）で候補を出し、
+// ②届いている標高（メモ・heightSync）だけで光線を歩き、候補より手前で地面をまたぐ所があればそちら（急斜面の手前の尾根・hybrid の例）。
+// 届いていない標本は「地面なし」とみなし、照会だけ出す（次の呼び出しで効く）。旧＝歩きの全標本を待った＝quantized-mesh で最初の 1 回 11.7 秒・上限 400ms でも毎回待ち切った（2026-11-02）
 const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
-	const ll = unproject(st, x * dpr, y * dpr), pf = dispPf();
+	let ll = unproject(st, x * dpr, y * dpr); const pf = dispPf();
 	if (!ll || pf <= 0 || !(demMain || getHeight)) return ll;
-	// 光線の上の標本の標高を先に待って elevOf のメモへ（同期の歩きと同じ点を引く＝届いてから同じ答え）。2 巡＝二分の点も埋める
-	// 待つのは合わせて ASYNC_UNPROJECT_MS まで（quantized-mesh は標本の点ごとにタイルを取りに行き、最初の 1 回が 11.7 秒かかった・2026-11-02）。過ぎたら届いた分で解く
-	const until = performance.now() + ASYNC_UNPROJECT_MS;
-	for (let pass = 0; pass < 3; pass++) {
-		const miss: LonLat[] = [], seen = new Set<string>();
-		const got = marchGround(st, x, y, pf, (lon, lat) => { const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000), hit = elevMemo.get(k); if (typeof hit === "number") return hit; const hs = demMain?.heightSync?.(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))); if (hs === hs && hs !== undefined) { elevMemo.set(k, hs); return hs; } if (!seen.has(k)) { seen.add(k); miss.push([lon, lat]); } return 0; });
-		const left = until - performance.now();
-		if (!miss.length || left <= 0) return got;
-		await Promise.race([Promise.all(miss.slice(0, 64).map(([lon, lat]) => heightAt(lon, lat).catch(() => 0).then(h => { if (h === h) elevMemo.set(Math.round(lon * 1000) + "," + Math.round(lat * 1000), h); }))), new Promise(r => setTimeout(r, left))]);
+	for (let i = 0; i < 6; i++) {
+		const h = await heightAt(ll[0], ll[1]).catch(() => 0);
+		elevMemo.set(Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), h);
+		const n = unproject(st, x * dpr, y * dpr, dispRadiusH(h, pf)); if (!n) break;
+		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
 	}
-	return marchGround(st, x, y, pf, elevOf);
+	const known = (lon: number, lat: number) => { const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000), hit = elevMemo.get(k); if (typeof hit === "number") return hit; const hs = demMain?.heightSync?.(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))); if (hs === hs && hs !== undefined) { elevMemo.set(k, hs); return hs; } elevOf(lon, lat); return -1e9; };   // -1e9＝地面なし（持ち上げは 0 で切れるので海面）
+	const m = marchGround(st, x, y, pf, known);
+	if (!m) return ll;
+	const foot = betaToLonLat(st.eye), d = (p: LonLat) => { const c = Math.cos(foot[1] * D2R); return Math.hypot((p[0] - foot[0]) * c, p[1] - foot[1]); };
+	return d(m) < d(ll) - 1e-6 ? m : ll;
 };
 map.unprojectXYAsync = unprojectXYAsync;
 // 止まるたびに画面の格子（8×6）の地面の標高を先に引いておく＝クリック・同期の unproject の反復が 1 回で解ける（地形を描いて傾けた地図だけ）
