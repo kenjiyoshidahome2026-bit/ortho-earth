@@ -22,7 +22,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="story.css">
 <style>.essay figure.ba { margin: 0.6em 0 1.8em; } .essay figure.ba img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); }</style>
-<style>.venn{margin:0.6em 0 1.8em;overflow-x:auto}.venn svg{display:block;width:100%;min-width:520px;height:auto;font-family:var(--gothic,system-ui,sans-serif)}.venn circle{stroke-width:2}.venn .c-ml{fill:rgba(47,111,214,.08);stroke:#2f6fd6}.venn .c-ces{fill:rgba(194,85,42,.08);stroke:#c2552a}.venn .c-ortho{fill:rgba(30,122,74,.10);stroke:#1e7a4a;stroke-width:3}.venn .lbl{font-size:22px;font-weight:700}.venn .lbl.ml{fill:#2f6fd6}.venn .lbl.ces{fill:#c2552a}.venn .lbl.have{fill:#1e7a4a}.venn .it{font-size:14px;fill:#2c241a}.venn .it.sm{font-size:12px}.venn .it.star{font-weight:600}.venn .it.ml{fill:#2f6fd6}.venn .it.ces{fill:#c2552a}.venn .it.pol{fill:#8a7856;font-style:italic}.venn .it.new{fill:#b8327a;font-weight:700}</style>
+<style>.venn{margin:0.6em 0 1.8em;overflow-x:auto}.venn svg{display:block;width:100%;min-width:520px;height:auto;font-family:var(--gothic,system-ui,sans-serif)}.venn circle{stroke-width:2}.venn .c-ml{fill:rgba(47,111,214,.08);stroke:#2f6fd6}.venn .c-ces{fill:rgba(194,85,42,.08);stroke:#c2552a}.venn .c-ortho{fill:rgba(30,122,74,.10);stroke:#1e7a4a;stroke-width:3}.venn .lbl{font-size:22px;font-weight:700}.venn .lbl.ml{fill:#2f6fd6}.venn .lbl.ces{fill:#c2552a}.venn .lbl.have{fill:#1e7a4a}.venn .it{font-size:14px;fill:#2c241a}.venn .it.sm{font-size:12px}.venn .it.star{font-weight:600}.venn .it.ml{fill:#2f6fd6}.venn .it.ces{fill:#c2552a}.venn .it.pol{fill:#8a7856;font-style:italic}.venn .it.new{fill:#b8327a;font-weight:700}.venn .it.hd{font-weight:700}</style>
 </head>
 <body>
 <!-- Stories の記事（apps/www/stories.json のカードから開く）。v2.3.0 の記録＝Cesium の続き（v2.2.0 → v244 の撮影）と MapLibre の公式例 139 本の改良（2026-11-02）。絵は /maplibre/ のギャラリーの本物（左）とこちら（右）を横に並べたもの -->
@@ -31,67 +31,67 @@
 <article class="reading essay">
 <p>2.1 で MapLibre をフォローし、2.2 で Cesium をフォローし、2.3 で独自の描画機能を実装した。ホップ・ステップ・ジャンプである。その上で、2.3 でも二つへのフォローはきちんと続けている。</p>
 <figure class="venn">
-<svg class="venn-svg" viewBox="0 0 720 770" role="img" aria-labelledby="vt-ja vd-ja"><title id="vt-ja">MapLibre・Cesium・ortho-earth の機能ベン図</title><desc id="vd-ja">三つの円が重なる。緑の ortho-earth の円の中は ortho-earth 2.3 で動く。★ は固有の機能、（方針）は意図して入れないもの。</desc>
-<circle class="c-ortho" cx="360" cy="450" r="270"/><circle class="c-ml" cx="250" cy="265" r="230"/><circle class="c-ces" cx="470" cy="265" r="230"/>
-<text class="lbl ml" x="20" y="34">MapLibre</text><text class="lbl ces" x="700" y="34" text-anchor="end">Cesium</text><text class="lbl have" x="360" y="755" text-anchor="middle">ortho-earth</text>
-<text class="it ml star" x="150" y="140.0" text-anchor="middle">★ Style Spec の本家</text>
-<text class="it ml star" x="150" y="160.0" text-anchor="middle">★ Mapbox の系譜</text>
-<text class="it ml" x="150" y="180.0" text-anchor="middle">Maputnik（スタイル編集）</text>
-<text class="it ml" x="150" y="200.0" text-anchor="middle">Martin（タイル配信）</text>
-<text class="it ces star" x="570" y="140.0" text-anchor="middle">★ 3D Tiles の本家</text>
-<text class="it ces star" x="570" y="160.0" text-anchor="middle">★ ion の世界 3D</text>
-<text class="it ces" x="570" y="180.0" text-anchor="middle">iTwin・Bentley 連携</text>
-<text class="it ces" x="570" y="200.0" text-anchor="middle">Cesium Stories</text>
-<text class="it pol" x="605" y="240.0" text-anchor="middle">変換サーバ</text>
-<text class="it pol" x="605" y="256.0" text-anchor="middle">（方針）</text>
-<text class="it both star" x="360" y="112.0" text-anchor="middle">★ 利用者と生態系</text>
-<text class="it pol" x="360" y="134.0" text-anchor="middle">メルカトル平面（方針）</text>
-<text class="it pol" x="360" y="156.0" text-anchor="middle">ネイティブ SDK（方針）</text>
-<text class="it have" x="360" y="262.0" text-anchor="middle">地球儀表示</text>
-<text class="it have" x="360" y="281.0" text-anchor="middle">3D 地形（任意の DEM）</text>
-<text class="it have" x="360" y="300.0" text-anchor="middle">注記・アイコン</text>
-<text class="it have" x="360" y="319.0" text-anchor="middle">GeoJSON・押し出し</text>
-<text class="it have" x="360" y="338.0" text-anchor="middle">ラスタ・WMS/WMTS</text>
-<text class="it have" x="360" y="357.0" text-anchor="middle">マーカー・ポップアップ</text>
-<text class="it have" x="360" y="376.0" text-anchor="middle">点の束ね</text>
-<text class="it have" x="360" y="395.0" text-anchor="middle">地物の問い合わせ</text>
-<text class="it have" x="360" y="414.0" text-anchor="middle">段彩</text>
-<text class="it have sm new" x="543" y="322.0" text-anchor="middle">Cesium 互換の口</text>
-<text class="it have sm " x="545" y="336.4" text-anchor="middle">3D Tiles・I3S</text>
-<text class="it have sm " x="545" y="350.8" text-anchor="middle">glTF・KTX2・clearcoat</text>
-<text class="it have sm " x="545" y="365.2" text-anchor="middle">CZML・時計</text>
-<text class="it have sm " x="543" y="379.6" text-anchor="middle">quantized-mesh</text>
-<text class="it have sm " x="540" y="394.0" text-anchor="middle">WGS84 楕円体</text>
-<text class="it have sm " x="536" y="408.4" text-anchor="middle">影・HDR・環境光</text>
-<text class="it have sm " x="531" y="422.8" text-anchor="middle">平面・多角形の切り抜き</text>
-<text class="it have sm " x="520" y="437.2" text-anchor="middle">ブルーム・被写界深度</text>
-<text class="it have sm " x="502" y="451.6" text-anchor="middle">粒子・雲</text>
-<text class="it have sm " x="480" y="466.0" text-anchor="middle">点群・ボクセル・splat</text>
-<text class="it have sm " x="449" y="480.4" text-anchor="middle">CustomShader</text>
-<text class="it have sm new" x="176" y="328.0" text-anchor="middle">MapLibre 互換の口</text>
-<text class="it have sm " x="175" y="344.1" text-anchor="middle">style.json・式</text>
-<text class="it have sm " x="175" y="360.3" text-anchor="middle">MVT・PMTiles・MLT</text>
-<text class="it have sm " x="176" y="376.4" text-anchor="middle">ヒートマップ・陰影</text>
-<text class="it have sm " x="179" y="392.5" text-anchor="middle">feature-state</text>
-<text class="it have sm " x="184" y="408.6" text-anchor="middle">層の間に差し込み</text>
-<text class="it have sm " x="190" y="424.8" text-anchor="middle">動く画像</text>
-<text class="it have sm " x="204" y="440.9" text-anchor="middle">オフライン（PWA）</text>
-<text class="it have sm " x="225" y="457.0" text-anchor="middle">スマホでも軽い</text>
-<text class="it have sm " x="254" y="473.2" text-anchor="middle">＋ プラグイン相当 6</text>
-<text class="it have star new" x="360" y="518.0" text-anchor="middle">★ 映り込み・接触影・霧・雨・イラスト風</text>
-<text class="it have star" x="360" y="535.0" text-anchor="middle">★ 日本の公共データが中心</text>
-<text class="it have star" x="360" y="552.0" text-anchor="middle">★ 正射 ⇄ 透視のスライダ</text>
-<text class="it have star" x="360" y="569.0" text-anchor="middle">★ サーバ無し・再訪 1 秒</text>
-<text class="it have star" x="360" y="586.0" text-anchor="middle">★ 編集 → GeoPBF → GitHub</text>
-<text class="it have star" x="360" y="603.0" text-anchor="middle">★ Gint の同定と照合</text>
-<text class="it have star" x="360" y="620.0" text-anchor="middle">★ 太陽系まで</text>
-<text class="it have new" x="360" y="637.0" text-anchor="middle">Leaflet・Google Maps のコード</text>
-<text class="it have " x="360" y="654.0" text-anchor="middle">円弧・軌跡・H3・等値線</text>
-<text class="it have " x="360" y="671.0" text-anchor="middle">Equal Earth ⇄ 地球儀</text>
-<text class="it have " x="360" y="688.0" text-anchor="middle">既定で WebGPU</text>
+<svg class="venn-svg" viewBox="-12 0 764 800" role="img" aria-labelledby="vt-ja vd-ja"><title id="vt-ja">MapLibre・Cesium・ortho-earth の機能ベン図</title><desc id="vd-ja">三つの円が重なる。緑の ortho-earth の円の中は ortho-earth 2.3 で動く。（方針）は意図して入れないもの、桃色は v2.x で加わったもの。</desc>
+<circle class="c-ortho" cx="370" cy="465" r="295"/><circle class="c-ml" cx="250" cy="270" r="250"/><circle class="c-ces" cx="490" cy="270" r="250"/>
+<text class="lbl ml" x="20" y="34">MapLibre</text><text class="lbl ces" x="720" y="34" text-anchor="end">Cesium</text><text class="lbl have" x="370" y="788" text-anchor="middle">ortho-earth</text>
+<text class="it ml" x="150" y="134.0" text-anchor="middle">Style Spec の本家</text>
+<text class="it ml" x="150" y="155.0" text-anchor="middle">Mapbox コミュニティーのパワー</text>
+<text class="it ml" x="150" y="176.0" text-anchor="middle">Maputnik（スタイル編集）</text>
+<text class="it ml" x="150" y="197.0" text-anchor="middle">Martin（タイル配信）</text>
+<text class="it ces" x="600" y="112.0" text-anchor="middle">3D Tiles の本家</text>
+<text class="it ces" x="600" y="133.0" text-anchor="middle">ion の世界 3D</text>
+<text class="it ces" x="600" y="154.0" text-anchor="middle">iTwin・Bentley 連携</text>
+<text class="it ces" x="600" y="175.0" text-anchor="middle">Cesium Stories</text>
+<text class="it pol" x="600" y="196.0" text-anchor="middle">変換サーバ（方針）</text>
+<text class="it" x="370" y="122.0" text-anchor="middle">利用者と生態系</text>
+<text class="it pol" x="370" y="141.0" text-anchor="middle">メルカトル平面（方針）</text>
+<text class="it pol" x="370" y="160.0" text-anchor="middle">ネイティブ SDK（方針）</text>
+<text class="it have" x="370" y="240.0" text-anchor="middle">地球儀表示</text>
+<text class="it have" x="370" y="259.0" text-anchor="middle">3D 地形（任意の DEM）</text>
+<text class="it have" x="370" y="278.0" text-anchor="middle">注記・アイコン</text>
+<text class="it have" x="370" y="297.0" text-anchor="middle">GeoJSON・押し出し</text>
+<text class="it have" x="370" y="316.0" text-anchor="middle">ラスタ・WMS/WMTS</text>
+<text class="it have" x="370" y="335.0" text-anchor="middle">マーカー・ポップアップ</text>
+<text class="it have" x="370" y="354.0" text-anchor="middle">点の束ね</text>
+<text class="it have" x="370" y="373.0" text-anchor="middle">地物の問い合わせ</text>
+<text class="it have" x="370" y="392.0" text-anchor="middle">段彩</text>
+<text class="it sm new hd" x="180" y="336.0" text-anchor="middle">MapLibre 互換の口</text>
+<text class="it sm" x="180" y="350.6" text-anchor="middle">style.json・式</text>
+<text class="it sm" x="180" y="365.2" text-anchor="middle">MVT・PMTiles・MLT</text>
+<text class="it sm" x="180" y="379.8" text-anchor="middle">ヒートマップ・陰影</text>
+<text class="it sm" x="180" y="394.4" text-anchor="middle">feature-state</text>
+<text class="it sm" x="180" y="409.0" text-anchor="middle">層の間に差し込み</text>
+<text class="it sm" x="180" y="423.6" text-anchor="middle">動く画像</text>
+<text class="it sm" x="180" y="438.2" text-anchor="middle">オフライン（PWA）</text>
+<text class="it sm" x="180" y="452.8" text-anchor="middle">スマホでも軽い</text>
+<text class="it sm" x="180" y="467.4" text-anchor="middle">＋ プラグイン相当 6</text>
+<text class="it sm new hd" x="562" y="320.0" text-anchor="middle">Cesium 互換の口</text>
+<text class="it sm" x="562" y="334.6" text-anchor="middle">3D Tiles・I3S</text>
+<text class="it sm" x="562" y="349.2" text-anchor="middle">glTF・KTX2・clearcoat</text>
+<text class="it sm" x="562" y="363.8" text-anchor="middle">CZML・時計</text>
+<text class="it sm" x="562" y="378.4" text-anchor="middle">quantized-mesh</text>
+<text class="it sm" x="562" y="393.0" text-anchor="middle">WGS84 楕円体</text>
+<text class="it sm new" x="562" y="407.6" text-anchor="middle">影・HDR・環境光</text>
+<text class="it sm new" x="562" y="422.2" text-anchor="middle">平面・多角形の切り抜き</text>
+<text class="it sm new" x="562" y="436.8" text-anchor="middle">ブルーム・被写界深度</text>
+<text class="it sm new" x="562" y="451.4" text-anchor="middle">粒子・雲</text>
+<text class="it sm" x="562" y="466.0" text-anchor="middle">点群・ボクセル・splat</text>
+<text class="it sm new" x="562" y="480.6" text-anchor="middle">CustomShader</text>
+<text class="it new" x="370" y="540.0" text-anchor="middle">映り込み・接触影・霧・雨・イラスト風</text>
+<text class="it" x="370" y="558.6" text-anchor="middle">日本の公共データが中心</text>
+<text class="it" x="370" y="577.2" text-anchor="middle">正射 ⇄ 透視のスライダ</text>
+<text class="it" x="370" y="595.8" text-anchor="middle">サーバ無し・再訪 1 秒</text>
+<text class="it" x="370" y="614.4" text-anchor="middle">メインスレッドに余裕</text>
+<text class="it" x="370" y="633.0" text-anchor="middle">編集 → GeoPBF → GitHub</text>
+<text class="it" x="370" y="651.6" text-anchor="middle">Gint の同定と照合</text>
+<text class="it" x="370" y="670.2" text-anchor="middle">太陽系まで</text>
+<text class="it new" x="370" y="688.8" text-anchor="middle">Leaflet・Google Maps のコード</text>
+<text class="it" x="370" y="707.4" text-anchor="middle">円弧・軌跡・H3・等値線</text>
+<text class="it" x="370" y="726.0" text-anchor="middle">Equal Earth ⇄ 地球儀</text>
+<text class="it" x="370" y="744.6" text-anchor="middle">既定で WebGPU</text>
 </svg>
 
-<figcaption class="note-small">緑の円の中は ortho-earth 2.3 で動く。★ はそのライブラリだけが持つもの、（方針）は意図して入れないもの、桃色は 2.2〜2.3 で加わったもの。</figcaption>
+<figcaption class="note-small">緑の円の中は ortho-earth 2.3 で動く。（方針）は意図して入れないもの、桃色は v2.x で加わったもの。</figcaption>
 </figure>
 
 <h2>新しい描画</h2>
