@@ -60,6 +60,8 @@ For Japan, [`@ortho-earth/japan`](sdk/japan) is a self-contained bundle of the s
 
 **Upgrading from 1.x?** 2.0 removes the aliases and internal import paths that 1.x kept for compatibility. [`MIGRATION.md`](MIGRATION.md) lists every change, old → new, per package (in Japanese).
 
+**License in one paragraph.** Ortho Earth is free to use for any purpose, commercial included, under GPL-3.0. Bundling it into a web page counts as distribution, so that page's own JavaScript must also be released under the GPL. If you cannot do that, a commercial license is available: contact kenji.yoshida.home.2026@gmail.com. The data-format libraries (`geopbf`, `altpbf`, `geoedit`, `glbconv`) are MIT and have no such condition. Details: [License](#license).
+
 ## Repository layout
 
 The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts are arranged in four layers, hard at the top and soft at the bottom, with the SDKs beside them in `sdk/` ([`LAYERS.md`](LAYERS.md)):
