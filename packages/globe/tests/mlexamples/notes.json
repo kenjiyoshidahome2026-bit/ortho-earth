@@ -29,8 +29,8 @@
 		"en": "Fixed: calculateCameraOptionsFromTo (MapLibre's formula verbatim) and maxZoom defaulting to 22 (a 1.6 m eye height is z21.3; it used to stop at z19, 2026-11-02). Animated example, so level 2 is the ceiling."
 	},
 	"set-center-point-above-ground": {
-		"ja": "直した：注視点の高さ（centerClampedToGround:false＋elevation 541m）・高さ 0 の押し出しも屋根だけ描く（z13 の束ねた建物＝MapLibre の平らな面・2026-11-02）。段 1 の残り＝問い合わせ：本物は絵に建物が無い点（空・白地）でも同じ 2 棟（id 36933340・2780535862）を画面の全幅で返す＝こちらは絵どおり空を返す（2026-11-02 本人裁定＝MapLibre の答えに寄せない）。",
-		"en": "Fixed: the center point's elevation (centerClampedToGround:false with elevation 541 m), and zero-height extrusions now draw their flat roof like MapLibre (the merged z13 buildings, 2026-11-02). Remaining at level 1, by decision: on points where MapLibre's own picture shows no building (sky, blank ground) MapLibre still returns the same two buildings across the whole width; ortho-earth answers from what it draws and returns nothing there."
+		"ja": "直した：地形なしで centerElevation が数の時、MapLibre の口の project／unproject／Marker を注視点の高さ（541m）の球で解く＝MapLibre の transform と同じ（center が画面中央へ戻る・2026-11-02 本人裁定）。絵は前から本物と同じ。Marker は本物と同じく地面より上に出る。エンジン本体は海面の球のまま。",
+		"en": "Fixed: without terrain and with a numeric centerElevation, the MapLibre facade's project/unproject/Marker now solve on a sphere at the centre's elevation (541m), as MapLibre's transform does, so the centre projects back to the middle of the screen (2026-11-02). The picture already matched. Like MapLibre, markers sit above the drawn ground. The engine itself still uses the sea-level sphere."
 	},
 	"elevate-symbols-above-the-terrain": {
 		"ja": "標高が正しく読めるようになり（terrarium の符号化）、街と山並みは本物と同じ構図に。残り＝細い道路と注記の標本で 8 割に届かない・記号の z 持ち上げ（symbol-z-elevate）は未実装。",
