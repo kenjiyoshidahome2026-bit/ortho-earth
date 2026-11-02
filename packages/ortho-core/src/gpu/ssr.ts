@@ -68,7 +68,8 @@ fn ssrCovered(ll: vec2f) -> bool {
 }
 ${FULL_VS}
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-	let q = vec2i(pos.xy) * 2;   // 半解像度の texel → 本体の 2×2 の左上
+	let k4 = u32(SS.rn.z) & 3u;   // 静止の積み上げの番目で 2×2 のどの画素を受け持つかを回す（4 枚で全画素＝細い部材が埋まる・動いている間は 0）
+	let q = vec2i(pos.xy) * 2 + vec2i(i32(k4 & 1u), i32(k4 >> 1u));   // 半解像度の texel → 本体の 2×2 の左上
 	let Pc = ssrPos(q);
 	if (Pc.w < 0.0) { return vec4f(0.0); }
 	let wp = SS.eye.xyz + Pc.xyz;
@@ -115,7 +116,7 @@ ${FULL_VS}
 	let nSteps = i32(SS.p.w);
 	let jit = fract(52.9829189 * fract(dot(pos.xy + SS.rn.z * 5.588238, vec2f(0.06711056, 0.00583715))));   // rn.z＝静止の積み上げの番目（毎フレームずらす）
 	let O = Pc.xyz + n * (Pc.w * 2.0e-4);   // 自分の面に当たらない下駄（視距離の 0.02%）
-	let maxD = min(SS.p.y, max(Pc.w * 2.0, 50.0 * SSR_M));   // 歩く長さ＝maxDistance と視距離の 2 倍の小さい方（画面に写る物はその内・歩幅を細かく）
+	let maxD = SS.p.y;   // 歩く長さ＝maxDistance（視距離の 2 倍で頭打ちにすると、手前の水面から奥の岸のビルへ届かず映り込みが途中で切れた・Mac 2026-11-02）
 	var tPrev = 0.0; var tHit = -1.0; var front = true;
 	for (var i = 0; i < nSteps; i++) {
 		let s = (f32(i) + jit) / f32(nSteps);
@@ -164,7 +165,17 @@ export const SSR_COMP_WGSL = /* wgsl */`
 @group(0) @binding(2) var<uniform> CP: vec4f;   // (1/W, 1/H, 0, 0)（本体の画素）
 ${FULL_VS}
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-	return textureSampleLevel(rT, rS, pos.xy * CP.xy, 0.0);
+	return textureSampleLevel(rT, rS, (pos.xy - CP.zw) * CP.xy, 0.0);   // CP.zw＝半解像度の texel が受け持つ画素のずれ（積み上げで 2×2 を回す）
+}`;
+// ぼかし（半解像度・前乗算のまま）：縦横 2 段の 5 点（1,4,6,4,1）/16＝点々のブロックと壁のまだらを均す（映り込みのごく浅い粗さ）
+export const SSR_BLUR_WGSL = (dir: readonly [number, number]): string => /* wgsl */`
+@group(0) @binding(0) var bT: texture_2d<f32>;
+${FULL_VS}
+@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+	let xy = vec2i(pos.xy); let dim = vec2i(textureDimensions(bT));
+	var s = vec4f(0.0);
+	for (var i = -2; i <= 2; i++) { s += select(select(1.0, 4.0, abs(i) == 1), 6.0, i == 0) * textureLoad(bT, clamp(xy + vec2i(${dir[0]}, ${dir[1]}) * i, vec2i(0), dim - vec2i(1)), 0); }
+	return s / 16.0;
 }`;
 
 /** [F X Y]（列）の逆行列の行（f64・純関数＝Node の検定が読む）。Q＝w·(F＋x·X＋y·Y) → 行 i0·Q＝w・i1·Q＝w·x・i2·Q＝w·y。 */
@@ -217,14 +228,16 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 	const cBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const samp = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	const u = new Float32Array(56);
-	let colT: GPUTexture | null = null, refT: GPUTexture | null = null, cw = 0, ch = 0;
-	let bgS: { dep: GPUTexture; col: GPUTexture; bg: GPUBindGroup } | null = null, bgC: GPUBindGroup | null = null;
+	let colT: GPUTexture | null = null, refT: GPUTexture | null = null, refB: GPUTexture | null = null, cw = 0, ch = 0;
+	let bgS: { dep: GPUTexture; col: GPUTexture; bg: GPUBindGroup } | null = null, bgC: GPUBindGroup | null = null, bgBH: GPUBindGroup | null = null, bgBV: GPUBindGroup | null = null;
+	const bglB = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: FS, texture: { sampleType: "unfilterable-float" } }] });
 	function ensure(W: number, H: number): void {
 		if (colT && cw === W && ch === H) return;
-		colT?.destroy(); refT?.destroy();
+		colT?.destroy(); refT?.destroy(); refB?.destroy();
 		colT = device.createTexture({ size: [W, H], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });   // 本体の色の控え（1x）
 		refT = device.createTexture({ size: [Math.max(1, W >> 1), Math.max(1, H >> 1)], format: "rgba16float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });   // 映り込み（前乗算）
-		cw = W; ch = H; bgS = null; bgC = null;
+		refB = device.createTexture({ size: [Math.max(1, W >> 1), Math.max(1, H >> 1)], format: "rgba16float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });   // 横ぼかしの控え
+		cw = W; ch = H; bgS = null; bgC = null; bgBH = null; bgBV = null;
 	}
 	function encode(enc: GPUCommandEncoder, d: SsrFrame): void {
 		ensure(d.W, d.H);
@@ -239,6 +252,9 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 				{ binding: 3, resource: colT!.createView() },
 			] }) };
 		}
+		const pBH = pipe("blurH", () => mk(SSR_BLUR_WGSL([1, 0]), [bglB], [{ format: "rgba16float" }], 1, "ssrBlurH")), pBV = pipe("blurV", () => mk(SSR_BLUR_WGSL([0, 1]), [bglB], [{ format: "rgba16float" }], 1, "ssrBlurV"));
+		bgBH ??= device.createBindGroup({ layout: bglB, entries: [{ binding: 0, resource: refT!.createView() }] });
+		bgBV ??= device.createBindGroup({ layout: bglB, entries: [{ binding: 0, resource: refB!.createView() }] });
 		bgC ??= device.createBindGroup({ layout: bglC, entries: [{ binding: 0, resource: refT!.createView() }, { binding: 1, resource: samp }, { binding: 2, resource: { buffer: cBuf } }] });
 		// ①色の写し
 		if (d.canvasTex) enc.copyTextureToTexture({ texture: d.canvasTex }, { texture: colT! }, [d.W, d.H]);
@@ -256,14 +272,18 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 		u[42] = d.phase ?? 0;
 		if (o.rain && o.rain > 0 && d.pole) { const fr = fxFrame(e, d.pole); u[40] = o.rain; u[41] = (d.time ?? 0) % 600; u.set(fr.an, 44); u.set(fr.ex, 48); u.set(fr.ny, 52); }
 		device.queue.writeBuffer(sBuf, 0, u);
-		device.queue.writeBuffer(cBuf, 0, new Float32Array([1 / d.W, 1 / d.H, 0, 0]));
+		const k4 = (d.phase ?? 0) & 3;
+		device.queue.writeBuffer(cBuf, 0, new Float32Array([1 / d.W, 1 / d.H, k4 & 1, k4 >> 1]));
 		// ②映り込み（半解像度）
 		const p2 = enc.beginRenderPass({ colorAttachments: [{ view: refT!.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
 		p2.setPipeline(pS); p2.setBindGroup(0, d.bg0); p2.setBindGroup(1, d.bg1); p2.setBindGroup(2, bgS.bg); p2.draw(3); p2.end();
+		// ぼかし（横 → refB・縦 → refT）
+		const blur = (view: GPUTextureView, p: GPURenderPipeline, bg: GPUBindGroup) => { const ps = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] }); ps.setPipeline(p); ps.setBindGroup(0, bg); ps.draw(3); ps.end(); };
+		blur(refB!.createView(), pBH, bgBH); blur(refT!.createView(), pBV, bgBV);
 		// ③合成（本体の色の的へ over）
 		const p3 = enc.beginRenderPass({ colorAttachments: [{ view: d.colorView, loadOp: "load", storeOp: "store" }] });
 		p3.setPipeline(pC); p3.setBindGroup(0, bgC); p3.draw(3); p3.end();
 	}
-	function dispose() { colT?.destroy(); refT?.destroy(); colT = refT = null; bgS = null; bgC = null; sBuf.destroy(); cBuf.destroy(); pipes.clear(); }
-	return { encode, dispose, bytes: () => cw * ch * 4 + (cw >> 1) * (ch >> 1) * 8 };
+	function dispose() { colT?.destroy(); refT?.destroy(); refB?.destroy(); colT = refT = refB = null; bgS = null; bgC = null; bgBH = null; bgBV = null; sBuf.destroy(); cBuf.destroy(); pipes.clear(); }
+	return { encode, dispose, bytes: () => cw * ch * 4 + (cw >> 1) * (ch >> 1) * 16 };
 }
