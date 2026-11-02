@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.3 is out — hop, step, jump</title>
+<meta name="description" content="@ortho-earth/globe and core are now 2.3. 2.1 was about MapLibre, 2.2 about CesiumJS; 2.3 moves closer to both and adds rendering effects neither has. Cesium Sandcastle examples with the same picture went from 190 to 226, and MapLibre official examples that only partly run from 12 to 3.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/release-2-3">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/release-2-3">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/release-2-3-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/release-2-3">
+<meta property="og:title" content="Ortho Earth 2.3 is out">
+<meta property="og:description" content="2.1 was MapLibre, 2.2 was CesiumJS, 2.3 moves closer to both and goes past them with new rendering effects. 226 Sandcastle examples with the same picture; 3 MapLibre examples left that only partly run.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/release-2-3">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-11-02">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Ortho Earth 2.3 is out","description":"@ortho-earth/globe and core are now 2.3. 2.1 was about MapLibre, 2.2 about CesiumJS; 2.3 moves closer to both and adds rendering effects neither has. Cesium Sandcastle examples with the same picture went from 190 to 226, and MapLibre official examples that only partly run from 12 to 3.","url":"https://www.ortho-earth.com/docs/release-2-3","mainEntityOfPage":"https://www.ortho-earth.com/docs/release-2-3","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-02","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="release-2-3-jp.html" lang="ja">日本語</a></nav>
+
+<header class="masthead"><h1>Ortho Earth 2.3 is out</h1><p class="subtitle">Hop, step, jump</p><p class="byline">2026-11-02 &middot; Kenji Yoshida &middot; @ortho-earth/globe &middot; @ortho-earth/core &middot; @ortho-earth/cesium</p></header>
+<article class="reading essay">
+
+<p>
+<code>@ortho-earth/globe</code> and <code>@ortho-earth/core</code> are now 2.3, together with <code>@ortho-earth/cesium</code> 0.2.0 and <code>@ortho-earth/voxel</code> 0.6.1.
+</p>
+
+<p>
+Put side by side, the three releases of the last ten days or so make a hop, a step and a jump.
+</p>
+
+<div class="table-wrap"><table>
+	<tr><th>Release</th><th>Date</th><th>What it did</th></tr>
+	<tr><td>Hop　2.1</td><td>Oct 23</td><td>The MapLibre release. Map text moved to the GPU; MapLibre official examples with the same picture went from 66 to 79</td></tr>
+	<tr><td>Step　2.2</td><td>Oct 31</td><td>The CesiumJS release. Every graded Sandcastle example runs; same picture went from 23 to 190</td></tr>
+	<tr><td>Jump　2.3</td><td>Nov 2</td><td>One more step toward both, and rendering effects that neither has</td></tr>
+</table></div>
+
+<p>
+At the end of 2.2 I wrote a formula: Ortho Earth = MapLibre &times; Cesium &minus; Mercator + &alpha;. 2.3 tightens the MapLibre and Cesium terms, and is the first release that puts something concrete into the + &alpha;.
+</p>
+
+<h2 id="cesium">1. One more step toward CesiumJS</h2>
+
+<p>
+The yardstick is the same as for 2.2: Cesium's own Sandcastle examples. Each runs unchanged on real CesiumJS and on the globe, and two pictures taken at the same time from the same camera are compared.
+This time 303 are graded, including a few that the sampled picture cannot judge and were checked by eye. Every pair is at <a href="/sandcastle/" target="_top">/sandcastle</a>.
+</p>
+
+<div class="table-wrap"><table>
+	<tr><th>Level</th><th>First run (Oct 25)</th><th>2.2 (Oct 31)</th><th>2.3 (Nov 2)</th></tr>
+	<tr><td>3　Same picture</td><td>23</td><td>190</td><td><strong>226</strong></td></tr>
+	<tr><td>2　Same answers</td><td>120</td><td>107</td><td>77</td></tr>
+	<tr><td>1　Runs</td><td>129</td><td>0</td><td>0</td></tr>
+	<tr><td>0　Does not run</td><td>24</td><td>0</td><td>0</td></tr>
+</table></div>
+
+<p>
+After 2.2, all 309 examples were re-shot more than 20 times, and each time one family of differences was fixed. This is what went into the engine, all of it usable from the plain globe API too:
+</p>
+
+<ul>
+	<li>Imagery split view (ImageryLayer.splitDirection), and imagery tiles as fine as Cesium picks them.</li>
+	<li>3D Tiles edge visibility (EXT_mesh_primitive_edge_visibility), shadows from translucent 3D Tiles, and 3D lines that stop in front of buildings.</li>
+	<li>Entity shapes lit with Cesium's phong lighting, front and back faces of closed shapes, and shapes clamped to terrain.</li>
+	<li>Globe clipping planes and limit rectangle, and time-dynamic WMTS.</li>
+</ul>
+
+<h2 id="maplibre">2. One more step toward MapLibre GL JS</h2>
+
+<p>
+While chasing Cesium, how did things look against the other yardstick, MapLibre's 139 official examples (137 graded)? I measured again, against MapLibre GL JS 6.11.2.
+Every pair is at <a href="/maplibre/" target="_top">/maplibre</a>.
+</p>
+
+<div class="table-wrap"><table>
+	<tr><th>Level</th><th>2.1 (Oct 23)</th><th>After 2.2 (Nov 2, morning)</th><th>2.3 (Nov 2)</th></tr>
+	<tr><td>3　Same picture</td><td>79</td><td>85</td><td><strong>91</strong></td></tr>
+	<tr><td>2　Same answers</td><td>47</td><td>40</td><td>43</td></tr>
+	<tr><td>1　Runs</td><td>11</td><td>12</td><td><strong>3</strong></td></tr>
+	<tr><td>0　Does not run</td><td>0</td><td>0</td><td>0</td></tr>
+</table></div>
+
+<p>
+The changes are in the MapLibre-compatible API (<code>@ortho-earth/globe/maplibre</code>). The globe's own API behaves as before.
+</p>
+
+<ul>
+	<li>The vertical field of view is MapLibre's 36.87°. The default Mercator constraint, maxZoom 22 and the flyTo and easeTo choreography also follow MapLibre.</li>
+	<li>Unproject on terrain walks the line of sight from near to far and returns the first point where it meets the ground.</li>
+	<li>Terrain exaggeration applies to the centre's height and to queryTerrainElevation too.</li>
+	<li>Custom layers on the globe use MapLibre's axes, so three.js models stand as they do there.</li>
+</ul>
+
+<h2 id="effects">3. + &alpha;: new rendering effects</h2>
+
+<p>
+<code>map.setPostChain</code> gains six effects (WebGPU only; on WebGL2 they do nothing). Neither Cesium nor MapLibre has them.
+</p>
+
+<pre><code>map.setPostChain([
+  { type: "ssr", ocean: 0.5, facades: 0.3 },   // screen-space reflections: sea, wet ground, glass facades
+  { type: "contactShadow" },                   // contact shadows on terrain, buildings and models at any zoom
+  { type: "heightFog", density: 0.4 },         // height fog: morning mist in the valleys
+  { type: "godRays" },                         // light shafts through ridges and between buildings
+  { type: "rain", intensity: 0.8 },            // rain: wet ground, puddles, ripples, streaks
+  { type: "toon", levels: 4 }                  // an illustration style
+]);</code></pre>
+
+<p>
+They all reuse the depth and normals the engine already had. SSR is about 380 lines and the other five about 720, and each went in within a day.
+Along with them, a still camera now refines its picture over a few frames (jittered and accumulated).
+</p>
+
+<p>
+2.1 and 2.2 rebuilt the inside so the globe could do what two other engines do. On that base a new effect is a small addition. This release was also a check of that.
+</p>
+
+<h2 id="same">4. Same API as 2.2</h2>
+
+<p>
+Everything in 2.3 is added on top. Code written for 2.2 runs on 2.3 as it is.
+There is one visible change: an <code>ssr</code> pass in <code>setPostChain</code> used to be stored only, and on WebGPU it now draws (the sea reflects by default).
+<code>@ortho-earth/cesium</code> 0.2.0 needs <code>@ortho-earth/globe</code> 2.3 or later.
+</p>
+
+<pre><code>npm i @ortho-earth/globe@2.3
+npm i @ortho-earth/cesium      # CesiumJS code</code></pre>
+
+<p>
+The detailed record of these three days is in "<a href="story-v230.html">V.2.3.0 Between two gods</a>".
+</p>
+
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+
+</article>
+</body>
+</html>
