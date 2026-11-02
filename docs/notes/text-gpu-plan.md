@@ -1,9 +1,9 @@
 # テキスト描画の WebGPU 化・実施計画（2026-10-22 起案）
 
 位置づけ：注記（基図／vector／gint の文字・記号・標識）の「描く」部分を Canvas2D から WebGPU の SDF 字形アトラス＋インスタンス描画へ移す計画。
-本人向けの説明は Claude Doc「テキスト描画のWebGPU化計画」（https://claude.ai/artifact/FZ4yB6uaSxzNNTYjV2KkdT）、順番は `render roadmap.md` の **T** が正本。ここは実装側の正本（現状・設計・門・逃げ道・実施記録）。
+本人向けの説明は Claude Doc「テキスト描画のWebGPU化計画」（https://claude.ai/artifact/FZ4yB6uaSxzNNTYjV2KkdT）、順番は `docs/notes/render-roadmap.md` の **T** が正本。ここは実装側の正本（現状・設計・門・逃げ道・実施記録）。
 
-掟は `perf plan.md` と同じ：①URL の逃げ道（`?text=2d|gpu`）②既存の関門を緑のまま＋絵の一致 ③物差しは `?perf=1` の注記の行と `bench-perf.mjs --set labels` ④両バックエンド 1:1 を崩す時は理由を書く（WebGL2 は P6 まで Canvas2D）⑤危険は成果より先に申告。
+掟は `docs/notes/perf-plan.md` と同じ：①URL の逃げ道（`?text=2d|gpu`）②既存の関門を緑のまま＋絵の一致 ③物差しは `?perf=1` の注記の行と `bench-perf.mjs --set labels` ④両バックエンド 1:1 を崩す時は理由を書く（WebGL2 は P6 まで Canvas2D）⑤危険は成果より先に申告。
 
 ## 0. 結論
 
@@ -195,7 +195,7 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
 - 集約は source ごとに 1 回（data・半径・最大段・clusterProperties が同じ間は使い回す＝`clusterOf`）。旧＝層を足すたびに組み直し。
 - 問い合わせ：`queryRenderedFeatures` の丸は gint／記号の当たり（`expansionZoom` も添える）・`querySourceFeatures` は今の段の地物（画面＋余白 1/4）・`getClusterExpansionZoom` は `byCid`。隠しの属性は `stripMl` が外す。
 - `map.gadget.cluster`（ネイティブの口）も §4j で同じ道へ（cluster-2d は消した）。
-- 字の外で残る毎フレームの Canvas2D のうち、MapLibre の層を受ける pattern-2d（fill-pattern・line-pattern・line-offset・line-gradient の geojson 層）は `geojson vt plan.md` で vtdraw へ移す。
+- 字の外で残る毎フレームの Canvas2D のうち、MapLibre の層を受ける pattern-2d（fill-pattern・line-pattern・line-offset・line-gradient の geojson 層）は `docs/notes/geojson-vt-plan.md` で vtdraw へ移す。
 
 門：t-mlcompat の cluster-layer-zoom-range・cluster-properties-and-id・query-source-features（layers）・cluster-without-circle-layer（live）・t-mlzoom の expansionZoom・`tests/t-aggregate.mjs` ⑤（どの段も件数の和＝点の数・段ごとの地物＝buildClusters の段）。
 
@@ -237,5 +237,5 @@ P3 は 2 本以上に割る：**1 本目＝labels2d が描く記号（記号帳�
 | # | 問い | 裁定 |
 |---|---|---|
 | 1 | 字の元の既定 | **2026-10-22 本人**：style に glyphs があれば PBF＋漢字・かな・ハングルは端末フォント（MapLibre と同じ）。glyphs が無ければ (b)＝端末フォントだけ |
-| 2 | WebGL2 は Canvas2D のままでよいか | `render roadmap.md` §5 #11 の推奨＝当面 Canvas2D（最前面）・T-P6 で移植 |
-| 3 | P1 の字の質を見る端末 | `render roadmap.md` §5 #12 の推奨＝Mac の dpr 2 と外部モニタ等の dpr 1 の両方 |
+| 2 | WebGL2 は Canvas2D のままでよいか | `docs/notes/render-roadmap.md` §5 #11 の推奨＝当面 Canvas2D（最前面）・T-P6 で移植 |
+| 3 | P1 の字の質を見る端末 | `docs/notes/render-roadmap.md` §5 #12 の推奨＝Mac の dpr 2 と外部モニタ等の dpr 1 の両方 |

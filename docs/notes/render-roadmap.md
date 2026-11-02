@@ -1,13 +1,13 @@
 # 描画の統合ロードマップ（2026-10-22 起案）
 
 位置づけ：同じ日に起案した 3 本の計画を **1 本の優先順位** に並べ直したもの。個々の設計・門・逃げ道は各計画が正本で、ここは「どの順で・何を待って・何を一緒にやるか」だけを書く。
-実装は本計画の外＝**着手は本人裁定**（`perf plan.md` と同じ）。
+実装は本計画の外＝**着手は本人裁定**（`docs/notes/perf-plan.md` と同じ）。
 
 | 略号 | 計画 | 所在 | 段 |
 |---|---|---|---|
 | **S** | MapLibre style 互換の向上 | Claude Doc「MapLibre スタイル互換性の向上計画」（台帳の正典は `packages/globe/maplibre-compat.md`） | P0 物差し／P1 基図の絵／P2 層順と文字／P3 細目 |
-| **T** | テキスト描画の WebGPU 化 | `packages/ortho-core/text gpu plan.md`（本人向けは Claude Doc「テキスト描画のWebGPU化計画」）・**P0 実施済** | P0 TextSink 切り出し／P1 線沿い GPU／P2 全文字 GPU・層の位置で描く／P3 記号・標識・symbols-2d／P4 glyph PBF／P5 投影 GPU／P6 WebGL2 |
-| **V** | ベクタータイル描画の高速化 | `packages/ortho-core/vt perf plan.md`（PR #525） | Ph0 計器／Ph1 tile worker 速攻／Ph2 GPU 常駐プール（旧 perf plan P2）／Ph3 paint 表／Ph4 結合頻度 |
+| **T** | テキスト描画の WebGPU 化 | `docs/notes/text-gpu-plan.md`（本人向けは Claude Doc「テキスト描画のWebGPU化計画」）・**P0 実施済** | P0 TextSink 切り出し／P1 線沿い GPU／P2 全文字 GPU・層の位置で描く／P3 記号・標識・symbols-2d／P4 glyph PBF／P5 投影 GPU／P6 WebGL2 |
+| **V** | ベクタータイル描画の高速化 | `docs/notes/vt-perf-plan.md`（PR #525） | Ph0 計器／Ph1 tile worker 速攻／Ph2 GPU 常駐プール（旧 perf plan P2）／Ph3 paint 表／Ph4 結合頻度 |
 
 以下、項目は「S-P1-2」（S の P1 の 2 番）・「T-P2」・「V-Ph2」のように指す。
 
@@ -45,7 +45,7 @@
 
 | 順 | 項目 | 中身 | 出口の門 |
 |---|---|---|---|
-| 1 | **V-Ph0** | 計器 e（要求→画面の中央値／p90）・計器 f（結合の量）・bench-tile に都心 z16 と富士 z13 の見本 | `vt perf plan.md` §8 の表が Mac の 3 行埋まる |
+| 1 | **V-Ph0** | 計器 e（要求→画面の中央値／p90）・計器 f（結合の量）・bench-tile に都心 z16 と富士 z13 の見本 | `docs/notes/vt-perf-plan.md` §8 の表が Mac の 3 行埋まる |
 | 2 | **S-P0-1・2・4** | MapLibre expression-tests の node の門・v8.json の網羅表の自動生成・公式例の爪車を o1014 に揃える | 外の分母が npm test に乗る・known.json の未反映 11 件が解消 |
 | 3 | **S-P0 追加：式の分類** | `expr.ts` の compile に `kind`（constant／zoom／data／zoom×data）を足す。網羅表と同じ走査で実在 style 14 本の層を分類し件数を出す | expression-tests 緑・分類の件数表（V-Ph3 の設計材料） |
 | 4 | **T-P0**（✓ 2026-10-22） | labels2d の描画呼び出しを TextSink に、字の寸法を口に切り出す（Canvas2D 版で同じ絵）。計測場面（デルフト・東京 z15・世界 z3）と `?perf=1` の注記の行 | `labels2d.mjs` 全通過・t-mlcompat 不変・画素一致 |
@@ -71,7 +71,7 @@
 
 | 順 | 項目 | 中身 | 出口の門 |
 |---|---|---|---|
-| 11 | **V-Ph2** GPU 常駐プール＋タイル単位 draw＝**2026-10-22 実装**（step A・C＝PR #533・D は追加なし・**B は棚**＝Mac の bench で 3 場面 60fps・hitch 0・draw 200〜300 本/フレーム＝`vt perf plan.md` §4・§8） | step A プールと転送 → B render bundle → C フェードと LOW_MEM → D 結合側の後始末 | classic と md の絵一致（**達成**＝GL2 t-mdparity 0 px・WebGPU は Mac Apple Metal の verify:webgpu で 2D/3D とも 12 px・0.00%・dmax 13＝2026-10-22）・`[scene] apply` 4ms 超が 3 シーンでゼロ（**達成**）・`?nomd=1` |
+| 11 | **V-Ph2** GPU 常駐プール＋タイル単位 draw＝**2026-10-22 実装**（step A・C＝PR #533・D は追加なし・**B は棚**＝Mac の bench で 3 場面 60fps・hitch 0・draw 200〜300 本/フレーム＝`docs/notes/vt-perf-plan.md` §4・§8） | step A プールと転送 → B render bundle → C フェードと LOW_MEM → D 結合側の後始末 | classic と md の絵一致（**達成**＝GL2 t-mdparity 0 px・WebGPU は Mac Apple Metal の verify:webgpu で 2D/3D とも 12 px・0.00%・dmax 13＝2026-10-22）・`[scene] apply` 4ms 超が 3 シーンでゼロ（**達成**）・`?nomd=1` |
 | 12 | **T-P1** 線沿いの注記を GPU へ（実装済・`?text=gpu`・実機の門待ち） | SDF アトラス（Canvas2D→EDT）・字のパイプライン。足場の最前面 webgpu canvas | デルフト 60fps・注記 CPU 1ms 未満・字の質を実機で目視 |
 | 13 | S-P1-4・5 | 模様（fill/line/background-pattern）・`*-translate`・line-blur・circle-blur（GL2 先） | 互換の爪車・basemap looks different の減少 |
 
@@ -92,10 +92,10 @@ V-Ph2 と T-P1 は触るファイルが別（`gpu/renderer.ts` の地図側と�
 **14 の進み（2026-10-22）**：本人裁定（決定カード）「paint 表に一本化」＝互換のスレッドで実装。(a) 類（地物に依らない色・不透明度・線幅）を GL2 で毎フレーム今の z に（core `paintzoom.ts`・頁 `t-paintzoom`・style-corpus の「基図の paint のズーム」766 → 134 層）。(c) 類は件数が少ない（地理院 optimal_bvmap の 1 本）ので焼くまま。残り＝(b) 類の行（テーマ切替・setPaintProperty を組み直し無しに）・WebGPU 版（実機日 ④）。
 **14 の進み・続き（2026-10-22）**：ずらし（line-offset）も (a) 類に入れた（地物に依らないずらしは `u_pzO`＝今の z）。語 6 が空く＝ずらす層の破線もシェーダ（線分レコードは 8 語のまま＝破線の列は語 6＝距離・語 7＝角の継ぎ）。style-corpus の「基図の paint のズーム」134 → 102 層・「CPU で刻む破線」43 → 5 層。
 
-**14 の進み・WebGPU 版（2026-11-01・改善計画の段階 2）**：(a) 類・pzOver・(b) 類の表を WebGPU の renderer にも（`vt perf plan.md` §5「WebGPU 版」）。表の中身は `painttable-store.ts` に抜いて GL2 と共有。残り＝(c) 類（zoom×data）は焼くまま（裁定）。
+**14 の進み・WebGPU 版（2026-11-01・改善計画の段階 2）**：(a) 類・pzOver・(b) 類の表を WebGPU の renderer にも（`docs/notes/vt-perf-plan.md` §5「WebGPU 版」）。表の中身は `painttable-store.ts` に抜いて GL2 と共有。残り＝(c) 類（zoom×data）は焼くまま（裁定）。
 **14 の進み・続き 2（2026-10-22）**：setPaintProperty の速い道（(b) 類の前段）＝基図の塗りと線の地物に依らない色・不透明度・線幅・ずらしは組み直さない（GL2・`paintFast`・頁 `t-paintfast`）。残り＝(b) 類の行（地物ごとの値・feature-state を組み直し無しに）・WebGPU 版。
 
-**14 の進み・続き 3（2026-10-22）**：(b) 類の段 1＝地物の属性を読む色・不透明度の層は、GL2 の md で色の語を表の行として読む（行の鍵＝式が読む属性の組・行の値は焼いた色＝絵は同じ・逃げ道 `?pt=0`）。段取り（段 2＝setPaintProperty の (b) の値を表の書き換えに・段 3＝feature-state）は `vt perf plan.md` §5。段 2 の色・不透明度＝組み直さない（同じ属性を読む新しい式は描き手が表の行を評価し直す）。段 2b＝地物に依る線幅も表の行（2 texel 目の半幅・線分プールの語 5 は残す＝表を読めない描き手の分）。実在 14 本では地理院 optimal_bvmap の 8 層だけ（zoom×data の線幅 68 層は裁定どおり焼くまま）。段 3＝基図の feature-state（地物ごとの行・描き手が状態の置かれた地物の行だけ評価し直す＝組み直さない・使わなくなった行は使い回す）。残り＝WebGPU 版（実機の日）。
+**14 の進み・続き 3（2026-10-22）**：(b) 類の段 1＝地物の属性を読む色・不透明度の層は、GL2 の md で色の語を表の行として読む（行の鍵＝式が読む属性の組・行の値は焼いた色＝絵は同じ・逃げ道 `?pt=0`）。段取り（段 2＝setPaintProperty の (b) の値を表の書き換えに・段 3＝feature-state）は `docs/notes/vt-perf-plan.md` §5。段 2 の色・不透明度＝組み直さない（同じ属性を読む新しい式は描き手が表の行を評価し直す）。段 2b＝地物に依る線幅も表の行（2 texel 目の半幅・線分プールの語 5 は残す＝表を読めない描き手の分）。実在 14 本では地理院 optimal_bvmap の 8 層だけ（zoom×data の線幅 68 層は裁定どおり焼くまま）。段 3＝基図の feature-state（地物ごとの行・描き手が状態の置かれた地物の行だけ評価し直す＝組み直さない・使わなくなった行は使い回す）。残り＝WebGPU 版（実機の日）。
 
 **17 の進み（2026-10-22・互換のスレッド）**：S-P2-2 基図の moveLayer＝基図の層の順の上書き（`baseMoves`）で組み直す（描く順・注記の li・getStyle・#123 の差し込みが追随）。分担（テキストのスレッドと合意）：注記を層の位置で描くのは T の領分（WebGPU の真俯瞰＝T-P2 済・GL2＝T-P6）。geojson の層（gint）を基図の層の間に挟む件は互換のスレッドが引き受け（コーディネータ）、Kenji 裁定＝後ろに基図の層がある geojson の層だけ G-2（#568）の切ったタイルで vtdraw へ＝#123 の差し込みに乗せる（基図の上の層は gint のまま）。
 
@@ -142,7 +142,7 @@ WebGPU の絵はクラウドの器（SwiftShader の GL だけ）で検定でき
 | 実機日 | 見る物 | 物差し |
 |---|---|---|
 | ① 波 2 の後 | S-P1-1 cap/join・S-P1-3 破線の WebGPU 版・V-Ph1 の効き | verify:examples・`bench-perf.mjs` 3 シーン（計器 e） |
-| ② 波 3 前半＝**2026-10-22 済み** | V-Ph2 step A の classic と md の絵一致（t-mdparity PASS・bench-perf 3 場面 60fps） | `webgpu port.md` の標準 8 ビュー＋東京駅 PLATEAU の readback |
+| ② 波 3 前半＝**2026-10-22 済み** | V-Ph2 step A の classic と md の絵一致（t-mdparity PASS・bench-perf 3 場面 60fps） | `docs/design/webgpu-port.md` の標準 8 ビュー＋東京駅 PLATEAU の readback |
 | ③ 波 3 後半 | V-Ph2 step B・T-P1 の字の質（dpr 2 と dpr 1） | `[scene] apply` 4ms 超・gpuMap・デルフト 60fps |
 | ④ 波 4 の後 | V-Ph3 の線幅の連続・T-P2 の層順の場面・既定を GPU に切り替えてよいか | 地理院標準・liberty を MapLibre と並べる |
 | ⑤ 波 5 の後 | S-P2 の重なり順の違い 0・PBF の字形・iPhone（LOW_MEM） | 同上＋iPhone の 3 行 |

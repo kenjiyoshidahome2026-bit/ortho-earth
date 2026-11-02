@@ -1,7 +1,7 @@
 # 描画の速さの俯瞰（WebGPU バックエンド・2026-09-26）
 
-位置づけ：`webgpu port.md`（移植の設計・轍）と `fallback-ladder.md`（端末ティア・jetsam）の姉妹編。
-「1 フレームの時間がどこに溶けているか」の地図と、伸びしろの序列。**実施の手順・門・計測は `perf plan.md`**。
+位置づけ：`docs/design/webgpu-port.md`（移植の設計・轍）と `docs/design/fallback-ladder.md`（端末ティア・jetsam）の姉妹編。
+「1 フレームの時間がどこに溶けているか」の地図と、伸びしろの序列。**実施の手順・門・計測は `docs/notes/perf-plan.md`**。
 読んだ版＝main 432042e4（PR #61 マージ直後・AO 桁落ち根治後）。数値は静的読解による**見立て**（桁の目安）で、
 実測は plan の Phase 0 で置き換える。着手は本人裁定「他の件が片付き次第」。
 
@@ -24,7 +24,7 @@
 | 3 | AO（`fx.ao` の時だけ） | 半解像度 4 パス | 既定 off |
 | 4 | gint idfill（paint 時） | 別 attachment（rgba32float） | |
 | 5 | **gint main** | loadOp:load で色と深度ステンシルを持ち込む→塗り扇（3 頂点/辺）→cover→線（6 頂点/辺・可視 run ごと draw）→隠線→点→ハイライト | **TBDR ではここが色＋深度ステンシルの store/load 1 往復**（main の end と gint の begin） |
-| 6 | resolve（4x の時） | 静止の 1 枚だけ | 遷移時AA で解決済み（`fallback-ladder.md` §6） |
+| 6 | resolve（4x の時） | 静止の 1 枚だけ | 遷移時AA で解決済み（`docs/design/fallback-ladder.md` §6） |
 
 UBO の書き込みは frame 5 slot＋param＋globe＋sky＋plBatch＋overlay＋gint gf/gp＋AO ≈ 15 本/フレーム＝軽い。
 
@@ -72,8 +72,8 @@ UBO の書き込みは frame 5 slot＋param＋globe＋sky＋plBatch＋overlay＋
 WebGPU に multiDraw は無いが、タイルごとの `drawIndexed` に **firstInstance＝タイル番号**を運び、原点は storage buffer で引き、
 その列を **render bundle** に 1 回記録して毎フレーム `executeBundles`＝CPU 発行ゼロ。scene worker のアロケータ（free-list・pendingFree・
 grow/up/dl の FIFO）は GL md のまま流用できる（renderer 側の `mdGrow/mdUp/mdScene` が IGNORE 止まりなのを実装する）。
-⚠「md 不在のメモリ優位」が WebGPU 既定の決め手だった（`webgpu port.md` A/B 計測）＝プールは eviction 前提・高水位を縮める設計が条件。
-LOW_MEM は classic のまま（GL と同じ既定 OFF）が第一候補＝**本人裁定**。measure-first の掟（`webgpu port.md` 次の道順）どおり Phase 0 の数字で go/no-go。
+⚠「md 不在のメモリ優位」が WebGPU 既定の決め手だった（`docs/design/webgpu-port.md` A/B 計測）＝プールは eviction 前提・高水位を縮める設計が条件。
+LOW_MEM は classic のまま（GL と同じ既定 OFF）が第一候補＝**本人裁定**。measure-first の掟（`docs/design/webgpu-port.md` 次の道順）どおり Phase 0 の数字で go/no-go。
 
 ### 3.3 線は index 無しの 6 頂点で描いている
 gint の `pass.draw(cnt*6, …)`（`gpu/gint.js`）と基図の `pass.draw(6, count)`（`gpu/renderer.js` LINE）は、辺 1 本につき頂点シェーダを 6 回走らせる。
@@ -132,5 +132,5 @@ idfill（別 attachment）は main の前に別エンコーダで積めば順序
 
 ## 6. この俯瞰の限界
 
-全て静的読解。「1 セル 10ms」「setScene 数 ms」は桁の目安であり、端末・ビュー・回線で動く。`ema` は 60fps 機で 16.7ms に飽和して差が出ない（`webgpu port.md` A/B 計測の轍）ので、
+全て静的読解。「1 セル 10ms」「setScene 数 ms」は桁の目安であり、端末・ビュー・回線で動く。`ema` は 60fps 機で 16.7ms に飽和して差が出ない（`docs/design/webgpu-port.md` A/B 計測の轍）ので、
 物差しは timestamp-query の gpuMap/gpuGint と、Phase 0 で足す引っ掛かりログ。数字が出たら §3 の表を更新する。

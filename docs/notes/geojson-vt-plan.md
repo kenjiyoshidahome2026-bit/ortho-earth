@@ -1,9 +1,9 @@
 # geojson の層を vector の描き方へ（pattern-2d を GPU へ）・実施計画（2026-10-22 起案）
 
-位置づけ：テキスト GPU 化（`text gpu plan.md`）の後に残った「毎フレームの Canvas2D の重ね描き」のうち、MapLibre の層を受ける **pattern-2d** を GPU に移す計画。
+位置づけ：テキスト GPU 化（`docs/notes/text-gpu-plan.md`）の後に残った「毎フレームの Canvas2D の重ね描き」のうち、MapLibre の層を受ける **pattern-2d** を GPU に移す計画。
 基図と利用者の vector の層（vtdraw）は、style 互換の波 1〜4 で fill-pattern・line-offset・破線・cap/join を GL2 と WebGPU の両方で描けるようになった（`globe/maplibre-compat.md` §6）。
 geojson の層（gint）はその描き方を持たないので、該当する層だけ別の canvas2D（pattern-2d）で描いている。ここを **geojson を vector のタイルに切って vtdraw に流す**（MapLibre の geojson-vt と同じ考え方）ことで埋める。
-掟は `perf plan.md` と同じ：①URL の逃げ道 ②既存の関門を緑のまま＋絵の一致 ③両バックエンド 1:1。並走との取り決めは §6。
+掟は `docs/notes/perf-plan.md` と同じ：①URL の逃げ道 ②既存の関門を緑のまま＋絵の一致 ③両バックエンド 1:1。並走との取り決めは §6。
 
 ## 0. 現状（main 124539fd）
 

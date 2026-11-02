@@ -1,10 +1,10 @@
 # ベクタータイル描画の高速化・実施計画（2026-10-22 起案）
 
-位置づけ：`perf plan.md`（2026-09-26・地形と線と標高セル＝P1/P3/P4/P6 実施済）の続き＝**ベクタータイルの道筋**（取得→復号→組み立て→結合→転送→描画→退避）に絞った計画。
-`perf survey.md` §2・§3.2 の「classic merge の費用は 3 段」を主戦場にし、残っていた **P2（WebGPU の GPU 常駐プール）** を本線に据える。
-並走する 2 本（MapLibre style 互換・注記の GPU 化）との重なりと依存は §7。3 本を合わせた順番は `render roadmap.md`（本計画の Phase 0〜2 は波 1〜3）。実装は本計画の外＝**着手は本人裁定**。
+位置づけ：`docs/notes/perf-plan.md`（2026-09-26・地形と線と標高セル＝P1/P3/P4/P6 実施済）の続き＝**ベクタータイルの道筋**（取得→復号→組み立て→結合→転送→描画→退避）に絞った計画。
+`docs/notes/perf-survey.md` §2・§3.2 の「classic merge の費用は 3 段」を主戦場にし、残っていた **P2（WebGPU の GPU 常駐プール）** を本線に据える。
+並走する 2 本（MapLibre style 互換・注記の GPU 化）との重なりと依存は §7。3 本を合わせた順番は `docs/notes/render-roadmap.md`（本計画の Phase 0〜2 は波 1〜3）。実装は本計画の外＝**着手は本人裁定**。
 
-掟は `perf plan.md` と同じ：①URL の逃げ道 ②既存の関門を緑のまま＋絵の一致 ③物差しは timestamp-query と引っ掛かりログ（`ema` は見ない）④両バックエンド 1:1 を崩す時は理由を書く ⑤危険は成果より先に申告。
+掟は `docs/notes/perf-plan.md` と同じ：①URL の逃げ道 ②既存の関門を緑のまま＋絵の一致 ③物差しは timestamp-query と引っ掛かりログ（`ema` は見ない）④両バックエンド 1:1 を崩す時は理由を書く ⑤危険は成果より先に申告。
 
 ## 0. 現状の道筋（読んだ版＝main 4f57521・2026-10-22）
 
@@ -15,7 +15,7 @@
 | 復号 | tile worker `decode.ts` | 自前 pbf（need 外の層は素通り・フラット coords） | 軽い（Node 実測＝0.37ms/枚・下表） |
 | 組み立て | tile worker `build.ts` | 層ごと filter/sort → fill＝clip→**earcut**→（z≤6 細分）→経緯度 / line＝700m 細分の線分列→色・幅を頂点に焼く | **タイル CPU の主役**（3.6ms/枚・earcut が 1/4） |
 | 結合 | scene worker `mergeTiles` | 可視全タイルの typed array を li ごとに連結（＋原点再ベース） | **WebGPU は毎回これ**（`gpu/renderer.ts` は `md:false`・`mdGrow/mdUp/mdScene` は IGNORE）。GL2 だけ multi_draw プール |
-| 転送 | render worker `setScene` | 全層 `createBuffer`＋`writeBuffer`（数 MB）→ 180ms クロスフェード（旧＋新の二重描き） | **描画スレッドの引っ掛かり**（東京駅 z16.5 の移動中 9〜11 回／9 秒＝`perf plan.md` §8） |
+| 転送 | render worker `setScene` | 全層 `createBuffer`＋`writeBuffer`（数 MB）→ 180ms クロスフェード（旧＋新の二重描き） | **描画スレッドの引っ掛かり**（東京駅 z16.5 の移動中 9〜11 回／9 秒＝`docs/notes/perf-plan.md` §8） |
 | 描画 | render worker | li ごと 1 draw（fill＝drawIndexed・line＝4 頂点 instanced） | 塗りは FS 律速・線は VS（両端の elevQ 引き） |
 
 **Node の計り（`scripts/bench-tile.mjs --runs 10`・Mac 相当の x86 コンテナ・見本＝optbv 35 枚（WA/Anno だけ・3,107 地物））**：decode 12.8ms・build 127ms・merge 33ms（全枚）。
@@ -33,7 +33,7 @@
 | 4 | **結合頻度と常駐の見直し**（§6）＝P2 後に初めて意味を持つ小物 | 2〜3 日 | パン中の merge 間隔を詰めても引っ掛かり 0 |
 | 棚 | pre-tessellated MLT（自前配信の源だけ）・earcut の代替 | — | §9 |
 
-順番の理由：Phase 1 は確度が高く安く、**タイルが画面に出るまでの遅れ**（体感の主因）を縮める。Phase 2 が最大で、`perf plan.md` §6 の go 条件（移動中のシーン適用の引っ掛かり 9〜11 回）は**既に満たしている**＝計測で再確認したら着手。
+順番の理由：Phase 1 は確度が高く安く、**タイルが画面に出るまでの遅れ**（体感の主因）を縮める。Phase 2 が最大で、`docs/notes/perf-plan.md` §6 の go 条件（移動中のシーン適用の引っ掛かり 9〜11 回）は**既に満たしている**＝計測で再確認したら着手。
 Phase 3 は描画の速さというより「書き直しをしない」ための設計で、MapLibre 互換（式の分類）と不可分＝並走スレッドの裁定を待って着手。
 
 ## 2. Phase 0 計器と見本
@@ -78,9 +78,9 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 
 ## 4. Phase 2 P2＝WebGPU の GPU 常駐プール＋タイル単位 draw（本線）
 
-設計の骨は `perf plan.md` §6 のまま（プール 4 本・scene worker のアロケータ流用・render bundle）。ここでは**段と門と残課題**だけ書く。
+設計の骨は `docs/notes/perf-plan.md` §6 のまま（プール 4 本・scene worker のアロケータ流用・render bundle）。ここでは**段と門と残課題**だけ書く。
 
-**go の根拠（既に手元にある数字）**：`perf plan.md` §8＝東京駅 z16.5 55° の移動中に `[scene] apply` 4ms 超が 9〜11 回／9 秒。Node の merge＝35 枚で 33ms（都心 z16 はもっと重い）。180ms フェードは塗り・線を**二重に描く**＝移動中の gpuMap を 1.3〜1.8 倍に押し上げている（計器 f で確かめる）。
+**go の根拠（既に手元にある数字）**：`docs/notes/perf-plan.md` §8＝東京駅 z16.5 55° の移動中に `[scene] apply` 4ms 超が 9〜11 回／9 秒。Node の merge＝35 枚で 33ms（都心 z16 はもっと重い）。180ms フェードは塗り・線を**二重に描く**＝移動中の gpuMap を 1.3〜1.8 倍に押し上げている（計器 f で確かめる）。
 
 **段**
 - **step A（3〜4 日）プールと転送**＝**2026-10-22 実装**（下の「step A の実装の形」）：`gpu/renderer.ts` に `mdGrow`（新 buffer＋`copyBufferToBuffer`・旧は submit 後 destroy）／`mdUp`（`writeBuffer` を base へ）／`mdScene`（dl 保持）。fillV 12B（f32x2＋unorm8x4）・fillI u32（プール絶対頂点番号＝scene worker が既に再ベース）・bldV 24B・**line は storage buffer**（scene worker の 8×u32 レコードそのまま・binding 上限 128MB 超はテクスチャへ落とす）。
@@ -90,10 +90,10 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
   **step A の実装の形**：プールは GPUBuffer 4 本（fillV 12B・fillI u32・bldV 24B・line＝storage 32B/線分）。`mdGrow`＝新 buffer＋`copyBufferToBuffer`（queue 順＝後続の `mdUp`＝`writeBuffer` が成長を追い越さない）。origins は **instance step の頂点属性 `a_tile`**（dl 1 束を頂点バッファ 1 本に詰め・`drawIndexed(count, 1, firstIndex, 0, firstInstance=j)` で `origins[j]`）＝storage の添字も bind group も要らない（GL の `u_tileOff[gl_DrawID]` と同順で**先に**足す）。線は属性なし＝`@builtin(vertex_index)/6` で線分レコードを storage（group(3)・`maxStorageBufferBindingSize` 超は警告＝退避は後段）から引く。派生は `wgsl.ts` の `mdFillWgsl`／`mdLineWgsl`／`mdBldWgsl`（vs の署名行だけを anchor＝影・面・影＋面・cast・ATLAS_FILL の全部に掛かる＝15 変種が compile 通過）。パイプラインは派生（素／影／面／影＋面）× sampleCount で遅延生成。地面アトラスの塗り（3D）と影を落とす側（建物）も md 版。fade は md では無い（`mdScene` は即差し替え）。`memEstimate().pool`＝プールの確保量。
   **門の実装**：`packages/globe/tests/t-mdparity.html`＝同じ fixture（optbv z16）を子頁で `?nomd=1`／`?md=1` と順に起こして `shot.composite()` の画素を比べる（2d＝塗り・線（line-offset 込み）／3d＝55° で押し出しの建物も）。GL2（WEBGL_multi_draw）は **0 px 差**（verify:ui・2026-10-22）。WebGPU は verify:webgpu に載せた＝**本人の Mac の実 GPU で**（クラウドの SwiftShader は WebGPU の絵を読み戻せない＝t-shadow/t-clip も素の main で同じ 0/0/0）。
 - **step B（2〜3 日）render bundle**＝**2026-10-22 棚**（Mac Apple Metal の bench-perf・md 既定・`&perf=1`・3 回：3 場面とも 60fps、4ms 超の引っ掛かりは load 0／move 0〜1 回、gpuMap 0.4／3.2／6.3ms。md の draw 数はタイル 22〜31 枚 × 層 9 前後＝200〜300 本/フレーム＝下の着手の目安 1,000 本に遠く、発行の CPU はフレームに現れていない）。再開の条件＝タイル数か層数が増えて 1,000 draw/フレームを超える場面が出た時（T-P2 の層ごとの bundle 列の求めはその時に一緒に）。元の目安：dl 差し替えと鍵（slot・sampleCount・terrainDepth・ゲート署名）の変化で再記録・main パスは `executeBundles`。bundle 内は `setStencilReference`／viewport 不可＝fill/line は不要（建物は現行どおり外）。
-- **step C（1〜2 日）フェードと LOW_MEM**（**2026-10-22 実装**＝md は fade を持たない・LOW_MEM は globe の `noMultiDraw` が classic のまま・`?hud=1` の GPU resident に tile pool の行）：fade は落とす（タイル単位の差し替えは粒が小さい・`perf plan.md` 裁定 #3）。LOW_MEM は classic のまま（裁定 #2）＝`md` は `tier !== LOW_MEM` の時だけ。`?mem=1` にプール行（capMB/usedMB/frag）。
+- **step C（1〜2 日）フェードと LOW_MEM**（**2026-10-22 実装**＝md は fade を持たない・LOW_MEM は globe の `noMultiDraw` が classic のまま・`?hud=1` の GPU resident に tile pool の行）：fade は落とす（タイル単位の差し替えは粒が小さい・`docs/notes/perf-plan.md` 裁定 #3）。LOW_MEM は classic のまま（裁定 #2）＝`md` は `tier !== LOW_MEM` の時だけ。`?mem=1` にプール行（capMB/usedMB/frag）。
 - **step D（半日）結合側の後始末**（md の `geom` 解放は scene worker の `ensureUploaded` が既にしている＝追加なし）：md では `mergeTiles` が走らない＝scene worker の `geom` は常駐確定で解放（既存 `ensureUploaded`）。main の `MAIN_REQ_GAP_MS`／`MOVE_SWAP_MS` は Phase 4 で見直す。
 
-**門**：classic（`?nomd=1`）と md の絵一致（`webgpu port.md` の標準 8 ビュー＋東京駅 PLATEAU・readback の画素差 0）・fadede8b の轍（起動直後の古い fallback scene が dl を上書きする順序）の回帰 1 本・`dlApplied` の順序（`drainMD` FIFO）・skipMain/skipBase の等価性・t-gintgpu の readback 基図・japan verify:ui 全頁・**`[scene] apply` の 4ms 超が 3 シーンでゼロ**・gpuMap が移動中に下がる（フェードの二重描き消滅）。
+**門**：classic（`?nomd=1`）と md の絵一致（`docs/design/webgpu-port.md` の標準 8 ビュー＋東京駅 PLATEAU・readback の画素差 0）・fadede8b の轍（起動直後の古い fallback scene が dl を上書きする順序）の回帰 1 本・`dlApplied` の順序（`drainMD` FIFO）・skipMain/skipBase の等価性・t-gintgpu の readback 基図・japan verify:ui 全頁・**`[scene] apply` の 4ms 超が 3 シーンでゼロ**・gpuMap が移動中に下がる（フェードの二重描き消滅）。
 **危険（先に申告）**：①プール高水位は縮まない（GL md と同じ）＝タイル予算×1.3 で有界だが、PLATEAU の百 MB 級が同居するスマホは jetsam の縁＝LOW_MEM を外すのはそのため ②`copyBufferToBuffer` の成長中に up が来る順序＝FIFO で守られているが WebGPU は submit 単位＝grow と up を**同じ encoder に積む** ③storage の line は `maxStorageBufferBindingSize`（既定 128MB）＝超えたら gint と同じテクスチャ退避。
 **期待**：シーン差し替え＝転送 ≤3MB/フレーム（既存予算）＋dl 適用（µs）・merge の CPU（33ms/35 枚級）消滅・二重描き消滅＝移動中 gpuMap −20〜40%（都心）・引っ掛かり 0。
 
@@ -125,7 +125,7 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 - `MAIN_REQ_GAP_MS`（60）／`MOVE_SWAP_MS`（125）／`MOVE_SWAP_ZOOM_MS`（60）は classic の重さに合わせた間引き。md では「新しいタイルが 1 枚増えた」＝up 1 件＋dl＝軽い＝**ズーム中は 1 フレーム 1 要求**まで詰める（dlApplied の FIFO が追い越しを防ぐ）。門＝引っ掛かり 0 のまま・パン中の白抜き時間（計器 e）が縮む。
   - **実装（2026-10-22・描画の統合ロードマップの 16）**：`globe.ts` の `MD_GAP_MS`＝md（`noMultiDraw` でない）では 3 つの間隔を 16ms（1 フレーム）に。classic と LOW_MEM は従来の 125／60／60 のまま。逃げ道 `?mdgap=N`（`60`＝旧のズーム・要求の間隔・`0`＝間引き無し）。門（引っ掛かり 0・計器 e の move 中央値）は Mac の `bench-perf.mjs` で＝未計測（クラウドでは md の絵が出ない）。
 - 下地（base）の merge も md のプールで＝同じタイルが main と base の両方に載る時、常駐は 1 回（`md.res` が key で共有）＝今でもそう＝確認だけ。
-- LRU 予算＝tess 済みバイトで縛る現行のまま。md では geometry が GPU に居る＝**端末の GPU メモリ**（`deviceMemory` 代理）で天井を分ける（`fallback-ladder.md` のティア表に 1 行）。
+- LRU 予算＝tess 済みバイトで縛る現行のまま。md では geometry が GPU に居る＝**端末の GPU メモリ**（`deviceMemory` 代理）で天井を分ける（`docs/design/fallback-ladder.md` のティア表に 1 行）。
 - 生バイトの IDB キャッシュ（オフライン・再訪の即出し）＝`offline-pack.ts` の領分＝本計画の外。
 
 ## 7. 並走スレッドとの重なりと依存
@@ -134,11 +134,11 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 |---|---|---|
 | **MapLibre style 互換** | 式の分類（zoom／data／混合）・`setPaintProperty`／`setFeatureState` の差分適用・`restyleBase` | §5 の paint 表は**先方の分類が決まってから**。本計画からは「頂点 slot＋storage 表」の口を提供。Phase 1・2 は先方と独立（絵が変わらない） |
 | **注記（テキスト）の GPU 化** | tile worker の `buildLabels`・main に届く注記の配列・render worker の `labels2d` | §3.4 の「注記を別メッセージに」は先方の入口になる。**注記が scene port 経由で render worker へ直送**になるなら、P2 のプール割り当て（free-list・grow/up/dl の FIFO）を**glyph／注記の pool にも流用できる**＝アロケータは共有で設計（pool 名を増やすだけ）。注記のバイトを main の予算から外す時は `labelsBytes` の扱いを一緒に変える |
-| `perf plan.md` | P2（§6）・P7（パス統合） | P2 はここで引き取る（`perf plan.md` §6 は本計画 §4 を指すよう 1 行足す）。P7 は手を付けない |
+| `docs/notes/perf-plan.md` | P2（§6）・P7（パス統合） | P2 はここで引き取る（`docs/notes/perf-plan.md` §6 は本計画 §4 を指すよう 1 行足す）。P7 は手を付けない |
 
 ## 8. ベースライン記録欄（Phase 0 で埋める）
 
-2026-10-22 の行は Phase 1 と Phase 2 step A が入った後の計り（`apps/ortho-japan/scripts/bench-perf.mjs --flags "&perf=1" --runs 3`・backend=webgpu）。Phase 0 時点の素の値は取らずに進んだ＝比較は `perf plan.md` §8 の既知の値（東京駅 apply 4ms 超 9〜11 回）と、`?tileq=0`／`?nomd=1` の A/B で取る。
+2026-10-22 の行は Phase 1 と Phase 2 step A が入った後の計り（`apps/ortho-japan/scripts/bench-perf.mjs --flags "&perf=1" --runs 3`・backend=webgpu）。Phase 0 時点の素の値は取らずに進んだ＝比較は `docs/notes/perf-plan.md` §8 の既知の値（東京駅 apply 4ms 超 9〜11 回）と、`?tileq=0`／`?nomd=1` の A/B で取る。
 
 | 端末 | シーン | 主層 要求→画面 中央値／p90（ms） | `[scene] apply` 4ms 超／9 秒 | merge 回数／9 秒・変化枚数の平均 | gpuMap 移動中（ms） | 備考 |
 |---|---|---|---|---|---|---|
@@ -149,7 +149,7 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 
 ## 9. やらない事・棚
 
-- **WASM で earcut／mergeTiles**（`perf plan.md` §10 の判断のまま＝P2 が merge を消す・earcut は「頻度×小ペイロード」の罠）。
+- **WASM で earcut／mergeTiles**（`docs/notes/perf-plan.md` §10 の判断のまま＝P2 が merge を消す・earcut は「頻度×小ペイロード」の罠）。
 - **earcut の差し替え**（libtess／mapbox の新実装）＝prof で 25% だが、都心の見本で測ってから。候補は「穴の無い凸・矩形の早道（建物の 8 割）」＝earcut の前に 4〜6 頂点の凸判定で扇にする小物（Phase 1 の 5 件目候補・bench の見本待ち）。
 - **pre-tessellated MLT**（`tile-formats` の `poly_*_tes` 見本＝三角形を持つ MLT）＝自前配信（ortho-data・PMTiles）の源だけ earcut を飛ばせる。GSI の MVT には効かない＝源を自前化する時の選択肢として棚。
 - multi-draw-indirect（Chrome の実験機能）・GL2 への性能投資（1:1 の写しだけ）・サーバー側の焼き。
@@ -159,10 +159,10 @@ Phase 3 は描画の速さというより「書き直しをしない」ための
 | # | 項目 | 選択肢 | 裁定 |
 |---|---|---|---|
 | 1 | 着手順 | Phase 1 → 2 → 3／Phase 2 を先に | **1 → 2**（1 は 2〜3 日で体感に効き、2 の計器を磨く） |
-| 2 | Phase 2 LOW_MEM | classic 維持／全端末 md | **classic 維持**（`perf plan.md` 裁定 #2 と同じ） |
+| 2 | Phase 2 LOW_MEM | classic 維持／全端末 md | **classic 維持**（`docs/notes/perf-plan.md` 裁定 #2 と同じ） |
 | 3 | Phase 2 fade | 落とす／タイル α | **落とす** |
 | 4 | Phase 3 の着手 | 互換スレッドの式分類を待つ／本計画で分類も決める | **待つ**（二重設計を避ける） |
 | 5 | §3.2 の 2D 判定 | 地形の有無で再ビルド／線を 2 系統持つ | **再ビルド**（稀・setStyle と同じ道） |
 | 6 | §3.4 注記の切り離し | Phase 1 で先に／注記 GPU 化スレッドに委ねる | **先方に委ねる**（入口の形は先方が決める・本計画は依存を明記するだけ） |
 
-着手の時期は `render roadmap.md`（3 計画の統合・波の順）に従う。
+着手の時期は `docs/notes/render-roadmap.md`（3 計画の統合・波の順）に従う。

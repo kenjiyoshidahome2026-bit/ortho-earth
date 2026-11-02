@@ -76,6 +76,8 @@ The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts ar
 
 Region names never appear in core or globe code (the `verify:regionless` gate counts them). Apps without a region load the shared engine from a versioned, immutable URL (`www.ortho-earth.com/globe/engine/<hash>/`); the Japan apps are two-stage: shared engine + their own bundle with `orthoJapan` and the jp pack.
 
+Design notes and plans for contributors (the fallback ladder, the Gint draw spec, performance plans) live in [`docs/`](docs).
+
 ### Packages
 
 | Package | Version | License | What it is |
