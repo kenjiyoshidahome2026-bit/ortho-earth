@@ -278,6 +278,7 @@ export class Map {
 			// 目盛り＝"mercator"（MapLibre のメルカトルの縮尺＝起動の中心緯度で log2(sec φ) 寄る・style は MapLibre の z で評価）。options.ortho.zoomScale で "maplibre"（一律 +1）にもできる
 			target: container, view: viewOf(st.init, (options.ortho?.zoomScale ?? "mercator") === "mercator" ? mercatorDz(st.init.center.lat) : 1), zoomScale: "mercator",
 			flight: "maplibre",
+			centerPlane: true,   // 地形なし＋centerElevation の数＝project／unproject／Marker をその高さの球で（MapLibre の transform と同じ・set-center-point-above-ground・2026-11-02 本人裁定＝MapLibre の口だけ本物に揃える）
 			undergroundOverlay: false,   // MapLibre に地中の覆いは無い（地形の際で目が地面の下に入っても絵は出す・adding-3d-models-using-threejs-on-terrain）   // object の形の flyTo／easeTo を MapLibre の振り付けで（api/camera.ts の mlFlight）
 			night: false, sky: false, coastline: false, terrain: false, fog: false, chips: false, countryTip: false, persistView: false,   // fog:false＝MapLibre は霧を持たない（遠くの建物・地形が地の色へ溶けない・2026-09-30）
 			centerElevation: options.centerClampedToGround === false ? +(options.elevation ?? 0) : "ground",   // 注視点の高さ＝MapLibre の centerClampedToGround（既定＝地形の上の中心点）／false＋elevation＝固定（2026-09-30）

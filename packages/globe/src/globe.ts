@@ -153,6 +153,8 @@ interface HostOptions extends GlobeOptions {
 	flight?: "maplibre";
 	/** 地中の灰色の覆い（目が直下の地面より下に入った時）。false＝出さない（MapLibre の口＝MapLibre に無い・地形の際で目が地面の下に入る例が全面灰色になった 2026-11-02） */
 	undergroundOverlay?: boolean;
+	/** true＝地形を描いていない時、project／unproject／DOM の持ち上げを注視点の高さ（cam.centerAlt）の球で解く＝MapLibre の transform と同じ（地形なし＋centerElevation の数＝center が画面中央へ戻る）。MapLibre の口が渡す（set-center-point-above-ground・2026-11-02） */
+	centerPlane?: boolean;
 }
 /** 建物の台帳の 1 区（地域宣言の buildings.sets／catalog の JSON の要素） */
 /** 注記の 1 件＝基図のタイル注記（core の Label）か、ホストが足す名札（空港マーク・ランドマーク・POI＝書体・層の添字・ズーム域は持たない）。labelSender で worker へ */
@@ -2605,7 +2607,8 @@ const elevOf: GlobeScope["elevOf"] = (lon, lat) => {
 // 負の標高は 0 に切る＝描いている地面（renderer の標高アトラスは負を 0 に切る＝海は海面・ortho-core elevation.js／terrain.js）
 const dispPf = () => { const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)); return noTerr ? 0 : pt * pt * (3 - 2 * pt); };   // ?noterr=1＝地形を描かない＝持ち上げも 0（描く側と同じ・vtxGround の当たりも同じ口）
 const dispRadiusH = (h: number, pf = dispPf()) => pf > 0 ? 1 + Math.max(0, h) * pf * (TERR_EXAG / EARTH_M) : 1;
-const dispRadius = (lon: number, lat: number) => { const pf = dispPf(); return pf > 0 ? dispRadiusH(elevOf(lon, lat), pf) : 1; };
+const planeR = () => opts.centerPlane && noTerr && cam.centerAlt ? 1 + cam.centerAlt / worldRadiusM() : 1;   // MapLibre の口＋地形なし＝注視点の高さの球が「地面」（centerPlane）
+const dispRadius = (lon: number, lat: number) => { const pf = dispPf(); return pf > 0 ? dispRadiusH(elevOf(lon, lat), pf) : planeR(); };
 const projectLL: GlobeScope["projectLL"] = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
 const unprojectAt: GlobeScope["unprojectAt"] = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
 // makeProjector＝カメラ状態を1回だけ束ねた投影関数を返す（多点を1描画で投影＝測距の大圏分割で状態計算を積まない）。
@@ -2619,6 +2622,7 @@ const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam
 //（最大 6 回・1e-7° で止める）。elevOf は未着の点を 0m で返し照会を出す＝次の呼び出しで正しくなる（projectLL と同じ約束）
 const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
+	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
 	let ll = unproject(st, x * dpr, y * dpr);
 	if (!ll || noTerr || (cam.pitch || 0) < 0.06 || !(demMain || getHeight)) return ll;
 	for (let i = 0; i < 6; i++) {
@@ -2702,6 +2706,7 @@ map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const l
 // 待って解く unproject（問い合わせ・クリックの地物）＝標高を heightAt で待ちながら反復し、答えは elevOf のメモに入れる＝その後の同期の unprojectXY も同じ点を返す（2026-11-02）
 const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
+	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
 	let ll = unproject(st, x * dpr, y * dpr);
 	if (!ll || dispPf() <= 0 || !(demMain || getHeight)) return ll;
 	for (let i = 0; i < 6; i++) {
