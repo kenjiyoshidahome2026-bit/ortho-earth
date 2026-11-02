@@ -30,6 +30,9 @@ mapP.then(map => {
 	map.on("settle", e => { if (app.classed("viewing")) history.replaceState(null, "", location.search + e.hash); });   // 地図の視点 ⇄ URL hash（共有リンク）
 });
 viewP.then(view => { if (!app.classed("viewing")) view.spin(true); });
+// 出し入れ＝素の d3 で .hidden を付け外し。common/d3/selection の .show/.hide/.empty は共有エンジンの d3 にだけ付く＝
+// このアプリが束に持つ d3 の selection には無い（2026-11-02「.hide is not a function」で読込も「閉じる」も止まった・gishub-jp #688 と同じ型）
+const vis = <S extends d3.Selection<any, any, any, any>>(s: S, on: boolean): S => s.classed("hidden", !on);
 const app = d3.select("body").append("div").attr("class", "demo").classed("close", innerWidth < 700);
 
 // ── 文言の貼り方：data-t（キー）と data-a（$1… の引数）を要素に残す＝言語切替は relabel() で貼り替えるだけ（作り直さない）
@@ -73,7 +76,7 @@ section.selectAll(".card").data(d => d.contents).join("button").attr("class", "c
 	.on("click", (e, d) => exec(d));
 
 ////------------------------------------------------------ 右：本体
-const reset = () => { logger.clear().hide(); tables.empty().hide(); uploads.show(); drawDiagram(); left.selectAll(".card").attr("disabled", null); };
+const reset = () => { logger.clear().hide(); vis(tables.html(""), false); vis(uploads, true); drawDiagram(); left.selectAll(".card").attr("disabled", null); };
 const main = app.append("main").attr("class", "main");
 const hdr = main.append("header");
 hdr.append("h1").attr("translate", "no").html(`<img src="favicon.svg" alt=""/><span>GeoPBF</span>`).on("click", reset);
@@ -97,7 +100,7 @@ const logger = new screenLogger(main.append("div").attr("dir", "ltr") as unknown
 // ⚠ログは window の FetchStart/ConvertStart を拾う＝背景の地球儀エンジンの読み込み（ne_50m_admin_0_countries 等）も拾う。
 // 待ち受け中は隠す（透明な入口の裏に透けて出ていた）。読み込み開始で geoExec が clear().show() する＝溜まった行も消える
 logger.hide();
-const tables = main.append("div").attr("class", "tables").hide();
+const tables = vis(main.append("div").attr("class", "tables"), false);
 
 const fname = (s: string) => s.split('/').pop()!.split('?')[0].replace(/\..+$/i, '');
 const uploads = main.append("div").attr("class", "uploads").dropFile(f => f && exec({ name: fname(f.name), target: f, description: "dropped file" }));
@@ -168,7 +171,7 @@ async function zipFormat(file: unknown) {
 }
 
 async function exec(info: GeoExecInfo) {
-	uploads.hide(); tables.empty().hide();
+	vis(uploads, false); vis(tables.html(""), false);
 	left.selectAll(".card").attr("disabled", true);
 	if (!info.format) { const f = await zipFormat(info.target); if (f) info = { ...info, format: f }; }
 
@@ -302,7 +305,7 @@ function showProp(pbf: GeoPBF) {
 	const cut = (s: unknown) => { const t = String(s ?? ""); return escHtml(t.length > 16 ? t.substring(0, 15) + " …" : t); };
 
 	logger.hide();
-	tables.show().attr("translate", "no").html(
+	vis(tables, true).attr("translate", "no").html(
 		`<h2><span class="name">${escHtml(pbf.name())}</span><span>${escHtml(pbf.description() ?? "")}</span></h2>` +
 		`<div class="prop-table"><table><thead><tr>${headers.map(h => `<th>${escHtml(String(h))}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`
 	);
@@ -327,7 +330,7 @@ function showProp(pbf: GeoPBF) {
 		try { await save(() => write(pbf, { key: "attrs-xlsx" })); }
 		catch (e) { console.error("[excel]", e); logger.error?.("Excel conversion failed."); }
 	});
-	L(h2.append("button"), "Close").on("click", () => { logger.show(); tables.empty().hide(); });
+	L(h2.append("button"), "Close").on("click", () => { logger.show(); vis(tables.html(""), false); });
 }
 // ── 地図に入る／出る（gint v2：map.addGint＝common/gintView の薄い1枚）──
 function enterView(map: Awaited<typeof mapP>) {
@@ -349,7 +352,7 @@ async function execView(pbf: GeoPBF) {
 
 // データなしで球だけ回す入口
 async function globeView() {
-	uploads.hide(); tables.empty().hide(); logger.hide();
+	vis(uploads, false); vis(tables.html(""), false); logger.hide();
 	const [map, view] = await Promise.all([mapP, viewP]);
 	view.spin(false);
 	enterView(map);
@@ -358,7 +361,7 @@ async function exitView() {
 	if (!app.classed("viewing")) return;   // Esc（close ガジェット）は待ち受け中にも飛ぶ
 	app.classed("viewing", false);
 	history.replaceState(null, "", location.pathname + location.search);   // clear the permalink hash on exit
-	if (uploads.style("display") === "none" && !logger.target.select("p.actions").size()) { logger.clear().hide(); uploads.show(); drawDiagram(); }   // 球だけ見て戻った＝入口へ
+	if (uploads.style("display") === "none" && !logger.target.select("p.actions").size()) { logger.clear().hide(); vis(uploads, true); drawDiagram(); }   // 球だけ見て戻った＝入口へ
 	else logger.show();
 	const view = await viewP;
 	view.clear();
