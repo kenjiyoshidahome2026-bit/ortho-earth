@@ -105,6 +105,8 @@ const PROBE_ORTHO = (refProbes, refSymbols = null) => `(async (REF, REFSYM) => {
 	const grid = REF || Array.from({ length: NX * NY }, (_, k) => { const i = k % NX, j = (k / NX) | 0; const x = M + (Wc - 2 * M) * (i + 0.5) / NX, y = M + (Hc - 2 * M) * (j + 0.5) / NY; const ll = m.unproject([x, y]); return { lng: ll?.lng ?? null, lat: ll?.lat ?? null, ok: !!ll }; });
 	const hav = (a, b) => { const d = Math.PI / 180, s = Math.sin((b.lat - a.lat) * d / 2) ** 2 + Math.cos(a.lat * d) * Math.cos(b.lat * d) * Math.sin((b.lng - a.lng) * d / 2) ** 2; return 12742017.6 * Math.asin(Math.min(1, Math.sqrt(s))); };
 	const okPts = grid.filter(p => p.ok && p.lng != null);
+	// 傾いた地図では projectLL が標高で点を持ち上げる＝最初の呼び出しは標高の照会を出して 0m を返す（globe の elevOf）。先に全点を引いて、答えが落ち着くまで待つ（最大 3 秒・2026-11-02 段 2→3 の rig 直し）
+	if (eng && (m.getPitch() || 0) > 4 && okPts.length) { const snap = () => okPts.map(p => eng.projectLL(p.lng, p.lat).map(v => Math.round(v * 10)).join()).join("|"); let prev = snap(); for (let t = 0; t < 6; t++) { await new Promise(r => setTimeout(r, 500)); const cur = snap(); if (cur === prev) break; prev = cur; } }
 	let step = Infinity; for (let k = 1; k < grid.length; k++) if (grid[k].ok && grid[k - 1].ok && grid[k].lng != null && grid[k - 1].lng != null) step = Math.min(step, hav(grid[k], grid[k - 1]));   // 隣り合う標本の間隔（最小）
 	for (const p of grid) {
 		let x = null, y = null, front = -1, ok = false, feats = [];
