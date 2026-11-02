@@ -3,6 +3,7 @@
 import "./globe.css";
 import { evalExpr, truthy, KNOWN_OPS, parseRGBA, isColor, cameraState, project, projectCss, unproject, buildGeoJSONOverlay, createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat } from "@ortho-earth/core";
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
+import { marchRay } from "./raymarch.ts";
 import { normLight, lightPayload, LIGHT_TYPES } from "./light.ts";
 import { normSky, skyHasExpr, skyPayload } from "./sky-spec.ts";
 import { normSprite, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.ts";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
@@ -2618,19 +2619,17 @@ const makeProjector: GlobeScope["makeProjector"] = () => { const st = cameraStat
 // 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
 const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon: number, lat: number, hM?: number): [number, number, number] => projectCss(project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) / EARTH_M), dpr); };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
 // 地形を描いて傾けた地図では、投影が標高で持ち上げる分だけ逆も地形の面で受ける（MapLibre は unproject・問い合わせも地形に当てる）。旧＝海抜 0 の球で受けていた
-//（2026-11-02・公式例 display-a-hybrid-satellite-map-with-terrain-elevation＝クリックの地物が数 km ずれた）。解き方＝球の半径を当たった点の持ち上げ（dispRadius＝elevOf のメモ）で置き直す不動点の反復
-//（最大 6 回・1e-7° で止める）。elevOf は未着の点を 0m で返し照会を出す＝次の呼び出しで正しくなる（projectLL と同じ約束）
+//（2026-11-02・公式例 display-a-hybrid-satellite-map-with-terrain-elevation＝クリックの地物が数 km ずれた）。elevOf は未着の点を 0m で返し照会を出す＝次の呼び出しで正しくなる（projectLL と同じ約束）
+// 光線を手前から奥へ歩いて最初に地面をまたぐ所を二分で詰める（2026-11-02・旧＝不動点の反復は急斜面で視線と斜面の角が浅いと別の斜面へ飛び、
+// hybrid の例で戻りの誤差が中央値 2 km だった）。歩く量＝球の半径 R（大きい球の手前の交点ほど目に近い＝R を下げると光線を奥へ進む）。
+// R の上限＝目の半径か 9000 m の持ち上げの小さい方。f(R)＝R − 当たった点の持ち上げ（正＝地面より上）
+const marchGround = (st: ReturnType<typeof cameraState>, x: number, y: number, pf: number, hOf: (lon: number, lat: number) => number) => marchRay(st, x * dpr, y * dpr, (R: number) => unproject(st, x * dpr, y * dpr, R), h => dispRadiusH(h, pf), hOf);
 const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
-	let ll = unproject(st, x * dpr, y * dpr);
-	if (!ll || noTerr || (cam.pitch || 0) < 0.06 || !(demMain || getHeight)) return ll;
-	for (let i = 0; i < 6; i++) {
-		const r = dispRadius(ll[0], ll[1]); if (r === 1) break;
-		const n = unproject(st, x * dpr, y * dpr, r); if (!n) break;
-		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
-	}
-	return ll;
+	const ll = unproject(st, x * dpr, y * dpr), pf = dispPf();
+	if (!ll || noTerr || pf <= 0 || !(demMain || getHeight)) return ll;
+	return marchGround(st, x, y, pf, elevOf);
 };
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
@@ -2707,15 +2706,16 @@ map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const l
 const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
-	let ll = unproject(st, x * dpr, y * dpr);
-	if (!ll || dispPf() <= 0 || !(demMain || getHeight)) return ll;
-	for (let i = 0; i < 6; i++) {
-		const h = await heightAt(ll[0], ll[1]).catch(() => 0);
-		elevMemo.set(Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), h);
-		const n = unproject(st, x * dpr, y * dpr, dispRadiusH(h)); if (!n) break;
-		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
+	const ll = unproject(st, x * dpr, y * dpr), pf = dispPf();
+	if (!ll || pf <= 0 || !(demMain || getHeight)) return ll;
+	// 光線の上の標本の標高を先に待って elevOf のメモへ（同期の歩きと同じ点を引く＝届いてから同じ答え）。2 巡＝二分の点も埋める
+	for (let pass = 0; pass < 3; pass++) {
+		const miss: LonLat[] = [];
+		const got = marchGround(st, x, y, pf, (lon, lat) => { const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000), hit = elevMemo.get(k); if (typeof hit === "number") return hit; const hs = demMain?.heightSync?.(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))); if (hs === hs && hs !== undefined) { elevMemo.set(k, hs); return hs; } miss.push([lon, lat]); return 0; });
+		if (!miss.length) return got;
+		await Promise.all(miss.slice(0, 64).map(([lon, lat]) => heightAt(lon, lat).catch(() => 0).then(h => { elevMemo.set(Math.round(lon * 1000) + "," + Math.round(lat * 1000), h); })));
 	}
-	return ll;
+	return marchGround(st, x, y, pf, elevOf);
 };
 map.unprojectXYAsync = unprojectXYAsync;
 // 止まるたびに画面の格子（8×6）の地面の標高を先に引いておく＝クリック・同期の unproject の反復が 1 回で解ける（地形を描いて傾けた地図だけ）
