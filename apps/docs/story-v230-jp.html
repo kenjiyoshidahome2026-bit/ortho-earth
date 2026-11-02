@@ -51,12 +51,12 @@
 <tr><td>今朝</td><td>85</td><td>40</td><td>12</td><td>0</td><td>v2.2.x の main をそのまま測り直した数</td></tr>
 <tr><td>昼</td><td>86</td><td>45</td><td>6</td><td>0</td><td>メルカトルの既定の制約、maxZoom 22、MapLibre の振り付けの flyTo、束ねた点の問い合わせ、傾けた地図の heatmap の当たり、高さ 0 の押し出しの屋根</td></tr>
 <tr><td>午後</td><td>87</td><td>45</td><td>5</td><td>0</td><td>縦の視野角を MapLibre と同じ 36.87° に</td></tr>
-<tr><td>v2.3.0</td><td><strong>88</strong></td><td><strong>46</strong></td><td><strong>3</strong></td><td><strong>0</strong></td><td>注視点の高さの球、地形の上の unproject を光線の歩きに、地形の誇張を注視点にも</td></tr>
+<tr><td>v2.3.0</td><td><strong>91</strong></td><td><strong>43</strong></td><td><strong>3</strong></td><td><strong>0</strong></td><td>注視点の高さの球、地形の上の unproject を光線の歩きに、地形の誇張を注視点にも。OSM に拒まれていた本物の絵 4 本の撮り直し</td></tr>
 </tbody></table></div>
 <p class="note-small">注：WebGPU（Mac の実 GPU）での数。WebGL2 でも全部を流し、段 1 の 3 本は同じ。違うのは記号の上の標本 1 点で段 3 から 2 になる 2 本だけだった。</p>
 
 <h2>結果</h2>
-<p>v2.3.0 の 137 本は 3/2/1/0 = <strong>88 / 46 / 3 / 0</strong>。一部が動かない例は 12 本から 3 本になった。全部の絵は <a href="/maplibre/" target="_top">MapLibre</a> のギャラリーで、本物と並べて見られる。ギャラリーの形も Sandcastle と揃え、上段と下段の説明は日本語と英語で読めるようにした。</p>
+<p>v2.3.0 の 137 本は 3/2/1/0 = <strong>91 / 43 / 3 / 0</strong>。一部が動かない例は 12 本から 3 本になった。全部の絵は <a href="/maplibre/" target="_top">MapLibre</a> のギャラリーで、本物と並べて見られる。ギャラリーの形も Sandcastle と揃え、上段と下段の説明は日本語と英語で読めるようにした。</p>
 <p>左が本物の MapLibre、右が ortho-earth（v2.3.0）。</p>
 <p><strong>set-center-point-above-ground</strong>：地形の無い地図で注視点を 541 m の宙に置く例。絵は前から同じだったが、経緯度と画面の点の行き来が 279 px ずれていた。MapLibre は注視点の高さの面を「地面」とみなして計算する。MapLibre の口だけ、それに揃えた（段 1 → 3）</p>
 <figure class="ba"><img src="story-v230-set-center-point-above-ground.webp" width="968" height="360" loading="lazy" alt="set-center-point-above-ground の MapLibre と ortho-earth"></figure>
