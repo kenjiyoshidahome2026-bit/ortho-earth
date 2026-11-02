@@ -86,7 +86,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	add3DTiles: "none", addI3S: "none", getHeight: "none", sunShadow: "none", setShadows: "none", setClipping: "none", getClipping: "none",
 	viewshed: "none", lineOfSight: "none", clearViewshed: "none",
 	// 投影・フレーム・描画
-	project: "none", unproject: "none", projectLL: "none", unprojectXY: "none", makeProjector: "none", makeProjectorH: "none",
+	project: "none", unproject: "none", projectLL: "none", unprojectXY: "none", unprojectXYAsync: "none", makeProjector: "none", makeProjectorH: "none",
 	onFrame: "none", requestDraw: "none", requestSnapshot: "none", setOpacity: "none", setEditClick: "none", pinRes: "none",
 	overlay: "engine",   // worker の overlay 契約の cam はエンジン z
 	// deck.gl 差分（PR-1〜8・2026-10-11〜12）：overlay の統一 picking・H3・three.js・addData・セル／等高線／画面格子／集約・custom 層の口・後処理。座標は lon/lat・画素＝z の換算なし
