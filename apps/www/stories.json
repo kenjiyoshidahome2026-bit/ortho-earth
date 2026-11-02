@@ -5,12 +5,12 @@
 			"id": "story-v230",
 			"date": "2026-11-02",
 			"ja": {
-				"title": "V.2.3.0 ホップ・ステップ・ジャンプ",
+				"title": "V.2.3.0 をリリースしました",
 				"desc": "どちらにも無い描画（画面の映り込みなど 6 つ）を足し、その上で Cesium（同じ絵 190 → 226 本）と MapLibre（一部しか動かない例 12 → 3 本）へのフォローも続けた。",
 				"href": "/docs/story-v230-jp"
 			},
 			"en": {
-				"title": "V.2.3.0 Hop, step, jump",
+				"title": "V.2.3.0 is out",
 				"desc": "Rendering that neither has (screen-space reflections and five more), and on top of that keeping up with Cesium (same picture 190 → 226) and MapLibre (examples that only partly run 12 → 3).",
 				"href": "/docs/story-v230"
 			}
