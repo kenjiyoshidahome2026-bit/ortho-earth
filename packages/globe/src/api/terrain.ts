@@ -78,7 +78,7 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 	function setExag(k: number): void {
 		if (k === live.terrExag) return;
 		live.terrExag = k;
-		elevMemo.clear(); live.elevGen++;   // DOM オーバーレイの持ち上げを新しい倍率で引き直す
+		elevMemo.clear(); live.elevGen++; live.geKey = "";   // DOM オーバーレイの持ち上げ・注視点の高さ（誇張込み）を新しい倍率で引き直す
 		wPost({ type: "set", cmd: "terrainExag", data: k });
 		for (const [id, c] of classes) if (c.opts.minHeight == null || c.opts.maxHeight == null) uploadCls(id);   // 既定の柱の高さは誇張に合わせる
 		requestDraw();
@@ -123,7 +123,14 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 	};
 	map.setTerrainExaggeration = k => { setExag(exagOf(k)); return map; };
 	map.getTerrainExaggeration = () => live.terrExag;
-	map.queryTerrainElevation = (lon, lat) => (live.demSpec ? (elevOf(lon, lat) ?? null) : null);   // MapLibre 同名（同期）＝地形（setTerrain／style の terrain）がある時だけ・メモに無ければ null（照会を起こす＝次の呼び出しで返る・MapLibre も地形の未着は null）2026-09-30   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
+	// MapLibre 同名（同期）＝地形（setTerrain／style の terrain）がある時だけ・誇張込みの描いた地面の高さ（MapLibre と同じ）・メモにも届いたタイルにも無ければ null（照会を起こす＝次の呼び出しで返る・MapLibre も地形の未着は null）。
+	// 旧＝誇張なし・未着は 0（add-3d-terrain-from-quantized-mesh-tiles で本物 2997 m・こちら 0・2026-11-02）
+	map.queryTerrainElevation = (lon, lat) => {
+		if (!live.demSpec) return null;
+		const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000);
+		elevOf(lon, lat); const h = elevMemo.get(k);
+		return typeof h === "number" ? h * live.terrExag : null;
+	};
 	// 地形の一括標本（第 2 波 F6・2026-10-12・実装つき）：map.sampleTerrain(positions, { concurrency }) → Promise<[{ lng, lat, height }]>。
 	//   出どころは描いている地形と同じ（setTerrain／style の terrain の DEM が先・無い所は既定の DTM＝heightAt＝map.getHeight と同じ）。負の標高はそのまま（描く側は 0 に切る＝文書）。
 	//   positions＝[lng,lat] の配列・{lng|lon,lat} の配列・GeoJSON（Point/MultiPoint/LineString の座標）。到着を待つ（wait）＝起動直後でも 0m に化けない。同時 8 件ずつ

@@ -196,5 +196,11 @@ await t("★/proxy の応答は nosniff・CSP sandbox 付き、上流の Set-Coo
 	} finally { globalThis.fetch = saved; }
 });
 
+await t("★/proxy の応答は Content-Range を JS に見せる（ETag も従来どおり）", async () => {
+	const res = await worker.fetch(new Request(`${PROXY_ORIGIN}/proxy/?url=${encodeURIComponent("https://www.e-stat.go.jp/x.tif")}`), W_ENV, {});
+	const v = (res.headers.get("Access-Control-Expose-Headers") || "").toLowerCase();
+	for (const h of ["content-range", "content-length", "etag"]) eq(v.includes(h), true, h);
+});
+
 console.log(`\n${fail ? "❌" : "✅"} pass=${pass} fail=${fail}`);
 process.exit(fail ? 1 : 0);

@@ -18,6 +18,11 @@ export interface SelectLODOptions {
 	farR?: number;
 	/** (z, x, y) → そのタイルで望む z（mlcover.mlTileZoomOf） */
 	zOf?: ((z: number, x: number, y: number) => number) | null;
+	/** Cesium's distance (the Cesium facade's imagery, raster sse): the tile's size is measured at its point closest to the eye's nadir, on the ground
+	 *  sphere (groundR), as Cesium measures a terrain tile's screen-space error from the eye to its bounding volume. Default: the point closest to
+	 *  the target, on the sea-level sphere = a tilted close-up (or mountains: the ground 2–3 km above the sphere) took tiles 1–2 levels coarser
+	 *  than Cesium (geometry-height-reference: Cesium z16, ortho z14, v242) */
+	nearEye?: boolean;
 }
 /** 選抜の節（s＝そのノードに入るサンプルの添字・根＝undefined＝全部） */
 interface LODNode extends TileXYZ { s?: number[] | null }
@@ -37,8 +42,9 @@ interface LODNode extends TileXYZ { s?: number[] | null }
 // 被覆は海面球との**和集合**で取る（サンプル・可視判定とも両球）＝リフト球は「手前の映り込み」を足すだけで、
 // 遠景は海面基準のまま守られる。中心標高が遠景より高い時（山上→谷）でも旧選抜の上位集合＝欠けの退行がない。
 // zOf＝(z, x, y) → そのタイルで望む z（MapLibre の選び方＝mlcover.mlTileZoomOf）。渡すと画面の大きさの閾（tilePx・sticky・floorZ）は使わず「z が望む z に届くまで割る」＝MapLibre の coveringTiles と同じ規則。可視判定はこのまま
-export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, farR = groundR, zOf = null }: SelectLODOptions = {}): TileXYZ[] {
+export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, farR = groundR, zOf = null, nearEye = false }: SelectLODOptions = {}): TileXYZ[] {
 	const st = cameraState(cam, W, H);
+	const eyeR = Math.hypot(st.eye[0], st.eye[1], st.eye[2]), ref: [number, number, number] | null = nearEye && eyeR > 1 ? [Math.atan2(st.eye[2], st.eye[0]) * 180 / Math.PI, geodeticOf(Math.asin(Math.max(-1, Math.min(1, st.eye[1] / eyeR))) * 180 / Math.PI), Math.max(1, groundR)] : null;   // the eye's nadir + the ground radius (nearEye)
 	const samples: [number, number][] = [];
 	const eyeInFar = farR > groundR && mat.dot(st.eye, st.eye) < farR * farR;   // a low camera among ground higher than the target's (a canyon): that ground can be anywhere along each ray
 	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
@@ -93,7 +99,7 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 	while (stack.length && guard++ < 30000) {
 		const t = stack.pop()!;
 		const b = tileBoundsInto(t.x, t.y, t.z, B);
-		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, Math.max(groundR, farR));
+		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, Math.max(groundR, farR), ref);
 		if (size < 0) continue;                     // 画面外＆中心外＆サンプル無し → cull
 		const th = t.z < floorZ ? tilePx * floorRatio
 			: sticky && sticky.has(tileId(t.z, t.x, t.y)) ? tilePx * stickyRatio : tilePx;
@@ -110,7 +116,7 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 // 4隅の投影は海面と groundR（地形リフト球）の**両方**で行い bbox を合併：海面bboxだけだと、リフトで
 // 画面内へ持ち上がる手前タイルが「画面外」でculされ、疎な画面サンプル（grid=10）の網に掛かった数枚しか
 // 残らない（63°チルトで実測）。リフトbboxだけだと逆に、中心標高より低い遠景（山上→谷）が欠ける。
-function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: ArrayLike<number>, W: number, H: number, sLo: Float64Array, sLa: Float64Array, sIn: number[] | null | undefined, groundR = 1): number {
+function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: ArrayLike<number>, W: number, H: number, sLo: Float64Array, sLa: Float64Array, sIn: number[] | null | undefined, groundR = 1, near: [number, number, number] | null = null): number {
 	const w = b[0], s = b[1], e = b[2], n = b[3];
 	// 四隅に加えて辺の途中も見る（粗いタイル＝z≤4）：球の縁では四隅が全部裏側でも辺の一部が表に出る（極を見下ろす時の赤道帯＝南半球の z1 タイル）。旧＝四隅だけ＝縁の帯が「見えない」と切られて紙色のまま（2026-09-30）
 	const K = t.z <= 4 ? 6 : 1;
@@ -141,8 +147,9 @@ function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: Array
 	if (!visible) return -1;
 	// サイズ：距離ベースのスクリーン誤差。タイル内で視点直下に最も近い点までの距離で、
 	// (タイル角度サイズ / 距離) × focal ≈ 画面上のタイルpx。近いほど大きい＝分割。
-	const refLon = Math.min(e, Math.max(w, center[0])), refLat = Math.min(n, Math.max(s, center[1]));
+	const c0 = near ?? center, refLon = Math.min(e, Math.max(w, c0[0])), refLat = Math.min(n, Math.max(s, c0[1]));
 	const p = lonlatTo3D(refLon, refLat);
+	if (near) { p[0] *= near[2]; p[1] *= near[2]; p[2] *= near[2]; }   // Cesium: from the eye to the tile's closest point, on the ground
 	const dist = Math.hypot(p[0] - st.eye[0], p[1] - st.eye[1], p[2] - st.eye[2]);
 	const worldSize = 2 * Math.PI / (1 << t.z);
 	return worldSize / Math.max(dist, 1e-9) * st.focal;   // 画面上のタイル px（≥0）。見えない＝-1
