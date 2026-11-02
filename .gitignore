@@ -49,3 +49,8 @@ apps/quakes/public/dev/*.geopbf
 /usgs-quakes-*.geopbf.json
 # Claude の作業出力（プレビュー画像など）
 Claude outputs/
+
+# Cesium / MapLibre 例ゲートの撮影結果（run.mjs --out gate-results/<run>）。1 回 ~600MB の png で
+# リポジトリが 5GB を超えたため追跡しない（2026-11-02）。手元（Mac）に置き、残す回は R2 へ。
+# サイトに出るのは publish.mjs が書く apps/www/public/sandcastle の webp だけ。
+/gate-results/
