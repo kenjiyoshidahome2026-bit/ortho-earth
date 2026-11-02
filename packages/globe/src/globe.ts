@@ -918,7 +918,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "overlayStage") { ((dbgHost.__overlay ??= {}) as Record<string, unknown>)[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
 	if (d.type === "frame1") {
 		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; paintTable = !!d.pt; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
-		sendSsr();   // SSR＝描き手が決まった（WebGPU なら setPostChain の ssr を今送る）
+		sendSsr(); sendSceneFx();   // SSR・場面の効果＝描き手が決まった（WebGPU なら setPostChain の ssr を今送る）
 		mapEl.querySelector("#fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 received backend=${dbgHost.__backend}`);
 		if (!mapLoaded) { mapLoaded = true; for (const cb of mapOn.load) { try { cb({}); } catch (e) { console.error("[map.on load]", e); } } }
@@ -1026,6 +1026,9 @@ const rasterPend: GlobeScope["rasterPend"] = new Map(); let rasterPendTotal = 0,
 // SSR（2026-11-01）＝WebGPU だけ（GL2 の renderer は知らない cmd を警告する＝送らない）。描き手が決まる前の setPostChain は初描画で送り直す
 let ssrCur: ReturnType<typeof normPostChain>["ssr"] = null, ssrSent = "null";
 const sendSsr = () => { const k = JSON.stringify(ssrCur); if (renderBackend === "webgpu" && k !== ssrSent) { ssrSent = k; renderer.set("ssr", ssrCur); } };
+// 場面の効果（接触影・高さ霧・光芒・雨・イラスト風・2026-11-01）＝SSR と同じく WebGPU だけ
+let sceneFxCur: ReturnType<typeof normPostChain>["sceneFx"] = null, sceneFxSent = "null";
+const sendSceneFx = () => { const k = JSON.stringify(sceneFxCur); if (renderBackend === "webgpu" && k !== sceneFxSent) { sceneFxSent = k; renderer.set("sceneFx", sceneFxCur); } };
 let renderBackend: GlobeLive["renderBackend"] = null, paintTable = false;   // paintTable＝描き手が paint 表の (b) 類を読む（frame1 で確定）   // 初描画で確定（"webgpu"／"webgl2"）。建物の影は WebGPU だけ（GL2＝フォールバックは影をかけない仕様）
 // mainDesired＝「今この視点で載っているべき main の sig」（swapScene が毎回更新。request の dedupe とは独立）。
 // base(粗い下地)の退場判定に使う：readySig がこれに追いつく＝穴なしが確定するまで下地を敷いたままにする。
@@ -2720,6 +2723,7 @@ const applyPostChain = (chain: unknown) => {
 	const r = normPostChain(chain, t => reg.has(t) && !POST_TYPES.includes(t));
 	postChain = r.passes; postCur = r.post; sendPost();
 	ssrCur = r.ssr; sendSsr();
+	sceneFxCur = r.sceneFx; sendSceneFx();
 	for (const t of reg.names()) if (!POST_TYPES.includes(t)) { try { reg.get(t)!.apply(map, postChain.filter(x => x.type === t)); } catch (e) { console.warn(`[post] ${t}: apply failed`, e); } }
 	requestDraw(); return map;
 };

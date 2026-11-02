@@ -12,21 +12,24 @@
 // 限界：画面に写っている物しか映らない（画面外・物の裏は映らない＝重みが 0 のまま＝元の色）。真俯瞰は映る物がほぼ無いので AO と同じく傾けた時だけ。
 import { FRAME } from "./wgsl.ts";
 import { viewRays } from "../camera.ts";
+import { FX_NOISE_WGSL, fxFrame } from "./scenefx.ts";   // 雨（setPostChain の rain）＝波紋と水たまりの雑音・目の所の東北と錨（scenefx と共有）
 
 const M_PER_R = 1 / 6371000;   // 1 m／地球半径（シェーダの単位＝β 単位球）
 
 // 映り込みの段（半解像度）。group(0)/(1)＝本体の main スロット（Frame・標高のアトラス・DrawP は宣言だけ）＝海の判定が elev() を使う。group(2)＝SSR の物
 export const SSR_WGSL = (ms: boolean): string => /* wgsl */`
 ${FRAME}
-struct SsrP { rF: vec4f, rX: vec4f, rY: vec4f, i0: vec4f, i1: vec4f, i2: vec4f, eye: vec4f, p: vec4f, q: vec4f, size: vec4f };
+struct SsrP { rF: vec4f, rX: vec4f, rY: vec4f, i0: vec4f, i1: vec4f, i2: vec4f, eye: vec4f, p: vec4f, q: vec4f, size: vec4f, rn: vec4f, an: vec4f, ex: vec4f, ny: vec4f };
 // rF/rX/rY.xyz＝視線 v(ndc)＝rF＋ndc.x·rX＋ndc.y·rY（clip w が 1 の長さ）・rX.w＝|eye|²−1・rY.w＝2·ln2／logCoef
 // i0/i1/i2＝[rF rX rY] の逆行列の行（Q → (w, w·ndc.x, w·ndc.y)）・eye.xyz＝目（β 単位球）
 // p＝(強さ, 歩く長さ（R）, 厚み（R）, 歩数)・q＝(ocean, ground, facades, 0)・size＝(W, H, 1/W, 1/H)（本体の画素）
+// rn＝雨 (濡れ 0..1, 時刻 s, 積み上げの番目, 0)・an＝目−雑音の錨（β）・ex/ny＝目の所の東・北（β）＝水たまりの斑と波紋（scenefx.ts FX_NOISE_WGSL）
 @group(2) @binding(0) var<uniform> SS: SsrP;
 @group(2) @binding(1) var ssrDep: ${ms ? "texture_depth_multisampled_2d" : "texture_depth_2d"};
 @group(2) @binding(2) var ssrStn: ${ms ? "texture_multisampled_2d<u32>" : "texture_2d<u32>"};
 @group(2) @binding(3) var ssrCol: texture_2d<f32>;
 const SSR_M: f32 = ${M_PER_R.toExponential(6)};
+${FX_NOISE_WGSL}
 fn ssrExpm1(x: f32) -> f32 {
 	if (x < 0.1) { return x * (1.0 + x * (0.5 + x * (0.16666667 + x * (0.041666668 + x * (0.008333334 + x * 0.0013888889))))); }
 	return exp(x) - 1.0;
@@ -83,9 +86,17 @@ ${FULL_VS}
 	}
 	if (dot(n, Pc.xyz) > 0.0) { n = -n; }   // 視線に向ける
 	let nUp = dot(n, up);
+	// 雨（rain）＝上を向いた面は水たまりの所ほど鏡に近く・近くは波紋で揺らす（遠くは画素より細かいので揺らさない）
+	var wetK = 1.0;
+	if (SS.rn.x > 0.0 && nUp > 0.9) {
+		let m = (Pc.xyz + SS.an.xyz) / SSR_M;
+		wetK = mix(0.3, 1.0, fxPuddleFar(m, Pc.w));
+		let rp = fxRipple(m, SS.rn.y) * (0.12 * SS.rn.x * clamp(60.0 * SSR_M / Pc.w, 0.0, 1.0));
+		n = normalize(n + SS.ex.xyz * rp.x + SS.ny.xyz * rp.y);
+	}
 	// 映す面と反射率
 	var r = 0.0;
-	if (nUp > 0.9) { r = SS.q.y; }   // ground
+	if (nUp > 0.9) { r = SS.q.y * wetK; }   // ground
 	if (SS.q.z > 0.0 && abs(nUp) < 0.35 && (textureLoad(ssrStn, ssrClampQ(q), 0).r & 0x80u) != 0u) { r = max(r, SS.q.z); }   // facades（建物・模型の立った面）
 	if (SS.q.x > 0.0 && nUp > 0.9 && F.elevP.y > 0.5) {   // ocean＝標高 0 m 以下の地面（屋上を除く＝高さ 30 m 未満）
 		let alt = (2.0 * dot(SS.eye.xyz, Pc.xyz) + dot(Pc.xyz, Pc.xyz) + SS.rX.w) / (length(wp) + 1.0) / SSR_M;   // |E＋P|−1（桁落ち無し）→ m
@@ -102,7 +113,7 @@ ${FULL_VS}
 	// 深度の中を歩く：t＝長さ×s²（手前ほど細かい）・s のジッタは画素ごと（IGN）＝縞を拡大の双線形で均す。
 	// 当たり＝「物の手前」から「物の裏」へ入った 1 歩を見つけ、その歩の中を 6 回の二分で面まで詰め、詰めた所の深度の差が厚みの内なら当たり（厚みを超える＝物の後ろを通った＝歩き続ける）
 	let nSteps = i32(SS.p.w);
-	let jit = fract(52.9829189 * fract(dot(pos.xy, vec2f(0.06711056, 0.00583715))));
+	let jit = fract(52.9829189 * fract(dot(pos.xy + SS.rn.z * 5.588238, vec2f(0.06711056, 0.00583715))));   // rn.z＝静止の積み上げの番目（毎フレームずらす）
 	let O = Pc.xyz + n * (Pc.w * 2.0e-4);   // 自分の面に当たらない下駄（視距離の 0.02%）
 	let maxD = min(SS.p.y, max(Pc.w * 2.0, 50.0 * SSR_M));   // 歩く長さ＝maxDistance と視距離の 2 倍の小さい方（画面に写る物はその内・歩幅を細かく）
 	var tPrev = 0.0; var tHit = -1.0; var front = true;
@@ -170,12 +181,13 @@ export function ssrInverse(F: ArrayLike<number>, X: ArrayLike<number>, Y: ArrayL
 }
 
 /** setPostChain の ssr（正規化済み）＝renderer.set("ssr", …) の形。 */
-export interface SsrOptions { intensity: number; maxDistance: number; thickness: number; steps: number; ocean: number; ground: number; facades: number }
+export interface SsrOptions { intensity: number; maxDistance: number; thickness: number; steps: number; ocean: number; ground: number; facades: number; rain?: number }   // rain＝雨の濡れ（setPostChain の rain が足す・水たまりと波紋）
 /** encode の入力（mvp/invMvp/eye は f64 のまま）。canvasTex＝1x の時の canvas の色（4x は colorView を resolve する）。bg0/bg1＝本体の main スロット。 */
 export interface SsrFrame {
 	depthTex: GPUTexture; samples: number; W: number; H: number; colorView: GPUTextureView; canvasTex: GPUTexture | null;
 	mvp: ArrayLike<number>; invMvp: ArrayLike<number>; eye: ArrayLike<number>; logCoef: number;
 	bg0: GPUBindGroup; bg1: GPUBindGroup; opt: SsrOptions; fade: number;
+	time?: number; pole?: ArrayLike<number>; phase?: number;   // phase＝静止の積み上げの番目   // 雨の波紋の時刻（s）・北極の β 点（東北の基底）
 }
 export interface SsrGPU { encode(enc: GPUCommandEncoder, d: SsrFrame): void; dispose(): void; bytes(): number }
 // device・format（canvas の色形式）・bgl0/bgl1＝本体の group(0)/(1) のレイアウト（Frame と標高を同じ束縛で読む）
@@ -201,10 +213,10 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 		return device.createRenderPipeline({ label, layout: device.createPipelineLayout({ bindGroupLayouts: layouts }), vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets }, primitive: { topology: "triangle-list" }, multisample: { count: sampleCount } });
 	};
 	const OVER: GPUColorTargetState[] = [{ format, blend: { color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" } } }];
-	const sBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const sBuf = device.createBuffer({ size: 224, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const cBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const samp = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
-	const u = new Float32Array(40);
+	const u = new Float32Array(56);
 	let colT: GPUTexture | null = null, refT: GPUTexture | null = null, cw = 0, ch = 0;
 	let bgS: { dep: GPUTexture; col: GPUTexture; bg: GPUBindGroup } | null = null, bgC: GPUBindGroup | null = null;
 	function ensure(W: number, H: number): void {
@@ -241,6 +253,8 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 		u[28] = o.intensity * d.fade; u[29] = o.maxDistance * M_PER_R; u[30] = o.thickness * M_PER_R; u[31] = o.steps;
 		u[32] = o.ocean; u[33] = o.ground; u[34] = o.facades;
 		u[36] = d.W; u[37] = d.H; u[38] = 1 / d.W; u[39] = 1 / d.H;
+		u[42] = d.phase ?? 0;
+		if (o.rain && o.rain > 0 && d.pole) { const fr = fxFrame(e, d.pole); u[40] = o.rain; u[41] = (d.time ?? 0) % 600; u.set(fr.an, 44); u.set(fr.ex, 48); u.set(fr.ny, 52); }
 		device.queue.writeBuffer(sBuf, 0, u);
 		device.queue.writeBuffer(cBuf, 0, new Float32Array([1 / d.W, 1 / d.H, 0, 0]));
 		// ②映り込み（半解像度）
