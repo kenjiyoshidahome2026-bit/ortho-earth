@@ -28,6 +28,25 @@
 - [geojson-vt-plan.md](notes/geojson-vt-plan.md) — geojson の層を vector の描き方へ
 - [raster-tiles.md](notes/raster-tiles.md) — メルカトル・ラスタタイルの v2 移植
 
+## ここ以外に置く文書（置き場が決まっている物）
+
+外からのリンクや npm の都合で動かさない物。正本はそれぞれ 1 か所だけ。
+
+| 文書 | 置き場 | 動かさない理由 |
+| --- | --- | --- |
+| 入口・何か・始め方 | `README.md` | GitHub の顔 |
+| リリースノート | `CHANGELOG.md` | GitHub Releases とサイトの記事はここを引く |
+| 1.x → 2.0 の移行 | `MIGRATION.md` | npm の README・サイトの頁・llms.txt から絶対 URL で張られている |
+| 層の掟 | `LAYERS.md` | コードの注記が「LAYERS.md 掟 3」の形で多数参照 |
+| データの出所と許諾 | `DATA.md` | 同上 |
+| 脆弱性の報告 | `SECURITY.md`・`SECURITY.ja.md` | GitHub が root を読む |
+| package ごとの使い方 | `packages/*/README.md`・`sdk/*/README.md` | npm に載る |
+| MapLibre との差の台帳 | `packages/globe/maplibre-compat.md`・`maplibre-coverage.md` | globe の README とサイトの移行ガイドから参照 |
+| プラグイン・three.js | `packages/globe/PLUGINS.md`・`THREE.md` | THREE.md は npm に同梱 |
+| GeoPBF の書式 | `packages/geopbf/pbf spec.md`・`reference.md` | 公開ミラーと npm の README から相対リンク |
+| 利用者向けの解説・記事 | `apps/docs/`（サイトの /docs） | サイトの見た目を変えない |
+| アプリ固有の記録 | `apps/<app>/README.md` など | そのアプリの中で閉じる |
+
 design/ と notes/ の文書は 2026-11-02 に `packages/ortho-core/` から移した（名前の空白は `-` に）。
 本文中の package 名の無い `src/…`・`tests/…` は `packages/ortho-core/` からの相対。
 architecture.md・apps.md・development.md は 2026-11-02 に GitHub wiki の下書き（`.wiki-src/`）から移した（英語版だけ残し、日本語版と README・CHANGELOG と重なる頁は削除）。
