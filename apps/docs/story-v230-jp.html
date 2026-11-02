@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V.2.3.0 二柱の神のあいだで</title>
+<meta name="description" content="Cesium の同じ絵は 190 本から 226 本へ。続けて、もう一柱の神 MapLibre の公式例 139 本に戻り、一部が動かない例を 12 本から 3 本に減らした 3 日間の記録。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v230-jp">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/story-v230">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/story-v230-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/story-v230">
+<meta property="og:title" content="V.2.3.0 二柱の神のあいだで">
+<meta property="og:description" content="Cesium の同じ絵は 190 本から 226 本へ。続けて、もう一柱の神 MapLibre の公式例 139 本に戻り、一部が動かない例を 12 本から 3 本に減らした 3 日間の記録。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v230-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-11-02">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"V.2.3.0 二柱の神のあいだで","description":"Cesium の同じ絵は 190 本から 226 本へ。続けて、もう一柱の神 MapLibre の公式例 139 本に戻り、一部が動かない例を 12 本から 3 本に減らした 3 日間の記録。","url":"https://www.ortho-earth.com/docs/story-v230-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v230-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-02","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+<style>.essay figure.ba { margin: 0.6em 0 1.8em; } .essay figure.ba img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); }</style>
+</head>
+<body>
+<!-- Stories の記事（apps/www/stories.json のカードから開く）。v2.3.0 の記録＝Cesium の続き（v2.2.0 → v244 の撮影）と MapLibre の公式例 139 本の改良（2026-11-02）。絵は /maplibre/ のギャラリーの本物（左）とこちら（右）を横に並べたもの -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v230.html" lang="en">English</a></nav>
+<header class="masthead"><h1>V.2.3.0 二柱の神のあいだで</h1><p class="byline">2026-11-02 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>前回、Cesium は神だと書いた。実はもう一柱、神がいる。MapLibre である。</p>
+<p>ortho-earth は、もともと MapLibre の書き方で地図を描くところから始まった。それが Cesium を追いかけている間に、こちらの神の前ではどう見えているのか。Cesium との整合性が上がってきたので、MapLibre の方ももう一度なぞり直すことにした。</p>
+<p>Cesium は 3D 同士の調整なので、段 1 がなくなった。MapLibre は 2D の地図を球に載せる話なので、そう簡単にはいかない。これはその往復の記録である。</p>
+
+<h2>Cesium の続き</h2>
+<p>v2.2.0 のあとも、Sandcastle の撮り直しは止まらなかった。v221 から v244 まで、全 309 本の撮り直しを 20 回あまり回し、そのたびに家族ごとに直した。</p>
+<div class="table-wrap"><table><thead><tr><th>撮影</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
+<tr><td>v2.2.0</td><td>190</td><td>107</td><td>0</td><td>0</td><td>前回の最終の数（採点 297 本）</td></tr>
+<tr><td>v221</td><td>196</td><td>101</td><td>0</td><td>0</td><td>v2.2.0 の直後の撮り直し</td></tr>
+<tr><td>v233</td><td>207</td><td>91</td><td>0</td><td>0</td><td>画像の左右分割、3D Tiles の辺の表示、地形に載せる図形、時刻つき WMTS（#845〜#857）</td></tr>
+<tr><td>v238</td><td>220</td><td>77</td><td>0</td><td>1</td><td>Sandcastle の画像の配信、矩形の回転、建物で止まる 3D の線、Cesium と同じ画像の細かさ（#863〜#866）</td></tr>
+<tr><td>v244</td><td><strong>223</strong></td><td>75</td><td><strong>0</strong></td><td><strong>0</strong></td><td>閉じた図形の表裏、3D Tiles の境界球、Bing の画像、半透明の 3D Tiles の影（#869〜#900）</td></tr>
+</tbody></table></div>
+<p class="note-small">注：表は検定が出した数（採点 298 本）。<a href="/sandcastle/" target="_top">Sandcastle</a> のギャラリーは、目で確かめた例を足した 303 本で、3/2/1/0 = 226 / 77 / 0 / 0 になっている。途中の v243 では画像の変更（#894）で一度 0 が 7 本に増えたが、検定が見つけて #900 で戻した。</p>
+
+<h2>MapLibre に戻る</h2>
+<p>MapLibre の公式例 139 本を、同じやり方で並べた。本物の MapLibre GL JS 6.11.2 で撮った絵（r7）と、@ortho-earth/globe の MapLibre の口で同じコードを動かした絵を、同じ時刻・同じカメラで比べる。段の付け方は Cesium と同じで、採点できない 2 本を外した 137 本を数える。</p>
+<p>今朝（v2.2.x の main）に測り直すと、3/2/1/0 = 85 / 40 / 12 / 0 だった。一部が動かない例が 12 本もある。Cesium で 0 にしたばかりなので、これは見過ごせない。</p>
+<div class="table-wrap"><table><thead><tr><th>時点</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
+<tr><td>v2.1.0</td><td>79</td><td>47</td><td>11</td><td>0</td><td>前に /maplibre/ を作った時の数</td></tr>
+<tr><td>今朝</td><td>85</td><td>40</td><td>12</td><td>0</td><td>v2.2.x の main をそのまま測り直した数</td></tr>
+<tr><td>昼</td><td>86</td><td>45</td><td>6</td><td>0</td><td>メルカトルの既定の制約、maxZoom 22、MapLibre の振り付けの flyTo、束ねた点の問い合わせ、傾けた地図の heatmap の当たり、高さ 0 の押し出しの屋根</td></tr>
+<tr><td>午後</td><td>87</td><td>45</td><td>5</td><td>0</td><td>縦の視野角を MapLibre と同じ 36.87° に</td></tr>
+<tr><td>v2.3.0</td><td><strong>88</strong></td><td><strong>46</strong></td><td><strong>3</strong></td><td><strong>0</strong></td><td>注視点の高さの球、地形の上の unproject を光線の歩きに、地形の誇張を注視点にも</td></tr>
+</tbody></table></div>
+<p class="note-small">注：WebGPU（Mac の実 GPU）での数。WebGL2 でも全部を流し、段 1 の 3 本は同じ。違うのは記号の上の標本 1 点で段 3 から 2 になる 2 本だけだった。</p>
+
+<h2>結果</h2>
+<p>v2.3.0 の 137 本は 3/2/1/0 = <strong>88 / 46 / 3 / 0</strong>。一部が動かない例は 12 本から 3 本になった。全部の絵は <a href="/maplibre/" target="_top">MapLibre</a> のギャラリーで、本物と並べて見られる。ギャラリーの形も Sandcastle と揃え、上段と下段の説明は日本語と英語で読めるようにした。</p>
+<p>左が本物の MapLibre、右が ortho-earth（v2.3.0）。</p>
+<p><strong>set-center-point-above-ground</strong>：地形の無い地図で注視点を 541 m の宙に置く例。絵は前から同じだったが、経緯度と画面の点の行き来が 279 px ずれていた。MapLibre は注視点の高さの面を「地面」とみなして計算する。MapLibre の口だけ、それに揃えた（段 1 → 3）</p>
+<figure class="ba"><img src="story-v230-set-center-point-above-ground.webp" width="968" height="360" loading="lazy" alt="set-center-point-above-ground の MapLibre と ortho-earth"></figure>
+<p><strong>display-a-hybrid-satellite-map-with-terrain-elevation</strong>：急な山の衛星図。クリックした点が別の斜面に飛び、数 km ずれていた。視線を手前から奥へ歩いて、最初に地面をまたぐ所を詰める方式に変えた（問い合わせ 110/160 → 158/160、段 1 → 2）</p>
+<figure class="ba"><img src="story-v230-display-a-hybrid-satellite-map-with-terrain-elevation.webp" width="968" height="360" loading="lazy" alt="display-a-hybrid-satellite-map-with-terrain-elevation の MapLibre と ortho-earth"></figure>
+<p><strong>add-a-3d-model-to-globe-using-threejs</strong>：three.js の模型を地球儀に立てる例。球の上の custom 層の軸が MapLibre と x と z で逆で、アンテナが出ていなかった</p>
+<figure class="ba"><img src="story-v230-add-a-3d-model-to-globe-using-threejs.webp" width="968" height="360" loading="lazy" alt="add-a-3d-model-to-globe-using-threejs の MapLibre と ortho-earth"></figure>
+
+<h2>作ったもの</h2>
+<ul>
+<li>MapLibre の口：縦の視野角 36.87°、注視点の高さの球（地形なし＋centerElevation）、地中の覆いを出さない、メルカトルの既定の制約、maxZoom 22、MapLibre の振り付けの flyTo／easeTo</li>
+<li>地形の上の unproject：光線の歩き（同期で読める raster-dem）と、従来の反復（quantized-mesh と読み口を通る DEM）の使い分け</li>
+<li>地形の誇張を注視点の高さと queryTerrainElevation にも掛ける（MapLibre と同じ）</li>
+<li>球の上の custom 層の軸を MapLibre に揃える（three.js の模型）</li>
+<li>描いた絵に出ない custom 層を目で確かめた記録（eyechecked.json）と、段が下がったら落ちる爪車（known.json）</li>
+<li>/maplibre/ と /sandcastle/ のギャラリーを同じ形に、上段と下段は日英</li>
+<li>Cesium の側：画像の左右分割、3D Tiles の辺の表示、建物で止まる 3D の線、閉じた図形の表裏、半透明の 3D Tiles の影</li>
+<li>描画：画面の映り込み（SSR）、接触影、高さの霧、光芒、雨、イラスト風（WebGPU）</li>
+</ul>
+
+<h2>諦めたもの</h2>
+<ul>
+<li>add-live-realtime-data：動き続ける例で、撮った瞬間のカメラの位置が本物と揃わない</li>
+<li>display-html-clusters-with-custom-properties：束ねた丸が本物 12 個、こちら 13 個。束ね方の差を追い切れていない</li>
+<li>navigate-the-map-with-game-like-controls：MapLibre は絵に描いていない建物も問い合わせで返す。こちらは描いた物だけを返す方を取った</li>
+<li>quantized-mesh を raster-dem として読む例は、光線の歩きを使わない。標本ごとにタイルを復号して待つので、160 点の問い合わせが 25 秒かかった</li>
+</ul>
+
+<h2>しつこいエラー</h2>
+<p>今回いちばん手間取ったのは、地形の上でクリックした点を経緯度に戻す処理だった。急斜面を直すと quantized-mesh の例が遅くなり、遅さを直すと位置がずれる。直すたびに、別の例で新しい不具合が出た。</p>
+<p>それでも、本物と並べて撮る検定と、段が下がったら落ちる爪車があったので、どこで何が壊れたかはその場で分かった。調べるうちに、地形の誇張が注視点に掛かっていないという、前からの不具合も見つかった。最後は、同期で読める地形だけを新しいやり方にして、ほかは前の解き方に戻した。深追いをやめるのも、方法のうちである。</p>
+<p>二柱の神のあいだを行き来しても、上流はびくともしない。これが ortho-earth の開発手法である。</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>
