@@ -2707,14 +2707,29 @@ map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const l
 // 待って解く unproject：①不動点の反復（標高を heightAt で待つ点は数点だけ＝どの DEM でも速い）で候補を出し、
 // ②届いている標高（メモ・heightSync）だけで光線を歩き、候補より手前で地面をまたぐ所があればそちら（急斜面の手前の尾根・hybrid の例）。
 // 届いていない標本は「地面なし」とみなし、照会だけ出す（次の呼び出しで効く）。旧＝歩きの全標本を待った＝quantized-mesh で最初の 1 回 11.7 秒・上限 400ms でも毎回待ち切った（2026-11-02）
+const ASYNC_WAIT_MS = 150;
 const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
 	let ll = unproject(st, x * dpr, y * dpr); const pf = dispPf();
 	if (!ll || pf <= 0 || !(demMain || getHeight)) return ll;
+	// 覚えた標高（メモ・heightSync）があれば待たない。待つのは合わせて ASYNC_WAIT_MS まで＝過ぎたら届いた分で歩く（quantized-mesh の問い合わせが 1 点 400 ms・160 点で 25 秒だった・2026-11-02）
+	const until = performance.now() + ASYNC_WAIT_MS;
 	for (let i = 0; i < 6; i++) {
-		const h = await heightAt(ll[0], ll[1]).catch(() => 0);
-		elevMemo.set(Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), h);
+		const k = Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), hit = elevMemo.get(k);
+		let h: number;
+		if (typeof hit === "number") h = hit;
+		else {
+			const hs = demMain?.heightSync?.(ll[0], ll[1], Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ)));
+			if (hs === hs && hs !== undefined) h = hs;
+			else {
+				const left = until - performance.now(); if (left <= 0) break;
+				const got = await Promise.race([heightAt(ll[0], ll[1]).catch(() => 0).then(v => { elevMemo.set(k, v); return v; }), new Promise<null>(r => setTimeout(r, left, null))]);   // 打ち切っても答えはメモへ（次の呼び出しで効く）
+				if (got === null) break;
+				h = got;
+			}
+			elevMemo.set(k, h);
+		}
 		const n = unproject(st, x * dpr, y * dpr, dispRadiusH(h, pf)); if (!n) break;
 		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
 	}
