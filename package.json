@@ -26,7 +26,6 @@
 		"coverage": "node scripts/coverage.mjs"
 	},
 	"devDependencies": {
-		"@types/emscripten": "^1.41.6",
 		"@types/react": "^19.3.0",
 		"@types/react-dom": "^19.3.0",
 		"@types/d3": "^7.4.3",
