@@ -167,15 +167,34 @@ ${FULL_VS}
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 	return textureSampleLevel(rT, rS, (pos.xy - CP.zw) * CP.xy, 0.0);   // CP.zw＝半解像度の texel が受け持つ画素のずれ（積み上げで 2×2 を回す）
 }`;
-// ぼかし（半解像度・前乗算のまま）：縦横 2 段の 5 点（1,4,6,4,1）/16＝点々のブロックと壁のまだらを均す（映り込みのごく浅い粗さ）
-export const SSR_BLUR_WGSL = (dir: readonly [number, number]): string => /* wgsl */`
+// ぼかし（半解像度・前乗算のまま）：縦横 2 段の 5 点（1,4,6,4,1）＝点々のブロックと壁のまだらを均す（映り込みのごく浅い粗さ）
+// 深度で重みを絞る（Mac 2026-11-02：引きの絵で遠くの小さな像が灰色ににじんだ）：
+//  ・kg＝その画素の縦の ln w の傾き g が大きい（遠い・かすめ角＝1 画素が広い範囲）ほど周りを使わない
+//  ・各点は中心と ln w が違うほど使わない（建物の縁で水面へにじまない）
+export const SSR_BLUR_WGSL = (dir: readonly [number, number], ms: boolean): string => /* wgsl */`
 @group(0) @binding(0) var bT: texture_2d<f32>;
+@group(0) @binding(1) var bD: ${ms ? "texture_depth_multisampled_2d" : "texture_depth_2d"};
+@group(0) @binding(2) var<uniform> BP: vec4f;   // x＝2·ln2／logCoef（深度 → ln(1+w)）
 ${FULL_VS}
+fn lw(p: vec2i) -> f32 {
+	let q = clamp(p * 2, vec2i(0), vec2i(textureDimensions(bD)) - vec2i(1));
+	let z = textureLoad(bD, q, 0);
+	if (z >= 1.0) { return 1.0e4; }   // 空
+	return z * BP.x;
+}
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 	let xy = vec2i(pos.xy); let dim = vec2i(textureDimensions(bT));
-	var s = vec4f(0.0);
-	for (var i = -2; i <= 2; i++) { s += select(select(1.0, 4.0, abs(i) == 1), 6.0, i == 0) * textureLoad(bT, clamp(xy + vec2i(${dir[0]}, ${dir[1]}) * i, vec2i(0), dim - vec2i(1)), 0); }
-	return s / 16.0;
+	let c0 = lw(xy);
+	let g = 0.5 * abs(lw(xy + vec2i(0, 1)) - lw(xy - vec2i(0, 1)));
+	let kg = exp(-(g * g) / (0.025 * 0.025));
+	var s = vec4f(0.0); var ws = 0.0;
+	for (var i = -2; i <= 2; i++) {
+		let t = clamp(xy + vec2i(${dir[0]}, ${dir[1]}) * i, vec2i(0), dim - vec2i(1));
+		var w = 6.0;
+		if (i != 0) { let dl = lw(t) - c0; w = select(1.0, 4.0, abs(i) == 1) * kg * exp(-(dl * dl) / (0.05 * 0.05)); }
+		s += w * textureLoad(bT, t, 0); ws += w;
+	}
+	return s / ws;
 }`;
 
 /** [F X Y]（列）の逆行列の行（f64・純関数＝Node の検定が読む）。Q＝w·(F＋x·X＋y·Y) → 行 i0·Q＝w・i1·Q＝w·x・i2·Q＝w·y。 */
@@ -230,7 +249,14 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 	const u = new Float32Array(56);
 	let colT: GPUTexture | null = null, refT: GPUTexture | null = null, refB: GPUTexture | null = null, cw = 0, ch = 0;
 	let bgS: { dep: GPUTexture; col: GPUTexture; bg: GPUBindGroup } | null = null, bgC: GPUBindGroup | null = null, bgBH: GPUBindGroup | null = null, bgBV: GPUBindGroup | null = null;
-	const bglB = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: FS, texture: { sampleType: "unfilterable-float" } }] });
+	const bglBf = (ms: boolean): GPUBindGroupLayout => device.createBindGroupLayout({ entries: [
+		{ binding: 0, visibility: FS, texture: { sampleType: "unfilterable-float" } },
+		{ binding: 1, visibility: FS, texture: { sampleType: "depth", multisampled: ms } },
+		{ binding: 2, visibility: FS, buffer: {} },
+	] });
+	const bglBs = new Map<boolean, GPUBindGroupLayout>();
+	const bBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	let bgBdep: GPUTexture | null = null;
 	function ensure(W: number, H: number): void {
 		if (colT && cw === W && ch === H) return;
 		colT?.destroy(); refT?.destroy(); refB?.destroy();
@@ -252,9 +278,13 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 				{ binding: 3, resource: colT!.createView() },
 			] }) };
 		}
-		const pBH = pipe("blurH", () => mk(SSR_BLUR_WGSL([1, 0]), [bglB], [{ format: "rgba16float" }], 1, "ssrBlurH")), pBV = pipe("blurV", () => mk(SSR_BLUR_WGSL([0, 1]), [bglB], [{ format: "rgba16float" }], 1, "ssrBlurV"));
-		bgBH ??= device.createBindGroup({ layout: bglB, entries: [{ binding: 0, resource: refT!.createView() }] });
-		bgBV ??= device.createBindGroup({ layout: bglB, entries: [{ binding: 0, resource: refB!.createView() }] });
+		let bglB = bglBs.get(ms); if (!bglB) { bglB = bglBf(ms); bglBs.set(ms, bglB); }
+		const lB = bglB, sx = ms ? "m" : "s";
+		const pBH = pipe("blurH" + sx, () => mk(SSR_BLUR_WGSL([1, 0], ms), [lB], [{ format: "rgba16float" }], 1, "ssrBlurH")), pBV = pipe("blurV" + sx, () => mk(SSR_BLUR_WGSL([0, 1], ms), [lB], [{ format: "rgba16float" }], 1, "ssrBlurV"));
+		if (bgBdep !== d.depthTex) { bgBH = bgBV = null; bgBdep = d.depthTex; }
+		const bE = (src: GPUTexture): GPUBindGroupEntry[] => [{ binding: 0, resource: src.createView() }, { binding: 1, resource: d.depthTex.createView({ aspect: "depth-only" }) }, { binding: 2, resource: { buffer: bBuf } }];
+		bgBH ??= device.createBindGroup({ layout: lB, entries: bE(refT!) });
+		bgBV ??= device.createBindGroup({ layout: lB, entries: bE(refB!) });
 		bgC ??= device.createBindGroup({ layout: bglC, entries: [{ binding: 0, resource: refT!.createView() }, { binding: 1, resource: samp }, { binding: 2, resource: { buffer: cBuf } }] });
 		// ①色の写し
 		if (d.canvasTex) enc.copyTextureToTexture({ texture: d.canvasTex }, { texture: colT! }, [d.W, d.H]);
@@ -272,6 +302,7 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 		u[42] = d.phase ?? 0;
 		if (o.rain && o.rain > 0 && d.pole) { const fr = fxFrame(e, d.pole); u[40] = o.rain; u[41] = (d.time ?? 0) % 600; u.set(fr.an, 44); u.set(fr.ex, 48); u.set(fr.ny, 52); }
 		device.queue.writeBuffer(sBuf, 0, u);
+		device.queue.writeBuffer(bBuf, 0, new Float32Array([u[11], 0, 0, 0]));
 		const k4 = (d.phase ?? 0) & 3;
 		device.queue.writeBuffer(cBuf, 0, new Float32Array([1 / d.W, 1 / d.H, k4 & 1, k4 >> 1]));
 		// ②映り込み（半解像度）
@@ -284,6 +315,6 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 		const p3 = enc.beginRenderPass({ colorAttachments: [{ view: d.colorView, loadOp: "load", storeOp: "store" }] });
 		p3.setPipeline(pC); p3.setBindGroup(0, bgC); p3.draw(3); p3.end();
 	}
-	function dispose() { colT?.destroy(); refT?.destroy(); refB?.destroy(); colT = refT = refB = null; bgS = null; bgC = null; bgBH = null; bgBV = null; sBuf.destroy(); cBuf.destroy(); pipes.clear(); }
+	function dispose() { colT?.destroy(); refT?.destroy(); refB?.destroy(); colT = refT = refB = null; bgS = null; bgC = null; bgBH = null; bgBV = null; sBuf.destroy(); cBuf.destroy(); bBuf.destroy(); bgBdep = null; pipes.clear(); }
 	return { encode, dispose, bytes: () => cw * ch * 4 + (cw >> 1) * (ch >> 1) * 16 };
 }
