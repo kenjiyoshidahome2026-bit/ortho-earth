@@ -113,11 +113,13 @@ export const picturePct = g => { const c = g?.color; if (!g?.pictureCompared || 
 const mlDocs = name => `https://maplibre.org/maplibre-gl-js/docs/examples/${encodeURIComponent(name)}/`;
 export function buildGallery({ rows, refLabel, orthoLabel, when, refWhen = "", notes = {}, sources = {}, base = "http://localhost:5253", publish = null, engine = "", maplibre = "6.11.2" }) {
 	// 絵＝本物（左）とこちら（右）を並べる（Sandcastle のギャラリーと同じ形・2026-11-02）。publish.pic(name, side) か、手元は runs/ の full.png
+	const last = r => PIC_UNAVAILABLE_BOTH.has(r.name) || REF_PIC_UNAVAILABLE[r.name] || r.grade?.level == null ? 1 : 0;
+	if (publish) rows = [...rows].sort((a, b) => last(a) - last(b));   // 絵の無い例は末尾へ（安定な並べ替え・公開だけ）
 	const pic = (name, side) => publish ? publish.pic(name, side) : `../../runs/${side === "ref" ? refLabel : orthoLabel}/${side}/${name}.full.png`;
 	const shot = r => {
 		const why = REF_PIC_UNAVAILABLE[r.name] || (r.grade?.level == null ? r.grade?.refWhy : null);
-		const ref = why ? `<figure class="na" title="${esc(why)}"><p>Reference picture not shown</p><figcaption>MapLibre GL JS</figcaption></figure>` : `<figure><img loading="lazy" src="${esc(pic(r.name, "ref"))}" alt="MapLibre GL JS"><figcaption>MapLibre GL JS</figcaption></figure>`;
-		const ortho = PIC_UNAVAILABLE_BOTH.has(r.name) ? `<figure class="na" title="${esc(BOTH_WHY)}"><p>Picture not shown</p><figcaption>Ortho Earth</figcaption></figure>` : `<figure><img loading="lazy" src="${esc(pic(r.name, "ortho"))}" alt="Ortho Earth"><figcaption>Ortho Earth</figcaption></figure>`;
+		const ref = why ? `<figure class="na" title="${esc(why)}"><p data-ja="本物の絵は出しません">Reference picture not shown</p><figcaption>MapLibre GL JS</figcaption></figure>` : `<figure><img loading="lazy" src="${esc(pic(r.name, "ref"))}" alt="MapLibre GL JS"><figcaption>MapLibre GL JS</figcaption></figure>`;
+		const ortho = PIC_UNAVAILABLE_BOTH.has(r.name) ? `<figure class="na" title="${esc(BOTH_WHY)}"><p data-ja="絵は出しません">Picture not shown</p><figcaption>Ortho Earth</figcaption></figure>` : `<figure><img loading="lazy" src="${esc(pic(r.name, "ortho"))}" alt="Ortho Earth"><figcaption>Ortho Earth</figcaption></figure>`;
 		return `<div class="shot">${ref}${ortho}</div>`;
 	};
 	// 段（同じ絵／同じ答え）はこちらの解釈＝載せない（2026-09-30 本人）。ただし絞り込みは note でなく段で数える（2026-10-23 本人「noteではなく、段１を数えるようにした方がいい」）＝カードに data-level。載せるのは写し・題・分類 (一致度 %)。カードを押すと覗き窓＝ortho で動く形の本文（例の 2 つの道だけ替えた物）＋英日の注釈＋ Run（走らせ台の頁を iframe で・タブを増やさない）＋コピー／ダウンロード
@@ -130,7 +132,7 @@ export function buildGallery({ rows, refLabel, orthoLabel, when, refWhen = "", n
 	}
 	const card = r => {
 		const note = noteOf(notes, r.name), pc = picturePct(r.grade), c = completeness(r.grade);
-		const pct = r.grade?.level == null ? `<span class="pct na" title="${esc(r.grade?.refWhy || "reference not available")}">n/a</span>` : pc == null ? "" : `<span class="pct" title="sampled points of the picture whose colour matches MapLibre GL JS${c ? ` · ${esc(c.detail)}` : ""}" data-pct="${pc}">${pc}%</span>`;
+		const pct = r.grade?.level == null ? `<span class="pct na" title="${esc(r.grade?.refWhy || "reference not available")}">n/a</span>` : pc == null || PIC_UNAVAILABLE_BOTH.has(r.name) ? "" : `<span class="pct" title="sampled points of the picture whose colour matches MapLibre GL JS${c ? ` · ${esc(c.detail)}` : ""}" data-pct="${pc}">${pc}%</span>`;
 		return `<article class="card" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}" data-level="${r.grade?.level ?? "x"}" data-name="${esc(r.name)}" tabindex="0" role="button" aria-label="${esc(r.title || r.name)}">
 ${shot(r)}
 <div class="body">
@@ -221,7 +223,7 @@ const open = name => {
 	const p = P[name]; if (!p) return; cur = name; stop();
 	$("dt").textContent = p.title; $("dc").textContent = p.html || "(source not captured)";
 	$("ml").href = DOCS.replace("X", encodeURIComponent(name));
-	const fig = (id, img, src, why, label) => { const f = $(id), im = $(img); f.classList.toggle("na", !src); f.title = why || ""; im.style.display = src ? "" : "none"; im.src = src || ""; f.querySelector("p")?.remove(); if (!src) { const q = document.createElement("p"); q.textContent = label; f.prepend(q); } };
+	const fig = (id, img, src, why, label) => { const f = $(id), im = $(img); f.classList.toggle("na", !src); f.title = why || ""; im.style.display = src ? "" : "none"; im.src = src || ""; f.querySelector("p")?.remove(); if (!src) { const q = document.createElement("p"); q.textContent = document.documentElement.dataset.lang === "ja" ? (label === "Picture not shown" ? "絵は出しません" : "本物の絵は出しません") : label; f.prepend(q); } };
 	fig("fref", "ir", p.ref, p.why, "Reference picture not shown"); fig("fort", "io", p.ortho, p.owhy, "Picture not shown");
 	const dm = $("dm"); dm.replaceChildren(); const ln = document.createElement("p"); ln.textContent = (p.l == null ? "Not scored" : LV[p.l]) + (p.pc == null ? "" : " · picture " + p.pc + "%"); dm.append(ln);
 	const dn = $("dn"); dn.hidden = !p.note; dn.innerHTML = p.note ? (p.note.en ? "<p>" + esc(p.note.en) + "</p>" : "") + (p.note.ja ? "<p class=\\"ja\\">" + esc(p.note.ja) + "</p>" : "") : "";
