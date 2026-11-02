@@ -96,7 +96,7 @@ const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.g
 				out.push({ layer: f.layer.id, geom: g?.type ?? null, placement: lo["symbol-placement"] || "point", text: lo["text-field"] != null, icon: lo["icon-image"] != null, lng, lat, x, y });
 			}
 			return out; } catch (e) { return [{ error: String(e.message) }]; } })(),
-		loaded: m.loaded(), mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })()`;
+		loaded: m.loaded(), mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], addedTypes: X.addedTypes || {}, probes }; })()`;
 // こちらの答え：本物の標本点（経緯度）をこちらの projectLL で画面へ→問い合わせ（非同期）。比べる点＝front>0（裏でない）・画面の内側・
 // unproject で同じ場所へ戻る（標本の間隔の 1/4 以内＝地平線に寄せられた点・大気の縁を除く）。front は高さ／半径の量＝高ズームでは 1e-4 程度でも表（閾値を置かない）
 // 本物の記録が無い例は自分の格子（unproject）で取る（絵の比べはできない）
@@ -131,7 +131,7 @@ const PROBE_ORTHO = (refProbes, refSymbols = null) => `(async (REF, REFSYM) => {
 		// 文字（段 0）：本物の記号の錨をこちらの画面へ（projectLL＝表なら front>0）＋こちらが置いたラベル/記号（debugGlobals の __placed＝層 id・中心・箱）
 		refSym: (REFSYM || []).map(sy => { if (!eng || sy.lng == null) return null; const [x, y, front] = eng.projectLL(sy.lng, sy.lat); return { x, y, front, ok: front > 0 && x >= 0 && y >= 0 && x < Wc && y < Hc }; }),
 		placed: await (async () => { try { return (await window.__placed?.()) ?? []; } catch { return []; } })(),
-		loaded: m.loaded(), backend: eng?.backend ?? null, mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })(${JSON.stringify(refProbes)}, ${JSON.stringify(refSymbols)})`;
+		loaded: m.loaded(), backend: eng?.backend ?? null, mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], addedTypes: X.addedTypes || {}, probes }; })(${JSON.stringify(refProbes)}, ${JSON.stringify(refSymbols)})`;
 const PROBE = { ref: () => PROBE_REF, ortho: PROBE_ORTHO };
 
 async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {

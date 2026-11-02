@@ -151,6 +151,8 @@ interface HostOptions extends GlobeOptions {
 	fog?: boolean;
 	/** "maplibre"＝object の形の flyTo／easeTo を MapLibre の振り付け（同時補間・speed／curve／duration・defaultEasing）で（MapLibre の口が渡す） */
 	flight?: "maplibre";
+	/** 地中の灰色の覆い（目が直下の地面より下に入った時）。false＝出さない（MapLibre の口＝MapLibre に無い・地形の際で目が地面の下に入る例が全面灰色になった 2026-11-02） */
+	undergroundOverlay?: boolean;
 }
 /** 建物の台帳の 1 区（地域宣言の buildings.sets／catalog の JSON の要素） */
 /** 注記の 1 件＝基図のタイル注記（core の Label）か、ホストが足す名札（空港マーク・ランドマーク・POI＝書体・層の添字・ズーム域は持たない）。labelSender で worker へ */
@@ -1277,6 +1279,7 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	const free = () => { ugBusy = false; if (ugAgain) { ugAgain = false; setTimeout(() => updateUnderground(true), 0); } };
 	// 動作中＝帯（smoothstep）で滑らかに／静止中に届いた答え＝確定（地中なら全黒・地上なら解除）＝commitUnderground と同じ裁定
 	const done = (t: number, d: number) => { free(); ugLastD = d; (undergroundEl.style as { opacity: string | number }).opacity = moving ? t : (d < 0 ? 1 : 0); };
+	if (opts.undergroundOverlay === false) return done(0, Infinity);   // 覆いを出さない口（MapLibre）
 	if ((cam.pitch || 0) < 0.06) return done(0, Infinity);   // 2D=地中判定なし
 	if (noTerr) return done(0, Infinity);   // 地形を描かない地図（terrain:false・MapLibre の口の既定）＝地面は海抜 0 の平面＝潜らない。旧＝描いていない自前の標高で判定し、z18・傾き 60° の公式例（add-a-3d-model-using-threejs）が全面灰色（2026-09-29）
 	const st = cameraState(cam, size.w, size.h);
