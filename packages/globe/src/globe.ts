@@ -2628,9 +2628,16 @@ const marchGround = (st: ReturnType<typeof cameraState>, x: number, y: number, p
 const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
-	const ll = unproject(st, x * dpr, y * dpr), pf = dispPf();
+	let ll = unproject(st, x * dpr, y * dpr); const pf = dispPf();
 	if (!ll || noTerr || pf <= 0 || !(demMain || getHeight)) return ll;
-	return marchGround(st, x, y, pf, elevOf);
+	if (demMain?.heightSync) return marchGround(st, x, y, pf, elevOf);
+	// 同期で読めない DEM（quantized-mesh・既定の DTM）＝光線を歩くと標本ごとに照会が出る＝従来の不動点の反復（最大 6 回・1e-7° で止める・2026-11-02）
+	for (let i = 0; i < 6; i++) {
+		const r = dispRadius(ll[0], ll[1]); if (r === 1) break;
+		const n = unproject(st, x * dpr, y * dpr, r); if (!n) break;
+		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
+	}
+	return ll;
 };
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
@@ -2713,6 +2720,15 @@ const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
 	let ll = unproject(st, x * dpr, y * dpr); const pf = dispPf();
 	if (!ll || pf <= 0 || !(demMain || getHeight)) return ll;
+	if (!demMain?.heightSync) {   // 同期で読めない DEM（quantized-mesh・既定の DTM）＝従来どおり当たった点の標高を待って反復（上限なし・o1102o で段 2 の道・2026-11-02）
+		for (let i = 0; i < 6; i++) {
+			const h = await heightAt(ll[0], ll[1]).catch(() => 0);
+			elevMemo.set(Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), h);
+			const n = unproject(st, x * dpr, y * dpr, dispRadiusH(h, pf)); if (!n) break;
+			const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
+		}
+		return ll;
+	}
 	// 覚えた標高（メモ・heightSync）があれば待たない。待つのは合わせて ASYNC_WAIT_MS まで＝過ぎたら届いた分で歩く（quantized-mesh の問い合わせが 1 点 400 ms・160 点で 25 秒だった・2026-11-02）
 	const until = performance.now() + ASYNC_WAIT_MS;
 	for (let i = 0; i < 6; i++) {
