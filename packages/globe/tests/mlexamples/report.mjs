@@ -128,7 +128,7 @@ export function buildGallery({ rows, refLabel, orthoLabel, when, refWhen = "", n
 	const payload = {};
 	for (const r of rows) {
 		const n = noteOf(notes, r.name), why = REF_PIC_UNAVAILABLE[r.name] || (r.grade?.level == null ? r.grade?.refWhy : null);
-		payload[r.name] = { title: r.title || r.name, html: sources[r.name] ? toOrtho(sources[r.name]) : "", note: n ? { en: n.en || "", ja: n.ja || "" } : null, l: r.grade?.level ?? null, pc: picturePct(r.grade), ref: why ? null : pic(r.name, "ref"), ortho: PIC_UNAVAILABLE_BOTH.has(r.name) ? null : pic(r.name, "ortho"), why: why || null, owhy: PIC_UNAVAILABLE_BOTH.has(r.name) ? BOTH_WHY : null };
+		payload[r.name] = { title: r.title || r.name, html: sources[r.name] ? toOrtho(sources[r.name]) : "", note: n ? { en: n.en || "", ja: n.ja || "" } : null, l: r.grade?.level ?? null, pc: picturePct(r.grade), ref: !why, ortho: !PIC_UNAVAILABLE_BOTH.has(r.name), why: why || null, owhy: PIC_UNAVAILABLE_BOTH.has(r.name) ? BOTH_WHY : null };
 	}
 	const card = r => {
 		const note = noteOf(notes, r.name), pc = picturePct(r.grade), c = completeness(r.grade);
@@ -214,17 +214,18 @@ for (const b of document.querySelectorAll("nav button")) b.onclick = () => { doc
 document.getElementById("cat").onchange = e => { cat = e.target.value; apply(); };
 for (const b of document.querySelectorAll(".meta .cat")) b.onclick = e => { e.stopPropagation(); cat = cat === b.dataset.cat ? "" : b.dataset.cat; document.getElementById("cat").value = cat; apply(); window.scrollTo({ top: 0, behavior: "smooth" }); };   // カードの分類＝押すと絞る（もう一度で解除）
 apply();
-const P = JSON.parse(document.getElementById("payload").textContent), dlg = document.getElementById("dlg"), $ = id => document.getElementById(id), BASE = ${JSON.stringify(base)}, RUN = ${publish ? JSON.stringify(Object.fromEntries(rows.map(r => [r.name, publish.run(r.name)]))) : "null"}, LV = ${JSON.stringify(GLV.map(x => x[0]))}, DOCS = ${JSON.stringify(mlDocs("X"))};
+const P = JSON.parse(document.getElementById("payload").textContent), dlg = document.getElementById("dlg"), $ = id => document.getElementById(id), BASE = ${JSON.stringify(base)}, PIC = ${JSON.stringify({ ref: pic("@N@", "ref"), ortho: pic("@N@", "ortho") }).replace(/</g, "\\u003c")}, RUN = ${publish ? JSON.stringify(Object.fromEntries(rows.map(r => [r.name, publish.run(r.name)]))) : "null"}, LV = ${JSON.stringify(GLV.map(x => x[0]))}, DOCS = ${JSON.stringify(mlDocs("X"))};
 ${I18N_JS}
 let cur = null;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\"": "&quot;" })[c]);
 const stop = () => { $("fr").hidden = true; $("fr").innerHTML = ""; $("run").textContent = "Run"; $("run").classList.remove("on"); };
 const open = name => {
-	const p = P[name]; if (!p) return; cur = name; stop();
+	const key = Object.keys(P).find(k => k === name); if (!key) return; name = key;   // 名前は一覧の鍵から（DOM の文字をそのまま使わない）
+	const p = P[name]; cur = name; stop();
 	$("dt").textContent = p.title; $("dc").textContent = p.html || "(source not captured)";
 	$("ml").href = DOCS.replace("X", encodeURIComponent(name));
 	const fig = (id, img, src, why, label) => { const f = $(id), im = $(img); f.classList.toggle("na", !src); f.title = why || ""; im.style.display = src ? "" : "none"; im.src = src || ""; f.querySelector("p")?.remove(); if (!src) { const q = document.createElement("p"); q.textContent = document.documentElement.dataset.lang === "ja" ? (label === "Picture not shown" ? "絵は出しません" : "本物の絵は出しません") : label; f.prepend(q); } };
-	fig("fref", "ir", p.ref, p.why, "Reference picture not shown"); fig("fort", "io", p.ortho, p.owhy, "Picture not shown");
+	fig("fref", "ir", p.ref ? PIC.ref.replace("@N@", encodeURIComponent(name)) : "", p.why, "Reference picture not shown"); fig("fort", "io", p.ortho ? PIC.ortho.replace("@N@", encodeURIComponent(name)) : "", p.owhy, "Picture not shown");   // 絵の URL は頁の型＋名前で組む（payload に URL を持たない＝CodeQL js/xss-through-dom・2026-11-02）
 	const dm = $("dm"); dm.replaceChildren(); const ln = document.createElement("p"); ln.textContent = (p.l == null ? "Not scored" : LV[p.l]) + (p.pc == null ? "" : " · picture " + p.pc + "%"); dm.append(ln);
 	const dn = $("dn"); dn.hidden = !p.note; dn.innerHTML = p.note ? (p.note.en ? "<p>" + esc(p.note.en) + "</p>" : "") + (p.note.ja ? "<p class=\\"ja\\">" + esc(p.note.ja) + "</p>" : "") : "";
 	$("cp").textContent = "Copy"; $("cp").classList.remove("ok");
