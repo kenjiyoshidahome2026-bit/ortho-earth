@@ -22,10 +22,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startVite } from "./lib/ui-runner.mjs";
 import { launchChrome, connect, REALGPU } from "./lib/cdp.mjs";
-import { ensureCorpus, CACHE } from "../tests/mlexamples/corpus.mjs";
+import { ensureCorpus, CACHE, PIN } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
 import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH, inkHits } from "../tests/mlexamples/compare.mjs";
-import { buildReport, buildGallery, runnableForm } from "../tests/mlexamples/report.mjs";
+import { buildReport, buildGallery, runnableForm, REF_PIC_UNAVAILABLE } from "../tests/mlexamples/report.mjs";
 import { ENGINE_DIR } from "./lib/shared-engine.mjs";
 import { withBootStatic } from "../src/boot/screen.ts";   // 起動画面（#boot）の正本＝www の全頁と同じ幕（2026-10-23）   // 共有エンジンの手元の置き場（apps/engine の dist・current.json の版）
 
@@ -275,7 +275,7 @@ function compareRuns(la, lb, side) {
 
 // ── www に置く一式（--publish <dir>・2026-10-01 本人「Get Started に MapLibre コンパチを謳い、今回作ったデモを入れて」）──
 //   <dir>/index.html＝一覧（写し・題・分類 (一致度 %)・カードで覗き窓＝ortho の形の本文・英日の注釈・Run／Copy／Download）
-//   <dir>/thumbs/<例>.webp＝こちらの写し（full.png を 480×360 に）・<dir>/examples/<例>.html＝走らせる頁（ortho の形の本文＋import map 1 行）
+//   <dir>/pics/<例>.{ref,ortho}.webp＝本物とこちらの写し（full.png を 480×360 に・左右に並べる＝Sandcastle と同じ形・2026-11-02）・<dir>/examples/<例>.html＝走らせる頁（ortho の形の本文＋import map 1 行）
 //   import map の先＝共有エンジンの maplibre 入口（/globe/engine/<版>/maplibre.js・版は apps/engine の current.json＝先に npm run build -w ortho-engine）。
 //   旧い版の入口はエンジンの配信口（apps/engine/deploy-worker.js）が今の版へ 302 で送る＝www を焼き直さなくても動き続ける
 let publishP = null;   // 書き出し（sharp の縮小）は非同期＝process.exit の前に待つ
@@ -284,20 +284,23 @@ function publishGallery(out, { rows, refLabel, orthoLabel, notes, sources }) {
 	if (!cur.entries?.includes("maplibre")) throw new Error("共有エンジンに maplibre の入口が無い＝npm run build -w ortho-engine");
 	const engineUrl = `/globe/engine/${cur.version}/maplibre.js`;
 	fs.rmSync(out, { recursive: true, force: true });
-	fs.mkdirSync(path.join(out, "thumbs"), { recursive: true }); fs.mkdirSync(path.join(out, "examples"), { recursive: true });
+	fs.mkdirSync(path.join(out, "pics"), { recursive: true }); fs.mkdirSync(path.join(out, "examples"), { recursive: true });
 	const pub = rows.filter(r => sources[r.name]);
 	return (async () => {
 		const sharp = (await import("sharp")).default;
 		for (const r of pub) {
 			fs.writeFileSync(path.join(out, "examples", `${r.name}.html`), withBootStatic(runnableForm(sources[r.name], engineUrl), "map"));   // 例＝地図の load で畳む
-			const png = path.join(ROOT, "runs", orthoLabel, "ortho", `${r.name}.full.png`);
-			if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "thumbs", `${r.name}.webp`));
+			for (const [side, label] of [["ortho", orthoLabel], ["ref", refLabel]]) {
+				if (side === "ref" && (REF_PIC_UNAVAILABLE[r.name] || r.grade?.level == null)) continue;   // 本物の写しを出さない例（札で説明）
+				const png = path.join(ROOT, "runs", label, side, `${r.name}.full.png`);
+				if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "pics", `${r.name}.${side}.webp`));
+			}
 		}
-		const engine = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version;   // 脚注に「どの版の絵か」＝@ortho-earth/globe の版（2026-10-12）
-		fs.writeFileSync(path.join(out, "index.html"), withBootStatic(buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, engine,
-			publish: { thumb: n => `thumbs/${n}.webp`, run: n => `examples/${n}.html` } }), "images"));   // 一覧＝最初に見えるサムネで畳む
+		const engine = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version.replace(/^(\d+\.\d+)\..*$/, "$1.x");   // 脚注に「どの版の絵か」＝@ortho-earth/globe の版の系（絵は配布の後の main から＝Sandcastle と同じ書き方）
+		fs.writeFileSync(path.join(out, "index.html"), withBootStatic(buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, engine, maplibre: PIN.version,
+			publish: { pic: (n, side) => `pics/${n}.${side}.webp`, run: n => `examples/${n}.html` } }), "images"));   // 一覧＝最初に見えるサムネで畳む
 		const bytes = d => fs.readdirSync(d).reduce((a, f) => a + fs.statSync(path.join(d, f)).size, 0);
-		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・globe ${engine}・写し ${(bytes(path.join(out, "thumbs")) / 1e6).toFixed(1)} MB）`);
+		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・globe ${engine}・写し ${(bytes(path.join(out, "pics")) / 1e6).toFixed(1)} MB）`);
 	})();
 }
 
