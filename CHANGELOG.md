@@ -11,7 +11,7 @@ ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshid
 npm i @ortho-earth/globe@2.3
 ```
 
-Story: [English](https://www.ortho-earth.com/docs/story-v230) · [日本語](https://www.ortho-earth.com/docs/story-v230-jp) ·
+Release article: [English](https://www.ortho-earth.com/docs/release-2-3) · [日本語](https://www.ortho-earth.com/docs/release-2-3-jp) · Story: [V.2.3.0 Between two gods](https://www.ortho-earth.com/docs/story-v230) ·
 [GitHub Release](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases/tag/v2.3.0)
 
 - **Closer to CesiumJS.** On Cesium's Sandcastle examples (303 graded, including those checked by eye): same picture
