@@ -110,6 +110,11 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 	const cols = Array(10).fill([100, 100, 100]); cols[8] = cols[9] = [250, 0, 0];
 	const pic = grade(R, rec({ colors: cols }));
 	ok("grade 足した層の色が違う＝2", pic.level === 2 && pic.blockers.includes("added layers look different"), JSON.stringify(pic.reasons));
+	const cu = rec({ layers: [{ id: "bg" }, { id: "model", type: "custom" }], added: ["model"], probes: probes(10, [{ layer: "bg" }]) });   // custom 層＝query に出ない＝標本が基図だけ
+	const cug = grade(cu, rec({ layers: cu.layers, added: cu.added, probes: cu.probes }));
+	ok("grade custom 層が標本に出ない時は段 3 にしない（絵は未確認）", cug.level === 2 && cug.customUnsampled === true && cug.blockers.includes("custom layer not compared"), JSON.stringify(cug.reasons));
+	const cue = grade({ ...cu, name: "x-custom" }, rec({ layers: cu.layers, added: cu.added, probes: cu.probes }), undefined, { "x-custom": { level: 3, checked: "2026-11-02" } });
+	ok("grade custom 層でも目で確かめた例（eyechecked）は段 3", cue.level === 3 && cue.customUnsampled === true && /checked by eye/.test(cue.reasons.join()), JSON.stringify(cue.reasons));
 	const few = rec({ added: ["route"], probes: [...probes(8, [{ layer: "bg" }]), ...probes(5, [{ layer: "route" }])], colors: Array(13).fill([100, 100, 100]) });
 	const fewO = rec({ added: ["route"], probes: few.probes, colors: [...Array(12).fill([100, 100, 100]), [250, 0, 0]] });
 	ok("grade 足した層の標本が少ない時は 1 点のはずれを許す（4/5＝3）", grade(few, fewO).level === 3);

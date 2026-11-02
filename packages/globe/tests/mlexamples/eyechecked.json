@@ -1,0 +1,8 @@
+{
+	"_": "custom 層の例＝層が queryRenderedFeatures に出ず、標本点が「足した層」に分かれない（絵の一致を基図だけで測ってしまう）。本物と並べて目で確かめた例だけ段 3 を許す（Sandcastle の checked.json と同じ置き方・2026-11-02）。見た日と見た物を書く。描き方が変わったら見直す",
+	"add-a-3d-model-to-globe-using-threejs": { "level": 3, "checked": "2026-11-02", "by": "Mac M5 Pro WebGPU o1102f", "note": "アンテナの位置・大きさ・向きが本物と同じ（球の軸を MapLibre に合わせた 7a10555a の後）" },
+	"add-a-3d-model-using-threejs": { "level": 3, "checked": "2026-11-02", "by": "Mac M5 Pro WebGPU o1102f", "note": "模型の位置・大きさが本物と同じ" },
+	"add-a-3d-model-with-shadow-using-threejs": { "level": 3, "checked": "2026-11-02", "by": "Mac M5 Pro WebGPU o1102f", "note": "模型と影の位置が本物と同じ" },
+	"add-a-custom-style-layer": { "level": 3, "checked": "2026-11-02", "by": "Mac M5 Pro WebGPU o1102f", "note": "三角の位置が本物と同じ" },
+	"add-a-simple-custom-layer-on-a-globe": { "level": 3, "checked": "2026-11-02", "by": "Mac M5 Pro WebGPU o1102f", "note": "球の上の三角の位置が本物と同じ" }
+}
