@@ -21,6 +21,7 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Ortho Earth 2.3 を公開しました","description":"@ortho-earth/globe と core を 2.3 にしました。2.1 で MapLibre、2.2 で CesiumJS、2.3 で両方にもう一歩近づき、どちらにも無い描画の効果を足しました。Cesium の Sandcastle で同じ絵は 190 本から 226 本に、MapLibre の公式例で一部しか動かない例は 12 本から 3 本に。","url":"https://www.ortho-earth.com/docs/release-2-3-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/release-2-3-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-02","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="story.css">
+<style>.essay figure.ba { margin: 0.6em 0 1.8em; } .essay figure.ba img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); } .essay figure.ba figcaption { font-size: 0.85em; color: var(--muted, #777); margin-top: 0.4em; }</style>
 </head>
 <body>
 
@@ -30,118 +31,58 @@
 <article class="reading essay">
 
 <p>
-<code>@ortho-earth/globe</code> と <code>@ortho-earth/core</code> を 2.3 にしました。あわせて <code>@ortho-earth/cesium</code> 0.2.0 と <code>@ortho-earth/voxel</code> 0.6.1 も出します。
-</p>
-
-<p>
-この十日あまりの三つの版を並べると、ちょうどホップ・ステップ・ジャンプになりました。
+<code>@ortho-earth/globe</code> と <code>@ortho-earth/core</code> を 2.3 にしました。この十日あまりの三つの版は、ちょうどホップ・ステップ・ジャンプになりました。
 </p>
 
 <div class="table-wrap"><table>
-	<tr><th>版</th><th>日付</th><th>したこと</th></tr>
-	<tr><td>ホップ　2.1</td><td>10 月 23 日</td><td>MapLibre の版。地図の文字を GPU に移し、MapLibre の公式例で同じ絵が 66 本から 79 本に</td></tr>
-	<tr><td>ステップ　2.2</td><td>10 月 31 日</td><td>CesiumJS の版。Sandcastle の採点した例がすべて動き、同じ絵が 23 本から 190 本に</td></tr>
-	<tr><td>ジャンプ　2.3</td><td>11 月 2 日</td><td>両方にもう一歩近づき、どちらにも無い描画の効果を足した</td></tr>
+	<tr><th>版</th><th>したこと</th></tr>
+	<tr><td>ホップ　2.1（10 月 23 日）</td><td>MapLibre の版</td></tr>
+	<tr><td>ステップ　2.2（10 月 31 日）</td><td>CesiumJS の版</td></tr>
+	<tr><td>ジャンプ　2.3（11 月 2 日）</td><td>両方にもう一歩、そしてどちらにも無い描画</td></tr>
 </table></div>
 
+<h2 id="compat">1. Cesium と MapLibre にもう一歩</h2>
+
 <p>
-2.2 の終わりに、Ortho Earth ＝ MapLibre × Cesium − メルカトル ＋ α という式を書きました。2.3 は、その MapLibre と Cesium の項を詰め、＋ α を初めて具体的にした版です。
+本物と同じコードを動かして絵を比べる物差しで、Cesium の Sandcastle（303 本）は同じ絵が 190 本から <strong>226 本</strong>に、
+MapLibre の公式例（137 本）は同じ絵が 85 本から <strong>91 本</strong>に、一部しか動かない例が 12 本から <strong>3 本</strong>になりました。
+全部の組は <a href="/sandcastle/" target="_top">/sandcastle</a> と <a href="/maplibre/" target="_top">/maplibre</a> で見られます。
 </p>
 
-<h2 id="cesium">1. CesiumJS にもう一歩</h2>
+<figure class="ba"><img src="release-2-3-imagery-layers-split.webp" width="968" height="360" loading="lazy" alt="imagery-layers-split の Cesium と ortho-earth"><figcaption>画像の左右分割（Cesium の splitDirection）。左が Cesium、右が ortho-earth。</figcaption></figure>
+
+<figure class="ba"><img src="release-2-3-3d-tiles-edge-visibility.webp" width="968" height="360" loading="lazy" alt="3d-tiles-edge-visibility の Cesium と ortho-earth"><figcaption>3D Tiles の辺の表示。左が Cesium、右が ortho-earth。</figcaption></figure>
+
+<figure class="ba"><img src="story-v230-add-a-3d-model-to-globe-using-threejs.webp" width="968" height="360" loading="lazy" alt="add-a-3d-model-to-globe-using-threejs の MapLibre と ortho-earth"><figcaption>地球儀の上の three.js の模型。custom layer の軸を MapLibre に合わせた。左が MapLibre、右が ortho-earth。</figcaption></figure>
+
+<h2 id="effects">2. 新しい描画</h2>
 
 <p>
-物差しは 2.2 と同じ、Cesium 公式の Sandcastle です。本物の CesiumJS と地球儀で同じコードを動かし、同じ時刻・同じカメラで撮った二枚の絵を比べます。
-今回は、撮った絵では判定できず目で確かめた例も加えて、303 本を採点しています。全部の組は <a href="/sandcastle/" target="_top">/sandcastle</a> で見られます。
+<code>map.setPostChain</code> に、Cesium にも MapLibre にも無い六つの効果が加わりました（WebGPU だけ）。
+どれもエンジンが前から持っていた深度と法線を使い回したもので、SSR が約 380 行、残りの五つで約 720 行、それぞれ 1 日で入りました。
 </p>
 
-<div class="table-wrap"><table>
-	<tr><th>段</th><th>最初の撮影（10 月 25 日）</th><th>2.2（10 月 31 日）</th><th>2.3（11 月 2 日）</th></tr>
-	<tr><td>3　同じ絵</td><td>23</td><td>190</td><td><strong>226</strong></td></tr>
-	<tr><td>2　同じ答え</td><td>120</td><td>107</td><td>77</td></tr>
-	<tr><td>1　動く</td><td>129</td><td>0</td><td>0</td></tr>
-	<tr><td>0　動かない</td><td>24</td><td>0</td><td>0</td></tr>
-</table></div>
+<figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="レインボーブリッジと東京の街が東京湾に映る"><figcaption><code>{ type: "ssr" }</code>　画面空間の映り込み。東京湾にレインボーブリッジと街が映る。</figcaption></figure>
+
+<pre><code>map.setPostChain([{ type: "ssr" }]);
+// ほかに contactShadow・heightFog・godRays・rain・toon</code></pre>
+
+<h2 id="same">3. 使い方は 2.2 のまま</h2>
 
 <p>
-2.2 のあとも全 309 本を 20 回以上撮り直し、そのたびに一つの系統を直しました。エンジンに入ったものは次のとおりで、どれも素の地球儀の API からも使えます。
+2.2 向けのコードはそのまま動きます。あわせて <code>@ortho-earth/cesium</code> 0.2.0（globe 2.3 以上が要ります）と <code>@ortho-earth/voxel</code> 0.6.1 を出します。
 </p>
 
-<ul>
-	<li>画像の左右分割（ImageryLayer.splitDirection）と、Cesium と同じ規則で選ぶ画像タイルの細かさ。</li>
-	<li>3D Tiles の辺の表示（EXT_mesh_primitive_edge_visibility）、半透明の 3D Tiles が落とす影、建物の手前で止まる 3D の線。</li>
-	<li>Entity の形を Cesium の phong の光で描く、閉じた形の表と裏、地形に沿わせた形。</li>
-	<li>地球のクリッピング面と範囲の矩形、時刻つきの WMTS。</li>
-</ul>
-
-<h2 id="maplibre">2. MapLibre GL JS にもう一歩</h2>
+<pre><code>npm i @ortho-earth/globe@2.3</code></pre>
 
 <p>
-Cesium を追っている間に、もう一つの物差しである MapLibre の公式例 139 本（採点は 137 本）がどう見えるかを測り直しました。本物は MapLibre GL JS 6.11.2 です。
-全部の組は <a href="/maplibre/" target="_top">/maplibre</a> で見られます。
-</p>
-
-<div class="table-wrap"><table>
-	<tr><th>段</th><th>2.1（10 月 23 日）</th><th>2.2 のあと（11 月 2 日 朝）</th><th>2.3（11 月 2 日）</th></tr>
-	<tr><td>3　同じ絵</td><td>79</td><td>85</td><td><strong>91</strong></td></tr>
-	<tr><td>2　同じ答え</td><td>47</td><td>40</td><td>43</td></tr>
-	<tr><td>1　動く</td><td>11</td><td>12</td><td><strong>3</strong></td></tr>
-	<tr><td>0　動かない</td><td>0</td><td>0</td><td>0</td></tr>
-</table></div>
-
-<p>
-MapLibre 互換の口（<code>@ortho-earth/globe/maplibre</code>）で変えたのは次のとおりです。地球儀そのものの API の振る舞いは変えていません。
-</p>
-
-<ul>
-	<li>縦の画角を MapLibre と同じ 36.87° に。Mercator の既定の制約、maxZoom 22、flyTo・easeTo の動きも MapLibre に合わせました。</li>
-	<li>地形の上での unproject は、視線を手前から歩いて最初に地面と交わる所を求めます。</li>
-	<li>地形の誇張（exaggeration）は、中心の高さと queryTerrainElevation にも掛かります。</li>
-	<li>地球儀の上の custom layer は MapLibre と同じ軸になり、three.js の模型がそのまま立ちます。</li>
-</ul>
-
-<h2 id="effects">3. ＋ α：新しい描画の効果</h2>
-
-<p>
-<code>map.setPostChain</code> に六つの効果が加わりました（WebGPU だけ。WebGL2 では何もしません）。Cesium にも MapLibre にも無いものです。
-</p>
-
-<pre><code>map.setPostChain([
-  { type: "ssr", ocean: 0.5, facades: 0.3 },   // 画面空間の映り込み：海・濡れた地面・ガラスの壁
-  { type: "contactShadow" },                   // 接触影：どのズームでも地形・建物・模型に
-  { type: "heightFog", density: 0.4 },         // 高さ霧：谷の朝霧
-  { type: "godRays" },                         // 光芒：尾根や建物の隙間を抜ける光
-  { type: "rain", intensity: 0.8 },            // 雨：濡れた地面、水たまり、波紋、雨の筋
-  { type: "toon", levels: 4 }                  // イラスト風
-]);</code></pre>
-
-<p>
-どれもエンジンが前から持っていた深度と法線を使い回しています。SSR が約 380 行、残りの五つで約 720 行、それぞれ 1 日で入りました。
-あわせて、カメラが止まると数フレームかけて絵を仕上げる（ジッタを掛けて重ねる）ようにしました。
+振り返ると、2.2 で書いた式「MapLibre × Cesium − メルカトル ＋ α」で、いちばん効いていたのは「− メルカトル」だったのかもしれません。
+地図を最初から球の上に描いてきたので、MapLibre の 2D の例も Cesium の 3D の例も、同じ一つの描き方で受け止められました。2D と 3D を別々に作ってつなぐのではなく、メルカトルを捨てたこと。
+それが 2D と 3D の統合の本質だったと思います。2.3 では、その上に ＋ α を初めて具体的に足しました。
 </p>
 
 <p>
-2.1 と 2.2 で、他の二つのエンジンと同じことができるように中を作り直してきました。その土台の上でなら、新しい描画は小さな足し算で済みます。今回はそれを確かめた版でもあります。
-</p>
-
-<h2 id="same">4. 使い方は 2.2 のまま</h2>
-
-<p>
-2.3 はすべて上に足した物です。2.2 向けに書いたコードは 2.3 でそのまま動きます。
-目に見える変化が一つあります。これまで <code>setPostChain</code> の <code>ssr</code> は受け取って保持するだけでしたが、WebGPU では描かれるようになりました（既定で海が映ります）。
-<code>@ortho-earth/cesium</code> 0.2.0 は <code>@ortho-earth/globe</code> 2.3 以上が要ります。
-</p>
-
-<pre><code>npm i @ortho-earth/globe@2.3
-npm i @ortho-earth/cesium      # CesiumJS のコード</code></pre>
-
-<p>
-この三日間の詳しい記録は「<a href="story-v230-jp.html">V.2.3.0 二柱の神のあいだで</a>」に書きました。
-</p>
-
-<p>
-振り返ると、あの式でいちばん効いていたのは「− メルカトル」だったのかもしれません。地図を最初から平面ではなく球の上に描いてきたので、MapLibre の 2D の例も、Cesium の 3D の例も、同じ一つの描き方で受け止められました。
-2D と 3D を別々に作ってつなぐのではなく、メルカトルを捨てたこと。それが今回の 2D と 3D の統合の本質だったと思います。
+この三日間の詳しい記録は「<a href="story-v230-jp.html">V.2.3.0 二柱の神のあいだで</a>」に。
 </p>
 
 <div class="sig">Kenji Yoshida @ Yokohama</div>
