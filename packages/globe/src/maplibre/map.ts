@@ -301,7 +301,10 @@ export class Map {
 			setConstrain(st, options.transformConstrain);   // 自作の制約（MapLibre 6 の transformConstrain）か、メルカトルの既定の制約（後から呼んだ setTransformConstrain が勝つ＝下の engineFns より前）
 			for (const f of st.engineFns.splice(0)) f(eng);
 			if (options.minZoom != null) eng.setMinZoom(options.minZoom);
-			else if (typeof options.transformConstrain === "function") eng.setMinZoom(-2);   // MapLibre の minZoom の既定 −2（自作の制約は z を床へ寄せない＝例 customize-the-map-transform-constrain の z −2。既定の床はエンジンの z1）
+			else if (typeof options.transformConstrain === "function") {   // MapLibre の minZoom の既定 −2（自作の制約は z を床へ寄せない＝例 customize-the-map-transform-constrain の z −2。既定の床はエンジンの z1）
+				eng.setMinZoom(-2);
+				if (options.zoom != null && options.zoom < eng.getZoom()) eng.jumpTo({ center: [st.init.center.lng, st.init.center.lat], zoom: options.zoom });   // 起動の視点はエンジンの床で切られている＝床を下げた後に頼んだ z へ
+			}
 			if (options.maxBounds) eng.setMaxBounds(boundsArr(options.maxBounds));
 			if (options.bounds) eng.fitBounds(boundsArr(options.bounds), { ...options.fitBoundsOptions, animate: false });
 			await eng.once("load");
