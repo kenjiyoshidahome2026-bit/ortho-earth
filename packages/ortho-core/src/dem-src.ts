@@ -21,7 +21,7 @@ export interface DemSpec { tiles: string[]; encoding: string; tileSize: number; 
 /** セルの標高格子（altpbf のタイルと同じ形＋出所と有効率） */
 export interface DemCell { data: Float32Array; width: number; height: number; lng: number; lat: number; range: number; source: string; valid: number }
 /** 標高ソースの 4 つの口（raster-dem と quantized-mesh で共通） */
-export interface DemSource { spec: DemSpec | QmeshSpec; ready?: Promise<unknown>; covers(lng0: number, lat0: number, range?: number): boolean; height(lon: number, lat: number, zHint?: number | null): Promise<number>; cell(lng0: number, lat0: number, range?: number, N?: number): Promise<DemCell | null>; tileSpan?: (z: number) => number }
+export interface DemSource { spec: DemSpec | QmeshSpec; ready?: Promise<unknown>; covers(lng0: number, lat0: number, range?: number): boolean; height(lon: number, lat: number, zHint?: number | null): Promise<number>; heightSync?(lon: number, lat: number, zHint?: number | null): number; cell(lng0: number, lat0: number, range?: number, N?: number): Promise<DemCell | null>; tileSpan?: (z: number) => number }
 interface DemTile { h: Float32Array; n: number }
 
 const lon2x = (lon: number, z: number): number => (lon + 180) / 360 * (1 << z);
@@ -67,6 +67,7 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 	const port = (spec0 as DemSpecInput).port as MessagePort | undefined;
 	const load: DemLoad | null = opts.load ?? (port ? portLoad(port) : null);   // 独自スキーム（Cesium の互換の口の地形プロバイダ・addProtocol の raster-dem）
 	const tiles = new Map<string, Promise<DemTile | null>>();   // "z/x/y" → Promise<{ h: Float32Array, n }|null>（直近 256 枚）
+	const done = new Map<string, DemTile | null>();   // 届いた物（heightSync＝同期で引く・2026-11-02）
 	let ctx: OffscreenCanvasRenderingContext2D | null = null;
 	const url = (z: number, x: number, y: number): string => spec.tiles[(x + y) % spec.tiles.length].replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
 	async function tile(z: number, x: number, y: number): Promise<DemTile | null> {
@@ -92,8 +93,8 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 			ctx!.clearRect(0, 0, n, n); ctx!.drawImage(bmp, 0, 0); bmp.close?.();
 			return { h: decodeDEM(ctx!.getImageData(0, 0, n, n).data, spec.encoding, spec), n };
 		})().catch(() => null);
-		tiles.set(k, p);
-		if (tiles.size > 256) tiles.delete(tiles.keys().next().value!);
+		tiles.set(k, p); p.then(t => { if (tiles.get(k) === p) done.set(k, t); });
+		if (tiles.size > 256) { const old = tiles.keys().next().value!; tiles.delete(old); done.delete(old); }
 		return p;
 	}
 	const inBounds = (w: number, s: number, e: number, n: number): boolean => !spec.bounds || !(e < spec.bounds[0] || w > spec.bounds[2] || n < spec.bounds[1] || s > spec.bounds[3]);
@@ -119,6 +120,18 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 				const t = await tile(z, ((Math.floor(fx) % (1 << z)) + (1 << z)) % (1 << z), Math.floor(fy));
 				if (t) return sampleSync(() => t, z, fx, fy);
 				if (z === spec.minzoom) break;
+			}
+			return NaN;
+		},
+		// 1 点を同期で＝届いているタイルだけから（zHint から親へ）。無ければ NaN＝呼び手は height() を待つ。zHint のタイルが未要求なら取りに出す（次の呼び出しで届く）
+		heightSync(lon: number, lat: number, zHint: number | null = null): number {
+			if (!inBounds(lon, lat, lon, lat)) return NaN;
+			const z0 = Math.max(spec.minzoom, Math.min(spec.maxzoom, Number.isFinite(zHint) ? Math.floor(zHint as number) : spec.maxzoom));
+			for (let z = z0; z >= spec.minzoom; z--) {
+				const fx = lon2x(lon, z), fy = lat2y(lat, z), x = ((Math.floor(fx) % (1 << z)) + (1 << z)) % (1 << z), y = Math.floor(fy), k = `${z}/${x}/${y}`;
+				if (!tiles.has(k)) { if (z === z0) void tile(z, x, y); continue; }
+				if (!done.has(k)) return NaN;   // 要求済み・未着＝待つ
+				const t = done.get(k); if (t) return sampleSync(() => t, z, fx, fy);
 			}
 			return NaN;
 		},
