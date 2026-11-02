@@ -145,34 +145,11 @@ Every page under `apps/*` is a shell over the packages above. The ones that are 
 
 ## Development
 
-Node 22.18 or newer (the tests import `.ts` sources directly, which needs Node's built-in type stripping) and npm. `npm install` at the root installs every workspace.
+Node 22.18 or newer and npm; `npm install` at the root installs every workspace, `npm test` runs every Node-only suite, `npm run dev:www` starts the top page.
+Merges to `main` deploy automatically (engine and apps through GitHub Actions on a self-hosted GPU runner, `www.ortho-earth.com` through Cloudflare Pages).
 
-- `npm run dev:www` — the top page with the demo cards; each app has its own `npm run dev -w <app>` (for example `-w japan-map`, `-w globe-map`).
-- `npm run build:all` — builds www, geopbf-demo, gishub-jp and world and assembles `apps/www/dist` (docs, geopbf, gishub-jp, world, the shared engine).
-- Each package README documents its own API; [`packages/globe/README.md`](packages/globe/README.md) is the place to start for the engine, [`packages/geopbf/README.md`](packages/geopbf/README.md) for the data layer.
-
-## Tests
-
-`npm test` at the repository root runs every Node-only test suite in the monorepo (`scripts/test-all.mjs`: the suites of each
-workspace are unrolled to their test files, about 290 of them, and run in parallel, no browser or network needed;
-`npm run test:list` shows the files, `npm test -- geopbf` runs a subset, `TEST_JOBS=1` runs them one by one).
-`npm run verify:i18n` at the root runs the i18n gates of all apps. Browser suites stay per package: `npm run verify:ui` / `verify:webgpu` / `verify:nocoi` / `verify:examples` in `packages/globe`,
-`npm run verify:ui` / `verify:webgpu` / `verify:prod` in `apps/japan-map` (`verify:prod` in `apps/japan-host`), `npm run verify:pages` in `packages/geopbf`,
-`npm run verify:gpu` in `apps/equal`. They drive a pinned headless Chrome for Testing (downloaded once, about 150 MB, to `~/.cache/ortho-earth/chrome-for-testing`;
-`npm run chrome:install` in `packages/globe` fetches it ahead of time, `CHROME=<path>` overrides it). It is a separate app from your everyday Google Chrome,
-so a running suite never blocks you from opening Chrome. The WebGPU suites need a real GPU.
-
-## Deploying
-
-Production is published by GitHub Actions ([`.github/workflows`](.github/workflows)):
-
-- **Tests on every pull request** (`test.yml`): `npm test` (including the type check) and `npm run verify:i18n`. GitHub's CodeQL scan also runs.
-- **Engine and apps** (`deploy.yml`): a merge to `main` that changes what is shipped (`apps/`, `packages/`, `sdk/`, the lockfile) deploys automatically; text-only, `www` and `docs` merges do not. It runs `npm run deploy:engine` on a self-hosted macOS runner, because the gates need a real GPU: first `globe-host` is built and its `verify:prod` runs against the new engine, then the shared engine (`apps/engine`, Worker `ortho-engine`) goes out, then every app that loads it (`quakes`, `globe-host`, `census2020`, `ortho-nl`, `quiz`, `choju`, `yokohama`, `world`, `equal`, `japan-host`, `solar`, `himekuri`). It stops at the first failing gate, and each app's deploy refuses to go out if the engine version it was built against is not live yet. The same workflow has a Run button for one target (engine only, single apps, mirrors, or gates only).
-- **npm packages** (`publish.yml`): a Run button publishes the packages whose version changed, then `mirror.yml` updates the standalone `geopbf` and `altpbf` repositories.
-- **Demo data** (`pages.yml`): published to GitHub Pages.
-- **www** (`www.ortho-earth.com`, Cloudflare Pages, also `/geopbf/`, `/gishub-jp/`, `/docs/`): published automatically when `main` is merged, through the Pages Git integration.
-- A single app can still be deployed by hand from a machine with a logged-in `wrangler`: `npm run deploy -w` plus the app's folder name, for example `npm run deploy -w yokohama` (each app's own gates run first).
-- Bulk data (`world`, `space`, GeoPBF archives) lives in a Cloudflare R2 bucket and is uploaded with `apps/uploader`.
+The full guide (running and building, every test and browser suite, deploy order, npm release, data) is [`docs/development.md`](docs/development.md).
+Architecture: [`docs/architecture.md`](docs/architecture.md) · apps and URLs: [`docs/apps.md`](docs/apps.md) · all contributor docs: [`docs/`](docs).
 
 ## Contributors & Acknowledgments
 
