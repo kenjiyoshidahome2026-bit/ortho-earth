@@ -177,3 +177,4 @@ button, a, select { touch-action: manipulation; } // Safari 300ms タップ遅�
 	}
 	.demo .main > .uploads, .demo .main > .log, .demo .main > .tables { inset: 64px 12px 16px; }
 }
+.hidden { display: none !important; }   // vis() の的（main.ts）＝エンジン側の common の CSS に頼らない
