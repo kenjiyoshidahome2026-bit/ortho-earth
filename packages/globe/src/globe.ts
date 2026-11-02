@@ -2594,6 +2594,7 @@ const elevOf: GlobeScope["elevOf"] = (lon, lat) => {
 	const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000);
 	const hit = elevMemo.get(k);
 	if (hit !== undefined) return typeof hit === "number" ? hit : 0;
+	if (demMain?.heightSync) { const hs = demMain.heightSync(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))); if (hs === hs) { elevMemo.set(k, hs); return hs; } }   // 届いているタイルならその場で（unproject の反復が 1 回の呼び出しで解ける・2026-11-02）
 	if (!(demMain || getHeight) || elevInflight >= ELEV_INFLIGHT_MAX) return 0;   // 出どころ未着・溢れ＝照会しない（メモ未登録のまま）
 	elevMemo.set(k, null); elevInflight++;
 	const gen = elevGen;
@@ -2602,10 +2603,9 @@ const elevOf: GlobeScope["elevOf"] = (lon, lat) => {
 	return 0;
 };
 // 負の標高は 0 に切る＝描いている地面（renderer の標高アトラスは負を 0 に切る＝海は海面・ortho-core elevation.js／terrain.js）
-const dispRadius = (lon: number, lat: number) => {
-	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = noTerr ? 0 : pt * pt * (3 - 2 * pt);   // ?noterr=1＝地形を描かない＝持ち上げも 0（描く側と同じ・vtxGround の当たりも同じ口）
-	return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1;
-};
+const dispPf = () => { const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)); return noTerr ? 0 : pt * pt * (3 - 2 * pt); };   // ?noterr=1＝地形を描かない＝持ち上げも 0（描く側と同じ・vtxGround の当たりも同じ口）
+const dispRadiusH = (h: number, pf = dispPf()) => pf > 0 ? 1 + Math.max(0, h) * pf * (TERR_EXAG / EARTH_M) : 1;
+const dispRadius = (lon: number, lat: number) => { const pf = dispPf(); return pf > 0 ? dispRadiusH(elevOf(lon, lat), pf) : 1; };
 const projectLL: GlobeScope["projectLL"] = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
 const unprojectAt: GlobeScope["unprojectAt"] = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
 // makeProjector＝カメラ状態を1回だけ束ねた投影関数を返す（多点を1描画で投影＝測距の大圏分割で状態計算を積まない）。
@@ -2699,6 +2699,26 @@ map.unprojectXY = unprojectXY;         // canvasローカルCSS座標→[lon,lat
 const toLonLat = (ll: LonLat | { lng?: number; lon?: number; lat: number }): LonLat => Array.isArray(ll) ? ll : [ll.lng ?? ll.lon, ll.lat] as LonLat;
 map.project = ll => { const [lon, lat] = toLonLat(ll); const [x, y] = projectLL(lon, lat); return { x, y }; };
 map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const ll = unprojectXY(x, y); return ll ? { lng: ll[0], lat: ll[1] } : null; };
+// 待って解く unproject（問い合わせ・クリックの地物）＝標高を heightAt で待ちながら反復し、答えは elevOf のメモに入れる＝その後の同期の unprojectXY も同じ点を返す（2026-11-02）
+const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
+	const st = cameraState(cam, size.w, size.h);
+	let ll = unproject(st, x * dpr, y * dpr);
+	if (!ll || dispPf() <= 0 || !(demMain || getHeight)) return ll;
+	for (let i = 0; i < 6; i++) {
+		const h = await heightAt(ll[0], ll[1]).catch(() => 0);
+		elevMemo.set(Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), h);
+		const n = unproject(st, x * dpr, y * dpr, dispRadiusH(h)); if (!n) break;
+		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
+	}
+	return ll;
+};
+map.unprojectXYAsync = unprojectXYAsync;
+// 止まるたびに画面の格子（8×6）の地面の標高を先に引いておく＝クリック・同期の unproject の反復が 1 回で解ける（地形を描いて傾けた地図だけ）
+map.on("settle", () => {
+	if (dispPf() <= 0 || !(demMain || getHeight)) return;
+	const W = size.w / dpr, H = size.h / dpr;
+	for (let j = 0; j < 6; j++) for (let i = 0; i < 8; i++) { const ll = unprojectXY(W * (i + 0.5) / 8, H * (j + 0.5) / 6); if (ll) elevOf(ll[0], ll[1]); }
+});
 map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影関数（多点を1フレームで投影＝編集ハンドル用）
 map.ellipsoidOn = () => ellipsoidOn();   // 楕円体表示か（?ell=1）＝geoedit（npm） が「編集は完全球体」の注意書きに使う（ortho-core を直接 import させない）
 map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン＝チルトで立つ。annoガジェット用）
@@ -3902,7 +3922,7 @@ const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {
 	get t3dCtl() { return t3dCtl; },
 	get vtdCtl() { return vtdCtl; },
 	get vtxCtl() { return vtxCtl; },
-}, { BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor, drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester, size, srcId, stripMl, unprojectXY, vtdDesc, vtdOrder, vtxGround, vtxStateOf });
+}, { BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor, drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester, size, srcId, stripMl, unprojectXY, unprojectXYAsync, vtdDesc, vtdOrder, vtxGround, vtxStateOf });
 // 検査表示・ファイルの取り込み・編集・デモの gadget＝src/api/tools.ts（live＝createGlobe の変数を読み書きする口）
 const { rasterDropFile } = installTools(map, {
 	get lastTileOrder() { return lastTileOrder; },

@@ -347,6 +347,7 @@ export interface GlobeScope {
 	syncCenterAlt(): void;
 	/** 画面の点（CSS px）→ [lon, lat]（球の外は null） */
 	unprojectXY(x: number, y: number): LonLat | null;
+	unprojectXYAsync(x: number, y: number): Promise<LonLat | null>;
 	gint: GintLayers;
 	/** 頁の hash（この地図が URL の持ち主でなければ ""） */
 	pageHash: string;

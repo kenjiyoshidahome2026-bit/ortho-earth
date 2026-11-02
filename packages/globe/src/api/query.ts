@@ -33,7 +33,7 @@ type OnOff = (ev: string, a: unknown, b?: (e: never) => void) => GlobeMap;
 export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 	BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor,
 	drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester,
-	size, srcId, stripMl, unprojectXY, vtdDesc, vtdOrder, vtxGround, vtxStateOf
+	size, srcId, stripMl, unprojectXY, unprojectXYAsync, vtdDesc, vtdOrder, vtxGround, vtxStateOf
 }: QueryDeps): QueryReturn {
 	// ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
 	// geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 0＝MapLibre と同じ＝線は線幅の半分・円は半径＋縁・面は内側。拡張＝足す px） }。
@@ -320,6 +320,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		// 基図と vector source の許しの px→タイル単位＝MapLibre の目盛りの地図は ML と同じ一様なメルカトルの px（512×2^z_ML＝256×2^(z−dz+1)）。
 		// 問い合わせ点の cos を掛けると低ズームの地球の高緯度で ML より 1/cos 広い（o1023d：z0.9・緯度 60〜79° で海岸線を余計に拾った）。目盛りなし（dz 0）＝この地図の画面（core の既定）
 		const pxScale = PUBLIC_DZ ? 2 ** (1 - PUBLIC_DZ) : null;
+		if (geometry && typeof (geometry as QGeom)[0] === "number") await unprojectXYAsync((geometry as number[])[0], (geometry as number[])[1]);   // 地形で傾けた地図＝点の標高を待って解き、メモへ（続く同期の unprojectXY が同じ点を返す・2026-11-02）
 		const want = qo.layers ? new Set(qo.layers) : null, take = (id: string) => !want || want.has(id);
 		const qf = (fs: HitFeature[]) => qo.filter ? fs.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, gs: live.MAP_GS, geojson: f.geometry as ExprCtx["geojson"], pitch: cam.pitch * R2D, origin: "ml" }))) : fs;
 		const extHits = [...extrudeHits((geometry || [[0, 0], [W, H]]) as QGeom, take), ...meshHits(geometry as QGeom | undefined, take)];   // 模型・3D Tiles（W7）も立体の当たりの列へ   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）
