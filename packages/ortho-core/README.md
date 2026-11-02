@@ -49,4 +49,5 @@ your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.
 
 ## Release notes
 
+- 2.3.0 (2026-11-02): screen-space reflections, contact shadows, height fog, light shafts, rain and toon on WebGPU. [Story](https://www.ortho-earth.com/docs/story-v230) ([日本語](https://www.ortho-earth.com/docs/story-v230-jp)) · [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md)
 - 2.2.0 (2026-10-31): [release article](https://www.ortho-earth.com/docs/release-2-2) ([日本語](https://www.ortho-earth.com/docs/release-2-2-jp)). All releases: [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md) · [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases)
