@@ -2614,7 +2614,20 @@ const makeProjector: GlobeScope["makeProjector"] = () => { const st = cameraStat
 // makeProjectorH＝高度付き投影（注釈の3Dピン用）：地表（地形持ち上げ込み）から hメートル 上の点を画面へ。
 // 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
 const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon: number, lat: number, hM?: number): [number, number, number] => projectCss(project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) / EARTH_M), dpr); };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
-const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
+// 地形を描いて傾けた地図では、投影が標高で持ち上げる分だけ逆も地形の面で受ける（MapLibre は unproject・問い合わせも地形に当てる）。旧＝海抜 0 の球で受けていた
+//（2026-11-02・公式例 display-a-hybrid-satellite-map-with-terrain-elevation＝クリックの地物が数 km ずれた）。解き方＝球の半径を当たった点の持ち上げ（dispRadius＝elevOf のメモ）で置き直す不動点の反復
+//（最大 6 回・1e-7° で止める）。elevOf は未着の点を 0m で返し照会を出す＝次の呼び出しで正しくなる（projectLL と同じ約束）
+const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => {
+	const st = cameraState(cam, size.w, size.h);
+	let ll = unproject(st, x * dpr, y * dpr);
+	if (!ll || noTerr || (cam.pitch || 0) < 0.06 || !(demMain || getHeight)) return ll;
+	for (let i = 0; i < 6; i++) {
+		const r = dispRadius(ll[0], ll[1]); if (r === 1) break;
+		const n = unproject(st, x * dpr, y * dpr, r); if (!n) break;
+		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
+	}
+	return ll;
+};
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
 // 解像度は size（device px＝フル）を正とし、shot 側が各層をこの寸法へ合わせて重ねる。

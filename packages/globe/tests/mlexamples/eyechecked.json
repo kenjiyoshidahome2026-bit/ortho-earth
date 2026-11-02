@@ -29,5 +29,11 @@
 		"checked": "2026-11-02",
 		"by": "Mac M5 Pro WebGPU o1102g",
 		"note": "deck.gl の層の位置と色が本物と同じ"
+	},
+	"enter-a-360-photosphere": {
+		"level": 3,
+		"checked": "2026-11-02",
+		"by": "Mac M5 Pro WebGPU o1102h",
+		"note": "最初の地図の状態（写真球に入る前）の絵が本物と同じ。写真球の中は未確認"
 	}
 }
