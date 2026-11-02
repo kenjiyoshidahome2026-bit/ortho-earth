@@ -139,5 +139,9 @@
 	"display-html-clusters-with-custom-properties": {
 		"ja": "直した：低い z のメルカトルの既定の制約（中心の緯度・z0.3 で 20°N→8.6°N）・querySourceFeatures を画面を覆うタイルの中の丸に（z0 は世界の全部・2026-11-02）。残り＝丸の数 13/12（集約の組み方の差・未追跡）。",
 		"en": "Fixed: MapLibre's default Mercator constraint at low zoom (center latitude 20°N → 8.6°N at z0.3) and querySourceFeatures returning clusters in the tiles that cover the screen (all of them at z0, 2026-11-02). Remaining: 13 vs 12 cluster markers (clustering difference, not yet traced)."
+	},
+	"add-a-new-layer-below-labels": {
+		"ja": "足した層（都市のピンクの塗り）は本物とほぼ同じ位置と大きさに描けていて、注記の下にも隠れていない。足した層の標本が 3 点しかなく、z4 の小さな塊の縁に落ちた 2 点が 2〜3px ずれて基図の色を拾うため、段 2 と段 3 の間を揺れる（採点の揺れ・2026-11-02）。",
+		"en": "The added layer (pink urban fill) is drawn at nearly the same place and size as the reference and is not hidden under labels. Only 3 probes land on the added layer; 2 of them sit on the edge of small z4 blobs, so a 2–3px offset picks up the basemap colour and the grade wobbles between 2 and 3 (sampling noise, 2026-11-02)."
 	}
 }
