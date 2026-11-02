@@ -3,7 +3,7 @@
 //   ・fly の三段（水平へ→巡航→起こす）の境界と、巡航中のズームの下限
 //   ・glide の時分割（移動→方位→チルト）と、変化の無いチャンネルを飛ばすこと
 //   ・glidePath の通過保証（knots の時刻に各点を通る）と secs の尺
-import { flyPlan, glidePlan, glidePathPlan, shortBearingOf } from "../src/flight.ts";
+import { flyPlan, glidePlan, glidePathPlan, shortBearingOf, mlFlyPlan, ML_EASING, easePlan } from "../src/flight.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
@@ -105,6 +105,24 @@ ok("shortBearingOf：270° → -90°", near(shortBearingOf(270 * D2R), -90 * D2R
 	ok("glidePath：日付変更線を連続に跨ぐ", sample(am).every(q => q.lon >= 179.5 - 1e-6 && q.lon <= 181 + 1e-6));
 	const fl = glidePathPlan(cam(), { ...env, minZoom: 9 }, [{ lon: 139.8, lat: 35.7, zoom: 3, secs: 1 }, { lon: 139.9, lat: 35.7, zoom: 3, secs: 1 }]);
 	ok("glidePath：ズームは床で止まる", sample(fl).every(q => q.zoom >= 9 - 1e-12));
+}
+
+// ── mlFlyPlan（MapLibre の flyTo＝同時補間・1000·S／speed・defaultEasing）──
+{
+	const o = { dz: 1, viewMax: 800, viewH: 600 }, c0 = cam({ zoom: 4 });
+	const p = mlFlyPlan(c0, env, { lon: 150, lat: 20, zoom: 8, pitch: 0.5, bearing: 1 }, o), e = p.at(p.dur), m = p.at(p.dur / 2);
+	ok("mlFly：端点", near(e.lon, 150) && near(e.lat, 20) && near(e.zoom, 8) && near(e.pitch, 0.5) && near(e.bearing, 1) && near(p.at(0).zoom, 4, 1e-9));
+	ok("mlFly：方位とチルトは道中も同時に動く（三段でない）", m.pitch > 0.05 && m.pitch < 0.5 && m.bearing > 0.05 && m.bearing < 1);
+	const slow = mlFlyPlan(c0, env, { lon: 150, lat: 20, zoom: 8 }, { ...o, speed: 0.6 }), fast = mlFlyPlan(c0, env, { lon: 150, lat: 20, zoom: 8 }, o);
+	ok("mlFly：尺＝1000·S／speed（speed 0.6 は既定 1.2 の 2 倍）", near(slow.dur, fast.dur * 2, 1e-6), `${slow.dur.toFixed(1)} / ${fast.dur.toFixed(1)}`);
+	ok("mlFly：duration と maxDuration", near(mlFlyPlan(c0, env, { lon: 150, lat: 20, zoom: 8 }, { ...o, duration: 1234 }).dur, 1234) && mlFlyPlan(c0, env, { lon: 150, lat: 20, zoom: 8 }, { ...o, maxDuration: 10 }).dur === 0);
+	const far = mlFlyPlan(c0, env, { lon: -60, lat: 20, zoom: 4 }, o);
+	ok("mlFly：遠い所は道中で引く", sample(far).some(q => q.zoom < 4 - 0.5) && sample(far).every(finite) && sample(p).every(finite));
+	const still = mlFlyPlan(c0, env, { bearing: 1 }, o);
+	ok("mlFly：動かない＝easeTo（500ms）", near(still.dur, 500) && near(still.at(250).bearing, ML_EASING(0.5), 1e-9));
+	ok("defaultEasing：bezier(.25,.1,.25,1) の端と中", near(ML_EASING(0), 0) && near(ML_EASING(1), 1) && Math.abs(ML_EASING(0.5) - 0.8024033877399112) < 1e-4);
+	const ez = easePlan(c0, env, { zoom: 5 }, 400, t => t);
+	ok("easePlan：easing を渡せる（線形）", near(ez.at(100).zoom, 4.25, 1e-9));
 }
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ flight-plans 全 PASS");
