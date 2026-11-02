@@ -32,6 +32,13 @@
 <p>ortho-earth began by drawing maps the MapLibre way. While I was chasing Cesium, how did it look in front of this other god? Now that the Cesium side had come a long way, I decided to trace MapLibre once more.</p>
 <p>With Cesium it is 3D against 3D, so level 1 went away. MapLibre is about putting a 2D map on a sphere, and that is not so simple. This is the record of going back and forth.</p>
 
+<p>Looking back, the three releases of the last ten days or so make a hop, a step and a jump.</p>
+<div class="table-wrap"><table><thead><tr><th>Release</th><th>What it did</th></tr></thead><tbody>
+<tr><td>Hop　2.1 (Oct 23)</td><td>The MapLibre release</td></tr>
+<tr><td>Step　2.2 (Oct 31)</td><td>The CesiumJS release</td></tr>
+<tr><td>Jump　2.3 (Nov 2)</td><td>One more step toward both, and rendering neither has</td></tr>
+</tbody></table></div>
+
 <h2>Cesium, continued</h2>
 <p>The Sandcastle re-shoots did not stop after v2.2.0. From v221 to v244, all 309 examples were re-shot more than 20 times, and each time one family was fixed.</p>
 <div class="table-wrap"><table><thead><tr><th>Shoot</th><th>3</th><th>2</th><th>1</th><th>0</th><th>What went in</th></tr></thead><tbody>
@@ -42,6 +49,9 @@
 <tr><td>v244</td><td><strong>223</strong></td><td>75</td><td><strong>0</strong></td><td><strong>0</strong></td><td>Front and back faces of closed shapes, 3D Tiles bounding spheres, Bing imagery, shadows from translucent 3D Tiles (#869–#900)</td></tr>
 </tbody></table></div>
 <p class="note-small">Note: the table is what the gate counted (298 scored). The <a href="/sandcastle/" target="_top">Sandcastle</a> gallery adds the examples checked by eye, 303 in all, at 3/2/1/0 = 226 / 77 / 0 / 0. At v243 an imagery change (#894) briefly pushed level 0 up to 7, but the gate caught it and #900 put it back.</p>
+<p>Cesium on the left, ortho-earth on the right: imagery split view (splitDirection) and 3D Tiles edge visibility.</p>
+<figure class="ba"><img src="release-2-3-imagery-layers-split.webp" width="968" height="360" loading="lazy" alt="imagery-layers-split in Cesium and ortho-earth"></figure>
+<figure class="ba"><img src="release-2-3-3d-tiles-edge-visibility.webp" width="968" height="360" loading="lazy" alt="3d-tiles-edge-visibility in Cesium and ortho-earth"></figure>
 
 <h2>Back to MapLibre</h2>
 <p>MapLibre's 139 official examples were lined up the same way. A picture shot on real MapLibre GL JS 6.11.2 (r7) is compared, at the same time and from the same camera, with the same code running on the MapLibre-compatible API of @ortho-earth/globe. The levels mean the same as for Cesium. Two examples that cannot be graded are left out, so 137 are counted.</p>
@@ -64,6 +74,12 @@
 <figure class="ba"><img src="story-v230-display-a-hybrid-satellite-map-with-terrain-elevation.webp" width="968" height="360" loading="lazy" alt="display-a-hybrid-satellite-map-with-terrain-elevation: MapLibre and ortho-earth"></figure>
 <p><strong>add-a-3d-model-to-globe-using-threejs</strong>: a three.js model standing on the globe. The axes of custom layers on the globe had x and z swapped compared with MapLibre, so the antenna did not show</p>
 <figure class="ba"><img src="story-v230-add-a-3d-model-to-globe-using-threejs.webp" width="968" height="360" loading="lazy" alt="add-a-3d-model-to-globe-using-threejs: MapLibre and ortho-earth"></figure>
+
+<h2>New rendering</h2>
+<p>At the end of 2.2 I wrote a formula: Ortho Earth = MapLibre &times; Cesium &minus; Mercator + &alpha;. This time the + &alpha; took shape for the first time. <code>map.setPostChain</code> gains six effects that neither Cesium nor MapLibre has (WebGPU only): screen-space reflections (SSR), contact shadows, height fog, light shafts, rain and an illustration style.</p>
+<p>They all reuse the depth and normals the engine already had. SSR is about 380 lines and the other five about 720, and each went in within a day.</p>
+<figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="The Rainbow Bridge and the Tokyo skyline reflected in Tokyo Bay"></figure>
+<p class="note-small"><code>map.setPostChain([{ type: "ssr" }])</code>: the Rainbow Bridge and the city reflected in Tokyo Bay.</p>
 
 <h2>What was built</h2>
 <ul>
@@ -88,7 +104,10 @@
 <h2>A stubborn bug</h2>
 <p>What took the longest this time was turning a click on terrain back into coordinates. Fixing steep slopes made the quantized-mesh example slow, and fixing the slowness made positions drift. Every fix brought a new problem in another example.</p>
 <p>Even so, with the gate that shoots side by side with the real thing and the ratchet that fails when a level drops, it was clear on the spot where and what had broken. Along the way an older bug turned up: terrain exaggeration was never applied to the centre. In the end only terrain that can be read synchronously uses the new method, and everything else went back to the old way. Knowing when to stop digging is part of the method too.</p>
+<h2>Dropping Mercator</h2>
+<p>Looking back, the term in that formula that mattered most may have been &minus; Mercator. Because the map was drawn on a sphere from the start, not on a plane, MapLibre's 2D examples and Cesium's 3D examples could both be taken in by one and the same way of drawing. Not building 2D and 3D separately and joining them, but dropping Mercator: I think that was the essence of bringing 2D and 3D together this time.</p>
 <p>Going back and forth between two gods, upstream still did not budge. That is how ortho-earth is developed.</p>
+<p class="note-small">Released: <code>@ortho-earth/globe</code> and <code>@ortho-earth/core</code> 2.3.0, <code>@ortho-earth/cesium</code> 0.2.0 (needs globe 2.3), <code>@ortho-earth/voxel</code> 0.6.1. Same API as 2.2 (<code>npm i @ortho-earth/globe@2.3</code>).</p>
 <div class="sig">Kenji Yoshida @ Yokohama</div>
 </article>
 </body>
