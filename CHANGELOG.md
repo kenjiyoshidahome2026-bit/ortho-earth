@@ -3,6 +3,33 @@
 Release notes for the Ortho Earth npm packages. Each release also has a longer article on
 ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases).
 
+## 2.3.0 — 2026-11-02
+
+**@ortho-earth/globe 2.3.0 · @ortho-earth/core 2.3.0** (also @ortho-earth/cesium 0.2.0 and @ortho-earth/voxel 0.6.1)
+
+```
+npm i @ortho-earth/globe@2.3
+```
+
+Release article: [English](https://www.ortho-earth.com/docs/story-v230) · [日本語](https://www.ortho-earth.com/docs/story-v230-jp) ·
+[GitHub Release](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases/tag/v2.3.0)
+
+- **Closer to CesiumJS.** On Cesium's Sandcastle examples (303 graded, including those checked by eye): same picture
+  190 → 226, same answers 107 → 77, runs-only 0, does-not-run 0. New for this: imagery split view, 3D Tiles edge
+  visibility, Cesium's phong lighting for entities, 3D lines that stop at buildings, shadows from translucent 3D Tiles,
+  globe clipping planes and limit rectangle, time-dynamic WMTS. Side by side: https://www.ortho-earth.com/sandcastle/
+- **Closer to MapLibre GL JS.** On MapLibre's 139 official examples (137 graded) against MapLibre GL JS 6.11.2: same
+  picture 85 → 91, same answers 40 → 43, runs-only 12 → 3, does-not-run 0. The MapLibre-compatible API now uses
+  MapLibre's 36.87° vertical field of view, Mercator constraint, maxZoom 22 and flyTo/easeTo choreography; unproject on
+  terrain walks the ray; terrain exaggeration applies to the centre and to queryTerrainElevation; custom layers on the
+  globe use MapLibre's axes. Side by side: https://www.ortho-earth.com/maplibre/
+- **New rendering effects (WebGPU).** `setPostChain` gains screen-space reflections (`ssr`: sea, wet ground, glass
+  facades), `contactShadow`, `heightFog`, `godRays`, `rain` and `toon`, and a still camera now refines its picture over
+  a few frames. They reuse the depth and normals the engine already had (SSR about 380 lines, the other five about 720,
+  each added in a day). On WebGL2 they do nothing.
+- **Same API as 2.2.** Everything is additive. One visible change: an `ssr` pass in `setPostChain` used to be stored
+  only, and on WebGPU it now draws (the sea reflects by default).
+
 ## 2.2.0 — 2026-10-31
 
 **@ortho-earth/globe 2.2.0 · @ortho-earth/core 2.2.0**. New packages: **@ortho-earth/cesium 0.1.0**,
