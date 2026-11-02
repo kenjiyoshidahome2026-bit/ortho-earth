@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU check — Ortho Earth</title>
+<meta name="description" content="Shows which GPU path Ortho Earth would take on this device (WebGPU or WebGL2), the adapter, its features and limits, and a draw test. Nothing is sent anywhere.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<!-- 端末の GPU 診断（2026-11-03・Android/Windows 実機の報告を集めるため）＝エンジンを読まない 1 枚。
+     何も送らない：画面に出してコピーさせるだけ。起動経路の判定は packages/globe/src/globe.ts の gpuBackend と同じ式
+     （?gl2=1 → WebGL2・navigator.gpu 無し → WebGL2・Android は ?gpu=1 が無ければ WebGL2）。 -->
+<style>
+html, body { margin: 0; background: #0b1021; color: #cdd6e6; font: 15px/1.6 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 1.5rem 16px 3rem; }
+h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 .25rem; }
+h2 { font-size: 1.05rem; font-weight: 600; margin: 1.6rem 0 .4rem; color: #fff; }
+p { margin: .3rem 0; }
+a { color: #8fb8ff; }
+.verdict { margin: 1rem 0; padding: .8rem 1rem; border-radius: 8px; background: #16203a; font-size: 1.05rem; }
+.ok { color: #7ee2a8; } .warn { color: #ffd479; } .bad { color: #ff8f8f; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+td { padding: .25rem .4rem; border-bottom: 1px solid #1e2a48; vertical-align: top; word-break: break-word; }
+td:first-child { color: #93a1bd; width: 42%; }
+.test { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+canvas { width: 96px; height: 96px; border: 1px solid #2a3858; background: #000; }
+button { font: inherit; padding: .55rem 1.1rem; border-radius: 6px; border: 0; background: #3b6fd6; color: #fff; cursor: pointer; }
+pre { white-space: pre-wrap; word-break: break-word; background: #10172c; padding: .8rem; border-radius: 6px; font-size: 12px; max-height: 16rem; overflow: auto; }
+ul { padding-left: 1.2rem; margin: .3rem 0; }
+</style>
+</head>
+<body>
+<main>
+	<h1>GPU check</h1>
+	<p>Which GPU path Ortho Earth takes on this device, and why. Nothing is sent anywhere: copy the report and paste it where you were asked.</p>
+	<p lang="ja">この端末で Ortho Earth が WebGPU と WebGL2 のどちらで動くかを調べます。データはどこにも送りません。下のボタンで結果をコピーして貼ってください。</p>
+
+	<div class="verdict" id="verdict">Checking…</div>
+
+	<h2>Draw test (WebGPU)</h2>
+	<div class="test">
+		<canvas id="gpu" width="96" height="96"></canvas>
+		<p id="drawnote">A green triangle on blue should appear here.<br><span lang="ja">青地に緑の三角が見えれば正常です。</span></p>
+	</div>
+
+	<h2>Report</h2>
+	<p><button id="copy">Copy report / 結果をコピー</button> <span id="copied"></span></p>
+	<table id="rows"></table>
+
+	<h2>Try the maps / 地図で試す</h2>
+	<ul id="links"></ul>
+	<p>Watch for a black or frozen map while you pan and zoom. <span lang="ja">移動やズームの最中に、地図が黒くなったり止まったりしないかを見てください。</span></p>
+
+	<h2>Raw</h2>
+	<pre id="raw"></pre>
+</main>
+<script type="module">
+const R = {};   // 報告の中身（表示順＝挿入順）
+const rows = document.getElementById("rows");
+const put = (k, v) => { R[k] = v; const tr = rows.insertRow(); tr.insertCell().textContent = k; tr.insertCell().textContent = typeof v === "string" ? v : JSON.stringify(v); };
+const q = location.search;
+const ua = navigator.userAgent;
+const uaPlatform = navigator.userAgentData?.platform || "";
+const isAndroid = /Android/.test(ua) || uaPlatform === "Android";
+const forceGl2 = /[?&]gl2=1/.test(q), forceGpu = /[?&]gpu=1/.test(q);
+const hasGpu = "gpu" in navigator;
+
+put("page", location.href);
+put("time", new Date().toISOString());
+put("userAgent", ua);
+put("platform (UA-CH)", uaPlatform || "(none)");
+put("detected as Android", isAndroid ? "yes" : "no" + (/Linux/.test(ua) && !/Android/.test(ua) && navigator.maxTouchPoints > 0 ? " (touch Linux UA: desktop-site mode?)" : ""));
+put("screen", `${screen.width}x${screen.height} @${devicePixelRatio}x, touch points ${navigator.maxTouchPoints}`);
+put("CPU cores / memory", `${navigator.hardwareConcurrency || "?"} / ${navigator.deviceMemory ? navigator.deviceMemory + " GB" : "?"}`);
+put("navigator.gpu", hasGpu ? "present" : "absent");
+
+// WebGL2（Android の既定経路・WebGPU が駄目な時の落ち先）
+try {
+	const gl = document.createElement("canvas").getContext("webgl2");
+	if (!gl) put("WebGL2", "unavailable");
+	else {
+		const ext = gl.getExtension("WEBGL_debug_renderer_info");
+		put("WebGL2 renderer", ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+		put("WebGL2 vendor", ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR));
+		put("WebGL2 max texture", gl.getParameter(gl.MAX_TEXTURE_SIZE));
+		put("WebGL2 float blend", gl.getExtension("EXT_float_blend") ? "yes" : "no");
+	}
+} catch (e) { put("WebGL2", "error: " + e.message); }
+
+// エンジンの選ぶ道（globe.ts の gpuBackend と同じ式。WebKit の glOverlay 封と、失敗印 oj.nogpu はページ次第なので外す）
+const engineWould = !forceGl2 && hasGpu && (forceGpu || !isAndroid);
+const why = forceGl2 ? "?gl2=1 forces WebGL2" : !hasGpu ? "this browser has no WebGPU" : forceGpu ? "?gpu=1 forces WebGPU" : isAndroid ? "Android starts on WebGL2 by design (add ?gpu=1 to try WebGPU)" : "WebGPU is available";
+put("engine starts on", (engineWould ? "WebGPU" : "WebGL2") + " — " + why);
+
+let gpuOk = null, drawOk = null;
+if (hasGpu) {
+	try {
+		const adapter = await navigator.gpu.requestAdapter();
+		if (!adapter) { put("WebGPU adapter", "none (WebGPU exists but no usable GPU)"); gpuOk = false; }
+		else {
+			const ai = adapter.info || {};
+			put("WebGPU adapter", [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean).join(" ") || "(no info)");
+			put("fallback adapter", String(!!(ai.isFallbackAdapter ?? adapter.isFallbackAdapter)));
+			const want = ["timestamp-query", "float32-blendable", "float32-filterable", "shader-f16", "texture-compression-astc", "texture-compression-etc2", "texture-compression-bc"];
+			put("features", want.map(f => (adapter.features.has(f) ? "+" : "-") + f).join(" "));
+			const L = adapter.limits, keys = ["maxTextureDimension2D", "maxBufferSize", "maxStorageBufferBindingSize", "maxStorageBuffersPerShaderStage", "maxSampledTexturesPerShaderStage", "maxSamplersPerShaderStage", "maxComputeWorkgroupStorageSize", "maxColorAttachmentBytesPerSample"];
+			put("limits", Object.fromEntries(keys.map(k => [k, L[k]])));
+			// エンジンと同じ要求（renderer.ts createRendererGPU：アダプタの実力値をそのまま要求）
+			const reqF = ["timestamp-query", "float32-blendable"].filter(f => adapter.features.has(f));
+			const device = await adapter.requestDevice({ requiredFeatures: reqF, requiredLimits: Object.fromEntries(["maxTextureDimension2D", "maxStorageBufferBindingSize", "maxBufferSize", "maxSampledTexturesPerShaderStage", "maxSamplersPerShaderStage"].map(k => [k, L[k]])) });
+			window.__checkDevice = device;   // 参照を残す（GC で device が壊れて試験が偽の失敗になるのを防ぐ）
+			const errs = [];
+			device.addEventListener("uncapturederror", e => errs.push(e.error.message));
+			device.lost.then(i => put("device lost", `${i.reason}: ${i.message}`));
+			put("device", "created");
+			gpuOk = true;
+			drawOk = await drawTest(device, errs);
+		}
+	} catch (e) { put("WebGPU error", e.message); gpuOk = false; }
+}
+
+// 描画試験：青で消して緑の三角＝キャンバスに出た画素を 2D に写して真ん中を読む（iOS で見た「エラー無しで絵が出ない」の検出）
+async function drawTest(device, errs) {
+	const canvas = document.getElementById("gpu");
+	const ctx = canvas.getContext("webgpu");
+	if (!ctx) { put("draw test", "no webgpu canvas context"); return false; }
+	const format = navigator.gpu.getPreferredCanvasFormat();
+	ctx.configure({ device, format, alphaMode: "opaque" });
+	const mod = device.createShaderModule({ code: `
+		@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+			var p = array<vec2f, 3>(vec2f(0.0, 0.8), vec2f(-0.8, -0.8), vec2f(0.8, -0.8));
+			return vec4f(p[i], 0.0, 1.0);
+		}
+		@fragment fn fs() -> @location(0) vec4f { return vec4f(0.1, 0.85, 0.35, 1.0); }` });
+	const pipe = device.createRenderPipeline({ layout: "auto", vertex: { module: mod, entryPoint: "vs" }, fragment: { module: mod, entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } });
+	const enc = device.createCommandEncoder();
+	const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0.1, g: 0.25, b: 0.75, a: 1 }, loadOp: "clear", storeOp: "store" }] });
+	pass.setPipeline(pipe); pass.draw(3); pass.end();
+	device.queue.submit([enc.finish()]);
+	try { await device.queue.onSubmittedWorkDone(); } catch (e) { errs.push("onSubmittedWorkDone: " + e.message); }   // 無頭の swiftshader はここで投げる＝読み戻しで判定を続ける
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	if (errs.length) put("GPU errors", errs.join(" | "));
+	try {
+		const c2 = document.createElement("canvas"); c2.width = canvas.width; c2.height = canvas.height;
+		const g = c2.getContext("2d"); g.drawImage(canvas, 0, 0);
+		const mid = [...g.getImageData(48, 60, 1, 1).data], corner = [...g.getImageData(4, 4, 1, 1).data];
+		put("draw test pixels (centre / corner)", `${mid.join(",")} / ${corner.join(",")}`);
+		const green = mid[1] > 150 && mid[0] < 100, blue = corner[2] > 120 && corner[0] < 80;
+		put("draw test", green && blue ? "ok" : "picture did not arrive");
+		return green && blue;
+	} catch (e) { put("draw test", "could not read back: " + e.message); return null; }
+}
+
+const v = document.getElementById("verdict");
+const note = engineWould && gpuOk === false
+	? ["warn", "This browser has WebGPU but no usable GPU for it. Ortho Earth falls back to WebGL2 by itself; the map works without the WebGPU-only effects."]
+	: engineWould
+	? (drawOk ? ["ok", "WebGPU works here, and Ortho Earth starts on it."] : ["bad", "Ortho Earth would start on WebGPU, but the draw test failed. It should fall back to WebGL2 by itself; please send the report."])
+	: hasGpu && isAndroid && !forceGl2
+		? (drawOk ? ["warn", "Android: Ortho Earth starts on WebGL2 by design. WebGPU passed the draw test here, so please also try the maps with ?gpu=1 and send the report."] : ["warn", "Android: Ortho Earth starts on WebGL2 by design. WebGPU did not pass the draw test here."])
+		: ["warn", "Ortho Earth runs on WebGL2 here. The map works; shadows, reflections and other WebGPU-only effects are off."];
+v.className = "verdict " + note[0]; v.textContent = note[1];
+put("verdict", note[1]);
+document.getElementById("drawnote").insertAdjacentHTML("beforeend", drawOk === true ? "<br><b class=ok>Read back: ok</b>" : drawOk === false ? "<br><b class=bad>Read back: picture did not arrive</b>" : "");
+
+const pages = [["Top", "/"], ["Japan 3D (Tokyo)", "/japan/#16/35.6812/139.7671/60t/30r"], ["Earthquakes", "/globe/quakes/"], ["Satellites", "/globe/sats"], ["Equal Earth", "/equal/"]];
+const add = (u, flag) => u.includes("#") ? u.replace("#", (u.includes("?") ? "&" : "?") + flag + "#") : u + (u.includes("?") ? "&" : "?") + flag;
+document.getElementById("links").innerHTML = pages.map(([t, u]) => `<li>${t}: <a href="${u}">as is</a> · <a href="${add(u, "gpu=1")}">WebGPU (?gpu=1)</a> · <a href="${add(u, "gl2=1")}">WebGL2 (?gl2=1)</a></li>`).join("");
+
+const text = Object.entries(R).map(([k, x]) => `${k}: ${typeof x === "string" ? x : JSON.stringify(x)}`).join("\n");
+document.getElementById("raw").textContent = text;
+document.getElementById("copy").onclick = async () => {
+	try { await navigator.clipboard.writeText(text); document.getElementById("copied").textContent = "Copied / コピーしました"; }
+	catch { const r = document.createRange(); r.selectNodeContents(document.getElementById("raw")); getSelection().removeAllRanges(); getSelection().addRange(r); document.getElementById("copied").textContent = "Select-all done; copy it / 選択したのでコピーしてください"; }
+};
+</script>
+</body>
+</html>
