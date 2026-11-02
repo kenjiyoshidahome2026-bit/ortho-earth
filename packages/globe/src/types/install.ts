@@ -211,6 +211,7 @@ export type QueryDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "EARTH_M" | "EL
 export interface ExtEnv {
 	vtx(lon: number, lat: number, hM: number): [number, number, number] | null;
 	roof(x: number, y: number, hM: number, lon0: number, lat0: number): { ll: LonLat; w: number } | null;
+	wall(a: ArrayLike<number>, b: ArrayLike<number>, bottom: number, top: number, x: number, y: number): number | null;
 }
 /** 今の視点の当たりの口（extView の戻り） */
 export interface ExtViewNow {
