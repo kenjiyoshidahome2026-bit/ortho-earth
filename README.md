@@ -35,6 +35,14 @@ A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from 
 - **Analysis built in.** Sun shadows and shadow hours, viewshed, line of sight, profiles, clipping, measurement, `sampleTerrain`, sun and moon position. 26 UI languages.
 - **React, if you want it.** [`@ortho-earth/react`](sdk/react): `<Globe>`, `<Source>`, `<Layer>`, `<Data>`, `<Marker>`, `useGlobe`, `useGlobeEvent`.
 
+## Limits
+
+- **Browsers.** A browser that has WebGPU starts on it: desktop Chrome and Edge, and Safari on macOS, iOS and iPadOS (iOS and iPadOS checked on real devices; Windows not yet). **Android always starts on WebGL2**: Adreno and Mali Vulkan drivers have known black-screen bugs, even on recent flagships, and a phone loses nothing measurable on WebGL2. Where WebGPU is missing, fails to start or shows no picture, the map restarts on WebGL2 by itself. `?gl2=1` forces WebGL2 and `?gpu=1` forces WebGPU, Android included.
+- **WebGPU only.** Shadows, ambient occlusion, clipping planes, atmospheric scattering and the `setPostChain` effects (`ssr`, `contactShadow`, `heightFog`, `godRays`, `rain`, `toon`). On WebGL2 they do nothing; the map itself is the same.
+- **Not built, on purpose.** No flat Mercator mode (the flat world map is Equal Earth), no native mobile SDK, no conversion or tile server.
+- **Not the same picture yet.** MapLibre: 46 of 137 graded examples ([/maplibre/](https://www.ortho-earth.com/maplibre/), ledger [`maplibre-compat.md`](packages/globe/maplibre-compat.md)). CesiumJS: 77 of 303 ([/sandcastle/](https://www.ortho-earth.com/sandcastle/)). Each one shows its score next to the original.
+- **License.** GPL-3.0 for the engine; see the paragraph under Quick start.
+
 ## Quick start
 
 ```
