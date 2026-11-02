@@ -56,7 +56,7 @@ export interface MapOptions {
 	[k: string]: unknown;
 }
 /** 可動域の関数（MapLibre の z） */
-const ML_FOV_DEG = 2 * Math.atan(0.75) * 180 / Math.PI;   // MapLibre の既定の縦の視野角＝0.6435 rad＝36.87°
+export const ML_FOV_DEG = Math.atan(0.75) * 180 / Math.PI;   // MapLibre の既定の縦の視野角＝0.6435 rad＝36.87°（atan(0.75) そのもの。2 倍にすると 73.74°＝e431af76 の誤り）
 type ConstrainFn = (center: LngLat, zoom: number) => { center?: LngLatLike | null; zoom?: number | null } | null | undefined;
 // MapLibre のメルカトルの既定の制約（6.11.2 の mercator の defaultConstrain の緯度の分）＝画面の上下に世界の外（±85.05° の先）を出さない所まで中心の緯度を寄せる。
 // 世界の高さが画面より低い時は中心を赤道へ（MapLibre はさらに z を上げるが、球の地図は z を上げない＝採点の clampedML と同じく引いたままを許す）。
