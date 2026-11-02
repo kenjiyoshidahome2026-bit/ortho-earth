@@ -7,7 +7,7 @@ export * from "../../src/maplibre/index.ts";
 import * as shim from "../../src/maplibre/index.ts";
 import { engineOf, whenEngine } from "../../src/maplibre/map.ts";
 
-const X = (window.__mlx ||= { side: "ortho", maps: [], ev: [], errors: [], engines: [], added: [] });
+const X = (window.__mlx ||= { side: "ortho", maps: [], ev: [], errors: [], engines: [], added: [], addedTypes: {} });
 const FIXED_TIME = "2026-03-20T12:00:00Z";
 
 // 実験（?mllat=1・走らせ台の --mllat）＝起動の視点のズームに中心緯度の log2(sec φ) を足す＝MapLibre のメルカトル等価の縮尺に合わせたら何本上がるかを数えるだけ。
@@ -26,5 +26,5 @@ export class Map extends shim.Map {
 		this.on("error", e => X.errors.push([i, String(e?.error?.message || e?.error || e?.message || e)]));
 		whenEngine(this).then(eng => { if (!eng) return; X.engines[i] = engineOf(this); eng.pinRes?.(true); });
 	}
-	addLayer(l, b) { if (l?.id) X.added.push(l.id); return super.addLayer(l, b); }   // 例が足した層（本物の包みと同じ）
+	addLayer(l, b) { if (l?.id) { X.added.push(l.id); if (l.type) X.addedTypes[l.id] = l.type; } return super.addLayer(l, b); }   // 例が足した層と型（本物の包みと同じ・型＝custom 層の見分け）
 }
