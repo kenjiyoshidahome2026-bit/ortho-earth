@@ -22,10 +22,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startVite } from "./lib/ui-runner.mjs";
 import { launchChrome, connect, REALGPU } from "./lib/cdp.mjs";
-import { ensureCorpus, CACHE } from "../tests/mlexamples/corpus.mjs";
+import { ensureCorpus, CACHE, PIN } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
 import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH, inkHits } from "../tests/mlexamples/compare.mjs";
-import { buildReport, buildGallery, runnableForm } from "../tests/mlexamples/report.mjs";
+import { buildReport, buildGallery, runnableForm, REF_PIC_UNAVAILABLE, PIC_UNAVAILABLE_BOTH } from "../tests/mlexamples/report.mjs";
 import { ENGINE_DIR } from "./lib/shared-engine.mjs";
 import { withBootStatic } from "../src/boot/screen.ts";   // 起動画面（#boot）の正本＝www の全頁と同じ幕（2026-10-23）   // 共有エンジンの手元の置き場（apps/engine の dist・current.json の版）
 
@@ -96,7 +96,7 @@ const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.g
 				out.push({ layer: f.layer.id, geom: g?.type ?? null, placement: lo["symbol-placement"] || "point", text: lo["text-field"] != null, icon: lo["icon-image"] != null, lng, lat, x, y });
 			}
 			return out; } catch (e) { return [{ error: String(e.message) }]; } })(),
-		loaded: m.loaded(), mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })()`;
+		loaded: m.loaded(), mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], addedTypes: X.addedTypes || {}, probes }; })()`;
 // こちらの答え：本物の標本点（経緯度）をこちらの projectLL で画面へ→問い合わせ（非同期）。比べる点＝front>0（裏でない）・画面の内側・
 // unproject で同じ場所へ戻る（標本の間隔の 1/4 以内＝地平線に寄せられた点・大気の縁を除く）。front は高さ／半径の量＝高ズームでは 1e-4 程度でも表（閾値を置かない）
 // 本物の記録が無い例は自分の格子（unproject）で取る（絵の比べはできない）
@@ -105,13 +105,16 @@ const PROBE_ORTHO = (refProbes, refSymbols = null) => `(async (REF, REFSYM) => {
 	const grid = REF || Array.from({ length: NX * NY }, (_, k) => { const i = k % NX, j = (k / NX) | 0; const x = M + (Wc - 2 * M) * (i + 0.5) / NX, y = M + (Hc - 2 * M) * (j + 0.5) / NY; const ll = m.unproject([x, y]); return { lng: ll?.lng ?? null, lat: ll?.lat ?? null, ok: !!ll }; });
 	const hav = (a, b) => { const d = Math.PI / 180, s = Math.sin((b.lat - a.lat) * d / 2) ** 2 + Math.cos(a.lat * d) * Math.cos(b.lat * d) * Math.sin((b.lng - a.lng) * d / 2) ** 2; return 12742017.6 * Math.asin(Math.min(1, Math.sqrt(s))); };
 	const okPts = grid.filter(p => p.ok && p.lng != null);
+	// 傾いた地図では projectLL が標高で点を持ち上げる＝最初の呼び出しは標高の照会を出して 0m を返す（globe の elevOf）。先に全点を引いて、答えが落ち着くまで待つ（最大 3 秒・2026-11-02 段 2→3 の rig 直し）
+	const terrainOn = (() => { try { return !!m.getTerrain?.(); } catch { return false; } })();   // 地形の例だけ：標高で持ち上げる＝待つ・戻りの判定は省く（動く例を待たせない・標高 0 の球で受ける unproject は戻らない）
+	if (eng && terrainOn && (m.getPitch() || 0) > 4 && okPts.length) { const snap = () => okPts.map(p => eng.projectLL(p.lng, p.lat).map(v => Math.round(v * 10)).join()).join("|"); let prev = snap(); for (let t = 0; t < 6; t++) { await new Promise(r => setTimeout(r, 500)); const cur = snap(); if (cur === prev) break; prev = cur; } }
 	let step = Infinity; for (let k = 1; k < grid.length; k++) if (grid[k].ok && grid[k - 1].ok && grid[k].lng != null && grid[k - 1].lng != null) step = Math.min(step, hav(grid[k], grid[k - 1]));   // 隣り合う標本の間隔（最小）
 	for (const p of grid) {
 		let x = null, y = null, front = -1, ok = false, feats = [];
 		if (eng && p.ok && p.lng != null) {
 			[x, y, front] = eng.projectLL(p.lng, p.lat);
 			ok = front > 0 && x >= 0 && y >= 0 && x < Wc && y < Hc;
-			if (ok) { const back = eng.unproject([x, y]); ok = !!back && (!(step < Infinity) || hav(back, p) <= step / 4); }
+			if (ok && !terrainOn) { const back = eng.unproject([x, y]); ok = !!back && (!(step < Infinity) || hav(back, p) <= step / 4); }
 		}
 		if (ok) { try { feats = (await eng.queryRenderedFeatures([x, y])).map(f => ({ layer: f.layer?.id, type: f.layer?.type, source: f.source, sourceLayer: f.sourceLayer ?? null, id: f.id ?? null })); } catch (e) { feats = [{ error: String(e.message) }]; } }
 		probes.push({ x, y, lng: p.lng, lat: p.lat, ok, front, feats });
@@ -129,7 +132,7 @@ const PROBE_ORTHO = (refProbes, refSymbols = null) => `(async (REF, REFSYM) => {
 		// 文字（段 0）：本物の記号の錨をこちらの画面へ（projectLL＝表なら front>0）＋こちらが置いたラベル/記号（debugGlobals の __placed＝層 id・中心・箱）
 		refSym: (REFSYM || []).map(sy => { if (!eng || sy.lng == null) return null; const [x, y, front] = eng.projectLL(sy.lng, sy.lat); return { x, y, front, ok: front > 0 && x >= 0 && y >= 0 && x < Wc && y < Hc }; }),
 		placed: await (async () => { try { return (await window.__placed?.()) ?? []; } catch { return []; } })(),
-		loaded: m.loaded(), backend: eng?.backend ?? null, mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })(${JSON.stringify(refProbes)}, ${JSON.stringify(refSymbols)})`;
+		loaded: m.loaded(), backend: eng?.backend ?? null, mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], addedTypes: X.addedTypes || {}, probes }; })(${JSON.stringify(refProbes)}, ${JSON.stringify(refSymbols)})`;
 const PROBE = { ref: () => PROBE_REF, ortho: PROBE_ORTHO };
 
 async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
@@ -275,7 +278,7 @@ function compareRuns(la, lb, side) {
 
 // ── www に置く一式（--publish <dir>・2026-10-01 本人「Get Started に MapLibre コンパチを謳い、今回作ったデモを入れて」）──
 //   <dir>/index.html＝一覧（写し・題・分類 (一致度 %)・カードで覗き窓＝ortho の形の本文・英日の注釈・Run／Copy／Download）
-//   <dir>/thumbs/<例>.webp＝こちらの写し（full.png を 480×360 に）・<dir>/examples/<例>.html＝走らせる頁（ortho の形の本文＋import map 1 行）
+//   <dir>/pics/<例>.{ref,ortho}.webp＝本物とこちらの写し（full.png を 480×360 に・左右に並べる＝Sandcastle と同じ形・2026-11-02）・<dir>/examples/<例>.html＝走らせる頁（ortho の形の本文＋import map 1 行）
 //   import map の先＝共有エンジンの maplibre 入口（/globe/engine/<版>/maplibre.js・版は apps/engine の current.json＝先に npm run build -w ortho-engine）。
 //   旧い版の入口はエンジンの配信口（apps/engine/deploy-worker.js）が今の版へ 302 で送る＝www を焼き直さなくても動き続ける
 let publishP = null;   // 書き出し（sharp の縮小）は非同期＝process.exit の前に待つ
@@ -284,20 +287,26 @@ function publishGallery(out, { rows, refLabel, orthoLabel, notes, sources }) {
 	if (!cur.entries?.includes("maplibre")) throw new Error("共有エンジンに maplibre の入口が無い＝npm run build -w ortho-engine");
 	const engineUrl = `/globe/engine/${cur.version}/maplibre.js`;
 	fs.rmSync(out, { recursive: true, force: true });
-	fs.mkdirSync(path.join(out, "thumbs"), { recursive: true }); fs.mkdirSync(path.join(out, "examples"), { recursive: true });
+	fs.mkdirSync(path.join(out, "pics"), { recursive: true }); fs.mkdirSync(path.join(out, "examples"), { recursive: true });
 	const pub = rows.filter(r => sources[r.name]);
 	return (async () => {
 		const sharp = (await import("sharp")).default;
 		for (const r of pub) {
 			fs.writeFileSync(path.join(out, "examples", `${r.name}.html`), withBootStatic(runnableForm(sources[r.name], engineUrl), "map"));   // 例＝地図の load で畳む
-			const png = path.join(ROOT, "runs", orthoLabel, "ortho", `${r.name}.full.png`);
-			if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "thumbs", `${r.name}.webp`));
+			for (const [side, label] of [["ortho", orthoLabel], ["ref", refLabel]]) {
+				if (PIC_UNAVAILABLE_BOTH.has(r.name) || (side === "ref" && (REF_PIC_UNAVAILABLE[r.name] || r.grade?.level == null))) continue;   // 写しを出さない例（札で説明）
+				let png = path.join(ROOT, "runs", label, side, `${r.name}.full.png`);
+				const cv = path.join(ROOT, "runs", label, side, `${r.name}.canvas.png`);   // full.png が灰色一面（adding-3d-models-using-threejs-on-terrain・20KB 未満）の時は採点に使う canvas.png で代える（2026-11-02）
+				if ((!fs.existsSync(png) || fs.statSync(png).size < 20_000) && fs.existsSync(cv) && fs.statSync(cv).size > 40_000) png = cv;
+				if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "pics", `${r.name}.${side}.webp`));
+			}
 		}
-		const engine = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version;   // 脚注に「どの版の絵か」＝@ortho-earth/globe の版（2026-10-12）
-		fs.writeFileSync(path.join(out, "index.html"), withBootStatic(buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, engine,
-			publish: { thumb: n => `thumbs/${n}.webp`, run: n => `examples/${n}.html` } }), "images"));   // 一覧＝最初に見えるサムネで畳む
+		const engine = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version.replace(/^(\d+\.\d+)\..*$/, "$1.x");   // 脚注に「どの版の絵か」＝@ortho-earth/globe の版の系（絵は配布の後の main から＝Sandcastle と同じ書き方）
+		const refDir = path.join(ROOT, "runs", refLabel, "ref"), refWhen = fs.existsSync(refDir) ? new Date(Math.min(...fs.readdirSync(refDir).filter(f => f.endsWith(".json")).map(f => fs.statSync(path.join(refDir, f)).mtimeMs))).toISOString().slice(0, 10) : "";   // 本物の記録日＝脚注で撮影日と分ける
+		fs.writeFileSync(path.join(out, "index.html"), withBootStatic(buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), refWhen, notes, sources, engine, maplibre: PIN.version,
+			publish: { pic: (n, side) => `pics/${n}.${side}.webp`, run: n => `examples/${n}.html` } }), "images"));   // 一覧＝最初に見えるサムネで畳む
 		const bytes = d => fs.readdirSync(d).reduce((a, f) => a + fs.statSync(path.join(d, f)).size, 0);
-		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・globe ${engine}・写し ${(bytes(path.join(out, "thumbs")) / 1e6).toFixed(1)} MB）`);
+		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・globe ${engine}・写し ${(bytes(path.join(out, "pics")) / 1e6).toFixed(1)} MB）`);
 	})();
 }
 

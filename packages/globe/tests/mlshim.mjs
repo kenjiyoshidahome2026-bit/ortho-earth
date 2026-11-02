@@ -99,6 +99,23 @@ const SHIM_IMPORTS = new Set(["../globe.ts", "../zoomscale.ts"]);
 	ok("通訳の import は ../globe.ts と同じ家の部品だけ・RAW 無し", !bad.length, bad.join(" "));
 }
 
+{	// MapLibre の口の縦の視野角の既定＝MapLibre と同じ 36.87°（atan(0.75)・2026-11-02）。e431af76 は 2 倍（73.74°）で全例が悪化した
+	const src = fs.readFileSync(path.join(HERE, "../src/maplibre/map.ts"), "utf8"), m = /export const ML_FOV_DEG = ([^;]+);/.exec(src);
+	const v = m ? Function(`return (${m[1]})`)() : NaN;
+	ok("ML_FOV_DEG＝36.87°（MapLibre の既定の fov）", Math.abs(v - 36.8699) < 0.01, `v=${v}`);
+	ok("エンジンの縦の視野角を ML_FOV_DEG に揃える（setConstrain の後・engineFns の前）", /setConstrain\(st, options\.transformConstrain\);[\s\S]{0,400}eng\.setVerticalFieldOfView\(ML_FOV_DEG\);[\s\S]{0,400}st\.engineFns\.splice\(0\)/.test(src));
+}
+{	// 地形なし＋centerElevation の数＝注視点の高さの球で project／unproject（MapLibre と同じ＝center が画面中央へ戻る・set-center-point-above-ground・2026-11-02）
+	const src = fs.readFileSync(path.join(HERE, "../src/maplibre/map.ts"), "utf8"), g = fs.readFileSync(path.join(HERE, "../src/globe.ts"), "utf8");
+	ok("MapLibre の口が centerPlane: true を渡す", /\bcenterPlane: true\b/.test(src));
+	ok("dispRadius と unprojectXY（同期・待つ）が planeR を使う", /: planeR\(\); \};/.test(g) && (g.match(/const pr = planeR\(\); if \(pr !== 1\) return unproject\(/g) || []).length === 2);
+	const { cameraState, project, unproject, worldRadiusM } = await import("@ortho-earth/core");
+	const cam = { center: [-74.01318, 40.713], zoom: 16.5, bearing: -17.6 * Math.PI / 180, pitch: 85 * Math.PI / 180, centerAlt: 541, fovy: 36.87 * Math.PI / 180 }, [lon0, lat0] = cam.center;
+	const st = cameraState(cam, 800, 600), R = 1 + 541 / worldRadiusM();
+	const p = project(st, lon0, lat0, R), q = unproject(st, 400, 300, R), p0 = project(st, lon0, lat0, 1);
+	ok("注視点の高さの球で center は画面中央", Math.hypot(p[0] - 400, p[1] - 300) < 1 && q && Math.hypot(q[0] - lon0, q[1] - lat0) < 1e-5, `p=${p.slice(0, 2).map(v => v.toFixed(1))} q=${q}`);
+	ok("海面の球では画面の下へずれる（直す前の答え）", p0[1] > 350, `y=${p0[1].toFixed(1)}`);
+}
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 // ── createTileMesh／細分の粒度（MapLibre 同名・custom 層のタイル格子）──
 {
@@ -127,6 +144,12 @@ console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 	ok("shim の stub は calculateAnchoredCameraOptions だけ（増えたらここを更新＝台帳 §3 に行を足す）", JSON.stringify(stubs) === JSON.stringify(["calculateAnchoredCameraOptions"]), stubs.join(" "));
 	const acc = ["showTileBoundaries", "showPadding", "showCollisionBoxes", "showOverdrawInspector", "vertices", "repaint"];
 	ok("property の口が accessor（get/set）", acc.every(k => cls.includes(`\tget ${k}()`) && cls.includes(`\tset ${k}(`)));
+}
+{	// MapLibre の口の縦の視野角の既定＝MapLibre と同じ 36.87°（atan(0.75)・2026-11-02）。e431af76 は 2 倍（73.74°）で全例が悪化した
+	const src = fs.readFileSync(path.join(HERE, "../src/maplibre/map.ts"), "utf8"), m = /export const ML_FOV_DEG = ([^;]+);/.exec(src);
+	const v = m ? Function(`return (${m[1]})`)() : NaN;
+	ok("ML_FOV_DEG＝36.87°（MapLibre の既定の fov）", Math.abs(v - 36.8699) < 0.01, `v=${v}`);
+	ok("エンジンの縦の視野角を ML_FOV_DEG に揃える（setConstrain の後・engineFns の前）", /setConstrain\(st, options\.transformConstrain\);[\s\S]{0,400}eng\.setVerticalFieldOfView\(ML_FOV_DEG\);[\s\S]{0,400}st\.engineFns\.splice\(0\)/.test(src));
 }
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 process.exit(fail ? 1 : 0);

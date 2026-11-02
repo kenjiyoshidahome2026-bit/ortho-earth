@@ -75,7 +75,15 @@ export function createNetStore({ dir, assetsDir, mode = "replay" }) {
 				const f = path.resolve(assetsDir, rel);
 				if (f.startsWith(assetsDir + path.sep) && fs.existsSync(f)) {
 					stats.assets++;
-					return await fulfill(200, [{ name: "Content-Type", value: MIME[path.extname(f).toLowerCase()] || "application/octet-stream" }], fs.readFileSync(f));
+					const buf = fs.readFileSync(f), ct = { name: "Content-Type", value: MIME[path.extname(f).toLowerCase()] || "application/octet-stream" };
+					// Range（bytes=a-b）＝206 と Content-Range（COG の geotiff は塊ごとに Range で読む＝200 の全体を返すと "Request failed"・例 add-a-cog-raster-source・2026-11-02）
+					const rm = /^bytes=(\d*)-(\d*)$/.exec(header(reqH, "range") || "");
+					if (rm && (rm[1] || rm[2])) {
+						const a = rm[1] ? +rm[1] : Math.max(0, buf.length - +rm[2]), b = rm[1] && rm[2] ? Math.min(+rm[2], buf.length - 1) : buf.length - 1;
+						if (a >= buf.length) return await fulfill(416, [ct, { name: "Content-Range", value: `bytes */${buf.length}` }], Buffer.alloc(0));
+						return await fulfill(206, [ct, { name: "Content-Range", value: `bytes ${a}-${b}/${buf.length}` }, { name: "Accept-Ranges", value: "bytes" }], buf.subarray(a, b + 1));
+					}
+					return await fulfill(200, [ct, { name: "Accept-Ranges", value: "bytes" }], buf);
 				}
 			}
 			const key = keyOf(method, url, header(reqH, "range"));

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V.2.3.0 is out</title>
+<meta name="description" content="Rendering that neither has (screen-space reflections and five more), and on top of that keeping up with Cesium (same picture 190 → 226) and MapLibre (examples that only partly run 12 → 3).">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v230">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/story-v230">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/story-v230-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/story-v230">
+<meta property="og:title" content="V.2.3.0 is out">
+<meta property="og:description" content="Rendering that neither has (screen-space reflections and five more), and on top of that keeping up with Cesium (same picture 190 → 226) and MapLibre (examples that only partly run 12 → 3).">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v230">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-11-02">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"V.2.3.0 is out","description":"Rendering that neither has (screen-space reflections and five more), and on top of that keeping up with Cesium (same picture 190 → 226) and MapLibre (examples that only partly run 12 → 3).","url":"https://www.ortho-earth.com/docs/story-v230","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v230","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-02","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+<style>.essay figure.ba { margin: 0.6em 0 1.8em; } .essay figure.ba img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); }</style>
+<style>.venn{margin:0.6em 0 1.8em;overflow-x:auto}.venn svg{display:block;width:100%;min-width:520px;height:auto;font-family:var(--gothic,system-ui,sans-serif)}.venn circle{stroke-width:2}.venn .c-ml{fill:rgba(47,111,214,.08);stroke:#2f6fd6}.venn .c-ces{fill:rgba(194,85,42,.08);stroke:#c2552a}.venn .c-ortho{fill:rgba(30,122,74,.10);stroke:#1e7a4a;stroke-width:3}.venn .lbl{font-size:22px;font-weight:700}.venn .lbl.ml{fill:#2f6fd6}.venn .lbl.ces{fill:#c2552a}.venn .lbl.have{fill:#1e7a4a}.venn .it{font-size:14px;fill:#2c241a}.venn .it.sm{font-size:12px}.venn .it.star{font-weight:600}.venn .it.ml{fill:#2f6fd6}.venn .it.ces{fill:#c2552a}.venn .it.pol{fill:#8a7856;font-style:italic}.venn .it.new{fill:#b8327a;font-weight:700}.venn .it.hd{font-weight:700}</style>
+</head>
+<body>
+<!-- A Stories article (opened from a card in apps/www/stories.json): the v2.3.0 record, i.e. Cesium after v2.2.0 (up to the v244 shoot) and the work on MapLibre's 139 official examples (2026-11-02). The pictures put real MapLibre (left) and ortho-earth (right) from the /maplibre/ gallery side by side -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v230-jp.html" lang="ja">日本語</a></nav>
+<header class="masthead"><h1>V.2.3.0 is out</h1><p class="byline">2026-11-02 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>2.1 followed MapLibre, 2.2 followed Cesium, and 2.3 implements rendering features of our own: a hop, a step and a jump. On top of that, 2.3 still keeps following both properly.</p>
+<figure class="venn">
+<svg class="venn-svg" viewBox="-12 0 764 800" role="img" aria-labelledby="vt-en vd-en"><title id="vt-en">Venn diagram of MapLibre, Cesium and ortho-earth features</title><desc id="vd-en">Three overlapping circles. Everything inside the green ortho-earth circle works in ortho-earth 2.3. (policy) marks something left out on purpose. Pink marks what arrived in v2.x.</desc>
+<circle class="c-ortho" cx="370" cy="465" r="295"/><circle class="c-ml" cx="250" cy="270" r="250"/><circle class="c-ces" cx="490" cy="270" r="250"/>
+<text class="lbl ml" x="20" y="34">MapLibre</text><text class="lbl ces" x="720" y="34" text-anchor="end">Cesium</text><text class="lbl have" x="370" y="788" text-anchor="middle">ortho-earth</text>
+<text class="it ml" x="164" y="120.0" text-anchor="middle">Home of the Style Spec</text>
+<text class="it ml" x="164" y="141.0" text-anchor="middle">Mapbox community power</text>
+<text class="it ml" x="164" y="162.0" text-anchor="middle">Maputnik style editor</text>
+<text class="it ml" x="164" y="183.0" text-anchor="middle">Martin tile server</text>
+<text class="it ces" x="602" y="110.0" text-anchor="middle">Home of 3D Tiles</text>
+<text class="it ces" x="602" y="131.0" text-anchor="middle">ion global 3D content</text>
+<text class="it ces" x="602" y="152.0" text-anchor="middle">iTwin · Bentley link</text>
+<text class="it ces" x="602" y="173.0" text-anchor="middle">Cesium Stories</text>
+<text class="it pol" x="602" y="194.0" text-anchor="middle">Conversion server (policy)</text>
+<text class="it" x="370" y="120.0" text-anchor="middle">Users &amp; ecosystem</text>
+<text class="it pol" x="370" y="139.0" text-anchor="middle">Mercator plane (policy)</text>
+<text class="it pol" x="370" y="158.0" text-anchor="middle">Native SDKs (policy)</text>
+<text class="it have" x="370" y="240.0" text-anchor="middle">Globe view</text>
+<text class="it have" x="370" y="259.0" text-anchor="middle">3D terrain (any DEM)</text>
+<text class="it have" x="370" y="278.0" text-anchor="middle">Text labels · icons</text>
+<text class="it have" x="370" y="297.0" text-anchor="middle">GeoJSON · extrusion</text>
+<text class="it have" x="370" y="316.0" text-anchor="middle">Raster · WMS/WMTS</text>
+<text class="it have" x="370" y="335.0" text-anchor="middle">Markers · popups</text>
+<text class="it have" x="370" y="354.0" text-anchor="middle">Point clustering</text>
+<text class="it have" x="370" y="373.0" text-anchor="middle">Feature queries</text>
+<text class="it have" x="370" y="392.0" text-anchor="middle">Hypsometric tint</text>
+<text class="it sm new hd" x="176" y="370.0" text-anchor="middle">MapLibre-compatible API</text>
+<text class="it sm" x="176" y="384.6" text-anchor="middle">style.json · expressions</text>
+<text class="it sm" x="176" y="399.2" text-anchor="middle">MVT · PMTiles · MLT</text>
+<text class="it sm" x="178" y="413.8" text-anchor="middle">Heatmap · hillshade</text>
+<text class="it sm" x="184" y="428.4" text-anchor="middle">feature-state</text>
+<text class="it sm" x="192" y="443.0" text-anchor="middle">Insert between layers</text>
+<text class="it sm" x="212" y="457.6" text-anchor="middle">Animated images</text>
+<text class="it sm" x="238" y="472.2" text-anchor="middle">Offline (PWA)</text>
+<text class="it sm" x="250" y="486.8" text-anchor="middle">Light on mobile</text>
+<text class="it sm" x="250" y="501.4" text-anchor="middle">+ 6 plugin equivalents</text>
+<text class="it sm new hd" x="564" y="348.0" text-anchor="middle">Cesium-compatible API</text>
+<text class="it sm" x="564" y="362.6" text-anchor="middle">3D Tiles · I3S</text>
+<text class="it sm" x="564" y="377.2" text-anchor="middle">glTF · KTX2 · clearcoat</text>
+<text class="it sm" x="564" y="391.8" text-anchor="middle">CZML · clock</text>
+<text class="it sm" x="564" y="406.4" text-anchor="middle">quantized-mesh</text>
+<text class="it sm" x="562" y="421.0" text-anchor="middle">WGS84 ellipsoid</text>
+<text class="it sm new" x="554" y="435.6" text-anchor="middle">Shadows · HDR · IBL</text>
+<text class="it sm new" x="542" y="450.2" text-anchor="middle">Clipping planes · polygons</text>
+<text class="it sm new" x="524" y="464.8" text-anchor="middle">Bloom · DOF · lens flare</text>
+<text class="it sm new" x="496" y="479.4" text-anchor="middle">Particles · clouds</text>
+<text class="it sm" x="490" y="494.0" text-anchor="middle">Point clouds · voxels · splats</text>
+<text class="it sm new" x="490" y="508.6" text-anchor="middle">Custom shaders</text>
+<text class="it new" x="370" y="538.0" text-anchor="middle">SSR · contact shadow · fog · rain · toon</text>
+<text class="it" x="370" y="556.6" text-anchor="middle">Japan's public data at the core</text>
+<text class="it" x="370" y="575.2" text-anchor="middle">Ortho ⇄ perspective slider</text>
+<text class="it" x="370" y="593.8" text-anchor="middle">No server · 1 s revisit</text>
+<text class="it" x="370" y="612.4" text-anchor="middle">Main thread left free</text>
+<text class="it" x="370" y="631.0" text-anchor="middle">Edit → GeoPBF → GitHub</text>
+<text class="it" x="370" y="649.6" text-anchor="middle">Gint identify and match</text>
+<text class="it" x="370" y="668.2" text-anchor="middle">Out to the solar system</text>
+<text class="it new" x="370" y="686.8" text-anchor="middle">Leaflet · Google Maps code</text>
+<text class="it" x="370" y="705.4" text-anchor="middle">Arcs · trips · H3 · contours</text>
+<text class="it" x="370" y="724.0" text-anchor="middle">Equal Earth ⇄ globe</text>
+<text class="it" x="370" y="742.6" text-anchor="middle">WebGPU by default</text>
+</svg>
+
+<figcaption class="note-small">Everything inside the green circle works in ortho-earth 2.3. (policy) marks what is left out on purpose, and pink what arrived in v2.x.</figcaption>
+</figure>
+
+<h2>New rendering</h2>
+<p><code>map.setPostChain</code> gains six effects that neither Cesium nor MapLibre has (WebGPU only): screen-space reflections (SSR), contact shadows, height fog, light shafts, rain and an illustration style.</p>
+<p>They all reuse the depth and normals the engine already had. SSR is about 380 lines and the other five about 720, and each went in within a day.</p>
+<figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="The Rainbow Bridge and the Tokyo skyline reflected in Tokyo Bay"></figure>
+<p class="note-small"><code>map.setPostChain([{ type: "ssr" }])</code>: the Rainbow Bridge and the city reflected in Tokyo Bay.</p>
+
+<h2>Keeping up with Cesium</h2>
+<p>The Sandcastle re-shoots did not stop after v2.2.0. From v221 to v244, all 309 examples were re-shot more than 20 times, and each time one family was fixed.</p>
+<div class="table-wrap"><table><thead><tr><th>Shoot</th><th>3</th><th>2</th><th>1</th><th>0</th><th>What went in</th></tr></thead><tbody>
+<tr><td>v2.2.0</td><td>190</td><td>107</td><td>0</td><td>0</td><td>Last time's final count (297 scored)</td></tr>
+<tr><td>v221</td><td>196</td><td>101</td><td>0</td><td>0</td><td>The re-shoot right after v2.2.0</td></tr>
+<tr><td>v233</td><td>207</td><td>91</td><td>0</td><td>0</td><td>Imagery split view, 3D Tiles edge visibility, shapes clamped to terrain, time-dynamic WMTS (#845–#857)</td></tr>
+<tr><td>v238</td><td>220</td><td>77</td><td>0</td><td>1</td><td>Serving Sandcastle's images, rectangle rotation, 3D lines that stop at buildings, imagery as fine as Cesium's (#863–#866)</td></tr>
+<tr><td>v244</td><td><strong>223</strong></td><td>75</td><td><strong>0</strong></td><td><strong>0</strong></td><td>Front and back faces of closed shapes, 3D Tiles bounding spheres, Bing imagery, shadows from translucent 3D Tiles (#869–#900)</td></tr>
+</tbody></table></div>
+<p class="note-small">Note: the table is what the gate counted (298 scored). The <a href="/sandcastle/" target="_top">Sandcastle</a> gallery adds the examples checked by eye, 303 in all, at 3/2/1/0 = 226 / 77 / 0 / 0. At v243 an imagery change (#894) briefly pushed level 0 up to 7, but the gate caught it and #900 put it back.</p>
+<p>Cesium on the left, ortho-earth on the right: imagery split view (splitDirection) and 3D Tiles edge visibility.</p>
+<figure class="ba"><img src="release-2-3-imagery-layers-split.webp" width="968" height="360" loading="lazy" alt="imagery-layers-split in Cesium and ortho-earth"></figure>
+<figure class="ba"><img src="release-2-3-3d-tiles-edge-visibility.webp" width="968" height="360" loading="lazy" alt="3d-tiles-edge-visibility in Cesium and ortho-earth"></figure>
+
+<h2>Keeping up with MapLibre</h2>
+<p>While chasing Cesium, I also measured how things looked on the MapLibre side, where ortho-earth started: it began by drawing maps the MapLibre way. MapLibre's 139 official examples were lined up the same way. A picture shot on real MapLibre GL JS 6.11.2 (r7) is compared, at the same time and from the same camera, with the same code running on the MapLibre-compatible API of @ortho-earth/globe. The levels mean the same as for Cesium. Two examples that cannot be graded are left out, so 137 are counted.</p>
+<p>Measured again this morning (the v2.2.x main), it came to 3/2/1/0 = 85 / 40 / 12 / 0. Twelve examples only partly ran. Having just brought that to 0 on Cesium, I could not let it pass.</p>
+<div class="table-wrap"><table><thead><tr><th>When</th><th>3</th><th>2</th><th>1</th><th>0</th><th>What went in</th></tr></thead><tbody>
+<tr><td>v2.1.0</td><td>79</td><td>47</td><td>11</td><td>0</td><td>When /maplibre/ was first built</td></tr>
+<tr><td>This morning</td><td>85</td><td>40</td><td>12</td><td>0</td><td>The v2.2.x main, measured as is</td></tr>
+<tr><td>Midday</td><td>86</td><td>45</td><td>6</td><td>0</td><td>MapLibre's default Mercator constraint, maxZoom 22, flyTo with MapLibre's choreography, querying clustered points, heatmap hits on a tilted map, the roof of zero-height extrusions</td></tr>
+<tr><td>Afternoon</td><td>87</td><td>45</td><td>5</td><td>0</td><td>The vertical field of view set to MapLibre's 36.87°</td></tr>
+<tr><td>v2.3.0</td><td><strong>91</strong></td><td><strong>43</strong></td><td><strong>3</strong></td><td><strong>0</strong></td><td>A sphere at the centre's height, unproject on terrain by walking the ray, terrain exaggeration applied to the centre too, and the real pictures re-shot for four examples where OSM had blocked the tiles</td></tr>
+</tbody></table></div>
+<p class="note-small">Note: the counts are on WebGPU (the Mac's real GPU). Everything was also run on WebGL2. The same 3 examples are at level 1 there, and the only difference is two examples that drop from 3 to 2 because of a single sample point on an icon.</p>
+
+<h2>MapLibre results</h2>
+<p>At v2.3.0 the 137 examples come to 3/2/1/0 = <strong>91 / 43 / 3 / 0</strong>. Examples that only partly run went from 12 to 3. Every picture can be seen next to the real one in the <a href="/maplibre/" target="_top">MapLibre</a> gallery. The gallery now has the same layout as Sandcastle, and its header and footer read in Japanese or English.</p>
+<p>Real MapLibre on the left, ortho-earth (v2.3.0) on the right.</p>
+<p><strong>set-center-point-above-ground</strong>: a map without terrain with its centre held 541 m in the air. The picture already matched, but going between coordinates and screen points was 279 px off. MapLibre treats the plane at the centre's height as the ground. Only the MapLibre-compatible API now does the same (level 1 → 3)</p>
+<figure class="ba"><img src="story-v230-set-center-point-above-ground.webp" width="968" height="360" loading="lazy" alt="set-center-point-above-ground: MapLibre and ortho-earth"></figure>
+<p><strong>display-a-hybrid-satellite-map-with-terrain-elevation</strong>: a satellite map of steep mountains. A click landed on the wrong slope, several kilometres away. It now walks the line of sight from near to far and closes in on the first point where it crosses the ground (queries 110/160 → 158/160, level 1 → 2)</p>
+<figure class="ba"><img src="story-v230-display-a-hybrid-satellite-map-with-terrain-elevation.webp" width="968" height="360" loading="lazy" alt="display-a-hybrid-satellite-map-with-terrain-elevation: MapLibre and ortho-earth"></figure>
+<p><strong>add-a-3d-model-to-globe-using-threejs</strong>: a three.js model standing on the globe. The axes of custom layers on the globe had x and z swapped compared with MapLibre, so the antenna did not show</p>
+<figure class="ba"><img src="story-v230-add-a-3d-model-to-globe-using-threejs.webp" width="968" height="360" loading="lazy" alt="add-a-3d-model-to-globe-using-threejs: MapLibre and ortho-earth"></figure>
+
+<h2>What was built</h2>
+<ul>
+<li>The MapLibre-compatible API: a 36.87° vertical field of view, a sphere at the centre's height (no terrain with a numeric centerElevation), no underground overlay, MapLibre's default Mercator constraint, maxZoom 22, flyTo and easeTo with MapLibre's choreography</li>
+<li>Unproject on terrain: walking the ray where the elevation can be read synchronously (raster-dem), and the older iteration elsewhere (quantized-mesh and DEMs loaded through a custom protocol)</li>
+<li>Terrain exaggeration applied to the centre's height and to queryTerrainElevation, as in MapLibre</li>
+<li>Custom layers on the globe use MapLibre's axes (three.js models)</li>
+<li>A record of custom layers checked by eye, since they never show up in the sampled picture (eyechecked.json), and a ratchet that fails when any example drops a level (known.json)</li>
+<li>The /maplibre/ and /sandcastle/ galleries in the same layout, with the header and footer in Japanese and English</li>
+<li>On the Cesium side: imagery split view, 3D Tiles edge visibility, 3D lines that stop at buildings, front and back faces of closed shapes, shadows from translucent 3D Tiles</li>
+<li>Rendering: screen-space reflections (SSR), contact shadows, height fog, light shafts, rain, an illustration style (WebGPU)</li>
+</ul>
+
+<h2>What was given up</h2>
+<ul>
+<li>add-live-realtime-data: the example keeps moving, and the camera at the moment of the shot does not line up with the real one</li>
+<li>display-html-clusters-with-custom-properties: the real one shows 12 cluster markers, ortho shows 13. The difference in clustering has not been traced</li>
+<li>navigate-the-map-with-game-like-controls: MapLibre's queries also return buildings it does not draw. ortho returns only what it draws, and that choice stays</li>
+<li>The example that reads quantized-mesh as a raster-dem source does not walk the ray. Every sample waits for a tile to be decoded, and 160 queries took 25 seconds</li>
+</ul>
+
+<h2>A stubborn bug</h2>
+<p>What took the longest this time was turning a click on terrain back into coordinates. Fixing steep slopes made the quantized-mesh example slow, and fixing the slowness made positions drift. Every fix brought a new problem in another example.</p>
+<p>Even so, with the gate that shoots side by side with the real thing and the ratchet that fails when a level drops, it was clear on the spot where and what had broken. Along the way an older bug turned up: terrain exaggeration was never applied to the centre. In the end only terrain that can be read synchronously uses the new method, and everything else went back to the old way. Knowing when to stop digging is part of the method too.</p>
+<h2>Dropping Mercator</h2>
+<p>At the end of 2.2 I wrote a formula: Ortho Earth = MapLibre &times; Cesium &minus; Mercator + &alpha;. Looking back, the term in that formula that mattered most may have been &minus; Mercator. Because the map was drawn on a sphere from the start, not on a plane, MapLibre's 2D examples and Cesium's 3D examples could both be taken in by one and the same way of drawing. Not building 2D and 3D separately and joining them, but dropping Mercator: I think that was the essence of bringing 2D and 3D together this time.</p>
+<p class="note-small">Released: <code>@ortho-earth/globe</code> and <code>@ortho-earth/core</code> 2.3.0, <code>@ortho-earth/cesium</code> 0.2.0 (needs globe 2.3), <code>@ortho-earth/voxel</code> 0.6.1. Same API as 2.2 (<code>npm i @ortho-earth/globe@2.3</code>).</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>

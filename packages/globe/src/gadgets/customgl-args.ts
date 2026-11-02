@@ -20,7 +20,8 @@ vec4 projectTileFor3D(vec2 p, float elevation) { return u_projection_matrix * ve
 vec4 projectTileWithElevation(vec2 posInTile, float elevation) { return u_projection_matrix * vec4(posInTile, elevation, 1.0); }
 `;
 // 球の vertex の下ごしらえ（MapLibre の projectionGlobe と同じ名前・同じ働き＝2026-09-30）。タイルの座標 → メルカトル → 経緯度 → この地図の単位球（β 空間）→ u_projection_matrix（＝この地図の mvp）。
-// 球の座標の軸はこの地図の流儀（x＝cosφcosλ・y＝sinφ・z＝cosφsinλ・core lonlatTo3D）＝MapLibre（x＝sinλ）とは軸が違うが、層は projectTile しか呼ばないので絵は同じ。
+// 球の座標の軸は MapLibre の流儀（x＝sinλcosφ・y＝sinφ・z＝cosλcosφ）に合わせる（2026-11-02）：u_projection_matrix＝この地図の mvp に x↔z の入れ替えを掛けた物（SWAP_XZ）。
+// 層が mainMatrix に自前の球の点を掛ける（add-a-3d-model-to-globe-using-threejs の getGlobeModelMatrix 等）時に、この地図の軸（x＝cosλcosφ・z＝sinλcosφ・core lonlatTo3D）のままだと模型が地球の裏に置かれ描かれなかった。
 // 極の頂点（rawPos.y＝-32768／32767・tilemesh.js）は極へ。裏側は u_projection_clipping_plane（(dot(pos, xyz)+w) が 0 未満＝裏）で z を 1 の外へ＝描かない（MapLibre の globeComputeClippingZ と同じ式）。
 // u_projection_transition は常に 1（球のまま）・u_projection_fallback_matrix は mercator の局所線形化（層が transition を混ぜても壊れない）
 const PRELUDE_GLOBE = `#ifndef PI
@@ -43,7 +44,7 @@ vec3 projectToSphere(vec2 translatedPos, vec2 rawPos) {
 	float lon = m.x * PI * 2.0 - PI;
 	float t = exp(PI - (m.y * PI * 2.0)); float t2 = t * t; float denom = t2 + 1.0;
 	float sinLat = (t2 - 1.0) / denom; float cosLat = (2.0 * t) / denom;
-	vec3 pos = vec3(cos(lon) * cosLat, sinLat, sin(lon) * cosLat);
+	vec3 pos = vec3(sin(lon) * cosLat, sinLat, cos(lon) * cosLat);
 	if (rawPos.y < -32767.5) { pos = vec3(0.0, 1.0, 0.0); }
 	if (rawPos.y > 32766.5) { pos = vec3(0.0, -1.0, 0.0); }
 	return pos;
@@ -73,6 +74,8 @@ vec4 projectTile(vec2 posInTile, vec2 rawPos) { return interpolateProjection(pos
 vec4 projectTileWithElevation(vec2 posInTile, float elevation) { return interpolateProjection(posInTile, projectToSphere(posInTile), elevation); }
 vec4 projectTileFor3D(vec2 posInTile, float elevation) { return interpolateProjectionFor3D(posInTile, projectToSphere(posInTile, posInTile), elevation); }
 `;
+// MapLibre の球の軸 → この地図の軸（x↔z・列優先・対称なので逆も同じ）
+const SWAP_XZ = Float64Array.from([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]);
 export const GLOBE_MAX_Z = 13;   // これより寄ったら mercator の variant（局所線形化）＝f32 の単位球座標では震える（MapLibre も z12 前後で球→メルカトルへ移る）
 
 /** makeCustomArgs の opts＝earthM（m→世界単位の換算半径）・globe（球の variant） */
@@ -98,8 +101,9 @@ export function makeCustomArgs(camUse: CameraPose, w: number, h: number, { earth
 	const main = mul(Float64Array.from(st.mvp), M);
 	const fovy = camUse.fovy ?? 50 * D2R;
 	// 球の variant（寄っていない間）：u_projection_matrix＝この地図の mvp（β 単位球→クリップ）・裏側の面＝(E·s, −s)（E＝目の位置・s＝2/(|E|−1)＝地平線で 1・真下で −1・裏で 1 超＝描かない）
-	const eyeP = st.eye, eL = Math.hypot(eyeP[0], eyeP[1], eyeP[2]), sC = 2 / Math.max(1e-9, eL - 1), clip = [eyeP[0] * sC, eyeP[1] * sC, eyeP[2] * sC, -sC];
-	const mvp = Float64Array.from(st.mvp);
+	// 面と行列は MapLibre の軸（x↔z を入れ替え）で渡す＝層の球の点（MapLibre の式）がそのまま掛かる。入れ替えは鏡映だが、この地図の mvp も東向きが逆の鏡映なので合わせて正の回転＝面の向きは MapLibre と同じ
+	const eyeP = st.eye, eL = Math.hypot(eyeP[0], eyeP[1], eyeP[2]), sC = 2 / Math.max(1e-9, eL - 1), clip = [eyeP[2] * sC, eyeP[1] * sC, eyeP[0] * sC, -sC];
+	const mvp = mul(Float64Array.from(st.mvp), SWAP_XZ);
 	const dataOf = (mMerc: Float64Array, tmc: number[]) => globe
 		? { mainMatrix: mvp, fallbackMatrix: mMerc, tileMercatorCoords: tmc, clippingPlane: clip, projectionTransition: 1 }
 		: { mainMatrix: mMerc, fallbackMatrix: mMerc, tileMercatorCoords: tmc, clippingPlane: [0, 0, 0, 0], projectionTransition: 0 };
