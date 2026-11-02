@@ -1,5 +1,6 @@
 # PR と main への push ごとに root の npm test（206 本・node だけ・ブラウザ不要）を走らせる。
 # 2026-10-15：#385 で main の npm test が赤くなったのにマージまで誰も気づけなかった＝それまで CI が無かった
+# 2026-11-02：型検査（typecheck・tsc 73 本）を別ジョブへ＝別の runner で同時に回す。前は npm test の最後の葉で直列に約 4 分（壁時計 300 秒のうち 235 秒）
 name: test
 on:
   pull_request:
@@ -21,6 +22,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npm test
+      - run: npm test -- --skip typecheck   # 型検査は下の typecheck ジョブ
       # i18n の門（各アプリの verify:i18n・1 秒）。2026-10-24：ortho-globe の build の頭のこの門が落ちたまま 4 回の deploy が止まった（hex の頁の辞書と globe の ui.json に同じキー）＝PR の時点で止める
       - run: npm run verify:i18n
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck   # tsc を CPU の数だけ並べて回す（scripts/typecheck.mjs）
