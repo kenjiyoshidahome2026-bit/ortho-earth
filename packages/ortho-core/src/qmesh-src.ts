@@ -46,9 +46,7 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 		if (spec.heights === "ellipsoidal") await loadGeoid();   // 楕円体高＝ジオイドの格子を読む（一度だけ）
 		return L;
 	})().catch((err: unknown) => { console.warn("[qmesh]", (err as Error)?.message || err); return null; });
-	let layerReady: QMLayer | null = null; layerP.then(L => { layerReady = L; });   // heightSync が同期で見る
-	const tiles = new Map<string, Promise<QMesh | null>>(); let bytes = 0;
-	const done = new Map<string, QMesh>();   // 届いた物（heightSync＝同期で引く・取りに出ない・2026-11-02）   // "z/x/y" → Promise<mesh|null>（LRU・バイトで区切る）
+	const tiles = new Map<string, Promise<QMesh | null>>(); let bytes = 0;   // "z/x/y" → Promise<mesh|null>（LRU・バイトで区切る）
 	const meshBytes = (m: QMesh | null): number => m ? m.n * 20 + m.tri.length * 4 : 0;
 	async function tile(L: QMLayer, z: number, x: number, y: number): Promise<QMesh | null> {
 		const k = `${z}/${x}/${y}`;
@@ -61,11 +59,10 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 			const m = decodeQuantizedMesh(await qmGunzip(await r.arrayBuffer()));
 			if (m.empty) return null;   // 高さ 0..0 の置き物（PDOK の粗い段）＝無いものとして既定の標高へ譲る
 			bytes += meshBytes(m);
-			done.set(k, m);
 			return m;
 		})().catch(() => null);
 		tiles.set(k, p);
-		while (bytes > CACHE_BYTES && tiles.size > 1) { const [k0, p0] = tiles.entries().next().value!; tiles.delete(k0); done.delete(k0); p0.then(m => { bytes -= meshBytes(m); }); }
+		while (bytes > CACHE_BYTES && tiles.size > 1) { const [k0, p0] = tiles.entries().next().value!; tiles.delete(k0); p0.then(m => { bytes -= meshBytes(m); }); }
 		return p;
 	}
 	// 楕円体高 → 標高・利用者の足し算
@@ -81,16 +78,6 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 			const zMax = Math.min(L.maxzoom, spec.maxzoom ?? 16);
 			for (let z = zMax; z >= Math.max(L.minzoom, spec.seafloor ? 0 : zMax - 6); z--) {   // 海底＝深い段の無い所が広い（z16 の 404 から z0 まで下りる）
 				const [x, y] = qmTileAt(z, lon, lat), m = await tile(L, z, x, y);
-				if (m) { const h = qmSample(m, qmTileBounds(z, x, y), lon, lat); if (h === h) return fix(h, lon, lat); }
-			}
-			return NaN;
-		},
-		// 1 点を同期で＝届いたタイルだけを細かい段から（取りに出ない・無ければ NaN）。地形の上の unproject の光線の歩きが使う（MapLibre の口の問い合わせ・2026-11-02）
-		heightSync(lon: number, lat: number): number {
-			if (!layerReady || !inB(bnd(layerReady), lon, lat, lon, lat)) return NaN;
-			const zMax = Math.min(layerReady.maxzoom, spec.maxzoom ?? 16);
-			for (let z = zMax; z >= layerReady.minzoom; z--) {
-				const [x, y] = qmTileAt(z, lon, lat), m = done.get(`${z}/${x}/${y}`);
 				if (m) { const h = qmSample(m, qmTileBounds(z, x, y), lon, lat); if (h === h) return fix(h, lon, lat); }
 			}
 			return NaN;
