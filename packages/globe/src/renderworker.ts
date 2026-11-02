@@ -51,7 +51,7 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	readback?(): Promise<{ base: ArrayBuffer; w: number; h: number } | null>;
 	setGroundHook?(bake: (cam: CameraPose, t: unknown) => number, sig: () => string): void;
 	lost?: Promise<{ message?: string } | null | undefined>;
-	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; shadowStats?(): unknown;
+	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; shadowStats?(): unknown; accumulating?(): boolean;
 	/** 日影時間・可視域の GPU 版（WebGPU だけ・2026-10-24） */
 	analysis?: RendererAnalysis;
 	/** 層の位置に描く注記の境（T-P2・WebGPU）＝この層の添字より前の注記は地図のパスの中 */
@@ -1083,7 +1083,8 @@ function frame() {
 			{ const mi = labelLayer?.takeMissing?.(); if (mi) postMessage({ type: "labelImageMissing", names: mi }); }   // 記号帳に無い名前＝main が styleimagemissing を鳴らす（1 回だけ）
 			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
 			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
-			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
+			const accMore = !!renderer.accumulating?.();   // 静止の積み上げ（WebGPU・2026-11-01）＝続きを描くが遷移扱いにしない（4x の品質フレームのまま積む）
+			if (animating || fogAnim || ovMore || clockSpin || accMore) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
 			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive }); }

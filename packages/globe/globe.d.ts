@@ -1124,6 +1124,16 @@ export type PostPass =
 	 *  映す面（反射率 0..1＝真上から見た値・斜めほど強い）：ocean＝標高 0 m 以下の地面（既定 0.5・地形の標高が要る）・ground＝上を向いた面すべて（濡れた地面・既定 0）・facades＝建物と模型の立った面（ガラスの壁・既定 0）。
 	 *  画面に写っている物だけが映る（画面の外・物の裏は映らない）。傾けた 3D の時だけ掛かる。WebGL2 では何もしない */
 	| { id?: string; type: "ssr"; enabled?: boolean; intensity?: number; maxDistance?: number; thickness?: number; steps?: number; ocean?: number; ground?: number; facades?: number }
+	/** 接触影（WebGPU だけ・2026-11-01）＝画面の中で太陽へ向けて落とす影。どのズームでも地形・建物・模型に効く（シャドウマップは z13 以上の建物だけ）。strength 0..1（既定 0.6）・length＝影の長さ（視距離の割合・既定 0.15）・thickness＝物の厚み（視距離の割合・既定 0.03）・steps（既定 16） */
+	| { id?: string; type: "contactShadow"; enabled?: boolean; strength?: number; length?: number; thickness?: number; steps?: number }
+	/** 高さ霧（WebGPU だけ）＝標高で指数に薄くなる霧（谷の朝霧）。density＝霧の底での濃さ 1/km（既定 0.4）・height＝薄くなる高さの尺 m（既定 150）・base＝霧の底 m（既定 0）・color＝[r,g,b] 0..1・sun＝太陽の前方散乱（逆光の霞・既定 0.6）・anisotropy 0..0.95（既定 0.75） */
+	| { id?: string; type: "heightFog"; enabled?: boolean; density?: number; height?: number; base?: number; color?: [number, number, number]; sun?: number; anisotropy?: number }
+	/** 光芒（WebGPU だけ）＝画面に入った太陽から尾根・建物の隙間を抜ける光の筋。strength（既定 0.6）・decay（既定 0.96）・length＝太陽までの何割を集めるか（既定 0.85）・samples（既定 32） */
+	| { id?: string; type: "godRays"; enabled?: boolean; strength?: number; decay?: number; length?: number; samples?: number }
+	/** 雨（WebGPU だけ）＝濡れて暗い地面と水たまり・波紋で揺れる映り込み（SSR の ground を足す）・画面の雨の筋（動く間は連続フレーム）。intensity 0..1・wetness 0..1（既定 0.8）・darken（既定 0.35）・streaks 0..1（既定 0.6） */
+	| { id?: string; type: "rain"; enabled?: boolean; intensity?: number; wetness?: number; darken?: number; streaks?: number }
+	/** イラスト風（WebGPU だけ）＝明るさを段に切り、深度から輪郭と折れ目に墨の線。levels（既定 4）・edge＝線の濃さ 0..1（既定 1）・threshold（既定 0.004）・saturation（既定 1.15） */
+	| { id?: string; type: "toon"; enabled?: boolean; levels?: number; edge?: number; threshold?: number; saturation?: number }
 	| { id?: string; type: string; enabled?: boolean; [k: string]: unknown };
 /** registry.postEffects に足す pass の type＝setPostChain のたびに、その type の pass の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／CSS filter で描く約束） */
 export interface PostEffectImpl { apply(map: GlobeMap, passes: PostPass[]): void }
