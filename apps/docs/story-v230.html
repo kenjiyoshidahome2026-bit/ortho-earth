@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>V.2.3.0 Between two gods</title>
-<meta name="description" content="Cesium's same-picture count went from 190 to 226. Then back to the other god, MapLibre: across its 139 official examples, the ones that only partly run went from 12 to 3. A record of three days.">
+<title>V.2.3.0 Hop, step, jump</title>
+<meta name="description" content="Rendering that neither has (screen-space reflections and five more), and on top of that keeping up with Cesium (same picture 190 → 226) and MapLibre (examples that only partly run 12 → 3).">
 <link rel="canonical" href="https://www.ortho-earth.com/docs/story-v230">
 <link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/story-v230">
 <link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/story-v230-jp">
 <link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/story-v230">
-<meta property="og:title" content="V.2.3.0 Between two gods">
-<meta property="og:description" content="Cesium's same-picture count went from 190 to 226. Then back to the other god, MapLibre: across its 139 official examples, the ones that only partly run went from 12 to 3. A record of three days.">
+<meta property="og:title" content="V.2.3.0 Hop, step, jump">
+<meta property="og:description" content="Rendering that neither has (screen-space reflections and five more), and on top of that keeping up with Cesium (same picture 190 → 226) and MapLibre (examples that only partly run 12 → 3).">
 <meta property="og:url" content="https://www.ortho-earth.com/docs/story-v230">
 <meta property="og:type" content="article">
 <meta property="article:published_time" content="2026-11-02">
@@ -18,7 +18,7 @@
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"V.2.3.0 Between two gods","description":"Cesium's same-picture count went from 190 to 226. Then back to the other god, MapLibre: across its 139 official examples, the ones that only partly run went from 12 to 3. A record of three days.","url":"https://www.ortho-earth.com/docs/story-v230","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v230","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-02","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"V.2.3.0 Hop, step, jump","description":"Rendering that neither has (screen-space reflections and five more), and on top of that keeping up with Cesium (same picture 190 → 226) and MapLibre (examples that only partly run 12 → 3).","url":"https://www.ortho-earth.com/docs/story-v230","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v230","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-02","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="story.css">
 <style>.essay figure.ba { margin: 0.6em 0 1.8em; } .essay figure.ba img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); }</style>
@@ -26,20 +26,22 @@
 <body>
 <!-- A Stories article (opened from a card in apps/www/stories.json): the v2.3.0 record, i.e. Cesium after v2.2.0 (up to the v244 shoot) and the work on MapLibre's 139 official examples (2026-11-02). The pictures put real MapLibre (left) and ortho-earth (right) from the /maplibre/ gallery side by side -->
 <nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v230-jp.html" lang="ja">日本語</a></nav>
-<header class="masthead"><h1>V.2.3.0 Between two gods</h1><p class="byline">2026-11-02 · Kenji Yoshida</p></header>
+<header class="masthead"><h1>V.2.3.0 Hop, step, jump</h1><p class="byline">2026-11-02 · Kenji Yoshida</p></header>
 <article class="reading essay">
-<p>Last time I wrote that Cesium is a god. In truth there is one more god: MapLibre.</p>
-<p>ortho-earth began by drawing maps the MapLibre way. While I was chasing Cesium, how did it look in front of this other god? Now that the Cesium side had come a long way, I decided to trace MapLibre once more.</p>
-<p>With Cesium it is 3D against 3D, so level 1 went away. MapLibre is about putting a 2D map on a sphere, and that is not so simple. This is the record of going back and forth.</p>
-
-<p>Looking back, the three releases of the last ten days or so make a hop, a step and a jump.</p>
+<p>2.1 was the MapLibre release and 2.2 the CesiumJS release. 2.3 first adds rendering that neither has, and on top of that keeps following both properly. The three releases of the last ten days or so make a hop, a step and a jump.</p>
 <div class="table-wrap"><table><thead><tr><th>Release</th><th>What it did</th></tr></thead><tbody>
 <tr><td>Hop　2.1 (Oct 23)</td><td>The MapLibre release</td></tr>
 <tr><td>Step　2.2 (Oct 31)</td><td>The CesiumJS release</td></tr>
-<tr><td>Jump　2.3 (Nov 2)</td><td>One more step toward both, and rendering neither has</td></tr>
+<tr><td>Jump　2.3 (Nov 2)</td><td>Rendering neither has, while keeping up with both</td></tr>
 </tbody></table></div>
 
-<h2>Cesium, continued</h2>
+<h2>New rendering</h2>
+<p>At the end of 2.2 I wrote a formula: Ortho Earth = MapLibre &times; Cesium &minus; Mercator + &alpha;. In 2.3 the + &alpha; took shape for the first time. <code>map.setPostChain</code> gains six effects that neither Cesium nor MapLibre has (WebGPU only): screen-space reflections (SSR), contact shadows, height fog, light shafts, rain and an illustration style.</p>
+<p>They all reuse the depth and normals the engine already had. SSR is about 380 lines and the other five about 720, and each went in within a day.</p>
+<figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="The Rainbow Bridge and the Tokyo skyline reflected in Tokyo Bay"></figure>
+<p class="note-small"><code>map.setPostChain([{ type: "ssr" }])</code>: the Rainbow Bridge and the city reflected in Tokyo Bay.</p>
+
+<h2>Keeping up with Cesium</h2>
 <p>The Sandcastle re-shoots did not stop after v2.2.0. From v221 to v244, all 309 examples were re-shot more than 20 times, and each time one family was fixed.</p>
 <div class="table-wrap"><table><thead><tr><th>Shoot</th><th>3</th><th>2</th><th>1</th><th>0</th><th>What went in</th></tr></thead><tbody>
 <tr><td>v2.2.0</td><td>190</td><td>107</td><td>0</td><td>0</td><td>Last time's final count (297 scored)</td></tr>
@@ -53,8 +55,8 @@
 <figure class="ba"><img src="release-2-3-imagery-layers-split.webp" width="968" height="360" loading="lazy" alt="imagery-layers-split in Cesium and ortho-earth"></figure>
 <figure class="ba"><img src="release-2-3-3d-tiles-edge-visibility.webp" width="968" height="360" loading="lazy" alt="3d-tiles-edge-visibility in Cesium and ortho-earth"></figure>
 
-<h2>Back to MapLibre</h2>
-<p>MapLibre's 139 official examples were lined up the same way. A picture shot on real MapLibre GL JS 6.11.2 (r7) is compared, at the same time and from the same camera, with the same code running on the MapLibre-compatible API of @ortho-earth/globe. The levels mean the same as for Cesium. Two examples that cannot be graded are left out, so 137 are counted.</p>
+<h2>Keeping up with MapLibre</h2>
+<p>While chasing Cesium, I also measured how things looked on the MapLibre side, where ortho-earth started: it began by drawing maps the MapLibre way. MapLibre's 139 official examples were lined up the same way. A picture shot on real MapLibre GL JS 6.11.2 (r7) is compared, at the same time and from the same camera, with the same code running on the MapLibre-compatible API of @ortho-earth/globe. The levels mean the same as for Cesium. Two examples that cannot be graded are left out, so 137 are counted.</p>
 <p>Measured again this morning (the v2.2.x main), it came to 3/2/1/0 = 85 / 40 / 12 / 0. Twelve examples only partly ran. Having just brought that to 0 on Cesium, I could not let it pass.</p>
 <div class="table-wrap"><table><thead><tr><th>When</th><th>3</th><th>2</th><th>1</th><th>0</th><th>What went in</th></tr></thead><tbody>
 <tr><td>v2.1.0</td><td>79</td><td>47</td><td>11</td><td>0</td><td>When /maplibre/ was first built</td></tr>
@@ -65,7 +67,7 @@
 </tbody></table></div>
 <p class="note-small">Note: the counts are on WebGPU (the Mac's real GPU). Everything was also run on WebGL2. The same 3 examples are at level 1 there, and the only difference is two examples that drop from 3 to 2 because of a single sample point on an icon.</p>
 
-<h2>Results</h2>
+<h2>MapLibre results</h2>
 <p>At v2.3.0 the 137 examples come to 3/2/1/0 = <strong>91 / 43 / 3 / 0</strong>. Examples that only partly run went from 12 to 3. Every picture can be seen next to the real one in the <a href="/maplibre/" target="_top">MapLibre</a> gallery. The gallery now has the same layout as Sandcastle, and its header and footer read in Japanese or English.</p>
 <p>Real MapLibre on the left, ortho-earth (v2.3.0) on the right.</p>
 <p><strong>set-center-point-above-ground</strong>: a map without terrain with its centre held 541 m in the air. The picture already matched, but going between coordinates and screen points was 279 px off. MapLibre treats the plane at the centre's height as the ground. Only the MapLibre-compatible API now does the same (level 1 → 3)</p>
@@ -74,12 +76,6 @@
 <figure class="ba"><img src="story-v230-display-a-hybrid-satellite-map-with-terrain-elevation.webp" width="968" height="360" loading="lazy" alt="display-a-hybrid-satellite-map-with-terrain-elevation: MapLibre and ortho-earth"></figure>
 <p><strong>add-a-3d-model-to-globe-using-threejs</strong>: a three.js model standing on the globe. The axes of custom layers on the globe had x and z swapped compared with MapLibre, so the antenna did not show</p>
 <figure class="ba"><img src="story-v230-add-a-3d-model-to-globe-using-threejs.webp" width="968" height="360" loading="lazy" alt="add-a-3d-model-to-globe-using-threejs: MapLibre and ortho-earth"></figure>
-
-<h2>New rendering</h2>
-<p>At the end of 2.2 I wrote a formula: Ortho Earth = MapLibre &times; Cesium &minus; Mercator + &alpha;. This time the + &alpha; took shape for the first time. <code>map.setPostChain</code> gains six effects that neither Cesium nor MapLibre has (WebGPU only): screen-space reflections (SSR), contact shadows, height fog, light shafts, rain and an illustration style.</p>
-<p>They all reuse the depth and normals the engine already had. SSR is about 380 lines and the other five about 720, and each went in within a day.</p>
-<figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="The Rainbow Bridge and the Tokyo skyline reflected in Tokyo Bay"></figure>
-<p class="note-small"><code>map.setPostChain([{ type: "ssr" }])</code>: the Rainbow Bridge and the city reflected in Tokyo Bay.</p>
 
 <h2>What was built</h2>
 <ul>
@@ -106,7 +102,6 @@
 <p>Even so, with the gate that shoots side by side with the real thing and the ratchet that fails when a level drops, it was clear on the spot where and what had broken. Along the way an older bug turned up: terrain exaggeration was never applied to the centre. In the end only terrain that can be read synchronously uses the new method, and everything else went back to the old way. Knowing when to stop digging is part of the method too.</p>
 <h2>Dropping Mercator</h2>
 <p>Looking back, the term in that formula that mattered most may have been &minus; Mercator. Because the map was drawn on a sphere from the start, not on a plane, MapLibre's 2D examples and Cesium's 3D examples could both be taken in by one and the same way of drawing. Not building 2D and 3D separately and joining them, but dropping Mercator: I think that was the essence of bringing 2D and 3D together this time.</p>
-<p>Going back and forth between two gods, upstream still did not budge. That is how ortho-earth is developed.</p>
 <p class="note-small">Released: <code>@ortho-earth/globe</code> and <code>@ortho-earth/core</code> 2.3.0, <code>@ortho-earth/cesium</code> 0.2.0 (needs globe 2.3), <code>@ortho-earth/voxel</code> 0.6.1. Same API as 2.2 (<code>npm i @ortho-earth/globe@2.3</code>).</p>
 <div class="sig">Kenji Yoshida @ Yokohama</div>
 </article>

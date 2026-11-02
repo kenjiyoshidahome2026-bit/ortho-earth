@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>V.2.3.0 二柱の神のあいだで</title>
-<meta name="description" content="Cesium の同じ絵は 190 本から 226 本へ。続けて、もう一柱の神 MapLibre の公式例 139 本に戻り、一部が動かない例を 12 本から 3 本に減らした 3 日間の記録。">
+<title>V.2.3.0 ホップ・ステップ・ジャンプ</title>
+<meta name="description" content="どちらにも無い描画（画面の映り込みなど 6 つ）を足し、その上で Cesium（同じ絵 190 → 226 本）と MapLibre（一部しか動かない例 12 → 3 本）へのフォローも続けた。">
 <link rel="canonical" href="https://www.ortho-earth.com/docs/story-v230-jp">
 <link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/story-v230">
 <link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/story-v230-jp">
 <link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/story-v230">
-<meta property="og:title" content="V.2.3.0 二柱の神のあいだで">
-<meta property="og:description" content="Cesium の同じ絵は 190 本から 226 本へ。続けて、もう一柱の神 MapLibre の公式例 139 本に戻り、一部が動かない例を 12 本から 3 本に減らした 3 日間の記録。">
+<meta property="og:title" content="V.2.3.0 ホップ・ステップ・ジャンプ">
+<meta property="og:description" content="どちらにも無い描画（画面の映り込みなど 6 つ）を足し、その上で Cesium（同じ絵 190 → 226 本）と MapLibre（一部しか動かない例 12 → 3 本）へのフォローも続けた。">
 <meta property="og:url" content="https://www.ortho-earth.com/docs/story-v230-jp">
 <meta property="og:type" content="article">
 <meta property="article:published_time" content="2026-11-02">
@@ -18,7 +18,7 @@
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"V.2.3.0 二柱の神のあいだで","description":"Cesium の同じ絵は 190 本から 226 本へ。続けて、もう一柱の神 MapLibre の公式例 139 本に戻り、一部が動かない例を 12 本から 3 本に減らした 3 日間の記録。","url":"https://www.ortho-earth.com/docs/story-v230-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v230-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-02","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"V.2.3.0 ホップ・ステップ・ジャンプ","description":"どちらにも無い描画（画面の映り込みなど 6 つ）を足し、その上で Cesium（同じ絵 190 → 226 本）と MapLibre（一部しか動かない例 12 → 3 本）へのフォローも続けた。","url":"https://www.ortho-earth.com/docs/story-v230-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v230-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-02","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="story.css">
 <style>.essay figure.ba { margin: 0.6em 0 1.8em; } .essay figure.ba img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); }</style>
@@ -26,20 +26,22 @@
 <body>
 <!-- Stories の記事（apps/www/stories.json のカードから開く）。v2.3.0 の記録＝Cesium の続き（v2.2.0 → v244 の撮影）と MapLibre の公式例 139 本の改良（2026-11-02）。絵は /maplibre/ のギャラリーの本物（左）とこちら（右）を横に並べたもの -->
 <nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v230.html" lang="en">English</a></nav>
-<header class="masthead"><h1>V.2.3.0 二柱の神のあいだで</h1><p class="byline">2026-11-02 · Kenji Yoshida</p></header>
+<header class="masthead"><h1>V.2.3.0 ホップ・ステップ・ジャンプ</h1><p class="byline">2026-11-02 · Kenji Yoshida</p></header>
 <article class="reading essay">
-<p>前回、Cesium は神だと書いた。実はもう一柱、神がいる。MapLibre である。</p>
-<p>ortho-earth は、もともと MapLibre の書き方で地図を描くところから始まった。それが Cesium を追いかけている間に、こちらの神の前ではどう見えているのか。Cesium との整合性が上がってきたので、MapLibre の方ももう一度なぞり直すことにした。</p>
-<p>Cesium は 3D 同士の調整なので、段 1 がなくなった。MapLibre は 2D の地図を球に載せる話なので、そう簡単にはいかない。これはその往復の記録である。</p>
-
-<p>振り返ると、この十日あまりの三つの版は、ちょうどホップ・ステップ・ジャンプになった。</p>
+<p>2.1 は MapLibre の版、2.2 は CesiumJS の版だった。2.3 は、まずどちらにも無い描画を足した。その上で、二つへのフォローもきちんと続けた。この十日あまりの三つの版は、ちょうどホップ・ステップ・ジャンプになった。</p>
 <div class="table-wrap"><table><thead><tr><th>版</th><th>したこと</th></tr></thead><tbody>
 <tr><td>ホップ　2.1（10 月 23 日）</td><td>MapLibre の版</td></tr>
 <tr><td>ステップ　2.2（10 月 31 日）</td><td>CesiumJS の版</td></tr>
-<tr><td>ジャンプ　2.3（11 月 2 日）</td><td>両方にもう一歩、そしてどちらにも無い描画</td></tr>
+<tr><td>ジャンプ　2.3（11 月 2 日）</td><td>どちらにも無い描画を足し、両方へのフォローも続けた</td></tr>
 </tbody></table></div>
 
-<h2>Cesium の続き</h2>
+<h2>新しい描画</h2>
+<p>2.2 の終わりに「Ortho Earth ＝ MapLibre × Cesium − メルカトル ＋ α」という式を書いた。2.3 では、その ＋ α を初めて形にした。<code>map.setPostChain</code> に、Cesium にも MapLibre にも無い六つの効果が加わった（WebGPU だけ）。画面の映り込み（SSR）、接触影、高さの霧、光芒、雨、イラスト風である。</p>
+<p>どれもエンジンが前から持っていた深度と法線を使い回したもので、SSR が約 380 行、残りの五つで約 720 行、それぞれ 1 日で入った。</p>
+<figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="レインボーブリッジと東京の街が東京湾に映る"></figure>
+<p class="note-small"><code>map.setPostChain([{ type: "ssr" }])</code>：東京湾にレインボーブリッジと街が映る。</p>
+
+<h2>Cesium へのフォロー</h2>
 <p>v2.2.0 のあとも、Sandcastle の撮り直しは止まらなかった。v221 から v244 まで、全 309 本の撮り直しを 20 回あまり回し、そのたびに家族ごとに直した。</p>
 <div class="table-wrap"><table><thead><tr><th>撮影</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
 <tr><td>v2.2.0</td><td>190</td><td>107</td><td>0</td><td>0</td><td>前回の最終の数（採点 297 本）</td></tr>
@@ -53,9 +55,9 @@
 <figure class="ba"><img src="release-2-3-imagery-layers-split.webp" width="968" height="360" loading="lazy" alt="imagery-layers-split の Cesium と ortho-earth"></figure>
 <figure class="ba"><img src="release-2-3-3d-tiles-edge-visibility.webp" width="968" height="360" loading="lazy" alt="3d-tiles-edge-visibility の Cesium と ortho-earth"></figure>
 
-<h2>MapLibre に戻る</h2>
-<p>MapLibre の公式例 139 本を、同じやり方で並べた。本物の MapLibre GL JS 6.11.2 で撮った絵（r7）と、@ortho-earth/globe の MapLibre の口で同じコードを動かした絵を、同じ時刻・同じカメラで比べる。段の付け方は Cesium と同じで、採点できない 2 本を外した 137 本を数える。</p>
-<p>今朝（v2.2.x の main）に測り直すと、3/2/1/0 = 85 / 40 / 12 / 0 だった。一部が動かない例が 12 本もある。Cesium で 0 にしたばかりなので、これは見過ごせない。</p>
+<h2>MapLibre へのフォロー</h2>
+<p>Cesium を追いかけている間に、MapLibre の側がどう見えているかも測り直した。ortho-earth は、もともと MapLibre の書き方で地図を描くところから始まっている。公式例 139 本を、同じやり方で並べた。本物の MapLibre GL JS 6.11.2 で撮った絵（r7）と、@ortho-earth/globe の MapLibre の口で同じコードを動かした絵を、同じ時刻・同じカメラで比べる。段の付け方は Cesium と同じで、採点できない 2 本を外した 137 本を数える。</p>
+<p>今朝（v2.2.x の main）に測り直すと、3/2/1/0 = 85 / 40 / 12 / 0 だった。一部が動かない例が 12 本もある。Cesium で 0 にしたばかりなので、これは見過ごせない。Cesium は 3D 同士の調整だが、MapLibre は 2D の地図を球に載せる話なので、そう簡単にはいかない。</p>
 <div class="table-wrap"><table><thead><tr><th>時点</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
 <tr><td>v2.1.0</td><td>79</td><td>47</td><td>11</td><td>0</td><td>前に /maplibre/ を作った時の数</td></tr>
 <tr><td>今朝</td><td>85</td><td>40</td><td>12</td><td>0</td><td>v2.2.x の main をそのまま測り直した数</td></tr>
@@ -65,7 +67,7 @@
 </tbody></table></div>
 <p class="note-small">注：WebGPU（Mac の実 GPU）での数。WebGL2 でも全部を流し、段 1 の 3 本は同じ。違うのは記号の上の標本 1 点で段 3 から 2 になる 2 本だけだった。</p>
 
-<h2>結果</h2>
+<h2>MapLibre の結果</h2>
 <p>v2.3.0 の 137 本は 3/2/1/0 = <strong>91 / 43 / 3 / 0</strong>。一部が動かない例は 12 本から 3 本になった。全部の絵は <a href="/maplibre/" target="_top">MapLibre</a> のギャラリーで、本物と並べて見られる。ギャラリーの形も Sandcastle と揃え、上段と下段の説明は日本語と英語で読めるようにした。</p>
 <p>左が本物の MapLibre、右が ortho-earth（v2.3.0）。</p>
 <p><strong>set-center-point-above-ground</strong>：地形の無い地図で注視点を 541 m の宙に置く例。絵は前から同じだったが、経緯度と画面の点の行き来が 279 px ずれていた。MapLibre は注視点の高さの面を「地面」とみなして計算する。MapLibre の口だけ、それに揃えた（段 1 → 3）</p>
@@ -74,12 +76,6 @@
 <figure class="ba"><img src="story-v230-display-a-hybrid-satellite-map-with-terrain-elevation.webp" width="968" height="360" loading="lazy" alt="display-a-hybrid-satellite-map-with-terrain-elevation の MapLibre と ortho-earth"></figure>
 <p><strong>add-a-3d-model-to-globe-using-threejs</strong>：three.js の模型を地球儀に立てる例。球の上の custom 層の軸が MapLibre と x と z で逆で、アンテナが出ていなかった</p>
 <figure class="ba"><img src="story-v230-add-a-3d-model-to-globe-using-threejs.webp" width="968" height="360" loading="lazy" alt="add-a-3d-model-to-globe-using-threejs の MapLibre と ortho-earth"></figure>
-
-<h2>新しい描画</h2>
-<p>2.2 の終わりに「Ortho Earth ＝ MapLibre × Cesium − メルカトル ＋ α」という式を書いた。今回は、その ＋ α を初めて形にした。<code>map.setPostChain</code> に、Cesium にも MapLibre にも無い六つの効果が加わった（WebGPU だけ）。画面の映り込み（SSR）、接触影、高さの霧、光芒、雨、イラスト風である。</p>
-<p>どれもエンジンが前から持っていた深度と法線を使い回したもので、SSR が約 380 行、残りの五つで約 720 行、それぞれ 1 日で入った。</p>
-<figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="レインボーブリッジと東京の街が東京湾に映る"></figure>
-<p class="note-small"><code>map.setPostChain([{ type: "ssr" }])</code>：東京湾にレインボーブリッジと街が映る。</p>
 
 <h2>作ったもの</h2>
 <ul>
@@ -106,7 +102,6 @@
 <p>それでも、本物と並べて撮る検定と、段が下がったら落ちる爪車があったので、どこで何が壊れたかはその場で分かった。調べるうちに、地形の誇張が注視点に掛かっていないという、前からの不具合も見つかった。最後は、同期で読める地形だけを新しいやり方にして、ほかは前の解き方に戻した。深追いをやめるのも、方法のうちである。</p>
 <h2>メルカトルを捨てたこと</h2>
 <p>振り返ると、あの式でいちばん効いていたのは「− メルカトル」だったのかもしれない。地図を最初から平面ではなく球の上に描いてきたので、MapLibre の 2D の例も Cesium の 3D の例も、同じ一つの描き方で受け止められた。2D と 3D を別々に作ってつなぐのではなく、メルカトルを捨てたこと。それが今回の 2D と 3D の統合の本質だったと思う。</p>
-<p>二柱の神のあいだを行き来しても、上流はびくともしない。これが ortho-earth の開発手法である。</p>
 <p class="note-small">公開：<code>@ortho-earth/globe</code>・<code>@ortho-earth/core</code> 2.3.0、<code>@ortho-earth/cesium</code> 0.2.0（globe 2.3 以上）、<code>@ortho-earth/voxel</code> 0.6.1。使い方は 2.2 のまま（<code>npm i @ortho-earth/globe@2.3</code>）。</p>
 <div class="sig">Kenji Yoshida @ Yokohama</div>
 </article>

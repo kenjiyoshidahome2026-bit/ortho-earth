@@ -5,13 +5,13 @@
 			"id": "story-v230",
 			"date": "2026-11-02",
 			"ja": {
-				"title": "V.2.3.0 二柱の神のあいだで",
-				"desc": "Cesium の同じ絵は 190 本から 226 本へ。続けて、もう一柱の神 MapLibre の公式例 139 本に戻り、一部が動かない例を 12 本から 3 本に減らした 3 日間の記録。",
+				"title": "V.2.3.0 ホップ・ステップ・ジャンプ",
+				"desc": "どちらにも無い描画（画面の映り込みなど 6 つ）を足し、その上で Cesium（同じ絵 190 → 226 本）と MapLibre（一部しか動かない例 12 → 3 本）へのフォローも続けた。",
 				"href": "/docs/story-v230-jp"
 			},
 			"en": {
-				"title": "V.2.3.0 Between two gods",
-				"desc": "Cesium's same-picture count went from 190 to 226. Then back to the other god, MapLibre: across its 139 official examples, the ones that only partly run went from 12 to 3.",
+				"title": "V.2.3.0 Hop, step, jump",
+				"desc": "Rendering that neither has (screen-space reflections and five more), and on top of that keeping up with Cesium (same picture 190 → 226) and MapLibre (examples that only partly run 12 → 3).",
 				"href": "/docs/story-v230"
 			}
 		},
