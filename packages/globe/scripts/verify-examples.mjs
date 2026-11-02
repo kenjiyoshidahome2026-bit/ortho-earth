@@ -25,7 +25,7 @@ import { launchChrome, connect, REALGPU } from "./lib/cdp.mjs";
 import { ensureCorpus, CACHE, PIN } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
 import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH, inkHits } from "../tests/mlexamples/compare.mjs";
-import { buildReport, buildGallery, runnableForm, REF_PIC_UNAVAILABLE } from "../tests/mlexamples/report.mjs";
+import { buildReport, buildGallery, runnableForm, REF_PIC_UNAVAILABLE, PIC_UNAVAILABLE_BOTH } from "../tests/mlexamples/report.mjs";
 import { ENGINE_DIR } from "./lib/shared-engine.mjs";
 import { withBootStatic } from "../src/boot/screen.ts";   // 起動画面（#boot）の正本＝www の全頁と同じ幕（2026-10-23）   // 共有エンジンの手元の置き場（apps/engine の dist・current.json の版）
 
@@ -291,13 +291,14 @@ function publishGallery(out, { rows, refLabel, orthoLabel, notes, sources }) {
 		for (const r of pub) {
 			fs.writeFileSync(path.join(out, "examples", `${r.name}.html`), withBootStatic(runnableForm(sources[r.name], engineUrl), "map"));   // 例＝地図の load で畳む
 			for (const [side, label] of [["ortho", orthoLabel], ["ref", refLabel]]) {
-				if (side === "ref" && (REF_PIC_UNAVAILABLE[r.name] || r.grade?.level == null)) continue;   // 本物の写しを出さない例（札で説明）
+				if (PIC_UNAVAILABLE_BOTH.has(r.name) || (side === "ref" && (REF_PIC_UNAVAILABLE[r.name] || r.grade?.level == null))) continue;   // 写しを出さない例（札で説明）
 				const png = path.join(ROOT, "runs", label, side, `${r.name}.full.png`);
 				if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "pics", `${r.name}.${side}.webp`));
 			}
 		}
 		const engine = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version.replace(/^(\d+\.\d+)\..*$/, "$1.x");   // 脚注に「どの版の絵か」＝@ortho-earth/globe の版の系（絵は配布の後の main から＝Sandcastle と同じ書き方）
-		fs.writeFileSync(path.join(out, "index.html"), withBootStatic(buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, engine, maplibre: PIN.version,
+		const refDir = path.join(ROOT, "runs", refLabel, "ref"), refWhen = fs.existsSync(refDir) ? new Date(Math.min(...fs.readdirSync(refDir).filter(f => f.endsWith(".json")).map(f => fs.statSync(path.join(refDir, f)).mtimeMs))).toISOString().slice(0, 10) : "";   // 本物の記録日＝脚注で撮影日と分ける
+		fs.writeFileSync(path.join(out, "index.html"), withBootStatic(buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), refWhen, notes, sources, engine, maplibre: PIN.version,
 			publish: { pic: (n, side) => `pics/${n}.${side}.webp`, run: n => `examples/${n}.html` } }), "images"));   // 一覧＝最初に見えるサムネで畳む
 		const bytes = d => fs.readdirSync(d).reduce((a, f) => a + fs.statSync(path.join(d, f)).size, 0);
 		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・globe ${engine}・写し ${(bytes(path.join(out, "pics")) / 1e6).toFixed(1)} MB）`);

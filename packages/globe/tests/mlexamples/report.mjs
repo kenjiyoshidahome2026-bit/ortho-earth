@@ -95,11 +95,12 @@ const GLV_JA = [["動かない", "Ortho Earth で例が動かない"], ["動く"
 const i18n = (en, ja) => `<div class="i18n" lang="en">${en}</div><div class="i18n" lang="ja">${ja}</div>`;
 const I18N_BOOT = `<script>(()=>{let l="en";try{l=localStorage.getItem("lang")||((navigator.language||"").toLowerCase().startsWith("ja")?"ja":"en")}catch(e){}document.documentElement.dataset.lang=l})()</script>`;
 const I18N_CSS = `.i18n[lang=ja]{display:none} html[data-lang=ja] .i18n[lang=ja]{display:block} html[data-lang=ja] .i18n[lang=en]{display:none} html[data-lang=ja] .i18n .lv{margin-top:1px}
-.lang{float:right;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer} .lang:hover{border-color:var(--fg)}`;
-const I18N_JS = `const lgBtn = document.getElementById("lang"); const lgPaint = () => { lgBtn.textContent = document.documentElement.dataset.lang === "ja" ? "English" : "日本語"; }; lgPaint();
-lgBtn.onclick = () => { const l = document.documentElement.dataset.lang === "ja" ? "en" : "ja"; document.documentElement.dataset.lang = l; try { localStorage.setItem("lang", l); } catch (e) {} lgPaint(); };`;
+header.top{position:relative} .lang{position:absolute;right:0;top:0;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer} .lang:hover{border-color:var(--fg)}`;
+const I18N_JS = `const lgBtn = document.getElementById("lang"); const lgPaint = () => { const ja = document.documentElement.dataset.lang === "ja"; document.documentElement.lang = ja ? "ja" : "en"; lgBtn.textContent = ja ? "English" : "日本語"; for (const el of document.querySelectorAll("[data-ja]")) { if (el.dataset.en == null) el.dataset.en = el.textContent; el.textContent = ja ? el.dataset.ja : el.dataset.en; } }; lgPaint();
+lgBtn.onclick = () => { const l = document.documentElement.dataset.lang === "ja" ? "en" : "ja"; document.documentElement.dataset.lang = l; try { localStorage.setItem("lang", l); } catch (e) {} lgPaint(); apply(); };`;
 const lvDot = (l, tip = true) => l == null ? "" : `<span class="lv lv${l}"${tip ? ` title="${GLV[l][0]}"` : ""}></span>`;
 // 本物の写しを出さない例（本物の記録が例の狙いを写していない＝並べると誤解を招く）：理由はカードの代わりの札に
+export const PIC_UNAVAILABLE_BOTH = new Set(["3d-terrain", "add-3d-terrain-from-quantized-mesh-tiles", "add-a-raster-tile-source"]);   // 右（こちら）も札：記録の通信で OSM が 403＝両側とも 403 の絵
 export const REF_PIC_UNAVAILABLE = {
 	"3d-terrain": "OpenStreetMap blocked the reference's tile requests (403 picture)",
 	"add-3d-terrain-from-quantized-mesh-tiles": "OpenStreetMap blocked the reference's tile requests (403 picture)",
@@ -107,15 +108,17 @@ export const REF_PIC_UNAVAILABLE = {
 	"add-a-cog-raster-source": "the reference capture could not read the COG (recorded network data)",
 };
 // 絵の一致＝標本点のうち色が本物と合う割合（基図＋足した層・両側とも止まって撮れた例だけ）＝Sandcastle の Picture % と同じ置き方。動く例・比べられない例は出さない
+const BOTH_WHY = "OpenStreetMap blocked the tile requests in the recorded network data, on both sides (403 picture)";
 export const picturePct = g => { const c = g?.color; if (!g?.pictureCompared || !c) return null; const n = c.base.n + c.added.n; return n ? Math.round(100 * (c.base.ok + c.added.ok) / n) : null; };
 const mlDocs = name => `https://maplibre.org/maplibre-gl-js/docs/examples/${encodeURIComponent(name)}/`;
-export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sources = {}, base = "http://localhost:5253", publish = null, engine = "", maplibre = "6.11.2" }) {
+export function buildGallery({ rows, refLabel, orthoLabel, when, refWhen = "", notes = {}, sources = {}, base = "http://localhost:5253", publish = null, engine = "", maplibre = "6.11.2" }) {
 	// 絵＝本物（左）とこちら（右）を並べる（Sandcastle のギャラリーと同じ形・2026-11-02）。publish.pic(name, side) か、手元は runs/ の full.png
 	const pic = (name, side) => publish ? publish.pic(name, side) : `../../runs/${side === "ref" ? refLabel : orthoLabel}/${side}/${name}.full.png`;
 	const shot = r => {
 		const why = REF_PIC_UNAVAILABLE[r.name] || (r.grade?.level == null ? r.grade?.refWhy : null);
 		const ref = why ? `<figure class="na" title="${esc(why)}"><p>Reference picture not shown</p><figcaption>MapLibre GL JS</figcaption></figure>` : `<figure><img loading="lazy" src="${esc(pic(r.name, "ref"))}" alt="MapLibre GL JS"><figcaption>MapLibre GL JS</figcaption></figure>`;
-		return `<div class="shot">${ref}<figure><img loading="lazy" src="${esc(pic(r.name, "ortho"))}" alt="Ortho Earth"><figcaption>Ortho Earth</figcaption></figure></div>`;
+		const ortho = PIC_UNAVAILABLE_BOTH.has(r.name) ? `<figure class="na" title="${esc(BOTH_WHY)}"><p>Picture not shown</p><figcaption>Ortho Earth</figcaption></figure>` : `<figure><img loading="lazy" src="${esc(pic(r.name, "ortho"))}" alt="Ortho Earth"><figcaption>Ortho Earth</figcaption></figure>`;
+		return `<div class="shot">${ref}${ortho}</div>`;
 	};
 	// 段（同じ絵／同じ答え）はこちらの解釈＝載せない（2026-09-30 本人）。ただし絞り込みは note でなく段で数える（2026-10-23 本人「noteではなく、段１を数えるようにした方がいい」）＝カードに data-level。載せるのは写し・題・分類 (一致度 %)。カードを押すと覗き窓＝ortho で動く形の本文（例の 2 つの道だけ替えた物）＋英日の注釈＋ Run（走らせ台の頁を iframe で・タブを増やさない）＋コピー／ダウンロード
 	const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
@@ -123,7 +126,7 @@ export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sou
 	const payload = {};
 	for (const r of rows) {
 		const n = noteOf(notes, r.name), why = REF_PIC_UNAVAILABLE[r.name] || (r.grade?.level == null ? r.grade?.refWhy : null);
-		payload[r.name] = { title: r.title || r.name, html: sources[r.name] ? toOrtho(sources[r.name]) : "", note: n ? { en: n.en || "", ja: n.ja || "" } : null, l: r.grade?.level ?? null, pc: picturePct(r.grade), ref: why ? null : pic(r.name, "ref"), ortho: pic(r.name, "ortho"), why: why || null };
+		payload[r.name] = { title: r.title || r.name, html: sources[r.name] ? toOrtho(sources[r.name]) : "", note: n ? { en: n.en || "", ja: n.ja || "" } : null, l: r.grade?.level ?? null, pc: picturePct(r.grade), ref: why ? null : pic(r.name, "ref"), ortho: PIC_UNAVAILABLE_BOTH.has(r.name) ? null : pic(r.name, "ortho"), why: why || null, owhy: PIC_UNAVAILABLE_BOTH.has(r.name) ? BOTH_WHY : null };
 	}
 	const card = r => {
 		const note = noteOf(notes, r.name), pc = picturePct(r.grade), c = completeness(r.grade);
@@ -135,7 +138,7 @@ ${shot(r)}
 <p class="meta"><button type="button" class="cat" data-cat="${esc(r.category || "")}" title="Show this category">${esc(r.category || "")}</button> ${lvDot(r.grade?.level)}${pct}${note ? ` <span class="nt" title="Has a note">note</span>` : ""}</p>
 </div></article>`;
 	};
-	const n = rows.length, cnt = l => rows.filter(r => r.grade?.level === l).length;
+	const n = rows.length, cnt = l => rows.filter(r => r.grade?.level === l).length, unscored = rows.filter(r => r.grade?.level == null).length;
 	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${publish ? PUBLISH_TITLE : "MapLibre examples on ortho-earth"}</title>${publish ? PUBLISH_HEAD : ""}${I18N_BOOT}
 <style>
 :root{--bg:#f7f7f5;--fg:#17170f;--muted:#6f6e68;--card:#ffffff;--line:#e6e5e0;--acc:#d99a2b;--code:#f1f0ec;--shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px -12px rgba(0,0,0,.18)}
@@ -143,7 +146,7 @@ ${shot(r)}
 *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
 main{max-width:1320px;margin:0 auto;padding:40px 24px 72px}
 header.top .home{margin:0 0 14px;font-size:13.5px;color:var(--muted)} header.top .home a{color:inherit;text-decoration:none} header.top .home a:hover{color:var(--fg)}
-header.top h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;font-weight:650} header.top p{margin:0;color:var(--muted);max-width:70ch} header.top a{color:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--acc)}
+header.top h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;font-weight:650} header.top p{margin:0 0 6px;color:var(--muted);max-width:70ch} header.top a{color:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--acc)}
 nav{position:sticky;top:0;z-index:2;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);padding:12px 0;margin:22px 0 18px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line)}
 nav button,nav select{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 14px;font:inherit;font-size:13.5px;cursor:pointer} nav button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)} nav .sp{flex:1} nav .count{color:var(--muted);font-size:13px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:22px 20px}
@@ -174,27 +177,27 @@ dialog{border:0;border-radius:16px;padding:0;width:min(1080px,calc(100vw - 32px)
 pre{margin:12px 0 0;padding:16px 18px 20px;background:var(--code);font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:auto;tab-size:4;white-space:pre}
 h1 .ver{font-size:.55em;font-weight:600;vertical-align:middle;margin-left:.35em;padding:2px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
 </style></head><body><main>
-<header class="top"><p class="home">${publish ? `<a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="/sandcastle/">Sandcastle examples</a> · <a href="https://www.npmjs.com/package/@ortho-earth/globe">npm</a>` : ""}<button type="button" id="lang" class="lang" title="日本語 / English">日本語</button></p><h1>MapLibre GL JS examples${publish && engine ? ` <span class="ver">v${esc(engine)}</span>` : ""}</h1>
+<header class="top"><p class="home">${publish ? `<a href="/">Ortho Earth</a> · <a href="/start.md" data-ja="はじめに">Get started</a> · <a href="/sandcastle/" data-ja="Sandcastle の例">Sandcastle examples</a> · <a href="https://www.npmjs.com/package/@ortho-earth/globe">npm</a>` : ""}<button type="button" id="lang" class="lang" title="日本語 / English">日本語</button></p><h1><span data-ja="MapLibre GL JS の例">MapLibre GL JS examples</span>${publish && engine ? ` <span class="ver">v${esc(engine)}</span>` : ""}</h1>
 ${i18n(`<p>A comparison of the <a href="https://maplibre.org/maplibre-gl-js/docs/examples/" target="_blank" rel="noopener">official MapLibre GL JS examples</a> run on Ortho Earth — not the official MapLibre site.</p>
 <p>Each of the ${n} examples runs unchanged: once on MapLibre GL JS ${esc(maplibre)}, once on the Ortho Earth globe through its MapLibre-compatible API (<code>@ortho-earth/globe/maplibre</code>: MapLibre's own Map, style, sources, layers, expressions, markers and popups, with Ortho Earth doing the drawing), from the same recorded network data and the same camera. Each card shows MapLibre GL JS on the left and Ortho Earth on the right. Click a card for the larger pictures and the example's source in its Ortho Earth form — run it here, copy it, or download it.</p>
 <p><b>Mercator is not drawn here.</b> Ortho Earth always draws the globe and has no flat Mercator view, so where MapLibre fills the screen with a world map at low zoom, the right-hand picture shows a small globe by design; the notes say so where it matters.</p>`,
 `<p><a href="https://maplibre.org/maplibre-gl-js/docs/examples/" target="_blank" rel="noopener">MapLibre GL JS の公式の例</a>を Ortho Earth で走らせた比較です。MapLibre の公式サイトではありません。</p>
-<p>${n} 例を、手を加えずにそれぞれ二度走らせました。一度は MapLibre GL JS ${esc(maplibre)} で、一度は MapLibre 互換の API（<code>@ortho-earth/globe/maplibre</code>＝Map・style・ソース・層・式・マーカー・ポップアップは MapLibre のまま、描くのは Ortho Earth）を通して Ortho Earth の地球儀で、同じ記録済みの通信と同じカメラから。各カードの左が MapLibre GL JS、右が Ortho Earth です。カードを押すと大きな絵と、Ortho Earth の形にした例の本文が開きます（ここで走らせる・写す・落とす）。</p>
+<p>${n} 例を、手を加えずにそれぞれ二度走らせました。一度は MapLibre GL JS ${esc(maplibre)} で、一度は MapLibre 互換の API（<code>@ortho-earth/globe/maplibre</code>＝Map・style・ソース・層・式・マーカー・ポップアップは MapLibre のまま、描くのは Ortho Earth）を通して Ortho Earth の地球儀で、同じ記録済みの通信と同じカメラから。各カードの左が MapLibre GL JS、右が Ortho Earth です。カードを押すと大きな絵と、Ortho Earth の形にした例のソースが開きます（ここで走らせる・コピー・ダウンロードができます）。</p>
 <p><b>メルカトルは描きません。</b>Ortho Earth はいつも地球儀を描き、平らなメルカトルの眺めがありません。MapLibre が低いズームで世界地図を画面いっぱいに出す所では、右の絵は小さな地球儀になります。それは設計どおりで、要る所には注記があります。</p>`)}</header>
-<nav><button data-f="all" class="on">All · ${n}</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}" title="${esc(GLV[l][1])}">${lvDot(l, false)}${GLV[l][0]} · ${cnt(l)}</button>`).join("")}<span class="count" id="count"></span><span class="sp"></span>
-<select id="cat"><option value="">All categories</option>${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
+<nav><button data-f="all" class="on"><span data-ja="全部">All</span> · ${n}</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}" title="${esc(GLV[l][1])}">${lvDot(l, false)}<span data-ja="${esc(GLV_JA[l][0])}">${GLV[l][0]}</span> · ${cnt(l)}</button>`).join("")}<span class="count" id="count"></span><span class="sp"></span>
+<select id="cat"><option value="" data-ja="全カテゴリ">All categories</option>${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
 <div class="grid">${rows.map(card).join("\n")}</div>
 <footer>${i18n(`Levels: ${[3, 2, 1, 0].map(l => `${lvDot(l, false)}${l} ${GLV[l][0]} = ${esc(GLV[l][1])}`).join(" · ")}.<br>
-Picture % = the sampled points of the 800×600 picture whose colour matches MapLibre GL JS (basemap and the layers the example adds; animated examples are not compared). The level is a guide; the pictures are what to judge by. Hover the number for the counts.<br>
-${publish ? `Pictures: MapLibre GL JS ${esc(maplibre)} and Ortho Earth (@ortho-earth/globe ${esc(engine)}) on a real GPU (Apple M5 Pro, WebGPU), captured ${esc(when.slice(0, 10))}, both run from the same recorded network data. Some examples use map services whose keys only work on maplibre.org — those do not load here when you press Run.` : `Captures: ortho runs/${esc(orthoLabel)} · reference runs/${esc(refLabel)} · ${esc(when)}. "Run" works while the local rig is up (<code>npm run verify:examples -- --serve</code>, ${esc(base)}).`}<br>
+Picture % = the sampled points of the 800×600 picture whose colour matches MapLibre GL JS (basemap and the layers the example adds; animated examples are not compared). The level is a guide; the pictures are what to judge by. Hover the number for the counts.${unscored ? ` ${unscored} example${unscored > 1 ? "s" : ""} (${rows.filter(r => r.grade?.level == null).map(r => esc(r.title || r.name)).join(", ")}) could not be scored and ${unscored > 1 ? "have" : "has"} no level.` : ""}<br>
+${publish ? `Pictures: MapLibre GL JS ${esc(maplibre)} (recorded ${esc((refWhen || when).slice(0, 10))}) and Ortho Earth (@ortho-earth/globe ${esc(engine)}, captured ${esc(when.slice(0, 10))}) on a real GPU (Apple M5 Pro, WebGPU), both run from the same recorded network data. Some examples use map services whose keys only work on maplibre.org — those do not load here when you press Run.` : `Captures: ortho runs/${esc(orthoLabel)} · reference runs/${esc(refLabel)} · ${esc(when)}. "Run" works while the local rig is up (<code>npm run verify:examples -- --serve</code>, ${esc(base)}).`}<br>
 Examples © MapLibre contributors (BSD-3-Clause), run unchanged from MapLibre GL JS ${esc(maplibre)}; MapLibre GL JS draws the left pictures. Ortho Earth is not affiliated with or endorsed by the MapLibre project. Basemap data and imagery in the pictures belong to their providers; see the attribution inside each example.`,
 `段：${[3, 2, 1, 0].map(l => `${lvDot(l, false)}${l} ${esc(GLV_JA[l][0])}＝${esc(GLV_JA[l][1])}`).join(" · ")}。<br>
-絵の %＝800×600 の絵の標本点のうち、色が MapLibre GL JS と合う割合（基図と、例が足す層。動く例は比べません）。段は目安で、判断は絵で。数字に重ねると内訳が出ます。<br>
-${publish ? `絵：MapLibre GL JS ${esc(maplibre)} と Ortho Earth（@ortho-earth/globe ${esc(engine)}）を実機の GPU（Apple M5 Pro・WebGPU）で ${esc(when.slice(0, 10))} に撮ったもの。両方とも同じ記録済みの通信から走らせています。鍵が maplibre.org でしか働く地図サービスを使う例は、ここで Run を押しても読み込めません。` : `写し：ortho runs/${esc(orthoLabel)}・本物 runs/${esc(refLabel)}・${esc(when)}。「Run」は手元の rig が上がっている間だけ働きます（<code>npm run verify:examples -- --serve</code>・${esc(base)}）。`}<br>
+絵の %＝800×600 の絵の標本点のうち、色が MapLibre GL JS と合う割合（基図と、例が足す層。動く例は比べません）。段は目安で、判断は絵で。数字に重ねると内訳が出ます。${unscored ? `${unscored} 例（${rows.filter(r => r.grade?.level == null).map(r => esc(r.title || r.name)).join("・")}）は採点できず、段がありません。` : ""}<br>
+${publish ? `絵：MapLibre GL JS ${esc(maplibre)}（${esc((refWhen || when).slice(0, 10))} に記録）と Ortho Earth（@ortho-earth/globe ${esc(engine)}・${esc(when.slice(0, 10))} に撮影）を実機の GPU（Apple M5 Pro・WebGPU）で走らせたもの。両方とも同じ記録済みの通信から走らせています。鍵が maplibre.org でしか働かない地図サービスを使う例は、ここで Run を押しても読み込めません。` : `写し：ortho runs/${esc(orthoLabel)}・本物 runs/${esc(refLabel)}・${esc(when)}。「Run」は手元の rig が上がっている間だけ働きます（<code>npm run verify:examples -- --serve</code>・${esc(base)}）。`}<br>
 例 © MapLibre contributors（BSD-3-Clause）。MapLibre GL JS ${esc(maplibre)} の例を手を加えずに走らせ、左の絵は MapLibre GL JS が描いています。Ortho Earth は MapLibre プロジェクトと無関係で、承認も受けていません。絵の中の基図データと画像は各提供元のものです。出典は各例の中の表示を見てください。`)}</footer>
 </main>
 <dialog id="dlg"><div class="dh"><h3 id="dt"></h3><a id="ml" target="_blank" rel="noopener">Open on maplibre.org</a><button type="button" id="run" title="Run this example here">Run</button><button type="button" id="cp">Copy</button><button type="button" id="dl">Download</button><button type="button" id="cl">Close</button></div>
-<div class="dp"><figure id="fref"><img id="ir" alt="MapLibre GL JS"><figcaption>MapLibre GL JS</figcaption></figure><figure><img id="io" alt="Ortho Earth"><figcaption>Ortho Earth</figcaption></figure></div>
+<div class="dp"><figure id="fref"><img id="ir" alt="MapLibre GL JS"><figcaption>MapLibre GL JS</figcaption></figure><figure id="fort"><img id="io" alt="Ortho Earth"><figcaption>Ortho Earth</figcaption></figure></div>
 <div class="dm" id="dm"></div>
 <div class="fr" id="fr" hidden></div>
 <div class="dn" id="dn" hidden></div>
@@ -204,7 +207,7 @@ ${publish ? `絵：MapLibre GL JS ${esc(maplibre)} と Ortho Earth（@ortho-eart
 <script type="application/json" id="payload">${JSON.stringify(payload).replace(/</g, "\\u003c")}</script>
 <script>
 let f = "all", cat = "";
-const apply = () => { let n = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || f === "l" + c.dataset.level) && (!cat || c.dataset.cat === cat); c.hidden = !on; if (on) n++; } document.getElementById("count").textContent = n + " examples"; };
+const apply = () => { let n = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || f === "l" + c.dataset.level) && (!cat || c.dataset.cat === cat); c.hidden = !on; if (on) n++; } document.getElementById("count").textContent = document.documentElement.dataset.lang === "ja" ? n + " 例" : n + " examples"; };
 for (const b of document.querySelectorAll("nav button")) b.onclick = () => { document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b)); f = b.dataset.f; apply(); };
 document.getElementById("cat").onchange = e => { cat = e.target.value; apply(); };
 for (const b of document.querySelectorAll(".meta .cat")) b.onclick = e => { e.stopPropagation(); cat = cat === b.dataset.cat ? "" : b.dataset.cat; document.getElementById("cat").value = cat; apply(); window.scrollTo({ top: 0, behavior: "smooth" }); };   // カードの分類＝押すと絞る（もう一度で解除）
@@ -218,8 +221,8 @@ const open = name => {
 	const p = P[name]; if (!p) return; cur = name; stop();
 	$("dt").textContent = p.title; $("dc").textContent = p.html || "(source not captured)";
 	$("ml").href = DOCS.replace("X", encodeURIComponent(name));
-	const fr0 = $("fref"); fr0.classList.toggle("na", !p.ref); fr0.title = p.why || ""; $("ir").hidden = !p.ref; $("ir").src = p.ref || ""; $("io").src = p.ortho;
-	fr0.querySelector("p")?.remove(); if (!p.ref) { const q = document.createElement("p"); q.textContent = "Reference picture not shown"; fr0.prepend(q); }
+	const fig = (id, img, src, why, label) => { const f = $(id), im = $(img); f.classList.toggle("na", !src); f.title = why || ""; im.style.display = src ? "" : "none"; im.src = src || ""; f.querySelector("p")?.remove(); if (!src) { const q = document.createElement("p"); q.textContent = label; f.prepend(q); } };
+	fig("fref", "ir", p.ref, p.why, "Reference picture not shown"); fig("fort", "io", p.ortho, p.owhy, "Picture not shown");
 	const dm = $("dm"); dm.replaceChildren(); const ln = document.createElement("p"); ln.textContent = (p.l == null ? "Not scored" : LV[p.l]) + (p.pc == null ? "" : " · picture " + p.pc + "%"); dm.append(ln);
 	const dn = $("dn"); dn.hidden = !p.note; dn.innerHTML = p.note ? (p.note.en ? "<p>" + esc(p.note.en) + "</p>" : "") + (p.note.ja ? "<p class=\\"ja\\">" + esc(p.note.ja) + "</p>" : "") : "";
 	$("cp").textContent = "Copy"; $("cp").classList.remove("ok");

@@ -94,16 +94,16 @@ dialog{border:0;border-radius:16px;padding:0;width:min(1080px,calc(100vw - 32px)
 .dp{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px} .dp figure{border-radius:10px} @media (max-width:640px){.dp{grid-template-columns:1fr}}
 .dm{padding:0 18px 18px;font-size:13.5px;color:var(--muted)} .dm p{margin:0} .dm p+p{margin-top:4px}
 .i18n[lang=ja]{display:none} html[data-lang=ja] .i18n[lang=ja]{display:block} html[data-lang=ja] .i18n[lang=en]{display:none} html[data-lang=ja] .i18n .lv{margin-top:1px}
-.lang{float:right;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer} .lang:hover{border-color:var(--fg)}
+header.top{position:relative} .lang{position:absolute;right:0;top:0;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer} .lang:hover{border-color:var(--fg)}
 </style></head><body><main>
-<header class="top"><p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="/maplibre/">MapLibre examples</a><button type="button" id="lang" class="lang" title="日本語 / English">日本語</button></p>
+<header class="top"><p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md" data-ja="はじめに">Get started</a> · <a href="/maplibre/" data-ja="MapLibre の例">MapLibre examples</a><button type="button" id="lang" class="lang" title="日本語 / English">日本語</button></p>
 <h1>Sandcastle <span class="ver">v${esc(series)}</span></h1>
 ${i18n(`<p>A comparison of the official <a href="https://sandcastle.cesium.com/" target="_blank" rel="noopener">CesiumJS Sandcastle</a> examples run on Ortho Earth — not the official Sandcastle.</p>
 <p>Each of the ${n} examples runs unchanged: once on CesiumJS ${esc(cesium)}, once on the Ortho Earth globe through its Cesium-compatible facade (<code>@ortho-earth/cesium</code>: Cesium's own coordinates, time, CZML, entities and 3D Tiles loading, with Ortho Earth doing the drawing), at the same time and from the same camera. Each card shows CesiumJS on the left and Ortho Earth on the right. Click a card for the larger pictures and the example on the official Sandcastle.</p>`,
 `<p>公式の <a href="https://sandcastle.cesium.com/" target="_blank" rel="noopener">CesiumJS Sandcastle</a> の例を Ortho Earth で走らせた比較です。公式の Sandcastle ではありません。</p>
-<p>${n} 例を、手を加えずにそれぞれ二度走らせました。一度は CesiumJS ${esc(cesium)} で、一度は Cesium 互換の外装（<code>@ortho-earth/cesium</code>＝座標・時刻・CZML・エンティティ・3D Tiles の読み込みは Cesium のまま、描くのは Ortho Earth）を通して Ortho Earth の地球儀で、同じ時刻・同じカメラから。各カードの左が CesiumJS、右が Ortho Earth です。カードを押すと大きな絵と、公式 Sandcastle の例への口が開きます。</p>`)}</header>
-<nav><button data-f="all" class="on">All · ${n}</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}" title="${esc(LV[l][1])}">${lvDot(l)}${esc(LV[l][0])} · ${cnt(l)}</button>`).join("")}<span class="count" id="count"></span><span class="sp"></span>
-<select id="cat"><option value="">All labels</option>${labels.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
+<p>${n} 例を、手を加えずにそれぞれ二度走らせました。一度は CesiumJS ${esc(cesium)} で、一度は Cesium 互換の外装（<code>@ortho-earth/cesium</code>＝座標・時刻・CZML・エンティティ・3D Tiles の読み込みは Cesium のまま、描くのは Ortho Earth）を通して Ortho Earth の地球儀で、同じ時刻・同じカメラから。各カードの左が CesiumJS、右が Ortho Earth です。カードを押すと大きな絵と、公式 Sandcastle の例へのリンクが開きます。</p>`)}</header>
+<nav><button data-f="all" class="on"><span data-ja="全部">All</span> · ${n}</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}" title="${esc(LV[l][1])}">${lvDot(l)}<span data-ja="${esc(LV_JA[l][0])}">${esc(LV[l][0])}</span> · ${cnt(l)}</button>`).join("")}<span class="count" id="count"></span><span class="sp"></span>
+<select id="cat"><option value="" data-ja="全ラベル">All labels</option>${labels.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
 <div class="grid">${rows.map(card).join("\n")}</div>
 <footer>${i18n(`Levels: ${[3, 2, 1, 0].map(l => `${lvDot(l)}${l} ${esc(LV[l][0])} = ${esc(LV[l][1])}`).join(" · ")}.<br>
 Picture % = the cells of a 64×48 grid over the 800×600 picture whose colour matches CesiumJS (the Cesium widgets masked). The level is a guide; the pictures are what to judge by.<br>
@@ -121,9 +121,9 @@ Examples © Cesium GS, Inc. and contributors (Apache-2.0), run unchanged from Ce
 <script>
 let f = "all", cat = "";
 const $ = id => document.getElementById(id), P = JSON.parse($("payload").textContent), LV = ${JSON.stringify(LV.map(x => x[0]))};
-const lgBtn = document.getElementById("lang"); const lgPaint = () => { lgBtn.textContent = document.documentElement.dataset.lang === "ja" ? "English" : "日本語"; }; lgPaint();
-lgBtn.onclick = () => { const l = document.documentElement.dataset.lang === "ja" ? "en" : "ja"; document.documentElement.dataset.lang = l; try { localStorage.setItem("lang", l); } catch (e) {} lgPaint(); };
-const apply = () => { let k = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || f === "l" + c.dataset.level) && (!cat || c.dataset.label === cat); c.hidden = !on; if (on) k++; } $("count").textContent = k + " examples"; };
+const lgBtn = document.getElementById("lang"); const lgPaint = () => { const ja = document.documentElement.dataset.lang === "ja"; document.documentElement.lang = ja ? "ja" : "en"; lgBtn.textContent = ja ? "English" : "日本語"; for (const el of document.querySelectorAll("[data-ja]")) { if (el.dataset.en == null) el.dataset.en = el.textContent; el.textContent = ja ? el.dataset.ja : el.dataset.en; } }; lgPaint();
+lgBtn.onclick = () => { const l = document.documentElement.dataset.lang === "ja" ? "en" : "ja"; document.documentElement.dataset.lang = l; try { localStorage.setItem("lang", l); } catch (e) {} lgPaint(); apply(); };
+const apply = () => { let k = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || f === "l" + c.dataset.level) && (!cat || c.dataset.label === cat); c.hidden = !on; if (on) k++; } $("count").textContent = document.documentElement.dataset.lang === "ja" ? k + " 例" : k + " examples"; };
 for (const b of document.querySelectorAll("nav button")) b.onclick = () => { document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b)); f = b.dataset.f; apply(); };
 $("cat").onchange = e => { cat = e.target.value; apply(); };
 for (const b of document.querySelectorAll(".meta .cat")) b.onclick = e => { e.stopPropagation(); cat = cat === b.dataset.label ? "" : b.dataset.label; $("cat").value = cat; apply(); window.scrollTo({ top: 0, behavior: "smooth" }); };
