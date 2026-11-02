@@ -100,13 +100,8 @@ const I18N_JS = `const lgBtn = document.getElementById("lang"); const lgPaint = 
 lgBtn.onclick = () => { const l = document.documentElement.dataset.lang === "ja" ? "en" : "ja"; document.documentElement.dataset.lang = l; try { localStorage.setItem("lang", l); } catch (e) {} lgPaint(); apply(); };`;
 const lvDot = (l, tip = true) => l == null ? "" : `<span class="lv lv${l}"${tip ? ` title="${GLV[l][0]}"` : ""}></span>`;
 // 本物の写しを出さない例（本物の記録が例の狙いを写していない＝並べると誤解を招く）：理由はカードの代わりの札に
-export const PIC_UNAVAILABLE_BOTH = new Set(["3d-terrain", "add-3d-terrain-from-quantized-mesh-tiles", "add-a-raster-tile-source"]);   // 右（こちら）も札：記録の通信で OSM が 403＝両側とも 403 の絵
-export const REF_PIC_UNAVAILABLE = {
-	"3d-terrain": "OpenStreetMap blocked the reference's tile requests (403 picture)",
-	"add-3d-terrain-from-quantized-mesh-tiles": "OpenStreetMap blocked the reference's tile requests (403 picture)",
-	"add-a-raster-tile-source": "OpenStreetMap blocked the reference's tile requests (403 picture)",
-	"add-a-cog-raster-source": "the reference capture could not read the COG (recorded network data)",
-};
+export const PIC_UNAVAILABLE_BOTH = new Set();   // 右（こちら）も札にする例（2026-11-02 に OSM の 3 例を撮り直して空に）
+export const REF_PIC_UNAVAILABLE = {};
 // 絵の一致＝標本点のうち色が本物と合う割合（基図＋足した層・両側とも止まって撮れた例だけ）＝Sandcastle の Picture % と同じ置き方。動く例・比べられない例は出さない
 const BOTH_WHY = "OpenStreetMap blocked the tile requests in the recorded network data, on both sides (403 picture)";
 export const picturePct = g => { const c = g?.color; if (!g?.pictureCompared || !c) return null; const n = c.base.n + c.added.n; return n ? Math.round(100 * (c.base.ok + c.added.ok) / n) : null; };
