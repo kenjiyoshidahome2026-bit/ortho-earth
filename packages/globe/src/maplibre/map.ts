@@ -56,6 +56,7 @@ export interface MapOptions {
 	[k: string]: unknown;
 }
 /** 可動域の関数（MapLibre の z） */
+const ML_FOV_DEG = 2 * Math.atan(0.75) * 180 / Math.PI;   // MapLibre の既定の縦の視野角＝0.6435 rad＝36.87°
 type ConstrainFn = (center: LngLat, zoom: number) => { center?: LngLatLike | null; zoom?: number | null } | null | undefined;
 // MapLibre のメルカトルの既定の制約（6.11.2 の mercator の defaultConstrain の緯度の分）＝画面の上下に世界の外（±85.05° の先）を出さない所まで中心の緯度を寄せる。
 // 世界の高さが画面より低い時は中心を赤道へ（MapLibre はさらに z を上げるが、球の地図は z を上げない＝採点の clampedML と同じく引いたままを許す）。
@@ -300,6 +301,7 @@ export class Map {
 				eng.on("cooperativegestureprevented", e => { scr.textContent = txt[e.kind] || txt.wheel; scr.style.display = "flex"; clearTimeout(t); t = setTimeout(() => { scr.style.display = "none"; }, 1000); });
 			}
 			setConstrain(st, options.transformConstrain);   // 自作の制約（MapLibre 6 の transformConstrain）か、メルカトルの既定の制約（後から呼んだ setTransformConstrain が勝つ＝下の engineFns より前）
+			eng.setVerticalFieldOfView(ML_FOV_DEG);   // 縦の視野角の既定＝MapLibre と同じ 36.87°（エンジンの既定 50° のままだと傾けた絵の遠景が 15〜70px ずれる＝2026-11-02 Mac 実測・hybrid の 5 点が 1.5px 以内に）。後から呼んだ setVerticalFieldOfView（engineFns）が勝つ
 			for (const f of st.engineFns.splice(0)) f(eng);
 			if (options.minZoom != null) eng.setMinZoom(options.minZoom);
 			else if (typeof options.transformConstrain === "function") {   // MapLibre の minZoom の既定 −2（自作の制約は z を床へ寄せない＝例 customize-the-map-transform-constrain の z −2。既定の床はエンジンの z1）
@@ -372,7 +374,7 @@ export class Map {
 	getPitch(): number { const st = S.get(this)!; return st.engine ? st.engine.getPitch() : st.init.pitch; }
 	getRoll(): number { const st = S.get(this)!; return st.engine ? st.engine.getRoll() : st.init.roll; }
 	setRoll(r: number, e?: unknown): this { return this.jumpTo({ roll: r }, e); }
-	getVerticalFieldOfView() { return ask(this, "getVerticalFieldOfView", [], { before: 50 }); }   // エンジンの既定 50°（MapLibre は 36.87°＝絵の奥行きの差は §4）
+	getVerticalFieldOfView() { return ask(this, "getVerticalFieldOfView", [], { before: ML_FOV_DEG }); }   // この口の既定＝MapLibre と同じ 36.87°（エンジン本体の既定は 50°）
 	setVerticalFieldOfView(deg: number): this { ask(this, "setVerticalFieldOfView", [deg]); return this; }
 	setCenter(c: LngLatLike, e?: unknown): this { return this.jumpTo({ center: c }, e); }
 	setZoom(z: number, e?: unknown): this { return this.jumpTo({ zoom: z }, e); }
