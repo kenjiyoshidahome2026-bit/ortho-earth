@@ -37,10 +37,10 @@ const warn = console.warn; console.warn = () => {};
 	// heightSync＝届いているタイルだけから同期で（load の口で画素を直に渡す＝terrarium の 1 枚（全画素 h＝100m））
 	const n = 4, px = new Uint8ClampedArray(n * n * 4); for (let i = 0; i < n * n; i++) { px[i * 4] = 32768 + 100 >> 8; px[i * 4 + 1] = (32768 + 100) & 255; px[i * 4 + 2] = 0; px[i * 4 + 3] = 255; }
 	let loads = 0; const s = createDemSource({ tiles: ["https://a/{z}/{x}/{y}.png"], maxzoom: 6, minzoom: 0 }, { load: async () => { loads++; return { width: n, data: px }; } });
-	ok("heightSync：未要求なら NaN を返しつつ zHint のタイルを取りに出す", Number.isNaN(s.heightSync(139, 35, 5)) && loads === 1, `loads=${loads}`);
+	ok("heightSync：未要求なら NaN（取りには出さない＝読むだけ）", Number.isNaN(s.heightSync(139, 35, 5)) && loads === 0, `loads=${loads}`);
 	await s.height(139, 35, 5);
 	ok("heightSync：届いた後は同期で値が出る（100m）", Math.abs(s.heightSync(139, 35, 5) - 100) < 1e-6 && loads === 1, `v=${s.heightSync(139, 35, 5)} loads=${loads}`);
-	ok("heightSync：子が未要求でも届いている親から（z6 を聞いても z5 で答え・z6 は取りに出す）", Math.abs(s.heightSync(139, 35, 6) - 100) < 1e-6 && loads === 2, `loads=${loads}`);
+	ok("heightSync：子が未要求でも届いている親から（z6 を聞いても z5 で答え・取りには出さない）", Math.abs(s.heightSync(139, 35, 6) - 100) < 1e-6 && loads === 1, `loads=${loads}`);
 }
 
 // ── quantized-mesh の振り分け ──

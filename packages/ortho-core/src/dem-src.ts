@@ -123,13 +123,14 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 			}
 			return NaN;
 		},
-		// 1 点を同期で＝届いているタイルだけから（zHint から親へ）。無ければ NaN＝呼び手は height() を待つ。zHint のタイルが未要求なら取りに出す（次の呼び出しで届く）
+		// 1 点を同期で＝届いているタイルだけから（zHint から親へ）。無ければ NaN＝呼び手は height() を待つ。取りには出さない（読むだけ）：
+		// 旧＝未要求なら取りに出していた→画素ごとの反復と毎コマの点の持ち上げから上限なしに要求が出て、覚え（256 枚）を溢れて頼み直す嵐（heatmap の例で 3 秒に 5 万回・2026-11-02）
 		heightSync(lon: number, lat: number, zHint: number | null = null): number {
 			if (!inBounds(lon, lat, lon, lat)) return NaN;
 			const z0 = Math.max(spec.minzoom, Math.min(spec.maxzoom, Number.isFinite(zHint) ? Math.floor(zHint as number) : spec.maxzoom));
 			for (let z = z0; z >= spec.minzoom; z--) {
 				const fx = lon2x(lon, z), fy = lat2y(lat, z), x = ((Math.floor(fx) % (1 << z)) + (1 << z)) % (1 << z), y = Math.floor(fy), k = `${z}/${x}/${y}`;
-				if (!tiles.has(k)) { if (z === z0) void tile(z, x, y); continue; }
+				if (!tiles.has(k)) continue;
 				if (!done.has(k)) return NaN;   // 要求済み・未着＝待つ
 				const t = done.get(k); if (t) return sampleSync(() => t, z, fx, fy);
 			}
