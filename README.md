@@ -27,6 +27,7 @@ A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from 
 
 - **Always a globe.** There is no flat Mercator mode to switch to or fall back on: orthographic and perspective are one continuum on a sphere (WGS84 ellipsoid optional), from the whole Earth down to street level. What you see at z2 and at z18 is the same model of the world. MapLibre's `projection` is read as "globe" whatever it says, and `renderWorldCopies` has nothing to copy.
 - **MapLibre code runs on it.** `@ortho-earth/globe/maplibre` is a `maplibregl` namespace: style.json, expressions, sources (MVT · MLT · PMTiles · GeoJSON · raster · raster-dem · image · video · canvas), `addLayer`/`setPaintProperty`/`queryRenderedFeatures`, paint transitions, light, sky and fog, camera API (`FreeCameraOptions`, padding, constrain), Markers, Popups, Controls, and typings (`maplibre.d.ts`). The gate is MapLibre's own example gallery: of the 137 scorable official examples, 91 give the same picture, 43 the same answer and 3 run (none fail to run; graded on `@ortho-earth/globe` 2.3.0). The ledger is [`packages/globe/maplibre-compat.md`](packages/globe/maplibre-compat.md); the gallery with every example's source, match score and a Run button is [www.ortho-earth.com/maplibre/](https://www.ortho-earth.com/maplibre/).
+- **CesiumJS code runs on it, too.** `import * as Cesium from "@ortho-earth/cesium"` gives CesiumJS's names (Viewer, Camera, entities, data sources, clock, 3D Tiles, picking); everything that does not draw is Cesium's own code, and the drawing is the Ortho Earth globe. Of 303 graded Sandcastle examples, 226 give the same picture and 77 the same answer (none only run, none fail to run; `@ortho-earth/cesium` 0.2.0). Every pair side by side: [www.ortho-earth.com/sandcastle/](https://www.ortho-earth.com/sandcastle/).
 - **Extension points, one shape.** Every extension is `definePlugin({ name, install(map, opts) })`, installed with `map.use(plugin)`. Plugins register into `map.registry` (data kinds, gadgets, tile formats, light types, clouds, post-process passes, handlers, texture transcoders), and `map.supports(key)` / `map.capabilities()` answer honestly what is built in, what a plugin renders, and what is only accepted as a spec. Handbook: [`packages/globe/PLUGINS.md`](packages/globe/PLUGINS.md); the ledger of extension points is `maplibre-compat.md` §9.
 - **WebGPU first, WebGL2 always.** Shadows, ambient occlusion, clipping planes and atmospheric scattering on WebGPU; the same map, minus those, on WebGL2.
 - **Reads the formats you already have.** 3D Tiles (b3dm · i3dm · pnts · cmpt · glb), I3S, COPC point clouds, quantized-mesh and raster-dem terrain, COG, WMS/WMTS, CZML/KML/GPX, GeoParquet, FlatGeobuf, Shapefile, GeoPackage, File Geodatabase, MVT and MLT — in the browser, with no server of your own ([`geopbf`](packages/geopbf): 18 formats in, 14 out).
@@ -59,6 +60,8 @@ For Japan, [`@ortho-earth/japan`](sdk/japan) is a self-contained bundle of the s
 
 **Upgrading from 1.x?** 2.0 removes the aliases and internal import paths that 1.x kept for compatibility. [`MIGRATION.md`](MIGRATION.md) lists every change, old → new, per package (in Japanese).
 
+**License in one paragraph.** Ortho Earth is free to use for any purpose, commercial included, under GPL-3.0. Bundling it into a web page counts as distribution, so that page's own JavaScript must also be released under the GPL. If you cannot do that, a commercial license is available: contact kenji.yoshida.home.2026@gmail.com. The data-format libraries (`geopbf`, `altpbf`, `geoedit`, `glbconv`) are MIT and have no such condition. Details: [License](#license).
+
 ## Repository layout
 
 The monorepo is one npm workspace (`packages/*`, `sdk/*` and `apps/*`). Parts are arranged in four layers, hard at the top and soft at the bottom, with the SDKs beside them in `sdk/` ([`LAYERS.md`](LAYERS.md)):
@@ -77,8 +80,8 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 
 | Package | Version | License | What it is |
 |---|---|---|---|
-| [`@ortho-earth/core`](packages/ortho-core) | 2.2.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
-| [`@ortho-earth/globe`](packages/globe) | 2.2.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
+| [`@ortho-earth/core`](packages/ortho-core) | 2.3.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
+| [`@ortho-earth/globe`](packages/globe) | 2.3.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 (private) | GPL-3.0-or-later | Japan region pack |
 | [`@ortho-earth/nl`](packages/nl) | 0.0.1 (private) | GPL-3.0-or-later | Netherlands region pack (3D Basisvoorziening buildings, basemap, elevation) |
 | [`@ortho-earth/regions`](packages/regions) | 0.0.1 (private) | GPL-3.0-or-later | Region switch (`orthoJapan`): the globe plus the region chosen by URL (Japan or the Netherlands) |
@@ -110,8 +113,8 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/ktx2`](sdk/ktx2) | 0.1.0 | GPL-3.0-or-later | KTX2 / Basis Universal texture transcoder for glb models and 3D Tiles |
 | [`@ortho-earth/scene`](sdk/scene) | 0.2.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
 | [`@ortho-earth/splat`](sdk/splat) | 0.6.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz` / `.ksplat` / `.sog`, and 3D Tiles with `KHR_gaussian_splatting`) as a `map.addData` kind: WebGPU renderer with spherical harmonics, GPU sort and LoD, files read in a worker, WebGL2 fallback |
-| [`@ortho-earth/voxel`](sdk/voxel) | 0.6.0 | GPL-3.0-or-later | Voxel grids (box or longitude × latitude × height region, scalar or RGBA, and 3D Tiles with `EXT_primitive_voxels`) as a `map.addData` kind: ray-marched as a volume, blocks or isosurface, with slicing, scene depth and picking; WebGPU (shared device and depth) or WebGL2 |
-| [`@ortho-earth/cesium`](sdk/cesium) | 0.1.0 | GPL-3.0-or-later | CesiumJS API on ortho-earth: a `Cesium` namespace (Viewer, Camera, entities, data sources, clock, 3D Tiles, picking) drawn by `@ortho-earth/globe`; math, time, Entity/Property and CZML parsing come from `@cesium/engine` unchanged |
+| [`@ortho-earth/voxel`](sdk/voxel) | 0.6.1 | GPL-3.0-or-later | Voxel grids (box or longitude × latitude × height region, scalar or RGBA, and 3D Tiles with `EXT_primitive_voxels`) as a `map.addData` kind: ray-marched as a volume, blocks or isosurface, with slicing, scene depth and picking; WebGPU (shared device and depth) or WebGL2 |
+| [`@ortho-earth/cesium`](sdk/cesium) | 0.2.0 | GPL-3.0-or-later | CesiumJS API on ortho-earth: a `Cesium` namespace (Viewer, Camera, entities, data sources, clock, 3D Tiles, picking) drawn by `@ortho-earth/globe`; math, time, Entity/Property and CZML parsing come from `@cesium/engine` unchanged |
 | [`glbconv`](sdk/glbconv) | 0.2.0 | MIT | GLB to other 3D formats, browser and Node |
 
 ### Apps
