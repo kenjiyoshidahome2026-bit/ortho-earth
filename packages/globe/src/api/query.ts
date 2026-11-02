@@ -261,6 +261,9 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i] && (L.type !== "line" || (!!f.geometry && lineNear(f.geometry, L)))) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), ...ezOf(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
 		}
 		// geojson の heatmap 層＝点を heatmap-radius（px）の円で当てる（MapLibre 6 の HeatmapStyleLayer.queryIntersectsFeature と同じ・層ごとに上から）
+		const tilted = cam.pitch > 0.5 * D2R, mercPerPx = 1 / (512 * 2 ** (cam.zoom - PUBLIC_DZ));   // メルカトルの世界（0..1）の 1px＝MapLibre の pixelsToTileUnits
+		const mercXY = (c: ArrayLike<number>) => { const la = Math.max(-85.05, Math.min(85.05, c[1])) * D2R; return [(c[0] + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + la / 2)) / Math.PI) / 2]; };
+		const mercDist = (a: ArrayLike<number>, b: ArrayLike<number>) => { const p = mercXY(a), q = mercXY(b); let dx = Math.abs(p[0] - q[0]); dx = Math.min(dx, 1 - dx); return Math.hypot(dx, p[1] - q[1]); };
 		for (const v of [...mlLayers.values()].reverse()) {
 			if (v.kind !== "heatmap" || !take(v.layer.id) || !mlVisible(v) || !v.heatPts) continue;
 			const L = drawLayerOf(v); if (!inZoomML(L, cam.zoom)) continue;
@@ -270,6 +273,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 				const r = +(evalExpr(L.paint?.["heatmap-radius"] ?? 30, { zoom: cam.zoom, props: f.properties || {}, geom: "Point", vars: {}, gs: live.MAP_GS, origin: "ml" }) ?? 30) + tolPx;
 				const hit = ((g.type === "Point" ? [g.coordinates] : g.coordinates) as number[][]).some(c => {
 					const [px, py, pf] = map.projectLL(c[0], c[1]); if (pf <= 0) return false;
+					if (area.ll && tilted) return mercDist(c, area.ll as number[]) <= r * mercPerPx;   // 傾けた地図＝地面の上の円（MapLibre の circleIntersection の map/map：半径は中心の z の px を地面へ）＝遠くの点ほど画面で小さく当たる
 					return area.ll ? Math.hypot(px - geometry![0], py - geometry![1]) <= r : boxTouches({ type: "Point", coordinates: c } as QueryGeometry);
 				});
 				if (hit) out.push({ type: "Feature", ...(f.id != null ? { id: f.id } : {}), properties: f.properties || {}, geometry: g, layer: { id: v.layer.id, type: "heatmap" }, source: srcId(v.layer) });
