@@ -104,7 +104,9 @@ const triArea = (xy, t) => { let s = 0; for (let i = 0; i < t.length; i += 3) { 
 	ok("roof-height", top && near((rad(0) - 1) * 6371000, 30, 0.05), `${(rad(0) - 1) * 6371000}`);
 	ok("roof-color", m.col[0] === 200 && m.col[1] === 100 && m.col[2] === 50 && m.col[3] === 255);
 	ok("wall-shade", m.col[4 * 4] === Math.round(200 * 0.84), `${m.col[16]}`);   // 低い建物の壁＝0.84
-	ok("filtered-null", buildMesh([{ ...g, fi: 0 }], () => null, tile) === null && buildMesh([{ ...g, fi: 0 }], () => ({ h: 5, base: 5, rgba: [0, 0, 0, 255] }), tile) === null);
+	ok("filtered-null", buildMesh([{ ...g, fi: 0 }], () => null, tile) === null && buildMesh([{ ...g, fi: 0 }], () => ({ h: 4, base: 5, rgba: [0, 0, 0, 255] }), tile) === null);
+	const flat = buildMesh([{ ...g, fi: 0 }], () => ({ h: 5, base: 5, rgba: [0, 0, 0, 255] }), tile);   // 高さ＝base＝屋根だけ（MapLibre と同じ平らな面・2026-11-02）
+	ok("flat-roof-only", flat && flat.stats.triangles === g.tris.length / 3 && flat.mesh.idx.length === g.tris.length, `${flat?.stats.triangles}`);
 }
 // ── 縦の陰影（MapLibre の式） ──
 ok("vshade-low", verticalShade(false, 0, 50) === 0.84 && verticalShade(true, 0, 50) === 0.84);

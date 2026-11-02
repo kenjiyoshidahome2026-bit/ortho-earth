@@ -33,7 +33,7 @@ type OnOff = (ev: string, a: unknown, b?: (e: never) => void) => GlobeMap;
 export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 	BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor,
 	drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester,
-	size, srcId, stripMl, unprojectXY, vtdDesc, vtdOrder, vtxGround, vtxStateOf
+	size, srcId, stripMl, unprojectXY, unprojectXYAsync, vtdDesc, vtdOrder, vtxGround, vtxStateOf
 }: QueryDeps): QueryReturn {
 	// ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
 	// geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 0＝MapLibre と同じ＝線は線幅の半分・円は半径＋縁・面は内側。拡張＝足す px） }。
@@ -82,7 +82,30 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			if (t > 0 && t < 1 && (E[0] + t * d0) ** 2 + (E[1] + t * d1) ** 2 + (E[2] + t * d2) ** 2 < 1 - 1e-9) return null;   // 目→点が海面の球をくぐる＝裏
 			return [(cxp / w * 0.5 + 0.5) * W, (1 - (cyp / w * 0.5 + 0.5)) * H, w];
 		};
+		const P3 = (lon: number, lat: number, R: number) => pos(lonlatTo3D(lon, lat), ELL_ON ? ellNormal3D(lon, lat) : null, R);
+		const rayOf = (x: number, y: number): [number[], number[]] | null => {   // 画素の光線（近平面の点 A・向き d）＝core の unproject と同じ逆行列
+			const I = st.invMvp; if (!I) return null;
+			const nx = x * live.dpr / st.W * 2 - 1, ny = (1 - y * live.dpr / st.H) * 2 - 1;
+			const tr = (z: number) => { const v = [0, 1, 2, 3].map(r => I[r] * nx + I[4 + r] * ny + I[8 + r] * z + I[12 + r]); return [v[0] / v[3], v[1] / v[3], v[2] / v[3]]; };
+			const A = tr(-1), B = tr(1); return [A, [B[0] - A[0], B[1] - A[1], B[2] - A[2]]];
+		};
+		const triT = (A: number[], d: number[], p0: ArrayLike<number>, p1: ArrayLike<number>, p2: ArrayLike<number>): number | null => {   // Möller–Trumbore（光線の前＝t≥0）
+			const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+			const h = [d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]], a = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2];
+			if (Math.abs(a) < 1e-30) return null;
+			const f = 1 / a, s = [A[0] - p0[0], A[1] - p0[1], A[2] - p0[2]], u = f * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2]); if (u < 0 || u > 1) return null;
+			const q = [s[1] * e1[2] - s[2] * e1[1], s[2] * e1[0] - s[0] * e1[2], s[0] * e1[1] - s[1] * e1[0]], v = f * (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]); if (v < 0 || u + v > 1) return null;
+			const t = f * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]); return t >= 0 ? t : null;
+		};
 		const envOf = (gnd: (lon: number, lat: number) => number): ExtEnv => ({
+			wall: (a, b, bottom, top, x, y) => {   // 目の後ろに頂点がある壁＝3D の光線と面（2 つの三角形）・奥行き＝当たった点の clip の w
+				const r = rayOf(x, y); if (!r) return null;
+				const ga = gnd(a[0], a[1]), gb = gnd(b[0], b[1]);
+				const a0 = P3(a[0], a[1], ga + bottom * k), a1 = P3(a[0], a[1], ga + top * k), b0 = P3(b[0], b[1], gb + bottom * k), b1 = P3(b[0], b[1], gb + top * k);
+				const t = triT(r[0], r[1], a0, b0, b1) ?? triT(r[0], r[1], a0, b1, a1); if (t == null) return null;
+				const w = clipOf([r[0][0] + t * r[1][0], r[0][1] + t * r[1][1], r[0][2] + t * r[1][2]])[2];
+				return w > 1e-9 ? w : null;
+			},
 			vtx: (lon, lat, hM) => screenAt(lon, lat, gnd(lon, lat) + hM * k),
 			roof: (x, y, hM, lon0, lat0) => {   // 光線を屋根の高さの球で受ける（起伏＝当たった所の地面で 1 回受け直す）。目が屋根より低い＝屋根は見えない
 				let R = gnd(lon0, lat0) + hM * k;
@@ -261,6 +284,9 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i] && (L.type !== "line" || (!!f.geometry && lineNear(f.geometry, L)))) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), ...ezOf(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
 		}
 		// geojson の heatmap 層＝点を heatmap-radius（px）の円で当てる（MapLibre 6 の HeatmapStyleLayer.queryIntersectsFeature と同じ・層ごとに上から）
+		const tilted = cam.pitch > 0.5 * D2R, mercPerPx = 1 / (512 * 2 ** (cam.zoom - PUBLIC_DZ));   // メルカトルの世界（0..1）の 1px＝MapLibre の pixelsToTileUnits
+		const mercXY = (c: ArrayLike<number>) => { const la = Math.max(-85.05, Math.min(85.05, c[1])) * D2R; return [(c[0] + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + la / 2)) / Math.PI) / 2]; };
+		const mercDist = (a: ArrayLike<number>, b: ArrayLike<number>) => { const p = mercXY(a), q = mercXY(b); let dx = Math.abs(p[0] - q[0]); dx = Math.min(dx, 1 - dx); return Math.hypot(dx, p[1] - q[1]); };
 		for (const v of [...mlLayers.values()].reverse()) {
 			if (v.kind !== "heatmap" || !take(v.layer.id) || !mlVisible(v) || !v.heatPts) continue;
 			const L = drawLayerOf(v); if (!inZoomML(L, cam.zoom)) continue;
@@ -270,6 +296,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 				const r = +(evalExpr(L.paint?.["heatmap-radius"] ?? 30, { zoom: cam.zoom, props: f.properties || {}, geom: "Point", vars: {}, gs: live.MAP_GS, origin: "ml" }) ?? 30) + tolPx;
 				const hit = ((g.type === "Point" ? [g.coordinates] : g.coordinates) as number[][]).some(c => {
 					const [px, py, pf] = map.projectLL(c[0], c[1]); if (pf <= 0) return false;
+					if (area.ll && tilted) return mercDist(c, area.ll as number[]) <= r * mercPerPx;   // 傾けた地図＝地面の上の円（MapLibre の circleIntersection の map/map：半径は中心の z の px を地面へ）＝遠くの点ほど画面で小さく当たる
 					return area.ll ? Math.hypot(px - geometry![0], py - geometry![1]) <= r : boxTouches({ type: "Point", coordinates: c } as QueryGeometry);
 				});
 				if (hit) out.push({ type: "Feature", ...(f.id != null ? { id: f.id } : {}), properties: f.properties || {}, geometry: g, layer: { id: v.layer.id, type: "heatmap" }, source: srcId(v.layer) });
@@ -293,6 +320,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		// 基図と vector source の許しの px→タイル単位＝MapLibre の目盛りの地図は ML と同じ一様なメルカトルの px（512×2^z_ML＝256×2^(z−dz+1)）。
 		// 問い合わせ点の cos を掛けると低ズームの地球の高緯度で ML より 1/cos 広い（o1023d：z0.9・緯度 60〜79° で海岸線を余計に拾った）。目盛りなし（dz 0）＝この地図の画面（core の既定）
 		const pxScale = PUBLIC_DZ ? 2 ** (1 - PUBLIC_DZ) : null;
+		if (geometry && typeof (geometry as QGeom)[0] === "number") await unprojectXYAsync((geometry as number[])[0], (geometry as number[])[1]);   // 地形で傾けた地図＝点の標高を待って解き、メモへ（続く同期の unprojectXY が同じ点を返す・2026-11-02）
 		const want = qo.layers ? new Set(qo.layers) : null, take = (id: string) => !want || want.has(id);
 		const qf = (fs: HitFeature[]) => qo.filter ? fs.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, gs: live.MAP_GS, geojson: f.geometry as ExprCtx["geojson"], pitch: cam.pitch * R2D, origin: "ml" }))) : fs;
 		const extHits = [...extrudeHits((geometry || [[0, 0], [W, H]]) as QGeom, take), ...meshHits(geometry as QGeom | undefined, take)];   // 模型・3D Tiles（W7）も立体の当たりの列へ   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）

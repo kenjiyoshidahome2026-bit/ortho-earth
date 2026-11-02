@@ -1,0 +1,39 @@
+{
+	"_": "custom 層の例＝層が queryRenderedFeatures に出ず、標本点が「足した層」に分かれない（絵の一致を基図だけで測ってしまう）。本物と並べて目で確かめた例だけ段 3 を許す（Sandcastle の checked.json と同じ置き方・2026-11-02）。見た日と見た物を書く。描き方が変わったら見直す。add-a-custom-style-layer は位置は同じだが半透明の色が違う（こちらが濃い）ので入れない（2026-11-02）",
+	"add-a-3d-model-to-globe-using-threejs": {
+		"level": 3,
+		"checked": "2026-11-02",
+		"by": "Mac M5 Pro WebGPU o1102f",
+		"note": "アンテナの位置・大きさ・向きが本物と同じ（球の軸を MapLibre に合わせた 7a10555a の後）"
+	},
+	"add-a-3d-model-using-threejs": {
+		"level": 3,
+		"checked": "2026-11-02",
+		"by": "Mac M5 Pro WebGPU o1102f",
+		"note": "模型の位置・大きさが本物と同じ"
+	},
+	"add-a-3d-model-with-shadow-using-threejs": {
+		"level": 3,
+		"checked": "2026-11-02",
+		"by": "Mac M5 Pro WebGPU o1102f",
+		"note": "模型と影の位置が本物と同じ"
+	},
+	"add-a-simple-custom-layer-on-a-globe": {
+		"level": 3,
+		"checked": "2026-11-02",
+		"by": "Mac M5 Pro WebGPU o1102f",
+		"note": "球の上の三角の位置が本物と同じ"
+	},
+	"create-deckgl-layer-using-rest-api": {
+		"level": 3,
+		"checked": "2026-11-02",
+		"by": "Mac M5 Pro WebGPU o1102g",
+		"note": "deck.gl の層の位置と色が本物と同じ"
+	},
+	"enter-a-360-photosphere": {
+		"level": 3,
+		"checked": "2026-11-02",
+		"by": "Mac M5 Pro WebGPU o1102h",
+		"note": "最初の地図の状態（写真球に入る前）の絵が本物と同じ。写真球の中は未確認"
+	}
+}

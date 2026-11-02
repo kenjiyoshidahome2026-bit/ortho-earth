@@ -64,7 +64,10 @@ t("立つ面が無ければ null", extrudeMesh([]) === null);
 	t("MapLibre：opacity 0.5 が α へ", ps[0].rgba[3] === 128);
 	const def = extrudePolys(fc, { type: "fill-extrusion", paint: { "fill-extrusion-height": ["*", ["get", "h"], ["zoom"]] }, zoom: 2 });
 	t("MapLibre：既定色 #000000・zoom 式", def.length === 3 && def[0].h === 200 && def[0].rgba.join() === "0,0,0,255");
-	t("MapLibre：height を書かない層は立たない（既定 0）", extrudePolys(fc, { type: "fill-extrusion", paint: { "fill-extrusion-color": "#fff" } }).length === 0);
+	const flat = extrudePolys(fc, { type: "fill-extrusion", paint: { "fill-extrusion-color": "#fff" } });
+	t("MapLibre：height を書かない層（既定 0）は h＝base の面として残る（MapLibre は平らに描く）", flat.length === 3 && flat.every(p => p.h === 0 && p.base === 0), String(flat.length));
+	const fm = extrudeMesh(flat);
+	t("MapLibre：h＝base は屋根だけ（壁の三角形は無い＝面ごと 2 枚）", fm && fm.stats.triangles === 6 && fm.stats.polygons === 3, JSON.stringify(fm?.stats));
 }
 
 console.log(ng ? `\nFAIL  ${ng} / ${ok + ng}` : `\nPASS  ${ok}`);

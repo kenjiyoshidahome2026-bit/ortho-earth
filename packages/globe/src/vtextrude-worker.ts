@@ -106,7 +106,7 @@ function build(m: VtxMsg) {
 	for (let fi = 0; fi < G.feats.length; fi++) {
 		const f = G.feats[fi], ctx = ctxOf(m.zoom, f, f.id, fs?.get(f.id));
 		const h = num(P["fill-extrusion-height"], ctx, 0), base = Math.max(0, num(P["fill-extrusion-base"], ctx, 0));
-		if (!(h > base)) continue;
+		if (!(h >= base)) continue;   // 高さ＝base（0 の高さ）も屋根だけ描く＝MapLibre と同じ（例 set-center-point-above-ground の z13 の束ねた建物＝render_height が無く高さ 0 の黒い面・2026-11-02）。base より低いのは描かない
 		const c = color(P["fill-extrusion-color"], ctx);
 		styles.set(fi, { h, base, grad, rgba: [c[0] * 255, c[1] * 255, c[2] * 255, Math.round(Math.max(0, Math.min(1, (c[3] ?? 1) * op)) * 255)] });
 	}
