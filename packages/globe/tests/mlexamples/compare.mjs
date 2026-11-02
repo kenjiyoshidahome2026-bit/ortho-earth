@@ -268,7 +268,9 @@ export function grade(R, O, T = THRESH, eye = EYE_CHECKED) {
 	if (cm.comparable < T.minComparable * cm.total) { out.reasons.push(`picture not comparable (${cm.comparable}/${cm.total} probes)`); out.level = Math.min(out.level, 2); out.refLevel = 2; return out; }
 	// custom 層（queryRenderedFeatures に出ない＝標本点が「足した層」に分かれない）は、絵の一致を基図だけで測ってしまう＝模型が無くても閾値を越える（threejs の例・2026-11-02）。
 	// 本物の絵と見比べる手段が無いうちは段 3 にしない（段 2＝答えは同じ・絵は未確認）
-	const customAdded = (R.layers || []).filter(l => l.type === "custom" && (R.added || []).includes(l.id)).map(l => l.id);
+	// custom 層の見分け：走らせ台が addLayer で記録した型（O.addedTypes・R.addedTypes＝本物の r7 には無い）か、getStyle の layers（MapLibre の getStyle には custom が出ない）
+	const typeOf = id => O?.addedTypes?.[id] || R?.addedTypes?.[id] || (R.layers || []).find(l => l.id === id)?.type || (O?.layers || []).find(l => l.id === id)?.type;
+	const customAdded = [...new Set([...(R.added || []), ...(O?.added || [])])].filter(id => typeOf(id) === "custom");
 	if (customAdded.length && cm.added.n === 0) {
 		out.customUnsampled = true;
 		const e = eye?.[R?.name ?? O?.name];
