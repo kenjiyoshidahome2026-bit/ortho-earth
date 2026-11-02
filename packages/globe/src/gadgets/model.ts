@@ -240,7 +240,7 @@ export function extrudePolys(src: ExtrudeSrc, { height, base, color, scale = 1, 
 			if (filter != null && !truthy(evalExpr(filter, ctx))) continue;
 			if (ml) {
 				const h = +evalExpr<number>(paint![FX.height] ?? 0, ctx) * scale, b = Math.max(0, +evalExpr<number>(paint![FX.base] ?? 0, ctx) * scale);
-				if (!(h > b)) continue;
+				if (!(h >= b)) continue;   // 高さ＝base（既定 0）は屋根だけ描く（MapLibre は平らな面を描く・vtextrude と同じ・2026-11-02）
 				const c = evalColor(paint![FX.color] ?? "#000000", ctx) || [0, 0, 0, 1];
 				const rgba = [c[0], c[1], c[2], (c[3] ?? 1) * opacity * 255].map(v => Math.max(0, Math.min(255, Math.round(v))));
 				for (const rings of polys) {

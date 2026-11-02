@@ -57,7 +57,7 @@ export function extrudeMesh(polys: ExtrudeInPoly[], { mask = true, refine = ROOF
 	const tris: Array<{ t: number[]; xy: number[]; nRoof: number; walls: Array<{ seq: number[]; sgn: number }>; lon0: number; lat00: number; kx: number; ky: number } | null> = [];
 	// 一周目＝屋根の三角形分割と細分・壁の刻み・数え上げ（配列の大きさを先に決める）
 	for (const p of polys) {
-		if (!p.rings.length || !(p.h > p.base)) { tris.push(null); continue; }
+		if (!p.rings.length || !(p.h >= p.base)) { tris.push(null); continue; }   // h＝base は屋根だけ（壁は立てない）
 		const lat00 = p.rings[0][1], lon0 = p.rings[0][0], kx = Math.cos(lat00 * D2R) * R * D2R, ky = R * D2R;
 		// 輪ごとに局所平面(m)へ落とし、角の丸め（C6・round m）はここで＝m の単位のまま
 		const ringsXY = p.rings.map(r => { const a = new Float64Array(r.length); for (let i = 0; i < r.length; i += 2) { a[i] = (r[i] - lon0) * kx; a[i + 1] = (r[i + 1] - lat00) * ky; } return p.round! > 0 ? roundRing(a, p.round!) : a; });
@@ -75,7 +75,7 @@ export function extrudeMesh(polys: ExtrudeInPoly[], { mask = true, refine = ROOF
 		// 壁の環＝各辺を中点の台帳でたどり直した頂点番号の列（閉じ点の重複＝長さ 0 の辺は落とす）
 		const walls: Array<{ seq: number[]; sgn: number }> = [];
 		let off = 0, nW = 0;
-		for (let k = 0; k < ringsXY.length; k++) {
+		for (let k = 0; k < (p.h > p.base ? ringsXY.length : 0); k++) {
 			const m = ringsXY[k].length / 2, seq: number[] = [];
 			for (let i = 0; i < m; i++) {
 				const a = off + i, b = off + (i + 1) % m;
