@@ -51,12 +51,12 @@
 <tr><td>This morning</td><td>85</td><td>40</td><td>12</td><td>0</td><td>The v2.2.x main, measured as is</td></tr>
 <tr><td>Midday</td><td>86</td><td>45</td><td>6</td><td>0</td><td>MapLibre's default Mercator constraint, maxZoom 22, flyTo with MapLibre's choreography, querying clustered points, heatmap hits on a tilted map, the roof of zero-height extrusions</td></tr>
 <tr><td>Afternoon</td><td>87</td><td>45</td><td>5</td><td>0</td><td>The vertical field of view set to MapLibre's 36.87°</td></tr>
-<tr><td>v2.3.0</td><td><strong>88</strong></td><td><strong>46</strong></td><td><strong>3</strong></td><td><strong>0</strong></td><td>A sphere at the centre's height, unproject on terrain by walking the ray, terrain exaggeration applied to the centre too</td></tr>
+<tr><td>v2.3.0</td><td><strong>91</strong></td><td><strong>43</strong></td><td><strong>3</strong></td><td><strong>0</strong></td><td>A sphere at the centre's height, unproject on terrain by walking the ray, terrain exaggeration applied to the centre too, and the real pictures re-shot for four examples where OSM had blocked the tiles</td></tr>
 </tbody></table></div>
 <p class="note-small">Note: the counts are on WebGPU (the Mac's real GPU). Everything was also run on WebGL2. The same 3 examples are at level 1 there, and the only difference is two examples that drop from 3 to 2 because of a single sample point on an icon.</p>
 
 <h2>Results</h2>
-<p>At v2.3.0 the 137 examples come to 3/2/1/0 = <strong>88 / 46 / 3 / 0</strong>. Examples that only partly run went from 12 to 3. Every picture can be seen next to the real one in the <a href="/maplibre/" target="_top">MapLibre</a> gallery. The gallery now has the same layout as Sandcastle, and its header and footer read in Japanese or English.</p>
+<p>At v2.3.0 the 137 examples come to 3/2/1/0 = <strong>91 / 43 / 3 / 0</strong>. Examples that only partly run went from 12 to 3. Every picture can be seen next to the real one in the <a href="/maplibre/" target="_top">MapLibre</a> gallery. The gallery now has the same layout as Sandcastle, and its header and footer read in Japanese or English.</p>
 <p>Real MapLibre on the left, ortho-earth (v2.3.0) on the right.</p>
 <p><strong>set-center-point-above-ground</strong>: a map without terrain with its centre held 541 m in the air. The picture already matched, but going between coordinates and screen points was 279 px off. MapLibre treats the plane at the centre's height as the ground. Only the MapLibre-compatible API now does the same (level 1 → 3)</p>
 <figure class="ba"><img src="story-v230-set-center-point-above-ground.webp" width="968" height="360" loading="lazy" alt="set-center-point-above-ground: MapLibre and ortho-earth"></figure>
