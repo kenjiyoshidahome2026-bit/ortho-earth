@@ -41,8 +41,8 @@
 		"en": "sky (sky-color / horizon-color / fog-color / fog-ground-blend) is read since B4 (2026-10-12): a simple WebGL2 sky gradient plus fog color and density. The horizon shape and scattering are not identical to the reference. Terrain relief and hillshade match."
 	},
 	"3d-terrain": {
-		"ja": "地形は本物と同じ（terrarium の符号化と注視点の高さを直した）。残り＝OSM の画像タイルは両側とも Access blocked（403）＝標本は文字の上に落ちる。",
-		"en": "Terrain matches the reference (terrarium decoding and center elevation fixed). Remaining: the OSM raster tiles are blocked (403) on both sides, so the probes land on the placeholder text."
+		"ja": "地形は本物と同じ（terrarium の符号化と注視点の高さを直した）。",
+		"en": "Terrain matches the reference (terrarium decoding and center elevation fixed)."
 	},
 	"display-a-hybrid-satellite-map-with-terrain-elevation": {
 		"ja": "地形は本物と同じ。残り＝衛星画像の段の細部と注記。",
@@ -125,8 +125,8 @@
 		"en": "Canvas sources are drawn as a corner-pinned overlay (same path as video, below labels), copied every frame. It always sits above the basemap (no occlusion when tilted)."
 	},
 	"add-a-cog-raster-source": {
-		"ja": "直した：走らせ台の素材が Range（206）に答えず、geotiff が Request failed を投げていた（エンジンの不具合ではない・2026-11-02）。残り＝本物の写し（r7）は同じ理由で COG を読めていない＝録り直しが要る。重なり順（こちらは COG の上に道路と注記が載る）は未。",
-		"en": "Fixed: the test rig's asset server ignored Range requests, so geotiff threw 'Request failed' (not an engine bug, 2026-11-02). Remaining: the MapLibre capture (r7) failed to read the COG for the same reason and must be re-recorded; draw order (roads and labels sit above the COG here) is still open."
+		"ja": "直した：走らせ台の素材が Range（206）に答えず、geotiff が Request failed を投げていた（エンジンの不具合ではない・2026-11-02）。本物の写し（r7）は録り直した。残り＝重なり順（こちらは COG の上に道路と注記が載る）。",
+		"en": "Fixed: the test rig's asset server ignored Range requests, so geotiff threw 'Request failed' (not an engine bug, 2026-11-02). The MapLibre capture (r7) has been re-recorded. Remaining: draw order (roads and labels sit above the COG here)."
 	},
 	"add-a-geojson-line": {
 		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。基図の道路名「Conzelman Road」が例の足した太線の真上に乗る（足した層の標本 4/6）。原因のコードは未追跡。",
