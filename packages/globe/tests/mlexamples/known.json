@@ -117,7 +117,7 @@
 		"render-world-copies": 3,
 		"restrict-map-panning-to-an-area": 3,
 		"select-features-with-boxzoomend-callback": 2,
-		"set-center-point-above-ground": 1,
+		"set-center-point-above-ground": 3,
 		"set-pitch-and-bearing": 3,
 		"show-polygon-information-on-click": 3,
 		"sky-fog-terrain": 2,
