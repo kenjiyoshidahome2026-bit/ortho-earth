@@ -2707,14 +2707,19 @@ map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const l
 // 待って解く unproject：①不動点の反復（標高を heightAt で待つ点は数点だけ＝どの DEM でも速い）で候補を出し、
 // ②届いている標高（メモ・heightSync）だけで光線を歩き、候補より手前で地面をまたぐ所があればそちら（急斜面の手前の尾根・hybrid の例）。
 // 届いていない標本は「地面なし」とみなし、照会だけ出す（次の呼び出しで効く）。旧＝歩きの全標本を待った＝quantized-mesh で最初の 1 回 11.7 秒・上限 400ms でも毎回待ち切った（2026-11-02）
-const ASYNC_WAIT_MS = 150;
+const ASYNC_WAIT_MS = 150, ASYNC_BANK_MS = 1500; let asyncBank = ASYNC_BANK_MS, asyncBankAt = 0;
 const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
 	const st = cameraState(cam, size.w, size.h);
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
 	let ll = unproject(st, x * dpr, y * dpr); const pf = dispPf();
 	if (!ll || pf <= 0 || !(demMain || getHeight)) return ll;
 	// 覚えた標高（メモ・heightSync）があれば待たない。待つのは合わせて ASYNC_WAIT_MS まで＝過ぎたら届いた分で歩く（quantized-mesh の問い合わせが 1 点 400 ms・160 点で 25 秒だった・2026-11-02）
-	const until = performance.now() + ASYNC_WAIT_MS;
+	// 続けて呼ばれた時（問い合わせの列・走らせ台の 160 点）の待ちの総量も絞る＝貯金（最大 ASYNC_BANK_MS・1 秒に ASYNC_WAIT_MS ずつ貯まる）から払う
+	const t0 = performance.now(); asyncBank = Math.min(ASYNC_BANK_MS, asyncBank + (t0 - asyncBankAt) * ASYNC_WAIT_MS / 1000); asyncBankAt = t0;
+	const until = t0 + Math.min(ASYNC_WAIT_MS, asyncBank);
+	try { return await unprojectAsyncCore(st, x, y, ll, pf, until); } finally { asyncBank = Math.max(0, asyncBank - (performance.now() - t0)); }
+};
+const unprojectAsyncCore = async (st: ReturnType<typeof cameraState>, x: number, y: number, ll: LonLat, pf: number, until: number): Promise<LonLat | null> => {
 	for (let i = 0; i < 6; i++) {
 		const k = Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), hit = elevMemo.get(k);
 		let h: number;
