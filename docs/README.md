@@ -5,6 +5,9 @@
 
 | 場所 | 中身 |
 | --- | --- |
+| `architecture.md` | 層・共有エンジン・ホスト・アプリ間の掟 |
+| `apps.md` | 各アプリの URL と担当の Worker |
+| `development.md` | 開発・テスト・デプロイ・npm 公開の手順 |
 | `design/` | 今も生きている設計・台帳（変えたら更新する） |
 | `notes/` | 計画・調査のメモ（起案日つき・済んだ物も記録として残す） |
 
@@ -27,3 +30,4 @@
 
 design/ と notes/ の文書は 2026-11-02 に `packages/ortho-core/` から移した（名前の空白は `-` に）。
 本文中の package 名の無い `src/…`・`tests/…` は `packages/ortho-core/` からの相対。
+architecture.md・apps.md・development.md は 2026-11-02 に GitHub wiki の下書き（`.wiki-src/`）から移した（英語版だけ残し、日本語版と README・CHANGELOG と重なる頁は削除）。

@@ -1,5 +1,3 @@
-> **English** · [日本語](Architecture-ja)
-
 # Architecture
 
 The repository is one npm workspace: `packages/*` (engine and shared parts), `sdk/*` (SDKs and tools for outside users) and `apps/*` (pages and Workers). The authoritative rules are in [LAYERS.md](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/LAYERS.md).
@@ -7,10 +5,6 @@ The repository is one npm workspace: `packages/*` (engine and shared parts), `sd
 ## Layers: parts → base → engine → apps
 
 Parts are hard at the top (gates, types, versions) and soft at the bottom (apps may change freely).
-
-![ortho-earth layers: base, engine, plugins and apps, with gzip sizes](images/layers.svg)
-
-_Dependency map as of 2026-10-24 (arrows point from provider to user; sizes are gzip). The 2.2 SDKs `cesium`, `leaflet` and `gmaps` came after it._
 
 | Layer | Where | What |
 |---|---|---|

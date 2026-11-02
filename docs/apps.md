@@ -1,5 +1,3 @@
-> **English** · [日本語](Apps-and-URLs-ja)
-
 # Apps and URLs
 
 Every page under `apps/*` is a shell over the packages. All URLs are on `https://www.ortho-earth.com`.
@@ -38,7 +36,7 @@ Every page under `apps/*` is a shell over the packages. All URLs are on `https:/
 
 | URL | App (Worker) | What it shows |
 |---|---|---|
-| [/globe/engine/](https://www.ortho-earth.com/globe/engine/current.json) | `apps/engine` (`ortho-engine`) | The shared engine, see [Architecture](Architecture) |
+| [/globe/engine/](https://www.ortho-earth.com/globe/engine/current.json) | `apps/engine` (`ortho-engine`) | The shared engine, see [Architecture](architecture.md) |
 | [/globe/quakes/](https://www.ortho-earth.com/globe/quakes/) | `apps/quakes` (`ortho-quakes`) | World earthquakes since 1967 at true depth |
 | [/japan/census2020/](https://www.ortho-earth.com/japan/census2020/) | `apps/census2020` | Japan's 2020 census, small areas and risk zones |
 | [/yokohama/](https://www.ortho-earth.com/yokohama/) | `apps/yokohama` (`ortho-yokohama`) | Yokohama digital twin for citizens |
