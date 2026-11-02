@@ -1,4 +1,4 @@
-// 確定層＝gint 現行6ハンドル（applyGintData/paintTable…）の封じ込め（gint draw spec.md §10.2）。
+// 確定層＝gint 現行6ハンドル（applyGintData/paintTable…）の封じ込め（docs/design/gint-draw-spec.md §10.2）。
 // v2 の map.addGint() が来たら差し替えるのはこのファイルだけ、が設計契約。
 //
 // コミット＝encodeModel（モデル→GeoPBF 直列エンコード・GeoJSON 中間なし）→ pbf.gint() → applyGintData。__eid が全フィーチャで

@@ -1,4 +1,4 @@
-// 注記の描画命令の受け口（TextSink）と字の寸法の口（GlyphMetrics）＝テキスト GPU 化の T-P0（`text gpu plan.md` §2・2026-10-22）。
+// 注記の描画命令の受け口（TextSink）と字の寸法の口（GlyphMetrics）＝テキスト GPU 化の T-P0（`docs/notes/text-gpu-plan.md` §2・2026-10-22）。
 // labels2d は「どの字をどこに置くか」（衝突判定・配置・フェード）だけを決め、塗りはここへ命令として渡す。
 // Canvas2D 版（createCanvasSink）は切り出す前の labels2d と同じ呼び出しを同じ順で出す＝絵は変わらない（呼び出しの列を前後で突き合わせた）。
 // WebGPU 版は T-P1（線に沿う字）から。字の寸法も口にした（measurer）＝今は measureText だけ・T-P4 で glyph PBF の字送りを差す
@@ -81,7 +81,7 @@ export function pxNumOf(s: string): string | undefined {
 	}
 	return undefined;
 }
-// ── 点の注記を字に割る（テキスト GPU 化 T-P2・`text gpu plan.md` §2）＝Canvas2D 版の pointText と同じ所に字を置く純関数（node で検定＝tests/pointglyphs.mjs）。
+// ── 点の注記を字に割る（テキスト GPU 化 T-P2・`docs/notes/text-gpu-plan.md` §2）＝Canvas2D 版の pointText と同じ所に字を置く純関数（node で検定＝tests/pointglyphs.mjs）。
 // 字の x＝「行の頭からその字までの部分文字列の幅」＝字詰め（カーニング）と字間（letter-spacing）を Canvas2D の 1 行描きと同じに保つ。
 // 字に割れない文字（アラビア文字・デーヴァナーガリー等の繋げる字・結合記号・絵文字の合成）を含む列は割らずに列ごと 1 枚（run sprite）。
 // 座標は箱の左上（pointText の x0, y0）を原点・字の錨は字の中央（textAlign center・textBaseline middle＝字の版の錨と同じ）

@@ -2,7 +2,7 @@
 
 # Roadmap after 2.2
 
-The plan in the repository is [`packages/ortho-core/improvement plan.md`](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/packages/ortho-core/improvement%20plan.md). Summary as of 2026-10-31:
+The plan in the repository is [`docs/notes/improvement-plan.md`](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/docs/notes/improvement-plan.md). Summary as of 2026-10-31:
 
 **No big rewrite is needed.** Copy-paste duplication in the engine is small (about 2% of packages and SDKs, 12.8% in apps). The real duplication is the twin WebGL2 / WebGPU implementations (about 9,000 and 10,500 lines). Speed waste sits more in the per-frame work added in 2.2 (the Cesium layer and 3D Tiles) than in the engine core.
 

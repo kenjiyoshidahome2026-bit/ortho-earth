@@ -3,7 +3,7 @@
      同じ fixture（optbv z16 皇居周辺）を同じ style で、子頁（t-mdparity-view）を ?nomd=1 と ?md=1 で順に起こし、shot.composite() の画素を比べる。
      2 景＝2d（z16.2 真俯瞰：水域と建物の塗り・道路と岸の線＝line-offset 込み）／3d（z16 55° 方位 30：押し出しの建物も）。
      判定＝どこかの成分が 8 を超えて違う画素が全体の 0.3% 未満（AA の端の揺れを許す・md は fade を持たない＝着地後の静止画を比べる）。実時間。
-     ※注記は比較の対象外（Canvas2D の置き時刻で揺れる）。地形あり（地面アトラスの塗り）はこの頁では見ない＝実機の 8 ビュー（webgpu port.md）で -->
+     ※注記は比較の対象外（Canvas2D の置き時刻で揺れる）。地形あり（地面アトラスの塗り）はこの頁では見ない＝実機の 8 ビュー（docs/design/webgpu-port.md）で -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}iframe{width:960px;height:600px;border:0;display:block}</style><title>t-mdparity</title></head>
 <body>
 <script type="module">

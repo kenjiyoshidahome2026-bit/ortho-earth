@@ -1,7 +1,7 @@
 # 描画の速さ・実施計画（2026-09-26 起案）
 
-位置づけ：`perf survey.md`（俯瞰＝何がどこで重いか）の実施計画。本人裁定＝**着手は他の件が片付き次第**。
-統合の順番：style 互換・注記の GPU 化・ベクタータイル高速化と合わせた優先順位は `render roadmap.md`（2026-10-22）。
+位置づけ：`docs/notes/perf-survey.md`（俯瞰＝何がどこで重いか）の実施計画。本人裁定＝**着手は他の件が片付き次第**。
+統合の順番：style 互換・注記の GPU 化・ベクタータイル高速化と合わせた優先順位は `docs/notes/render-roadmap.md`（2026-10-22）。
 掟（全項目共通）：①URL の逃げ道を必ず付ける（A/B と切り分け）②門＝既存の関門を緑のまま＋絵の一致③計測は timestamp-query（gpuMap/gpuGint）と
 引っ掛かりログ＝`ema` の 16.7ms 飽和を物差しにしない④両バックエンド 1:1 を崩す時は理由を書く⑤危険な修正（機械的置換・暗黙契約依存）は成果でなく危険として先に申告。
 
@@ -179,7 +179,7 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 
 ## 6. P2 タイル GPU 常駐プール＋render bundle（順位 2・性能パス B）
 
-→ **2026-10-22：実施の段と門は `vt perf plan.md` §4 が引き取った**（ベクタータイルの道筋の計画・Phase 2）。設計の骨はこの節のまま。
+→ **2026-10-22：実施の段と門は `docs/notes/vt-perf-plan.md` §4 が引き取った**（ベクタータイルの道筋の計画・Phase 2）。設計の骨はこの節のまま。
 
 **go/no-go**：Phase 0 の計器 b で、z14 都心のパンにおいて「setScene apply ≥ 4ms が頻発」または「merge ≥ 20ms」または「fade 二重描きが gpuMap に見える」のいずれか。無ければ棚上げ（メモリ優位を崩す理由が無い）。
 
@@ -194,7 +194,7 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 - メモリ：プール高水位＝タイル予算（24〜96MB）×約 1.3 で有界。縮まないのは GL md と同じ。**LOW_MEM は classic のまま**（GL の既定 OFF と同じ線）＝裁定。`?mem=1` にプール行（capMB/usedMB/frag＝scene worker の stats を render 側でも）。
 - 逃げ道：`?nomd=1`（GL と同名・renderer の md:false で scene worker が classic へ）。
 
-**門**：classic と md の絵一致（`webgpu port.md` の標準 8 ビュー＋東京駅 PLATEAU）・fadede8b の轍（起動直後の古い fallback scene が dl を上書きする順序）＝t-* に再現を 1 本・`dlApplied` ack の順序（renderworker の `drainMD`）・skipMain/skipBase の等価性（`webgpu port.md` skipMain の轍）・t-gintgpu の readback 基図・japan の verify:ui 全頁。
+**門**：classic と md の絵一致（`docs/design/webgpu-port.md` の標準 8 ビュー＋東京駅 PLATEAU）・fadede8b の轍（起動直後の古い fallback scene が dl を上書きする順序）＝t-* に再現を 1 本・`dlApplied` ack の順序（renderworker の `drainMD`）・skipMain/skipBase の等価性（`docs/design/webgpu-port.md` skipMain の轍）・t-gintgpu の readback 基図・japan の verify:ui 全頁。
 **期待**：シーン差し替え＝up ≤3MB/フレーム（既存 `MD_BYTES_PER_FRAME`）＋dl 適用（微小）・全量再アップロード消滅・二重描き消滅・merge の CPU 消滅。
 **裁定**：①LOW_MEM の扱い（classic 維持を推奨）②プールを縮める機構を持つか（初版は持たない・予算で有界）③fade を落としてよいか。
 
@@ -246,7 +246,7 @@ gpuGint が 0＝そのシーンに gint の層が無い（japan の 3 シーン�
 
 ## 10. やらない事（再提案しない）
 
-- WASM でフレームループ／`mergeTiles`／タイル worker の earcut（理由は `perf survey.md` §5）。
+- WASM でフレームループ／`mergeTiles`／タイル worker の earcut（理由は `docs/notes/perf-survey.md` §5）。
 - 鯖焼き（サーバーレス規律）・multi-draw-indirect（Chrome の実験機能＝標準でない）・動的解像度の中間ターゲット化（白抜けは既に無害）。
 - GL2 バックエンドの性能投資（恒久フォールバック＝挙動同一が第一・WebGPU の変更を 1:1 で写すだけ）。
 

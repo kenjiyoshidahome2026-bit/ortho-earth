@@ -275,7 +275,7 @@ export function createGintLayer(gl: WebGL2RenderingContext, { requestDraw, quad4
 	function style(data: GintDrawStyle | null | undefined): void { drawStyle = data ?? null; bump(); }
 	function setVisible(v: unknown): void { visible = !!v; bump(); }
 
-	// paint（fid スタイル表）の差し替え（gint draw spec.md §7.1）。main が style.js の buildFidStyle で
+	// paint（fid スタイル表）の差し替え（docs/design/gint-draw-spec.md §7.1）。main が style.js の buildFidStyle で
 	// 式を評価済み＝ここは Uint32Array を受けてテクスチャ更新1回のみ（restyle 契約）。null=解除（従来塗りへ）。
 	function paint(data: GintPaintData | null | undefined): void {
 		if (data?.table && data.count > 0) uploadFidStyle(s, data.table, data.count);

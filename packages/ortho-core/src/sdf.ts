@@ -1,4 +1,4 @@
-// 字の SDF（符号付き距離場）と字の版の棚詰め＝テキスト GPU 化 T-P1（`text gpu plan.md` §2）。純関数＝node で検定する（tests/sdf.mjs）。
+// 字の SDF（符号付き距離場）と字の版の棚詰め＝テキスト GPU 化 T-P1（`docs/notes/text-gpu-plan.md` §2）。純関数＝node で検定する（tests/sdf.mjs）。
 // 元の絵は Canvas2D で焼いた字の不透明度（白黒・アンチエイリアス込み）。距離は Felzenszwalb の 1 次元 EDT を縦横 2 回（TinySDF と同じ手）。
 // 符号化も TinySDF と同じ：v = 1 − (d / R + CUTOFF)（d＝縁からの距離・外が正・単位は版の px）＝縁は v = 1 − CUTOFF。
 // 外へ R·(1−CUTOFF)、内へ R·CUTOFF まで表せる＝縁（halo）の太さの上限は外の幅（MapLibre と同じ制約）

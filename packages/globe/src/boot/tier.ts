@@ -6,7 +6,7 @@
 //   deadMap()              … 起動不能時に呼び側へ返す「何もしない地図」（どんな連鎖も無害に空転する Proxy）
 //   ellipsoidMode({…})     … 表示の世界の形（#43）＝楕円体か球か（URL › opts.ellipsoid › 自動＝通常・HI のデスクトップだけ楕円体）
 //   renderFx({…})          … 描画の質の旗（#46）＝atmosphere／pbr／ao の実効値（?pbr=1 等の URL × opts.render・既定は 0）
-// ノブを変えたら台帳（packages/ortho-core/fallback-ladder.md）も更新の規律。
+// ノブを変えたら台帳（docs/design/fallback-ladder.md）も更新の規律。
 
 // 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
 // タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。

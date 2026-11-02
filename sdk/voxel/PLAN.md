@@ -45,7 +45,7 @@ plugin が無ければ `addData` は契約を検めてから投げる（`capabil
 ## 落とし穴（先に分かっている物）
 
 - WebGPU の `r32float` は filterable でない → `r16float` に詰めるか補間を自前で。
-- 3D テクスチャの上限＝WebGL2 は最低 256³。第 1 段は超えたら縮めて一度 warn、本対策は第 5 段。タッチ端末は GPU 160MB の予算に数える（`packages/ortho-core/fallback-ladder.md` も更新）。
+- 3D テクスチャの上限＝WebGL2 は最低 256³。第 1 段は超えたら縮めて一度 warn、本対策は第 5 段。タッチ端末は GPU 160MB の予算に数える（`docs/design/fallback-ladder.md` も更新）。
 - region の blocks は DDA が厳密でない（セル境界＝経線・緯線・等高度面）。第 2 段は等間隔サンプル＋最近傍で近似＝README に限界を書く。
 - 本番ビルドで worker が消える（`sideEffects:false`）＝verify-prod ②b で確かめる。描き手の `new URL("./voxel-draw.js", import.meta.url)` は `scripts/lib/vite-app.mjs` の先回りに乗るか確かめる。
 

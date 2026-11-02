@@ -2,7 +2,7 @@
 
 # 2.2 の後の計画
 
-リポジトリの正本は [`packages/ortho-core/improvement plan.md`](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/packages/ortho-core/improvement%20plan.md) です。2026-10-31 時点の要約：
+リポジトリの正本は [`docs/notes/improvement-plan.md`](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/docs/notes/improvement-plan.md) です。2026-10-31 時点の要約：
 
 **大きな作り直しは要りません。** エンジンのコピペの重複は少なく（packages と sdk で約 2%、apps で 12.8%）、本当の重複は WebGL2 と WebGPU の二重実装（約 9,000 行と 10,500 行）です。速さの無駄はエンジンの芯よりも、2.2 で増えた Cesium の層と 3D Tiles の毎フレームの処理に集まっています。
 

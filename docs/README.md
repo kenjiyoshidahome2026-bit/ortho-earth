@@ -1,0 +1,29 @@
+# docs — 開発者向けの文書
+
+利用者向けの説明はサイトの [/docs](https://www.ortho-earth.com/docs/)（`apps/docs/`）、各 package の使い方はその package の README。
+ここは**リポジトリを触る人向け**の文書の置き場。
+
+| 場所 | 中身 |
+| --- | --- |
+| `design/` | 今も生きている設計・台帳（変えたら更新する） |
+| `notes/` | 計画・調査のメモ（起案日つき・済んだ物も記録として残す） |
+
+## design/
+
+- [fallback-ladder.md](design/fallback-ladder.md) — バックエンド選択・端末ティア・jetsam 防衛の台帳（ノブを変えたら更新）
+- [gint-draw-spec.md](design/gint-draw-spec.md) — Gint 描画定義仕様
+- [webgpu-port.md](design/webgpu-port.md) — WebGPU バックエンド移植の設計
+- [projector.md](design/projector.md) — 投影 seam（Projector）の叩き台
+
+## notes/
+
+- [improvement-plan.md](notes/improvement-plan.md) — 2.2 以後の改善計画（順番の正本）
+- [render-roadmap.md](notes/render-roadmap.md) — 描画の統合ロードマップ
+- [perf-survey.md](notes/perf-survey.md) / [perf-plan.md](notes/perf-plan.md) — 描画の速さの俯瞰と実施計画
+- [vt-perf-plan.md](notes/vt-perf-plan.md) — ベクタータイル描画の高速化
+- [text-gpu-plan.md](notes/text-gpu-plan.md) — テキスト描画の WebGPU 化
+- [geojson-vt-plan.md](notes/geojson-vt-plan.md) — geojson の層を vector の描き方へ
+- [raster-tiles.md](notes/raster-tiles.md) — メルカトル・ラスタタイルの v2 移植
+
+design/ と notes/ の文書は 2026-11-02 に `packages/ortho-core/` から移した（名前の空白は `-` に）。
+本文中の package 名の無い `src/…`・`tests/…` は `packages/ortho-core/` からの相対。

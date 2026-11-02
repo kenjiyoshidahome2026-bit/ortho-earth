@@ -31,7 +31,7 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 - idfill(コロプレス)＝winding 和 ID 蓄積（rg32float＝float32-blendable がある時・無ければ rg16float へ縮退＝大きな fid で穴の恐れ・加算 blend・R=Σ±(fid+1)/G=Σ±1）→解決(R/G で fid 復元→
   スタイル表→色)。`GINT_STENCIL_WGSL` vsId/fsId＋`GINT_IDRESOLVE_WGSL`。rg16float はコア blendable＝
   fidStyleCount≤2047(市区町村1919)で足りる（超過/paint 無し/fillOff は単色 stencil フォールバック）。
-  ※2026-09-15 から **rgba32float / rgba16float**（A＝扇が触れた最大 fid+1・MAX blend＝重なりの後勝ち）。上限 fid は 2^20 / 2047。正典は gint draw spec.md §7.2
+  ※2026-09-15 から **rgba32float / rgba16float**（A＝扇が触れた最大 fid+1・MAX blend＝重なりの後勝ち）。上限 fid は 2^20 / 2047。正典は docs/design/gint-draw-spec.md §7.2
 
 検証：スクリーンショット比較（WebGL2 と目視同一）＝z13 東京平面 / 富士 z13 60° / 東京駅 z16.5 55°（建物+深度）/
 山頂等高線 / z5.5・z8.5 60° 海岸線 / 東京駅 PLATEAU / z2 世界ビュー / **z7 N02 新幹線オーバーレイ**。
@@ -49,13 +49,13 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 
 **B. 性能パスの差**
 - ~~タイル描画は classic CPU merge 固定（md=false）＝multi_draw のタイル GPU 常駐を使わない~~ → **2026-10-22 タイル GPU 常駐プール（md=true）を実装**
-  （`vt perf plan.md` §4 step A）：GL の md プロトコル（grow/up/dl）をそのまま受け、origins は instance step の頂点属性・タイルごとの
+  （`docs/notes/vt-perf-plan.md` §4 step A）：GL の md プロトコル（grow/up/dl）をそのまま受け、origins は instance step の頂点属性・タイルごとの
   `draw(count, 1, first, firstInstance=j)`・線は storage の線分レコードを `vertex_index/6` で引く。`?nomd=1`＝classic（LOW_MEM は classic のまま）。
 - ~~MSAA 4x が全パスで store/load→終端 resolve~~ → **遷移時AA で解消（2026-08-19）**：本人 ?perf=1 実測で
   「msaa が最も効き、msaa=0 なら動的解像度も落ちない」と確定＝カメラ遷移・アニメ継続中は 1x 直描き、
   静止 500ms（RES_SETTLE_MS 同時計）で 4x 品質フレームを1枚（静止時詳細化と同じ思想）。パイプラインは
   sampleCount 焼き込み＝renderer/gint とも 1x/4x セットを遅延生成キャッシュし frameInfo().samples で取替。
-  ノブ＝`?msaa=0` 常時1x／`?msaa=1` 常時4x固定（旧挙動・A/B用）。詳細は fallback-ladder.md §6。
+  ノブ＝`?msaa=0` 常時1x／`?msaa=1` 常時4x固定（旧挙動・A/B用）。詳細は docs/design/fallback-ladder.md §6。
 - ~~動的解像度/GPU格付け：timestamp-query 未配線~~ → **解消（2026-08-02・19e82b5）**：pass 単位の
   timestampWrites＋flush で resolve→mapAsync 非同期回収。renderworker の tqFeed（GL と共通の給餌口）へ
   流し、gpuMap/gpuGint 実測・動的解像度 busyMs・GPU格付け(gpuFast＝静止時の手前詳細化)が WebGPU でも回る。
@@ -170,12 +170,12 @@ ema＝壁時計フレーム時間＝両バックエンド共通の物差し（We
 
 ## 次の道順
 
-※2026-09-26：性能の俯瞰と実施計画を `perf survey.md`（何がどこで重いか・序列）と `perf plan.md`（Phase・門・計測・裁定待ち）に分冊した。
+※2026-09-26：性能の俯瞰と実施計画を `docs/notes/perf-survey.md`（何がどこで重いか・序列）と `docs/notes/perf-plan.md`（Phase・門・計測・裁定待ち）に分冊した。
 下の 1〜5 は plan の P2（プール＋render bundle）・P1（標高セル）・計器に吸収済み＝以後の更新は plan 側で。
 
 1. **性能パス B（計測で速いと出たら）**：タイルの multi_draw 後継（render bundle / drawIndexed baseVertex）＋
    timestamp-query（動的解像度・GPU格付けの物差しを WebGPU でも回復）。計測前は着手しない（measure-first）。
-3. **multi_draw の後継**（→ **2026-10-22 実装＝`vt perf plan.md` §4 step A**・render bundle は step B）：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
+3. **multi_draw の後継**（→ **2026-10-22 実装＝`docs/notes/vt-perf-plan.md` §4 step A**・render bundle は step B）：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
    index 再ベース（sceneworker ensureUploaded の絶対頂点番号化）ごと不要にできる、
    (b) **render bundle** で composition を1回記録→毎フレーム再生＝md の狙い（CPU発行ゼロ）を
    タイルプール常駐のまま置換できる。md プロトコル（grow/up/dl）は流用可能な見立て。

@@ -254,7 +254,7 @@ function applyGintData(pbf: GeoPBF, label: string, moveCamera = true, opts: { fi
 	return pbf;
 }
 
-// コロプレス塗り（gint draw spec.md）動作確認用：現在のユーザー層(gint)へ paint/filter を適用。
+// コロプレス塗り（docs/design/gint-draw-spec.md）動作確認用：現在のユーザー層(gint)へ paint/filter を適用。
 // 式は main で一度だけ評価（buildFidStyle）→ fid スタイル表を worker へ＝restyle はテクスチャ更新1回。
 // 例: __paint({ 'fill-color': ['interpolate', ['linear'], ['get','R2'], 0,'#ffeeee', 5000,'#990000'] })
 //     __paint({ 'fill-color': ['match', ['get','市区町村名'], '青葉区', '#cc000080', '#00000010'] })

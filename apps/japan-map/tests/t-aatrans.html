@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- UI回帰：遷移時AA（WebGPU・2026-08-19）。カメラ遷移フレーム＝1x直描き・静止500ms（RES_SETTLE_MS）で
-     4x品質フレームが1枚出て張り付く（fallback-ladder.md §6）。判定は ?drawhud=1 の生値（__drawHud.d.aa）。
+     4x品質フレームが1枚出て張り付く（docs/design/fallback-ladder.md §6）。判定は ?drawhud=1 の生値（__drawHud.d.aa）。
      WebGPU の無い環境（SwiftShader CI等）＝WebGL2 フォールバック＝遷移時AAの対象外として skip PASS
      （そちらの起動健全性は t-webgpu が担保）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-aatrans</title></head>

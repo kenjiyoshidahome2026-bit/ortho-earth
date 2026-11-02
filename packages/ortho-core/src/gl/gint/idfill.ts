@@ -1,4 +1,4 @@
-// gint v2 コロプレス塗り＝winding 和 ID バッファ（gint draw spec.md §7.2）。
+// gint v2 コロプレス塗り＝winding 和 ID バッファ（docs/design/gint-draw-spec.md §7.2）。
 //
 // stencil 塗りと同一の fan 辺集合（pivotClip 扇要・クリップ空間・全密度）を、stencil の代わりに
 // FS で gl_FrontFacing ? +(fid+1) : -(fid+1) として float バッファへ加算ブレンドする。

@@ -1,7 +1,7 @@
 # 2.2 以後の改善計画（高速化・重複の削除）（2026-10-31 起案）
 
 位置づけ：2.2.0 公開（2026-10-31）の後に、このリポジトリのコード全体を俯瞰して立てた計画。速さの細目は既存の計画書
-（`perf plan.md`・`vt perf plan.md`・`render roadmap.md`・`text gpu plan.md`）が正本で、ここはその上の順番と、2.2 で増えた層（Cesium の facade・3D Tiles）の分。
+（`docs/notes/perf-plan.md`・`docs/notes/vt-perf-plan.md`・`docs/notes/render-roadmap.md`・`docs/notes/text-gpu-plan.md`）が正本で、ここはその上の順番と、2.2 で増えた層（Cesium の facade・3D Tiles）の分。
 本人裁定（2026-10-31）＝**重複の削除 → 段階 0・1 の順**。その後に本書を repo に置く。
 掟（全項目共通）：①どの PR も「段が下がらない」が門（Sandcastle 190/107/0/0、MapLibre の公式例、verify:ui・verify:webgpu）
 ②速さの PR は、絵が同じで計器の数字が良くなった時だけマージ③URL の逃げ道を付ける（perf plan の掟①と同じ）④効果は測ってから書く（読んだだけの見立ては「見立て」と書く）。
@@ -50,7 +50,7 @@
 | 起動：hillshade・colorrelief・customgl・sky を globe.ts が静的に読む | 読んだ | 使う時だけ import() | 初期バンドルを測ってから |
 | 3D Tiles のピック用の形を main に複写（タイルの約 7 割） | 読んだ | メモリが減るが pick は同期 API＝設計の判断 | 保留 |
 | 最初の 4x 静止フレームで同期のパイプライン作成 | 推測 | 非同期で先に温める | 引っ掛かりの計器で確かめてから |
-| WebGPU の paint 表 | 計画（render roadmap 14） | GL2 と揃える | **2026-11-01 実装**（pz・pzOver・(b) 類の表＝`vt perf plan.md` §5「WebGPU 版」・表の中身は `painttable-store.ts` で gl/gpu 共有＝段階 3 の「純関数の抜き出し」の 1 本目） |
+| WebGPU の paint 表 | 計画（render roadmap 14） | GL2 と揃える | **2026-11-01 実装**（pz・pzOver・(b) 類の表＝`docs/notes/vt-perf-plan.md` §5「WebGPU 版」・表の中身は `painttable-store.ts` で gl/gpu 共有＝段階 3 の「純関数の抜き出し」の 1 本目） |
 | 文字の GPU 化 T-P1 の実機の門・T-P2 | 計画（text gpu plan） | 門を通して既定に | 段階 2 |
 | render bundle（step B） | 計画（vt perf plan §4・棚） | Mac の bench で go/no-go | 段階 2 |
 | geopbf の topology（BigInt Map の dedup が 55%・12.3 s） | 計画（perf plan P5） | uint32 の hash（出力 byte 一致が門） | ~~段階 2~~ **済み**＝2026-09-16 に JS の位相経路ごと Rust（`wasm/src/topology.rs`・FxHashMap の u64 鍵）へ移っていた＝起案時の見落とし |

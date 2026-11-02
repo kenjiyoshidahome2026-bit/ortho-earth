@@ -1,4 +1,4 @@
-// 注記の字と記号を WebGPU で塗る（テキスト GPU 化 T-P1・T-P2・T-P3・`text gpu plan.md` §3）。線に沿う注記と点の注記の字・記号・標識・format の記号の区間（星空と月は Canvas2D のまま）。
+// 注記の字と記号を WebGPU で塗る（テキスト GPU 化 T-P1・T-P2・T-P3・`docs/notes/text-gpu-plan.md` §3）。線に沿う注記と点の注記の字・記号・標識・format の記号の区間（星空と月は Canvas2D のまま）。
 // 字の版＝SDF（R8）の 1 枚。鍵は「基準の大きさに直した書体×字」だけ＝色・大きさ・縁・ぼかし・不透明度はインスタンスとシェーダ（旧の字の版は組ごとに焼き直していた）。
 // 元の絵は今と同じ Canvas2D（addFontFace の Web フォントも効く）＝白で 1 字焼いて EDT で SDF（sdf.ts）。
 // 描く先は 2 つ：注記の canvas の上に重ねた webgpu の canvas（最前面・既定）と、地図の描画パスの中の層の位置（T-P2・target(li) で指した注記＝
