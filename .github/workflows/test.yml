@@ -20,7 +20,20 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
+      # npm のキャッシュ（~/.npm・約 1.3GB）は main の push でだけ保存し、PR は読むだけ（2026-11-02）。
+      #   setup-node の cache: npm は PR ごと・lockfile ごとに 1.3GB を保存し、Actions キャッシュの 10GB 枠をすぐ埋めていた
+      - uses: actions/cache@v4
+        if: github.event_name == 'push'
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - uses: actions/cache/restore@v4
+        if: github.event_name != 'push'
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
       - run: npm test -- --skip typecheck   # 型検査は下の typecheck ジョブ
       # i18n の門（各アプリの verify:i18n・1 秒）。2026-10-24：ortho-globe の build の頭のこの門が落ちたまま 4 回の deploy が止まった（hex の頁の辞書と globe の ui.json に同じキー）＝PR の時点で止める
@@ -38,7 +51,20 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
+      # npm のキャッシュ（~/.npm・約 1.3GB）は main の push でだけ保存し、PR は読むだけ（2026-11-02）。
+      #   setup-node の cache: npm は PR ごと・lockfile ごとに 1.3GB を保存し、Actions キャッシュの 10GB 枠をすぐ埋めていた
+      - uses: actions/cache@v4
+        if: github.event_name == 'push'
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - uses: actions/cache/restore@v4
+        if: github.event_name != 'push'
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck   # tsc を CPU の数だけ並べて回す（scripts/typecheck.mjs）
         env:
