@@ -36,7 +36,7 @@
 </tbody></table></div>
 
 <h2>新しい描画</h2>
-<p>2.2 の終わりに「Ortho Earth ＝ MapLibre × Cesium − メルカトル ＋ α」という式を書いた。2.3 では、その ＋ α を初めて形にした。<code>map.setPostChain</code> に、Cesium にも MapLibre にも無い六つの効果が加わった（WebGPU だけ）。画面の映り込み（SSR）、接触影、高さの霧、光芒、雨、イラスト風である。</p>
+<p><code>map.setPostChain</code> に、Cesium にも MapLibre にも無い六つの効果が加わった（WebGPU だけ）。画面の映り込み（SSR）、接触影、高さの霧、光芒、雨、イラスト風である。</p>
 <p>どれもエンジンが前から持っていた深度と法線を使い回したもので、SSR が約 380 行、残りの五つで約 720 行、それぞれ 1 日で入った。</p>
 <figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="レインボーブリッジと東京の街が東京湾に映る"></figure>
 <p class="note-small"><code>map.setPostChain([{ type: "ssr" }])</code>：東京湾にレインボーブリッジと街が映る。</p>
@@ -101,7 +101,7 @@
 <p>今回いちばん手間取ったのは、地形の上でクリックした点を経緯度に戻す処理だった。急斜面を直すと quantized-mesh の例が遅くなり、遅さを直すと位置がずれる。直すたびに、別の例で新しい不具合が出た。</p>
 <p>それでも、本物と並べて撮る検定と、段が下がったら落ちる爪車があったので、どこで何が壊れたかはその場で分かった。調べるうちに、地形の誇張が注視点に掛かっていないという、前からの不具合も見つかった。最後は、同期で読める地形だけを新しいやり方にして、ほかは前の解き方に戻した。深追いをやめるのも、方法のうちである。</p>
 <h2>メルカトルを捨てたこと</h2>
-<p>振り返ると、あの式でいちばん効いていたのは「− メルカトル」だったのかもしれない。地図を最初から平面ではなく球の上に描いてきたので、MapLibre の 2D の例も Cesium の 3D の例も、同じ一つの描き方で受け止められた。2D と 3D を別々に作ってつなぐのではなく、メルカトルを捨てたこと。それが今回の 2D と 3D の統合の本質だったと思う。</p>
+<p>2.2 の終わりに「Ortho Earth ＝ MapLibre × Cesium − メルカトル ＋ α」という式を書いた。振り返ると、この式でいちばん効いていたのは「− メルカトル」だったのかもしれない。地図を最初から平面ではなく球の上に描いてきたので、MapLibre の 2D の例も Cesium の 3D の例も、同じ一つの描き方で受け止められた。2D と 3D を別々に作ってつなぐのではなく、メルカトルを捨てたこと。それが今回の 2D と 3D の統合の本質だったと思う。</p>
 <p class="note-small">公開：<code>@ortho-earth/globe</code>・<code>@ortho-earth/core</code> 2.3.0、<code>@ortho-earth/cesium</code> 0.2.0（globe 2.3 以上）、<code>@ortho-earth/voxel</code> 0.6.1。使い方は 2.2 のまま（<code>npm i @ortho-earth/globe@2.3</code>）。</p>
 <div class="sig">Kenji Yoshida @ Yokohama</div>
 </article>

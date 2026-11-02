@@ -36,7 +36,7 @@
 </tbody></table></div>
 
 <h2>New rendering</h2>
-<p>At the end of 2.2 I wrote a formula: Ortho Earth = MapLibre &times; Cesium &minus; Mercator + &alpha;. In 2.3 the + &alpha; took shape for the first time. <code>map.setPostChain</code> gains six effects that neither Cesium nor MapLibre has (WebGPU only): screen-space reflections (SSR), contact shadows, height fog, light shafts, rain and an illustration style.</p>
+<p><code>map.setPostChain</code> gains six effects that neither Cesium nor MapLibre has (WebGPU only): screen-space reflections (SSR), contact shadows, height fog, light shafts, rain and an illustration style.</p>
 <p>They all reuse the depth and normals the engine already had. SSR is about 380 lines and the other five about 720, and each went in within a day.</p>
 <figure class="ba"><img src="release-2-3-ssr-rainbow-bridge.webp" width="968" height="605" loading="lazy" alt="The Rainbow Bridge and the Tokyo skyline reflected in Tokyo Bay"></figure>
 <p class="note-small"><code>map.setPostChain([{ type: "ssr" }])</code>: the Rainbow Bridge and the city reflected in Tokyo Bay.</p>
@@ -101,7 +101,7 @@
 <p>What took the longest this time was turning a click on terrain back into coordinates. Fixing steep slopes made the quantized-mesh example slow, and fixing the slowness made positions drift. Every fix brought a new problem in another example.</p>
 <p>Even so, with the gate that shoots side by side with the real thing and the ratchet that fails when a level drops, it was clear on the spot where and what had broken. Along the way an older bug turned up: terrain exaggeration was never applied to the centre. In the end only terrain that can be read synchronously uses the new method, and everything else went back to the old way. Knowing when to stop digging is part of the method too.</p>
 <h2>Dropping Mercator</h2>
-<p>Looking back, the term in that formula that mattered most may have been &minus; Mercator. Because the map was drawn on a sphere from the start, not on a plane, MapLibre's 2D examples and Cesium's 3D examples could both be taken in by one and the same way of drawing. Not building 2D and 3D separately and joining them, but dropping Mercator: I think that was the essence of bringing 2D and 3D together this time.</p>
+<p>At the end of 2.2 I wrote a formula: Ortho Earth = MapLibre &times; Cesium &minus; Mercator + &alpha;. Looking back, the term in that formula that mattered most may have been &minus; Mercator. Because the map was drawn on a sphere from the start, not on a plane, MapLibre's 2D examples and Cesium's 3D examples could both be taken in by one and the same way of drawing. Not building 2D and 3D separately and joining them, but dropping Mercator: I think that was the essence of bringing 2D and 3D together this time.</p>
 <p class="note-small">Released: <code>@ortho-earth/globe</code> and <code>@ortho-earth/core</code> 2.3.0, <code>@ortho-earth/cesium</code> 0.2.0 (needs globe 2.3), <code>@ortho-earth/voxel</code> 0.6.1. Same API as 2.2 (<code>npm i @ortho-earth/globe@2.3</code>).</p>
 <div class="sig">Kenji Yoshida @ Yokohama</div>
 </article>
