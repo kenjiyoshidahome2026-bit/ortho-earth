@@ -1,5 +1,5 @@
 // 起動時の裁き（boot/tier.js）の検定＝navigator と location だけで決まる純関数を Node で回す。
-// 台帳＝packages/ortho-core/fallback-ladder.md（ノブを変えたらこちらも）。実機の事故から採った例＝Windows i7/HD Graphics（2026-08-03）・
+// 台帳＝docs/design/fallback-ladder.md（ノブを変えたらこちらも）。実機の事故から採った例＝Windows i7/HD Graphics（2026-08-03）・
 // 8GB Android（LOW_MEM 素通り）・Apple M1（既定のまま）・16 コア（HI）・swiftshader（headless の検定機）。
 import { lowMem, classifyTier, deadMap, renderFx, ellipsoidMode } from "@ortho-earth/globe/boot/tier.js";
 let n = 0, bad = 0;

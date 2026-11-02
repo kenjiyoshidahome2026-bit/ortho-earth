@@ -78,7 +78,7 @@ export interface VoxelPluginOptions {
 	 *  coarser levels, drawn far away when the layers in view would not fit. Infinity turns the budget off */
 	budget?: number;
 }
-/** 既定の GPU の予算（MB）＝タッチ端末は小さく（packages/ortho-core/fallback-ladder.md の 160 MB の中） */
+/** 既定の GPU の予算（MB）＝タッチ端末は小さく（docs/design/fallback-ladder.md の 160 MB の中） */
 export const defaultBudgetMB = (): number => { try { return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches ? 128 : 512; } catch { return 512; } };
 const MB = 1 << 20;
 /** handle.pick の 1 件＝統一 picking の答え（layer＝手綱の id・index＝セルの番号・cell＝[i, j, k]・value＝セルの値） */

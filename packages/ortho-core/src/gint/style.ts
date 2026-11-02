@@ -1,4 +1,4 @@
-// gint v2 描画定義（gint draw spec.md §5-§7.1）── paint/filter 式 → fid スタイル表。
+// gint v2 描画定義（docs/design/gint-draw-spec.md §5-§7.1）── paint/filter 式 → fid スタイル表。
 // 式は setPaint 時にここで一度だけ評価し、結果だけを GPU（RGBA32UI テクスチャ）へ渡す＝
 // 描画ループに式評価は存在しない（仕様 §6-1）。式サブセットの評価器は expr.js＝MVT 基図と
 // 同一のプリコンパイル評価器を共用（get/match/step/interpolate/case/比較/zoom …）。

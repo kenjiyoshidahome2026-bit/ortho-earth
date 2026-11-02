@@ -22,7 +22,7 @@ import { engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";  
 //  - 実行時アセット（plateau-sets.json 等）は同梱しない。利用者のサイトに置くか CDN を指す＝`assetBase` オプション
 //    （ここで bundle すると数MBの plateau-names.json 等を全員に配ることになる）
 //  - worker は ES module 形式固定（vite 既定の iife は worker 内 code-splitting を弾く＝サイトビルドと同じ理由）
-//  - COOP/COEP は要求しない：SAB が無ければ geopbf がコピー経路へ落ちる（fallback-ladder.md §3.5・verify:nocoi で実測）
+//  - COOP/COEP は要求しない：SAB が無ければ geopbf がコピー経路へ落ちる（docs/design/fallback-ladder.md §3.5・verify:nocoi で実測）
 export default defineConfig({
 	plugins: [urlAsFile, wasmAsFile, binUrlAsFile],
 	build: {

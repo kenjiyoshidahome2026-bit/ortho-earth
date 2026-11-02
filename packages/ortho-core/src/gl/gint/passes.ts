@@ -214,7 +214,7 @@ export function renderCleanScene(s: GintLive, data: GLDrawData, targetFBO: WebGL
 	const fillA = data._forceLow ? st[3] * 0.8   // 安表現中＝フェード無効（内陸ビューでも面のシルエットを残す）
 		: st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
 	const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
-	// paint（fid スタイル表）が預けられていれば ID バッファ塗り＝per-fid コロプレス（gint draw spec.md §7.2）。
+	// paint（fid スタイル表）が預けられていれば ID バッファ塗り＝per-fid コロプレス（docs/design/gint-draw-spec.md §7.2）。
 	// 明示 paint は全ズーム尊重（明示 fillColor と同じ原則）。能力なし/fid 超過/FBO 不成立は従来 stencil へ。
 	const idDone = !data.noFaces && !data._forceLow && canUseIdFill(s) && renderIdFill(s, data, targetFBO);   // 安い表現中は idfill（全密度扇）を止める。noFaces＝面は地面アトラス側
 	// 単色 stencil 塗りは常時境界メタ（共有 arc は winding 寄与が正味 0＝落としても数学的に同一で桁違いに軽い）。

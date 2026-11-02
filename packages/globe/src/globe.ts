@@ -581,7 +581,7 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 	}
 }
 // --- 機体のティア（boot/tier.js classifyTier）：非力デスクトップ MID_TIER（内蔵GPU・4コア以下・RAM の多いスマホ）は PLATEAU の山を半分に、
-// ハイスペック HI_TIER（12コア以上）はロード並行度だけ上へ。根拠と実測は module の注記・台帳は fallback-ladder.md。?mid=0/1・?hi=0/1 が戻し口。
+// ハイスペック HI_TIER（12コア以上）はロード並行度だけ上へ。根拠と実測は module の注記・台帳は docs/design/fallback-ladder.md。?mid=0/1・?hi=0/1 が戻し口。
 const { MID_TIER, HI_TIER } = classifyTier({ LOW_MEM, gpuRenderer, search: location.search, nav: navigator, coarse: () => matchMedia("(pointer: coarse)").matches });
 if (MID_TIER) console.log(`[boot] mid-tier device = PLATEAU to safe side (gpu="${gpuRenderer || "unknown"}" cores=${navigator.hardwareConcurrency || "?"})`);
 if (HI_TIER) console.log(`[boot] hi-tier device = PLATEAU wide lanes (cores=${navigator.hardwareConcurrency}, bldCap=3, tileConc=16, decPool)`);
@@ -711,7 +711,7 @@ let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: nu
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
 let memLab: unknown = null;   // 注記の計器（テキスト GPU 化 T-P0）＝{ ms, collideMs, labels, glyphs }＝labels2d の draw の EMA・衝突判定・描いた数（t-perfbench の lab 列）
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
-// 計器 e／f（`vt perf plan.md` §2・Phase 0）：e＝基図のタイルが「選抜で必要になった→main のシーンに載った」の遅れ（tiles.shown が ack 時に返す・主層だけ）・
+// 計器 e／f（`docs/notes/vt-perf-plan.md` §2・Phase 0）：e＝基図のタイルが「選抜で必要になった→main のシーンに載った」の遅れ（tiles.shown が ack 時に返す・主層だけ）・
 // f＝main merge の要求 1 回あたりの「変わった枚数／全枚数」（P2 が消す仕事の量）。どちらも直近 512 件の環＝ベンチ台（t-perfbench）が at で窓を切る（dbgHost.__vtLog）。__perf には直近 10 秒の要約
 interface VtLatRec { at: number; key: string; z: number; total: number; ready: number; wait: number; fetch: number; build: number }
 interface VtMergeRec { at: number; add: number; del: number; n: number }

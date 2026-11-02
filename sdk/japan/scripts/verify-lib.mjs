@@ -5,7 +5,7 @@
 //   ③ ホストの window を汚さない（__cam 等のデバッグ手は target 指定時は生えない）
 //   ④ destroy で綺麗に剥がれ、ホストは元のまま
 // 使い方: sdk/japan で `npm run verify`（内部で build を実行）。要ローカルChrome（環境変数 CHROME）。
-// COOP/COEP は敢えて刻まない＝埋め込み先に COI を要求しない設計の確認も兼ねる（fallback-ladder.md §3.5）。
+// COOP/COEP は敢えて刻まない＝埋め込み先に COI を要求しない設計の確認も兼ねる（docs/design/fallback-ladder.md §3.5）。
 import { spawn, execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createServer } from "node:http";

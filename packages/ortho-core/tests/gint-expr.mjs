@@ -1,4 +1,4 @@
-// Gint の式の契約の検定（gint draw spec.md §5・§6.1・§6.2＝説明書 docs/gint §2.3・§4 が約束する範囲）。node packages/ortho-core/tests/gint-expr.mjs
+// Gint の式の契約の検定（docs/design/gint-draw-spec.md §5・§6.1・§6.2＝説明書 docs/gint §2.3・§4 が約束する範囲）。node packages/ortho-core/tests/gint-expr.mjs
 // 守るもの：①契約の演算子（globe.d.ts の一覧）がすべて fid 表まで届く ②評価規約（=== の比較・欠けた値・throw しない・入れ子の色の補間）
 // ③fid 表の詰め方（width 1/8・radius 1/4・visible ビット・点は circle-color・opacity の掛け方・線幅は u16）
 import assert from "node:assert/strict";

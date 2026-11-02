@@ -20,7 +20,7 @@ import type { TileTimings } from "./worker-msg.ts";
 export interface TileResult { origin: number[] | null; dl?: DrawList | null; labels: Label[]; buildings?: BuildingsGeom | null; z: number; bytes?: number; t?: TileTimings }
 /** タイルの役（update の ensure の順）＝0 主層・1 下地・2 毛布。計器 e は主層だけを数える */
 export type TileRole = 0 | 1 | 2;
-/** キャッシュの 1 件。needAt／readyAt／shownAt＝計器 e（`vt perf plan.md` §2）の時刻（performance.now・ms）＝選抜で必要になった→組み立てが届いた→main のシーンに載った */
+/** キャッシュの 1 件。needAt／readyAt／shownAt＝計器 e（`docs/notes/vt-perf-plan.md` §2）の時刻（performance.now・ms）＝選抜で必要になった→組み立てが届いた→main のシーンに載った */
 export interface TileEntry extends Partial<TileResult> { status: "loading" | "ready" | "error"; tries?: number; seen?: number; role?: TileRole; needAt?: number; readyAt?: number; shownAt?: number }
 /** 計器 e の 1 件（shown が返す）：total＝必要になった→画面・ready＝必要になった→組み立てが届いた・wait＝ready のうち worker の時間（t）を除いた待ち（キューと転送） */
 export interface TileLatency { key: string; z: number; total: number; ready: number; wait: number; t: TileTimings | null }
@@ -301,7 +301,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		return out;
 	}
 
-	// 計器 e（`vt perf plan.md` §2）：main のシーンに載った鍵の列を受け、主層（role 0）として要ったタイルが初めて載った分の遅れを返す。
+	// 計器 e（`docs/notes/vt-perf-plan.md` §2）：main のシーンに載った鍵の列を受け、主層（role 0）として要ったタイルが初めて載った分の遅れを返す。
 	// 呼ぶのは main merge の ack（画面に載った瞬間）＝ここが「必要になった→画面」の終点。2 度目以降の ack に同じ鍵が居ても数えない（shownAt）。
 	// wait＝ready までの時間から worker 内の時間（fetch＋build）を引いた残り＝キュー待ち＋境界の転送（Phase 1 §3.1 の優先キューが縮める所）
 	function shown(keys: Iterable<string>): TileLatency[] {
