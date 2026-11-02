@@ -25,9 +25,14 @@ jobs:
       - run: npm test -- --skip typecheck   # 型検査は下の typecheck ジョブ
       # i18n の門（各アプリの verify:i18n・1 秒）。2026-10-24：ortho-globe の build の頭のこの門が落ちたまま 4 回の deploy が止まった（hex の頁の辞書と globe の ui.json に同じキー）＝PR の時点で止める
       - run: npm run verify:i18n
-  typecheck:
+  typecheck-shard:
+    # tsc 73 本を 3 つの runner に分ける。1 runner で並べても CI では 171 秒（#919）＝runner を増やす方が効く
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -36,3 +41,12 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck   # tsc を CPU の数だけ並べて回す（scripts/typecheck.mjs）
+        env:
+          TYPECHECK_SHARD: ${{ matrix.shard }}/3
+  typecheck:
+    # 3 つの shard のまとめ＝check の名前を「typecheck」1 本に保つ（必須チェックに入れるならこれ）
+    needs: typecheck-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: '[ "${{ needs.typecheck-shard.result }}" = success ] || { echo "✗ typecheck shard: ${{ needs.typecheck-shard.result }}"; exit 1; }'

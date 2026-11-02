@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // tsconfig.json を持つ package（packages/*・sdk/*）とアプリ（apps/*・入口だけ TS・2026-10-17）を strict で型検査する（TS化 段 1・2026-10-15）。root の `npm run typecheck`＝npm test の門の一つ。
 // 使い方: node scripts/typecheck.mjs [絞り込み語…]（例：ephem）
+// TYPECHECK_SHARD=i/n＝dirs を n 個に分けた i 番目だけ（CI で runner を分ける・test.yml）
 // tsc は project ごとに CPU の数だけ並べて回す（TYPECHECK_JOBS=N で変える・1 で直列）。直列だと 73 本で約 4 分＝PR の CI の待ちの 8 割（2026-11-02）。出力は元の並び順
 // worker の入口を持つ package は tsconfig.worker.json（lib webworker・include＝worker の入口だけ）を並べて置き、本体の tsconfig.json はその入口を exclude する
 //（DOM と webworker の lib は一つの program に同居できない）。ここは tsconfig.worker.json があればそれも検査する（例：packages/jp の estat-worker.ts・2026-10-15）。
@@ -22,6 +23,14 @@ for (const base of ["packages", "sdk", ...appDirs]) for (const e of fs.readdirSy
 	// worker 用の第 2 プログラム（lib: webworker＝onmessage／postMessage を持つ decoder・encoder・worker の入口）は tsconfig.worker.json＝あれば続けて回す（geopbf・TS 化 段 3）
 	const w = path.join(d, "tsconfig.worker.json");
 	if (fs.existsSync(path.join(ROOT, w))) dirs.push(w);
+}
+const shard = /^(\d+)\/(\d+)$/.exec(process.env.TYPECHECK_SHARD || "");
+if (shard) {
+	const [i, n] = [+shard[1], +shard[2]];
+	if (!(i >= 1 && i <= n)) { console.error(`TYPECHECK_SHARD の形が違う：${process.env.TYPECHECK_SHARD}`); process.exit(2); }
+	const keep = dirs.filter((d, j) => j % n === i - 1);
+	console.log(`shard ${i}/${n}：${keep.length}/${dirs.length} 本`);
+	dirs.splice(0, dirs.length, ...keep);
 }
 const tsc = path.join(ROOT, "node_modules/.bin/tsc");
 const run = d => new Promise(res => {
