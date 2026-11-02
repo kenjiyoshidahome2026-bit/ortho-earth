@@ -23,7 +23,7 @@ try {
 	const SR = await import("@ortho-earth/core/src/gpu/ssr.ts");   // SSR（2026-11-01）＝映り込み（深度・stencil を読む＝1x/4x）と合成
 	for (const ms of [false, true]) mods.push([`SSR_WGSL(${ms})`, SR.SSR_WGSL(ms)]);
 	mods.push(["SSR_COMP_WGSL", SR.SSR_COMP_WGSL]);
-	mods.push(["SSR_BLUR_WGSL(h)", SR.SSR_BLUR_WGSL([1, 0])], ["SSR_BLUR_WGSL(v)", SR.SSR_BLUR_WGSL([0, 1])]);
+	for (const ms of [false, true]) mods.push([`SSR_BLUR_WGSL(h,${ms})`, SR.SSR_BLUR_WGSL([1, 0], ms)], [`SSR_BLUR_WGSL(v,${ms})`, SR.SSR_BLUR_WGSL([0, 1], ms)]);
 	const SF = await import("@ortho-earth/core/src/gpu/scenefx.ts");   // 場面の効果（2026-11-01）＝接触影・合成（濡れ）・霧と雨の筋・光芒・イラスト風（深度を読む＝1x/4x）と光芒の合成
 	for (const ms of [false, true]) mods.push([`FX_CONTACT_WGSL(${ms})`, SF.FX_CONTACT_WGSL(ms)], [`FX_PRE_WGSL(${ms})`, SF.FX_PRE_WGSL(ms)], [`FX_FOG_WGSL(${ms})`, SF.FX_FOG_WGSL(ms)], [`FX_RAYS_WGSL(${ms})`, SF.FX_RAYS_WGSL(ms)], [`FX_TOON_WGSL(${ms})`, SF.FX_TOON_WGSL(ms)]);
 	mods.push(["FX_RAYS_COMP_WGSL", SF.FX_RAYS_COMP_WGSL]);
