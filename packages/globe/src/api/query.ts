@@ -82,7 +82,30 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 			if (t > 0 && t < 1 && (E[0] + t * d0) ** 2 + (E[1] + t * d1) ** 2 + (E[2] + t * d2) ** 2 < 1 - 1e-9) return null;   // 目→点が海面の球をくぐる＝裏
 			return [(cxp / w * 0.5 + 0.5) * W, (1 - (cyp / w * 0.5 + 0.5)) * H, w];
 		};
+		const P3 = (lon: number, lat: number, R: number) => pos(lonlatTo3D(lon, lat), ELL_ON ? ellNormal3D(lon, lat) : null, R);
+		const rayOf = (x: number, y: number): [number[], number[]] | null => {   // 画素の光線（近平面の点 A・向き d）＝core の unproject と同じ逆行列
+			const I = st.invMvp; if (!I) return null;
+			const nx = x * live.dpr / st.W * 2 - 1, ny = (1 - y * live.dpr / st.H) * 2 - 1;
+			const tr = (z: number) => { const v = [0, 1, 2, 3].map(r => I[r] * nx + I[4 + r] * ny + I[8 + r] * z + I[12 + r]); return [v[0] / v[3], v[1] / v[3], v[2] / v[3]]; };
+			const A = tr(-1), B = tr(1); return [A, [B[0] - A[0], B[1] - A[1], B[2] - A[2]]];
+		};
+		const triT = (A: number[], d: number[], p0: ArrayLike<number>, p1: ArrayLike<number>, p2: ArrayLike<number>): number | null => {   // Möller–Trumbore（光線の前＝t≥0）
+			const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+			const h = [d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]], a = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2];
+			if (Math.abs(a) < 1e-30) return null;
+			const f = 1 / a, s = [A[0] - p0[0], A[1] - p0[1], A[2] - p0[2]], u = f * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2]); if (u < 0 || u > 1) return null;
+			const q = [s[1] * e1[2] - s[2] * e1[1], s[2] * e1[0] - s[0] * e1[2], s[0] * e1[1] - s[1] * e1[0]], v = f * (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]); if (v < 0 || u + v > 1) return null;
+			const t = f * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]); return t >= 0 ? t : null;
+		};
 		const envOf = (gnd: (lon: number, lat: number) => number): ExtEnv => ({
+			wall: (a, b, bottom, top, x, y) => {   // 目の後ろに頂点がある壁＝3D の光線と面（2 つの三角形）・奥行き＝当たった点の clip の w
+				const r = rayOf(x, y); if (!r) return null;
+				const ga = gnd(a[0], a[1]), gb = gnd(b[0], b[1]);
+				const a0 = P3(a[0], a[1], ga + bottom * k), a1 = P3(a[0], a[1], ga + top * k), b0 = P3(b[0], b[1], gb + bottom * k), b1 = P3(b[0], b[1], gb + top * k);
+				const t = triT(r[0], r[1], a0, b0, b1) ?? triT(r[0], r[1], a0, b1, a1); if (t == null) return null;
+				const w = clipOf([r[0][0] + t * r[1][0], r[0][1] + t * r[1][1], r[0][2] + t * r[1][2]])[2];
+				return w > 1e-9 ? w : null;
+			},
 			vtx: (lon, lat, hM) => screenAt(lon, lat, gnd(lon, lat) + hM * k),
 			roof: (x, y, hM, lon0, lat0) => {   // 光線を屋根の高さの球で受ける（起伏＝当たった所の地面で 1 回受け直す）。目が屋根より低い＝屋根は見えない
 				let R = gnd(lon0, lat0) + hM * k;
