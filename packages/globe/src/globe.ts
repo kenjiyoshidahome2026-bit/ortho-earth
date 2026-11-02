@@ -2630,8 +2630,8 @@ const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => {
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
 	let ll = unproject(st, x * dpr, y * dpr); const pf = dispPf();
 	if (!ll || noTerr || pf <= 0 || !(demMain || getHeight)) return ll;
-	if (demMain?.heightSync) return marchGround(st, x, y, pf, elevOf);
-	// 同期で読めない DEM（quantized-mesh・既定の DTM）＝光線を歩くと標本ごとに照会が出る＝従来の不動点の反復（最大 6 回・1e-7° で止める・2026-11-02）
+	if (demMain?.heightSync && !demMain.viaLoad) return marchGround(st, x, y, pf, elevOf);
+	// 同期で読めない DEM（quantized-mesh・既定の DTM）・読み口を通る DEM＝光線を歩くと標本ごとに照会が出る＝従来の不動点の反復（最大 6 回・1e-7° で止める・2026-11-02）
 	for (let i = 0; i < 6; i++) {
 		const r = dispRadius(ll[0], ll[1]); if (r === 1) break;
 		const n = unproject(st, x * dpr, y * dpr, r); if (!n) break;
@@ -2720,7 +2720,7 @@ const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
 	const pr = planeR(); if (pr !== 1) return unproject(st, x * dpr, y * dpr, pr);
 	let ll = unproject(st, x * dpr, y * dpr); const pf = dispPf();
 	if (!ll || pf <= 0 || !(demMain || getHeight)) return ll;
-	if (!demMain?.heightSync) {   // 同期で読めない DEM（quantized-mesh・既定の DTM）＝従来どおり当たった点の標高を待って反復（上限なし・o1102o で段 2 の道・2026-11-02）
+	if (!demMain?.heightSync || demMain.viaLoad) {   // 同期で読めない DEM（quantized-mesh・既定の DTM）・読み口を通る DEM（addProtocol の raster-dem＝タイルごとに復号して遅れて届く）＝従来どおり当たった点の標高を待って反復（上限なし・o1102o で段 2 の道・2026-11-02）
 		for (let i = 0; i < 6; i++) {
 			const h = await heightAt(ll[0], ll[1]).catch(() => 0);
 			elevMemo.set(Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), h);

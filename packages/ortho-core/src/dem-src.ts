@@ -21,7 +21,7 @@ export interface DemSpec { tiles: string[]; encoding: string; tileSize: number; 
 /** セルの標高格子（altpbf のタイルと同じ形＋出所と有効率） */
 export interface DemCell { data: Float32Array; width: number; height: number; lng: number; lat: number; range: number; source: string; valid: number }
 /** 標高ソースの 4 つの口（raster-dem と quantized-mesh で共通） */
-export interface DemSource { spec: DemSpec | QmeshSpec; ready?: Promise<unknown>; covers(lng0: number, lat0: number, range?: number): boolean; height(lon: number, lat: number, zHint?: number | null): Promise<number>; heightSync?(lon: number, lat: number, zHint?: number | null): number; cell(lng0: number, lat0: number, range?: number, N?: number): Promise<DemCell | null>; tileSpan?: (z: number) => number }
+export interface DemSource { spec: DemSpec | QmeshSpec; ready?: Promise<unknown>; covers(lng0: number, lat0: number, range?: number): boolean; height(lon: number, lat: number, zHint?: number | null): Promise<number>; heightSync?(lon: number, lat: number, zHint?: number | null): number; viaLoad?: boolean; cell(lng0: number, lat0: number, range?: number, N?: number): Promise<DemCell | null>; tileSpan?: (z: number) => number }
 interface DemTile { h: Float32Array; n: number }
 
 const lon2x = (lon: number, z: number): number => (lon + 180) / 360 * (1 << z);
@@ -108,7 +108,7 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 		const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
 		return (a * (1 - ax) + b * ax) * (1 - ay) + (c * (1 - ax) + d * ax) * ay;
 	};
-	return {
+	const src: DemSource = {
 		spec,
 		covers: (lng0: number, lat0: number, range = 1): boolean => inBounds(lng0, lat0, lng0 + range, lat0 + range),
 		// 1 点＝zHint（今の視点のタイルの z・無ければ最大ズーム）のタイルから。無い（404）なら親へ上がる＝maxzoom の申告が無い source（既定 22）で最大ズームを直に引いて 404 を積まない（2026-09-30）
@@ -160,4 +160,8 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 			return valid ? { data, width: N, height: N, lng: lng0, lat: lat0, range, source: "dem", valid: valid / (N * N) } : null;
 		},
 	};
+	// 読み口（addProtocol の raster-dem・Cesium の口の地形プロバイダ）を通る DEM は viaLoad＝タイルごとに復号して遅れて届く（quantized-mesh を raster-dem として読む例で、
+	// 光線の歩きが標本ごとに待って 160 点の問い合わせが 25 秒・段 1 に落ちた）。呼び手（globe の unproject）は光線を歩かず従来の不動点の反復に回る（2026-11-02）
+	src.viaLoad = !!load;
+	return src;
 }
