@@ -58,7 +58,7 @@ struct FxP { rF: vec4f, rX: vec4f, rY: vec4f, i0: vec4f, i1: vec4f, i2: vec4f, e
 // i0/i1/i2＝[rF rX rY] の逆の行・eye＝(目 xyz, 目の高度 R)・sun＝(太陽 xyz, 目の所の昼の度合い)・sunS＝(画面の太陽 ndc xy, 前にあるか, 光芒の太陽の高さの重み)
 // cs＝接触影 (強さ, 長さ（視距離の割合）, 厚み（視距離の割合）, 歩数)・fog＝(濃さ／R, 高さの尺 R, 底 R, 太陽の散乱)・fogC＝(霧の色, 異方性 g)
 // ray＝光芒 (強さ, 減衰, 長さ, 歩数)・rain＝(濡れ＝強さ×濡れ, 暗さ, 時刻 s, 筋＝筋×強さ)・toon＝(段数, 線の濃さ, 線の閾, 彩度)
-// ex/ny＝目の所の東・北（β）・an＝目−錨（β）・size＝(W, H, 1/W, 1/H)・on＝(接触影, 霧, 光芒, 雨)・on2＝(イラスト, dpr, 線の消える距離 R, 0)
+// ex/ny＝目の所の東・北（β）・an＝目−錨（β）・size＝(W, H, 1/W, 1/H)・on＝(接触影, 霧, 光芒, 雨)・on2＝(イラスト, dpr, 線の消える距離 R, 積み上げの番目)
 @group(0) @binding(0) var<uniform> U: FxP;
 @group(0) @binding(1) var fxDep: ${ms ? "texture_depth_multisampled_2d" : "texture_depth_2d"};
 const FX_M: f32 = ${M_PER_R.toExponential(6)};
@@ -108,7 +108,7 @@ fn fxNormal(q: vec2i, Pc: vec4f) -> vec3f {
 	if (dot(n, Pc.xyz) > 0.0) { n = -n; }
 	return n;
 }
-fn fxIGN(p: vec2f) -> f32 { return fract(52.9829189 * fract(dot(p, vec2f(0.06711056, 0.00583715)))); }
+fn fxIGN(p0: vec2f) -> f32 { let p = p0 + U.on2.w * 5.588238; return fract(52.9829189 * fract(dot(p, vec2f(0.06711056, 0.00583715)))); }   // on2.w＝静止の積み上げの番目（毎フレームずらす）
 ${FX_NOISE_WGSL}
 ${FULL_VS}`;
 
@@ -263,6 +263,13 @@ ${FULL_VS}
 	return vec4f(textureSampleLevel(rT, rS, pos.xy * CP.xy, 0.0).rgb, 0.0);
 }`;
 
+// ⑦静止の積み上げ（2026-11-01）＝カメラが止まったら数フレーム、歩き始めのずらしを変えて描き、控え（前までの平均）を blend の定数 k/(k+1) で重ねる＝粒が消える。
+//   位置合わせは要らない（同じカメラの絵だけを足す）。α は触らない
+export const FX_ACC_WGSL = /* wgsl */`
+@group(0) @binding(0) var hT: texture_2d<f32>;
+${FULL_VS}
+@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f { return vec4f(textureLoad(hT, vec2i(pos.xy), 0).rgb, 1.0); }`;
+
 // ⑥イラスト風（本体の解像度・色だけ書く）＝輝度の段＋彩度＋1/w の二階差分の線
 export const FX_TOON_WGSL = (ms: boolean): string => HEAD(ms) + /* wgsl */`
 @group(0) @binding(2) var colT: texture_2d<f32>;
@@ -304,8 +311,11 @@ export interface SceneFxFrame {
 	depthTex: GPUTexture; samples: number; W: number; H: number; colorView: GPUTextureView; canvasTex: GPUTexture | null;
 	mvp: ArrayLike<number>; invMvp: ArrayLike<number>; eye: ArrayLike<number>; logCoef: number; sun: ArrayLike<number>; dpr: number;
 	pole: ArrayLike<number>; time: number; opt: SceneFxOptions; fade: number;
+	phase?: number;   // 静止の積み上げの番目（0..）＝雑音のずらし
 }
-export interface SceneFxGPU { pre(enc: GPUCommandEncoder, d: SceneFxFrame): void; post(enc: GPUCommandEncoder, d: SceneFxFrame): void; dispose(): void; bytes(): number }
+/** 静止の積み上げの入力（k＝0 は控えを取り直すだけ）。 */
+export interface AccFrame { samples: number; W: number; H: number; colorView: GPUTextureView; canvasTex: GPUTexture | null; k: number }
+export interface SceneFxGPU { pre(enc: GPUCommandEncoder, d: SceneFxFrame): void; post(enc: GPUCommandEncoder, d: SceneFxFrame): void; accumulate(enc: GPUCommandEncoder, d: AccFrame): void; dispose(): void; bytes(): number }
 
 /** 目の所の東・北（β）と錨からの相対（f64・純関数＝Node の検定が読む）。pole＝北極の β 点 */
 export function fxFrame(eye: ArrayLike<number>, pole: ArrayLike<number>): { ex: number[]; ny: number[]; an: number[] } {
@@ -396,7 +406,7 @@ export function createSceneFxGPU(device: GPUDevice, format: GPUTextureFormat): S
 		u.set(fr.ex, 60); u.set(fr.ny, 64); u.set(fr.an, 68);
 		u[72] = d.W; u[73] = d.H; u[74] = 1 / d.W; u[75] = 1 / d.H;
 		u[76] = o.contact ? 1 : 0; u[77] = o.fog ? 1 : 0; u[78] = o.rays ? 1 : 0; u[79] = o.rain ? 1 : 0;
-		u[80] = o.toon ? 1 : 0; u[81] = d.dpr; u[82] = Math.max(er - 1, 50 * M_PER_R) * 40;
+		u[80] = o.toon ? 1 : 0; u[81] = d.dpr; u[82] = Math.max(er - 1, 50 * M_PER_R) * 40; u[83] = d.phase ?? 0;
 		device.queue.writeBuffer(uBuf, 0, u);
 	}
 	function fullPass(enc: GPUCommandEncoder, view: GPUTextureView, p: GPURenderPipeline, g: GPUBindGroup, clear = false): void {
@@ -433,6 +443,25 @@ export function createSceneFxGPU(device: GPUDevice, format: GPUTextureFormat): S
 			fullPass(enc, d.colorView, pipe("toon" + d.samples, () => mk(FX_TOON_WGSL(ms), layDT(ms), RGB, d.samples, "fxToon")), bg(k, layDT(ms), d.depthTex, ct));
 		}
 	}
-	function dispose() { csT?.destroy(); rayT?.destroy(); colT?.destroy(); csT = rayT = colT = null; bgs.clear(); rcBG = null; uBuf.destroy(); cBuf.destroy(); pipes.clear(); }
-	return { pre, post, dispose, bytes: () => (cw >> 1) * (ch >> 1) * 12 + (colT ? cw * ch * 4 : 0) };
+	// 静止の積み上げ：控え histT（1x）を k/(k+1) で重ね、重ねた絵を控えへ取り直す
+	let histT: GPUTexture | null = null, hw0 = 0, hh0 = 0, accBG: GPUBindGroup | null = null;
+	const layA = lay("acc", () => device.createBindGroupLayout({ entries: [{ binding: 0, visibility: FS, texture: { sampleType: "unfilterable-float" } }] }));
+	const BLEND_K: GPUColorTargetState[] = [{ format, blend: { color: { srcFactor: "constant", dstFactor: "one-minus-constant", operation: "add" }, alpha: KEEP_A } }];
+	function accumulate(enc: GPUCommandEncoder, d: AccFrame): void {
+		if (!histT || hw0 !== d.W || hh0 !== d.H) {
+			histT?.destroy();
+			histT = device.createTexture({ size: [d.W, d.H], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+			hw0 = d.W; hh0 = d.H; accBG = device.createBindGroup({ layout: layA, entries: [{ binding: 0, resource: histT.createView() }] });
+			if (d.k > 0) d = { ...d, k: 0 };   // 控えが無い＝今の絵から始める
+		}
+		if (d.k > 0) {
+			const c = d.k / (d.k + 1);
+			const ps = enc.beginRenderPass({ colorAttachments: [{ view: d.colorView, loadOp: "load", storeOp: "store" }] });
+			ps.setPipeline(pipe("acc" + d.samples, () => mk(FX_ACC_WGSL, layA, BLEND_K, d.samples, "fxAcc"))); ps.setBindGroup(0, accBG!); ps.setBlendConstant({ r: c, g: c, b: c, a: c }); ps.draw(3); ps.end();
+		}
+		if (d.canvasTex) enc.copyTextureToTexture({ texture: d.canvasTex }, { texture: histT }, [d.W, d.H]);
+		else enc.beginRenderPass({ colorAttachments: [{ view: d.colorView, resolveTarget: histT.createView(), loadOp: "load", storeOp: "store" }] }).end();
+	}
+	function dispose() { csT?.destroy(); rayT?.destroy(); colT?.destroy(); histT?.destroy(); csT = rayT = colT = histT = null; bgs.clear(); rcBG = null; accBG = null; uBuf.destroy(); cBuf.destroy(); pipes.clear(); }
+	return { pre, post, accumulate, dispose, bytes: () => (cw >> 1) * (ch >> 1) * 12 + (colT ? cw * ch * 4 : 0) + hw0 * hh0 * 4 };
 }
