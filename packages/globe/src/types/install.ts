@@ -76,7 +76,7 @@ export interface RasterReturn {
 
 export type CameraLive = LiveOf<"maxPitchCur" | "zoomMinCur" | "camPadding" | "centerElevFixed" | "centerElevMode" | "followSt" | "mlLight" | "mlSky",
 	"zoomMaxCur" | "camUpdateFn" | "minPitchCur" | "camBounds" | "dpr" | "czmlCtl" | "flying">;
-export type CameraDeps = Pick<GlobeScope, "CAM_ZOOM_MIN" | "D2R" | "EARTH_M" | "MAXPITCH" | "R2D" | "animNow" | "cam" | "clock" | "flightCtl" | "flyTo" | "input" | "mapOn" | "onMove" | "opts" | "ownDestroy" | "pitchIn" | "pluginHost"
+export type CameraDeps = Pick<GlobeScope, "CAM_ZOOM_MIN" | "D2R" | "PUBLIC_DZ" | "EARTH_M" | "MAXPITCH" | "R2D" | "animNow" | "cam" | "clock" | "flightCtl" | "flyTo" | "input" | "mapOn" | "onMove" | "opts" | "ownDestroy" | "pitchIn" | "pluginHost"
 	| "reduceMotionOn" | "renderer" | "requestDraw" | "sendLight" | "sendSky" | "size" | "syncCenterAlt" | "unprojectXY" | "wPost">;
 export interface CameraReturn {
 	/** 毎移動の締め（setConstrain・setCameraUpdate・maxZoom・minPitch・maxBounds） */

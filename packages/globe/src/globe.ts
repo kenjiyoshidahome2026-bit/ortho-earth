@@ -149,6 +149,8 @@ interface HostOptions extends GlobeOptions {
 	atmosphere?: boolean;
 	/** false＝霧を焚かない（MapLibre の口の既定） */
 	fog?: boolean;
+	/** "maplibre"＝object の形の flyTo／easeTo を MapLibre の振り付け（同時補間・speed／curve／duration・defaultEasing）で（MapLibre の口が渡す） */
+	flight?: "maplibre";
 }
 /** 建物の台帳の 1 区（地域宣言の buildings.sets／catalog の JSON の要素） */
 /** 注記の 1 件＝基図のタイル注記（core の Label）か、ホストが足す名札（空港マーク・ランドマーク・POI＝書体・層の添字・ズーム域は持たない）。labelSender で worker へ */
@@ -2770,7 +2772,7 @@ const { clampCamLimits, tickFollow } = installCamera(map, {
 	get flying() { return flying; },
 	get mlLight() { return mlLight; }, set mlLight(v) { mlLight = v; },
 	get mlSky() { return mlSky; }, set mlSky(v) { mlSky = v; },
-}, { CAM_ZOOM_MIN, D2R, EARTH_M, MAXPITCH, R2D, animNow, cam, clock, flightCtl, flyTo, input, mapOn, onMove, opts, ownDestroy, pitchIn, pluginHost, reduceMotionOn, renderer, requestDraw, sendLight, sendSky, size, syncCenterAlt, unprojectXY, wPost });
+}, { CAM_ZOOM_MIN, D2R, PUBLIC_DZ, EARTH_M, MAXPITCH, R2D, animNow, cam, clock, flightCtl, flyTo, input, mapOn, onMove, opts, ownDestroy, pitchIn, pluginHost, reduceMotionOn, renderer, requestDraw, sendLight, sendSky, size, syncCenterAlt, unprojectXY, wPost });
 // 宇宙（球の外側）の色（B5・エンジンの口）：色の文字列・"transparent"・null＝起動時の既定（MapLibre の口は透明・内製は紺）。GL2 の canvas は α を持つ＝透明なら頁の色が見える。WebGPU は白に畳む
 // ── MapLibre の小口（B6・2026-10-12） ──
 // sprite：読んだ記号の名前を sprite の id ごとに覚える（removeSprite／setStyle で消すため）。default 以外は "id:名前"

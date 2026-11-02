@@ -50,9 +50,35 @@ export interface MapOptions {
 	minZoom?: number; maxZoom?: number; maxPitch?: number; bounds?: LngLatBoundsLike; maxBounds?: LngLatBoundsLike; fitBoundsOptions?: object;
 	interactive?: boolean; cooperativeGestures?: boolean; centerClampedToGround?: boolean; elevation?: number; attributionControl?: boolean;
 	maplibreLogo?: boolean; hash?: unknown; renderWorldCopies?: boolean; transformRequest?: GlobeOptions["transformRequest"];
+	/** 可動域の自作（MapLibre 6 の transformConstrain＝既定の制約の代わり・(LngLat, zoom) → { center, zoom }） */
+	transformConstrain?: ConstrainFn | null;
 	ortho?: GlobeOptions;
 	[k: string]: unknown;
 }
+/** 可動域の関数（MapLibre の z） */
+type ConstrainFn = (center: LngLat, zoom: number) => { center?: LngLatLike | null; zoom?: number | null } | null | undefined;
+// MapLibre のメルカトルの既定の制約（6.11.2 の mercator の defaultConstrain の緯度の分）＝画面の上下に世界の外（±85.05° の先）を出さない所まで中心の緯度を寄せる。
+// 世界の高さが画面より低い時は中心を赤道へ（MapLibre はさらに z を上げるが、球の地図は z を上げない＝採点の clampedML と同じく引いたままを許す）。
+// 低い z（600px の画面で z≲2）でだけ効く＝例 display-html-clusters-with-custom-properties（z0.3・中心 20°N→MapLibre は 8.6°N）。地球儀の投影（setProjection globe）には無い
+const MAX_LAT = 85.051129;
+const mercY = (lat: number): number => (180 - 180 / Math.PI * Math.log(Math.tan(Math.PI / 4 + Math.max(-MAX_LAT, Math.min(MAX_LAT, lat)) * Math.PI / 360))) / 360;
+const latOfMercY = (y: number): number => 360 / Math.PI * Math.atan(Math.exp((180 - y * 360) * Math.PI / 180)) - 90;
+const mercatorConstrain = (st: MlState) => (v: { center: number[]; zoom: number }): { center: [number, number] } | null => {
+	if (st.projection !== "mercator") return null;
+	const H = st.container.clientHeight; if (!H) return null;
+	const ws = 512 * 2 ** (v.zoom - (st.dz ?? 1)), h2 = H / 2, lng = v.center[0];
+	if (ws < H) return Math.abs(v.center[1]) > 1e-9 ? { center: [lng, 0] } : null;
+	const y = mercY(v.center[1]) * ws;
+	if (y - h2 < 0) return { center: [lng, latOfMercY(h2 / ws)] };
+	if (y + h2 > ws) return { center: [lng, latOfMercY((ws - h2) / ws)] };
+	return null;
+};
+// エンジンの可動域の口へ（fn 無し＝MapLibre の既定の制約）。エンジンの口はエンジンの z＝dz を往復させる
+const setConstrain = (st: MlState, fn?: ConstrainFn | null): void => {
+	const dz = st.dz ?? 1;
+	const w = typeof fn === "function" ? (v: { center: number[]; zoom: number }) => { const r = fn(new LngLat(v.center[0], v.center[1]), v.zoom - dz); return r ? { center: r.center != null ? lngArr(r.center) : undefined, zoom: r.zoom != null ? r.zoom + dz : undefined } : null; } : mercatorConstrain(st);
+	onEngine(st, eng => { try { eng.setConstrain(w); } catch (e) { console.error("[setTransformConstrain]", e); } });
+};
 /** 通訳の地図の状態（WeakMap の中身＝エンジンの map に鍵を生やさない） */
 interface MlState {
 	options: MapOptions; container: HTMLElement; engine: Engine | null; loaded: boolean; idle: boolean; inert: boolean;
@@ -250,12 +276,13 @@ export class Map {
 		const o = {
 			// 目盛り＝"mercator"（MapLibre のメルカトルの縮尺＝起動の中心緯度で log2(sec φ) 寄る・style は MapLibre の z で評価）。options.ortho.zoomScale で "maplibre"（一律 +1）にもできる
 			target: container, view: viewOf(st.init, (options.ortho?.zoomScale ?? "mercator") === "mercator" ? mercatorDz(st.init.center.lat) : 1), zoomScale: "mercator",
+			flight: "maplibre",   // object の形の flyTo／easeTo を MapLibre の振り付けで（api/camera.ts の mlFlight）
 			night: false, sky: false, coastline: false, terrain: false, fog: false, chips: false, countryTip: false, persistView: false,   // fog:false＝MapLibre は霧を持たない（遠くの建物・地形が地の色へ溶けない・2026-09-30）
 			centerElevation: options.centerClampedToGround === false ? +(options.elevation ?? 0) : "ground",   // 注視点の高さ＝MapLibre の centerClampedToGround（既定＝地形の上の中心点）／false＋elevation＝固定（2026-09-30）
 			ellipsoid: false,   // 表示の形は球に固定（#43・2026-09-28 本人裁定）＝MapLibre の地球儀と同じ（楕円体はデスクトップの既定だが、ここは「同じ絵」が物差し）。options.ortho.ellipsoid で変えられる・?ell=1 は URL が勝つ
 			instruments: options.attributionControl === false ? false : ["attr"],
 			style: options.style ?? { version: 8, sources: {}, layers: [] },   // style 無しの Map＝空の style（MapLibre と同じく後から setStyle できる・エンジンは起動時の style が要る）
-			...(options.maxZoom != null && { zoomMax: options.maxZoom }),
+			zoomMax: options.maxZoom ?? 22,   // MapLibre の maxZoom の既定 22（MapLibre の z・起動の口で dz を足す）。旧＝指定の時だけ＝エンジンの既定 20（MapLibre の z で 19 前後）で頭打ち＝例 walk-around-a-map-in-first-person の目の高さ 1.6 m（z 21.3）が 2.75 段引いていた
 			handlers: st.handlerInit, interactive: options.interactive, cooperativeGestures: !!options.cooperativeGestures,   // 手触りの旗（A2）
 			maxPitch: options.maxPitch ?? 85,   // MapLibre の既定は 60・この口の既定は 85（MapLibre 6.x が許す 180 の手前・地平線まで見せる・2026-10-12 本人裁定 A1）。ortho の口（createGlobe）の既定 75 は変えない
 			...(options.transformRequest && { transformRequest: options.transformRequest }),
@@ -271,8 +298,10 @@ export class Map {
 				container.appendChild(scr); let t = 0;
 				eng.on("cooperativegestureprevented", e => { scr.textContent = txt[e.kind] || txt.wheel; scr.style.display = "flex"; clearTimeout(t); t = setTimeout(() => { scr.style.display = "none"; }, 1000); });
 			}
+			setConstrain(st, options.transformConstrain);   // 自作の制約（MapLibre 6 の transformConstrain）か、メルカトルの既定の制約（後から呼んだ setTransformConstrain が勝つ＝下の engineFns より前）
 			for (const f of st.engineFns.splice(0)) f(eng);
 			if (options.minZoom != null) eng.setMinZoom(options.minZoom);
+			else if (typeof options.transformConstrain === "function") eng.setMinZoom(-2);   // MapLibre の minZoom の既定 −2（自作の制約は z を床へ寄せない＝例 customize-the-map-transform-constrain の z −2。既定の床はエンジンの z1）
 			if (options.maxBounds) eng.setMaxBounds(boundsArr(options.maxBounds));
 			if (options.bounds) eng.fitBounds(boundsArr(options.bounds), { ...options.fitBoundsOptions, animate: false });
 			await eng.once("load");
@@ -383,9 +412,9 @@ export class Map {
 	getCenterElevation(): number { return ask(this, "getCenterElevation", [], { before: 0 }) ?? 0; }
 	getCameraTargetElevation(): number { return this.getCenterElevation(); }
 	// 可動域の自作（MapLibre 同名・A3）：fn(LngLat, zoom) → { center, zoom }（MapLibre の z）。エンジンの口はエンジンの z＝dz を往復させる
-	setTransformConstrain(fn?: ((center: LngLat, zoom: number) => { center?: LngLatLike | null; zoom?: number | null } | null | undefined) | null): this {
-		const st = S.get(this)!, dz = st.dz ?? 1;
-		ask(this, "setConstrain", [typeof fn === "function" ? (v: { center: number[]; zoom: number }) => { const r = fn(new LngLat(v.center[0], v.center[1]), v.zoom - dz); return r ? { center: r.center != null ? lngArr(r.center) : undefined, zoom: r.zoom != null ? r.zoom + dz : undefined } : null; } : null]);
+	setTransformConstrain(fn?: ConstrainFn | null): this {
+		const st = S.get(this)!;
+		if (!st.inert) setConstrain(st, fn);   // null＝MapLibre の既定の制約へ戻す
 		return this;
 	}
 	// 自由カメラ（MapLibre 同名・A3）：位置＝目の経緯度と高さ（MercatorCoordinate）・向き＝四元数（geo.js の約束）。set は位置と向きから center/zoom/pitch/bearing/roll へ分解して jumpTo
