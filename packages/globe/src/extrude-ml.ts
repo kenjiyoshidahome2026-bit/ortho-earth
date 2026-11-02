@@ -15,6 +15,8 @@ type Scr = [number, number, number];
 export interface ExtHitEnv {
 	vtx(lon: number, lat: number, hM: number): Scr | null;
 	roof(x: number, y: number, hM: number, lon0: number, lat0: number): { ll: ArrayLike<number>; w: number } | null;
+	/** 壁の 1 面を光線で当てる（画面へ写せない頂点＝目の後ろ・近平面の手前がある面）→ 奥行き w｜null。無い口は従来どおり面を捨てる */
+	wall?(a: ArrayLike<number>, b: ArrayLike<number>, bottom: number, top: number, x: number, y: number): number | null;
 }
 /** 当てる物＝点 { pt:[x,y] } か箱 { box:[x0,y0,x1,y1] }（CSS px） */
 export interface ExtHitQuery { pt?: number[] | null; box?: number[] | null }
@@ -81,7 +83,10 @@ export function hitExtrusion(polys: number[][][][], bottom: number, top: number,
 				const j = (i + 1) % n;
 				if (R[i][0] === R[j][0] && R[i][1] === R[j][1]) continue;
 				const [a0, a1] = P[i], [b0, b1] = P[j];
-				if (!a0 || !a1 || !b0 || !b1) continue;
+				if (!a0 || !a1 || !b0 || !b1) {   // 目の後ろに頂点がある面（建物の傍・中から見上げる）＝画面の四角形にできない＝3D の光線で当てる（2026-11-02・例 navigate-the-map-with-game-like-controls の高い 2 棟）
+					if (pt && env.wall) { const w = env.wall(R[i], R[j], bottom, top, pt[0], pt[1]); if (w != null) best = Math.min(best, w); }
+					continue;
+				}
 				const quad = [a0, b0, b1, a1];
 				if (pt) { if (pipXY(pt[0], pt[1], quad)) best = Math.min(best, depthAt(quad, pt[0], pt[1])); }
 				else if (quadHitsBox(quad, box!)) best = Math.min(best, a0[2], b0[2], b1[2], a1[2]);

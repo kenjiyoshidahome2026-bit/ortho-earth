@@ -31,8 +31,8 @@ export type { ElevGrid, ElevTileGrid } from "./elevation.ts";
 export { createLabelLayer } from "./labels2d.ts";
 export type { LabelLayer } from "./labels2d.ts";
 export * from "./camera.ts";   // カメラは全部（@ortho-earth/core/camera と同じ口＝projectClip・viewRays・sphereRayUniforms・anchorUV・ellAxisRatio も根から読める・2.0）
-export { createFlight, shortBearingOf, easePlan } from "./flight.ts";
-export type { FlightController, CreateFlightOptions } from "./flight.ts";
+export { createFlight, shortBearingOf, easePlan, mlFlyPlan, ML_EASING, bezierEasing } from "./flight.ts";
+export type { FlightController, CreateFlightOptions, MLFlyOptions } from "./flight.ts";
 export { createInput, isTypingTarget, INERTIA, INERTIA_WINDOW_MS, HANDLER_NAMES, bezierEase, inertiaOf, inertiaOf2, snapZoom } from "./input.ts";
 export type { HandlerName, InertiaOptions, InputOptions, InputController } from "./input.ts";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.ts";

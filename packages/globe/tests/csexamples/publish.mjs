@@ -29,6 +29,9 @@ for (const dir of runs) {
 	for (const g of s.graded) if (fs.existsSync(path.join(dir, "ortho", `${g.name}.png`)) && fs.existsSync(path.join(dir, "ref", `${g.name}.png`))) pick.set(g.name, { dir, g });
 }
 const LV = [["Doesn't run", "the example does not run on Ortho Earth"], ["Runs", "it runs, but some of it does not work"], ["Same answers", "it works and answers the same (entities, tiles, camera), the picture differs"], ["Same picture", "it works and gives the same picture as Cesium"]];
+// 上段・下段の文だけ日英（ブラウザの言語が ja なら日本語・他は英語・右上の札で切替）。カード・絞り込み・対話は英語のまま（2026-11-02 本人）
+const LV_JA = [["動かない", "Ortho Earth で例が動かない"], ["動く", "動くが、一部が働かない"], ["同じ答え", "動いて答え（エンティティ・タイル・カメラ）が同じ、絵は違う"], ["同じ絵", "動いて Cesium と同じ絵になる"]];
+const i18n = (en, ja) => `<div class="i18n" lang="en">${en}</div><div class="i18n" lang="ja">${ja}</div>`;
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c]);
 const lvDot = l => l == null ? "" : `<span class="lv lv${l}" title="${esc(LV[l][0])}"></span>`;
 // the data shown in each picture: the providers whose imagery / tiles the example asks for (attribution under the card)
@@ -59,7 +62,7 @@ const card = r => `<article class="card" data-level="${r.level}" data-label="${e
 <p class="meta"><button type="button" class="cat" data-label="${esc(r.label)}">${esc(r.label)}</button> ${lvDot(r.level)}${r.pc == null ? "" : `<span class="pct" title="cells of the picture whose colour matches CesiumJS">${r.pc}%</span>`}${r.dev ? ` <span class="nt" title="A development example of CesiumJS">dev</span>` : ""}</p>
 ${r.credit.length ? `<p class="cr">Imagery: ${esc(r.credit.join(" · "))}</p>` : ""}</div></article>`;
 const payload = Object.fromEntries(rows.map(r => [r.name, { t: r.title, l: r.level, pc: r.pc, note: r.note, cr: r.credit }]));
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(TITLE)}</title>
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(TITLE)}</title><script>(()=>{let l="en";try{l=localStorage.getItem("lang")||((navigator.language||"").toLowerCase().startsWith("ja")?"ja":"en")}catch(e){}document.documentElement.dataset.lang=l})()</script>
 <meta name="description" content="${esc(DESC)}"><meta name="theme-color" content="#f7f7f5"><link rel="canonical" href="https://www.ortho-earth.com/sandcastle/"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta property="og:title" content="${esc(TITLE)}"><meta property="og:description" content="${esc(DESC)}"><meta property="og:image" content="https://www.ortho-earth.com/thumbs/sandcastle.webp"><meta property="og:url" content="https://www.ortho-earth.com/sandcastle/"><meta name="twitter:card" content="summary_large_image">
 <style>
 :root{--bg:#f7f7f5;--fg:#17170f;--muted:#6f6e68;--card:#ffffff;--line:#e6e5e0;--acc:#d99a2b;--shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px -12px rgba(0,0,0,.18)}
@@ -90,18 +93,26 @@ dialog{border:0;border-radius:16px;padding:0;width:min(1080px,calc(100vw - 32px)
 .dh a,.dh button{border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer;text-decoration:none} .dh a:hover,.dh button:hover{border-color:var(--fg)}
 .dp{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px} .dp figure{border-radius:10px} @media (max-width:640px){.dp{grid-template-columns:1fr}}
 .dm{padding:0 18px 18px;font-size:13.5px;color:var(--muted)} .dm p{margin:0} .dm p+p{margin-top:4px}
+.i18n[lang=ja]{display:none} html[data-lang=ja] .i18n[lang=ja]{display:block} html[data-lang=ja] .i18n[lang=en]{display:none} html[data-lang=ja] .i18n .lv{margin-top:1px}
+header.top{position:relative} .lang{position:absolute;right:0;top:0;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer} .lang:hover{border-color:var(--fg)}
 </style></head><body><main>
-<header class="top"><p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md">Get started</a> · <a href="/maplibre/">MapLibre examples</a></p>
+<header class="top"><p class="home"><a href="/">Ortho Earth</a> · <a href="/start.md" data-ja="はじめに">Get started</a> · <a href="/maplibre/" data-ja="MapLibre の例">MapLibre examples</a><button type="button" id="lang" class="lang" title="日本語 / English">日本語</button></p>
 <h1>Sandcastle <span class="ver">v${esc(series)}</span></h1>
-<p>A comparison of the official <a href="https://sandcastle.cesium.com/" target="_blank" rel="noopener">CesiumJS Sandcastle</a> examples run on Ortho Earth — not the official Sandcastle.</p>
-<p>Each of the ${n} examples runs unchanged: once on CesiumJS ${esc(cesium)}, once on the Ortho Earth globe through its Cesium-compatible facade (<code>@ortho-earth/cesium</code>: Cesium's own coordinates, time, CZML, entities and 3D Tiles loading, with Ortho Earth doing the drawing), at the same time and from the same camera. Each card shows CesiumJS on the left and Ortho Earth on the right. Click a card for the larger pictures and the example on the official Sandcastle.</p></header>
-<nav><button data-f="all" class="on">All · ${n}</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}" title="${esc(LV[l][1])}">${lvDot(l)}${esc(LV[l][0])} · ${cnt(l)}</button>`).join("")}<span class="count" id="count"></span><span class="sp"></span>
-<select id="cat"><option value="">All labels</option>${labels.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
+${i18n(`<p>A comparison of the official <a href="https://sandcastle.cesium.com/" target="_blank" rel="noopener">CesiumJS Sandcastle</a> examples run on Ortho Earth — not the official Sandcastle.</p>
+<p>Each of the ${n} examples runs unchanged: once on CesiumJS ${esc(cesium)}, once on the Ortho Earth globe through its Cesium-compatible facade (<code>@ortho-earth/cesium</code>: Cesium's own coordinates, time, CZML, entities and 3D Tiles loading, with Ortho Earth doing the drawing), at the same time and from the same camera. Each card shows CesiumJS on the left and Ortho Earth on the right. Click a card for the larger pictures and the example on the official Sandcastle.</p>`,
+`<p>公式の <a href="https://sandcastle.cesium.com/" target="_blank" rel="noopener">CesiumJS Sandcastle</a> の例を Ortho Earth で走らせた比較です。公式の Sandcastle ではありません。</p>
+<p>${n} 例を、手を加えずにそれぞれ二度走らせました。一度は CesiumJS ${esc(cesium)} で、一度は Cesium 互換の外装（<code>@ortho-earth/cesium</code>＝座標・時刻・CZML・エンティティ・3D Tiles の読み込みは Cesium のまま、描くのは Ortho Earth）を通して Ortho Earth の地球儀で、同じ時刻・同じカメラから。各カードの左が CesiumJS、右が Ortho Earth です。カードを押すと大きな絵と、公式 Sandcastle の例へのリンクが開きます。</p>`)}</header>
+<nav><button data-f="all" class="on"><span data-ja="全部">All</span> · ${n}</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}" title="${esc(LV[l][1])}">${lvDot(l)}<span data-ja="${esc(LV_JA[l][0])}">${esc(LV[l][0])}</span> · ${cnt(l)}</button>`).join("")}<span class="count" id="count"></span><span class="sp"></span>
+<select id="cat"><option value="" data-ja="全ラベル">All labels</option>${labels.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
 <div class="grid">${rows.map(card).join("\n")}</div>
-<footer>Levels: ${[3, 2, 1, 0].map(l => `${lvDot(l)}${l} ${esc(LV[l][0])} = ${esc(LV[l][1])}`).join(" · ")}.<br>
+<footer>${i18n(`Levels: ${[3, 2, 1, 0].map(l => `${lvDot(l)}${l} ${esc(LV[l][0])} = ${esc(LV[l][1])}`).join(" · ")}.<br>
 Picture % = the cells of a 64×48 grid over the 800×600 picture whose colour matches CesiumJS (the Cesium widgets masked). The level is a guide; the pictures are what to judge by.<br>
 Pictures: CesiumJS ${esc(cesium)} and Ortho Earth (@ortho-earth/globe ${esc(series)}) on a real GPU (Apple M5 Pro, WebGPU), captured ${esc(at.slice(0, 10))}. Examples whose pictures are not compared (the Moon, Mars, examples without a 3D view) are left out.<br>
-Examples © Cesium GS, Inc. and contributors (Apache-2.0), run unchanged from CesiumJS ${esc(cesium)}; CesiumJS draws the left pictures. Ortho Earth is not affiliated with or endorsed by Cesium GS, Inc. Imagery, terrain and 3D Tiles in the pictures belong to their providers (Google, Microsoft Bing, Cesium ion and the others each example credits); the providers named under a card are those the example asks for.</footer>
+Examples © Cesium GS, Inc. and contributors (Apache-2.0), run unchanged from CesiumJS ${esc(cesium)}; CesiumJS draws the left pictures. Ortho Earth is not affiliated with or endorsed by Cesium GS, Inc. Imagery, terrain and 3D Tiles in the pictures belong to their providers (Google, Microsoft Bing, Cesium ion and the others each example credits); the providers named under a card are those the example asks for.`,
+`段：${[3, 2, 1, 0].map(l => `${lvDot(l)}${l} ${esc(LV_JA[l][0])}＝${esc(LV_JA[l][1])}`).join(" · ")}。<br>
+絵の %＝800×600 の絵に 64×48 の格子を置き、色が CesiumJS と合う升の割合（Cesium の部品は覆って比べます）。段は目安で、判断は絵で。<br>
+絵：CesiumJS ${esc(cesium)} と Ortho Earth（@ortho-earth/globe ${esc(series)}）を実機の GPU（Apple M5 Pro・WebGPU）で ${esc(at.slice(0, 10))} に撮ったもの。絵を比べない例（月・火星・3D の眺めがない例）は載せていません。<br>
+例 © Cesium GS, Inc. and contributors（Apache-2.0）。CesiumJS ${esc(cesium)} の例を手を加えずに走らせ、左の絵は CesiumJS が描いています。Ortho Earth は Cesium GS, Inc. と無関係で、承認も受けていません。絵の中の画像・地形・3D Tiles は各提供元（Google・Microsoft Bing・Cesium ion ほか、各例が記す提供元）のものです。カードの下の提供元は、その例が求めるものです。`)}</footer>
 </main>
 <dialog id="dlg"><div class="dh"><h3 id="dt"></h3><a id="sc" target="_blank" rel="noopener">Open on Sandcastle</a><button type="button" id="cl">Close</button></div>
 <div class="dp"><figure><img id="ir" alt="CesiumJS"><figcaption>CesiumJS</figcaption></figure><figure><img id="io" alt="Ortho Earth"><figcaption>Ortho Earth</figcaption></figure></div>
@@ -110,7 +121,9 @@ Examples © Cesium GS, Inc. and contributors (Apache-2.0), run unchanged from Ce
 <script>
 let f = "all", cat = "";
 const $ = id => document.getElementById(id), P = JSON.parse($("payload").textContent), LV = ${JSON.stringify(LV.map(x => x[0]))};
-const apply = () => { let k = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || f === "l" + c.dataset.level) && (!cat || c.dataset.label === cat); c.hidden = !on; if (on) k++; } $("count").textContent = k + " examples"; };
+const lgBtn = document.getElementById("lang"); const lgPaint = () => { const ja = document.documentElement.dataset.lang === "ja"; document.documentElement.lang = ja ? "ja" : "en"; lgBtn.textContent = ja ? "English" : "日本語"; for (const el of document.querySelectorAll("[data-ja]")) { if (el.dataset.en == null) el.dataset.en = el.textContent; el.textContent = ja ? el.dataset.ja : el.dataset.en; } }; lgPaint();
+lgBtn.onclick = () => { const l = document.documentElement.dataset.lang === "ja" ? "en" : "ja"; document.documentElement.dataset.lang = l; try { localStorage.setItem("lang", l); } catch (e) {} lgPaint(); apply(); };
+const apply = () => { let k = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || f === "l" + c.dataset.level) && (!cat || c.dataset.label === cat); c.hidden = !on; if (on) k++; } $("count").textContent = document.documentElement.dataset.lang === "ja" ? k + " 例" : k + " examples"; };
 for (const b of document.querySelectorAll("nav button")) b.onclick = () => { document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b)); f = b.dataset.f; apply(); };
 $("cat").onchange = e => { cat = e.target.value; apply(); };
 for (const b of document.querySelectorAll(".meta .cat")) b.onclick = e => { e.stopPropagation(); cat = cat === b.dataset.label ? "" : b.dataset.label; $("cat").value = cat; apply(); window.scrollTo({ top: 0, behavior: "smooth" }); };

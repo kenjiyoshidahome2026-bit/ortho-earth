@@ -109,6 +109,8 @@ export interface GlobeCoreApi {
 	projectLL(lon: number, lat: number): [x: number, y: number, front: number];   // globe.js:2474
 	/** canvasローカルCSS座標→経緯度（球外はnull。onClick/setEditClickのx,yと同座標系） */
 	unprojectXY(x: number, y: number): LonLat | null;   // globe.js:2475
+	/** unprojectXY の待つ版＝地形を描いて傾けた地図で標高の到着を待って地形の面で受ける（queryRenderedFeatures の点が使う） */
+	unprojectXYAsync(x: number, y: number): Promise<LonLat | null>;
 	/** 経緯度→画面の点（MapLibre と同名・1.1.1〜）。座標系は projectLL と同じ（地図の容れ物の左上原点の CSS px）。
 	 *  見えない所（球の裏・地平線の外）も地平線へ寄せた位置を返す＝見えるかどうかは projectLL の front で */
 	project(lngLat: LonLat | { lng: number; lat: number }): { x: number; y: number };   // globe.js:2479

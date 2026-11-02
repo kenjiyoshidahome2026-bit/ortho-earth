@@ -684,8 +684,13 @@ export function installStyle(map: Installing<StyleApi>, live: StyleLive, {
 			return out;
 		}
 		const cl = sp!.cluster ? clusterNow(sid) : null;   // 集約の source＝今の段の丸と単点（cluster as data・段＝エンジンの z）
-		const W = size.w / live.dpr, H = size.h / live.dpr, mx = W / 4, my = H / 4;   // 画面の内側（余白 1/4）＝MapLibre の「読んであるタイル」の近似
-		const onScreen = (c: number[]) => { const p = map.projectLL(c[0], c[1]); return p[2] >= 0 && p[0] >= -mx && p[1] >= -my && p[0] <= W + mx && p[1] <= H + my; };
+		// MapLibre の「読んであるタイル」＝画面を覆う geojson のタイル（512px・タイルの z＝floor(MapLibre の z)）の中の地物。z0 なら 1 枚＝世界の全部（裏側の丸も返す・例 display-html-clusters-with-custom-properties は 13 個）。
+		// 覆うタイルは画面の格子（9×9）を経緯度へ戻して数える（旧＝画面の内側 1/4 の余白で切っていた＝低い z で裏側と縁の丸を落とした）
+		const W = size.w / live.dpr, H = size.h / live.dpr, tz = Math.max(0, Math.min(24, Math.floor(cam.zoom - PUBLIC_DZ)));
+		const tileKey = (lon: number, lat: number) => { const n = 2 ** tz, la = Math.max(-85.05, Math.min(85.05, lat)) * Math.PI / 180; return `${Math.floor(((lon + 180) / 360 % 1 + 1) % 1 * n)}/${Math.max(0, Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n)))}`; };
+		const covered = new Set<string>();
+		if (cl) for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8; j++) { const ll = map.unproject([W * i / 8, H * j / 8]); if (ll) covered.add(tileKey(ll.lng, ll.lat)); }
+		const onScreen = (c: number[]) => tz === 0 || covered.has(tileKey(c[0], c[1]));
 		if (cl) return qf(cl.fc.features.filter(f => cam.zoom >= (f.properties[ML_CZ0_KEY] as number) && cam.zoom < (f.properties[ML_CZ1_KEY] as number) && onScreen(f.geometry.coordinates)).map(f => ({ type: "Feature", ...(f.id != null ? { id: f.id } : {}), properties: stripMl(f.properties), geometry: f.geometry, source: sid }))) as RenderedFeature[];
 		const d = sp!.data as DataLike | string | null | undefined; if (!d || typeof d !== "object") return [];
 		const fs = (d.type === "FeatureCollection" ? d.features : d.type === "Feature" ? [d] : []) as FeatureLike[];

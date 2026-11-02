@@ -76,7 +76,7 @@ export interface RasterReturn {
 
 export type CameraLive = LiveOf<"maxPitchCur" | "zoomMinCur" | "camPadding" | "centerElevFixed" | "centerElevMode" | "followSt" | "mlLight" | "mlSky",
 	"zoomMaxCur" | "camUpdateFn" | "minPitchCur" | "camBounds" | "dpr" | "czmlCtl" | "flying">;
-export type CameraDeps = Pick<GlobeScope, "CAM_ZOOM_MIN" | "D2R" | "EARTH_M" | "MAXPITCH" | "R2D" | "animNow" | "cam" | "clock" | "flightCtl" | "flyTo" | "input" | "mapOn" | "onMove" | "opts" | "ownDestroy" | "pitchIn" | "pluginHost"
+export type CameraDeps = Pick<GlobeScope, "CAM_ZOOM_MIN" | "D2R" | "PUBLIC_DZ" | "EARTH_M" | "MAXPITCH" | "R2D" | "animNow" | "cam" | "clock" | "flightCtl" | "flyTo" | "input" | "mapOn" | "onMove" | "opts" | "ownDestroy" | "pitchIn" | "pluginHost"
 	| "reduceMotionOn" | "renderer" | "requestDraw" | "sendLight" | "sendSky" | "size" | "syncCenterAlt" | "unprojectXY" | "wPost">;
 export interface CameraReturn {
 	/** 毎移動の締め（setConstrain・setCameraUpdate・maxZoom・minPitch・maxBounds） */
@@ -206,11 +206,12 @@ export interface StyleReturn {
 export type QueryLive = LiveOf<never, "terrExag" | "MAP_GS" | "clipMain" | "demSpec" | "dpr" | "imageQuads" | "lastTileOrder" | "modelCtl" | "noTerr" | "style" | "symCtl" | "t3dCtl" | "vtdCtl" | "vtxCtl">;
 export type QueryDeps = Pick<GlobeScope, "BASE_SOURCE" | "D2R" | "EARTH_M" | "ELL_ON" | "IMAGE_KEY" | "PUBLIC_DZ" | "R2D" | "REGION_DTM" | "ac" | "baseSidNow" | "cam" | "canvas" | "clipAllCut"
 	| "clipCutXY" | "clipFor" | "drawLayerOf" | "evXY" | "gint" | "hiddenAll" | "inZoomML" | "input" | "isOv" | "mlIdOf" | "mlLayers" | "mlPasses" | "mlVisible" | "noMixedR01" | "overlayFeature"
-	| "patItems" | "requester" | "size" | "srcId" | "stripMl" | "unprojectXY" | "vtdDesc" | "vtdOrder" | "vtxGround" | "vtxStateOf">;
+	| "patItems" | "requester" | "size" | "srcId" | "stripMl" | "unprojectXY" | "unprojectXYAsync" | "vtdDesc" | "vtdOrder" | "vtxGround" | "vtxStateOf">;
 /** 押し出しの当たりの口（extrude-ml.js の env）＝地面 gnd の上の画面の点・屋根の面 */
 export interface ExtEnv {
 	vtx(lon: number, lat: number, hM: number): [number, number, number] | null;
 	roof(x: number, y: number, hM: number, lon0: number, lat0: number): { ll: LonLat; w: number } | null;
+	wall(a: ArrayLike<number>, b: ArrayLike<number>, bottom: number, top: number, x: number, y: number): number | null;
 }
 /** 今の視点の当たりの口（extView の戻り） */
 export interface ExtViewNow {

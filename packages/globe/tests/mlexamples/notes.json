@@ -25,12 +25,12 @@
 		"en": "Fixed: queryTerrainElevation (synchronous, from the cached elevation). Remaining: basemap colors; the model's position on terrain is settled only after the elevation data arrives."
 	},
 	"walk-around-a-map-in-first-person": {
-		"ja": "直した：calculateCameraOptionsFromTo（MapLibre の式のまま）。動く例（animated）＝段 2 まで。残り＝歩きの途中の写しの時刻がずれる分のカメラ差。",
-		"en": "Fixed: calculateCameraOptionsFromTo (MapLibre's formula verbatim). This is an animated example, so the picture is not compared; the remaining camera difference is timing of the capture during the walk."
+		"ja": "直した：calculateCameraOptionsFromTo（MapLibre の式のまま）・maxZoom の既定 22（目の高さ 1.6m は z21.3＝旧はエンジンの既定で z19 に頭打ち・2026-11-02）。動く例（animated）＝段 2 まで。",
+		"en": "Fixed: calculateCameraOptionsFromTo (MapLibre's formula verbatim) and maxZoom defaulting to 22 (a 1.6 m eye height is z21.3; it used to stop at z19, 2026-11-02). Animated example, so level 2 is the ceiling."
 	},
 	"set-center-point-above-ground": {
-		"ja": "直した：注視点の高さ（centerClampedToGround:false＋elevation 541m）＝カメラは本物と同じ高さ・地の色は白に。残り＝遠景の建物が出ない（原因未特定）。",
-		"en": "Fixed: the center point's elevation (centerClampedToGround:false with elevation 541 m) — the camera now sits at the same height as MapLibre, and the ground color is white. Remaining: distant buildings do not appear (cause not yet found)."
+		"ja": "直した：注視点の高さ（centerClampedToGround:false＋elevation 541m）・高さ 0 の押し出しも屋根だけ描く（z13 の束ねた建物＝MapLibre の平らな面・2026-11-02）。段 1 の残り＝問い合わせ：本物は絵に建物が無い点（空・白地）でも同じ 2 棟（id 36933340・2780535862）を画面の全幅で返す＝こちらは絵どおり空を返す（2026-11-02 本人裁定＝MapLibre の答えに寄せない）。",
+		"en": "Fixed: the center point's elevation (centerClampedToGround:false with elevation 541 m), and zero-height extrusions now draw their flat roof like MapLibre (the merged z13 buildings, 2026-11-02). Remaining at level 1, by decision: on points where MapLibre's own picture shows no building (sky, blank ground) MapLibre still returns the same two buildings across the whole width; ortho-earth answers from what it draws and returns nothing there."
 	},
 	"elevate-symbols-above-the-terrain": {
 		"ja": "標高が正しく読めるようになり（terrarium の符号化）、街と山並みは本物と同じ構図に。残り＝細い道路と注記の標本で 8 割に届かない・記号の z 持ち上げ（symbol-z-elevate）は未実装。",
@@ -57,8 +57,8 @@
 		"en": "Flaky: the example jumps to another city two seconds after load, so the result depends on capture timing (same picture when run alone)."
 	},
 	"display-performance-metrics": {
-		"ja": "揺れ：静止の判定（stable／moving）が回ごとに変わる。 o1012 から段 3→2：上の display-a-map と同じ「Equator」の線沿い文字の変化（known.json は o1014 に揃えた・2026-10-22）。",
-		"en": "Flaky: the settled/moving detection varies from run to run. From o1012 it is level 2: the same \"Equator\" along-line label change as display-a-map (known.json aligned to o1014 on 2026-10-22)."
+		"ja": "揺れ：静止の判定（stable／moving）が回ごとに変わる。",
+		"en": "Flaky: the still/moving judgment changes from run to run."
 	},
 	"display-a-popup-on-click": {
 		"ja": "色は完全に一致（背景・水・道路）。76% で 8 割に届かないのは 1〜2px の道路の縁に落ちた標本（片側は道路・片側は地）。",
@@ -81,8 +81,8 @@
 		"en": "At low zoom a globe and a Mercator map look different by design (MapLibre fills the screen with Mercator; ortho-earth shows a small globe). The ground color is white on both."
 	},
 	"render-world-copies": {
-		"ja": "球に世界の写しは無い（文書の違い）。低ズームの塗りを球の上で細分して段 3 に。 o1012 から段 3→2：z0.01 の球の縁で海の塗りが上下に欠ける（基図 41/56・known.json は o1014 に揃えた・2026-10-22・原因は未追跡）。",
-		"en": "A globe has no world copies — a documented difference. Low-zoom fills are now subdivided on the sphere, so the picture matches. From o1012 it is level 2: at z0.01 the ocean fill is clipped at the top and bottom of the globe's limb (basemap 41/56; known.json aligned to o1014 on 2026-10-22; root cause not yet traced)."
+		"ja": "球に世界の写しは無い（文書の違い）。低ズームの塗りを球の上で細分して段 3。",
+		"en": "The globe has no world copies (a documented difference). Low-zoom fills are subdivided on the globe; level 3."
 	},
 	"display-line-that-crosses-180th-meridian": {
 		"ja": "同上（球）。",
@@ -117,31 +117,31 @@
 		"ja": "setSourceTileLodParams（maxZoomLevelsOnScreen／tileCountMaxMinimum）は B6（2026-10-12）で読む＝タイルの z の規則に入る。MapLibre 独自の LOD の口。"
 	},
 	"customize-the-map-transform-constrain": {
-		"en": "setTransformCameraUpdate (a hook that rewrites the camera after constraints) is wired since B6 (2026-10-12): the hook receives center / zoom / pitch / bearing / roll / elevation and its return value is applied in MapLibre's order.",
-		"ja": "setTransformCameraUpdate（制約の後にカメラを書き換える差し込み）は B6（2026-10-12）で結線＝center／zoom／pitch／bearing／roll／elevation を渡し、返りを MapLibre と同じ順で適用する。"
+		"ja": "直した：new Map の transformConstrain を結線し、minZoom の既定 −2（z −2 で本物と同じ・2026-11-02）。setTransformCameraUpdate は B6（2026-10-12）で結線。低い z の球とメルカトルの見え方の差は意図した違い（標本が足りず絵は比べない）。",
+		"en": "Fixed: the transformConstrain map option is wired and minZoom defaults to −2, so the map opens at z −2 like MapLibre (2026-11-02). setTransformCameraUpdate has been wired since B6 (2026-10-12). At this zoom the globe and the Mercator plane look different by design, so the picture is not compared."
 	},
 	"add-a-canvas-source": {
 		"ja": "canvas source は四隅の覆い（動画と同じ口・注記の下）＝毎フレーム写す。基図の上に常に乗る（傾けた時の遮蔽は無い）。",
 		"en": "Canvas sources are drawn as a corner-pinned overlay (same path as video, below labels), copied every frame. It always sits above the basemap (no occlusion when tilted)."
 	},
 	"add-a-cog-raster-source": {
-		"ja": "maplibre-cog-protocol の tile は addLayer の型紙の形と合わない（Request failed）＝COG はこちらの geopbf の cog で読む道が別にある。",
-		"en": "Tiles from maplibre-cog-protocol do not fit ortho-earth's addLayer URL templates (Request failed). ortho-earth reads COGs through its own geopbf cog reader instead."
-	},
-	"display-a-map": {
-		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。z1 の世界図の球の縁の線沿い文字「Equator」が、9/30 の小さな鏡像から大きな斜体太字に変わった＝線沿いの注記の第 1 波（C9）か 10/07 の錨の見直しの副作用の疑い（原因のコードは未追跡）。",
-		"en": "Dropped from level 3 to 2 at run o1012 (known.json aligned to o1014 on 2026-10-22). The along-line label \"Equator\" at the globe's limb in the z1 world view changed from a small mirrored label to a large bold italic one — suspected side effect of the line-label work (C9) or the 2026-10-07 anchor rework; root cause not yet traced."
-	},
-	"display-a-map-with-mlt": {
-		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。z1 の世界図の球の縁の線沿い文字「Equator」が、9/30 の小さな鏡像から大きな斜体太字に変わった＝線沿いの注記の第 1 波（C9）か 10/07 の錨の見直しの副作用の疑い（原因のコードは未追跡）。",
-		"en": "Dropped from level 3 to 2 at run o1012 (known.json aligned to o1014 on 2026-10-22). The along-line label \"Equator\" at the globe's limb in the z1 world view changed from a small mirrored label to a large bold italic one — suspected side effect of the line-label work (C9) or the 2026-10-07 anchor rework; root cause not yet traced."
+		"ja": "直した：走らせ台の素材が Range（206）に答えず、geotiff が Request failed を投げていた（エンジンの不具合ではない・2026-11-02）。残り＝本物の写し（r7）は同じ理由で COG を読めていない＝録り直しが要る。重なり順（こちらは COG の上に道路と注記が載る）は未。",
+		"en": "Fixed: the test rig's asset server ignored Range requests, so geotiff threw 'Request failed' (not an engine bug, 2026-11-02). Remaining: the MapLibre capture (r7) failed to read the COG for the same reason and must be re-recorded; draw order (roads and labels sit above the COG here) is still open."
 	},
 	"add-a-geojson-line": {
 		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。基図の道路名「Conzelman Road」が例の足した太線の真上に乗る（足した層の標本 4/6）。原因のコードは未追跡。",
 		"en": "Dropped from level 3 to 2 at run o1012 (known.json aligned to o1014 on 2026-10-22). The basemap road label \"Conzelman Road\" now sits on top of the example's thick added line (added-layer probes 4/6). Root cause not yet traced."
 	},
-	"measure-distances": {
-		"ja": "o1012（2026-10-12）から段 3→2（known.json は o1014 に揃えた・2026-10-22）。基図の標本 124/160・目視ではほぼ同じ。原因のコードは未追跡。",
-		"en": "Dropped from level 3 to 2 at run o1012 (known.json aligned to o1014 on 2026-10-22). Basemap probes 124/160; visually almost identical. Root cause not yet traced."
+	"navigate-the-map-with-game-like-controls": {
+		"ja": "直した：maxZoom の既定 22（カメラが本物と同じ z19）・目の後ろに頂点がある壁を 3D の光線で当てる（2026-11-02）。段 1 の残り＝カメラが高い建物（60m・81m）の中にあり、本物は絵に描いていない画素でもその建物を返す＝こちらは絵どおり（2026-11-02 本人裁定＝MapLibre の答えに寄せない）。",
+		"en": "Fixed: maxZoom defaults to 22 (the camera now sits at MapLibre's z19), and walls with a vertex behind the eye are hit with a 3D ray (2026-11-02). Remaining at level 1, by decision: the camera is inside two tall buildings (60 m, 81 m) and MapLibre returns them even on pixels where it draws nothing; ortho-earth answers from what it draws."
+	},
+	"display-html-clusters-with-custom-properties": {
+		"ja": "直した：低い z のメルカトルの既定の制約（中心の緯度・z0.3 で 20°N→8.6°N）・querySourceFeatures を画面を覆うタイルの中の丸に（z0 は世界の全部・2026-11-02）。残り＝丸の数 13/12（集約の組み方の差・未追跡）。",
+		"en": "Fixed: MapLibre's default Mercator constraint at low zoom (center latitude 20°N → 8.6°N at z0.3) and querySourceFeatures returning clusters in the tiles that cover the screen (all of them at z0, 2026-11-02). Remaining: 13 vs 12 cluster markers (clustering difference, not yet traced)."
+	},
+	"add-a-new-layer-below-labels": {
+		"ja": "足した層（都市のピンクの塗り）は本物とほぼ同じ位置と大きさに描けていて、注記の下にも隠れていない。足した層の標本が 3 点しかなく、z4 の小さな塊の縁に落ちた 2 点が 2〜3px ずれて基図の色を拾うため、段 2 と段 3 の間を揺れる（採点の揺れ・2026-11-02）。",
+		"en": "The added layer (pink urban fill) is drawn at nearly the same place and size as the reference and is not hidden under labels. Only 3 probes land on the added layer; 2 of them sit on the edge of small z4 blobs, so a 2–3px offset picks up the basemap colour and the grade wobbles between 2 and 3 (sampling noise, 2026-11-02)."
 	}
 }

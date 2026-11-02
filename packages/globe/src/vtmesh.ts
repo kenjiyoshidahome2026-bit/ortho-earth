@@ -152,12 +152,12 @@ export const verticalShade = (top: boolean, base: number, h: number): number => 
 // styleOf(fi) → { h, base, rgba: [r,g,b,a 0-255], grad } | null（null＝立てない＝filter と同じ）。tile＝{ z, x, y, extent }。ell＝?ell=1
 export function buildMesh(geos: Array<PolyGeom & { fi: number }>, styleOf: (fi: number) => PolyStyle | null, tile: { z: number; x: number; y: number; extent: number }, { ell = false }: { ell?: boolean } = {}): { mesh: VtMesh; stats: { vertices: number; triangles: number; hMax: number } } | null {
 	const { z, x, y, extent: E } = tile, EARTH_W = ell ? 6378137 : 6371000;
-	const st = geos.map(g => { const s = styleOf(g.fi); return s && s.h > s.base ? s : null; });
+	const st = geos.map(g => { const s = styleOf(g.fi); return s && s.h >= s.base ? s : null; });   // 高さ＝base＝屋根だけ（壁は無い・MapLibre と同じく平らな面を描く）
 	let nV = 0, nI = 0;
 	geos.forEach((g, i) => {
 		if (!st[i]) return;
 		const n = g.xy.length / 2; let w = 0;
-		for (let k = 0; k < n; k++) w += g.wall[k];
+		if (st[i]!.h > st[i]!.base) for (let k = 0; k < n; k++) w += g.wall[k];
 		nV += n + w * 4; nI += g.tris.length + w * 6;
 	});
 	if (!nI) return null;
@@ -180,7 +180,7 @@ export function buildMesh(geos: Array<PolyGeom & { fi: number }>, styleOf: (fi: 
 		for (let k = 0; k < n; k++) { const [lon, lat] = ll[k], lo = lon * D2R, la = lat * D2R, cl = Math.cos(la); put(lon, lat, s.h, cl * Math.cos(lo), cl * Math.sin(lo), Math.sin(la), s.rgba, 1); }
 		for (let k = 0; k < g.tris.length; k++) idx[q++] = roof + g.tris[k];
 		const kb = s.grad === false ? 1 : verticalShade(false, s.base, s.h), kt = s.grad === false ? 1 : verticalShade(true, s.base, s.h);
-		for (let r = 0; r < g.starts.length - 1; r++) {
+		if (s.h > s.base) for (let r = 0; r < g.starts.length - 1; r++) {
 			const a0 = g.starts[r], m = g.starts[r + 1] - a0, sg = g.sgn[r];
 			for (let t = 0; t < m; t++) {
 				const a = a0 + t; if (!g.wall[a]) continue;

@@ -149,6 +149,10 @@ interface HostOptions extends GlobeOptions {
 	atmosphere?: boolean;
 	/** false＝霧を焚かない（MapLibre の口の既定） */
 	fog?: boolean;
+	/** "maplibre"＝object の形の flyTo／easeTo を MapLibre の振り付け（同時補間・speed／curve／duration・defaultEasing）で（MapLibre の口が渡す） */
+	flight?: "maplibre";
+	/** 地中の灰色の覆い（目が直下の地面より下に入った時）。false＝出さない（MapLibre の口＝MapLibre に無い・地形の際で目が地面の下に入る例が全面灰色になった 2026-11-02） */
+	undergroundOverlay?: boolean;
 }
 /** 建物の台帳の 1 区（地域宣言の buildings.sets／catalog の JSON の要素） */
 /** 注記の 1 件＝基図のタイル注記（core の Label）か、ホストが足す名札（空港マーク・ランドマーク・POI＝書体・層の添字・ズーム域は持たない）。labelSender で worker へ */
@@ -1275,6 +1279,7 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	const free = () => { ugBusy = false; if (ugAgain) { ugAgain = false; setTimeout(() => updateUnderground(true), 0); } };
 	// 動作中＝帯（smoothstep）で滑らかに／静止中に届いた答え＝確定（地中なら全黒・地上なら解除）＝commitUnderground と同じ裁定
 	const done = (t: number, d: number) => { free(); ugLastD = d; (undergroundEl.style as { opacity: string | number }).opacity = moving ? t : (d < 0 ? 1 : 0); };
+	if (opts.undergroundOverlay === false) return done(0, Infinity);   // 覆いを出さない口（MapLibre）
 	if ((cam.pitch || 0) < 0.06) return done(0, Infinity);   // 2D=地中判定なし
 	if (noTerr) return done(0, Infinity);   // 地形を描かない地図（terrain:false・MapLibre の口の既定）＝地面は海抜 0 の平面＝潜らない。旧＝描いていない自前の標高で判定し、z18・傾き 60° の公式例（add-a-3d-model-using-threejs）が全面灰色（2026-09-29）
 	const st = cameraState(cam, size.w, size.h);
@@ -2589,6 +2594,7 @@ const elevOf: GlobeScope["elevOf"] = (lon, lat) => {
 	const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000);
 	const hit = elevMemo.get(k);
 	if (hit !== undefined) return typeof hit === "number" ? hit : 0;
+	if (demMain?.heightSync) { const hs = demMain.heightSync(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))); if (hs === hs) { elevMemo.set(k, hs); return hs; } }   // 届いているタイルならその場で（unproject の反復が 1 回の呼び出しで解ける・2026-11-02）
 	if (!(demMain || getHeight) || elevInflight >= ELEV_INFLIGHT_MAX) return 0;   // 出どころ未着・溢れ＝照会しない（メモ未登録のまま）
 	elevMemo.set(k, null); elevInflight++;
 	const gen = elevGen;
@@ -2597,10 +2603,9 @@ const elevOf: GlobeScope["elevOf"] = (lon, lat) => {
 	return 0;
 };
 // 負の標高は 0 に切る＝描いている地面（renderer の標高アトラスは負を 0 に切る＝海は海面・ortho-core elevation.js／terrain.js）
-const dispRadius = (lon: number, lat: number) => {
-	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = noTerr ? 0 : pt * pt * (3 - 2 * pt);   // ?noterr=1＝地形を描かない＝持ち上げも 0（描く側と同じ・vtxGround の当たりも同じ口）
-	return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1;
-};
+const dispPf = () => { const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)); return noTerr ? 0 : pt * pt * (3 - 2 * pt); };   // ?noterr=1＝地形を描かない＝持ち上げも 0（描く側と同じ・vtxGround の当たりも同じ口）
+const dispRadiusH = (h: number, pf = dispPf()) => pf > 0 ? 1 + Math.max(0, h) * pf * (TERR_EXAG / EARTH_M) : 1;
+const dispRadius = (lon: number, lat: number) => { const pf = dispPf(); return pf > 0 ? dispRadiusH(elevOf(lon, lat), pf) : 1; };
 const projectLL: GlobeScope["projectLL"] = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
 const unprojectAt: GlobeScope["unprojectAt"] = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
 // makeProjector＝カメラ状態を1回だけ束ねた投影関数を返す（多点を1描画で投影＝測距の大圏分割で状態計算を積まない）。
@@ -2609,7 +2614,20 @@ const makeProjector: GlobeScope["makeProjector"] = () => { const st = cameraStat
 // makeProjectorH＝高度付き投影（注釈の3Dピン用）：地表（地形持ち上げ込み）から hメートル 上の点を画面へ。
 // 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
 const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon: number, lat: number, hM?: number): [number, number, number] => projectCss(project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) / EARTH_M), dpr); };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
-const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
+// 地形を描いて傾けた地図では、投影が標高で持ち上げる分だけ逆も地形の面で受ける（MapLibre は unproject・問い合わせも地形に当てる）。旧＝海抜 0 の球で受けていた
+//（2026-11-02・公式例 display-a-hybrid-satellite-map-with-terrain-elevation＝クリックの地物が数 km ずれた）。解き方＝球の半径を当たった点の持ち上げ（dispRadius＝elevOf のメモ）で置き直す不動点の反復
+//（最大 6 回・1e-7° で止める）。elevOf は未着の点を 0m で返し照会を出す＝次の呼び出しで正しくなる（projectLL と同じ約束）
+const unprojectXY: GlobeScope["unprojectXY"] = (x, y) => {
+	const st = cameraState(cam, size.w, size.h);
+	let ll = unproject(st, x * dpr, y * dpr);
+	if (!ll || noTerr || (cam.pitch || 0) < 0.06 || !(demMain || getHeight)) return ll;
+	for (let i = 0; i < 6; i++) {
+		const r = dispRadius(ll[0], ll[1]); if (r === 1) break;
+		const n = unproject(st, x * dpr, y * dpr, r); if (!n) break;
+		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
+	}
+	return ll;
+};
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
 // 解像度は size（device px＝フル）を正とし、shot 側が各層をこの寸法へ合わせて重ねる。
@@ -2681,6 +2699,26 @@ map.unprojectXY = unprojectXY;         // canvasローカルCSS座標→[lon,lat
 const toLonLat = (ll: LonLat | { lng?: number; lon?: number; lat: number }): LonLat => Array.isArray(ll) ? ll : [ll.lng ?? ll.lon, ll.lat] as LonLat;
 map.project = ll => { const [lon, lat] = toLonLat(ll); const [x, y] = projectLL(lon, lat); return { x, y }; };
 map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const ll = unprojectXY(x, y); return ll ? { lng: ll[0], lat: ll[1] } : null; };
+// 待って解く unproject（問い合わせ・クリックの地物）＝標高を heightAt で待ちながら反復し、答えは elevOf のメモに入れる＝その後の同期の unprojectXY も同じ点を返す（2026-11-02）
+const unprojectXYAsync: GlobeScope["unprojectXYAsync"] = async (x, y) => {
+	const st = cameraState(cam, size.w, size.h);
+	let ll = unproject(st, x * dpr, y * dpr);
+	if (!ll || dispPf() <= 0 || !(demMain || getHeight)) return ll;
+	for (let i = 0; i < 6; i++) {
+		const h = await heightAt(ll[0], ll[1]).catch(() => 0);
+		elevMemo.set(Math.round(ll[0] * 1000) + "," + Math.round(ll[1] * 1000), h);
+		const n = unproject(st, x * dpr, y * dpr, dispRadiusH(h)); if (!n) break;
+		const done = Math.abs(n[0] - ll[0]) < 1e-7 && Math.abs(n[1] - ll[1]) < 1e-7; ll = n; if (done) break;
+	}
+	return ll;
+};
+map.unprojectXYAsync = unprojectXYAsync;
+// 止まるたびに画面の格子（8×6）の地面の標高を先に引いておく＝クリック・同期の unproject の反復が 1 回で解ける（地形を描いて傾けた地図だけ）
+map.on("settle", () => {
+	if (dispPf() <= 0 || !(demMain || getHeight)) return;
+	const W = size.w / dpr, H = size.h / dpr;
+	for (let j = 0; j < 6; j++) for (let i = 0; i < 8; i++) { const ll = unprojectXY(W * (i + 0.5) / 8, H * (j + 0.5) / 6); if (ll) elevOf(ll[0], ll[1]); }
+});
 map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影関数（多点を1フレームで投影＝編集ハンドル用）
 map.ellipsoidOn = () => ellipsoidOn();   // 楕円体表示か（?ell=1）＝geoedit（npm） が「編集は完全球体」の注意書きに使う（ortho-core を直接 import させない）
 map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン＝チルトで立つ。annoガジェット用）
@@ -2770,7 +2808,7 @@ const { clampCamLimits, tickFollow } = installCamera(map, {
 	get flying() { return flying; },
 	get mlLight() { return mlLight; }, set mlLight(v) { mlLight = v; },
 	get mlSky() { return mlSky; }, set mlSky(v) { mlSky = v; },
-}, { CAM_ZOOM_MIN, D2R, EARTH_M, MAXPITCH, R2D, animNow, cam, clock, flightCtl, flyTo, input, mapOn, onMove, opts, ownDestroy, pitchIn, pluginHost, reduceMotionOn, renderer, requestDraw, sendLight, sendSky, size, syncCenterAlt, unprojectXY, wPost });
+}, { CAM_ZOOM_MIN, D2R, PUBLIC_DZ, EARTH_M, MAXPITCH, R2D, animNow, cam, clock, flightCtl, flyTo, input, mapOn, onMove, opts, ownDestroy, pitchIn, pluginHost, reduceMotionOn, renderer, requestDraw, sendLight, sendSky, size, syncCenterAlt, unprojectXY, wPost });
 // 宇宙（球の外側）の色（B5・エンジンの口）：色の文字列・"transparent"・null＝起動時の既定（MapLibre の口は透明・内製は紺）。GL2 の canvas は α を持つ＝透明なら頁の色が見える。WebGPU は白に畳む
 // ── MapLibre の小口（B6・2026-10-12） ──
 // sprite：読んだ記号の名前を sprite の id ごとに覚える（removeSprite／setStyle で消すため）。default 以外は "id:名前"
@@ -3884,7 +3922,7 @@ const { extView, meshPickEnv, vtdQueryCache } = installQuery(map, {
 	get t3dCtl() { return t3dCtl; },
 	get vtdCtl() { return vtdCtl; },
 	get vtxCtl() { return vtxCtl; },
-}, { BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor, drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester, size, srcId, stripMl, unprojectXY, vtdDesc, vtdOrder, vtxGround, vtxStateOf });
+}, { BASE_SOURCE, D2R, EARTH_M, ELL_ON, IMAGE_KEY, PUBLIC_DZ, R2D, REGION_DTM, ac, baseSidNow, cam, canvas, clipAllCut, clipCutXY, clipFor, drawLayerOf, evXY, gint, hiddenAll, inZoomML, input, isOv, mlIdOf, mlLayers, mlPasses, mlVisible, noMixedR01, overlayFeature, patItems, requester, size, srcId, stripMl, unprojectXY, unprojectXYAsync, vtdDesc, vtdOrder, vtxGround, vtxStateOf });
 // 検査表示・ファイルの取り込み・編集・デモの gadget＝src/api/tools.ts（live＝createGlobe の変数を読み書きする口）
 const { rasterDropFile } = installTools(map, {
 	get lastTileOrder() { return lastTileOrder; },

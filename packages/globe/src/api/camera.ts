@@ -2,7 +2,7 @@
 // 光・空・太陽と月・雲（setLight／setLights／setSky／setSun／setClouds）＝createGlobe から切り出した（globe.js の分割 ⑩・2026-10-15）。中身は切り出す前と同じ。
 //   live＝createGlobe の変数（let・この呼び出しより後で宣言される定数）を読み書きする口（getter／setter）。その他＝createGlobe の中の定数・関数（中身は createGlobe と共有）
 import { LIGHT_TYPES, localLightsPayload, normLight, normLights } from "../light.ts";
-import { WORLD_PX, shortBearingOf, wrapLon } from "@ortho-earth/core";
+import { ML_EASING, WORLD_PX, shortBearingOf, wrapLon } from "@ortho-earth/core";
 import { createCloudShell } from "../clouds.ts";
 import { ecefToLlh, positionAt } from "../czml-time.ts";
 import { moonAltAz, moonSubpoint, sunAltAz, sunSubpoint } from "@ortho-earth/ephem/sun";
@@ -23,7 +23,7 @@ interface CamGoal { lon: number; lat: number; zoom: number; pitch: number; beari
 type LLH = [number, number, number];
 
 export function installCamera(map: Installing<CameraApi, "__clouds">, live: CameraLive, {
-	CAM_ZOOM_MIN, D2R, EARTH_M, MAXPITCH, R2D, animNow, cam, clock, flightCtl, flyTo, input, mapOn, onMove, opts, ownDestroy, pitchIn, pluginHost,
+	CAM_ZOOM_MIN, D2R, PUBLIC_DZ, EARTH_M, MAXPITCH, R2D, animNow, cam, clock, flightCtl, flyTo, input, mapOn, onMove, opts, ownDestroy, pitchIn, pluginHost,
 	reduceMotionOn, renderer, requestDraw, sendLight, sendSky, size, syncCenterAlt, unprojectXY, wPost
 }: CameraDeps): CameraReturn {
 	map.setOpacity = ({ base, globe, hypso } = {}) => { const v: { baseAlpha?: number; globeAlpha?: number; worldHypsoOpacity?: number } = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; if (hypso != null) v.worldHypsoOpacity = hypso; renderer.set("view", v); requestDraw(); };   // hypso＝全球ハイプソ（低ズームの段彩）の濃さ＝0 で陸の地色だけ（2026-10-01）   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
@@ -91,12 +91,20 @@ export function installCamera(map: Installing<CameraApi, "__clouds">, live: Came
 	}
 	map.jumpTo = (o: CameraOptions & { elevation?: number } = {}) => { flightCtl.cancel(); if (o.elevation != null && Number.isFinite(+o.elevation)) live.centerElevFixed = +o.elevation; const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(live.maxPitchCur, t.pitch)); cam.bearing = t.bearing; cam.roll = t.roll; onMove(); return map; };
 	const noAnim = (o: { animate?: boolean; essential?: boolean }) => o.animate === false || (!o.essential && reduceMotionOn());   // animate:false・動きを減らす（essential:true は例外＝MapLibre と同じ・C10）
-	map.easeTo = (o = {}) => noAnim(o) ? (map.jumpTo(o), Promise.resolve()) : flightCtl.easeTo(camTarget(o), o.duration ?? 500);
+	// MapLibre の口（opts.flight "maplibre"）＝MapLibre の振り付け：easeTo は defaultEasing（bezier .25,.1,.25,1）か例の easing・flyTo は mlFlyPlan（core flight.ts）
+	const mlFlight = (opts as { flight?: string }).flight === "maplibre";
+	const easingOf = (o: { easing?: unknown }): ((t: number) => number) | undefined => typeof o.easing === "function" ? o.easing as (t: number) => number : mlFlight ? ML_EASING : undefined;
+	map.easeTo = (o = {}) => noAnim(o) ? (map.jumpTo(o), Promise.resolve()) : flightCtl.easeTo(camTarget(o), o.duration ?? 500, easingOf(o as { easing?: unknown }));
 	// flyTo：従来の位置引数（lon, lat, zoom, tiltDeg, bearingDeg）に加え、MapLibre の形 flyTo({ center, zoom, pitch, bearing, padding, animate })
 	map.flyTo = ((a: number | (CameraOptions & { animate?: boolean; essential?: boolean }), ...rest: [number, number, number?, number?]) => {
 		if (a == null || typeof a !== "object" || Array.isArray(a)) return flyTo(a as number, ...rest);
 		if (noAnim(a)) { map.jumpTo(a); return Promise.resolve(); }
 		const t = camTarget(a);
+		if (mlFlight) {   // MapLibre の flyTo（同時補間・尺＝1000·S／speed）。省略した角は今の値のまま（camTarget）
+			const m = a as { speed?: number; curve?: number; screenSpeed?: number; duration?: number; maxDuration?: number; minZoom?: number; easing?: unknown };
+			return flightCtl.flyML(t, { speed: m.speed, curve: m.curve, screenSpeed: m.screenSpeed, duration: m.duration, maxDuration: m.maxDuration, minZoom: m.minZoom, easing: typeof m.easing === "function" ? m.easing as (k: number) => number : undefined,
+				dz: PUBLIC_DZ, viewMax: Math.max(size.w, size.h) / live.dpr, viewH: size.h / live.dpr });
+		}
 		if (t.roll !== (cam.roll || 0)) { cam.roll = t.roll; }   // roll は飛行の振り付けに無い＝離陸で書く（easeTo は補間する）
 		return flyTo(t.lon, t.lat, t.zoom, t.pitch * R2D, t.bearing * R2D);   // 省略した角は今の値（MapLibre の意味論）
 	}) as CameraApi["flyTo"];   // 重ね書き（位置引数／MapLibre の形）の実体は 1 本
