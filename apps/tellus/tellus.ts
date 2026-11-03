@@ -286,6 +286,8 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 			if (it._thumb?.key === key) { paint(it._cv, it._thumb); return; }
 			const hit = await quickDb.get(key);
 			if (hit?.rgba) { if (!sig?.aborted) { it._thumb = { key, ...hit }; paint(it._cv, it._thumb!); } return; }
+			if (!urls.has(it.id)) await thumbGate(sig);   // 新しく署名 URL を発行する時だけ数える（使い回しは数えない）
+			if (sig?.aborted) return;
 			const url = await freshUrl(it);
 			const cog = await openCog(url, { signal: sig, ...drawOpts() });
 			const [w, s, e, n] = cog.bboxLL, cy = (s + n) / 2;
@@ -315,13 +317,34 @@ export async function mountTellus(map: GlobeMap, side: HTMLElement) {
 		});
 		nav();
 	};
-	// クイックルックは 3 並列（署名 URL 発行 + ヘッダ + overview ＝ 1 行 3 往復・IDB 命中なら 0 往復）
+	// クイックルックは 3 並列（署名 URL 発行 + ヘッダ + overview ＝ 1 行 3 往復・IDB 命中なら 0 往復）。
+	// 中継の /tellus は 1 分 30 回まで（超えると 429）＝サムネイルの署名 URL は 1 分 12 本まで・一覧で見えている行だけ
+	//（本番実測 2026-11-03：タブを 3 つ見ると 30 秒で 34 本＝見どころの検索が 429 で落ちた）。残りは本番の読み込みと検索に回す
+	const THUMB_PER_MIN = 12, thumbTs: number[] = [];
+	const thumbGate = async (sig: AbortSignal) => {
+		for (;;) {
+			const now = Date.now();
+			while (thumbTs.length && now - thumbTs[0] > 60e3) thumbTs.shift();
+			if (thumbTs.length < THUMB_PER_MIN) { thumbTs.push(now); return; }
+			await new Promise(r => setTimeout(r, thumbTs[0] + 60e3 - now + 50));
+			if (sig.aborted) return;
+		}
+	};
+	const visible = (it: Item) => {
+		const cv = it._cv; if (!cv) return false;
+		const r = cv.getBoundingClientRect(), box = side.getBoundingClientRect();   // 一覧は #side ごと縦に送る
+		const top = Math.max(box.top, 0), bottom = Math.min(box.bottom, innerHeight);
+		return r.bottom > top - 70 && r.top < bottom + 70;   // 1 行ぶんの先読み
+	};
 	let thumbAc: AbortController | null = null;
 	const thumbs = async () => {
 		thumbAc?.abort(); thumbAc = new AbortController();
-		const sig = thumbAc.signal, queue = items.slice();
+		const sig = thumbAc.signal, queue = items.filter(it => it._thumb || visible(it));
 		await Promise.all(Array.from({ length: 3 }, async () => { while (queue.length && !sig.aborted) { const it = queue.shift()!; await quickLook(it, sig); } }));
 	};
+	let thumbTimer: ReturnType<typeof setTimeout> | null = null;
+	const onScroll = () => { if (thumbTimer) clearTimeout(thumbTimer); thumbTimer = setTimeout(thumbs, 200); };
+	side.addEventListener("scroll", onScroll, { passive: true }); addEventListener("scroll", onScroll, { passive: true }); addEventListener("resize", onScroll);   // 下へ送ったら、新しく見えた行を描く
 
 	// 同じ日・同じ軌道の隣り合うフレーム（帯の上下の 2 枚）は 1 行に＝クリック点が枠の中央に近い方を残す（一覧の並びは保つ）
 	const dedupe = (list: Item[], ll: number[]) => {
