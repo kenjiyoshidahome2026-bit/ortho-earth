@@ -16,6 +16,7 @@ import { ellipsoidOn, worldRadiusM } from "@ortho-earth/core/camera";
 import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
 import type { LonLat, OverlayFrameApi } from "../../globe.d.ts";
 import type { CzmlStyle, CzmlTrack } from "../czml-time.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 
 /** render worker の host（init の第 3 引数）＝読む分 */
 interface OverlayHost { post(data: unknown): void; requestDraw(): void; depthGLSL?: string; wantDepth?(on: boolean): void }
@@ -201,7 +202,7 @@ function labelSlot(text: string, px: number, color: string, outline: string, dpr
 export function init(cv: OffscreenCanvas, opts: unknown, h: OverlayHost) {
 	canvas = cv; host = h;
 	wantDepth = !!(opts as { depthTest?: unknown } | null)?.depthTest && !!h?.depthGLSL;   // not opts.depth: that makes the worker copy the depth every frame from the start; the overlay asks with host.wantDepth while it has lines or tails
-	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null;
+	gl = canvas.getContext("webgl2", glAttrs({ premultipliedAlpha: true, antialias: false, alpha: true, depth: false, preserveDrawingBuffer: false })) as WebGL2RenderingContext | null;
 	if (!gl) return;
 	seg = compile(VS_SEG, FS_SEG(wantDepth ? h.depthGLSL! : DEPTH_STUB), ["u_scr", "u_color", "u_sceneDepthOn"]); mark = compile(VS_MARK, FS_MARK, ["u_scr", "u_atlas"]); cmp = compile(VS_CMP, FS_CMP, ["u_t", "u_a"]);
 	quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);

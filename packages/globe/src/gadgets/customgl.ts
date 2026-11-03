@@ -10,6 +10,7 @@
 // map.triggerRepaint()（＝requestDraw）で次のフレームにまた render が呼ばれる（動く層）。
 import { makeCustomArgs, GLOBE_MAX_Z } from "./customgl-args.ts";
 import type { CameraPose } from "@ortho-earth/core/camera";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 
 /** render(gl, args) の args（customgl-args.ts の makeCustomArgs の戻り） */
 export type CustomArgs = ReturnType<typeof makeCustomArgs>;
@@ -52,7 +53,7 @@ export function createCustomGL(env: CustomGLEnv) {
 		cv.className = "custom-gl"; cv.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
 		const s = size(); cv.width = s.w; cv.height = s.h;
 		if (before && before.parentNode === mapEl) mapEl.insertBefore(cv, before); else mapEl.appendChild(cv);
-		gl = cv.getContext("webgl2", { alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false, depth: true, stencil: true });
+		gl = cv.getContext("webgl2", glAttrs({ alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false, depth: true, stencil: true }));
 		if (!gl) { cv.remove(); cv = null; throw new Error("custom layer: WebGL2 is not available for the overlay canvas"); }
 		cv.addEventListener("webglcontextlost", e => { e.preventDefault(); lost = true; });
 		cv.addEventListener("webglcontextrestored", () => { lost = false; for (const L of layers) { try { L.layer.onAdd?.(env.hostMap ?? null, gl!); } catch (err) { console.error("[custom layer] onAdd after context restore", err); } } requestDraw(); });

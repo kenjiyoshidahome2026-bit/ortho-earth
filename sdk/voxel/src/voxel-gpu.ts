@@ -342,7 +342,7 @@ export function create(): VoxelGpuModule {
 		if (!gpu) throw new Error("WebGPU is not available (navigator.gpu)");
 		const sharedDev = h?.gpuDevice?.() ?? null;
 		if (sharedDev) { device = sharedDev; shared = true; }
-		else { const ad = await gpu.requestAdapter(); if (!ad) throw new Error("WebGPU adapter unavailable"); device = await ad.requestDevice(); }
+		else { const ad = await gpu.requestAdapter({ powerPreference: "high-performance" }); if (!ad) throw new Error("WebGPU adapter unavailable"); device = await ad.requestDevice(); }
 		if (dead) return;
 		wantDepth = opts.depth !== false;
 		format = gpu.getPreferredCanvasFormat();

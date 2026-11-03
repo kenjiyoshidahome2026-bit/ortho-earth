@@ -26,7 +26,7 @@ export function skyBoxLayer(scene: Any, under: HTMLCanvasElement): () => void {
 	Object.assign(canvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", zIndex: "-1", pointerEvents: "none" });
 	under.parentElement!.style.isolation = "isolate";   // the canvas below the globe's, inside the widget
 	under.insertAdjacentElement("beforebegin", canvas);
-	const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, depth: false, premultipliedAlpha: false });
+	const gl = canvas.getContext("webgl2", { powerPreference: "high-performance", alpha: false, antialias: false, depth: false, premultipliedAlpha: false });
 	let prog: WebGLProgram | null = null, uM: WebGLUniformLocation | null = null, uTan: WebGLUniformLocation | null = null;
 	if (gl) {
 		const sh = (t: number, s: string) => { const o = gl.createShader(t)!; gl.shaderSource(o, s); gl.compileShader(o); return o; };

@@ -7,6 +7,7 @@
 //   ellipsoidMode({…})     … 表示の世界の形（#43）＝楕円体か球か（URL › opts.ellipsoid › 自動＝通常・HI のデスクトップだけ楕円体）
 //   renderFx({…})          … 描画の質の旗（#46）＝atmosphere／pbr／ao の実効値（?pbr=1 等の URL × opts.render・既定は 0）
 // ノブを変えたら台帳（docs/design/fallback-ladder.md）も更新の規律。
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 
 // 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
 // タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
@@ -68,7 +69,7 @@ export function renderFx({ render = null, search = "" }: { render?: Partial<Reco
 // 対応判定用の使い捨て WebGL2 コンテキスト：生存（ok）と GPU 素性（renderer＝拡張が無ければ null）。専用コンテキストは新設せず
 // この 1 枚に相乗りし、即返却（スロットを食い潰さない）。
 export function probeGL(): { ok: boolean; renderer: string | null } {
-	const g = document.createElement("canvas").getContext("webgl2");
+	const g = document.createElement("canvas").getContext("webgl2", glAttrs());
 	const dbg = g?.getExtension("WEBGL_debug_renderer_info");
 	const renderer = dbg ? (g!.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "") as string : null;
 	g?.getExtension("WEBGL_lose_context")?.loseContext();

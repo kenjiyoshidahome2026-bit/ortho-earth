@@ -244,7 +244,7 @@ export const BOX = ((): Float32Array => {
 export function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null): { depth: true } | undefined {
 	host = h;
 	layers.clear(); probes.length = 0; pickFbo = null; pickTex = null; pickW = 0; pickH = 0; dummyTex = null;   // 同じ名前で立て直したオーバーレイ＝モジュールの実体は使い回し（前の文脈の物は捨てる）
-	const gl = glc = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
+	const gl = glc = canvas.getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (voxel overlay)");
 	wantDepth = opts.depth !== false && !!h?.depthGLSL;
 	const dg = wantDepth && h?.depthGLSL ? h.depthGLSL : DEPTH_STUB;

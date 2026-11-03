@@ -17,6 +17,8 @@ export { layerPaintZoom } from "./paintzoom.ts";   // ズーム連続と setPain
 export type { PaintZoom } from "./paintzoom.ts";
 export { layerPaintTable, paintTableFast } from "./painttable.ts";   // paint 表の (b) 類＝setPaintProperty の地物を読む値（main の api/style.ts）
 export type { PtLayer } from "./painttable.ts";
+export { setPowerPreference, powerPreference, glAttrs } from "./gpupower.ts";   // GPU の選び方（既定 high-performance・2026-11-03）
+export type { GpuPowerPreference } from "./gpupower.ts";
 export { createRenderer } from "./gl/renderer.ts";
 export type { Renderer } from "./gl/renderer.ts";
 export { createGintLayer } from "./gl/gint/embed.ts";

@@ -1,6 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
+import { powerPreference, type GpuPowerPreference } from "../gpupower.ts";
 import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, MESH_VS, MESH_FS, MESH_TEX_VS, MESH_TEX_FS, MESH_SIL_VS, MESH_SIL_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS, RASTER_ATLAS_VS, RASTER_ATLAS_FS, ATLAS_FILL_VS, ATLAS_FILL_MD_VS, ATLAS_FILL_FS } from "./glsl.ts";
 import { TERRAIN_CLIP_VS, TERRAIN_CLIP_FS, BUILDING_CLIP_VS, BUILDING_MD_CLIP_VS, BUILDING_CLIP_FS, MESH_CLIP_VS, MESH_TEX_CLIP_VS, MESH_CLIP_FS, MESH_TEX_CLIP_FS, FILL_CLIP_VS, FILL_MD_CLIP_VS, FILL_CLIP_FS, LINE_CLIP_VS, LINE_MD_CLIP_VS, LINE_CLIP_FS, GLOBE_CLIP_FS, CLIP_CAP_VS, CLIP_CAP_FS, shadowVS, shadowFS, castVS, CAST_FS, CAST_CLIP_FS, CAST_TEX_FS, CAST_TEX_CLIP_FS } from "./glsl.ts";
 import type { ShadowFam } from "./glsl.ts";
@@ -55,7 +56,7 @@ import type { GintAtlasTarget } from "./gint/embed.ts";
 
 export type { Renderer };
 /** createRenderer の rOpts（renderworker が渡す） */
-export interface GLRendererOptions { msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean }
+export interface GLRendererOptions { /** 既定＝gpupower.ts の値（"high-performance"） */ powerPreference?: GpuPowerPreference; msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean }
 /** draw(cam, opts) の opts */
 export interface GLDrawOptions { skipMain?: boolean; skipBase?: boolean; noTerrain?: boolean; noBld?: boolean }
 type Vec3T = [number, number, number];
@@ -184,7 +185,7 @@ const CLIP_GL_TARGETS = ["terrain", "buildings", "models", "vector"];   // 断�
 const DRAPE_ALL = [-180, -90, 360, 180];   // drape のバッチ＝持ち上げの範囲を全球に（DTM 保証域の外でも地形に沿わせる）
 export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpts: GLRendererOptions = {}): Renderer {
 	// antialias＝ブラウザ暗黙確保の MSAA（フルRetina面積で ~100MB級）。msaa1（LOW_MEM 既定・?msaa=0）＝1x 直描き。
-	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true }) as WebGL2RenderingContext;   // "webgl2" の口＝WebGL2。null は直下で投げる（宣言関数の中へは絞り込みが届かない＝型は非 null）
+	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true, powerPreference: rOpts.powerPreference ?? powerPreference() }) as WebGL2RenderingContext;   // "webgl2" の口＝WebGL2。null は直下で投げる（宣言関数の中へは絞り込みが届かない＝型は非 null）
 	if (!gl) throw new Error("WebGL2 unavailable");
 
 	// 切っている間（P0 #3・set("clip")）は描くプログラムを切る派生へ差し替える＝下の let は毎フレーム base か派生を指す（属性の位置は base と同じ＝VAO は共通）

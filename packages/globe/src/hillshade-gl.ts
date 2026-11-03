@@ -5,6 +5,7 @@
 // （tests/t-hillshade-gl.html が 5 つの method で差を測る）。WebGL2・R32F の読み・光の本数 ≤ 8 のどれかが叶わなければ null＝呼び手は CPU（shadeTile）で描く。
 import { heightAt } from "./hillshade.ts";
 import type { ShadeInput } from "./hillshade.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 
 const MAX_L = 8;   // multidirectional の光の本数の上限（uniform 配列の長さ）＝超える時は CPU
 const METHOD_ID: Record<string, number> = { standard: 0, basic: 1, combined: 2, igor: 3, multidirectional: 4 };
@@ -74,7 +75,7 @@ export interface ShadeGL { shade(inp: ShadeInput): Uint8ClampedArray<ArrayBuffer
 export function createShadeGL(): ShadeGL | null {
 	if (typeof OffscreenCanvas === "undefined") return null;
 	let gl: WebGL2RenderingContext | null = null;
-	try { gl = new OffscreenCanvas(1, 1).getContext("webgl2", { antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null; } catch { gl = null; }
+	try { gl = new OffscreenCanvas(1, 1).getContext("webgl2", glAttrs({ antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false })) as WebGL2RenderingContext | null; } catch { gl = null; }
 	if (!gl) return null;
 	const sh = (type: number, src: string): WebGLShader | null => { const s = gl!.createShader(type)!; gl!.shaderSource(s, src); gl!.compileShader(s); return gl!.getShaderParameter(s, gl!.COMPILE_STATUS) ? s : null; };
 	const vs = sh(gl.VERTEX_SHADER, VS), fs = sh(gl.FRAGMENT_SHADER, FS);

@@ -265,7 +265,7 @@ export async function decodeImageDefault(bytes: Uint8Array, name: string): Promi
 	const bmp = await createImageBitmap(new Blob([bytes as Uint8Array<ArrayBuffer>]), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
 	try {
 		const { width, height } = bmp, data = new Uint8Array(width * height * 4), cv = new OffscreenCanvas(width, height);
-		const gl = cv.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: false, antialias: false }) as WebGL2RenderingContext | null;
+		const gl = cv.getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: false, preserveDrawingBuffer: false, antialias: false }) as WebGL2RenderingContext | null;
 		if (gl) {
 			const tex = gl.createTexture(), fb = gl.createFramebuffer();
 			gl.bindTexture(gl.TEXTURE_2D, tex);

@@ -10,6 +10,7 @@
 // render worker の組み込み（BUILTIN_OVERLAYS の "screengrid"・create() で実体を作る）。
 import { lonlatTo3D } from "@ortho-earth/core/camera";
 import type { CameraPose, CameraState, OverlayHost, OverlaySize } from "../types/overlay.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 interface Prog { p: WebGLProgram; u: Uniforms }
 /** 色の段の 1 つ（0〜255・a は省略可） */
@@ -98,7 +99,7 @@ export function create() {
 	}
 	function init(canvas: OffscreenCanvas, _opts: unknown, h: OverlayHost | null): void {
 		host = h || null;
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext;
+		gl = canvas.getContext("webgl2", glAttrs({ premultipliedAlpha: true, antialias: false, alpha: true, depth: false })) as WebGL2RenderingContext;
 		// 窓＝32bit 浮動小数（足し算に混ぜられる時）か 16bit（件数・重みの和が 2048 を超えると丸まる＝色の段の粒では効かない）
 		const cbf = !!gl.getExtension("EXT_color_buffer_float");
 		fmt = cbf && gl.getExtension("EXT_float_blend") ? { i: gl.RGBA32F, t: gl.FLOAT } : cbf || gl.getExtension("EXT_color_buffer_half_float") ? { i: gl.RGBA16F, t: gl.HALF_FLOAT } : { i: gl.RGBA8, t: gl.UNSIGNED_BYTE };

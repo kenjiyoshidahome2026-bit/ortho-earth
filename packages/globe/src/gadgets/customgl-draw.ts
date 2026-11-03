@@ -15,6 +15,7 @@
 import type { CameraPose, CameraState, DepthApi, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 import { createThreeLoader, addonsBaseOf } from "./three-resolve.ts";
 import { glProgram } from "./glprog.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 type CustomArgs = ReturnType<OverlayHost["customArgs"]>;
 type RenderingMode = "2d" | "3d";
@@ -80,7 +81,7 @@ void main() {
 
 	function init(canvas: OffscreenCanvas, o: CustomGLOpts | null, h: OverlayHost | null) {
 		host = h || null; opts = o || {}; canvasRef = canvas;
-		gl = canvas.getContext("webgl2", { alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false, depth: true, stencil: true }) as WebGL2RenderingContext;
+		gl = canvas.getContext("webgl2", glAttrs({ alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false, depth: true, stencil: true })) as WebGL2RenderingContext;
 		if (!gl) throw new Error("WebGL2 is not available (custom layer overlay)");
 		const wantDepth = opts.depth !== false && (opts.renderingMode ?? "3d") === "3d";
 		if (wantDepth && host?.depthGLSL) {

@@ -8,6 +8,7 @@
 import { createPostStagesGL } from "./gl/poststage.ts";
 import type { PostStagesGL, StageFrame } from "./gl/poststage.ts";
 import type { PostStage } from "./postfx.ts";
+import { glAttrs } from "./gpupower.ts";
 
 const FULL_VS = `struct VOut { @builtin(position) pos: vec4f };
 @vertex fn vs(@builtin(vertex_index) i: u32) -> VOut {
@@ -46,7 +47,7 @@ export interface GlslBridge {
 export function createGlslBridge(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null): GlslBridge | null {
 	if (typeof OffscreenCanvas === "undefined") return null;
 	const glCanvas = new OffscreenCanvas(1, 1);
-	const opts: WebGLContextAttributes = { alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true, premultipliedAlpha: false };
+	const opts: WebGLContextAttributes = glAttrs({ alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
 	const gl0 = (glCanvas.getContext("webgl2", opts) ?? glCanvas.getContext("webgl2", opts)) as WebGL2RenderingContext | null;   // 2 度目で取れる器がある（SwiftShader の WebGPU の worker で最初の 1 つが null・2026-10-30）
 	if (!gl0) return null;
 	const cC = new OffscreenCanvas(1, 1), cD = new OffscreenCanvas(1, 1);

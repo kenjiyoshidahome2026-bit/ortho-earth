@@ -202,7 +202,7 @@ const layers = [];   // q → { n, nBig, bufs, spriteVao, sphereVao }
 let st = { ...DEFAULTS }, range = [1967, 2100];
 
 export function init(canvas, opts = {}) {
-	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: true });
+	gl = canvas.getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: true, antialias: true, alpha: true, depth: true });
 	if (!gl) throw new Error("WebGL2 is not available (quakes overlay)");
 	sprite = compile(gl, SPRITE_VS, SPRITE_FS);
 	sphere = compile(gl, SPHERE_VS, SPHERE_FS);

@@ -19,6 +19,7 @@
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 import type { ChunkLevel, ColumnarChunk } from "./chunk.ts";
 import { glProgram } from "../gadgets/glprog.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 interface Prog { p: WebGLProgram; u: Uniforms }
 interface ColumnarOpts { perf?: boolean; drape?: boolean; depth?: boolean; rAx?: number }
@@ -152,7 +153,7 @@ void main() {
 	const compile = (vs: string, fs: string) => glProgram(gl, vs, fs, true);
 	function init(canvas: OffscreenCanvas, opts: ColumnarOpts = {}, h: OverlayHost | null = null) {
 		host = h;
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext;
+		gl = canvas.getContext("webgl2", glAttrs({ premultipliedAlpha: true, antialias: true, alpha: true, depth: false })) as WebGL2RenderingContext;
 		if (!gl) throw new Error("WebGL2 is not available (columnar overlay)");
 		drape = opts.drape !== false; wantDepth = opts.depth !== false && !!h?.depthGLSL; rAx = opts.rAx || 1;
 		const dg = wantDepth ? h!.depthGLSL : DEPTH_STUB;

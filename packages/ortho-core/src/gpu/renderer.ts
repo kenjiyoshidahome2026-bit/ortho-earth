@@ -68,6 +68,7 @@ import type { BuildingsGeom, DrawOp, LineTex } from "../scene.ts";
 import type { GpuText, MidTarget } from "./text.ts";   // 層の位置に描く注記の字（T-P2）＝型だけ（字の GPU は render worker の受け口が作って set("text") で渡す）
 import type { DepthOutFrame, DepthOutGPU } from "./depthout.ts";
 import type { DepthGlobe } from "../depthout.ts";
+import { gpuAdapterOptions, powerPreference, type GpuPowerPreference } from "../gpupower.ts";
 import type { AoGPU } from "./ao.ts";
 import type { SsrGPU, SsrOptions } from "./ssr.ts";
 import type { SceneFxGPU, SceneFxOptions, SceneFxFrame } from "./scenefx.ts";
@@ -76,7 +77,8 @@ import type { GintFrame, GintDepthCtx, GintClipInfo } from "./gint.ts";
 
 /** createRendererGPU の起動の旗（renderworker が渡す） */
 export interface RendererGPUOptions {
-	powerPreference?: GPUPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
+	/** 既定 "high-performance"（外付け GPU のあるノート PC で速い方を頼む・gpupower.ts）。"low-power"／"default" で戻せる */
+	powerPreference?: GpuPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
@@ -322,7 +324,7 @@ function skyEnvCompute(sun: number[], oPt: ArrayLike<number>, { k = 4, sunI = 20
 
 export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCanvas, rOpts: RendererGPUOptions = {}) {
 	if (typeof navigator === "undefined" || !navigator.gpu) throw new Error("WebGPU unavailable");
-	const adapter = await navigator.gpu.requestAdapter(rOpts.powerPreference ? { powerPreference: rOpts.powerPreference } : undefined);
+	const adapter = await navigator.gpu.requestAdapter(gpuAdapterOptions(rOpts.powerPreference ?? powerPreference()));
 	if (!adapter) throw new Error("WebGPU adapter unavailable");
 	// A/B 計測用の GPU 識別（WebGL の WEBGL_debug_renderer_info 相当）。info は環境で空の事があるので緩く。
 	const ai: Partial<GPUAdapterInfo> = adapter.info || {};
