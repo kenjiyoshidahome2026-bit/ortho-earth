@@ -718,6 +718,33 @@ let memCpu: HudSnapshot["cpu"] = null;   // ?hud=1 の worker CPU 内訳（部�
 // main スレッドの詰まり：HUD を載せた時だけ rAF 間隔を測る（EMA と窓内の最長）＝カメラを動かす側（デモの動き・飛行）が飢えていないか
 let mainEma = 0, mainMax = 0, mainLast = 0;
 if (hudOn) { const tick = (t: number) => { if (mainLast) { const dt = t - mainLast; if (dt < 2000) { mainEma = mainEma ? mainEma + (dt - mainEma) * 0.15 : dt; mainMax = Math.max(mainMax, dt); } } mainLast = t; requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
+// main の長い仕事の犯人（Long Animation Frames API・Chrome 123+）：200ms 超のフレームの中のスクリプトを「関数@ファイル:位置」で
+// 束ね、直近 15 秒の合計の大きい順に HUD へ＝実機（Android タブレットで main が ~800ms 止まる・2026-11-03）の画面だけで犯人が分かる
+type LoafScript = { duration: number; invoker?: string; sourceURL?: string; sourceFunctionName?: string; sourceCharPosition?: number };
+const mainLong: Array<{ t: number; key: string; ms: number }> = [];
+if (hudOn && typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame")) {
+	try {
+		new PerformanceObserver(list => {
+			for (const e of list.getEntries() as Array<PerformanceEntry & { scripts?: LoafScript[] }>) {
+				if (e.duration < 200) continue;
+				const sc = e.scripts || [];
+				if (!sc.length) { mainLong.push({ t: e.startTime, key: "(no script: style/layout/GC?)", ms: e.duration }); continue; }
+				for (const x of sc) {
+					if (x.duration < 20) continue;
+					const file = (x.sourceURL || "").split("/").pop() || "?";
+					mainLong.push({ t: e.startTime, key: `${x.sourceFunctionName || "anon"} @${file}:${x.sourceCharPosition ?? -1} (${x.invoker || "?"})`, ms: x.duration });
+				}
+			}
+			const cut = performance.now() - 15000;
+			while (mainLong.length && (mainLong[0].t < cut || mainLong.length > 200)) mainLong.shift();
+		}).observe({ type: "long-animation-frame", buffered: true });
+	} catch { /* 非対応＝行を出さないだけ */ }
+}
+const mainLongTop = () => {
+	const cut = performance.now() - 15000, agg = new Map<string, { ms: number; n: number }>();
+	for (const r of mainLong) if (r.t >= cut) { const a = agg.get(r.key) || { ms: 0, n: 0 }; a.ms += r.ms; a.n++; agg.set(r.key, a); }
+	return [...agg.entries()].sort((a, b) => b[1].ms - a[1].ms).slice(0, 3).map(([key, a]) => ({ key, ms: a.ms, n: a.n }));
+};
 let memLab: unknown = null;   // 注記の計器（テキスト GPU 化 T-P0）＝{ ms, collideMs, labels, glyphs }＝labels2d の draw の EMA・衝突判定・描いた数（t-perfbench の lab 列）
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
 // 計器 e／f（`docs/notes/vt-perf-plan.md` §2・Phase 0）：e＝基図のタイルが「選抜で必要になった→main のシーンに載った」の遅れ（tiles.shown が ack 時に返す・主層だけ）・
@@ -2434,7 +2461,7 @@ function hudSnapshot() {
 	const nc = (navigator as NavigatorPlus).connection || {};
 	return {
 		backend: (dbgHost.__backend as string | undefined) || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
-		cpu: memCpu, main: (() => { const r = { ms: mainEma, max: mainMax }; mainMax = 0; return r; })(),
+		cpu: memCpu, main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
