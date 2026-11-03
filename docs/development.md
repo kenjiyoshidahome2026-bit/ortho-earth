@@ -62,7 +62,7 @@ Browser suites drive a pinned headless Chrome for Testing (about 150 MB, cached 
 
 ## Deploy: other workflows
 
-- `test`: on every pull request and every push to `main`, `npm ci`, the root `npm test` (Node only, no browser) and the i18n gates.
+- `test`: on every pull request and every push to `main`, `npm ci`, the root `npm test` (Node only, no browser) and the i18n gates; the type check runs as its own job, split across three runners.
 - CodeQL code scanning (JavaScript/TypeScript, Rust, Actions).
 
 ## Deploy: known harmless messages

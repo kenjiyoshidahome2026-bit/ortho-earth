@@ -18,7 +18,7 @@ The `/globe/` Worker (its Cloudflare name stays `ortho-globe`). It holds no page
 | Gaussian splats on the globe | `/globe/splat` (`?mode=tiles\|file` picks the streaming mode · `?data=URL` swaps the data folder) | [`apps/splat`](../splat) | GitHub Pages `ortho-data/globe/splat/<scene>/` — two Niantic `.spz` sample scenes (MIT) at Tokyo Station's Marunouchi plaza, baked by `apps/splat/scripts/splat-tiles.mjs` into 3D Tiles (`KHR_gaussian_splatting` + SPZ, octree with REPLACE) plus one cleaned `.spz` each, published with `npm run publish:pages -w world-data -- --only=splat --write`. Drawn by `@ortho-earth/splat` (WebGPU: spherical harmonics, GPU sort, LoD; WebGL2 fallback); drop your own `.ply` / `.splat` / `.spz` / `.ksplat` / `.sog` |
 | Clouds | `/globe/clouds` (`?vol=0` flat shell · `?lv=2..5` detail · `?perf=1` GPU time) | [`apps/clouds`](../clouds) | Geostationary infrared read by the browser: NASA GIBS WMTS (Himawari, GOES-West, GOES-East) + EUMETSAT EUMETView WMS (Meteosat 0°, Meteosat IODC) — no mirror |
 
-Each page bundles `@ortho-earth/globe` itself. It never loads the Japan SDK (`/japan/lib/`) or the Japan shell (`apps/ortho-japan/app.js`),
+Each page bundles `@ortho-earth/globe` itself. It never loads the Japan SDK (`/japan/lib/`) or the Japan shell (`orthoJapan` in `packages/regions`),
 so nothing Japan-specific is shipped here. The old URLs `/japan/earth`, `/japan/quakes` and `/japan/sats` are redirected here (301) by the Japan Worker.
 See `LAYERS.md` at the repository root ("globe の家").
 

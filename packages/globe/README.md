@@ -110,9 +110,11 @@ Every change, old → new, per package: [MIGRATION.md](https://github.com/kenjiy
 
 ## Verification
 
-The gates live with the code: `npm run verify:ui` (18 pages), `npm run verify:webgpu` (10 pages, real GPU; a page that
-boots on WebGL2 or skips for lack of WebGPU fails),
-`npm run verify:nocoi` (the no-`crossOriginIsolated` world), and `npm run verify:net` (3 pages that depend on outside servers — NASA GIBS and ArcGIS — kept out of the standing gates). They boot pages through this package's own
+The gates live with the code: `npm run verify:ui` (about 100 test pages, many in several variants; the list is `ALL_PAGES` in
+`scripts/verify-ui.mjs`), `npm run verify:webgpu` (about 70 pages, real GPU; a page that boots on WebGL2 or skips for lack
+of WebGPU fails), `npm run verify:nocoi` (the no-`crossOriginIsolated` world), and `npm run verify:net` (pages that depend
+on outside servers — OGC WMS, I3S, CesiumJS, ArcGIS FeatureServer and OGC API – Features, IIIF, a public COPC — kept out
+of the standing gates). They boot pages through this package's own
 public face, so what is tested is what you install.
 
 ## License

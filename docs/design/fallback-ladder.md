@@ -3,7 +3,7 @@
 「どの環境で・何が・どう落ちて・どこへ着地するか」の正典。**ノブの値や判定を変えたらこの台帳も更新する**。
 姉妹編：`docs/design/webgpu-port.md`（WebGPU 移植の設計・轍）。最終更新 2026-09-29（§6 リアルタイムの影）。
 
-## 1. バックエンド選択（app.js `gpuBackend`）
+## 1. バックエンド選択（`packages/globe/src/globe.ts` の `gpuBackend`）
 
 起動時の決定順序（上から先勝ち）：
 

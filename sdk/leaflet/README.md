@@ -66,3 +66,8 @@ Tests: `npm test -w @ortho-earth/leaflet` (node, with a fake `maplibregl`: value
 ## Release notes
 
 - 0.1.0 (2026-10-31): first release, part of Ortho Earth 2.2. [Release article](https://www.ortho-earth.com/docs/release-2-2) ([日本語](https://www.ortho-earth.com/docs/release-2-2-jp)) · [From Leaflet](https://www.ortho-earth.com/docs/from-leaflet). All releases: [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md) · [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases)
+
+## License
+
+GPL-3.0-or-later ([LICENSE](LICENSE)). A commercial license — without GPL obligations such as disclosing
+your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.

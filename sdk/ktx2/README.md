@@ -18,3 +18,8 @@ map.supports("texture.ktx2");                            // true ("plugin", via 
 - **Contract** (if you want your own transcoder instead): register `{ url }` on `map.registry.textureTranscoders.add("ktx2", …)`; the worker `import()`s `url` and calls `transcode(bytes, { mimeType }) → { width, height, rgba }` (Promise allowed). `src/transcode.js` is that module; it must stay import-free because it is loaded by URL.
 
 Tests: `npm test -w @ortho-earth/ktx2` (node: header parsing, plugin shape, URL hash, input validation) and, in `packages/globe`, `npm run verify:ui -- t-plugin?v=gltf` (the worker path with a fake transcoder; the real WASM needs network or a self-hosted copy).
+
+## License
+
+GPL-3.0-or-later ([LICENSE](LICENSE)). A commercial license — without GPL obligations such as disclosing
+your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.

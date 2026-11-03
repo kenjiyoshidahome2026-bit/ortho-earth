@@ -29,3 +29,8 @@ function Clicks() { useGlobeEvent("click", e => console.log(e.lngLat)); return n
 - `useGlobeEvent(type, handler, layerId?)` subscribes with `map.on` and unsubscribes on unmount; the handler is kept in a ref.
 
 Tests: `npm test -w @ortho-earth/react` (node, pure functions and server rendering) and `npm run verify:ui -- t-react` in `packages/globe` (real React DOM against a real map).
+
+## License
+
+GPL-3.0-or-later ([LICENSE](LICENSE)). A commercial license — without GPL obligations such as disclosing
+your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.

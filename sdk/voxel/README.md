@@ -96,3 +96,8 @@ map.on("click", "field", e => console.log(e.features[0].properties.cell));
 - All grids of one map share one overlay canvas (the render worker's WebGL contexts are limited); the overlay goes away a moment (`OVERLAY_LINGER_MS`, 250 ms) after the last handle is removed, so `remove()` followed at once by `addData()` (switching scenes) keeps the same overlay instead of tearing it down and racing a new one with the same name.
 - **3D Tiles**: a tileset whose glTF content carries `EXT_primitive_voxels` (with `KHR_implicit_shapes` boxes, `EXT_implicit_ellipsoid_region` regions or `EXT_implicit_cylinder_region` cylinders), or whose `root.content` declares `3DTILES_content_voxels` (the grid fills the tile's bounding volume: a box, a region or a `3DTILES_bounding_volume_cylinder`, which implicit tiling splits by radius, angle and height), becomes one layer per tile through `map.add3DTiles(url, { voxel: { render, colormap, threshold, property, … } })`; `property` picks the attribute (a class property name works too). glTF cylinders are y-up with dimensions `[radius, height, angle]` and angle 0 on −x; they are reordered to `[radius, angle, height]` with angle 0 on +x (a full-circle tile's data starts half a turn round, as the 3D Tiles notes say). Without this plugin the globe skips the grids and warns once.
 - A live example: [`/globe/voxel`](https://www.ortho-earth.com/globe/voxel) (`apps/voxel/voxel.ts`): a noise cloud, a torus, Mt. Fuji as blocks from `map.sampleTerrain` and the USGS catalog as a region density volume.
+
+## License
+
+GPL-3.0-or-later ([LICENSE](LICENSE)). A commercial license — without GPL obligations such as disclosing
+your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.

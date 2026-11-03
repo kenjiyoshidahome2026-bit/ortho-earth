@@ -40,8 +40,8 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 
 ## 懸念点・既知の穴（要レビュー・後日）
 
-移植は速度優先で進めているので、以下は「?gpu=1 実験フラグの範囲では許容・本採用前に潰す」もの。
-既定（WebGL2）には一切影響しない（?gpu=1 を付けた時だけの話）。
+移植は速度優先で進めているので、以下は「?gpu=1 実験フラグの範囲では許容・本採用前に潰す」もの（2026-08-01 時点の記録）。
+※2026-08-02 から WebGPU が既定（Android は 8/3 から一律 WebGL2）。今の起動判定と `?gpu=1`／`?gl2=1` の意味は `docs/design/fallback-ladder.md` §1 が正本。
 
 **A. 未搭載機能** … 解消済（Phase 6＝overlay・idfill・snapshot 基図、＋gintBld ドレープ線/点）。
 残る IGNORE は md 系（mdGrow/mdUp/mdScene＝classic merge 固定ゆえ無縁・下記 B）のみ。
@@ -86,8 +86,8 @@ placeholder 画素チェック→失敗時 WebGL2 自動着地）・?stay=1 の�
 
 ## 使い方・検証
 
-- `?gpu=1` … WebGPU バックエンド。非対応/失敗は worker 内で WebGL2 へ自動フォールバック（挙動同一）。
-  既定経路には dynamic import すら発生しない＝バンドル分離（build で `backend-*.js` が別チャンク、
+- `?gpu=1` … WebGPU 強制（今は既定が WebGPU＝Android と nogpu 印を越える時だけ要る・`fallback-ladder.md` §1）。非対応/失敗は worker 内で WebGL2 へ自動フォールバック（挙動同一）。
+  WebGL2 の経路には dynamic import すら発生しない＝バンドル分離（build で `backend-*.js` が別チャンク、
   renderworker 本体には入らない。実測 2026-08-01 全スタック搭載後＝103KB / gzip 34KB）。
 - `npm run verify:webgpu` … 実時間 CDP スモーク（t-webgpu.html）。frame1 到達＋backend 確認。
 - **轍：`--virtual-time-budget`（verify:ui の headless 流儀）と WebGPU は両立しない**。
