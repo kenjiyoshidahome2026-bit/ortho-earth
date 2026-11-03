@@ -156,7 +156,7 @@
 <li>The example that reads quantized-mesh as a raster-dem source does not walk the ray. Every sample waits for a tile to be decoded, and 160 queries took 25 seconds</li>
 </ul>
 
-<h2>A stubborn bug</h2>
+<h2>Finding where a click lands on terrain</h2>
 <p>What took the longest this time was turning a click on terrain back into coordinates. Fixing steep slopes made the quantized-mesh example slow, and fixing the slowness made positions drift. Every fix brought a new problem in another example.</p>
 <p>Even so, with the gate that shoots side by side with the real thing and the ratchet that fails when a level drops, it was clear on the spot where and what had broken. Along the way an older bug turned up: terrain exaggeration was never applied to the centre. In the end only terrain that can be read synchronously uses the new method, and everything else went back to the old way. Knowing when to stop digging is part of the method too.</p>
 <h2>Dropping Mercator</h2>
