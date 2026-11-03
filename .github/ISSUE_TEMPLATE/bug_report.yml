@@ -1,0 +1,32 @@
+name: Bug report
+description: Something renders wrong, crashes or does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead. A screenshot helps a lot.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Page URL or package
+      description: For example https://www.ortho-earth.com/tokyo/ or @ortho-earth/globe 2.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Browser, OS and GPU
+      description: Open https://www.ortho-earth.com/check/ and paste what it shows.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Code or style to reproduce (if you use the library)
+      description: The smallest code or MapLibre style that shows the problem.
+      render: js

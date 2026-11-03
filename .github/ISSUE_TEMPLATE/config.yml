@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/kenjiyoshidahome2026-bit/ortho-earth/discussions
+    about: Ask how to do something, or share an idea, in Discussions.
+  - name: Security problem
+    url: https://github.com/kenjiyoshidahome2026-bit/ortho-earth/security/advisories/new
+    about: Please report security problems privately, not in a public issue.

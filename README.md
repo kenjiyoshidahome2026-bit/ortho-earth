@@ -159,6 +159,11 @@ Merges to `main` deploy automatically (engine and apps through GitHub Actions on
 The full guide (running and building, every test and browser suite, deploy order, npm release, data) is [`docs/development.md`](docs/development.md).
 Architecture: [`docs/architecture.md`](docs/architecture.md) · apps and URLs: [`docs/apps.md`](docs/apps.md) · all contributor docs: [`docs/`](docs).
 
+## Contributing
+
+Bug reports, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Questions go to [Discussions](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/discussions).
+Because Ortho Earth is also offered under a commercial license, contributors sign a short [CLA](CLA.md) on their first pull request.
+
 ## Contributors & Acknowledgments
 
 This project is fully engineered and conceptualized by Kenji Yoshida.
@@ -171,5 +176,7 @@ I also acknowledge the invaluable support of my AI collaborators:
 - Engine, apps & SDKs (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/nl`, `@ortho-earth/regions`, `@ortho-earth/equal`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `apps/*` except `apps/world`, `sdk/*` except `glbconv`): **GPL-3.0-or-later**
 - Data formats & utilities (`geopbf`, `geoedit`, `altpbf`, `glbconv`, `native-bucket`, `common`, `himekuri`, `apps/world`): **MIT**
 - Data package (`world-data`, including its `sky/` names): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
+
+The root [`LICENSE`](LICENSE) is the GPL-3.0 text that covers most of the repository; every package and app carries its own `LICENSE` file.
 
 For commercial use without GPL obligations, a separate commercial license is available — contact kenji.yoshida.home.2026@gmail.com.

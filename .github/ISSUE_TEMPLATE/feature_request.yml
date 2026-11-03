@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest something Ortho Earth should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What you want to do
+      description: The map or app you are trying to build, and what is missing or hard today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: How you imagine it could work. Links to how MapLibre, Cesium or others do it are welcome.
