@@ -748,7 +748,7 @@ for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEve
 // （mdプール不在）、3GB機(iPad Air3)の走行距離が伸びる。navigator.gpu の無い環境（iOS≤18=XS級・旧ブラウザ）は
 // 最初から WebGL2 直結＝dynamic import もリレー迂回も発生しない＝従来と完全同一。落ち先の網は3枚：
 // ①worker内 adapter/初期化失敗→GL2 自動フォールバック ②present沈黙故障→oj.nogpu＋reload ③frame1 20秒→GL2再起動。
-// ?gl2=1＝手動逃げ道（強制GL2）。?gpu=1＝nogpu印を無視して再試行（診断用）。⚠Windows実機は未確認＝網の内側の残リスク。
+// ?gl2=1＝手動逃げ道（強制GL2）。?gpu=1＝nogpu印を無視して再試行（診断用）。Windows 実機は確認済み（2026-11-03 本人）。
 // 【Android は一律 GL2・2026-08-03 本人裁定】入門機実機で「遷移中に基図だけ黒く落ちる」（?gl2=1 は正常＝WebGPU 経路で
 // 確定・エラー無しの沈黙故障・Mac 再現せず）。外部調査＝Adreno/Mali の Vulkan には黒画面バグ族が多数記録され、
 // 最有力の正しさバグ（Adreno 830 の非決定的コマンド化け）は**2025年フラッグシップの報告**＝「高級機なら安全」は
@@ -757,7 +757,9 @@ for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEve
 // iOS は非対称のまま WebGPU 既定（実機検証済み＋メモリ優位実測済み）。将来 Dawn が枯れたら ?gpu=1 で再評価
 //（?gpu=1 はこのゲートも突破する＝再評価の入口を残す）。⚠デスクトップモード偽装 UA は Android を名乗らない＝
 // 素通りするが、稀ケースかつ落ち網3枚の内側なので許容。
-const IS_ANDROID = /Android/.test(navigator.userAgent) || (navigator as NavigatorPlus).userAgentData?.platform === "Android";
+// 【Android も WebGPU 既定へ・2026-11-03 本人裁定】Mali-G615 タブレット実機（/check/）で WebGPU は落ちず、PLATEAU も WebGL2 より速い
+// ＝上の「Android で GL2 に落として失うものは無い」が崩れた。黒落ち機種が残るリスクは本人承知（エラー無しの沈黙故障は自動で GL2 へ戻れない）。
+// 逃げ道は ?gl2=1。上の 8 月の経緯は判断の記録として残す。
 const forceGl2 = /[?&]gl2=1/.test(location.search);
 // 【WebKit × WebGPU × 重ねた WebGL2 は描かれない・2026-09-21 本人 iPad 実機】同一フレームのオーバーレイ（#13）は
 // 自前の OffscreenCanvas に WebGL2 で描く。本体が WebGPU の時、WebKit（iPadOS/Safari）ではこの 2 枚目だけが
@@ -776,15 +778,14 @@ const nogpuN = +(sessionStorage.getItem("oj.nogpuN") || 0);
 const nogpuMark = sessionStorage.getItem("oj.nogpu");
 if (nogpuMark && nogpuN < 2) sessionStorage.removeItem("oj.nogpu");   // 一発分を消費＝次のリロードで WebGPU 再試行
 const markNoGpu = (why: string) => { sessionStorage.setItem("oj.nogpu", why); sessionStorage.setItem("oj.nogpuN", String(nogpuN + 1)); };
-const gpuBackend: GlobeScope["gpuBackend"] = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !sealGpuForOverlay && !nogpuMark && nogpuN < 2));
+const gpuBackend: GlobeScope["gpuBackend"] = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!sealGpuForOverlay && !nogpuMark && nogpuN < 2));
 // 描画の質（#46）：大気散乱・PBR と環境光・AO の旗＝ell と同じ作法で **既定は全端末で 0**・URL の ?atmosphere=1／?pbr=1／?ao=1 で点ける（本人裁定 2026-09-26）。
 // opts.render.<name>:true は組み込みの口。WebGPU だけが読む（GL2 は実装を持たない）。boot/tier.js renderFx＝純関数。
 const RENDER_FX = renderFx({ render: opts.render, search: location.search });
 // フォールバック起因の GL2（＝WebGPU が使えるはずの環境で印により落ちている）だけチップを出す。
-// Android 既定 GL2・?gl2=1・navigator.gpu 無しの「設計どおり GL2」には出さない（ノイズにしない）。
-const gl2Fallback = !forceGl2 && "gpu" in navigator && !IS_ANDROID && !sealGpuForOverlay && !gpuBackend;   // 設計どおりの GL2（封・Android・?gl2=1）にはチップを出さない
+// ?gl2=1・WebKit のオーバーレイ封・navigator.gpu 無しの「設計どおり GL2」には出さない（ノイズにしない）。
+const gl2Fallback = !forceGl2 && "gpu" in navigator && !sealGpuForOverlay && !gpuBackend;   // 設計どおりの GL2（封・?gl2=1）にはチップを出さない
 if (sealGpuForOverlay && "gpu" in navigator && !gpuBackend) console.log("[boot] WebKit + glOverlay = WebGL2 by default (WebGPU main + WebGL2 overlay is not composited on WebKit; retry with ?gpu=1)");
-if (IS_ANDROID && "gpu" in navigator && !gpuBackend && !forceGl2) console.log("[boot] Android = WebGL2 by default (WebGPU sealed due to driver black-screen family; retry with ?gpu=1)");
 // stay=1 の診断HUD：コンソールを見なくても分かるよう、判定を画面へ大書（iOS 実機診断 2026-08-02）
 const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const d = document.createElement("div");
