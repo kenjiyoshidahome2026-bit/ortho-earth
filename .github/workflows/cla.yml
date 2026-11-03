@@ -1,0 +1,35 @@
+# 外部からの PR に CLA（CLA.md）への同意を求める。署名は cla-signatures ブランチの signatures/cla.json に記録される。
+# 2026-11-03：GPL＋商用ライセンスの二本立てを守るため、外部のコードを受ける前提として導入（Kenji 決定）
+#   main に記録すると push のたびにデプロイが走るので、専用ブランチに置く（ブランチは事前に作っておく）
+#   Kenji・Claude・dependabot の PR はスキップ（allowlist はコミット作者名の照合用の保険）
+name: cla
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+jobs:
+  cla:
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'pull_request_target'
+        && github.event.pull_request.user.login != 'kenjiyoshidahome2026-bit'
+        && github.event.pull_request.user.login != 'dependabot[bot]')
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request
+        && (github.event.comment.body == 'recheck'
+          || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'))
+    steps:
+      # PR のコードは checkout しない（pull_request_target でも安全）
+      - uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-document: https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CLA.md
+          path-to-signatures: signatures/cla.json
+          branch: cla-signatures
+          allowlist: kenjiyoshidahome2026-bit,Kenji Yoshida,Claude,dependabot[bot]
