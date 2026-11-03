@@ -50,3 +50,8 @@ Colors are `[r, g, b, a?]` from 0 to 255 or CSS colors. The handle is `{ id, kin
 - Drawing is WebGL2 on the overlay canvas in the render worker, in the same frame as the globe. The page check runs on the WebGL2 backend.
 
 Tests: `npm test -w @ortho-earth/scene` (node: shapes, `.glb` parsing, atlas packing, colors, baking, plugin shape) and, in `packages/globe`, `npm run verify:ui -- t-pscene` (a tower at Tokyo Station: a box in front is drawn and a box behind it is hidden, billboard and text drawn, picks, setData, setProps, setVisible, remove, unuse).
+
+## License
+
+GPL-3.0-or-later ([LICENSE](LICENSE)). A commercial license — without GPL obligations such as disclosing
+your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.

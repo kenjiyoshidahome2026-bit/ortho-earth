@@ -68,8 +68,8 @@ npm run publish:pages -w world-data -- --scope=japan --write
 | 人工衛星 `active.csv`（毎時ミラー） | Worker＋KV（/sats/） | /globe/sats |
 | 雲 | 自前のデータなし（NASA GIBS・EUMETView 直読み） | /globe/clouds |
 
-読み先の正本＝`packages/ortho-core/src/worldcontent.js` の `WORLD_DATA`（Pages）と `WORLD_GIS`（bucket＝形状だけ）。
-宇宙＝`packages/globe/src/sky/data.js`（solar は同じ URL を自前の数行で読む＝コードを共有しない掟）。
+読み先の正本＝`packages/ortho-core/src/worldcontent.ts` の `WORLD_DATA`（Pages）と `WORLD_GIS`（bucket＝形状だけ）。
+宇宙＝`packages/globe/src/sky/data.ts`（solar は同じ URL を自前の数行で読む＝コードを共有しない掟）。
 
 ## 4. 出ている版（2026-10-13 夕方）
 
@@ -104,7 +104,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 4. **`japan/` の残り**：bucket `GIS/pbf/nps_all`（日本の自然公園 10MB・/japan/parks の地種区分）。鍵が要る置き場に
    残っているのはこれ＝移す値打ちがある。
 5. **`terrain.geopbf` の川の線**：国土数値情報 W05（河川）は「非商用」（複製物の再配布不可）と 10/13 に一次資料で確認 →
-   同日 **OpenStreetMap の川の関係で組み直した**（本人裁定＝別の出所で組み直す・`scripts/terrain-ledger/shapes-osm.mjs`・
+   同日 **OpenStreetMap の川の関係で組み直した**（本人裁定＝別の出所で組み直す・`apps/terrain/scripts/terrain-ledger/shapes-osm.mjs`・
    関係の wikidata タグ＝台帳の qid で結ぶ・298 本中 297 本）。川の線は © OpenStreetMap contributors・**ODbL**＝頁の出典と
    ortho-data の README に書いた。W05 で組んだ前の版は `apps/terrain/scripts/terrain-ledger/keep/terrain.w05.geopbf` に
    残してある（本人の指示・見比べと差し戻し用＝配らない）。**本番の japan は出し直すまで www の旧い写し（W05 の川）を読む**。

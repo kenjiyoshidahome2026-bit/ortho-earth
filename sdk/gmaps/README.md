@@ -85,3 +85,8 @@ Tests: `npm test -w @ortho-earth/gmaps` (node, with a fake `maplibregl`: values,
 ## Release notes
 
 - 0.2.0 (2026-10-31): part of Ortho Earth 2.2. [Release article](https://www.ortho-earth.com/docs/release-2-2) ([日本語](https://www.ortho-earth.com/docs/release-2-2-jp)) · [From Google Maps](https://www.ortho-earth.com/docs/from-google-maps). All releases: [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md) · [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases)
+
+## License
+
+GPL-3.0-or-later ([LICENSE](LICENSE)). A commercial license — without GPL obligations such as disclosing
+your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.

@@ -23,7 +23,7 @@
 | 係争地（seed/conflicts.csv）・地域分け・帰属・例外（seed/） | 手作業（Natural Earth の disputed areas の B コード体系を基礎） | — | CC BY-SA 4.0（本リポジトリ） |
 | 国旗 SVG（flags/） | Wikimedia Commons（NationDB.flag にファイル名） | uploader | 各ファイルの Commons 記載（多くはパブリックドメイン） |
 | 国別の鉄道・道路・市街地・湖・人口密集地・admin1（Cultural・out/ne-cultural.geopbf） | Natural Earth 10m v5.1.2: railroads / roads / urban_areas / lakes / populated_places / admin_1_states_provinces / admin_0_disputed_areas | `scripts/ne-cultural.mjs` | パブリックドメイン |
-| 地形 PNG（geoms/） | Natural Earth 10m/50m | `apps/uploader/src/world/createGeometryPNG.js` | パブリックドメイン |
+| 地形 PNG（geoms/） | Natural Earth 10m/50m | `apps/uploader/src/world/createGeometryPNG.ts` | パブリックドメイン |
 | 効果音（音源.zip） | OtoLogic | — | CC BY 4.0（クレジット必須） |
 
 `NationDB` の各項目の出所は `_src`（wikidata / wb / imf / hdr / wikipedia-en / override / territory）に残る。

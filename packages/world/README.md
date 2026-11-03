@@ -54,7 +54,7 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
   `1991_2020/koppen_geiger_0p1.tif` と `legend.txt` を展開しておく）。
 - 形状台帳（`ne-physical.geopbf`・`ne-physical-lines.geopbf`・`plates.geopbf`・`climate-koppen.geopbf`・`ne-physical.json`）は Node の scripts で out/ に作り、uploader の国別DB節に**ドロップ**して `GIS/world/` へ素通しで置く（2026-10-01）。順序＝`npm run plates` → `npm run ne:physical`（プレートの面は PB2002 の取得が先）
 - 旗（flags.zip → flags/<key>.svg）・音源（音源.zip）・地形 PNG（geoPNG 作成 → geoms/<key>.png）は資産として別に置く。
-- ビューアは起動時に IDB の写しで即描画し、裏で一覧（ETag）を突合して変わったファイルだけ取り直す（`packages/world/src/data.js`）。
+- ビューアは起動時に IDB の写しで即描画し、裏で一覧（ETag）を突合して変わったファイルだけ取り直す（`packages/world/src/data.ts`）。
 
 ## 出力の形（要点）
 

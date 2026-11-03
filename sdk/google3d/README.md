@@ -27,3 +27,8 @@ map.supports("gadget.googleTiles");                                       // tru
 - **Terms.** Google's Map Tiles API terms apply to your use of the data, including how the attribution is shown.
 
 Tests: `npm test -w @ortho-earth/google3d` (node: key only on allowed hosts, session carried, attribution text, plugin shape) and, in `packages/globe`, `npm run verify:ui -- t-googletiles` (a fake Google tree in `tests/fixtures/google` served locally: key on every request, session carried to the relative content, attribution in the panel and removed with the tileset, plugin form). Real data needs your own key and is checked by hand.
+
+## License
+
+GPL-3.0-or-later ([LICENSE](LICENSE)). A commercial license — without GPL obligations such as disclosing
+your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.

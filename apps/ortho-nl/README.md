@@ -1,6 +1,6 @@
 # ortho-nl — オランダの 3D 建物（同じエンジン・別の国）
 
-`@ortho-earth/japan` のエンジンに **オランダの地域パック**（`apps/ortho-japan/nl/region.js`＝PDOK 3D Basisvoorziening の建物）を渡しただけの入口。
+`@ortho-earth/japan` のエンジンに **オランダの地域パック**（`packages/nl/src/region.ts`＝PDOK 3D Basisvoorziening の建物）を渡しただけの入口。
 日本固有のガジェット（地名検索・日本ボタン・デモ台本・太陽系）は載せない。`www.ortho-earth.com/nl/` で配信。
 
 | | |

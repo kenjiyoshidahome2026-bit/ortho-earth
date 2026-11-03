@@ -168,7 +168,7 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 ## License
 
-- Engine, apps & SDKs (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `apps/*`, `sdk/*` except `glbconv`): **GPL-3.0-or-later**
+- Engine, apps & SDKs (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/nl`, `@ortho-earth/regions`, `@ortho-earth/equal`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `apps/*` except `apps/world`, `sdk/*` except `glbconv`): **GPL-3.0-or-later**
 - Data formats & utilities (`geopbf`, `geoedit`, `altpbf`, `glbconv`, `native-bucket`, `common`, `himekuri`, `apps/world`): **MIT**
 - Data package (`world-data`, including its `sky/` names): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
 

@@ -64,7 +64,7 @@
 | 消費者 | 入口 | 地域の持ち物 |
 |---|---|---|
 | PLATEAU（日本） | `meshworker` の区ロード | `packages/jp/src/region.ts` の `buildings`（catalog／exclude／landmarks／bakeBase／group／icon） |
-| 3DBAG（オランダ） | 同上（同じ関数） | `apps/ortho-japan/nl/region.js` の `buildings.sets`（base／bbox／tilesetUrl／clip） |
+| 3DBAG（オランダ） | 同上（同じ関数） | `packages/nl/src/region.ts` の `buildings.sets`（base／bbox／tilesetUrl／clip） |
 | 任意の 3D Tiles（#41） | `tiles3d-decode.js` → `decodeModel` | — |
 | I3S（#48）／glb 模型 | `i3s-decode.js` → `finishMesh` | — |
 
@@ -102,7 +102,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
     - 掟の現状：globe に残る bvmap の語彙（themes.js・style-gsi.js・mergeChome・chips）＝案 b で受け入れた負債。第二の基図が来た時に `basemap` 宣言へ
   - S5 済：関門の頁集合を二分（verify-ui.mjs／verify-webgpu.mjs の `JP_PAGES`＝japan に依る頁・`--globe`／`--japan` で選ぶ）。`npm run verify:globe`（UI 19＋WebGPU 17）／`verify:japan`。packages/globe の `npm run verify` は japan の殻で globe の集合を走らせる委譲（globe は殻＝HTML/検定頁を持たない）
   - S6 済：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes は `createGlobe({ zoomMax: 8 })`（申告なし・z<8）・GeoPBF デモは `createGlobe`（落とした地物を寄って見るので z の上限は既定）。**tellus は japan 側**（本人 9/23「tellus は japan かも」＝東京へ寄って見る画像の頁）。models（PLATEAU LOD3）／scene／census2020／gishub-jp は japan 側。equal は段階 3 で色・ラベルを一本化
-- **3 済（2026-09-23）** 世界の地図面の配色＝`packages/ortho-core/src/worldstyle.js`（`WORLD_STYLE_THEMES`＝旧 equal themes.js の表を正本に引き上げ＋`capital`・`css()`／`hex()`／`normWorldTheme`）。equal の themes.js は同じ名前で再輸出（表は持たない）・首都の点は正本の capital（world の国の地図と同じ赤）。world の worldlayers.js の色定数は正本から導出（手写し廃止）。globe は世界線（河川・海洋境界線）の色とテーマ列の名札/スウォッチを正本から引き、テーマ切替で世界線を塗り直す（gint.repaintWorldLines）。i18n の生存判定は ortho-core/src も文字列の根に含める（"Blank map" 等）。全球ハイプソは従来どおり worldpal.js
+- **3 済（2026-09-23）** 世界の地図面の配色＝`packages/ortho-core/src/worldstyle.ts`（`WORLD_STYLE_THEMES`＝旧 equal themes.js の表を正本に引き上げ＋`capital`・`css()`／`hex()`／`normWorldTheme`）。equal の themes.js は同じ名前で再輸出（表は持たない）・首都の点は正本の capital（world の国の地図と同じ赤）。world の worldlayers.js の色定数は正本から導出（手写し廃止）。globe は世界線（河川・海洋境界線）の色とテーマ列の名札/スウォッチを正本から引き、テーマ切替で世界線を塗り直す（gint.repaintWorldLines）。i18n の生存判定は ortho-core/src も文字列の根に含める（"Blank map" 等）。全球ハイプソは従来どおり worldpal.js
 
 ## 段階 4（2026-09-24）＝門の住所：globe の門は globe が持つ
 
@@ -133,7 +133,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
 - **向き**：japan → globe → core → ephem／japan → jp → core。**globe と jp は互いを import しない**（出会うのは japan が渡す申告 `opts.region` だけ・2026-09-30 に worker の空き枠 `#extra-roles` を廃止）。
   モノレポ全体をパッケージ単位で機械検査して**出荷物に循環なし**（輪は scripts・tests が他アプリのデータを読む所だけ）。
 - **入口**：地域なしの地球儀は `@ortho-earth/globe` から直に取る＝ortho-globe（下の「globe の家」）・world（国の地図パネル）・GeoPBF デモ（9/24 に japan の殻経由から直へ＝束から日本／NL の申告が消えた）・equal（ガジェットと i18n だけ）。
-  日本／NL の申告が要るアプリは japan の殻（`apps/ortho-japan/app.js`＝`orthoJapan`）＝census2020・gishub-jp・ortho-nl。
+  日本／NL の申告が要るアプリは japan の殻（`packages/regions/src/app.ts`＝`orthoJapan`）＝census2020・gishub-jp・ortho-nl。
 - **誰が何を持つか**：
   - 世界帯の中身（国・州・都市・道路・鉄道とその名前）＝規則は core の `worldcontent.js`・データは bucket `GIS/world/`＝equal／globe／world が同じ URL・同じキャッシュ名で引く（japan は通らない）。
   - 楕円体（`?ell=1`）＝ノブは core の `camera.js`（setEllipsoid）・**決めるのは globe.js の 1 行（URL だけ・opts には無い）**・各 worker へは globe が init で運ぶ。既定は全端末で球（2026-08-19 裁定）。

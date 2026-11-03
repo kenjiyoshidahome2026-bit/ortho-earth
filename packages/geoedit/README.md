@@ -40,5 +40,5 @@ run it there instead, sharing geopbf's core with its other workers: `setWorkerFa
 Return `null` to keep the built-in worker. Same convention as geopbf (README "Worker entry"), including the build alias
 that drops the built-in worker.
 
-Install: `npm i geoedit` (depends on `geopbf` ≥ 2.0.0). With Vite, set `worker: { format: "es" }` in your config (geopbf's workers use dynamic imports; Vite's default `iife` worker format cannot bundle them). Tests live with the host app for now (`apps/ortho-japan/tests/t-editor.html` and friends) and run with
-`npm test` here (→ `verify:editor` of ortho-japan).
+Install: `npm i geoedit` (depends on `geopbf` ≥ 2.0.0). With Vite, set `worker: { format: "es" }` in your config (geopbf's workers use dynamic imports; Vite's default `iife` worker format cannot bundle them). Tests live with the host app for now (`apps/japan-map/tests/t-editor.html` and friends) and run with
+`npm test` here (→ `verify:editor` of japan-map).
