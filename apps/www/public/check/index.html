@@ -40,7 +40,7 @@ ul { padding-left: 1.2rem; margin: .3rem 0; }
 	<h2>Draw test (WebGPU)</h2>
 	<div class="test">
 		<canvas id="gpu" width="96" height="96"></canvas>
-		<p id="drawnote">A green triangle on blue should appear here.<br><span lang="ja">青地に緑の三角が見えれば正常です。</span></p>
+		<p id="drawnote">A green triangle on blue should appear here. If the report says ok but you see nothing, say so.<br><span lang="ja">青地に緑の三角が見えれば正常です。結果が ok なのに何も見えない時は、それも教えてください。</span></p>
 	</div>
 
 	<h2>Report</h2>
@@ -119,13 +119,13 @@ if (hasGpu) {
 	} catch (e) { put("WebGPU error", e.message); gpuOk = false; }
 }
 
-// 描画試験：青で消して緑の三角＝キャンバスに出た画素を 2D に写して真ん中を読む（iOS で見た「エラー無しで絵が出ない」の検出）
+// 描画試験：青で消して緑の三角＝描いた画素を GPU のバッファに写して読む（画面に届くかは目で見る＝iOS で見た「エラー無しで絵が出ない」）
 async function drawTest(device, errs) {
 	const canvas = document.getElementById("gpu");
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) { put("draw test", "no webgpu canvas context"); return false; }
 	const format = navigator.gpu.getPreferredCanvasFormat();
-	ctx.configure({ device, format, alphaMode: "opaque" });
+	ctx.configure({ device, format, alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
 	const mod = device.createShaderModule({ code: `
 		@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 			var p = array<vec2f, 3>(vec2f(0.0, 0.8), vec2f(-0.8, -0.8), vec2f(0.8, -0.8));
@@ -133,20 +133,25 @@ async function drawTest(device, errs) {
 		}
 		@fragment fn fs() -> @location(0) vec4f { return vec4f(0.1, 0.85, 0.35, 1.0); }` });
 	const pipe = device.createRenderPipeline({ layout: "auto", vertex: { module: mod, entryPoint: "vs" }, fragment: { module: mod, entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } });
+	// 読み戻しは GPU のバッファで（copyTextureToBuffer → mapAsync）。キャンバスを 2D に写す旧方式は、画面に出た後のキャンバスが
+	// 仕様で透明な黒に戻るため正常でも 0,0,0,0 になった（2026-11-03 Android 実機の偽の失敗）。画面に届くかは目で見る緑の三角で
+	const tex = ctx.getCurrentTexture(), W = canvas.width, H = canvas.height, BPR = Math.ceil(W * 4 / 256) * 256;
+	const buf = device.createBuffer({ size: BPR * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
 	const enc = device.createCommandEncoder();
-	const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0.1, g: 0.25, b: 0.75, a: 1 }, loadOp: "clear", storeOp: "store" }] });
+	const pass = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView(), clearValue: { r: 0.1, g: 0.25, b: 0.75, a: 1 }, loadOp: "clear", storeOp: "store" }] });
 	pass.setPipeline(pipe); pass.draw(3); pass.end();
+	enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: BPR }, [W, H]);
 	device.queue.submit([enc.finish()]);
-	try { await device.queue.onSubmittedWorkDone(); } catch (e) { errs.push("onSubmittedWorkDone: " + e.message); }   // 無頭の swiftshader はここで投げる＝読み戻しで判定を続ける
-	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-	if (errs.length) put("GPU errors", errs.join(" | "));
 	try {
-		const c2 = document.createElement("canvas"); c2.width = canvas.width; c2.height = canvas.height;
-		const g = c2.getContext("2d"); g.drawImage(canvas, 0, 0);
-		const mid = [...g.getImageData(48, 60, 1, 1).data], corner = [...g.getImageData(4, 4, 1, 1).data];
+		await buf.mapAsync(GPUMapMode.READ);
+		const px = new Uint8Array(buf.getMappedRange());
+		const at = (x, y) => { const i = y * BPR + x * 4, a = [px[i], px[i + 1], px[i + 2], px[i + 3]]; return format === "bgra8unorm" ? [a[2], a[1], a[0], a[3]] : a; };
+		const mid = at(48, 60), corner = at(4, 4);
+		buf.unmap();
+		if (errs.length) put("GPU errors", errs.join(" | "));
 		put("draw test pixels (centre / corner)", `${mid.join(",")} / ${corner.join(",")}`);
 		const green = mid[1] > 150 && mid[0] < 100, blue = corner[2] > 120 && corner[0] < 80;
-		put("draw test", green && blue ? "ok" : "picture did not arrive");
+		put("draw test", green && blue ? "ok (rendered; check the triangle is visible on screen)" : "wrong pixels");
 		return green && blue;
 	} catch (e) { put("draw test", "could not read back: " + e.message); return null; }
 }
@@ -155,13 +160,13 @@ const v = document.getElementById("verdict");
 const note = engineWould && gpuOk === false
 	? ["warn", "This browser has WebGPU but no usable GPU for it. Ortho Earth falls back to WebGL2 by itself; the map works without the WebGPU-only effects."]
 	: engineWould
-	? (drawOk ? ["ok", "WebGPU works here, and Ortho Earth starts on it."] : ["bad", "Ortho Earth would start on WebGPU, but the draw test failed. It should fall back to WebGL2 by itself; please send the report."])
+	? (drawOk ? ["ok", "WebGPU works here, and Ortho Earth starts on it."] : drawOk === null ? ["warn", "Ortho Earth starts on WebGPU here, but the draw test could not be checked; please send the report."] : ["bad", "Ortho Earth would start on WebGPU, but the draw test failed. It should fall back to WebGL2 by itself; please send the report."])
 	: hasGpu && isAndroid && !forceGl2
 		? (drawOk ? ["warn", "Android: Ortho Earth starts on WebGL2 by design. WebGPU passed the draw test here, so please also try the maps with ?gpu=1 and send the report."] : ["warn", "Android: Ortho Earth starts on WebGL2 by design. WebGPU did not pass the draw test here."])
 		: ["warn", "Ortho Earth runs on WebGL2 here. The map works; shadows, reflections and other WebGPU-only effects are off."];
 v.className = "verdict " + note[0]; v.textContent = note[1];
 put("verdict", note[1]);
-document.getElementById("drawnote").insertAdjacentHTML("beforeend", drawOk === true ? "<br><b class=ok>Read back: ok</b>" : drawOk === false ? "<br><b class=bad>Read back: picture did not arrive</b>" : "");
+document.getElementById("drawnote").insertAdjacentHTML("beforeend", drawOk === true ? "<br><b class=ok>Read back: ok</b>" : drawOk === false ? "<br><b class=bad>Read back: wrong pixels</b>" : "");
 
 const pages = [["Top", "/"], ["Japan 3D (Tokyo)", "/japan/#16/35.6812/139.7671/60t/30r"], ["Earthquakes", "/globe/quakes/"], ["Satellites", "/globe/sats"], ["Equal Earth", "/equal/"]];
 const add = (u, flag) => u.includes("#") ? u.replace("#", (u.includes("?") ? "&" : "?") + flag + "#") : u + (u.includes("?") ? "&" : "?") + flag;
