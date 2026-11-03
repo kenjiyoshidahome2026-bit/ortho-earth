@@ -14,7 +14,7 @@ export interface HudSnapshot {
 	/** render worker の JS 時間（描いたフレームの部位別 EMA・ms）と窓内の最長 */
 	cpu?: { up: number; terr: number; map: number; gint: number; lab: number; ov: number; total: number; max: number } | null;
 	/** main スレッドの rAF 間隔（EMA と窓内の最長・ms） */
-	main?: { ms: number; max: number } | null;
+	main?: { ms: number; max: number; long?: Array<{ key: string; ms: number; n: number }> } | null;
 	shadow?: { active: boolean; gpuMs?: number; halfM?: number; N?: number; texelM: number; terrTris?: number; bldTris?: number; meshBatches?: number; meshTris?: number; passes?: number; skipped?: number } | null;
 	vt?: { shown: number; bytes: number; rttMs: number; decodeMs: number; buildMs: number; mergeMs: number; pending?: boolean; fsMs?: number | null } | null;
 	tiles: { bytes: number; budget: number }; terrain: number; mesh?: { bytes: number; regions: number } | null;
@@ -150,7 +150,8 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 			row("frame", `${(s.frameMs || 0).toFixed(1)} ms` + note(`(×${(s.res ?? 1).toFixed(2)})`)) +   // フレーム時間と動的解像度を1行に
 			(s.cpu ? row("worker CPU", `${s.cpu.total.toFixed(1)} ms` + note(`max ${s.cpu.max.toFixed(0)}`)) +   // 描画 worker の JS 時間（frame との差＝描画以外の仕事・メッセージ処理など）
 				det(`upload ${s.cpu.up.toFixed(1)} · terrain ${s.cpu.terr.toFixed(1)} · map ${s.cpu.map.toFixed(1)} · lines ${s.cpu.gint.toFixed(1)} · labels ${s.cpu.lab.toFixed(1)} · overlays ${s.cpu.ov.toFixed(1)}`) : "") +
-			(s.main ? row("main thread", `${s.main.ms.toFixed(1)} ms` + note(`max ${s.main.max.toFixed(0)}`)) : "") +   // main の rAF 間隔＝カメラを動かす側の詰まり
+			(s.main ? row("main thread", `${s.main.ms.toFixed(1)} ms` + note(`max ${s.main.max.toFixed(0)}`)) +
+				(s.main.long?.length ? det(s.main.long.map(l => `${l.ms.toFixed(0)} ms ×${l.n} ${esc(l.key)}`).join("<br>")) : "") : "") +   // 直近 15 秒の長い仕事の犯人（関数@ファイル:位置）   // main の rAF 間隔＝カメラを動かす側の詰まり
 			(s.shadow ? row("shadow", s.shadow.active ? `${(s.shadow.gpuMs || 0).toFixed(2)} ms` + note(s.shadow.halfM ? `${s.shadow.N}² · ${(s.shadow.halfM * 2 / 1000).toFixed(1)} km · ${s.shadow.texelM.toFixed(1)} m/texel` : "") : "off" + note("(z<13 or sun down)")) +
 				(s.shadow.halfM ? det(`casters: terrain ${Math.round(s.shadow.terrTris || 0).toLocaleString()} tris · buildings ${Math.round(s.shadow.bldTris || 0).toLocaleString()} tris · meshes ${s.shadow.meshBatches || 0} (${Math.round(s.shadow.meshTris || 0).toLocaleString()} tris) · passes ${s.shadow.passes} drawn / ${s.shadow.skipped} reused`) : "") : "") +   // 影の深度パス（#112 段 0）＝GPU 時間（描いたパスの EMA）・窓・落とした物・描いた/使い回した回数
 			(s.vt ? row("vector layers", `${s.vt.shown} tiles` + note(`${mb(s.vt.bytes)} MB`)) +   // vector の描く層（#109 段 4）＝直近の組み立て（worker の往復＝解読＋組み立て）・結合（CPU）・状態の反映（set/removeFeatureState→描く側へ渡すまで）
