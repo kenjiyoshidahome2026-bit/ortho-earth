@@ -5,6 +5,8 @@
 //   captures.csv … 1 行 1 頭：hkk_tm（捕獲日時・日本時間）・市区町村コード・緯度・経度・座標の出所・獣種・利用区分・
 //                  estimate_length（体長 cm）・estimate_weight（体重 kg）・receipt_no・hkk_user_id
 //   munis.csv    … 捕獲のあった市区町村：市区町村コード・都道府県・市区町村名（＋獣種別・年度別の件数）
+//   hogoku.geojson … 鳥獣保護区（国土数値情報 A15・2015 年度＝平成 27・鳥取と宮崎は 2009 年度しか無い）。面＋属性 n 名称・p 都道府県コード・
+//                  a 指定機関（1 国・2 県）・k 保護区分（1 鳥獣保護区・2 特別保護地区・3 休猟区・4 特例休猟区）・d0 指定日・d1 解除日・y 年度
 //
 // 表現の決め事
 //   色   … 獣種で色分け（イノシシ・シカが大半＝この 2 つを強い色に）
@@ -33,6 +35,10 @@ export const GROUPS = [
 ];
 export const groupOf = (k: number) => GROUPS.findIndex(g => g.ks.includes(k));
 const SEL = "#d7263d";
+// 鳥獣保護区（A15 の保護区分コード 1〜4）
+const HK = ["鳥獣保護区", "特別保護地区", "休猟区", "特例休猟区"];
+const HK_COLORS = ["#3f9a62", "#1d6b45", "#c59a1c", "#cf6f25"];
+const HK_BY = ["", "国指定", "県指定"];
 
 // RFC 4180 の CSV（BOM・引用・引用内の改行）を行のオブジェクトへ
 export function parseCSV(text: string): Row[] {
@@ -98,6 +104,17 @@ export async function mountChoju(map: GlobeMap, { base = "./" } = {}) {
 	};
 	for (const [id, L] of Object.entries(LAYERS)) await map.addLayer({ id, ...L });
 
+	// ── 鳥獣保護区（面＝点の下。読み終わってから足す＝点の表示を待たせない）──
+	const hkOn = new Set(HK.keys());
+	const hkFilter = () => ["match", ["get", "k"], hkOn.size ? [...hkOn].map(i => i + 1) : [-1], true, false];
+	const hkColor: StyleExpression = ["match", ["get", "k"], ...HK_COLORS.flatMap((c, i) => [i + 1, c]), "#3f9a62"];
+	const hkReady = fetchText(base + "hogoku.geojson").then(async txt => {
+		map.addSource("cj-hk", { type: "geojson", data: JSON.parse(txt) });
+		await map.addLayer({ id: "cj-hk-fill", type: "fill", source: "cj-hk", filter: hkFilter(), paint: { "fill-color": hkColor, "fill-opacity": 0.22 } }, "cj-pt");
+		await map.addLayer({ id: "cj-hk-line", type: "line", source: "cj-hk", filter: hkFilter(), paint: { "line-color": hkColor, "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.6, 11, 1.4], "line-opacity": 0.9 } }, "cj-pt");
+		return true;
+	}).catch(err => { console.warn("[choju] 鳥獣保護区", err); return false; });
+
 	// 絞り込みの状態
 	const st = { sp: new Set(SP.keys()), cls: new Set(CLS.keys()), d0: dMin, d1: dMax, muni: "" };
 	const shown = (d: Rec) => st.sp.has(d.s) && st.cls.has(d.k) && d.d >= st.d0 && d.d <= st.d1;
@@ -121,10 +138,16 @@ export async function mountChoju(map: GlobeMap, { base = "./" } = {}) {
 
 	// ── 地図の操作（ホバー＝獣種と日付・クリック＝詳細）──
 	const tip = map.gadget.tip();
-	const HIT = ["cj-pt", "cj-est"];
+	const HIT = ["cj-pt", "cj-est", "cj-hk-fill"];   // 点が先（重なれば点の札）
 	const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
-	map.on("mousemove", HIT, e => { const f = top(e), d = f && recs[f.properties.i]; tip(d ? [`<b>${esc(SP[d.s])}</b>　${esc(d.tm)}`, esc(`${muniOf.get(d.code)?.pref || ""}${d.muni}`), esc(`${GROUPS[groupOf(d.k)].name}・${CLS[d.k]}`),
-		...(d.rno ? [`受付番号 ${esc(d.rno)}`] : []), ...(d.uid ? [`捕獲者 ID ${esc(d.uid)}`] : [])] : null); });
+	const area = (e: LayerMouseEvent) => (e.features || []).find(f => f.layer?.id === "cj-hk-fill");
+	const hkDate = (v: string) => v ? v.replaceAll("-", "/") : "";
+	map.on("mousemove", HIT, e => { const f = top(e), d = f && recs[f.properties.i];
+		if (d) return tip([`<b>${esc(SP[d.s])}</b>　${esc(d.tm)}`, esc(`${muniOf.get(d.code)?.pref || ""}${d.muni}`), esc(`${GROUPS[groupOf(d.k)].name}・${CLS[d.k]}`),
+			...(d.rno ? [`受付番号 ${esc(d.rno)}`] : []), ...(d.uid ? [`捕獲者 ID ${esc(d.uid)}`] : [])]);
+		const a = area(e)?.properties;
+		tip(a ? [`<b>${esc(a.n)}</b>　${esc(HK[a.k - 1] || "")}`, esc(`${HK_BY[a.a] || ""}・${a.y} 年度のデータ`),
+			...(a.d0 || a.d1 ? [esc(`指定 ${hkDate(a.d0)} 〜 ${hkDate(a.d1)}`)] : [])] : null); });
 	map.on("mouseleave", HIT, () => tip(null));
 	map.on("click", HIT, e => { const f = top(e); if (f) select(f.properties.i); });
 
@@ -148,6 +171,9 @@ export async function mountChoju(map: GlobeMap, { base = "./" } = {}) {
 				${g.ks.length > 1 ? g.ks.map(i => `<label class="grp sub"><input type="checkbox" data-k="${i}" checked>${esc(CLS[i])}<small data-nk="${i}"></small></label>`).join("") : `<input type="checkbox" data-k="${g.ks[0]}" checked hidden><small data-nk="${g.ks[0]}" hidden></small>`}`).join("")}
 			<h2>捕獲日</h2>
 			<div class="dates"><label>から<input type="date" class="d0" value="${ymd(dMin)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label><label>まで<input type="date" class="d1" value="${ymd(dMax)}" min="${ymd(dMin)}" max="${ymd(dMax)}"></label></div>
+			<h2>鳥獣保護区</h2>
+			${HK.map((h, i) => `<label class="grp"><input type="checkbox" data-hk="${i}" checked><span class="sw sq" style="background:${HK_COLORS[i]}"></span>${esc(h)}</label>`).join("")}
+			<p class="note">鳥獣保護区は 2015 年度（鳥取県と宮崎県は 2009 年度）の区域で、今の指定とは違うことがあります。出典：「国土数値情報（鳥獣保護区データ）」（国土交通省）を加工して作成。</p>
 			<p class="note">白抜きの点は捕獲地点の座標が無く、送信位置か住所の座標で置いた記録です。獣種と利用区分は書き出しのコードからの推定です。</p>
 		`;
 	const $ = <T extends HTMLElement = HTMLInputElement>(s: string) => panel.querySelector<T>(s)!;
@@ -164,6 +190,10 @@ export async function mountChoju(map: GlobeMap, { base = "./" } = {}) {
 	const setDates = (a: number, b: number) => { st.d0 = Math.max(dMin, a); st.d1 = Math.min(dMax, b); D0.value = ymd(st.d0); D1.value = ymd(st.d1); apply(); };
 	D0.onchange = () => D0.value && setDates(num(D0.value), st.d1);
 	D1.onchange = () => D1.value && setDates(st.d0, num(D1.value));
+	panel.querySelectorAll<HTMLInputElement>("input[data-hk]").forEach(inp => inp.onchange = async () => {
+		inp.checked ? hkOn.add(+inp.dataset.hk!) : hkOn.delete(+inp.dataset.hk!);
+		if (!await hkReady) return;
+		map.setFilter("cj-hk-fill", hkFilter()); map.setFilter("cj-hk-line", hkFilter()); });
 	$(".muni").onchange = e => setMuni((e.target as HTMLSelectElement).value);
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());
 
@@ -223,6 +253,7 @@ const CSS = `
 .cj-panel .grp{display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer}
 .cj-panel .grp small{margin-left:auto;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
 .cj-panel .sw{flex:none;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.35)}
+.cj-panel .sw.sq{border-radius:3px}
 .cj-panel .grp.top b{font-weight:600;color:var(--qm-ink)}
 .cj-panel .grp.sub{padding-left:20px;font-size:12.5px}
 .cj-panel .msel + h2,.cj-panel .msel{margin-top:8px}
