@@ -190,6 +190,13 @@ export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetH
 	const level1 = opts.level1||7, level2 = opts.level2||12;
 	const {max, min, floor} = Math;
 	let cname: string | null = null, current: ElevTile | null = null;
+	// 読んだタイルの手元の控え（直近 MEMO_N 枚）＋IDB 読みの併合。旧＝IDB に在るタイルは cname/current に載せず
+	// 毎回 IDB から読み直していた（R01 は 1 枚数十 MB の構造化複製）＝カメラ直下の標高を引くたびに main が
+	// 数百 ms 止まる（Android タブレット実測 ~800ms・LoAF の犯人＝IDBRequest.onsuccess・2026-11-03）
+	const MEMO_N = 3;
+	const memo = new Map<string, ElevTile>();
+	const remember = (name: string, t: ElevTile): void => { memo.delete(name); memo.set(name, t); while (memo.size > MEMO_N) memo.delete(memo.keys().next().value!); };
+	const idbReads = new Map<string, Promise<ElevTile | null>>();
 	const worker = spawnWorker("ortho:height", () => builtinWorker("ortho:height"))!;
 	worker.onerror = e => console.error("Worker Exception:", e);
 ////---------------------------------------------------------------------------------------
@@ -207,8 +214,12 @@ export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetH
 	async function load(lng: number, lat: number, range: number, wait = false): Promise<ElevTile | null> {
 		const name = encodeName(lng, lat, range);
 		if (cname == name) return current;
+		const hit = memo.get(name);
+		if (hit) { remember(name, hit); return hit; }
 		// IDB が開けない環境は cache=null（上の縮退）・読み書きの失敗も握る＝標高取得ごと死なない（2026-09-25）
-		const obj = cache ? await cache(name).catch(() => null) as ElevTile | null : null; if (obj && obj.data && obj.width && !staleDSM(name, obj, dtm)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
+		let rd = idbReads.get(name);
+		if (!rd && cache) { rd = Promise.resolve(cache(name)).catch(() => null).then(o => (o as ElevTile | null) ?? null).finally(() => idbReads.delete(name)); idbReads.set(name, rd); }
+		const obj = rd ? await rd : null; if (obj && obj.data && obj.width && !staleDSM(name, obj, dtm)) { remember(name, obj); return obj; }   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
 		if (isLoading) return wait && inflight ? inflight.then(() => load(lng, lat, range, wait)) : null;   // 描画側＝落とす（到着まで0）／wait＝待って再試行
 		return inflight = new Promise<ElevTile | null>(res=>{
 			isLoading = performance.now();
@@ -220,7 +231,7 @@ export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetH
 					// wait 呼び（map.getHeight）は永久に待つ（2026-09-25）＝失敗は握って先へ進む
 					if (cache) await cache(name, obj).catch(err => console.warn(`[altpbf] cache write failed: ${name}`, err));
 					console.log(`[altpbf]  📥 ${name} (${obj.width} x ${obj.height}) ${(performance.now() - isLoading!).toFixed(2) } msec`);
-					cname = name; current = obj;
+					cname = name; current = obj; remember(name, obj);
 				}
 				opts.onend && opts.onend(name);
 				isLoading = null;
