@@ -363,7 +363,7 @@ function compile(gl: WebGL2RenderingContext, vs: string, fs: string): Program {
 }
 
 export function createRenderer(canvas: HTMLCanvasElement): GlRenderer | null {
-	const gl = canvas.getContext("webgl2", { antialias: true, stencil: true, alpha: false, premultipliedAlpha: true, preserveDrawingBuffer: false })!;   // 内側の function 宣言が読む＝null の除外は下の return で済む
+	const gl = canvas.getContext("webgl2", { powerPreference: "high-performance", antialias: true, stencil: true, alpha: false, premultipliedAlpha: true, preserveDrawingBuffer: false })!;   // 内側の function 宣言が読む＝null の除外は下の return で済む
 	if (!gl) return null;
 	const MAX_TEX = Math.min(4096, gl.getParameter(gl.MAX_TEXTURE_SIZE));
 	// 国 ID は R32F への加算（float blend）。無い機体は陸マスクだけステンシルで作る＝コロプレス/ホバー無しで動く

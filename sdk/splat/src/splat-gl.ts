@@ -98,7 +98,7 @@ function compile(vs: string, fs: string): Program {
 }
 export function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null): { depth: true } | undefined {
 	host = h;
-	const gl = glc = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
+	const gl = glc = canvas.getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (splat overlay)");
 	wantDepth = opts.depth !== false && !!h?.depthGLSL;
 	const dg = wantDepth && h?.depthGLSL ? h.depthGLSL : DEPTH_STUB;

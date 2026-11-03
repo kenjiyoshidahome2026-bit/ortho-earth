@@ -15,6 +15,7 @@
 // render worker の組み込み（BUILTIN_OVERLAYS の "points"・create() で実体を作る）。
 import type { CameraPose, CameraState, LastOverlayFrame, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 import { glProgram, readPickWindow, nearestId } from "./glprog.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 前の層から混ぜるトランジション（dOrigin＝前の原点 − 今の原点） */
 interface Trans { start: number; dur: number; dOrigin: number[] }
@@ -192,7 +193,7 @@ export function create() {
 	const compile = (vs: string, fs: string) => glProgram(gl!, vs, fs);
 	function init(canvas: OffscreenCanvas, _opts: object, h: OverlayHost | null) {
 		host = h || null;
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext | null;
+		gl = canvas.getContext("webgl2", glAttrs({ premultipliedAlpha: true, antialias: true, alpha: true, depth: false })) as WebGL2RenderingContext | null;
 		if (!gl) throw new Error("WebGL2 is not available (points overlay)");
 		({ p: prog, u: uni } = compile(VS, FS));
 		try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[points] pick pass unavailable", (e as Error)?.message); }

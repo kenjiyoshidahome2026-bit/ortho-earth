@@ -12,6 +12,7 @@ import { ecefToLlh } from "../czml-time.ts";
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 import { CLOUD_VS, CLOUD_FS, NOISE_VS, NOISE_FS, NOISE_SLICE, NOISE_ROWS } from "./cesium-clouds-glsl.ts";
 import { glProgram } from "./glprog.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** Cesium の積雲の層（CloudCollection 1 つ）：位置・scale（m・目の空間の四角）・maximumSize・slice・明るさ・色、ノイズの作り方 */
@@ -79,7 +80,7 @@ export function create() {
 	const compile = (vs: string, fs: string) => glProgram(gl!, vs, fs);
 	function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null) {
 		host = h;
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext | null;
+		gl = canvas.getContext("webgl2", glAttrs({ premultipliedAlpha: true, antialias: false, alpha: true, depth: false })) as WebGL2RenderingContext | null;
 		if (!gl) throw new Error("WebGL2 is not available (sprites overlay)");
 		wantDepth = opts.depth !== false && !!h?.depthGLSL;
 		depthGLSL = wantDepth ? h!.depthGLSL : DEPTH_STUB;

@@ -5,6 +5,7 @@
 // 契約（app.js の map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size) / destroy()（render worker の組み込み＝BUILTIN_OVERLAYS が遅延チャンクで読み create() で実体を作る・2026-10-17 まで URL で import() する依存ゼロのモジュール）。
 // 検定用の { type:"probe", id }＝次の frame の後に自分の画素を host.post（{ type:"pixels", … }・t-ellparity）。描画には関与しない。
 import type { CameraPose, CameraState, OverlayHost, OverlaySize } from "./types/overlay.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 interface Prog { p: WebGLProgram; u: Uniforms }
 interface DensityTarget { tex: WebGLTexture; fbo: WebGLFramebuffer; w: number; h: number }
@@ -70,7 +71,7 @@ export function create() {
 	}
 	function init(canvas: OffscreenCanvas, _opts: object, h: OverlayHost | null) {
 		host = h || null;
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext;
+		gl = canvas.getContext("webgl2", glAttrs({ premultipliedAlpha: true, antialias: false, alpha: true, depth: false })) as WebGL2RenderingContext;
 		// 密度の窓＝半精度浮動小数（描けない GPU は RGBA8＝量子化するが見た目は近い）
 		fmt = gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float") ? { i: gl.R16F, f: gl.RED, t: gl.HALF_FLOAT } : { i: gl.RGBA8, f: gl.RGBA, t: gl.UNSIGNED_BYTE };
 		prog = compile(VS, FS); colorProg = compile(CVS, CFS);

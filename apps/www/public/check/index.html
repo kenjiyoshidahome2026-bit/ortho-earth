@@ -64,6 +64,8 @@ const uaPlatform = navigator.userAgentData?.platform || "";
 const isAndroid = /Android/.test(ua) || uaPlatform === "Android";
 const forceGl2 = /[?&]gl2=1/.test(q), forceGpu = /[?&]gpu=1/.test(q);
 const hasGpu = "gpu" in navigator;
+// GPU の選び方＝エンジンと同じ（packages/ortho-core/src/gpupower.ts：既定 high-performance・?lowpower=1 で low-power）
+const power = /[?&]lowpower=1/.test(q) ? "low-power" : "high-performance";
 
 put("page", location.href);
 put("time", new Date().toISOString());
@@ -76,7 +78,7 @@ put("navigator.gpu", hasGpu ? "present" : "absent");
 
 // WebGL2（Android の既定経路・WebGPU が駄目な時の落ち先）
 try {
-	const gl = document.createElement("canvas").getContext("webgl2");
+	const gl = document.createElement("canvas").getContext("webgl2", { powerPreference: power });
 	if (!gl) put("WebGL2", "unavailable");
 	else {
 		const ext = gl.getExtension("WEBGL_debug_renderer_info");
@@ -84,22 +86,29 @@ try {
 		put("WebGL2 vendor", ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR));
 		put("WebGL2 max texture", gl.getParameter(gl.MAX_TEXTURE_SIZE));
 		put("WebGL2 float blend", gl.getExtension("EXT_float_blend") ? "yes" : "no");
+		const g0 = document.createElement("canvas").getContext("webgl2"), x0 = g0?.getExtension("WEBGL_debug_renderer_info");   // 希望なし（ブラウザ任せ）
+		if (g0 && x0) { const n0 = g0.getParameter(x0.UNMASKED_RENDERER_WEBGL), n1 = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ""; put("WebGL2 renderer without preference", n0 === n1 ? "same" : n0); }
+		g0?.getExtension("WEBGL_lose_context")?.loseContext();
 	}
 } catch (e) { put("WebGL2", "error: " + e.message); }
 
 // エンジンの選ぶ道（globe.ts の gpuBackend と同じ式。WebKit の glOverlay 封と、失敗印 oj.nogpu はページ次第なので外す）
 const engineWould = !forceGl2 && hasGpu && (forceGpu || !isAndroid);
 const why = forceGl2 ? "?gl2=1 forces WebGL2" : !hasGpu ? "this browser has no WebGPU" : forceGpu ? "?gpu=1 forces WebGPU" : isAndroid ? "Android starts on WebGL2 by design (add ?gpu=1 to try WebGPU)" : "WebGPU is available";
+put("GPU preference", power + (power === "high-performance" ? " (engine default: asks for the faster GPU; add ?lowpower=1 to compare)" : " (?lowpower=1)"));
 put("engine starts on", (engineWould ? "WebGPU" : "WebGL2") + " — " + why);
 
 let gpuOk = null, drawOk = null;
 if (hasGpu) {
 	try {
-		const adapter = await navigator.gpu.requestAdapter();
+		const adapter = await navigator.gpu.requestAdapter({ powerPreference: power });
+		const nameOf = a => { const ai = a?.info || {}; return [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean).join(" ") || "(no info)"; };
 		if (!adapter) { put("WebGPU adapter", "none (WebGPU exists but no usable GPU)"); gpuOk = false; }
 		else {
 			const ai = adapter.info || {};
-			put("WebGPU adapter", [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean).join(" ") || "(no info)");
+			put("WebGPU adapter", nameOf(adapter));
+			// 希望なし（ブラウザ任せ）で何が来るか＝2 つ GPU を持つ PC で差が見える
+			try { const a0 = await navigator.gpu.requestAdapter(); const n0 = a0 ? nameOf(a0) : "none"; put("WebGPU adapter without preference", n0 === nameOf(adapter) ? "same" : n0); } catch (e) { put("WebGPU adapter without preference", "error: " + e.message); }
 			put("fallback adapter", String(!!(ai.isFallbackAdapter ?? adapter.isFallbackAdapter)));
 			const want = ["timestamp-query", "float32-blendable", "float32-filterable", "shader-f16", "texture-compression-astc", "texture-compression-etc2", "texture-compression-bc"];
 			put("features", want.map(f => (adapter.features.has(f) ? "+" : "-") + f).join(" "));

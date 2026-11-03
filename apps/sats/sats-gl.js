@@ -139,7 +139,7 @@ let vis = CATS.map(() => 1), idleT = 0;
 
 export function init(canvas, opts = {}, h = null) {
 	host = h;
-	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false });
+	gl = canvas.getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: true, antialias: true, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (sats overlay)");
 	point = compile(gl, POINT_VS, POINT_FS);
 	line = compile(gl, LINE_VS, LINE_FS);

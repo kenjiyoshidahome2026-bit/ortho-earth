@@ -178,7 +178,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	const emit = (type: string, v?: string) => { for (const fn of handlers[type] || []) try { fn(v); } catch (e) { console.error(e); } };
 
 	const canvas = $("c") as HTMLCanvasElement;
-	const gl = canvas.getContext("webgl2", { antialias: true, alpha: false }) as WebGL2RenderingContext;
+	const gl = canvas.getContext("webgl2", { powerPreference: "high-performance", antialias: true, alpha: false }) as WebGL2RenderingContext;
 	if (!gl) { $("nogl").style.display = "grid"; throw new Error("WebGL2 unavailable"); }
 
 	// 数は言語の流儀で（桁区切り・アラビア数字）。d 指定＝小数桁を固定（指定なし＝元の桁のまま）

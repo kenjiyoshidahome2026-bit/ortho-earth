@@ -12,6 +12,7 @@
 // render worker の組み込み（BUILTIN_OVERLAYS の "arcs"・create() で実体を作る）。
 import type { CameraPose, CameraState, LastOverlayFrame, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 import { glProgram, readPickWindow, nearestId } from "./glprog.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 export { decodeId } from "./glprog.ts";
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと）＝has＝属性を持つか（無ければ style の定数） */
@@ -147,7 +148,7 @@ export function create() {
 	function bindGeom(L: Layer) { gl!.bindVertexArray(L.vao); gl!.bindBuffer(gl!.ARRAY_BUFFER, geomBuf); gl!.enableVertexAttribArray(0); gl!.vertexAttribPointer(0, 2, gl!.FLOAT, false, 0, 0); gl!.vertexAttribDivisor(0, 0); gl!.bindVertexArray(null); }
 	function init(canvas: OffscreenCanvas, _opts: object, h: OverlayHost | null) {
 		host = h || null;
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }) as WebGL2RenderingContext | null;
+		gl = canvas.getContext("webgl2", glAttrs({ premultipliedAlpha: true, antialias: true, alpha: true, depth: false })) as WebGL2RenderingContext | null;
 		if (!gl) throw new Error("WebGL2 is not available (arcs overlay)");
 		({ p: prog, u: uni } = compile(VS, FS));
 		try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[arcs] pick pass unavailable", (e as Error)?.message); }

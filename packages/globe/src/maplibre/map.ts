@@ -602,7 +602,7 @@ export class Map {
 			if (typeof d?.renderWithWebGL === "function") {
 				if (!gl) {
 					const cv = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(w, h) : Object.assign(document.createElement("canvas"), { width: w, height: h });
-					gl = (cv as HTMLCanvasElement).getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true });
+					gl = (cv as HTMLCanvasElement).getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: false, preserveDrawingBuffer: true });
 					if (!gl) { unsupported(this, "addImage (renderWithWebGL without WebGL2)"); return null; }
 					tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);

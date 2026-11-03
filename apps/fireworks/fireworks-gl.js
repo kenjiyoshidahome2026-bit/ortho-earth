@@ -102,7 +102,7 @@ let lastT = 0, statN = 0;
 export function init(canvas, opts = {}, h = null) {
 	host = h;
 	if (opts.earthM) earthM = opts.earthM;
-	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
+	gl = canvas.getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (fireworks overlay)");
 	prog = compile(gl, VS, FS(h?.depthGLSL || "float sceneOcclusion(vec2 uv, float w) { return 0.0; }"));   // 深度の GLSL が無いホスト＝隠れ無し
 	bufPos = gl.createBuffer(); bufCol = gl.createBuffer(); bufSize = gl.createBuffer();

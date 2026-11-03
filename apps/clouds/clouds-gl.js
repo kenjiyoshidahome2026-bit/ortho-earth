@@ -202,7 +202,7 @@ let perf = false, perfN = 0, perfSum = 0;
 
 export function init(canvas, opts = {}, h = null) {
 	host = h;
-	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
+	gl = canvas.getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (clouds overlay)");
 	shell = compile(gl, VS, FS_SHELL);
 	vol = compile(gl, VS, FS_VOL);

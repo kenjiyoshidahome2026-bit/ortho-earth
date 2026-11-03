@@ -13,6 +13,7 @@
 // render worker の組み込み（BUILTIN_OVERLAYS の "copc"＝copc-draw.ts が器を見て選ぶ：本体が WebGPU＝copc-gpu.ts・他＝この WebGL2）。深度の GLSL は host.depthGLSL を貼る。
 import type { CameraPose, CameraState, OverlayApi, OverlayHost, OverlaySize } from "../types/overlay.ts";
 import { glProgram } from "./glprog.ts";
+import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 /** 層（q ごと＝COPC の節） */
 interface Layer { n: number; vao: WebGLVertexArrayObject | null; bufs: WebGLBuffer[]; origin: ArrayLike<number>; spacing: number; on: boolean }
@@ -94,7 +95,7 @@ void main() {
 	const compile = (vs: string, fs: string) => glProgram(gl!, vs, fs);
 	function init(canvas: OffscreenCanvas, opts: { depth?: boolean } = {}, h: OverlayHost | null = null) {
 		host = h;
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false }) as WebGL2RenderingContext | null;   // antialias:false＝点の縁は FS の cov で滑らか（上の注）
+		gl = canvas.getContext("webgl2", glAttrs({ premultipliedAlpha: true, antialias: false, alpha: true, depth: false })) as WebGL2RenderingContext | null;   // antialias:false＝点の縁は FS の cov で滑らか（上の注）
 		if (!gl) throw new Error("WebGL2 is not available (COPC overlay)");
 		wantDepth = opts.depth !== false && !!h?.depthGLSL;
 		({ p: prog, u: uni } = compile(VS, FS(wantDepth ? h!.depthGLSL : DEPTH_STUB)));

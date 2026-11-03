@@ -57,7 +57,7 @@ export function createFlagWave(img: HTMLImageElement, { dpr = Math.min(2, device
 		canvas.width = Math.round(r.width * dpr); canvas.height = Math.round((r.height + 2 * padPx) * dpr);
 		const cv = document.createElement("canvas"); cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
 		cv.getContext("2d")!.drawImage(im, 0, 0, cv.width, cv.height); URL.revokeObjectURL(url);
-		gl = canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true });
+		gl = canvas.getContext("webgl2", { powerPreference: "high-performance", premultipliedAlpha: true, alpha: true });
 		if (!gl) throw new Error("no webgl2");
 		const sh = (type: number, src: string) => { const s = gl!.createShader(type)!; gl!.shaderSource(s, src); gl!.compileShader(s); if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) throw new Error(gl!.getShaderInfoLog(s)!); return s; };
 		prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);

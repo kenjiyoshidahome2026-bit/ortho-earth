@@ -86,6 +86,7 @@ import type { GlobeInternals, GlobeMap } from "./types/map.ts";
 import type { GlobeMapBuilding } from "./types/install.ts";
 import type { ExtStyleDoc, GlobeLive, GlobeScope, MlPass, ModelCtl, ParsedView, PatItem, QueryGeometry, T3dCtl, UserLayerRec, UserSource, VtxDesc } from "./types/scope.ts";
 import type { MLLayer, Pipeline } from "@ortho-earth/core";
+import { setPowerPreference, type GpuPowerPreference } from "@ortho-earth/core/gpupower";
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { BucketProvider, GeoPBF, GeopbfInput } from "geopbf";
 import type { PluginHostOptions } from "./plugin.ts";
@@ -549,6 +550,10 @@ const logEl = orDetached(mapEl.querySelector<HTMLElement>("#log"));
 // 低メモリ端末判定（boot/tier.js lowMem＝≤4GB のスマホ帯・iOS はタッチで一律）。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
 const LOW_MEM: GlobeScope["LOW_MEM"] = lowMem(navigator);
+// GPU の選び方（2026-11-03）＝既定は速い方（high-performance）。外付け GPU のあるノート PC でブラウザが内蔵 GPU を選び、遅くなっていた。
+// opts.powerPreference か ?lowpower=1 で戻せる。main の WebGL（判定の probe・重ね描き）はこの値で、描画 worker へは init で渡す。
+const POWER_PREF: GpuPowerPreference = /[?&]lowpower=1/.test(location.search) ? "low-power" : (opts.powerPreference ?? "high-performance");
+setPowerPreference(POWER_PREF);
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める（boot/tier.js fatalOverlay / deadMap）---
 const fatalOverlay = (title: string, detail: string, reload?: boolean) => showFatal(mapEl, title, detail, reload ? t("Reload") : null);   // reload=true で「再読み込み」ボタン付き
@@ -840,7 +845,7 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 };
 // ?flat=消える,全部出る（CSS px）＝傾きで潰れた道の名（線に沿う注記）を薄くして消す高さの調整（注記層の lineFlatPx・既定 4.5,5.5）。?flat=0＝潰れても出す（MapLibre と同じ）
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
-renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noNearTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noNearTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
 if (TERR_EXAG !== 1) wPost({ type: "set", cmd: "terrainExag", data: TERR_EXAG });   // opts.terrain の exaggeration＝起動の材料（1）の上に掛ける
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
