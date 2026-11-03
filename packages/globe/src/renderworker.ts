@@ -290,7 +290,13 @@ setInterval(() => {
 	if (renderer && performance.now() - lastFrameRun > 100) { pumpTicks++; frame(); }
 }, 33);
 // ?hud=1（init.mem・旧mem=1）＝状態盤テレメトリを main へ~2Hzで送る（terrain LRU＋JSヒープ＋GPU固定＋描画実測）。main が plateau/tiles と合算して HUD 表示。
-let memOn = false, memLast = 0, hudFrames = 0, hudGpuName = "";   // hudFrames＝FPS用の窓内実描画枚数・hudGpuName＝GPU名（backend確定時に一度採取）
+let memOn = false, memLast = 0, hudFrames = 0, hudGpuName = "";
+// ?hud=1 の CPU 内訳（2026-11-03・Android タブレットで 1 フレーム 100ms 超・解像度を下げても不変＝GPU でなく CPU）。
+// 描いたフレームごとに worker の JS 時間を部位別に測り EMA で HUD へ＝実機の画面だけで「何に食われているか」が分かる計器
+const cpuEma = { up: 0, terr: 0, map: 0, gint: 0, lab: 0, ov: 0, total: 0 };
+const cpuAcc = { up: 0, terr: 0, map: 0, gint: 0, lab: 0, ov: 0 };
+let cpuMax = 0;   // 窓（HUD 送信間隔）内の最長フレーム（worker CPU）
+const cpuNow = () => (memOn ? performance.now() : 0);   // hudFrames＝FPS用の窓内実描画枚数・hudGpuName＝GPU名（backend確定時に一度採取）
 // ?nobld=1（init.noBld）＝基図建物の3D押し出しだけを伏せる診断ノブ：壁面ちらつきが「基図×PLATEAUの二重壁」か
 // 「PLATEAU内部/地形」かを一発で二分する（消えれば前者＝マスクの穴を追う・残れば後者）。
 let noBld = false;
@@ -1030,9 +1036,10 @@ function ensureIfMoved(c: CameraPose) {
 // 失敗フレームは落として次フレームへ（エラーはconsoleに出す＝原因調査可能なまま画は生き続ける）。
 function frame() {
 	lastFrameRun = performance.now(); frameTicks++;
+	cpuAcc.up = cpuAcc.terr = cpuAcc.map = cpuAcc.gint = cpuAcc.lab = cpuAcc.ov = 0;
 	let drew = false, depthBmp: ImageBitmap | null = null;   // depthBmp＝WebGPU の深度の ImageBitmap（#47）＝このフレームの終わりに必ず返す（WebGL のオーバーレイが求めた時だけ作られる）
 	try {
-		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
+		{ const c0 = cpuNow(); drainUploads(); if (memOn) cpuAcc.up = performance.now() - c0; }   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
 		if (dirty && renderer && cam && !holdForBatch(lastFrameRun)) {   // 読込の最中の止まった画面は束ねる（上の holdForBatch）＝dirty は立ったまま次のティックへ
 			if (resPending) applyRes();   // 予約されたリサイズ＝描画の直前に適用（クリア→同一タスクで全描画＝白フレームをcommitさせない）
 			dirty = false; drew = true;
@@ -1046,9 +1053,11 @@ function frame() {
 			// a camera that never rests (one that follows a moving model every frame: Cesium's trackedEntity) would never build the atlas: while
 			// moving, build it once at the start and then at most once a second while the zoom holds (a zoom still waits for the rest: its
 			// cell size changes continuously), and still only when the view moved past ensureIfMoved's tolerance
+			const terrC0 = cpuNow();   // 地形の窓（標高アトラス）＋画像タイルの選抜＝HUD の terrain
 			if (terrain && !opts?.noTerrain && (opts?.terrainGate !== false || !lastEnsure || (lastFrameRun - lastEnsureT > 1000 && Math.abs(glCam.zoom - lastEnsure.zoom) < 0.12))) { lastEnsureT = lastFrameRun; ensureIfMoved(glCam); }
 			// 画像タイル層：カメラ不変・在庫不変なら選抜は走らない（raster.js が camKey で判定）。groundR＝地形リフト球（塗りの選抜と同じ流儀）
 			if (raster) raster.update(glCam, canvas!.width, canvas!.height, { groundR: groundRNow(glCam), farR: farRNow(glCam), moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS });   // moving＝入力中/飛行中/静定前＝取得の並列を絞る（着地で戻す）
+			if (memOn) cpuAcc.terr = performance.now() - terrC0;
 			let fogAnim = false;
 			const pfT0 = perfOn ? performance.now() : 0;
 			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌
@@ -1068,10 +1077,10 @@ function frame() {
 			if (dOutH) { try { dBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
 			// 注記（T-P2）＝層の位置に描く字がある時は地図より先に描く（地図のパスがその字を層の間で draw する）・無ければ今までどおり地図の後
 			let animating: boolean | null = null;
-			if (textInPass) animating = drawLabels();
-			tqSpan("map", () => { fogAnim = renderer!.draw(glCam, dOpts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
+			if (textInPass) { const c0 = cpuNow(); animating = drawLabels(); if (memOn) cpuAcc.lab += performance.now() - c0; }
+			{ const c0 = cpuNow(); tqSpan("map", () => { fogAnim = renderer!.draw(glCam, dOpts); }); if (memOn) cpuAcc.map = performance.now() - c0; }   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const pfT1 = perfOn ? performance.now() : 0;
-			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer!.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
+			{ const c0 = cpuNow(); tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer!.gintCtx()); }); if (memOn) cpuAcc.gint = performance.now() - c0; }   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
 			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
 			let depthFrame: DepthFrame | null = null;   // GL2＝FBO を閉じて画面へ写す・深度を詰めて読む／WebGPU＝submit 後に 1 パス
 			if (dBegun) { try { depthFrame = dOutH!.end({ depth: ovDepth }); if (depthFrame && !depthFrame.pixels && !depthFrame.bitmap) depthFrame = null; const bm = depthFrame?.bitmap; if (typeof bm === "function") depthFrame!.bitmap = () => depthBmp ??= bm(); else depthBmp = bm || null; } catch (e) { depthOff(e); } }   // 後処理だけ＝深度は詰めない（pixels null）
@@ -1090,9 +1099,11 @@ function frame() {
 					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
 				}
 			}
-			if (!textInPass) animating = drawLabels();   // 注記（層の位置に描かない時）＝地図の後
+			if (!textInPass) { const c0 = cpuNow(); animating = drawLabels(); if (memOn) cpuAcc.lab += performance.now() - c0; }   // 注記（層の位置に描かない時）＝地図の後
 			{ const mi = labelLayer?.takeMissing?.(); if (mi) postMessage({ type: "labelImageMissing", names: mi }); }   // 記号帳に無い名前＝main が styleimagemissing を鳴らす（1 回だけ）
-			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
+			const ovC0 = cpuNow();
+			const ovMore = overlayFrame(cam, depthFrame);
+			if (memOn) cpuAcc.ov = performance.now() - ovC0;            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
 			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
 			const accMore = !!renderer.accumulating?.();   // 静止の積み上げ（WebGPU・2026-11-01）＝続きを描くが遷移扱いにしない（4x の品質フレームのまま積む）
 			if (animating || fogAnim || ovMore || clockSpin || accMore) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
@@ -1128,6 +1139,13 @@ function frame() {
 	if (snapWait.length && sentFrame1 && renderer && cam) snapFlush();   // 起動直後に預かった撮影＝最初の実描画の後に撮る
 	tuneRes(drew);
 	const nowT = performance.now();
+	if (memOn && drew) {
+		const tot = nowT - lastFrameRun;
+		cpuMax = Math.max(cpuMax, tot);
+		const k = cpuEma.total ? 0.15 : 1;
+		cpuEma.total += (tot - cpuEma.total) * k;
+		for (const key of ["up", "terr", "map", "gint", "lab", "ov"] as const) cpuEma[key] += (cpuAcc[key] - cpuEma[key]) * k;
+	}
 	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
 	if (!resFixed && !drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
 		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。
@@ -1151,7 +1169,8 @@ function frame() {
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
-			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs } });   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
+			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs }, cpu: { ...cpuEma, max: cpuMax } });
+		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
 	// 描くもの（dirty・未消化の転送・予約）がある時だけ次の rAF を張る。無ければ寝る＝受信の kick() か静止タイマ（armSettle）か
 	// ポンプ（33ms 毎に 100ms 無音を検知＝iOS の rAF 不発の救済）が起こす。cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
