@@ -3,7 +3,7 @@
 	"version": "0.2.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"description": "Google Maps JavaScript API on MapLibre GL: a google.maps namespace (Map, Marker, AdvancedMarkerElement, InfoWindow, Polyline, Polygon, Circle, Rectangle, Data, event, geometry) that translates to any maplibregl namespace, by default @ortho-earth/globe/maplibre. With an API key, Geocoder, Directions, DistanceMatrix, Elevation, Places and Street View are relayed to Google's REST APIs.",
+	"description": "Google Maps JavaScript API on MapLibre GL: a google.maps namespace (Map, Marker, InfoWindow, shapes, Data, geometry) for any maplibregl, by default @ortho-earth/globe/maplibre. With a key, Geocoder, Directions, Places and Street View go to Google.",
 	"main": "src/index.ts",
 	"exports": {
 		".": "./src/index.ts",

@@ -1,7 +1,7 @@
 {
 	"name": "geoedit",
 	"version": "0.4.0",
-	"description": "GeoPBF topological editor as a map gadget: initEditor(map, opts). Edits on the sphere (great-circle edges, rotations, small circles), @style annotations shared with the viewer (geopbf/edit/draw), large-file mode on GintBUF — the editor half of the geopbf format. MIT.",
+	"description": "GeoPBF topological editor as a map gadget: initEditor(map, opts). Edits on the sphere (great-circle edges, rotations, small circles), @style annotations shared with the viewer, large-file mode on GintBUF. MIT.",
 	"keywords": [
 		"geopbf",
 		"gis",
