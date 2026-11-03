@@ -743,7 +743,7 @@ for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEve
 // （mdプール不在）、3GB機(iPad Air3)の走行距離が伸びる。navigator.gpu の無い環境（iOS≤18=XS級・旧ブラウザ）は
 // 最初から WebGL2 直結＝dynamic import もリレー迂回も発生しない＝従来と完全同一。落ち先の網は3枚：
 // ①worker内 adapter/初期化失敗→GL2 自動フォールバック ②present沈黙故障→oj.nogpu＋reload ③frame1 20秒→GL2再起動。
-// ?gl2=1＝手動逃げ道（強制GL2）。?gpu=1＝nogpu印を無視して再試行（診断用）。⚠Windows実機は未確認＝網の内側の残リスク。
+// ?gl2=1＝手動逃げ道（強制GL2）。?gpu=1＝nogpu印を無視して再試行（診断用）。Windows 実機は確認済み（2026-11-03 本人）。
 // 【Android は一律 GL2・2026-08-03 本人裁定】入門機実機で「遷移中に基図だけ黒く落ちる」（?gl2=1 は正常＝WebGPU 経路で
 // 確定・エラー無しの沈黙故障・Mac 再現せず）。外部調査＝Adreno/Mali の Vulkan には黒画面バグ族が多数記録され、
 // 最有力の正しさバグ（Adreno 830 の非決定的コマンド化け）は**2025年フラッグシップの報告**＝「高級機なら安全」は
