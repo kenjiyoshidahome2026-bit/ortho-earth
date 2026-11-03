@@ -2,7 +2,7 @@
 //   ・latest／at／yearsOf＝統計の配列 [最新年, 値(最新年), 値(前年), …]・年 -1（不明）は範囲に入れない
 //   ・PRESETS の value・year・years（人口密度＝人口÷面積・GDP は 1e6 倍・0 以下は無し）・REGION_NAMES・tr・loadI18n("en")
 //   ・colorGraph＝隣り合う国は違う色・次数の大きい順（Welsh–Powell）
-//   ・pickBackend＝?gl2=1 は WebGL2・navigator.gpu が無ければ WebGL2・?gpu=1 は Android でも WebGPU・Android は既定 WebGL2
+//   ・pickBackend＝?gl2=1 は WebGL2・navigator.gpu が無ければ WebGL2・Android も既定 WebGPU（2026-11-03）
 import { latest, at, yearsOf, PRESETS, REGION_NAMES, tr, colorGraph, loadI18n } from "../src/nations.ts";
 import { field } from "../src/choropleth.ts";
 import { pickBackend } from "../src/backend.ts";
@@ -58,9 +58,9 @@ ok("field：そのまま・大小無視・無い＝undefined", field({ NAME: "a"
 	setNav({ userAgent: "Mac" });
 	ok("gpu なし＝WebGL2（?gpu=1 でも）", pickBackend(q("gpu=1"), "") === "webgl2");
 	setNav({ userAgent: "Linux; Android 14", gpu: {} });
-	ok("Android＝WebGL2・?gpu=1 で WebGPU", pickBackend(q(""), "") === "webgl2" && pickBackend(q(""), "?gpu=1") === "webgpu");
+	ok("Android も WebGPU・?gl2=1 で WebGL2", pickBackend(q(""), "") === "webgpu" && pickBackend(q(""), "?gl2=1") === "webgl2");
 	setNav({ userAgent: "X11", gpu: {}, userAgentData: { platform: "Android" } });
-	ok("userAgentData の Android も同じ", pickBackend(q(""), "") === "webgl2");
+	ok("userAgentData の Android も同じ", pickBackend(q(""), "") === "webgpu");
 	globalThis.location = { search: "?gl2=1" };
 	setNav({ userAgent: "Mac", gpu: {} });
 	ok("既定の引数＝location.search", pickBackend() === "webgl2");
