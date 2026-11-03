@@ -94,7 +94,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; stay?: boolean; lowMem?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; stay?: boolean; lowMem?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -452,6 +452,10 @@ const dispatch = (e: { data: RwMsg }) => {
 			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
 			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
+			if (typeof m.resFix === "number" && m.resFix > 0) {   // ?res=0.7 等＝動的解像度をその段に固定（実機で「解像度を下げれば滑らかか」を切り分ける計器）
+				let bi = 0; RES_STEPS.forEach((v, i) => { if (Math.abs(v - m.resFix!) < Math.abs(RES_STEPS[bi] - m.resFix!)) bi = i; });
+				resIdx = bi; resFixed = true; scheduleRes();
+			}
 			stayProbe = m.stay ? 1 : 0;
 			depthOk = !m.lowMem;   // LOW_MEM＝深度を作らない（#47・Air3 jetsam の型＝FBO/ImageBitmap の上乗せを持ち込まない）
 			if (m.stay) {
@@ -599,6 +603,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
 		case "pinRes":   // 録画（scene エディタ）＝動的解像度の固定/解除（on中は降段しない・即 res=1 へ）
+			if (resFixed) break;   // ?res= の固定が優先
 			resPinned = !!m.on;
 			if (resPinned && resIdx !== 0) { resIdx = 0; scheduleRes(); }
 			break;
@@ -808,6 +813,7 @@ function applyLabels() {
 // 復帰は「軽い状態が続いたら一段上げて様子見」のプローブ式。失敗（また重くなる）したら待ち時間を倍にする
 // ＝重い端末で上げ下げが振動しない。60Hz でも 120Hz でも閾値が成立する（重い=24ms超、軽い=17.5ms未満）。
 let baseW = 0, baseH = 0, resIdx = 0;
+let resFixed = false;   // ?res=＝URL で段を固定（計測・切り分け用）
 let resPinned = false;   // 録画中（scene エディタ）＝動的解像度を res=1 に固定（映像に縮み絵を混ぜない・"pinRes" メッセージ）
 let gpuFast = false, gpuFastStreak = 0, gpuEma = 0;   // GPU格付け（tqPollの純GPU時間・res²正規化）＝静止時の手前詳細化の可否をmainへ通知
 let gpuEmaRaw = 0, gintEmaRaw = 0;   // 現解像度での素のGPU時間EMA（map/gint別）＝動的解像度の物差しは合計
@@ -967,8 +973,11 @@ function tuneRes(drew: boolean) {
 	// 解像度を下げて効くのはGPUバウンドの時だけ＝GPU実測が本来の物差し（CPU/カデンス起因のdtで絵を粗くしない）。
 	// gint を足すのが肝：球ビュー（デモ飛行）は gint海岸線 ≫ map＝map単独では総GPU予算超過を見逃す。
 	// 非対応環境（Safari等）は従来の壁時計へフォールバック＝挙動不変。閾値は従来のまま（24/17.5）。
-	const busyMs = (tqExt || (renderer && renderer.hasTQ)) ? gpuEmaRaw + gintEmaRaw : emaMs;   // GPU実測が有る方（GL=tqExt／WebGPU=timestamp-query）を物差しに
-	if (!resPinned && busyMs > 24 && resIdx < RES_STEPS.length - 1) {
+	// ただし壁時計が 50ms 超（＝30Hz のvsync量子 33ms でも説明できない遅さ）なら壁時計も採る：タイル型GPU（Mali 等）は
+	// timestamp-query がタイル処理を取りこぼして過小に出る＝実機 Mali-G615 で 1 フレーム ~120ms でも ×1.0 に張り付いた（2026-11-03）。
+	const gpuMs = (tqExt || (renderer && renderer.hasTQ)) ? gpuEmaRaw + gintEmaRaw : emaMs;   // GPU実測が有る方（GL=tqExt／WebGPU=timestamp-query）を物差しに
+	const busyMs = emaMs > 50 ? Math.max(gpuMs, emaMs) : gpuMs;
+	if (!resPinned && !resFixed && busyMs > 24 && resIdx < RES_STEPS.length - 1) {
 		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
 		const sOld = RES_STEPS[resIdx];
 		resIdx++; scheduleRes(); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
@@ -977,7 +986,7 @@ function tuneRes(drew: boolean) {
 		const k = (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
 		gpuEmaRaw *= k; gintEmaRaw *= k;
 		console.log(`[render] dynamic res ↓ ×${RES_STEPS[resIdx]}`);
-	} else if (resIdx > 0 && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
+	} else if (!resFixed && resIdx > 0 && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
 		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
 }
@@ -1120,11 +1129,11 @@ function frame() {
 	tuneRes(drew);
 	const nowT = performance.now();
 	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
-	if (!drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
+	if (!resFixed && !drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
 		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。
 		pendingUp = false; resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
 		console.log(`[render] dynamic res ↑ ×1 (idle restore)`);
-	} else if (!drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
+	} else if (!resFixed && !drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
 		pendingUp = false;
 		if (resIdx > 0) {
 			resIdx--; scheduleRes(); resHoldUntil = nowT + 700;
