@@ -163,6 +163,7 @@ Architecture: [`docs/architecture.md`](docs/architecture.md) · apps and URLs: [
 
 Bug reports, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Questions go to [Discussions](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/discussions).
 Because Ortho Earth is also offered under a commercial license, contributors sign a short [CLA](CLA.md) on their first pull request.
+If Ortho Earth is useful to you, you can support its development through [GitHub Sponsors](https://github.com/sponsors/kenjiyoshidahome2026-bit).
 
 ## Contributors & Acknowledgments
 
