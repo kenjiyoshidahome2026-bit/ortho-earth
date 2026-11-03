@@ -1,6 +1,6 @@
 {
 	"name": "geopbf",
-	"version": "2.1.0",
+	"version": "2.1.1",
 	"description": "Compact binary container for geospatial features, with Gint, a GPU-readable topology layer. Converts GeoJSON, Shapefile, KML, GPX, FlatGeobuf, GeoPackage, File Geodatabase, GeoParquet, CSV and more in the browser (workers + WASM). No servers.",
 	"keywords": [
 		"geospatial",

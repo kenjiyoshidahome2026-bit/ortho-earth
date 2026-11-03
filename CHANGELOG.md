@@ -3,6 +3,12 @@
 Release notes for the Ortho Earth npm packages. Each release also has a longer article on
 ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases).
 
+## geopbf 2.1.1 — 2026-11-03
+
+Documentation only, no code change. npm cut the README at 64 KB, so its last lines (Upgrading from 1.x and the
+License) were missing on npmjs.com; the long notes of §5.4 and §5.5 moved to `tiles-notes.md` and the README fits
+again. The package description is shortened to npm's 255 characters.
+
 ## 2.3.0 — 2026-11-02
 
 **@ortho-earth/globe 2.3.0 · @ortho-earth/core 2.3.0** (also @ortho-earth/cesium 0.2.0 and @ortho-earth/voxel 0.6.1)
