@@ -20,6 +20,7 @@
 | `npm test` | Every Node-only suite in the monorepo, in parallel (`scripts/test-all.mjs`: each workspace's suites unrolled to about 290 test files, no browser or network needed). `npm run test:list` lists them, `npm test -- geopbf` runs a subset, `TEST_JOBS=1` runs them one by one |
 | `npm run verify:i18n` | The i18n gates of all apps (a phrase must be in only one dictionary) |
 | `npm run test:docs-links` | No broken relative links in the repository's `.md` files (part of `npm test`; `scripts/check-doc-links.mjs`) |
+| `npm run test:npm-meta` | Every published package's `description` fits npm's 255 characters and its README npm's 64 KB (part of `npm test`; `scripts/check-npm-meta.mjs`) |
 | `npm run verify:app-imports` | No app reads another app (ratchet, part of `npm test`) |
 | `npm run verify:regionless -w @ortho-earth/globe` | No region names in globe/core code (ratchet) |
 | `verify:ui`, `verify:webgpu`, `verify:nocoi`, `verify:examples` in `packages/globe` | Browser suites of the engine |

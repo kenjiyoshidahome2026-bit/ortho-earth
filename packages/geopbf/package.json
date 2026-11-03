@@ -1,7 +1,7 @@
 {
 	"name": "geopbf",
 	"version": "2.1.0",
-	"description": "Carry geometry as geometry. GeoPBF is a compact binary container for geospatial features, with Gint — a GPU-readable topology layer for instant point-in-polygon identify, shared-edge topology and choropleth painting. Converts GeoJSON / Shapefile / KML / KMZ / GPX / GML / FlatGeobuf / GeoPackage / File Geodatabase / GeoParquet / CSV / XLSX / TopoJSON in the browser via workers + WASM. Zero servers.",
+	"description": "Compact binary container for geospatial features, with Gint, a GPU-readable topology layer. Converts GeoJSON, Shapefile, KML, GPX, FlatGeobuf, GeoPackage, File Geodatabase, GeoParquet, CSV and more in the browser (workers + WASM). No servers.",
 	"keywords": [
 		"geospatial",
 		"gis",

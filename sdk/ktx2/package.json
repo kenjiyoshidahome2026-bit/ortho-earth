@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"description": "KTX2 / Basis Universal texture transcoder plugin for @ortho-earth/globe: registers a worker-side transcode() module (basis_universal WASM, loaded on first use from a library path you choose) so KHR_texture_basisu textures in glb models and 3D Tiles become plain RGBA textures.",
+	"description": "KTX2 / Basis Universal texture transcoder plugin for @ortho-earth/globe: a worker-side transcode() (basis_universal WASM, loaded on first use) turns KHR_texture_basisu textures in glb models and 3D Tiles into RGBA.",
 	"main": "src/index.ts",
 	"exports": {
 		".": "./src/index.ts",

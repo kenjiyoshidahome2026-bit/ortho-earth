@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"description": "React bindings for @ortho-earth/globe: <Globe> creates the map, useGlobe() hands it to children, <Source>/<Layer> mirror addSource/addLayer, <Data> wraps map.addData, <Marker> is the DOM marker, useGlobeEvent() subscribes to map events. No JSX runtime required.",
+	"description": "React bindings for @ortho-earth/globe: <Globe> creates the map, useGlobe() hands it to children, <Source>/<Layer>/<Data>/<Marker> mirror the map API, useGlobeEvent() subscribes to events. No JSX runtime required.",
 	"main": "src/index.ts",
 	"exports": {
 		".": "./src/index.ts"

@@ -1,7 +1,7 @@
 {
 	"name": "ortho-world",
 	"version": "1.0.0",
-	"description": "A country selector you can drop into a <div>. 262 countries and territories — flags, capitals, ISO/IOC codes, UN membership, area, population, GDP, HDI — in 26 languages. Pairs with your map through signals: ISO 3166-1 is the shared vocabulary. No API keys, no servers.",
+	"description": "A country selector for any <div>: 262 countries and territories (flags, capitals, ISO/IOC codes, UN membership, area, population, GDP, HDI) in 26 languages. Talks to your map through ISO 3166-1 signals. No API keys, no servers.",
 	"keywords": ["country", "countries", "nation", "flags", "iso-3166", "selector", "picker", "geospatial", "gis", "i18n", "component", "browser"],
 	"homepage": "https://www.ortho-earth.com/world/",
 	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "apps/world" },
