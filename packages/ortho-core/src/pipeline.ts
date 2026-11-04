@@ -21,6 +21,8 @@ export interface PipelineOptions {
 	style: Style; tileUrl: (z: number, x: number, y: number) => string; requestDraw: () => void; scenePort: MessagePort; onMerged?: ((slot: unknown, sig: unknown) => void) | null; onTile?: ((ok: boolean) => void) | null;
 	lodFloor?: LodFloor | null; memBudgetMB?: number | null; coverage?: number[] | null; ell?: unknown; minZ?: number; workerFactory?: WorkerFactory | null; request?: RequestFn | null; encoding?: string | (() => string);
 	tileQueue?: boolean; perSlot?: number;
+	/** 建物（基図の押し出し）を立ち上げ始めるタイルの z（既定 14）。非力な GPU は上げる＝斜めの遠景（低い z のタイル）の建物は平らなまま */
+	bldMinZ?: number;
 	/** 地形にドレープする（線を細分する）か。関数＝init／setStyle のたびに読む（terrain の有無が替わる地図）。false＝細分なし（§3.2・`?linesub=1` で従来どおり細分） */
 	drape?: boolean | (() => boolean);
 }
@@ -36,7 +38,7 @@ export interface Pipeline {
 interface Pending { resolve: (r: TileResult) => void; reject: (e: Error) => void; key: string; w: Worker; slot: number; noUrl: boolean }
 /** キューで待つ 1 件（まだ worker に post していない）＝発送時に id を振って pending へ */
 interface Queued { t: TileXYZ; key: string; resolve: (r: TileResult) => void; reject: (e: Error) => void }
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory, request = null, encoding = "mvt", tileQueue = true, perSlot = 3, drape = true }: PipelineOptions): Pipeline {
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory, request = null, encoding = "mvt", tileQueue = true, perSlot = 3, drape = true, bldMinZ = 14 }: PipelineOptions): Pipeline {
 	const encodingNow = (): string => (typeof encoding === "function" ? encoding() : encoding) || "mvt";
 	const drapeNow = (): boolean => typeof drape === "function" ? drape() : drape;
 	let curStyle = style;   // setStyle で差し替わる今の style（setDrape が再送する）
@@ -87,7 +89,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		// geometry の直送路（2026-11-04）：tile worker → scene worker を MessageChannel で直結＝main は op の木を受け取らない（Android タブレットで main が 250〜1000ms 止まった＝大きな荷の解読と詰め直しと GC）
 		const ch = new MessageChannel();
 		sceneWorker.postMessage({ type: "tilePort", port: ch.port1 } satisfies SceneRequest, [ch.port1]);
-		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search), scenePort: ch.port2 } satisfies TileRequest, [ch.port2]);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
+		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search), scenePort: ch.port2, bldMinZ } satisfies TileRequest, [ch.port2]);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
 		tileWorkers.push(w);
 	}
 	// 発送＝worker slot に 1 枚頼む（キュー経由でも即時でも同じ道）

@@ -25,11 +25,11 @@ export interface BuildingsTile extends TileXYZ { layers: TileData }
 // エンジンはソースの名乗り方を知らない＝申告の無いソース（?pm= の任意アーカイブ等）では建物を出さない。
 //   schema.buildings = { layer, levelKey, codeKey, heightByCode:{コード:高さm}, defaultHeight }
 // 地理院 optimal_bvmap の申告は apps/ortho-japan/style-mono.js（3101 普通/3102 堅ろう/3103 高層/3111 無壁舎 など・2026-09-17）。
-export function buildBuildings({ layers, z, x, y }: BuildingsTile, origin: readonly number[], schema: BuildingsSchemaHolder | null = null): BuildingsGeom | null {
+export function buildBuildings({ layers, z, x, y }: BuildingsTile, origin: readonly number[], schema: BuildingsSchemaHolder | null = null, minZ = 14): BuildingsGeom | null {   // minZ＝立ち上げ始めるタイルの z（既定 14・非力な端末は上げる＝斜めの遠景の建物を平らに）
 	const B = schema && schema.buildings;
 	if (!B) return null;                     // 語彙の申告が無いソース＝建物は立てない
 	const src = (layers as DecodedTile)[B.layer];
-	if (!src || z < 14) return null;         // 建物は近景(高z)タイルのみ
+	if (!src || z < minZ) return null;       // 建物は近景(高z)タイルのみ
 	const [ox, oy] = origin;
 	const pos: number[] = [], shade: number[] = [], anchor: number[] = [];
 	const toLL = (px: number, py: number): [number, number] => tileLocalToLonLat(x, y, z, px, py, src.extent);
