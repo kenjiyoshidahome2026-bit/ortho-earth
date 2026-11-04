@@ -61,7 +61,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	requestMerge.debugFail = (): void => sceneWorker.postMessage({ type: "debugFailNext" } satisfies SceneRequest);   // テスト用：次の merge を故意に失敗させる
 	requestMerge.stats = (): void => sceneWorker.postMessage({ type: "stats" } satisfies SceneRequest);   // 観測用：GPU常駐プールの占有を scene worker が console に出す
 
-	// タイル worker プール：geometry は scene worker へ転送し、main にはメタ＋ラベルだけ返す。
+	// タイル worker プール：geometry は tile worker から scene worker へ直送し（main を通らない）、main にはメタ＋ラベルだけ返す。
 	const NW = Math.min(4, (navigator.hardwareConcurrency || 4) - 1) || 2;
 	const tileWorkers: Worker[] = [], pending = new Map<number, Pending>(), keyToId = new Map<string, number>();
 	let wIdx = 0, reqId = 0;
@@ -70,17 +70,24 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	for (let i = 0; i < NW; i++) {
 		const w = spawnWorker("ortho:tile", () => builtinWorker("ortho:tile"))!;
 		w.onmessage = (e: MessageEvent<TileResponse>) => {
-			const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id);
+			const p = pending.get(e.data.id);
+			if (!p) { if (e.data.ok && e.data.direct) sceneWorker.postMessage({ type: "drop", id: e.data.id } satisfies SceneRequest); return; }   // 中断済み＝直送された geometry を scene worker に捨てさせる
+			pending.delete(e.data.id);
 			if (keyToId.get(p.key) === e.data.id) keyToId.delete(p.key);
 			queue?.done(p.slot);   // この worker の 1 本が空いた＝次を発送
 			// 成否を外へ通知（abort=視野外中断は失敗に数えない）＝main が「通信断トースト」の判断材料にする
 			// 取得先の無いタイル（noUrl＝外来 style にベクタの基図が無い＝画像タイルだけ等）は通信の失敗に数えない（2026-09-29・公式例 3d-terrain で「地図データの取得に失敗」が誤って出た）
 			if (onTile && !p.noUrl && (e.data.ok || !/abort/i.test(String(e.data.error)))) onTile(!!e.data.ok);
 			if (!e.data.ok) { p.reject(new Error(e.data.error)); return; }
-			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings } satisfies SceneRequest, opBuffers(e.data.dl.ops, e.data.buildings));
+			// 直送（既定）＝geometry は scene worker に届いている（か途中）＝id→key の確定だけ送る。merge 要求より先に同じ道で着く
+			if (!e.data.dl) sceneWorker.postMessage({ type: "commit", id: e.data.id, key: p.key } satisfies SceneRequest);
+			else sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings ?? null } satisfies SceneRequest, opBuffers(e.data.dl.ops, e.data.buildings ?? null));   // 旧経路（直送口の無い tile worker）
 			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes, t: e.data.t });   // メタ＋ラベル＋geometry実バイト（退避予算用）＋worker 内の時間（計器 e）
 		};
-		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search) } satisfies TileRequest);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
+		// geometry の直送路（2026-11-04）：tile worker → scene worker を MessageChannel で直結＝main は op の木を受け取らない（Android タブレットで main が 250〜1000ms 止まった＝大きな荷の解読と詰め直しと GC）
+		const ch = new MessageChannel();
+		sceneWorker.postMessage({ type: "tilePort", port: ch.port1 } satisfies SceneRequest, [ch.port1]);
+		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search), scenePort: ch.port2 } satisfies TileRequest, [ch.port2]);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
 		tileWorkers.push(w);
 	}
 	// 発送＝worker slot に 1 枚頼む（キュー経由でも即時でも同じ道）

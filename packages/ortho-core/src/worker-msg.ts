@@ -12,7 +12,7 @@ export type { MergedScene };   // scene の便り（ScenePortMessage の "scene"
 
 // ── ortho:tile（workers/tileworker.ts）＝fetch→decode→tessellation
 /** main → tile worker：起動（style・配信圏・楕円体・形式・drape＝地形にドレープする＝線を細分する・既定 true・vt perf plan §3.2） */
-export interface TileInitRequest { type: "init"; style: Style; coverage?: number[] | null; ell?: unknown; encoding?: string; drape?: boolean; noLabels?: boolean }
+export interface TileInitRequest { type: "init"; style: Style; coverage?: number[] | null; ell?: unknown; encoding?: string; drape?: boolean; noLabels?: boolean; scenePort?: MessagePort }
 /** main → tile worker：配色テーマ／基図の生き替え（coverage は据置・形式と drape は来た時だけ） */
 export interface TileSetStyleRequest { type: "setStyle"; style: Style; encoding?: string; drape?: boolean }
 /** main → tile worker：視野外の in-flight を中断 */
@@ -23,7 +23,10 @@ export type TileRequest = TileInitRequest | TileSetStyleRequest | TileAbortReque
 /** タイル 1 枚の worker 内の時間（ms・計器 e＝`docs/notes/vt-perf-plan.md` §2）：fetch＝取得＋復号（fetchMVT）・build＝組み立て（buildTilePayload）。main が要求→応答の往復から待ち時間を引き算する */
 export interface TileTimings { fetch: number; build: number }
 /** tile worker → main：成功＝描画の荷（op 列・建物の typed array は transfer）。t＝worker 内の時間（計器 e） */
-export interface TileOkResponse extends TilePayload { id: number; ok: true; error?: undefined; t?: TileTimings }
+/** dl・buildings＝scenePort の無い旧経路だけ main に来る。direct＝geometry は scenePort で scene worker へ直送済み（main は commit を送るだけ・2026-11-04） */
+export interface TileOkResponse extends Omit<TilePayload, "dl" | "buildings"> { id: number; ok: true; error?: undefined; t?: TileTimings; dl?: TilePayload["dl"]; buildings?: BuildingsGeom | null; direct?: boolean }
+/** tile worker → scene worker（scenePort 直送）：geometry の荷。key は知らない＝main の commit（id→key）で確定する */
+export interface TileGeomMessage { type: "geom"; id: number; ops: DrawOp[]; buildings: BuildingsGeom | null }
 /** tile worker → main：失敗（abort を含む＝error に "abort" の文字） */
 export interface TileErrorResponse { id: number; ok: false; error: string }
 export type TileResponse = TileOkResponse | TileErrorResponse;
@@ -35,6 +38,9 @@ export type SceneRequest =
 	| { type: "relayCtl"; msg: unknown }   // iOS轍の中継（page→scene worker→renderPort→render worker）。msg.port があれば転送
 	| { type: "connect"; port: MessagePort }   // render worker への直結ポート
 	| { type: "tile"; key: string; ops: DrawOp[]; buildings: BuildingsGeom | null }
+	| { type: "tilePort"; port: MessagePort }   // tile worker からの geometry 直送ポート（worker 1 本につき 1 本）
+	| { type: "commit"; id: number; key: string }   // main が受け入れた直送 geometry（id）を key として保持させる
+	| { type: "drop"; id: number }   // main が捨てた（中断済み）直送 geometry
 	| { type: "evict"; keys: string[] }
 	| { type: "debugFailNext" }
 	| { type: "stats" }
