@@ -36,7 +36,7 @@ import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl, meshCustomWGSL } from ".
 import { mdFillWgsl, mdLineWgsl, mdBldWgsl, lineXWgsl } from "./wgsl.ts";   // タイル GPU 常駐プールの派生（vt perf plan §4 step A）   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.ts";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標高セルの再標本化の係数と CPU 退避（段階 3・gl と共通）
-import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gl と共通）
+import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gl と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gl と同式の正本）
 import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
@@ -1124,20 +1124,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		u.fill(0, o, o + 80);
 		u[o] = (origin[0] - win[0]) / win[2] * N; u[o + 1] = (origin[1] - win[1]) / win[3] * N; u[o + 2] = N / win[2]; u[o + 3] = N / win[3];
 		u[o + 4] = N; u[o + 5] = far ? 1 : 0;
-		const C = lonlatTo3D(center[0], center[1]), cl0 = Math.cos(center[1] * Math.PI / 180);
-		const L = Math.min(1.2, Math.hypot(win[2] * cl0, win[3]) * Math.PI / 180);   // 窓の対角（単位球）
-		const up = mat.norm(C), a0 = center[0] * Math.PI / 180, east = [-Math.sin(a0), 0, Math.cos(a0)];
-		planes.forEach(([nx, ny, nz, c], i) => {
-			const n = [nx, ny, nz], dc = nx * C[0] + ny * C[1] + nz * C[2] - c;
-			const P0 = [C[0] - dc * nx, C[1] - dc * ny, C[2] - dc * nz];
-			const ref = Math.abs(nx * up[0] + ny * up[1] + nz * up[2]) > 0.9 ? east : up;
-			const t1 = mat.norm([n[1] * ref[2] - n[2] * ref[1], n[2] * ref[0] - n[0] * ref[2], n[0] * ref[1] - n[1] * ref[0]]);
-			const t2 = [n[1] * t1[2] - n[2] * t1[1], n[2] * t1[0] - n[0] * t1[2], n[0] * t1[1] - n[1] * t1[0]];
-			const q = o + 8 + i * 12;
-			u[q] = P0[0] - O[0]; u[q + 1] = P0[1] - O[1]; u[q + 2] = P0[2] - O[2];
-			u[q + 4] = t1[0] * L; u[q + 5] = t1[1] * L; u[q + 6] = t1[2] * L;
-			u[q + 8] = t2[0] * L; u[q + 9] = t2[1] * L; u[q + 10] = t2[2] * L;
-		});
+		packCapQuads(u, o + 8, planes, O, win, center);   // 面ごとの四角＝GL2 の drawCaps と同じ詰め（drawshared.ts）
 	}
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）

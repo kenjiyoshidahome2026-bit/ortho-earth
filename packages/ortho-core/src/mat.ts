@@ -73,4 +73,3 @@ export const scale = (a: ArrayLike<number>, s: number): Vec3 => [a[0] * s, a[1] 
 export const dot = (a: ArrayLike<number>, b: ArrayLike<number>): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 export const cross = (a: ArrayLike<number>, b: ArrayLike<number>): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 export const norm = (a: ArrayLike<number>): Vec3 => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
-export const toF32 = (m: ArrayLike<number>): Float32Array => Float32Array.from(m);

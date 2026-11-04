@@ -4,6 +4,7 @@
 // 切り口が画面にある時は原点が面の近く＝K は小さい＝f32 に落としても桁落ちしない（影の 0.4m の甘さを持ち込まない）。
 // 切らない限りどの関数も呼ばれない＝切っていない描画には一切関与しない。
 import { lonlatTo3D, worldRadiusM, ellAxisRatio } from "./camera.ts";
+import { dot, cross, norm } from "./mat.ts";
 
 export const CLIP_MAX = 6;   // 面の枚数の上限（箱＝6 枚・本人裁定）＝WGSL の ClipP と対
 export const CLIP_POLY_MAX = 64;   // 多角形の辺の上限（全部の輪の合計・超えたら間引く）＝WGSL の ClipP.pv と対
@@ -29,9 +30,6 @@ export interface ClipStyle { capOn: boolean; capTerrain: number[]; capBuilding: 
 export interface ClipGroup { spec: ClipSpec; targets: Set<string> }
 export interface ClipNorm { groups: ClipGroup[]; style: ClipStyle }
 
-const dot = (a: ArrayLike<number>, b: ArrayLike<number>): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: ArrayLike<number>, b: ArrayLike<number>): number[] => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const norm = (a: ArrayLike<number>): number[] => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 
 // 面の幾何は world（楕円体面＝S·β・S＝diag(1, b/a, 1)・単位＝赤道半径 a）で作り、描画の β 空間へ移す：
 // n_w·Y = c（Y＝S·X）⇔ (S·n_w)·X = c。β の法線を単位に正規化して返す（シェーダの d＝n·rel + K）。球では S＝単位＝同一。
