@@ -959,15 +959,21 @@ function ackMesh(item: MeshItem) {
 	catch { item.port!.postMessage({ drained: 1 }); }
 }
 // 小分け転送の給餌：毎フレーム時間予算だけ上げる（4ms）。上がり切った区＝描画に載る＝描き直し・ack
-function pumpMeshUp() {
+// 給餌はフレームの中（4ms）だけでなく、フレームの合間にも timer で続ける（6ms 刻み）＝FPS が低い端末でもフレーム数に縛られずに上がる
+//（旧＝フレームの中だけ・4ms×8fps＝毎秒 32ms しか送れず区が何十秒も立たなかった・2026-11-04 実機）。GPU 待ちで worker が空いている時間を使う
+let meshUpTimer: ReturnType<typeof setTimeout> | null = null;
+function meshUpTick() { meshUpTimer = null; pumpMeshUp(6); }
+function pumpMeshUp(ms = 4) {
 	if (!renderer?.meshUpPump || !renderer.meshUpBusy?.() && !meshAcks.size) return;
-	const done = renderer.meshUpPump(4);
+	const done = renderer.meshUpPump(ms);
 	for (const d of done) {
 		const it = meshAcks.get(d);
 		if (it) { meshAcks.delete(d); ackMesh(it); }
 		dirty = true;
 	}
 	if (done.length || renderer.meshUpBusy?.()) { uploadSkip = 2; lastLoadT = performance.now(); }
+	if (done.length) kick();   // 立った区を描く（timer から来た時も次の rAF を張る）
+	if (renderer.meshUpBusy?.() && !meshUpTimer) meshUpTimer = setTimeout(meshUpTick, 0);
 }
 // キャンバスのリサイズは即適用しない：canvas.width/height 代入はバッファを透明にクリアし、その状態が
 // rAF タスク末尾で compositor へ commit されると「地図だけ白抜け→次フレームで描き直し」の1フレーム点滅になる

@@ -80,7 +80,7 @@ export interface RendererGPUOptions {
 	/** 既定 "high-performance"（外付け GPU のあるノート PC で速い方を頼む・gpupower.ts）。"low-power"／"default" で戻せる */
 	powerPreference?: GpuPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
-	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして数フレームへ散らす（既定＝lowMem・2026-11-04 実機 Mali で 1 バッチの転送が 300〜670ms＝画面が止まった）
+	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして散らす（実験ノブ・既定オフ・?meshchunk=1。2026-11-04 実機 Mali で 1 バッチの転送が 100〜600ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
 }
@@ -2278,7 +2278,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// その 1 フレームが 300〜670ms 止まり、デモ（区が次々に入れ替わる）が毎秒カクついた。素の建物バッチ（模型でない）は
 	// 器だけ先に作り、中身は meshUpPump(ms) が時間予算の分だけ 256KB ずつ上げる。全部上がった時点で通常の登録（描画・被覆マスク）をする
 	//＝半分だけ上がった建物は描かない・マスクがメッシュに先行しない。解放・同キーの差し替えは転送待ちも捨てる。
-	const MESH_CHUNK = rOpts.meshChunk ?? !!rOpts.lowMem, UP_PIECE = 256 << 10;
+	const MESH_CHUNK = rOpts.meshChunk === true, UP_PIECE = 1 << 20;   // 既定オフ（2026-11-04 実機：4ms/フレーム×低 FPS では区が何十秒も立たなかった）＝?meshchunk=1 で試す。1 片 1MB
 	interface MeshUp { data: MeshSetData; nrm: Int8Array; pre: { vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer }; jobs: { buf: GPUBuffer; src: ArrayBufferView; off: number }[] }
 	const meshUp = new Map<string, MeshUp>(), meshSettled: MeshSetData[] = [];   // settled＝上がり切った／捨てた荷（同一性で ack を引く＝同じキーの差し替えでも取り違えない）
 	function cancelMeshUp(key: string) {
