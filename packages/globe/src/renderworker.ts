@@ -47,6 +47,8 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	dispose?(): void; flush?(): void;
 	md?: boolean; mdMax?: number; mdDash?: boolean; pt?: boolean; maxTex?: number; hasTQ?: boolean; gpuInfo?: string;
 	tqTake?(): { tag: string; ms: number }[] | null;
+	/** 建物の小分け転送（WebGPU・2026-11-04）：時間予算 ms だけ上げ、上がり切った（か捨てた）キーを返す */
+	meshUpPump?(ms: number): unknown[]; meshUpBusy?(): boolean; meshUpPending?(key: string): boolean;
 	depthOut?(on: boolean): DepthOutH | null;
 	gintCtx(): unknown;
 	readback?(): Promise<{ base: ArrayBuffer; w: number; h: number } | null>;
@@ -94,7 +96,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; stay?: boolean; lowMem?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -482,7 +484,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => (createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
@@ -898,6 +900,7 @@ function drainUploads() {
 }
 function drainUploads0() {
 	if (!renderer) return;
+	pumpMeshUp();   // 建物の小分け転送（WebGPU・LOW_MEM 既定）＝毎フレーム数 ms ずつ
 	if (mdInbox.length) drainMD();
 	if (sceneInbox.size) {   // シーン優先＝基図の見た目への効きが大きい（PLATEAUは1フレーム待つだけ）
 		const [slot, scene] = sceneInbox.entries().next().value!;
@@ -930,23 +933,41 @@ function drainUploads0() {
 		if ("col" in item) { renderer.set("meshCol", item.col, item.name); dirty = true; continue; }
 		if ("posData" in item) { renderer.set("meshPos", item.posData, item.name); dirty = true; continue; }
 		const { meshData, name } = item;
+		if (meshData && renderer.meshUpBusy?.()) { meshInbox.unshift(item); break; }   // 前のバッチがまだ小分けで上がっている＝次は待たせる（FIFO・持ち過ぎない）
 		const ward = String((meshData as { ward?: string } | null | undefined)?.ward || String(name).split("#")[0]);   // renderer と同じ区の決め方（data.ward か名前の # の前）
 		const unseen = !!meshData && hiddenWards.has(ward);   // 伏せた区への転送＝画面は変わらない（tiles3d は伏せてから上げる）＝描き直さない
 		if (!meshData) hiddenWards.delete(String(name));   // 解放＝renderer も伏せ印を消す
+		let deferred = false;
 		try { renderer.set("meshSet", meshData, name); }
 		finally {
-			if (item.port) {
-				// 消化ack＝クレジット返却（例外でも返す＝送出が止まらない）＋器の返却：GPU登録（bufferData/writeBuffer）は
-				// この時点で同期コピー済み＝pos/nrm/idx の ArrayBuffer を transfer で返し、plateau worker が次の復元で再利用
-				//（使い捨て根絶＝復元churnのヒープ高水位対策）。共有バッファ等で transfer 不可なら ack だけ（従来動作）。
-				const rec = meshData ? [...new Set([meshData.pos?.buffer, meshData.nrm?.buffer, meshData.idx?.buffer].filter(b => b && b.byteLength))] as ArrayBuffer[] : [];
-				try { item.port.postMessage({ drained: 1, recycle: rec }, rec); }
-				catch { item.port.postMessage({ drained: 1 }); }
-			}
+			// 小分け転送（WebGPU）：まだ上がっていない＝中身の ArrayBuffer を返せない＝ack は上がり切った時（pumpMeshUp）
+			if (item.port && meshData && renderer.meshUpPending?.(String(name))) { meshAcks.set(meshData, item); deferred = true; }
+			else if (item.port) ackMesh(item);
 		}
-		if (!unseen) dirty = true;
+		if (!deferred && !unseen) dirty = true;
 		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}
+}
+// 消化ack＝クレジット返却（例外でも返す＝送出が止まらない）＋器の返却：GPU登録（bufferData/writeBuffer）は
+// この時点で同期コピー済み＝pos/nrm/idx の ArrayBuffer を transfer で返し、plateau worker が次の復元で再利用
+//（使い捨て根絶＝復元churnのヒープ高水位対策）。共有バッファ等で transfer 不可なら ack だけ（従来動作）。
+const meshAcks = new Map<unknown, MeshItem>();   // 小分け転送中の荷 → その ack（荷の同一性で引く）
+function ackMesh(item: MeshItem) {
+	const meshData = item.meshData;
+	const rec = meshData ? [...new Set([meshData.pos?.buffer, meshData.nrm?.buffer, meshData.idx?.buffer].filter(b => b && b.byteLength))] as ArrayBuffer[] : [];
+	try { item.port!.postMessage({ drained: 1, recycle: rec }, rec); }
+	catch { item.port!.postMessage({ drained: 1 }); }
+}
+// 小分け転送の給餌：毎フレーム時間予算だけ上げる（4ms）。上がり切った区＝描画に載る＝描き直し・ack
+function pumpMeshUp() {
+	if (!renderer?.meshUpPump || !renderer.meshUpBusy?.() && !meshAcks.size) return;
+	const done = renderer.meshUpPump(4);
+	for (const d of done) {
+		const it = meshAcks.get(d);
+		if (it) { meshAcks.delete(d); ackMesh(it); }
+		dirty = true;
+	}
+	if (done.length || renderer.meshUpBusy?.()) { uploadSkip = 2; lastLoadT = performance.now(); }
 }
 // キャンバスのリサイズは即適用しない：canvas.width/height 代入はバッファを透明にクリアし、その状態が
 // rAF タスク末尾で compositor へ commit されると「地図だけ白抜け→次フレームで描き直し」の1フレーム点滅になる
@@ -1178,6 +1199,6 @@ function frame() {
 	// 層の切替直後の撮影（t-koppenfill）で古い絵を返す回があった＝確実な rAF の側に倒す（2026-10-19）
 	// 描いた後 IDLE_GRACE_MS は従来どおり毎フレーム起きる（直後に続く仕事＝層の切替・知性の層の収束などの間合いを変えない）。それを過ぎて
 	// 何も無ければ寝る＝止まった地図は毎 vsync 起きない（受信の kick・静止タイマ・ポンプが起こす）
-	if (dirty || resPending || pendingUp || mdInbox.length || sceneInbox.size || meshInbox.length || snapWait.length || nowT - lastDrewT < IDLE_GRACE_MS) kick();
+	if (dirty || resPending || pendingUp || mdInbox.length || sceneInbox.size || meshInbox.length || meshAcks.size || renderer?.meshUpBusy?.() || snapWait.length || nowT - lastDrewT < IDLE_GRACE_MS) kick();
 	else armSettle();
 }
