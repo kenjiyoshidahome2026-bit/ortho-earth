@@ -15,6 +15,7 @@
 import { evalExpr, truthy } from "./expr.ts";
 import type { ExprContext } from "./expr.ts";
 import { parseRGBA } from "./color.ts";
+import { packColor, clampU8, clampU16 } from "./colorpack.ts";
 
 /** MapLibre 形の層（正規化済み・fill / line / circle だけ表に乗る） */
 export interface MLPassLayer { id: string; type: string; filter?: unknown; layout?: Record<string, unknown> | null; paint?: Record<string, unknown> | null; minzoom?: number | null; maxzoom?: number | null; metadata?: Record<string, unknown> | null; [k: string]: unknown }
@@ -57,14 +58,6 @@ export function packMLLayers(layers: readonly MLPassLayer[]): MLPass[] {
 
 const inZoom = (L: MLPassLayer, z: number): boolean => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);   // MapLibre＝minzoom 包含・maxzoom 排他
 const kindOf = (t: string): "pt" | "ln" | "pg" | null => t === "Point" || t === "MultiPoint" ? "pt" : t === "LineString" || t === "MultiLineString" ? "ln" : t === "Polygon" || t === "MultiPolygon" ? "pg" : null;
-const clampU8 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
-const clampU16 = (v: number): number => Math.max(0, Math.min(65535, Math.round(v)));   // 線幅（1/8px・2026-10-22 から u16＝旧の u8 は約 32px で頭打ち）
-function packColor(c: readonly number[], opacity: number): number {
-	const a = Math.round(Math.max(0, Math.min(1, (c[3] ?? 1) * opacity)) * 255);
-	if (a === 0) return 0;
-	const u = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255);
-	return ((u(c[0]) << 24) | (u(c[1]) << 16) | (u(c[2]) << 8) | a) >>> 0;
-}
 // 性質の値（評価エラー・欠損＝MapLibre の既定値）
 function prop(L: MLPassLayer, key: string, ctx: ExprContext): unknown {
 	const e = L.paint?.[key];

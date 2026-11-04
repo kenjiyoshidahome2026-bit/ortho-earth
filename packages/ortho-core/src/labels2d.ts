@@ -238,7 +238,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	// pitch ゲート（renderer の elevScaleEff=elev.scale×pf と同式）。真俯瞰0→11.5°で全開。
 	// 旧 cityFlat 項（z13.5→16でラベル標高を畳む）は撤去＝地形側の cityFlat 撤去（renderer 2026-07-26・
 	// DEM10B=DTM化）に追随。残すと都市ズームのチルトで地形は起伏のまま・ラベルだけ楕円体へ沈み位置がズレる。
-	const pitchScale = (pitch: number | undefined, zoom: number) => {
+	const pitchScale = (pitch: number | undefined) => {
 		const t = Math.max(0, Math.min(1, ((pitch || 0) - 0.06) / 0.14));
 		return elevBase * t * t * (3 - 2 * t);
 	};
@@ -767,7 +767,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 	function draw(cam: CameraPose): boolean {
 		const t0 = nowMs(), dpr = cam.dpr || 1, W = canvas.width, H = canvas.height, Wc = W / dpr, Hc = H / dpr;
 		const st = cameraState(cam, W, H);
-		const eScale = pitchScale(cam.pitch, cam.zoom);   // 標高→単位球（pitch連動＝renderer elevScaleEff と同式）
+		const eScale = pitchScale(cam.pitch);   // 標高→単位球（pitch連動＝renderer elevScaleEff と同式）
 		// フォグ終端（renderer の fogFarCap と同式・camDist近似）＝遠景平坦化 df の基準
 		const pfFog = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.35) / 0.45));
 		const showFlat = (cam.pitch || 0) < 0.06;      // 等高線と同じゲート（pitch 0.06rad で 3D と入れ替わり消える）

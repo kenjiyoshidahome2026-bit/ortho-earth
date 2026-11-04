@@ -34,17 +34,23 @@ export function downsampleFlipped(tile: ElevGrid, N: number, M = 2, sea = false)
 	}
 	for (let j = 0; j < N; j++) {
 		const gy = Math.min(Math.max((j + 0.5) / N * h - 0.5, M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
-		const r0 = (h - 1 - y0) * w, r1 = r0 - w, o = j * N;   // データ行（北上げ）：y0 の行と y0+1（1 行北＝添字は 1 行前）
-		for (let i = 0; i < N; i++) {
-			const x0 = x0s[i], fx = fxs[i];
-			let a = data[r0 + x0], b = data[r0 + x0 + 1], c = data[r1 + x0], d = data[r1 + x0 + 1];
-			if (a < bad || a > 9000) a = 0; if (b < bad || b > 9000) b = 0; if (c < bad || c > 9000) c = 0; if (d < bad || d > 9000) d = 0;   // 異常値（int16 巨大値/-9999）は 0
-			const t = a + (b - a) * fx;
-			const v = t + ((c + (d - c) * fx) - t) * fy;
-			out[o + i] = v < 0 && !sea ? 0 : v;              // row0=南
-		}
+		bilerpRow(data, w, h, N, out, j, y0, fy, x0s, fxs, bad, sea);
 	}
 	return out;
+}
+
+// 1 行ぶんの双線形（downsampleFlipped と cropResample の内側＝同じ式・同じ順＝tests/elevation-resample.mjs の規約の写しと bit 一致）。
+// データ行は北上げ＝y0 の行と y0+1（1 行北＝添字は 1 行前）。異常値（int16 巨大値/-9999）は 0。出力は row0=南。
+function bilerpRow(data: ArrayLike<number>, w: number, h: number, N: number, out: Float32Array, j: number, y0: number, fy: number, x0s: Int32Array, fxs: Float64Array, bad: number, sea: boolean): void {
+	const r0 = (h - 1 - y0) * w, r1 = r0 - w, o = j * N;
+	for (let i = 0; i < N; i++) {
+		const x0 = x0s[i], fx = fxs[i];
+		let a = data[r0 + x0], b = data[r0 + x0 + 1], c = data[r1 + x0], d = data[r1 + x0 + 1];
+		if (a < bad || a > 9000) a = 0; if (b < bad || b > 9000) b = 0; if (c < bad || c > 9000) c = 0; if (d < bad || d > 9000) d = 0;
+		const t = a + (b - a) * fx;
+		const v = t + ((c + (d - c) * fx) - t) * fy;
+		out[o + i] = v < 0 && !sea ? 0 : v;
+	}
 }
 
 // R10 親タイルから 1°セル（lng0,lat0・幅 span deg）を切り出して N² に再標本化（downsampleFlipped と同じ南上げ・texel 中心 (i+0.5)/N 規約）。
@@ -63,15 +69,7 @@ export function cropResample(tile: ElevTileGrid, lng0: number, lat0: number, spa
 	for (let j = 0; j < N; j++) {
 		const gy = ((lat0 - la) + span * (j + 0.5) / N) / r * h - 0.5;
 		const y0 = Math.max(0, Math.min(h - 2, gy | 0)), fy = Math.min(1, Math.max(0, gy - y0));
-		const r0 = (h - 1 - y0) * w, r1 = r0 - w, o = j * N;   // y:0=南
-		for (let i = 0; i < N; i++) {
-			const x0 = x0s[i], fx = fxs[i];
-			let a = data[r0 + x0], b = data[r0 + x0 + 1], c = data[r1 + x0], d = data[r1 + x0 + 1];
-			if (a < bad || a > 9000) a = 0; if (b < bad || b > 9000) b = 0; if (c < bad || c > 9000) c = 0; if (d < bad || d > 9000) d = 0;
-			const t = a + (b - a) * fx;
-			const v = t + ((c + (d - c) * fx) - t) * fy;
-			out[o + i] = v < 0 && !sea ? 0 : v;   // row0=南
-		}
+		bilerpRow(data, w, h, N, out, j, y0, fy, x0s, fxs, bad, sea);   // y:0=南
 	}
 	return out;
 }

@@ -11,14 +11,14 @@ import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, liftedBboxVisible, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
+import { cameraState, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
 import type { DrapeIn, DrapeMap } from "../drape.ts";
 import { viewRays } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.ts";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
-import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標高セルの再標本化の係数と CPU 退避（段階 3・gpu と共通）
-import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gpu と共通）
+import { packResampleParams, cpuResampleCell, RESAMPLE_U32 } from "../elevcell.ts";   // 標高セルの再標本化の係数と CPU 退避（段階 3・gpu と共通）
+import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gpu と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gpu と同式の正本）
 import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gpu と共通）
@@ -26,7 +26,7 @@ import { terrainGridUV } from "../terrainlod.ts";
 import { evalPaintZoomMemo } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
 import { createPtStore } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は WebGPU と共有の純関数
 import type { PtLayer } from "../painttable.ts";
-import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）・破線の区間（S-P1-3）
+import { seaFbReal } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { csViewMat, csGlUniform } from "../csshader.ts";   // Cesium の CustomShader（利用者の GLSL を模型の FS/VS に差し込む）
@@ -397,21 +397,8 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 		gl.uniform4f(loc(gl, capProg, "u_mesh"), win[0], win[1], win[2], win[3]);
 		gl.uniform4f(loc(gl, capProg, "u_capG"), (origin[0] - win[0]) / win[2] * N, (origin[1] - win[1]) / win[3] * N, N / win[2], N / win[3]);
 		gl.uniform4f(loc(gl, capProg, "u_capH"), N, farPass ? 1 : 0, 0, 0);
-		const C = lonlatTo3D(center[0], center[1]), cl0 = Math.cos(center[1] * Math.PI / 180);
-		const L = Math.min(1.2, Math.hypot(win[2] * cl0, win[3]) * Math.PI / 180);   // 窓の対角（単位球）
-		const up = mat.norm(C), a0 = center[0] * Math.PI / 180, east = [-Math.sin(a0), 0, Math.cos(a0)];
 		capQ.fill(0);
-		planes.forEach(([nx, ny, nz, c], i) => {
-			const n = [nx, ny, nz], dc = nx * C[0] + ny * C[1] + nz * C[2] - c;
-			const P0 = [C[0] - dc * nx, C[1] - dc * ny, C[2] - dc * nz];
-			const ref = Math.abs(nx * up[0] + ny * up[1] + nz * up[2]) > 0.9 ? east : up;
-			const t1 = mat.norm([n[1] * ref[2] - n[2] * ref[1], n[2] * ref[0] - n[0] * ref[2], n[0] * ref[1] - n[1] * ref[0]]);
-			const t2 = [n[1] * t1[2] - n[2] * t1[1], n[2] * t1[0] - n[0] * t1[2], n[0] * t1[1] - n[1] * t1[0]];
-			const q = i * 12;
-			capQ[q] = P0[0] - O[0]; capQ[q + 1] = P0[1] - O[1]; capQ[q + 2] = P0[2] - O[2];
-			capQ[q + 4] = t1[0] * L; capQ[q + 5] = t1[1] * L; capQ[q + 6] = t1[2] * L;
-			capQ[q + 8] = t2[0] * L; capQ[q + 9] = t2[1] * L; capQ[q + 10] = t2[2] * L;
-		});
+		packCapQuads(capQ, 0, planes, O, win, center);   // 面ごとの四角＝WebGPU の packCap と同じ詰め（drawshared.ts）
 		gl.uniform4fv(loc(gl, capProg, "u_capQ"), capQ);
 		clipBind("terrain", origin);
 		gl.bindVertexArray(emptyVAO);
@@ -576,10 +563,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, S.ubo);
 		for (const [unit, sp] of [[SH_UNIT, S.sampC], [SH_RAW_UNIT, S.sampR]] as [number, WebGLSampler][]) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D_ARRAY, S.tex); gl.bindSampler(unit, sp); }
 		gl.activeTexture(gl.TEXTURE0);
-		shStat = { alt: +(win.alt * 180 / Math.PI).toFixed(1), layers: wins.length };
 		return true;
 	}
-	let shStat: { alt: number; layers: number } | null = null;
 
 	const rasAtlasProg = program(gl, RASTER_ATLAS_VS, RASTER_ATLAS_FS);   // 画像タイル層（raster.js）＝タイルを地面アトラスへ合成（RTT ドレープ）
 	// ベクタ塗りを地面アトラスへ焼く（3D 限定）。属性位置は塗り本体の VAO（fillProg／md.fillProg で束ねた）と一致させる＝リンク前に bindAttribLocation
@@ -1389,7 +1374,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		for (const [k, v] of rawLRU) { if (rawBytes <= RAW_BUDGET || k === tile) break; rawLRU.delete(k); rawBytes -= v.bytes; gl.deleteTexture(v.tex); }
 		return e;
 	}
-	const U4 = new Uint32Array(28), F4 = new Float32Array(U4.buffer);   // gpu/renderer.js の RP と同じ詰め（dim 0-3・a 4-7・lo 8-11・o 12-15・box 16-19・ix 20-23・iy 24-27）
+	const U4 = new Uint32Array(RESAMPLE_U32), F4 = new Float32Array(U4.buffer);   // gpu/renderer.js の RP と同じ詰め（dim 0-3・a 4-7・lo 8-11・o 12-15・box 16-19・ix 20-23・iy 24-27）
 	function resampleCell(tex: WebGLTexture, cx: number, cy: number, N: number, src: CellSrc): boolean {
 		if (!gpuResample) return false;
 		const u = U4, f = F4;

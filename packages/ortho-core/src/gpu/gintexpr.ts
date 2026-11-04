@@ -13,7 +13,6 @@ export type { Kinds as ColumnKinds, ExprKeys, AttrFeature as FeatureLike } from 
 export { Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "../gint/attrcols.ts";   // 呼び手（globe の層）が列を組む道具も同じ入口から
 import { parseRGBA } from "../color.ts";
 
-const T_NAN = 5, T_LERP = 6;
 class Unsupported extends Error {}
 const no: (m: string) => never = m => { throw new Unsupported(m); };
 const f32bits = (() => { const f = new Float32Array(1), u = new Uint32Array(f.buffer); return (v: number): number => { f[0] = v; return u[0]; }; })();

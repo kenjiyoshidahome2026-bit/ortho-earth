@@ -3,6 +3,7 @@
 // 座標は単位球ワールド（camera.js lonlatTo3D と同じ軸）。行列は列優先（mat.js と同規約）・クリップ z は [0,1]（WebGPU 流。GL は受け手側で同じ z を使う）。
 // 影を点けない限りどの関数も呼ばれない＝影なしの描画には一切関与しない。
 import { lonlatTo3D, worldRadiusM } from "./camera.ts";
+import { dot, cross, norm } from "./mat.ts";
 import { sunSubpoint } from "@ortho-earth/ephem/sun";
 
 const D2R = Math.PI / 180;
@@ -169,6 +170,3 @@ export function bboxInShadowWindow(mvp: ArrayLike<number>, bbox: readonly number
 	return !(outL || outR || outB || outT);
 }
 
-const dot = (a: ArrayLike<number>, b: ArrayLike<number>): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: ArrayLike<number>, b: ArrayLike<number>): number[] => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const norm = (a: ArrayLike<number>): number[] => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };

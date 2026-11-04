@@ -4,7 +4,7 @@
 // 兄弟モジュール（worker/createGetHeight/gebco）の輸入面を保つため、フォーマット関数はここから再輸出する。
 const L3 = (n: number): string => String(n).padStart(3, "0");   // 旧 common の L3（桁揃え）＝ここでしか使わない
 import { nativeBucket } from "native-bucket";
-import { encode, decode, encodeName, decodeName } from "altpbf";
+import { decode, encodeName, decodeName } from "altpbf";
 import { WORLD_ATLAS } from "./worldatlas.ts";
 import type { NativeBucket, CacheFn, Bucket } from "native-bucket";
 import type { AltpbfSource } from "altpbf";

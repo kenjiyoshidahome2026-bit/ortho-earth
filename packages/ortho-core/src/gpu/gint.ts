@@ -21,7 +21,7 @@
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.ts";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
-import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K } from "../gint/utility.ts";
+import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns } from "../gint/utility.ts";
 import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gint/bake.ts";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.ts";
@@ -31,7 +31,7 @@ import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL
 import { createFidExprRunner } from "./gintexprgpu.ts";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 import type { GintSlot } from "../gint/state.ts";
 import type { DrawData, DrawInput, ViewState, SubDep } from "../gint/drawdata.ts";
-import type { ArcBuffer, EdgeChunk, WeightHist } from "../gint/utility.ts";
+import type { ArcBuffer, EdgeChunk, WeightHist, Runs, SubRuns } from "../gint/utility.ts";
 import type { GintData, GintPayload, BakeBaseResult, BakedTier } from "../gint/bake.ts";
 import type { CameraPose, CameraState } from "../camera.ts";
 import type { ClipPlane, ClipPoly } from "../clip.ts";
@@ -110,8 +110,6 @@ type GintDraw = Omit<DrawData, "styleTable" | "dashTable" | "fillColor" | "maskC
 /** 窓座標モード（地面アトラスへの面焼き込み） */
 interface GintAtlas { off: number[]; inv: number[]; vbb: number[] | null }
 /** 可視 run＝[startEdge, edgeCount, spanX, spanY]。sub[b]＝複製行区間 */
-type SubRuns = (number[][] | null)[];
-type Runs = number[][] & { sub?: SubRuns | null };
 interface LineSel { tex: GPUTexture | null; count: number; runs: Runs | null; minW: number; boundary?: boolean; sub?: SubRuns | null }
 interface PipeOpts { ds?: GPUDepthStencilState | null; blend?: GPUBlendState; writeMask?: number; samples?: number; fmt?: GPUTextureFormat; lay?: GPUPipelineLayout }
 interface GPPack { width?: number; widthAdd?: number; radius?: number; hidden?: number; dpr?: number | null; fidW?: number; activeId?: number; pass?: number; color?: ArrayLike<number> | null }
@@ -730,50 +728,11 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 			if (visibleN > finest.edgeCount * 1.5)
 				return { tex: finest.tex, count: finest.edgeCount, runs: visibleRuns(finest.edgeCount, finest.chunks), minW: finest.minW };
 		}
-		if (!nominal && !finest) {
-			const CAP = 600_000;
-			let acc = 0;
-			for (let i = 0; i < sel.runs.length; i++) {
-				if (acc + sel.runs[i][1] > CAP) {
-					sel.runs = sel.runs.slice(0, i + 1);
-					sel.runs[i] = [sel.runs[i][0], Math.max(0, CAP - acc)];
-					sel.minW = -3;
-					break;
-				}
-				acc += sel.runs[i][1];
-			}
-		}
+		if (!nominal && !finest) capRuns(sel);   // ハードキャップ＝梯子が1段も無い窓の最後の柵（gint/utility.ts）
 		return sel;
 	}
-	// run＝[startEdge, edgeCount, spanX, spanY]（passes.js visibleRuns と同型）。spanX/Y＝run 内の最長辺スパン（e7・未知=-1）。
-	// runs.sub[b]＝可視チャンクの複製行区間（長辺の細分用・bucket-major/chunk-minor＝連続チャンクは 1 区間に併合）
-	function visibleRuns(totalCount: number, chunks: EdgeChunk[] | null | undefined, span: number[] | null = null): Runs {
-		const vb = V.lastViewBbox;
-		if (!chunks?.length) { const r: Runs = [[0, totalCount, span?.[0] ?? -1, span?.[1] ?? -1]]; r.sub = null; return r; }
-		const mg = 10000;
-		const vx0 = vb ? vb[0] - mg : 0, vy0 = vb ? vb[1] - mg : 0, vx1 = vb ? vb[2] + mg : 0, vy1 = vb ? vb[3] + mg : 0;
-		const runs: Runs = [], sub: SubRuns = new Array(SUB_NB).fill(null);
-		let curStart = -1, curEnd = 0, sx = -1, sy = -1;
-		const mergeSpan = (c: EdgeChunk) => { if (c.sx == null || c.sx < 0 || sx === -2) { sx = -2; return; } if (c.sx > sx) sx = c.sx; if (c.sy > sy) sy = c.sy; };
-		const addSub = (c: EdgeChunk) => { const a = c.sub; if (!a) return;
-			for (let i = 0; i < a.length; i += 3) { const b = a[i], st = a[i + 1], n = a[i + 2]; const L = (sub[b] ??= []); const last = L[L.length - 1];
-				if (last && last[0] + last[1] === st) last[1] += n; else L.push([st, n]); } };
-		for (const c of chunks) {
-			const b = c.bbox;
-			const vis = !vb || !(b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1);   // vb 無し＝全チャンク可視
-			if (vis) { if (curStart < 0) { curStart = c.start; sx = -1; sy = -1; } curEnd = c.end; mergeSpan(c); addSub(c); }
-			else if (curStart >= 0) { runs.push([curStart, curEnd - curStart, sx < 0 ? -1 : sx, sx < 0 ? -1 : sy]); curStart = -1; }
-		}
-		if (curStart >= 0) runs.push([curStart, curEnd - curStart, sx < 0 ? -1 : sx, sx < 0 ? -1 : sy]);
-		runs.sub = sub;
-		return runs;
-	}
-	function subListRuns(list: number[] | null): SubRuns | null {   // 台帳無しメタ（境界メタ）の [b,start,count,…] → runs.sub 形式
-		if (!list) return null;
-		const sub: SubRuns = new Array(SUB_NB).fill(null);
-		for (let i = 0; i < list.length; i += 3) (sub[list[i]] ??= []).push([list[i + 1], list[i + 2]]);
-		return sub;
-	}
+	// 可視 run（visibleRuns）・境界メタの複製行区間（subListRuns）・辺予算の柵（capRuns）は ../gint/utility.ts（gl/gint/passes.ts と共通の純関数・2026-11-04）
+	const visibleRuns = (totalCount: number, chunks: EdgeChunk[] | null | undefined, span: number[] | null = null): Runs => visibleRunsOf(V.lastViewBbox, totalCount, chunks, span);
 
 	// ── UBO 詰め物（CPU 側スクラッチはエンジン共有＝逐次処理ゆえ安全。書き先は層の buffer）──
 	const gfAB = new ArrayBuffer(GF_SLOT * 4);
@@ -965,7 +924,6 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		if (L.stylesDirty) uploadStyles(L, data);
 
 		// renderCleanScene の判定（逐語）＝fillPlan（画面と地面アトラスの焼き込みで同じ判定）
-		const st = data.styleTable ?? DEF_STYLE;
 		const fp = fillPlan(L, data);
 		const { lowZoom, lowZoomEff, moving, fc, hasB, stTex, stCount, doFill } = fp;
 		if (!isDrawing && moving && !lowZoom && lowZoomEff) requestDraw?.();

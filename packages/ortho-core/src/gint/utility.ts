@@ -700,3 +700,63 @@ export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }: { a
 
 	return { minZoom: effectiveMin, maxZoom: effectiveMax };
 }
+
+// ── 線パスの可視 run（gl/gint/passes.ts と gpu/gint.ts が字句まで同じに持っていた純関数の正本・2026-11-04）──
+/** 複製行区間（バケット b ごとの [start, count] の列・無いバケットは null） */
+export type SubRuns = ([number, number][] | null)[];
+/** 可視チャンク run＝[startEdge, edgeCount, spanX, spanY] の列（sub＝複製行区間） */
+export type Runs = number[][] & { sub?: SubRuns | null };
+
+// 可視チャンク run（[startEdge, edgeCount, spanX, spanY] の列）。チャンク台帳や view bbox（vb）が無ければ全量1本。
+// マージン: 線幅ぶん bbox を少し広げる（SE=1e7 単位・約 0.001°）。
+// spanX/Y＝run 内の最長辺の経緯度スパン（e7・bake の chunk.sx/sy の最大。未知の chunk を含めば -1）＝
+// 地形適応細分（drapeSubs）が 1辺あたりのサブ区間数を決める物差し。全量1本は層全体の span（第4引数）。
+// runs.sub[b]＝可視チャンクの複製行区間（長辺の細分用・bucket-major/chunk-minor 配置＝連続チャンクは 1 区間に併合）。
+export function visibleRuns(vb: ArrayLike<number> | null | undefined, totalCount: number, chunks: EdgeChunk[] | null | undefined, span: readonly number[] | null | undefined = null): Runs {
+	if (!chunks?.length) { const r: Runs = [[0, totalCount, span?.[0] ?? -1, span?.[1] ?? -1]]; r.sub = null; return r; }
+	const mg = 10000;
+	const vx0 = vb ? vb[0] - mg : 0, vy0 = vb ? vb[1] - mg : 0, vx1 = vb ? vb[2] + mg : 0, vy1 = vb ? vb[3] + mg : 0;
+	const runs: Runs = [], sub: SubRuns = new Array(SUB_NB).fill(null);
+	let curStart = -1, curEnd = 0, sx = -1, sy = -1;
+	const mergeSpan = (c: EdgeChunk): void => { if (c.sx == null || c.sx < 0 || sx === -2) { sx = -2; return; } if (c.sx > sx) sx = c.sx; if (c.sy > sy) sy = c.sy; };
+	const addSub = (c: EdgeChunk): void => { const a = c.sub; if (!a) return;
+		for (let i = 0; i < a.length; i += 3) { const b = a[i], st = a[i + 1], n = a[i + 2]; const L = (sub[b] ??= []); const last = L[L.length - 1];
+			if (last && last[0] + last[1] === st) last[1] += n; else L.push([st, n]); } };
+	for (const c of chunks) {
+		const b = c.bbox;
+		const vis = !vb || !(b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1);   // vb 無し＝全チャンク可視
+		if (vis) { if (curStart < 0) { curStart = c.start; sx = -1; sy = -1; } curEnd = c.end; mergeSpan(c); addSub(c); }
+		else if (curStart >= 0) { runs.push([curStart, curEnd - curStart, sx < 0 ? -1 : sx, sx < 0 ? -1 : sy]); curStart = -1; }
+	}
+	if (curStart >= 0) runs.push([curStart, curEnd - curStart, sx < 0 ? -1 : sx, sx < 0 ? -1 : sy]);
+	runs.sub = sub;
+	return runs;
+}
+
+/** 台帳無しメタ（境界メタ）の複製行区間 [b,start,count,…] → runs.sub 形式 */
+export function subListRuns(list: readonly number[] | null | undefined): SubRuns | null {
+	if (!list) return null;
+	const sub: SubRuns = new Array(SUB_NB).fill(null);
+	for (let i = 0; i < list.length; i += 3) (sub[list[i]] ??= []).push([list[i + 1], list[i + 2]]);
+	return sub;
+}
+
+/** 辺予算の上限（梯子が1段も無い窓の最後の柵） */
+export const RUN_EDGE_CAP = 600_000;
+// ハードキャップ＝梯子が1段も無い窓（初回ロード直後の遅延構築中など）の最後の柵。
+// nps_all 実測でこの窓は基準メタ451万辺/フレーム（定常の42倍＝GPU秒級）＝「固まる」の実体だった。
+// 可視 run を辺予算で打ち切る（Morton順＝空間的に偏るが一過性。梯子完成時に scheduleTierBuild が
+// requestDraw で完全な絵に描き直す）。sel をその場で書き換えて返す（minW=-3＝perf 行で「キャップ発動」と分かる印）。
+export function capRuns<T extends { runs: Runs; minW: number }>(sel: T, cap = RUN_EDGE_CAP): T {
+	let acc = 0;
+	for (let i = 0; i < sel.runs.length; i++) {
+		if (acc + sel.runs[i][1] > cap) {
+			sel.runs = sel.runs.slice(0, i + 1);
+			sel.runs[i] = [sel.runs[i][0], Math.max(0, cap - acc)];
+			sel.minW = -3;
+			break;
+		}
+		acc += sel.runs[i][1];
+	}
+	return sel;
+}

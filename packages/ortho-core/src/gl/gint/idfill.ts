@@ -18,7 +18,7 @@
 
 import { s as gS } from './state.ts';   // 共有スクラッチ（idFBO/programs/caps＝GLコンテキスト資産）はシングルトン所有。層状態は各関数の引数 s
 import { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, DEPTH_UNIFORM_NAMES, linkProgram, getUniforms } from './programs.ts';
-import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.ts';
+import { bindSharedUniforms, bindPivot, bindDepthUniforms, uploadTex2D } from './utility.ts';
 import type { GintGLState, GintLive, GLDrawData, IdCaps, IdPrograms } from './state.ts';
 
 // VS_STENCIL と同一の fan 幾何＋fid を flat varying で FS へ（facing は rasterizer が判定）。
@@ -154,14 +154,7 @@ export function uploadFidStyle(s: GintGLState, table: Uint32Array | ArrayLike<nu
 		if (s.fidStyleTex) gl.deleteTexture(s.fidStyleTex);
 		const pad = new Uint32Array(W * H * 4);
 		pad.set(u32.subarray(0, count * 4));
-		const tex = gl.createTexture();
-		gl.bindTexture(gl.TEXTURE_2D, tex);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, W, H, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, pad);
-		s.fidStyleTex = tex; s.fidStyleW = W; s._fidStyleH = H;
+		s.fidStyleTex = uploadTex2D(gl, pad, W, H, gl.RGBA32UI, gl.RGBA_INTEGER); s.fidStyleW = W; s._fidStyleH = H;
 	}
 	s.fidStyleCount = count;
 }
@@ -172,12 +165,6 @@ export function clearFidStyle(s: GintGLState): void {
 	s._fidStyleData = null;
 }
 
-// context restore 時の再構築（worker.js / embed.js の restore ハンドラから呼ぶ）。
-export function restoreFidStyle(s: GintGLState): void {
-	const d = s._fidStyleData;
-	s.fidStyleTex = null; s.fidStyleW = 0; s._fidStyleH = 0;   // 旧テクスチャはコンテキストごと消滅済み
-	if (d) uploadFidStyle(s, d.u32, d.count);
-}
 
 // ID 塗りが使えるか（passes.js の分岐条件）。paint 明示＝全ズーム尊重（低ズーム既定塗りと独立）。
 // fillOff（巨大ポリゴン）は stencil と同じ理由（fan 全密度が毎フレーム）で尊重する。
@@ -288,12 +275,6 @@ export function renderIdFill(s: GintLive, data: GLDrawData, targetFBO: WebGLFram
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 	if (occ) gl.disable(gl.STENCIL_TEST);
 	return true;
-}
-
-// context lost（テクスチャ/FBO はコンテキストごと消滅＝参照だけ捨てる。CPU 側 _fidStyleData は保持）。
-export function idFillContextLost(s: GintGLState): void {
-	s.fidStyleTex = null; gS._idFBO = null; gS._idTex = null; gS._idW = gS._idH = 0;
-	gS._idPrograms = null; gS._idCaps = undefined;
 }
 
 export function disposeIdFill(s: GintGLState): void {

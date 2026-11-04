@@ -15,6 +15,7 @@
 
 import { evalExpr, truthy } from "../expr.ts";
 import { parseRGBA } from "../color.ts";
+import { packColor, clampU8, clampU16 } from "../colorpack.ts";
 import type { ExprContext } from "../expr.ts";
 
 /** 表の入力の地物（GeoJSON の Feature の読む分・fid＝配列の添字） */
@@ -49,18 +50,6 @@ function evalColor(e: unknown, ctx: ExprContext): readonly number[] | null {
 	return v == null ? null : parseRGBA(v);   // 未知op/欠損プロパティ＝undefined → null＝呼び側が既定値維持（§6-4）
 }
 
-// [r,g,b,a](0..1) × opacity → RGBA8 パック u32。
-function packColor(c: readonly number[], opacity: number): number {
-	const a = Math.round(Math.max(0, Math.min(1, (c[3] ?? 1) * opacity)) * 255);
-	if (a === 0) return 0;
-	const r = Math.round(Math.max(0, Math.min(1, c[0])) * 255);
-	const g = Math.round(Math.max(0, Math.min(1, c[1])) * 255);
-	const b = Math.round(Math.max(0, Math.min(1, c[2])) * 255);
-	return ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
-}
-
-const clampU8 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
-const clampU16 = (v: number): number => Math.max(0, Math.min(65535, Math.round(v)));
 
 // paint/filter → fid スタイル表。
 //   paint:    { 'fill-color', 'fill-opacity', 'line-color', 'line-opacity', 'line-width',
