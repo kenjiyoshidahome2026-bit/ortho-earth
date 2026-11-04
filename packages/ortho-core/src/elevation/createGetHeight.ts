@@ -237,7 +237,7 @@ export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetH
 				isLoading = null;
 				res(obj);
 			};
-			worker.onerror = e => {
+			worker.onerror = () => {
 				opts.onend && opts.onend(name);
 				isLoading = null;
 				res(null);

@@ -235,7 +235,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		let total = totalBytes;
 		if (total > budgetBytes || cache.size > hardCap) {
 			const cands: string[] = [];
-			for (const [k, c] of cache) if (!keep.has(k)) cands.push(k);
+			for (const k of cache.keys()) if (!keep.has(k)) cands.push(k);
 			cands.sort((a, b) => (cache.get(a)!.seen || 0) - (cache.get(b)!.seen || 0));   // 古い(seen小)順＝先に捨てる
 			const evicted: string[] = [];
 			for (const k of cands) {

@@ -965,7 +965,6 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		if (L.stylesDirty) uploadStyles(L, data);
 
 		// renderCleanScene の判定（逐語）＝fillPlan（画面と地面アトラスの焼き込みで同じ判定）
-		const st = data.styleTable ?? DEF_STYLE;
 		const fp = fillPlan(L, data);
 		const { lowZoom, lowZoomEff, moving, fc, hasB, stTex, stCount, doFill } = fp;
 		if (!isDrawing && moving && !lowZoom && lowZoomEff) requestDraw?.();

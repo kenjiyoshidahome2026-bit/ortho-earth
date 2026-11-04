@@ -11,7 +11,7 @@ import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, project, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, liftedBboxVisible, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
+import { cameraState, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
 import type { DrapeIn, DrapeMap } from "../drape.ts";
 import { viewRays } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
@@ -26,7 +26,7 @@ import { terrainGridUV } from "../terrainlod.ts";
 import { evalPaintZoomMemo } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
 import { createPtStore } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は WebGPU と共有の純関数
 import type { PtLayer } from "../painttable.ts";
-import { seaFbReal, dashIntervals } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）・破線の区間（S-P1-3）
+import { seaFbReal } from "../scene.ts";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { csViewMat, csGlUniform } from "../csshader.ts";   // Cesium の CustomShader（利用者の GLSL を模型の FS/VS に差し込む）
@@ -576,10 +576,8 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, S.ubo);
 		for (const [unit, sp] of [[SH_UNIT, S.sampC], [SH_RAW_UNIT, S.sampR]] as [number, WebGLSampler][]) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D_ARRAY, S.tex); gl.bindSampler(unit, sp); }
 		gl.activeTexture(gl.TEXTURE0);
-		shStat = { alt: +(win.alt * 180 / Math.PI).toFixed(1), layers: wins.length };
 		return true;
 	}
-	let shStat: { alt: number; layers: number } | null = null;
 
 	const rasAtlasProg = program(gl, RASTER_ATLAS_VS, RASTER_ATLAS_FS);   // 画像タイル層（raster.js）＝タイルを地面アトラスへ合成（RTT ドレープ）
 	// ベクタ塗りを地面アトラスへ焼く（3D 限定）。属性位置は塗り本体の VAO（fillProg／md.fillProg で束ねた）と一致させる＝リンク前に bindAttribLocation

@@ -99,11 +99,11 @@ function rowGlyphs(out: PointGlyph[], t: string, font: string, lsPx: number, x: 
 	if (!t) return;
 	if (needsShaping(t)) { out.push({ ch: t, font, x: x + measurer(font, lsPx)(t) / 2, y, rot: false, col, run: true }); return; }   // 列の箱の中央（字間は焼かない＝MapLibre も繋げる字には字間を掛けない）
 	const m = measurer(font, lsPx);
-	let pre = "", pw = 0;
+	let pre = "";
 	for (const ch of t) {
 		const nw = m(pre + ch);
 		if (ch.trim()) out.push({ ch, font, x: x + nw - (m(ch) + lsPx) / 2, y, rot: false, col, run: false });
-		pre += ch; pw = nw;
+		pre += ch;
 	}
 }
 /** 点の注記の行の束を字の列へ（Canvas2D 版 pointText の 3 つの分岐＝縦書き・format の run・素の行と同じ置き方） */

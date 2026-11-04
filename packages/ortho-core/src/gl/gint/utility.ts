@@ -1,6 +1,6 @@
 // gint の GL2 の部品：cam 由来の uniform・遠方の要・標高の uniform を詰める・テクスチャを上げる。共通の部品（辺の表・遠方の要の計算…）は ../../gint/utility.js（2026-10-15 に分けた）。
 import { betaOf, ellipsoidOn } from '../../camera.ts';
-import { farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, FAR_BIG, FAR_PIVOT } from '../../gint/utility.ts';
+import { farPivotParams, FAR_K } from '../../gint/utility.ts';
 import type { Uniforms } from './programs.ts';
 import type { GintGLState, GLDrawData } from './state.ts';
 export * from '../../gint/utility.ts';   // gl の中の読み手（embed・passes・idfill・identify…）は今のまま ./utility.js から読む

@@ -35,7 +35,6 @@ export function isExpressionFilter(f: unknown): boolean {
 	}
 }
 const getter = (k: unknown): unknown[] => k === "$type" ? ["geometry-type"] : k === "$id" ? ["id"] : ["get", k];
-const lit = (v: unknown): unknown => Array.isArray(v) ? ["literal", v] : v;
 function legacyFilter(f: unknown): unknown {
 	if (!Array.isArray(f) || !f.length) return true;
 	const [op, k, ...vs] = f;

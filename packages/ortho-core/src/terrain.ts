@@ -2,7 +2,7 @@
 // R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
-import { unproject, cameraState, lonlatTo3D, worldToLonLat, betaToLonLat, WORLD_PX } from "./camera.ts";
+import { unproject, cameraState, lonlatTo3D, betaToLonLat, WORLD_PX } from "./camera.ts";
 import { downsampleFlipped, cropResample, SEA_FLOOR } from "./elevation.ts";
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.ts";
 import { createDemSource } from "./dem-src.ts";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き

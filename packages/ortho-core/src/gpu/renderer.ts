@@ -13,14 +13,14 @@
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
 import { viewRays } from "../camera.ts";
-import { cameraState, lonlatTo3D, ellNormal3D, project, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, bboxVisible, liftedBboxVisible, movedBbox, betaGeo, betaToLonLat } from "../camera.ts";
+import { cameraState, lonlatTo3D, ellNormal3D, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
 import { evalPaintZoomMemo } from "../paintzoom.ts";   // ズーム連続の paint＝層の値を今の z で（gl と同じ memo）
 import type { PaintZoom, PzV } from "../paintzoom.ts";
 import { createPtStore, PT_ROW_F32 } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は GL2 と共有の純関数（ここは storage buffer への写しだけ）
 import type { PtRow } from "../painttable-store.ts";
 import type { PtLayer } from "../painttable.ts";
-import { seaFbReal, dashIntervals, chopDash } from "../scene.ts";   // dashIntervals＝破線（S-P1-3）の区間（GL2 の dashU と同じ uniform を組む）・chopDash＝?nolx=1 の逃げ道（旧＝CPU で刻む）
+import { seaFbReal, chopDash } from "../scene.ts";   // chopDash＝?nolx=1 の逃げ道（旧＝CPU で刻む）
 import { resolveWorldPal, fadeWorldPal } from "../worldpal.ts";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.ts";
 import { csViewMat, csPackUniforms, CS_CU_HEAD } from "../csshader.ts";   // Cesium の CustomShader（GLSL を WGSL に訳して模型の FS/VS に差し込む）
@@ -45,7 +45,7 @@ import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from 
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
 import { SUN_COUNT_WGSL, SURFACE_WGSL, MARCH_WGSL, cellPositions, bboxPoints } from "./analysis.ts";
 import type { RendererAnalysis } from "./analysis.ts";   // 日影時間・可視域の GPU 版（2026-10-24）＝影の深度パスの使い回し＋compute
-import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.ts";   // 断面とクリッピング平面（#111・切った時だけ）
+import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../clip.ts";   // 断面とクリッピング平面（#111・切った時だけ）
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
 import type { DrapeIn, DrapeMap } from "../drape.ts";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
@@ -278,7 +278,7 @@ const MAX_MESH_MASKS = 4;
 // 鍵（太陽・原点 0.5°・ノブ）で記憶＝毎フレームは掛け算だけ。方向は Fibonacci の 96 点（上半球＝空・下半球＝地面の反射 albedo 0.3）。
 const SKY_N = 96, SKY_DIRS = (() => { const d = []; const ga = Math.PI * (3 - Math.sqrt(5)); for (let i = 0; i < SKY_N; i++) { const z = 1 - 2 * (i + 0.5) / SKY_N, r = Math.sqrt(1 - z * z), t = ga * i; d.push([r * Math.cos(t), r * Math.sin(t), z]); } return d; })();
 function skyEnvCompute(sun: number[], oPt: ArrayLike<number>, { k = 4, sunI = 20, fill = 0.35 }: { k?: number; sunI?: number; fill?: number } = {}): { sh: Float32Array; lp: Float32Array; Eref: number } {
-	const RT = 1 + 0.0157 * k, HR = 0.001256 * k, HM = 0.000188 * k, BR = [36.9 / k, 86.0 / k, 210.9 / k], BM = 133.8 / k, BME = 147.2 / k, G = 0.76, N = 8, NS = 3;
+	const RT = 1 + 0.0157 * k, BR = [36.9 / k, 86.0 / k, 210.9 / k], BM = 133.8 / k, BME = 147.2 / k, G = 0.76, N = 8, NS = 3;
 	const dot = (a: ArrayLike<number>, b: ArrayLike<number>) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], add = (a: ArrayLike<number>, b: ArrayLike<number>, t: number) => [a[0] + b[0] * t, a[1] + b[1] * t, a[2] + b[2] * t], len = (a: ArrayLike<number>) => Math.hypot(a[0], a[1], a[2]);
 	const shell = (o: ArrayLike<number>, d: ArrayLike<number>, r: number) => { const b = dot(o, d), c = dot(o, o) - r * r, h = b * b - c; if (h < 0) return [-1, -1]; const q = Math.sqrt(h); return [-b - q, -b + q]; };
 	const dens = (p: ArrayLike<number>) => { const h = Math.max(len(p) - 1, 0) / k; return [Math.exp(-h / 0.001256), Math.exp(-h / 0.000188)]; };
@@ -782,11 +782,11 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			});
 		}
 		const samp = device.createSampler({ compare: "less-equal", magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
-		const mods = sh0mods || (sh0mods = {
+		sh0mods ||= {
 			terr: mkMod(TERRAIN_SH_WGSL, "terrainSh"), fill: mkMod(FILL_SH_WGSL, "fillSh"), line: mkMod(LINE_SH_WGSL, "lineSh"), lineX: mkMod(lineXWgsl(LINE_SH_WGSL, "LINE_SH_X"), "lineSh"),
 			bld: mkMod(BUILDING_SH_WGSL, "buildingSh"), mesh: mkMod(MESH_SH_WGSL, "meshSh"), meshTex: mkMod(MESH_TEX_SH_WGSL, "meshTexSh"), globe: mkMod(GLOBE_SH_WGSL, "globeSh"),
 			bldCast: mkMod(BUILDING_CAST_WGSL, "buildingCast"), meshCast: mkMod(MESH_CAST_WGSL, "meshCast"), meshTexCast: mkMod(MESH_TEX_CAST_WGSL, "meshTexCast"), terrCast: mkMod(TERRAIN_CAST_WGSL, "terrainCast"),
-		});
+		};
 		const lay = (a: GPUBindGroupLayout[]) => device.createPipelineLayout({ bindGroupLayouts: a });
 		// 模型の受け手の group(2)＝バッチごとの PB（binding 0・dynamic offset）＋影（binding 1〜3）＝group(3) はテクスチャで埋まっている（#112 段 1）
 		const bglPlSh = device.createBindGroupLayout({ entries: [
@@ -1629,9 +1629,9 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	// ユーザ COG アトラス（rgba8unorm・gadgets/cog.js が等経緯度 RGBA を渡す）。globe binding(6-7)/terrain group(2) binding(3-4)
 	const cogBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // CogP: bbox(vec4f)+p(vec4f)
-	let cogTexObj: GPUTexture | null = null, cogTexView: GPUTextureView | null = null, memCog = 0, cogHas = 0, cogGeo: number[] | null = null, cogPair = 0, cogHalf = 0, cogSplitLon: number | null = null;   // cogGeo=[west,south,spanLon,spanLat]（f64 のまま＝packFrame の前計算用）
+	let cogTexObj: GPUTexture | null = null, cogTexView: GPUTextureView | null = null, cogHas = 0, cogGeo: number[] | null = null, cogPair = 0, cogHalf = 0, cogSplitLon: number | null = null;   // cogGeo=[west,south,spanLon,spanLat]（f64 のまま＝packFrame の前計算用）
 	function setCogTex(data: CogTexData | null | undefined) {
-		if (cogTexObj) { cogTexObj.destroy(); cogTexObj = null; cogTexView = null; memCog = 0; }
+		if (cogTexObj) { cogTexObj.destroy(); cogTexObj = null; cogTexView = null; }
 		cogHas = data ? 1 : 0;
 		cogGeo = data ? [data.bboxLL[0], data.bboxLL[1], data.bboxLL[2] - data.bboxLL[0], data.bboxLL[3] - data.bboxLL[1]] : null;
 		if (data) {
@@ -1647,7 +1647,6 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			}
 			device.queue.writeTexture({ texture: cogTexObj }, src, { bytesPerRow: pad }, { width: w, height: h });
 			cogTexView = cogTexObj.createView();
-			memCog = w * h * 4;
 			cogPair = data.pair ? 1 : 0; cogHalf = 0.5 / h;
 			device.queue.writeBuffer(cogBuf, 0, new Float32Array([bboxLL[0], bboxLL[1], bboxLL[2] - bboxLL[0], bboxLL[3] - bboxLL[1], 1, cogPair, cogSplitU(), cogHalf]));
 		} else {
@@ -2053,13 +2052,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	function setGroundHook(fn: GroundHook | null | undefined, sig: (() => string) | null | undefined) { groundHook = fn || null; groundSig = sig || null; }
 	// 合成の入口（draw の Frame 書込の後・main パスより先）。fillsIn＝3D（地形あり）＝塗りはアトラス側へ（直描きは伏せる）。
 	// 窓は packFrame（gnd0..2 の係数）が先に読む＝prepareGround で確定し、composeGround で描く（同じフレーム）
-	let gndWins: number[][] | null = null, gndKey = "";
 	function prepareGround(cam: CameraPose, fillsIn: boolean, slots: string[]): GroundJob | null {
 		const rasterOn = !!(rasterDraws && rasterDraws.layers.length);
 		const wantFills = fillsIn && !(rasterOn && rasterDraws!.hideFills);
 		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
 		const hook = fillsIn && groundHook;   // gint の面（3D＝地面アトラス側）
-		if (!rasterOn && !wantFills && !hook) { gnd.split = false; if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } gndWins = null; return null; }
+		if (!rasterOn && !wantFills && !hook) { gnd.split = false; if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } return null; }
 		gnd.split = rasterOn && rasterDraws!.layers.some(l => l.split);   // 左右に分けて焼く層がある（rev の署名に split が入る＝変われば焼き直し）
 		const wins = groundWindows(cam, canvas.width, canvas.height, far.has ? far.maxElev || 0 : 0);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
