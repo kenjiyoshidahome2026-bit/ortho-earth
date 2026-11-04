@@ -735,7 +735,7 @@ if (hudOn && typeof PerformanceObserver !== "undefined" && PerformanceObserver.s
 				const layoutMs = sl > 0 ? end - sl : 0;
 				const renderMs = rs > 0 ? (sl > 0 ? sl : end) - rs : 0;
 				const preMs = Math.max(0, (rs > 0 ? rs : sl > 0 ? sl : end) - e.startTime - scriptMs);
-				if (preMs >= 20) mainLong.push({ t: e.startTime, key: "(non-script before render: GC / message decode)", ms: preMs });
+				if (preMs >= 20) mainLong.push({ t: e.startTime, key: "(non-script before render: waiting for GPU/compositor, GC)", ms: preMs });   // 2026-11-04：待ち（GPU の背圧）も入る＝main の仕事とは限らない（タブレットの実測で main へ荷を送らなくしても減らなかった）
 				if (layoutMs >= 20) mainLong.push({ t: e.startTime, key: "(style + layout)", ms: layoutMs });
 				const rafMs = sc.filter(x => /FrameRequest/.test(x.invoker || "")).reduce((a, x) => a + x.duration, 0);   // 描画の段の中のスクリプト（rAF）は下の行で数える
 				if (renderMs - rafMs >= 20) mainLong.push({ t: e.startTime, key: "(render step, not script)", ms: renderMs - rafMs });

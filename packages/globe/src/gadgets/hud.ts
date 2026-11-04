@@ -113,6 +113,11 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 	// 状態テーブル（右下・出典の上）。既定は display:none（意匠は quiet-mono #hud）。開いた時だけ更新タイマを回す。
 	const panel = document.createElement("div");
 	panel.id = "hud"; panel.setAttribute("aria-hidden", "true");
+	// 表（500ms ごとに描き直す）とコピーのボタン（描き直さない＝押せる）を分ける
+	const tbl = document.createElement("div");
+	const copyBtn = document.createElement("button");
+	copyBtn.type = "button"; copyBtn.className = "hud-copy"; copyBtn.textContent = "copy 30s log";
+	panel.append(tbl, copyBtn);
 	mapEl.append(panel);
 
 	// #attr（出典）の実高さぶん持ち上げる＝行数（言語/画面幅）が変わっても常に出典の上に載る。無ければ下辺から少しだけ浮かす。
@@ -135,7 +140,8 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		const beNote = s.backend === "webgl2" && "gpu" in navigator ? note("fallback") : "";   // WebGPU可の環境でGL2＝フォールバック中＝落ち診断の勘所
 		const gpu = gpuLabel(s.gpuName);
 		const ram = d.ram ? (d.ram >= 8 ? "≥8 GB" : d.ram + " GB") : "n/a";   // navigator.deviceMemory＝搭載メモリ（8で頭打ち・Chrome系のみ・Safari等は n/a）
-		panel.innerHTML = "<table>" +
+		record(s);
+		tbl.innerHTML = "<table>" +
 			sec("Device") +
 			row("OS", esc(dev.os)) +
 			row("browser", esc(dev.browser)) +
@@ -168,6 +174,36 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 			"</table>";
 	}
 
+	// 記録（2026-11-04）：実機のスクショは撮りにくい＝直近 30 秒の数字を 1 秒ごとに溜め、ボタンで文字としてクリップボードへ（チャットに貼る用）
+	const LOG_S = 30, log: string[] = [];
+	let lastRec = 0, lastSnap: HudSnapshot | null = null;
+	function record(s: HudSnapshot): void {
+		lastSnap = s;
+		const now = performance.now(); if (now - lastRec < 950) return; lastRec = now;
+		const c = s.cpu, m = s.main;
+		log.push(`${new Date().toISOString().slice(11, 19)} fps ${s.fps ?? "-"} frame ${(s.frameMs || 0).toFixed(0)} res ${(s.res ?? 1).toFixed(2)} wcpu ${c ? c.total.toFixed(1) : "-"} (up ${c ? c.up.toFixed(1) : "-"} map ${c ? c.map.toFixed(1) : "-"}) main ${m ? m.ms.toFixed(0) + "/" + m.max.toFixed(0) : "-"} tiles ${mb(s.tiles.bytes)}/${mb(s.tiles.budget)} city ${s.mesh ? mb(s.mesh.bytes) + "/" + s.mesh.regions + "z" : "-"} gpu ${s.gpuBytes ? mb(s.gpuBytes) : "-"} total ${mb(s.total)}`);
+		if (log.length > LOG_S) log.shift();
+	}
+	function logText(): string {
+		const s = lastSnap, d = s?.device || {}, dev = deviceInfo(d.ua);
+		const head = [`hud log ${new Date().toISOString()} ${location.href}`,
+			`device ${dev.os} / ${dev.browser} / RAM ${d.ram ?? "?"} / cores ${d.cores ?? "?"} / GPU ${gpuLabel(s?.gpuName) || "?"} / ${d.vw}x${d.vh}@${d.dpr ?? 1} / backend ${s?.backend ?? "?"}${s?.tier ? ` / low-mem ${s.tier.active}z` : ""}`];
+		const long = s?.main?.long?.length ? ["main long (15s):", ...s.main.long.map(l => `  ${l.ms.toFixed(0)} ms x${l.n} ${l.key}`)] : [];
+		return [...head, ...log, ...long].join("\n");
+	}
+	async function copyLog(): Promise<void> {
+		const text = logText();
+		let ok = false;
+		try { await navigator.clipboard.writeText(text); ok = true; } catch { /* 古い口へ */ }
+		if (!ok) {
+			const ta = document.createElement("textarea"); ta.value = text; ta.style.cssText = "position:fixed;opacity:0"; document.body.append(ta); ta.select();
+			try { ok = document.execCommand("copy"); } catch { ok = false; }
+			ta.remove();
+		}
+		copyBtn.textContent = ok ? `copied ${log.length}s ✓` : "copy failed";
+		setTimeout(() => { copyBtn.textContent = "copy 30s log"; }, 2000);
+	}
+
 	let timer: ReturnType<typeof setInterval> | null = null, on = false;
 	const start = () => { if (!timer) { render(); timer = setInterval(render, 500); } };
 	const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
@@ -177,6 +213,7 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 
 	const stub = new AbortController();   // destroy 時にリスナー・タイマ・ROを一括退場
 	btn.addEventListener("click", toggle, { signal: stub.signal });
+	copyBtn.addEventListener("click", () => { void copyLog(); }, { signal: stub.signal });
 	opts.signal && opts.signal.addEventListener("abort", () => { stub.abort(); stop(); ro && ro.disconnect(); btn.remove(); panel.remove(); }, { once: true });
 
 	if (openInit) show();   // hud=1＝最初から開く（畳むのは計測器ボタン）／hud=0＝ボタンのみ（落ちそうな時にボタンで開く）
