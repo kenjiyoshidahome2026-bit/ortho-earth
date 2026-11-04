@@ -725,10 +725,20 @@ const mainLong: Array<{ t: number; key: string; ms: number }> = [];
 if (hudOn && typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame")) {
 	try {
 		new PerformanceObserver(list => {
-			for (const e of list.getEntries() as Array<PerformanceEntry & { scripts?: LoafScript[] }>) {
+			for (const e of list.getEntries() as Array<PerformanceEntry & { scripts?: LoafScript[]; renderStart?: number; styleAndLayoutStart?: number }>) {
 				if (e.duration < 200) continue;
 				const sc = e.scripts || [];
-				if (!sc.length) { mainLong.push({ t: e.startTime, key: "(no script: style/layout/GC?)", ms: e.duration }); continue; }
+				// スクリプト以外の時間を 3 つに割る（2026-11-04 実機で「no script」1 回 ~317ms）：
+				// 描画前の非スクリプト（GC・worker からの大きなメッセージの展開など）／描画の段（rAF〜style 前）／style+layout
+				const end = e.startTime + e.duration, rs = e.renderStart || 0, sl = e.styleAndLayoutStart || 0;
+				const scriptMs = sc.reduce((a, x) => a + x.duration, 0);
+				const layoutMs = sl > 0 ? end - sl : 0;
+				const renderMs = rs > 0 ? (sl > 0 ? sl : end) - rs : 0;
+				const preMs = Math.max(0, (rs > 0 ? rs : sl > 0 ? sl : end) - e.startTime - scriptMs);
+				if (preMs >= 20) mainLong.push({ t: e.startTime, key: "(non-script before render: GC / message decode)", ms: preMs });
+				if (layoutMs >= 20) mainLong.push({ t: e.startTime, key: "(style + layout)", ms: layoutMs });
+				const rafMs = sc.filter(x => /FrameRequest/.test(x.invoker || "")).reduce((a, x) => a + x.duration, 0);   // 描画の段の中のスクリプト（rAF）は下の行で数える
+				if (renderMs - rafMs >= 20) mainLong.push({ t: e.startTime, key: "(render step, not script)", ms: renderMs - rafMs });
 				for (const x of sc) {
 					if (x.duration < 20) continue;
 					const file = (x.sourceURL || "").split("/").pop() || "?";
@@ -743,7 +753,7 @@ if (hudOn && typeof PerformanceObserver !== "undefined" && PerformanceObserver.s
 const mainLongTop = () => {
 	const cut = performance.now() - 15000, agg = new Map<string, { ms: number; n: number }>();
 	for (const r of mainLong) if (r.t >= cut) { const a = agg.get(r.key) || { ms: 0, n: 0 }; a.ms += r.ms; a.n++; agg.set(r.key, a); }
-	return [...agg.entries()].sort((a, b) => b[1].ms - a[1].ms).slice(0, 3).map(([key, a]) => ({ key, ms: a.ms, n: a.n }));
+	return [...agg.entries()].sort((a, b) => b[1].ms - a[1].ms).slice(0, 5).map(([key, a]) => ({ key, ms: a.ms, n: a.n }));
 };
 let memLab: unknown = null;   // 注記の計器（テキスト GPU 化 T-P0）＝{ ms, collideMs, labels, glyphs }＝labels2d の draw の EMA・衝突判定・描いた数（t-perfbench の lab 列）
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
