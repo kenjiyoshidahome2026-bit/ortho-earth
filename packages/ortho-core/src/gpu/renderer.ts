@@ -88,6 +88,8 @@ export interface RendererGPUOptions {
 	elevCheap?: boolean;
 	/** 深度を FS で書くパイプラインの頂点 z を線形にして、この距離（単位球）の near 面で GPU に切らせる（?nearclip=M・既定 0＝従来＝切らない。wgsl.ts nearClipZ） */
 	nearClip?: number;
+	/** clip 空間の倍率＝2^N（?clipk=N・既定 0＝倍率なし）。packFrame が mvp／clipT／clipMesh を K 倍して渡す＝斉次座標なので絵は不変、近景の極小の w を Mali の固定機能から遠ざける（wgsl.ts wTrue） */
+	clipK?: number;
 	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして散らす（実験ノブ・既定オフ・?meshchunk=1。2026-11-04 実機 Mali で 1 バッチの転送が 100〜600ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
@@ -2273,7 +2275,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// その 1 フレームが 300〜670ms 止まり、デモ（区が次々に入れ替わる）が毎秒カクついた。素の建物バッチ（模型でない）は
 	// 器だけ先に作り、中身は meshUpPump(ms) が時間予算の分だけ 256KB ずつ上げる。全部上がった時点で通常の登録（描画・被覆マスク）をする
 	//＝半分だけ上がった建物は描かない・マスクがメッシュに先行しない。解放・同キーの差し替えは転送待ちも捨てる。
-	const ELEV_CHEAP = rOpts.elevCheap === true, NEAR_CLIP = rOpts.nearClip! > 0 ? rOpts.nearClip! : 0;   // NEAR_CLIP＝F.ellP.w（?nearclip）   // F.ellP.z（packFrame）＝建物の頂点の標高を 1 標本で（wgsl.ts elev1）
+	const ELEV_CHEAP = rOpts.elevCheap === true, NEAR_CLIP = rOpts.nearClip! > 0 ? rOpts.nearClip! : 0, CLIP_K = rOpts.clipK! > 0 ? 2 ** Math.round(rOpts.clipK!) : 1;   // NEAR_CLIP＝F.ellP.w（?nearclip）・CLIP_K＝clip 空間の倍率（?clipk=N＝2^N・F.nearP.w＝1/K）   // F.ellP.z（packFrame）＝建物の頂点の標高を 1 標本で（wgsl.ts elev1）
 	const MESH_CHUNK = rOpts.meshChunk === true, UP_PIECE = 1 << 20;   // 既定オフ（2026-11-04 実機：4ms/フレーム×低 FPS では区が何十秒も立たなかった）＝?meshchunk=1 で試す。1 片 1MB
 	interface MeshUp { data: MeshSetData; nrm: Int8Array; pre: { vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer }; jobs: { buf: GPUBuffer; src: ArrayBufferView; off: number }[] }
 	const meshUp = new Map<string, MeshUp>(), meshSettled: MeshSetData[] = [];   // settled＝上がり切った／捨てた荷（同一性で ack を引く＝同じキーの差し替えでも取り違えない）
@@ -2620,11 +2622,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 	function packFrame(st: CameraState, origin: ArrayLike<number>, fogNear: number, fogFar: number, fogColor: ArrayLike<number>, logCoef: number, dpr: number, mesh?: ArrayLike<number> | null, farPass?: number): Float32Array {
 		const f = frameF32;
-		f.set(st.mvp, 0);
+		if (CLIP_K !== 1) { for (let i = 0; i < 16; i++) f[i] = st.mvp[i] * CLIP_K; } else f.set(st.mvp, 0);   // ?clipk＝mvp・clipT を K 倍（斉次＝絵は不変・wgsl.ts wTrue）
 		packRays(f, 16, st);   // 全画面レイキャストの視線一式（#65・rayF/rayX/rayY/eyeC＝旧 invMvp の枠）：等高線が読む
 		const oPt = lonlatTo3D(origin[0], origin[1]);
 		const cT = mat.transform(st.mvp, [oPt[0], oPt[1], oPt[2], 1]);
-		f[32] = cT[0]; f[33] = cT[1]; f[34] = cT[2]; f[35] = cT[3];
+		f[32] = cT[0] * CLIP_K; f[33] = cT[1] * CLIP_K; f[34] = cT[2] * CLIP_K; f[35] = cT[3] * CLIP_K;
 		// 楕円体＝緯度側は β（更成緯度）の三角（球＝β=φ＝従来値。glsl 側 setCommonUniforms と同判断）
 		const lr = origin[0] * Math.PI / 180, br = betaOf(origin[1]) * Math.PI / 180;
 		f[36] = Math.cos(lr); f[37] = Math.sin(lr); f[38] = Math.cos(br); f[39] = Math.sin(br);
@@ -2671,7 +2673,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 近景層（near・順 1a）：bounds/has/edgeFade は全スロット共通（elev() が参照）。近景メッシュパスは farP.z=2（terrainNear slot）
 		f[132] = near.bounds[0]; f[133] = near.bounds[1]; f[134] = near.bounds[2]; f[135] = near.bounds[3];
-		f[136] = near.has; f[137] = near.edgeFade || 0; f[138] = 0; f[139] = 0;
+		f[136] = near.has; f[137] = near.edgeFade || 0; f[138] = 0; f[139] = CLIP_K !== 1 ? 1 / CLIP_K : 0;   // nearP.w＝1/K（?clipk）
 		// 足元層（fine・2026-10-31）：近景テクスチャの右半分。足元メッシュパスは farP.z=3（terrainFine slot）
 		f[140] = fine.bounds[0]; f[141] = fine.bounds[1]; f[142] = fine.bounds[2]; f[143] = fine.bounds[3];
 		f[144] = fine.has && near.has ? 1 : 0; f[145] = fine.edgeFade || 0; f[146] = 0; f[147] = 0;
@@ -2788,7 +2790,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const slot = list.length, o = slot * (PL_BATCH_SLOT / 4), b = L.batchCPU;
 				const cM = mat.transform(win.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);
 				b[o] = p.origin[0]; b[o + 1] = p.origin[1]; b[o + 2] = p.origin[2]; b[o + 3] = 0;
-				b[o + 4] = cM[0]; b[o + 5] = cM[1]; b[o + 6] = cM[2]; b[o + 7] = cM[3];
+				b[o + 4] = cM[0] * CLIP_K; b[o + 5] = cM[1] * CLIP_K; b[o + 6] = cM[2] * CLIP_K; b[o + 7] = cM[3] * CLIP_K;   // F.mvp と同じ K 倍（?clipk）
 				const mask = p.textured && (p.cut > 0 || p.pre);   // 模型の MASK（葉など）＝α で抜く落とす側（#112 段 4）
 				b[o + 8] = mask ? (p.pre ? 0.5 / 255 : p.cut) : -1; b[o + 9] = 0; b[o + 10] = p.noLift || p.baked ? 1 : 0; b[o + 11] = p.drape ? 1 : 0;
 				if (clipPl) { const O = lonlatTo3D(...(scenes.main.origin || [0, 0]) as [number, number]); b[o + 60] = p.origin[0] - O[0]; b[o + 61] = p.origin[1] - O[1]; b[o + 62] = p.origin[2] - O[2]; }   // clipO（#111 段 2）
@@ -3405,7 +3407,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const slot = draws.length, o = slot * (PL_BATCH_SLOT / 4);
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で
 				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.wind && (meshLight || p.csLit === "phong") && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1;   // meshOrigin.xyz + cullBack（noCull＝面の向きが揃っていない建物＝両面・間引きは残す）
-				plBatchCPU[o + 4] = cM[0]; plBatchCPU[o + 5] = cM[1]; plBatchCPU[o + 6] = cM[2]; plBatchCPU[o + 7] = cM[3];   // clipMesh
+				plBatchCPU[o + 4] = cM[0] * CLIP_K; plBatchCPU[o + 5] = cM[1] * CLIP_K; plBatchCPU[o + 6] = cM[2] * CLIP_K; plBatchCPU[o + 7] = cM[3] * CLIP_K;   // clipMesh（F.mvp と同じ K 倍＝?clipk）
 				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = blendOf(p); plBatchCPU[o + 10] = p.noLift || p.baked ? 1 : 0; plBatchCPU[o + 11] = p.drape ? 1 : 0;   // alpha.xy（模型の派生 PB だけが読む）・.z＝noLift・.w＝drape（素も派生も読む）
 				// #46 段 2：pbr0（材質の数値）・emis（発光＋fx.pbr の旗）・lp（太陽の強さ・固定光の重み）・sh[9]（空の環境光・sh[0].w＝fill）＝skyEnv はフレームで一度
 				const pb = p.pbr;
