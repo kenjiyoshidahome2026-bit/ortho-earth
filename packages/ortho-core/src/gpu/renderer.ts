@@ -80,6 +80,7 @@ export interface RendererGPUOptions {
 	/** 既定 "high-performance"（外付け GPU のあるノート PC で速い方を頼む・gpupower.ts）。"low-power"／"default" で戻せる */
 	powerPreference?: GpuPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
+	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして数フレームへ散らす（既定＝lowMem・2026-11-04 実機 Mali で 1 バッチの転送が 300〜670ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
 }
@@ -2256,6 +2257,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	] });
 	function freeMeshWard(ward: string) {
 		castRev++;
+		for (const k of [...meshUp.keys()]) if (k === ward || k.startsWith(ward + "#")) cancelMeshUp(k);   // 転送待ちも一緒に捨てる
 		for (const k of [...meshes.keys()]) {
 			if (k !== ward && !k.startsWith(ward + "#")) continue;
 			const p = meshes.get(k)!;
@@ -2272,19 +2274,59 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (xf) { for (let c = 0; c < 3; c++) { b[o + 196 + c * 4] = xf[c * 3]; b[o + 197 + c * 4] = xf[c * 3 + 1]; b[o + 198 + c * 4] = xf[c * 3 + 2]; } b[o + 208] = xf[9]; b[o + 209] = xf[10]; b[o + 210] = xf[11]; b[o + 211] = 1; }
 		else { b[o + 196] = 1; b[o + 197] = 0; b[o + 198] = 0; b[o + 200] = 0; b[o + 201] = 1; b[o + 202] = 0; b[o + 204] = 0; b[o + 205] = 0; b[o + 206] = 1; b[o + 208] = 0; b[o + 209] = 0; b[o + 210] = 0; b[o + 211] = 0; }
 	}
-	function setMeshSet(key: string, data: MeshSetData | null | undefined) {
+	// 小分け転送（2026-11-04）：PLATEAU のバッチ（数 MB〜20MB）を writeBuffer 一発で上げると、非力な端末（Mali）では
+	// その 1 フレームが 300〜670ms 止まり、デモ（区が次々に入れ替わる）が毎秒カクついた。素の建物バッチ（模型でない）は
+	// 器だけ先に作り、中身は meshUpPump(ms) が時間予算の分だけ 256KB ずつ上げる。全部上がった時点で通常の登録（描画・被覆マスク）をする
+	//＝半分だけ上がった建物は描かない・マスクがメッシュに先行しない。解放・同キーの差し替えは転送待ちも捨てる。
+	const MESH_CHUNK = rOpts.meshChunk ?? !!rOpts.lowMem, UP_PIECE = 256 << 10;
+	interface MeshUp { data: MeshSetData; nrm: Int8Array; pre: { vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer }; jobs: { buf: GPUBuffer; src: ArrayBufferView; off: number }[] }
+	const meshUp = new Map<string, MeshUp>(), meshSettled: MeshSetData[] = [];   // settled＝上がり切った／捨てた荷（同一性で ack を引く＝同じキーの差し替えでも取り違えない）
+	function cancelMeshUp(key: string) {
+		const u = meshUp.get(key); if (!u) return;
+		u.pre.vbo.destroy(); u.pre.nbo.destroy(); u.pre.ibo.destroy();
+		meshUp.delete(key); meshSettled.push(u.data);
+	}
+	function meshUpPump(ms: number): MeshSetData[] {
+		const t0 = performance.now();
+		while (meshUp.size) {
+			const [key, u] = meshUp.entries().next().value!;
+			while (u.jobs.length) {
+				const j = u.jobs[0], v = j.src, n = Math.min(UP_PIECE, v.byteLength - j.off);
+				device.queue.writeBuffer(j.buf, j.off, v.buffer, v.byteOffset + j.off, n);   // pos(f32)/nrm(4B/頂点)/idx(u32)＝長さは常に 4 の倍数
+				j.off += n; if (j.off >= v.byteLength) u.jobs.shift();
+				if (performance.now() - t0 >= ms) break;
+			}
+			if (u.jobs.length) break;   // 予算切れ＝続きは次フレーム
+			meshUp.delete(key);
+			setMeshSet(key, u.data, u.pre);   // 全部上がった＝通常の登録（器は上げ済みを使う）
+			meshSettled.push(u.data);
+			if (performance.now() - t0 >= ms) break;
+		}
+		return meshSettled.splice(0);
+	}
+	function setMeshSet(key: string, data: MeshSetData | null | undefined, pre?: MeshUp["pre"]) {
 		castRev++;
+		if (!pre) cancelMeshUp(key);   // 同キーの転送待ち＝新しい方が勝つ
 		if (!data) { freeMeshWard(key); return; }   // key=区名：全バッチ+マスク解放
+		if (MESH_CHUNK && !pre && data.pos?.length && data.idx?.length && !(data.uv && data.col) && data.pos.byteLength + data.idx.byteLength > UP_PIECE) {
+			const nrm = data.nrm instanceof Int8Array ? data.nrm : Int8Array.from(data.nrm || new Int8Array(data.pos.length / 3 * 4));
+			const mk = (v: ArrayBufferView, usage: number) => device.createBuffer({ size: (v.byteLength + 3) & ~3, usage: usage | GPUBufferUsage.COPY_DST });
+			const p = { vbo: mk(data.pos, GPUBufferUsage.VERTEX), nbo: mk(nrm, GPUBufferUsage.VERTEX), ibo: mk(data.idx, GPUBufferUsage.INDEX) };
+			meshUp.set(key, { data, nrm, pre: p, jobs: [{ buf: p.vbo, src: data.pos, off: 0 }, { buf: p.nbo, src: nrm, off: 0 }, { buf: p.ibo, src: data.idx, off: 0 }] });
+			return;   // 登録は meshUpPump が上げ終えた時
+		}
 		const old = meshes.get(key);
 		if (old) { old.vbo.destroy(); old.nbo.destroy(); old.ibo.destroy(); old.uvbo?.destroy(); old.cbo?.destroy(); old.mcbo?.destroy(); old.cs?.cub.destroy(); old.uvmbo?.destroy(); for (const t of old.meta?.texs || []) if (t !== mrTex1) t.tex.destroy(); for (const t of old.texs || []) t?.tex.destroy(); meshes.delete(key); }
 		if (data.pos?.length && data.idx?.length) {
 			const nrm = data.nrm instanceof Int8Array ? data.nrm : Int8Array.from(data.nrm || new Int8Array(data.pos.length / 3 * 4));
-			const vbo = device.createBuffer({ size: (data.pos.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-			const nbo = device.createBuffer({ size: (nrm.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-			const ibo = device.createBuffer({ size: (data.idx.byteLength + 3) & ~3, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-			device.queue.writeBuffer(vbo, 0, data.pos.buffer, data.pos.byteOffset, data.pos.byteLength);
-			device.queue.writeBuffer(nbo, 0, nrm.buffer, nrm.byteOffset, nrm.byteLength);
-			device.queue.writeBuffer(ibo, 0, data.idx.buffer, data.idx.byteOffset, data.idx.byteLength);
+			const vbo = pre ? pre.vbo : device.createBuffer({ size: (data.pos.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+			const nbo = pre ? pre.nbo : device.createBuffer({ size: (nrm.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+			const ibo = pre ? pre.ibo : device.createBuffer({ size: (data.idx.byteLength + 3) & ~3, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+			if (!pre) {
+				device.queue.writeBuffer(vbo, 0, data.pos.buffer, data.pos.byteOffset, data.pos.byteLength);
+				device.queue.writeBuffer(nbo, 0, nrm.buffer, nrm.byteOffset, nrm.byteLength);
+				device.queue.writeBuffer(ibo, 0, data.idx.buffer, data.idx.byteOffset, data.idx.byteLength);
+			}
 			const textured = !!(data.uv && data.col); let uvbo: GPUBuffer | null = null, cbo: GPUBuffer | null = null, texs: (MeshTex | null)[] | null = null, texBG: GPUBindGroup | null = null;   // 模型（glb 直読み）
 			if (textured) {
 				uvbo = device.createBuffer({ size: (data.uv!.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -3895,7 +3937,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	return { set, draw, flush, readback, dispose, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
-		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
+		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors,
+		meshUpPump, meshUpBusy: () => meshUp.size > 0, meshUpPending: (key: string) => meshUp.has(key),   // 建物の小分け転送（2026-11-04）：renderworker が毎フレーム pump し、上がり切った（か捨てた）キーの ack を返す get hasTQ() { return !!tq; },
 		shadowStats: () => shadow.on ? { on: true, active: shStat.active, passes: shStat.passes, skipped: shStat.skipped, ...(shStat.last || {}), cascades: shStat.cascades || [] } : null,   // 影の計器（#112 段 0・?hud=1 のテレメトリ）＝消している間は null
 		analysis,   // 日影時間・可視域の GPU 版（2026-10-24）＝描いている物から測る
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
