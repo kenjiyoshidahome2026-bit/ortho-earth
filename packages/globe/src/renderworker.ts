@@ -15,7 +15,7 @@ import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elev
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
 setCoreWorkerFactory(role => new Worker(new URL("./worker.ts", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
-import { setEllipsoid, ellipsoidOn, cameraState, project, projectCss, projectClip, worldRadiusM, lonlatTo3D, ellNormal3D } from "@ortho-earth/core/camera";
+import { setEllipsoid, ellipsoidOn, cameraState, project, projectCss, projectClip, worldRadiusM, lonlatTo3D, ellNormal3D, geodeticOf } from "@ortho-earth/core/camera";
 import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
 import { makeCustomArgs, GLOBE_MAX_Z } from "./gadgets/customgl-args.ts";   // MapLibre の custom 層の args＝host.customArgs で gadgets/customgl-draw.ts（組み込みのオーバーレイ）へ渡す（2026-10-16）
@@ -96,7 +96,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshRange?: number; elevCheap?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -151,6 +151,7 @@ function depthOff(e: unknown) {
 const overlayWantsDepth = () => { for (const o of overlays.values()) if (o.mod && o.depth) return true; return false; };
 let clockA: ClockAnchor | null = null, clockSet: ClockAnchor | null = null;   // 共通の時計の基準（#42）。null＝実時刻。renderer の view.clock（夜の側・星）と overlay の api.time の出所。clockSet＝renderer へ渡し済みの基準（起動前に届いても描画の直前に渡る）
 let elevBase = 0, elevEarthM = 0;
+let bakeLift = false;   // ?bakelift=1＝建物メッシュの接地リフトを転送時に頂点へ焼く（bakeMeshLift）
 const hBase = () => elevEarthM > 0 ? 1 / elevEarthM : elevBase;   // 地面からの高さ（hM）は誇張しない＝実スケール（地面の持ち上げだけが elevBase＝誇張つき）   // TERR_EXAG / EARTH_M（init で）・地球半径 m（誇張の差し替え＝"terrainExag" で elevBase を引き直す）
 // 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
 // anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
@@ -465,6 +466,7 @@ const dispatch = (e: { data: RwMsg }) => {
 				resIdx = bi; resFixed = true; scheduleRes();
 			}
 			stayProbe = m.stay ? 1 : 0;
+			bakeLift = !!m.bakeLift;
 			depthOk = !m.lowMem;   // LOW_MEM＝深度を作らない（#47・Air3 jetsam の型＝FBO/ImageBitmap の上乗せを持ち込まない）
 			if (m.stay) {
 				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN, sceneMsgN, relayRecvN, pongB, bootStage, iqLen: initQueue ? initQueue.length : -1 }), 1000);
@@ -937,6 +939,7 @@ function drainUploads0() {
 		const ward = String((meshData as { ward?: string } | null | undefined)?.ward || String(name).split("#")[0]);   // renderer と同じ区の決め方（data.ward か名前の # の前）
 		const unseen = !!meshData && hiddenWards.has(ward);   // 伏せた区への転送＝画面は変わらない（tiles3d は伏せてから上げる）＝描き直さない
 		if (!meshData) hiddenWards.delete(String(name));   // 解放＝renderer も伏せ印を消す
+		if (bakeLift && meshData) bakeMeshLift(meshData);
 		let deferred = false;
 		try { renderer.set("meshSet", meshData, name); }
 		finally {
@@ -947,6 +950,36 @@ function drainUploads0() {
 		if (!deferred && !unseen) dirty = true;
 		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}
+}
+// 接地リフトの焼き込み（?bakelift=1・2026-11-04 実機 Mali：建物の頂点ごとの標高参照（elev/elevQ・elev1 でも 1 標本）が VS の床だった）：
+// 頂点シェーダが毎フレーム引いていた「足元の地面の高さ × 誇張 × 測地法線」を転送時に 1 回だけ CPU で足し、バッチに liftBaked を立てる
+// ＝renderer は noLift と同じく VS の標高参照を飛ばす（PB.alpha.z）。対象は建物メッシュ（lodCounts を持つ PLATEAU・押し出し）だけ＝模型・drape・keep2d・平面統計は従来通り。
+// 代償（LOW_MEM 向きの割り切り）：焼いた後の誇張の変更・pitch による地形フェード（真俯瞰で平面）には追従しない＝焼いた時の DEM と誇張で固定。
+// 地面は terrain.elevSampler（主アトラスと同じ R01 を CPU で双一次）＝GPU の elev1 と同じ面。DTM 保証域（liftBounds）の外は GPU と同じく持ち上げない（縁 0.05° の smoothstep も同式）。
+interface BakeMesh { pos?: ArrayBufferView; origin?: number[]; lodCounts?: ArrayLike<number> | null; noLift?: boolean; drape?: boolean; keep2d?: boolean; liftBaked?: boolean }   // meshData のうち焼きが読む欄（renderer の MeshSetData と同名）
+function bakeMeshLift(dd: NonNullable<MeshItem["meshData"]>): void {
+	const d = dd as BakeMesh, pos = d.pos, org = d.origin;
+	if (!terrain || !(pos instanceof Float32Array) || !org || !d.lodCounts || d.noLift || d.drape || d.keep2d || d.liftBaked) return;
+	const lb = terrain.liftBounds();
+	d.liftBaked = true;   // 保証域が無い＝GPU も h=0＝焼く物が無い（旗だけ立てて VS の標本を飛ばす）
+	if (!lb || elevBase <= 0) return;
+	const t0 = performance.now();
+	const [ox, oy, oz] = org, n = pos.length / 3 | 0, ell = ellipsoidOn(), R2D = 180 / Math.PI, D2R = Math.PI / 180;
+	// 先頭の頂点のセルでサンプラを束ねる（バッチ＝1 区の 1 片＝同じ 1° セルに収まるのが普通・外れた点は中で sampleElev へ）
+	const d0 = Math.hypot(ox + pos[0], oy + pos[1], oz + pos[2]) || 1;
+	const sample = terrain.elevSampler(Math.atan2(oz + pos[2], ox + pos[0]) * R2D, geodeticOf(Math.asin(Math.max(-1, Math.min(1, (oy + pos[1]) / d0))) * R2D));
+	const smooth = (x: number): number => { const t = Math.max(0, Math.min(1, x / 0.05)); return t * t * (3 - 2 * t); };
+	for (let i = 0; i < n; i++) {
+		const j = i * 3, x = ox + pos[j], y = oy + pos[j + 1], z = oz + pos[j + 2], len = Math.hypot(x, y, z) || 1;
+		const lat = geodeticOf(Math.asin(Math.max(-1, Math.min(1, y / len))) * R2D), lon = Math.atan2(z, x) * R2D;
+		const k = smooth(Math.min(lon - lb[0], lb[0] + lb[2] - lon)) * smooth(Math.min(lat - lb[1], lb[1] + lb[3] - lat));
+		if (k <= 0) continue;
+		const h = sample(lon, lat) * elevBase * k;   // 単位球の長さ（m × 誇張/半径）＝VS の hE × F.elevP.x と同じ
+		if (h === 0) continue;
+		if (ell) { const p = lat * D2R, l = lon * D2R, cp = Math.cos(p); pos[j] += h * cp * Math.cos(l); pos[j + 1] += h * Math.sin(p) / (1 - 1 / 298.257223563); pos[j + 2] += h * cp * Math.sin(l); }   // 測地法線の β像（camera.ts ellNormal3D と同式）
+		else { pos[j] += h * x / len; pos[j + 1] += h * y / len; pos[j + 2] += h * z / len; }   // 球＝動径
+	}
+	cpuAcc.up += performance.now() - t0;   // HUD の wcpu(up) に載せる＝転送の山と同じ列
 }
 // 消化ack＝クレジット返却（例外でも返す＝送出が止まらない）＋器の返却：GPU登録（bufferData/writeBuffer）は
 // この時点で同期コピー済み＝pos/nrm/idx の ArrayBuffer を transfer で返し、plateau worker が次の復元で再利用

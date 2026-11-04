@@ -1008,8 +1008,8 @@ struct PlOut {
 	let lb = P.p0;   // [lng0, lat0, spanLng, spanLat]
 	let inX = smoothstep(0.0, 0.05, min(lon - lb.x, lb.x + lb.z - lon));
 	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
-	var hE = 0.0;   // 軽い標高（F.ellP.z＝?elevcheap=1）は 1 標本（if＝select は両方を評価する）
-	if (F.ellP.z > 0.5) { hE = elev1(vec2f(lon, lat)); } else { hE = elev(vec2f(lon, lat)); }
+	var hE = 0.0;   // 軽い標高（F.ellP.z＝?elevcheap=1）は 1 標本（if＝select は両方を評価する）。noLift／焼き済み（B.alpha.z・?bakelift=1）は引かない
+	if (B.alpha.z < 0.5) { if (F.ellP.z > 0.5) { hE = elev1(vec2f(lon, lat)); } else { hE = elev(vec2f(lon, lat)); } }
 	let h = hE * F.elevP.x * select(inX * inY, 1.0, B.alpha.w > 0.5) * (1.0 - B.alpha.z);   // noLift＝平面に浮かせた統計・drape＝全域で地形に沿わせる
 	var p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線
 	if (a_normal.w < -0.004) {   // a glTF line's ribbon (gl/glsl.ts LINE_RIBBON): across the line's direction on screen by half its width (CSS px × dpr)

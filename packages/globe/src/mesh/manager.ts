@@ -262,7 +262,7 @@ function spawnMeshWorkers() {
 		d.postMessage({ init: { port: ch.port1 } }, [ch.port1]);   // 以後の会話（init/exclude/job/tick）は全部この port で区 worker と直結
 		meshDecoders.push(d); decPorts.push(ch.port2);
 	}
-	w.postMessage({ type: "init", meshPort: meshChan.port1, decPorts, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: MESH_DEC, split: qNum(/[?&]msplit=(\d+)/, 0), mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: MESH_BAKE_URL }, [meshChan.port1, ...decPorts]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
+	w.postMessage({ type: "init", meshPort: meshChan.port1, decPorts, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: MESH_DEC, split: qNum(/[?&]msplit=(\d+)/, LOW_MEM ? 100 : 0), mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: MESH_BAKE_URL }, [meshChan.port1, ...decPorts]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	attachMeshPort(meshChan.port2);   // render worker へ直結ポートを渡す（transfer は app 側）
 	w.onmessage = (e: MessageEvent<MwReply>) => {
 		if (e.data.prog) { const p = e.data.prog; const old = meshProg.get(p.name); if (old?.stall && (old.done ?? -1) === (p.done ?? -2)) p.stall = old.stall; meshProg.set(p.name, p); renderMeshProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）。停滞印は進捗が動くまで残す

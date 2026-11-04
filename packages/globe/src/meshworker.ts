@@ -313,7 +313,7 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 		if (own) { poolPut(mesh.pos!.buffer as ArrayBuffer); poolPut(mesh.nrm!.buffer as ArrayBuffer); poolPut(mesh.idx!.buffer as ArrayBuffer); }   // 原本は送らない＝器を次の復元へ
 		for (let j = 0; j < pieces.length; j++) {
 			const q = pieces[j], mc = j ? null : maskCells;   // マスクは束で 1 回（片 0 に添える）
-			await postBatch(ward, bi, { name: j ? `${ward}#${bi}.${j}` : `${ward}#${bi}`, meshData: { pos: q.pos, nrm: q.nrm, idx: q.idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: q.lodCounts, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells: mc, maskN: MASK_N, maskBbox: wardBbox } },
+			await postBatch(ward, bi, { name: j ? `${ward}#${bi}.${j}` : `${ward}#${bi}`, meshData: { pos: q.pos, nrm: q.nrm, idx: q.idx, origin: mesh.origin, bbox: q.bbox, lodH: mesh.lodH, lodCounts: q.lodCounts, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells: mc, maskN: MASK_N, maskBbox: wardBbox } },
 				[q.pos.buffer, q.nrm.buffer, q.idx.buffer, mc?.buffer]);
 		}
 		return;
@@ -332,31 +332,63 @@ async function postBatch(ward: string, bi: number, payload: { name: string; mesh
 	catch (e) { onDrained(); console.warn("[mesh] send failed (credit returned)", ward, bi, (e as Error)?.message ?? e); throw e; }   // 返却＝待ち手があれば起こす・無ければ +1
 }
 // ── 束の小分け（?msplit=N・2026-11-04 実機 Mali「1 束の転送 300〜670ms」と「大きい建物から順に出る他社の動き」から）──
-// 三角形は meshdecode が建物の高さ降順に並べ lodCounts[k]＝「高さ lodH[k] 以上」の先頭 count なので、lodCounts の境目で切れば
-// 片 j は高さの 1 段（lodH[k]〜lodH[k+1]）だけを持つ。大きい段はさらに maxIdx（index 数）で等分。頂点は片ごとに詰め直す（位置の
-// 原点・bbox は束のまま＝カリングは束の粗さ）。片の lodCounts は元の count を片の範囲に切り詰めた物＝renderer の式はそのまま効く。
+// 三角形は meshdecode が建物の高さ降順に並べ lodCounts[k]＝「高さ lodH[k] 以上」の先頭 count。片は「場所（束の bbox を ~800m の格子で
+// 切った升）× 高さ（12m 以上／未満）」で分け、升の中では元の順（高さ降順）を保つ＝片の lodCounts は「元の添字 < lodCounts[k] の三角形の数」
+// （升の中で先頭に固まる）。大きい片はさらに maxIdx（index 数）で等分。片ごとに自分の bbox を持つ＝renderer の視錐台・距離（meshrange）・
+// LOD の距離係数が升の粗さで効く（旧＝束の bbox を引き継ぎ、数 km 四方の束は「2km より遠い」に掛からなかった・実機 5 区で frame 133ms）。
+// 送る順＝高い片（12m 以上）を全升ぶん先に、次に低い片＝大きい建物が先に立つ。頂点は片ごとに詰め直す（位置の原点は束のまま）。
 let SPLIT_TRIS = 0;   // 0＝切らない（既定）。init split（千三角形）
-interface Piece { pos: Float32Array; nrm: Int8Array; idx: Uint32Array; lodCounts: number[] }
+const SPLIT_CELL_M = 800, SPLIT_GRID_MAX = 4, SPLIT_TALL_LOD = 3;   // 升の一辺の目安（m）・格子の上限（4×4）・高い／低いの境＝LOD_H[3]＝12m
+interface Piece { pos: Float32Array; nrm: Int8Array; idx: Uint32Array; lodCounts: number[]; bbox: number[] }
 function splitByHeight(mesh: Batch, maxIdx: number): Piece[] | null {
-	const idx = mesh.idx, pos = mesh.pos, nrm = mesh.nrm, lc = mesh.lodCounts;
-	if (!idx || !pos || !nrm || !lc || mesh.twoSided || idx.length <= maxIdx) return null;   // 橋梁（両面・間引き無し）と小さい束は切らない
-	const cuts = [...new Set([0, ...lc.map(c => Math.min(Math.max(c | 0, 0), idx.length)), idx.length])].sort((a, b) => a - b);   // 高さの段の境目（昇順＝高い段が先）
-	const ranges: Array<[number, number]> = [];
-	for (let i = 1; i < cuts.length; i++) {
-		const a = cuts[i - 1], b = cuts[i], n = Math.ceil((b - a) / maxIdx);   // 大きい段は等分（3 の倍数で切る）
-		for (let k = 0; k < n; k++) { const s = a + Math.floor((b - a) * k / n / 3) * 3, e = k === n - 1 ? b : a + Math.floor((b - a) * (k + 1) / n / 3) * 3; if (e > s) ranges.push([s, e]); }
+	const idx = mesh.idx, pos = mesh.pos, nrm = mesh.nrm, lc = mesh.lodCounts, o = mesh.origin, bb = mesh.bbox;
+	if (!idx || !pos || !nrm || !lc || !o || !bb || mesh.twoSided || idx.length <= maxIdx) return null;   // 橋梁（両面・間引き無し）と小さい束は切らない
+	const nv = pos.length / 3, nt = idx.length / 3 | 0;
+	// 頂点の経緯度（maskCellsOf と同式・β→測地）
+	const lons = new Float64Array(nv), lats = new Float64Array(nv), R2Dg = 180 / Math.PI;
+	for (let i = 0; i < nv; i++) {
+		const x = pos[i * 3] + o[0], y = pos[i * 3 + 1] + o[1], z = pos[i * 3 + 2] + o[2], r = Math.hypot(x, y, z) || 1;
+		const bl = Math.asin(Math.max(-1, Math.min(1, y / r)));
+		lats[i] = (ELL ? geoLatOf(bl) : bl) * R2Dg; lons[i] = Math.atan2(z, x) * R2Dg;
 	}
-	if (ranges.length < 2) return null;
-	const nv = pos.length / 3, remap = new Int32Array(nv).fill(-1);
-	const out: Piece[] = [];
-	for (const [a, b] of ranges) {
-		const pidx = new Uint32Array(b - a);
-		let m = 0;
-		for (let i = a; i < b; i++) { const v = idx[i]; let r = remap[v]; if (r < 0) { r = remap[v] = m++; } pidx[i - a] = r; }
+	// 升の格子＝束の bbox を SPLIT_CELL_M で割る（上限 4×4）
+	const cosL = Math.cos((bb[1] + bb[3]) / 2 * Math.PI / 180), spanX = (bb[2] - bb[0]) * 111320 * cosL, spanY = (bb[3] - bb[1]) * 111320;
+	const gx = Math.max(1, Math.min(SPLIT_GRID_MAX, Math.ceil(spanX / SPLIT_CELL_M))), gy = Math.max(1, Math.min(SPLIT_GRID_MAX, Math.ceil(spanY / SPLIT_CELL_M)));
+	const sx = (bb[2] - bb[0]) || 1e-12, sy = (bb[3] - bb[1]) || 1e-12;
+	const tallEnd = Math.min(Math.max(lc[SPLIT_TALL_LOD] | 0, 0), idx.length) / 3;   // この三角形番号より前＝高さ 12m 以上
+	// 三角形 → 組（升 × 高低）。組の中は元の順＝高さ降順を保つ
+	const groups: number[][] = Array.from({ length: gx * gy * 2 }, () => []);
+	for (let t = 0; t < nt; t++) {
+		const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+		const cl = (lons[a] + lons[b] + lons[c]) / 3, ct = (lats[a] + lats[b] + lats[c]) / 3;
+		const cx = Math.max(0, Math.min(gx - 1, (cl - bb[0]) / sx * gx | 0)), cy = Math.max(0, Math.min(gy - 1, (ct - bb[1]) / sy * gy | 0));
+		groups[(cy * gx + cx) * 2 + (t < tallEnd ? 0 : 1)].push(t);
+	}
+	// 組 → 片（大きい組は等分）。送る順＝高い組を全升ぶん先に
+	const order: Array<{ tris: number[]; a: number; b: number }> = [];
+	for (const tall of [0, 1]) for (let g = 0; g < gx * gy; g++) {
+		const tris = groups[g * 2 + tall]; if (!tris.length) continue;
+		const n = Math.ceil(tris.length * 3 / maxIdx);
+		for (let k = 0; k < n; k++) order.push({ tris, a: Math.floor(tris.length * k / n), b: k === n - 1 ? tris.length : Math.floor(tris.length * (k + 1) / n) });
+	}
+	if (order.length < 2) return null;
+	const remap = new Int32Array(nv).fill(-1), out: Piece[] = [];
+	for (const { tris, a, b } of order) {
+		const pidx = new Uint32Array((b - a) * 3);
+		let m = 0, lo0 = 1e9, la0 = 1e9, lo1 = -1e9, la1 = -1e9;
+		const lodCounts = lc.map(c => 0);   // 片の lodCounts＝元の添字（×3）が lc[k] 未満の三角形の数 ×3（組の中は高さ降順＝先頭に固まる）
+		for (let i = a; i < b; i++) {
+			const t = tris[i];
+			for (let k = 0; k < lc.length; k++) if (t * 3 < lc[k]) lodCounts[k] += 3;
+			for (let q = 0; q < 3; q++) {
+				const v = idx[t * 3 + q]; let r = remap[v]; if (r < 0) { r = remap[v] = m++; const lo = lons[v], la = lats[v]; if (lo < lo0) lo0 = lo; if (lo > lo1) lo1 = lo; if (la < la0) la0 = la; if (la > la1) la1 = la; }
+				pidx[(i - a) * 3 + q] = r;
+			}
+		}
 		const ppos = new Float32Array(m * 3), pnrm = new Int8Array(m * 4);
-		for (let i = a; i < b; i++) { const v = idx[i], r = pidx[i - a]; ppos[r * 3] = pos[v * 3]; ppos[r * 3 + 1] = pos[v * 3 + 1]; ppos[r * 3 + 2] = pos[v * 3 + 2]; pnrm[r * 4] = nrm[v * 4]; pnrm[r * 4 + 1] = nrm[v * 4 + 1]; pnrm[r * 4 + 2] = nrm[v * 4 + 2]; pnrm[r * 4 + 3] = nrm[v * 4 + 3]; }
-		for (let i = a; i < b; i++) remap[idx[i]] = -1;   // 次の片のために戻す（触った頂点だけ）
-		out.push({ pos: ppos, nrm: pnrm, idx: pidx, lodCounts: lc.map(c => Math.min(Math.max((c | 0) - a, 0), b - a)) });
+		for (let i = a; i < b; i++) for (let q = 0; q < 3; q++) { const v = idx[tris[i] * 3 + q], r = pidx[(i - a) * 3 + q]; ppos[r * 3] = pos[v * 3]; ppos[r * 3 + 1] = pos[v * 3 + 1]; ppos[r * 3 + 2] = pos[v * 3 + 2]; pnrm[r * 4] = nrm[v * 4]; pnrm[r * 4 + 1] = nrm[v * 4 + 1]; pnrm[r * 4 + 2] = nrm[v * 4 + 2]; pnrm[r * 4 + 3] = nrm[v * 4 + 3]; }
+		for (let i = a; i < b; i++) for (let q = 0; q < 3; q++) remap[idx[tris[i] * 3 + q]] = -1;   // 次の片のために戻す（触った頂点だけ）
+		out.push({ pos: ppos, nrm: pnrm, idx: pidx, lodCounts, bbox: [lo0, la0, lo1, la1] });
 	}
 	return out;
 }
