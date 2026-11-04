@@ -10,7 +10,7 @@ import { mergeTiles, coveredTiles, seaFbReal, opBuffers, chopDash } from "../sce
 import { PT_MAX_ROWS } from "../painttable.ts";
 import type { LineTex, MergedScene, PtOp, TileGeom } from "../scene.ts";
 import type { PaintZoom } from "../paintzoom.ts";
-import type { RenderModeMessage, SceneDrawBld, SceneDrawLayer, ScenePoolName, ScenePortMessage, SceneRequest, SceneResponse } from "../worker-msg.ts";
+import type { RenderModeMessage, SceneDrawBld, SceneDrawLayer, ScenePoolName, ScenePortMessage, SceneRequest, SceneResponse, TileGeomMessage } from "../worker-msg.ts";
 
 /** プール内ブロック（要素数の範囲） */
 interface Block { off: number; n: number }
@@ -33,6 +33,37 @@ interface Packed { kind: "fill" | "line" | "bld"; li?: number; cj?: number; dash
 // md モードでは鏡＝「geom（未常駐） ∪ md.res（GPU常駐）」：常駐が確定した時点で CPU 側は解放する（ensureUploaded）。
 const geom = new Map<string, TileGeom>();   // key → { ops, buildings }
 const geomOf = (k: string): TileGeom | null => geom.get(k) || null;
+// 直送路（2026-11-04）：tile worker が geometry を tilePort で直に送る（key は知らない＝id 付き）。main は受け入れた id を commit（id→key）、
+// 中断済みの id を drop で知らせる。geometry と commit は別の道＝どちらが先に着いてもよいように両方の待合を持つ。
+const inbox = new Map<number, TileGeom>();      // 着いたが commit 待ち（普通はすぐ commit が来る）
+const awaiting = new Map<number, string>();     // commit 済みだが geometry がまだ（道の追い越し・稀）
+const awaitingKey = new Map<string, number>();  // key → その id（evict・同キー再 commit で取り消す）
+const dropped = new Set<number>();              // 着く前に捨てると決まった id（着いたら黙って捨てる）
+// geometry がまだ道中のタイルを含む merge は、着くまで（最長 DEFER_MS）待たせる＝穴を画面に出さない。slot ごとに最新だけ
+const deferred = new Map<string, MergeRequest>();
+const DEFER_MS = 1000;
+let deferTimer: ReturnType<typeof setTimeout> | null = null;
+function place(key: string, g: TileGeom): void {
+	geom.set(key, g);   // 削除は main からの evict のみ
+	if (md) dropRec(key);   // 同キー再着（evict→再fetch の追い越し等）＝旧ブロックを繰り延べ解放し、次の composition で新規常駐
+}
+function unawait(key: string): void {
+	const id = awaitingKey.get(key); if (id == null) return;
+	awaitingKey.delete(key); awaiting.delete(id); dropped.add(id);
+}
+function onGeom(d: TileGeomMessage): void {
+	if (dropped.delete(d.id)) return;
+	const g: TileGeom = { ops: d.ops, buildings: d.buildings };
+	const key = awaiting.get(d.id);
+	if (key == null) { inbox.set(d.id, g); return; }
+	awaiting.delete(d.id); if (awaitingKey.get(key) === d.id) awaitingKey.delete(key);
+	place(key, g);
+	flushDeferred(false);
+}
+function flushDeferred(force: boolean): void {
+	for (const [slot, m] of deferred) if (force || !m.order.some(o => awaitingKey.has(o.key))) { deferred.delete(slot); runMerge(m); }
+	if (!deferred.size && deferTimer) { clearTimeout(deferTimer); deferTimer = null; }
+}
 let renderPort: MessagePort | null = null;    // render worker への直結ポート（MessageChannel の片端）
 let mdDash = false;       // renderer が md の破線を読める（S-P1-3・GL2・WebGPU は 2026-10-22 から）。読めない描き手（?nolx=1）＝常駐の前に CPU で刻む
 let perfOn = false;       // 計器 b（?perf=1・renderworker の mode 通知に相乗り）
@@ -300,13 +331,19 @@ self.onmessage = (e: MessageEvent<SceneRequest>) => {
 		};
 		return;
 	}
-	if (m.type === "tile") {
-		geom.set(m.key, { ops: m.ops, buildings: m.buildings });   // 削除は main からの evict のみ（上のコメント参照）
-		if (md) dropRec(m.key);   // 同キー再着（evict→再fetch の追い越し等）＝旧ブロックを繰り延べ解放し、次の composition で新規常駐
+	if (m.type === "tile") { unawait(m.key); place(m.key, { ops: m.ops, buildings: m.buildings }); return; }   // 旧経路（main 経由・vtdraw 等）
+	if (m.type === "tilePort") { m.port.onmessage = (ev: MessageEvent<TileGeomMessage>) => { if (ev.data?.type === "geom") onGeom(ev.data); }; return; }
+	if (m.type === "commit") {
+		const g = inbox.get(m.id);
+		unawait(m.key);   // 同キーの古い待ちは捨てる（新しい方が勝つ）
+		if (g) { inbox.delete(m.id); place(m.key, g); }
+		else { awaiting.set(m.id, m.key); awaitingKey.set(m.key, m.id); }
 		return;
 	}
+	if (m.type === "drop") { if (!inbox.delete(m.id)) dropped.add(m.id); return; }
 	if (m.type === "evict") {
-		for (const k of m.keys) { geom.delete(k); if (md) dropRec(k); }
+		for (const k of m.keys) { geom.delete(k); unawait(k); if (md) dropRec(k); }
+		if (deferred.size) flushDeferred(false);
 		return;
 	}
 	if (m.type === "debugFailNext") { failNext = true; return; }   // テスト用：次の merge を故意に失敗させる（自己修復の実地検証）
@@ -318,6 +355,18 @@ self.onmessage = (e: MessageEvent<SceneRequest>) => {
 		return;
 	}
 	if (m.type === "merge") {
+		if (m.order.some(o => awaitingKey.has(o.key))) {   // geometry が道中＝着くまで待たせる（slot の古い待ちは新しい要求が上書き）
+			deferred.set(m.slot, m);
+			if (!deferTimer) deferTimer = setTimeout(() => { deferTimer = null; flushDeferred(true); }, DEFER_MS);
+			return;
+		}
+		deferred.delete(m.slot);   // 同 slot の古い待ちは不要（新しい要求が最新）
+		runMerge(m);
+	}
+};
+
+function runMerge(m: MergeRequest): void {
+	{
 		// 失敗したら ack を返さない＝main が readySig を確定せず、タイムアウト後に同じ要求を出し直す（自己修復）。
 		// 投げっぱなし＋楽観 sig 確定だと、一度の失敗（結合バッファ確保失敗等）が「静止中は永遠に欠けたタイル」になる。
 		try {
@@ -351,6 +400,6 @@ self.onmessage = (e: MessageEvent<SceneRequest>) => {
 			console.error("[scene] merge", `${m.slot} failed (no ack -> main will re-request):`, err && ((err as Error).message || err));
 		}
 	}
-};
+}
 
 const collectSceneBuffers = (scene: MergedScene): ArrayBuffer[] => opBuffers(scene.layers, scene.buildings) as ArrayBuffer[];

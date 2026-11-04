@@ -12,15 +12,16 @@ import { tileOutsideCoverage } from "../tile.ts";
 import { setEllipsoid } from "../camera.ts";
 import type { Style } from "../build.ts";
 import type { TileData } from "../decode.ts";
-import type { TileRequest, TileResponse } from "../worker-msg.ts";
+import type { TileGeomMessage, TileRequest, TileResponse } from "../worker-msg.ts";
 
 let style: Style | null = null, need: Set<string> | null = null, coverage: number[] | null = null, encoding = "mvt", drape = true, noLabels = false;   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）。coverage＝配信圏 bbox。encoding＝タイルの形式（mvt｜mlt・#88）。drape＝線の細分（地形の有無・§3.2）
+let geomPort: MessagePort | null = null;   // scene worker への直送口（init で main から）＝geometry を main に通さない（Android の main 停止＝大きな荷の受け取り・2026-11-04）
 const aborts = new Map<number, AbortController>();   // id → AbortController（in-flight のみ保持）
 
 self.onmessage = async (e: MessageEvent<TileRequest>) => {
 	const m = e.data;
 	if (m.type === "init" || m.type === "setStyle") setGlobalState(m.style?.globalState as Record<string, unknown> | null | undefined);
-	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; encoding = m.encoding || "mvt"; drape = m.drape !== false; noLabels = !!m.noLabels; setEllipsoid(!!m.ell); return; }   // ell＝buildings の世界単位（m→単位）を a 基準へ
+	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; encoding = m.encoding || "mvt"; drape = m.drape !== false; noLabels = !!m.noLabels; geomPort = m.scenePort || null; setEllipsoid(!!m.ell); return; }   // ell＝buildings の世界単位（m→単位）を a 基準へ
 	if (m.type === "setStyle") { style = m.style; need = neededSourceLayers(style); if (m.encoding) encoding = m.encoding; if (m.drape != null) drape = m.drape; return; }   // 配色テーマ生き替え＝色を焼き直す新style。以降のビルドは新styleで（coverage は据置）。setStyle で基図の置き場が替わる時は形式も一緒に来る。drape＝地形の有無が替わる時（setTerrain）
 	if (m.type === "abort") { const a = aborts.get(m.id); if (a) a.abort(); return; }
 	const { id, url, z, x, y, init } = m, body = m.bytes;   // init＝{headers,credentials}・body＝addProtocol が main で取った本体（#37）⚠名前 bytes は下の try で転送量の let に使う（TDZ）
@@ -36,7 +37,11 @@ self.onmessage = async (e: MessageEvent<TileRequest>) => {
 		const t1 = performance.now();
 		const { origin, dl, labels, buildings, bytes } = buildTilePayload(layers, { z, x, y }, style!, { drape });   // bytes＝scene worker が保持する geometry の実バイト
 		const t = { fetch: t1 - t0, build: performance.now() - t1 };
-		self.postMessage({ id, ok: true, origin, dl, labels: noLabels ? [] : labels, buildings, z, bytes, t } satisfies TileResponse, opBuffers(dl.ops, buildings) as ArrayBuffer[]);   // transfer＝境界跨ぎのコピーを避ける
+		const lab = noLabels ? [] : labels;
+		if (geomPort) {   // 直送：geometry は scene worker へ、main にはメタ＋ラベルだけ（main が id→key を commit する）。geom を先に出す＝普通は commit より先に着く
+			geomPort.postMessage({ type: "geom", id, ops: dl.ops, buildings } satisfies TileGeomMessage, opBuffers(dl.ops, buildings) as ArrayBuffer[]);
+			self.postMessage({ id, ok: true, origin, labels: lab, z, bytes, t, direct: true } satisfies TileResponse);
+		} else self.postMessage({ id, ok: true, origin, dl, labels: lab, buildings, z, bytes, t } satisfies TileResponse, opBuffers(dl.ops, buildings) as ArrayBuffer[]);   // 旧経路（main 経由）。transfer＝境界跨ぎのコピーを避ける
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: String(err && (err as Error).message || err) } satisfies TileResponse);
 	} finally {
