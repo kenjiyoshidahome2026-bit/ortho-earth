@@ -104,7 +104,7 @@ struct Frame {
 	cgP: vec4f,        // (lambert の倍率, 足す値, 効き 0..1＝距離のフェード済み, 大気の夜側の明るさ 0.05..1・負＝暗くしない)
 	cgC: vec4f,        // 光の色（czm_lightColor）
 	nearBounds: vec4f, // 近景層（near・順 1a 2026-10-28）＝目の足元の細密窓（1 セル）の被覆。末尾に足す＝前の欄の詰め順は不変（tests/frame-layout.mjs）
-	nearP: vec4f,      // hasNear(0/1), nearEdgeFade(deg), 0, 0
+	nearP: vec4f,      // hasNear(0/1), nearEdgeFade(deg), 0, 1/K＝clip 空間の倍率の逆数（?clipk・0＝倍率なし・上の wTrue）
 	fineBounds: vec4f, // 足元層（fine・2026-10-31）＝近景層の窓の内側の 1/512°〜1/32° の窓（近景テクスチャの右半分）
 	fineP: vec4f,      // hasFine(0/1), fineEdgeFade(deg), 0, 0
 };
@@ -223,18 +223,22 @@ fn deltaToRel(dDeg: vec2f) -> vec3f {
 fn fogOf(w: vec3f) -> f32 {
 	return clamp((distance(F.eye, w) - F.params.x) / max(F.params.y - F.params.x, 1e-6), 0.0, 1.0);
 }
+// clip 空間の倍率 K（?clipk=N＝2^N・2026-11-05 Galaxy/Mali-G615 実機「手前の建物が足元へ細長く伸びる」）：単位球の世界では近景の clip w が 1e-6 級と極端に小さく、
+// Mali の固定機能（透視除算／クリッパ）が w≈0 と扱う読み。packFrame が F.mvp と F.clipT（模型は B.clipMesh）を K 倍して渡す＝斉次座標なので x/w・z/w は不変（K は 2 のべき＝ビット同値）。
+// 深度の式だけは本当の w（K 分の 1）が要る＝ここで戻す（F.nearP.w＝1/K・0＝従来＝倍率なし）
+fn wTrue(w: f32) -> f32 { return select(w, w * F.nearP.w, F.nearP.w > 0.0); }
 // クリップ z ← 対数深度（WebGPU z01）。GL 版 applyLogDepth の window 深度と同値
 fn logDepthZ(w: f32) -> f32 {
-	return log1pS(max(w, 1e-30)) * 1.4426950 * F.params.z * 0.5 * w;   // 1.0+w を f32 で作らない（下の log1pS）：目が数 m まで寄った 1 m 級の模型は表と裏が同じ深度になり裏が透けた（2026-10-28）
+	return log1pS(max(wTrue(w), 1e-30)) * 1.4426950 * F.params.z * 0.5 * w;   // 1.0+w を f32 で作らない（下の log1pS）：目が数 m まで寄った 1 m 級の模型は表と裏が同じ深度になり裏が透けた（2026-10-28）
 }
 // 画素ごとの深度（frag_depth・#62）＝z_ndc＝logDepthZ(w)/w＝0.5·logCoef·log2(1+w)。1+w を f32 で作ると w が 1.2e-7（≈0.76m）刻みに量子化され、
 // 画素ごとに書くと 0.76m の階段になる（AO が横縞の壁として見た＝実 GPU 2026-09-29）。log1p を級数で（AO の expm1s と対・w<0.1＝7 次・相対 1e-9）
 fn log1pS(w: f32) -> f32 { if (w < 0.1) { return w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715)))))); } return log(1.0 + w); }
-fn fragDepthOf(w: f32) -> f32 { return log1pS(max(w, 1e-30)) * 1.4426950 * F.params.z * 0.5; }
+fn fragDepthOf(w: f32) -> f32 { return log1pS(max(wTrue(w), 1e-30)) * 1.4426950 * F.params.z * 0.5; }
 // 近景の切り取り（?nearclip=M・2026-11-05 Galaxy/Mali-G615 実機「手前の建物が手前に伸びる」）：対数深度を頂点で書くと clip z≈0（w≪1 で z∝w²）＝
 // 本当の near 面で切れず、カメラの後ろにかかる壁は w≈0 の点で切られて x/w が無限遠に飛ぶ（Apple/デスクトップは同次座標のまま耐える・Mali は固定小数点の範囲を超えて壊れる）。
 // frag_depth を書くパイプライン（fragDepthWgsl）だけ、頂点の z を透視の線形（z=(w−n)·f/(f−n)＝near n・far f＝logCoef から復元）にして GPU に n で切らせる。深度の値は frag_depth が書く＝不変。
-fn nearClipZ(w: f32) -> f32 { let n = F.ellP.w; let f = exp2(2.0 / F.params.z) - 1.0; return (w - n) * f / (f - n); }
+fn nearClipZ(w: f32) -> f32 { let n = F.ellP.w; let f = exp2(2.0 / F.params.z) - 1.0; let k = select(1.0, 1.0 / F.nearP.w, F.nearP.w > 0.0); return (w - n * k) * f / (f - n); }   // w は K 倍の clip w（上の wTrue）
 // sRGB ⇄ リニア（#46 段 0）。模型の baseColor は rgba8unorm-srgb ビューで読む＝標本化の時点でリニア。照明の計算はリニアで、出口で符号化する。
 // 出力面は素の bgra8/rgba8（sRGB ビューにしない＝基図・地形・建物は今までどおり表示空間の値をそのまま書く）。
 fn srgbEncode(c: vec3f) -> vec3f {
@@ -645,7 +649,7 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	// 端点の深度は対数系＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
 	let wz = select(cb.w, ca.w, corner.x < 0.5);
 	let ndc = vec2f(posS.x / F.viewport.x * 2.0 - 1.0, 1.0 - posS.y / F.viewport.y * 2.0);
-	o.pos = vec4f(ndc, log1pS(max(wz, 1e-30)) * 1.4426950 * F.params.z * 0.5, 1.0);
+	o.pos = vec4f(ndc, log1pS(max(wTrue(wz), 1e-30)) * 1.4426950 * F.params.z * 0.5, 1.0);
 	return o;
 }
 // 端の先の覆い（S-P1-1）：k＝端の形（jk）・e＝端からの距離（先へ正）・q＝端からの位置・j＝切り口・bev＝bevel の切り線。丸い形の時だけ dist（芯からの距離）を端の点からの距離に替える
