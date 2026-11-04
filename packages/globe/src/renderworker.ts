@@ -96,7 +96,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -369,7 +369,7 @@ async function bootWebGL(m: RwMsg) {
 	bootStage = "awaiting gl import";
 	try { ({ createRenderer, createGintLayer } = await import("@ortho-earth/core/gl")); }
 	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && (err as Error).message || err) }); return; }
-	try { renderer = createRenderer(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshLod: m.meshLod, meshRange: m.meshRange, quad4: m.quad4 !== false, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as RenderBackend; }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
+	try { renderer = createRenderer(canvas!, { powerPreference: powerPreference(), clipK: m.clipKGl, noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshLod: m.meshLod, meshRange: m.meshRange, quad4: m.quad4 !== false, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as RenderBackend; }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
 	catch (err) { postMessage({ type: "glfail", error: String(err && (err as Error).message || err) }); return; }
 	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
 	glRef = canvas!.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用

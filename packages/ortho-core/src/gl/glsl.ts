@@ -82,6 +82,11 @@ uniform vec3  u_fogColor;   // 霞む先の色（=land基色）
 const float D2R = 0.017453292519943295;
 float fogOf(vec3 w) { return clamp((distance(u_eye, w) - u_fogNear) / max(u_fogFar - u_fogNear, 1e-6), 0.0, 1.0); }
 uniform float u_logCoef;   // 対数深度係数 = 2/log2(far+1)。球(半径1)+局所(建物)の深度精度枯れ(z-fight/マダラ)対策
+// clip 空間の倍率 K（?clipk=N＝2^N・wgsl.ts wTrue と対・2026-11-05 Galaxy/Mali-G615「手前の建物が足元へ細長く伸びる」）：単位球の世界では近景の clip w が 1e-6 級と
+// 極端に小さく、Mali の固定機能が w≈0 と扱った（WebGPU 実機で clipk=20 が根治）。renderer が u_mvp・u_clipT・u_clipMesh を K 倍して渡す＝斉次なので絵は不変（2 のべき＝ビット同値）。
+// 深度の式だけ本当の w（K 分の 1）が要る＝ここで戻す（u_invClipK＝1/K・0＝倍率なし）
+uniform float u_invClipK;
+float wTrue(float w) { return u_invClipK > 0.0 ? w * u_invClipK : w; }
 // 対数深度を頂点側で焼く（Outerra法のVS版）。FSで gl_FragDepth を書くと GPU の early-Z/階層Z棄却が無効になり
 // 隠面フラグメントまで全額シェーディングされるため、クリップ座標 z に log2(1+w) を書き込み FS は深度に触れない。
 // 三角形内は線形補間＝厳密な対数曲線と微差が出るが、terrain/建物/建物メッシュ とも三角形が小さく実害なし。
@@ -90,7 +95,7 @@ uniform float u_logCoef;   // 対数深度係数 = 2/log2(far+1)。球(半径1)+
 // 目が数 m まで寄った 1 m 級の模型（Cesium Man）は表と裏が同じ深度＝裏の三角形が透けてテクスチャが散った（2026-10-28）
 float log2p1(float w) { if (w < 0.1) return (w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715))))))) * 1.4426950; return log2(1.0 + w); }
 void applyLogDepth() {
-	gl_Position.z = (log2p1(max(gl_Position.w, 1e-30)) * u_logCoef - 1.0) * gl_Position.w;
+	gl_Position.z = (log2p1(max(wTrue(gl_Position.w), 1e-30)) * u_logCoef - 1.0) * gl_Position.w;
 }
 
 vec3 lonlatTo3D(vec2 ll) {
@@ -1639,7 +1644,7 @@ const LINE_MAIN = /* glsl */`
 	v_fog = fogOf((wa + wb) * 0.5);
 	// 端点の深度は対数系（applyLogDepth と同式）＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
 	float wz = (corner.x < 0.5) ? ca.w : cb.w;
-	float zc = log2p1(max(wz, 1e-30)) * u_logCoef - 1.0;   // 1.0+w の桁落ちを避ける（PROJECT の log2p1）
+	float zc = log2p1(max(wTrue(wz), 1e-30)) * u_logCoef - 1.0;   // 1.0+w の桁落ちを避ける（PROJECT の log2p1）
 	vec2 ndc = vec2(pos.x / u_viewport.x * 2.0 - 1.0, 1.0 - pos.y / u_viewport.y * 2.0);
 	gl_Position = vec4(ndc, zc, 1.0);
 `;
@@ -2131,7 +2136,7 @@ void main() {
 	if (zm > ht) discard;   // 地表より上＝空
 	fragColor = vec4(mix(CL.capT.rgb, u_fogColor, fogOf(O + X)), 1.0);
 	vec4 pc = u_clipT + u_mvp * vec4(X, 0.0);
-	gl_FragDepth = clamp(log1pS(max(pc.w, 1e-30)) * 1.4426950 * u_logCoef * 0.5, 0.0, 1.0);
+	gl_FragDepth = clamp(log1pS(max(wTrue(pc.w), 1e-30)) * 1.4426950 * u_logCoef * 0.5, 0.0, 1.0);
 }`);
 
 // ── 建物の影の WebGL2 版（P0 #3・2026-10-25）＝WebGPU の SHADOW_WGSL（gpu/wgsl.ts）と同じ段（カスケード）・同じ PCSS・同じ uniform の並び（ShadowP・std140・binding 1）。

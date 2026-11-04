@@ -56,7 +56,7 @@ import type { GintAtlasTarget } from "./gint/embed.ts";
 
 export type { Renderer };
 /** createRenderer の rOpts（renderworker が渡す） */
-export interface GLRendererOptions { /** 既定＝gpupower.ts の値（"high-performance"） */ powerPreference?: GpuPowerPreference; msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean; /** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N） */ meshLod?: number; /** 遠い束を描かない距離（km・?meshrange=KM） */ meshRange?: number }
+export interface GLRendererOptions { /** clip 空間の倍率＝2^N（?clipk=N・既定 0＝倍率なし）。u_mvp／u_clipT／u_clipMesh を K 倍して渡す＝斉次なので絵は不変（glsl.ts wTrue・gpu と対） */ clipK?: number; /** 既定＝gpupower.ts の値（"high-performance"） */ powerPreference?: GpuPowerPreference; msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean; /** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N） */ meshLod?: number; /** 遠い束を描かない距離（km・?meshrange=KM） */ meshRange?: number }
 /** draw(cam, opts) の opts */
 export interface GLDrawOptions { skipMain?: boolean; skipBase?: boolean; noTerrain?: boolean; noBld?: boolean }
 type Vec3T = [number, number, number];
@@ -415,6 +415,7 @@ export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpt
 	}	// ── 建物の影の WebGL2 版（P0 #3・2026-10-25）＝WebGPU（gpu/renderer.ts の shadow）と同じ窓・同じカスケード・同じ ShadowP の並び（shadow.ts の純関数）。
 	// set("shadow", {on, time?, darkness?}) の間だけ深度の 2D 配列・FBO・派生プログラムを作る。z13 以上・太陽が地平線の上の時だけ窓が立つ。
 	// 落とす側は毎フレーム描き直す（WebGPU の「窓と中身が同じなら描かない」は未移植）
+	const CLIP_K = rOpts.clipK! > 0 ? 2 ** Math.round(rOpts.clipK!) : 1;   // clip 空間の倍率（?clipk=N＝2^N・u_invClipK＝1/K・glsl.ts wTrue・gpu/renderer.ts と対）
 	const SH_N = rOpts.lowMem ? 1024 : 2048, SH_LAYERS = rOpts.lowMem ? 2 : 3;
 	const SH_UNIT = 18, SH_RAW_UNIT = 19;   // 0〜17 は埋まっている（PAT_UNIT 16・PT_UNIT 17）
 	const NEAR_UNIT = 20;   // 近景層の標高（ELEV を持つ全プログラムが参照＝far の unit8 と同じ常時結合）
@@ -473,7 +474,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	}
 	// 1 層の深度を描く（窓 win・層 layer）。地形（terrOn）・基図の押し出し・建物メッシュと模型（半透明・noCast・非表示の区は落とさない）
 	function drawCasters(win: ShadowWindow, layer: number, st: GLCamState, opts: GLDrawOptions | null | undefined, terrOn: boolean, clipOn: boolean, land: ArrayLike<number>, mq: number[] | null, fogT: { near: number; far: number }): void {
-		const S = shGL!, M = castMvp(win.mvp), sS = { ...st, mvp: Float64Array.from(M), mvp32: Float32Array.from(M) } as GLCamState;
+		const S = shGL!, M = castMvp(win.mvp), sS = { ...st, mvp: Float64Array.from(M), mvp32: Float32Array.from(M, v => v * CLIP_K) } as GLCamState;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, S.fbos[layer]);
 		gl.viewport(0, 0, SH_N, SH_N);
 		gl.disable(gl.STENCIL_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
@@ -521,7 +522,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			gl.uniform1f(loc(gl, p, "u_xfOn"), b.xf ? 1 : 0);
 			if (b.xf) { gl.uniformMatrix3fv(loc(gl, p, "u_xfL"), false, b.xf.subarray(0, 9)); gl.uniform3f(loc(gl, p, "u_xfT"), b.xf[9], b.xf[10], b.xf[11]); }
 			const cM = mat.transform(M, [b.origin[0], b.origin[1], b.origin[2], 1]);
-			gl.uniform4f(loc(gl, p, "u_clipMesh"), cM[0], cM[1], cM[2], cM[3]);
+			gl.uniform4f(loc(gl, p, "u_clipMesh"), cM[0] * CLIP_K, cM[1] * CLIP_K, cM[2] * CLIP_K, cM[3] * CLIP_K);   // u_mvp と同じ K 倍（?clipk）
 			gl.bindVertexArray(b.vao);
 			gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, 0);
 		}
@@ -1779,7 +1780,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// RTE の錨（MVP相殺回避）＝原点3D の clip 位置と三角比を CPU(double) で（Float32化前の st.mvp で）。
 		const oPt = lonlatTo3D(origin[0], origin[1]);
 		const cT = mat.transform(st.mvp, [oPt[0], oPt[1], oPt[2], 1]);
-		gl.uniform4f(loc(gl, prog, "u_clipT"), cT[0], cT[1], cT[2], cT[3]);
+		gl.uniform4f(loc(gl, prog, "u_clipT"), cT[0] * CLIP_K, cT[1] * CLIP_K, cT[2] * CLIP_K, cT[3] * CLIP_K);   // u_mvp と同じ K 倍（?clipk）
 		gl.uniform3f(loc(gl, prog, "u_originPt"), oPt[0], oPt[1], oPt[2]);
 		// 楕円体＝緯度側は β（更成緯度）の三角＝deltaToRel は純球面式のまま（球＝β=φ＝従来値）。
 		const lr = origin[0] * Math.PI / 180, br = betaOf(origin[1]) * Math.PI / 180;
@@ -1798,6 +1799,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.uniform4f(loc(gl, prog, "u_csFogL"), groundLight ? groundLight.dir[0] : 0, groundLight ? groundLight.dir[1] : 0, groundLight ? groundLight.dir[2] : 1, groundLight && groundLight.night ? 1 : -1);
 		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
 		gl.uniform1f(loc(gl, prog, "u_logCoef"), logCoefOf(st.camDist));
+		gl.uniform1f(loc(gl, prog, "u_invClipK"), CLIP_K !== 1 ? 1 / CLIP_K : 0);   // 1/K（?clipk・0＝倍率なし）
 		gl.uniform1i(loc(gl, prog, "u_elevTex"), 1);
 		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
@@ -1821,7 +1823,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.viewport(0, 0, canvas.width, canvas.height);
 		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, pt: 0, ptw: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
 		const st = cameraState(cam, canvas.width, canvas.height) as GLCamState;
-		st.mvp32 = Float32Array.from(st.mvp);
+		st.mvp32 = Float32Array.from(st.mvp, v => v * CLIP_K);   // ?clipk＝K 倍（斉次＝絵は不変・glsl.ts wTrue）
 		lastLogCoef = logCoefOf(st.camDist); lastDpr = cam.dpr || 1; lastFovy = cam.fovy || 50 * Math.PI / 180;
 		const clipOn = clipFrame(cam.dpr || 1);   // 断面（P0 #3）＝このフレームのプログラムを派生か base に   // 深度の書き出し（#47）が添える尺度＝u_logCoef・gintCtx.logCoef と同じ物
 		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）は camDist へ滑らかに追従（臨界減衰）：
@@ -2449,7 +2451,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 					gl.uniform1f(loc(gl, pg, "u_xfOn"), p.xf ? 1 : 0);
 					if (p.xf) { gl.uniformMatrix3fv(loc(gl, pg, "u_xfL"), false, p.xf.subarray(0, 9)); gl.uniform3f(loc(gl, pg, "u_xfT"), p.xf[9], p.xf[10], p.xf[11]); }
 					const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);
-					gl.uniform4f(loc(gl, pg, "u_clipMesh"), cM[0], cM[1], cM[2], cM[3]);
+					gl.uniform4f(loc(gl, pg, "u_clipMesh"), cM[0] * CLIP_K, cM[1] * CLIP_K, cM[2] * CLIP_K, cM[3] * CLIP_K);   // u_mvp と同じ K 倍（?clipk）
 					gl.bindVertexArray(p.vao);
 					gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, 0);
 				}
@@ -2514,7 +2516,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				gl.uniform1f(loc(gl, pg, "u_xfOn"), p.xf ? 1 : 0);   // バッチの剛体変換（glTF の rigid アニメ・W4）＝L（3x3 列優先）と原点相対の平行移動
 				if (p.xf) { gl.uniformMatrix3fv(loc(gl, pg, "u_xfL"), false, p.xf.subarray(0, 9)); gl.uniform3f(loc(gl, pg, "u_xfT"), p.xf[9], p.xf[10], p.xf[11]); }
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で（旧: シェーダ float32 で mvp*meshOrigin＝相殺）
-				gl.uniform4f(loc(gl, pg, "u_clipMesh"), cM[0], cM[1], cM[2], cM[3]);
+				gl.uniform4f(loc(gl, pg, "u_clipMesh"), cM[0] * CLIP_K, cM[1] * CLIP_K, cM[2] * CLIP_K, cM[3] * CLIP_K);   // u_mvp と同じ K 倍（?clipk）
 				gl.bindVertexArray(p.vao);
 				gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, 0);
 			}
