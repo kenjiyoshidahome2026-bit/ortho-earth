@@ -3891,7 +3891,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0, ssr: ssr ? ssr.bytes() : 0, sceneFx: sceneFx ? sceneFx.bytes() : 0, pool: memPool }),   // pool＝タイル GPU 常駐プール 4 本（vt perf plan §4）
 		depthOut,   // シーンの深度をオーバーレイへ（#47）
 		rasterTex: ((...a: Parameters<typeof rasterTex>) => { accSet = true; return rasterTex(...a); }) as typeof rasterTex,   // 画像タイルの到着も場面の変化（静止の積み上げを 0 から）
-		rasterMesh, rasterFree, setRasterDraws: ((...a: Parameters<typeof setRasterDraws>) => { const rv = a[0] ? (a[0] as { rev?: number }).rev ?? -1 : -2; if (rv !== accRasterRev) { accRasterRev = rv; accSet = true; } return setRasterDraws(...a); }) as typeof setRasterDraws,   // 描画リストの改訂が進んだ時だけ setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
+		rasterMesh, rasterFree, setRasterDraws: ((...a: Parameters<typeof setRasterDraws>) => { const rv = a[0] ? (a[0] as { rev?: number }).rev ?? -1 : -2; if (rv !== accRasterRev) { accRasterRev = rv; accSet = true; } return setRasterDraws(...a); }) as typeof setRasterDraws,   // 描画リストの改訂が進んだ時だけ（静止の積み上げを 0 から）
+		setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック（2026-11-02 の積み上げの変更で注釈に呑まれて外れていた＝WebGPU で gint の面が地面アトラスへ焼かれなくなっていた・2026-11-04 復旧）
 		textSplit,   // 層の位置に描く注記の境（T-P2）＝この層の添字より前の注記は地図のパスの中へ
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）
 }
