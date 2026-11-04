@@ -84,6 +84,8 @@ export interface RendererGPUOptions {
 	meshLod?: number;
 	/** 注視点からこの距離（km）より遠い建物メッシュの束は描かない（?meshrange=KM・既定＝切らない） */
 	meshRange?: number;
+	/** 建物（基図の押し出し・PLATEAU）の頂点の標高を主アトラス 1 標本で引く（?elevcheap=1・既定オフ） */
+	elevCheap?: boolean;
 	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして散らす（実験ノブ・既定オフ・?meshchunk=1。2026-11-04 実機 Mali で 1 バッチの転送が 100〜600ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
@@ -2268,6 +2270,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// その 1 フレームが 300〜670ms 止まり、デモ（区が次々に入れ替わる）が毎秒カクついた。素の建物バッチ（模型でない）は
 	// 器だけ先に作り、中身は meshUpPump(ms) が時間予算の分だけ 256KB ずつ上げる。全部上がった時点で通常の登録（描画・被覆マスク）をする
 	//＝半分だけ上がった建物は描かない・マスクがメッシュに先行しない。解放・同キーの差し替えは転送待ちも捨てる。
+	const ELEV_CHEAP = rOpts.elevCheap === true;   // F.ellP.z（packFrame）＝建物の頂点の標高を 1 標本で（wgsl.ts elev1）
 	const MESH_CHUNK = rOpts.meshChunk === true, UP_PIECE = 1 << 20;   // 既定オフ（2026-11-04 実機：4ms/フレーム×低 FPS では区が何十秒も立たなかった）＝?meshchunk=1 で試す。1 片 1MB
 	interface MeshUp { data: MeshSetData; nrm: Int8Array; pre: { vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer }; jobs: { buf: GPUBuffer; src: ArrayBufferView; off: number }[] }
 	const meshUp = new Map<string, MeshUp>(), meshSettled: MeshSetData[] = [];   // settled＝上がり切った／捨てた荷（同一性で ack を引く＝同じキーの差し替えでも取り違えない）
@@ -2639,7 +2642,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const _ell = ellipsoidOn(), _pr = origin[1] * Math.PI / 180;
 		f[80] = _ell ? Math.cos(2 * _pr) : 0; f[81] = _ell ? Math.sin(2 * _pr) : 0;
 		f[82] = _ell ? Math.cos(4 * _pr) : 0; f[83] = _ell ? Math.sin(4 * _pr) : 0;
-		f[84] = _ell ? 1 : 0; f[85] = 0; f[86] = 0; f[87] = 0;
+		f[84] = _ell ? 1 : 0; f[85] = 0; f[86] = ELEV_CHEAP ? 1 : 0; f[87] = 0;   // ellP.z＝軽い標高（建物の頂点＝1 標本・?elevcheap=1）
 		// 案A: terrain系 slot（mesh 引数あり）は自前の窓＝elevQ 不使用（ellP.y=0）。fill/line 系は近窓+G を配る
 		if (!mesh && qMesh) { f[68] = qMesh[0]; f[69] = qMesh[1]; f[70] = qMesh[2]; f[71] = qMesh[3]; f[85] = qG; }
 		// ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）：terrain系 slot（mesh 有）＝a_uv 変換・fill系＝dLL 変換
