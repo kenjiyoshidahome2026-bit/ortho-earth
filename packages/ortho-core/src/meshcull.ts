@@ -10,8 +10,16 @@ export interface LodBatch { bbox: ArrayLike<number>; count: number; lodH: ArrayL
 let lodScale = 1;   // 「描かない建物」の物差しの倍率（1＝画面 1px 未満を捨てる・既定）。?meshlod=N＝N px 未満を捨てる（非力 GPU の頂点代を下げる実験ノブ・2026-11-04）
 /** LOD 打ち切りの倍率（renderer の起動で 1 回。0 以下＝1） */
 export function setMeshLodScale(s: number): void { lodScale = s > 0 ? s : 1; }
+let rangeM = Infinity;   // 注視点からこの距離（m）より遠い束は描かない（Infinity＝切らない・既定）。?meshrange=KM＝傾けた時の遠景の頂点代を切る（非力 GPU の実験ノブ・2026-11-04）
+/** 遠景の切り（km・0 以下＝切らない） */
+export function setMeshRange(km: number): void { rangeM = km > 0 ? km * 1000 : Infinity; }
 export function meshLodCount(p: LodBatch, center: ArrayLike<number>, cosLat: number, mppx: number): number {
-	if (!p.lodH || p.two || p.keep2d) return p.count;
+	if (p.keep2d) return p.count;
+	if (rangeM !== Infinity) {   // 束の bbox の最寄りの縁までの距離（m）＝大きい束が注視点に掛かっている時は切らない
+		const ex = Math.max(p.bbox[0] - center[0], 0, center[0] - p.bbox[2]) * 111320 * cosLat, ey = Math.max(p.bbox[1] - center[1], 0, center[1] - p.bbox[3]) * 111320;
+		if (ex * ex + ey * ey > rangeM * rangeM) return 0;
+	}
+	if (!p.lodH || p.two) return p.count;
 	const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - center[1]) * 111320);
 	const minH = mppx * lodScale * (1 + dm / 4000);
 	let li = 0;
