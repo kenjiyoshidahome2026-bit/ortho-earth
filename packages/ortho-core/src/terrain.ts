@@ -142,8 +142,9 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// を指数バックオフで再試行。成立時の requestDraw → 次の settle の ensure が自然に拾って自己回復する。
 	let loaderTries = 0;
 	let loaderStat: string | null = "初期化中…";   // ⛰トーストに出す自己申告（借り物端末＝インスペクタ不可でも画面から死因が読める）
+	const tLoader = performance.now();
 	const setupLoader = (): Promise<void> => createTileLoader({ apiUrl, dtm: dtmDecl })   // dtm＝古い表層キャッシュの失効判定（申告が無ければ判定しない）
-		.then(fn => { loadTile = fn; loaderStat = null; onPending && onPending(0, 0, null); requestDraw(); })   // stat トーストの残留も消す
+		.then(fn => { loadTile = fn; loaderStat = null; onPending && onPending(0, 0, null); requestDraw(); console.log(`[tileLoader] ready in ${(performance.now() - tLoader) | 0} ms`); })   // stat トーストの残留も消す。所要＝起動の計器（モバイルの「初期化中…」の長さ・2026-11-05）
 		.catch((e: unknown) => {
 			const retry = loaderTries++ < 8;
 			loaderStat = `初期化失敗: ${((e as Error)?.message ?? e)}${retry ? "（再試行中）" : "（打ち切り）"}`;
