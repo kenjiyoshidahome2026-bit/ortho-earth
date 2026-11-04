@@ -26,7 +26,7 @@ export interface BuildingsGeom { pos: Float32Array; shade: Float32Array; anchor:
 /** geomOf(key) が返すタイルの幾何 */
 export interface TileGeom { ops?: DrawOp[] | null; buildings?: BuildingsGeom | null }
 /** order の 1 件＝タイル鍵と、その ops の原点（経緯度） */
-export interface MergeOrderItem { key: string; origin: ArrayLike<number> }
+export interface MergeOrderItem { key: string; origin: ArrayLike<number>; /** 建物の役（tilemanager OrderItem.bld）："only"＝建物だけ・"no"＝線・塗りだけ */ bld?: "no" | "only" }
 export interface MergeOptions { origin?: ArrayLike<number> | null; hidden?: Set<number> | null }
 export interface MergedScene { origin: ArrayLike<number>; layers: DrawOp[]; buildings: BuildingsGeom | null }
 
@@ -61,7 +61,8 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 	const lineOff = coveredTiles(order);   // 子孫に覆われる下敷きタイル＝線を伏せる（上のコメント参照）
 	const tileOps: { ox: number; oy: number; ops: DrawOp[]; noLine: boolean }[] = [];
 	const size = new Map<number, SizeEntry>();
-	for (const { key, origin: to } of order) {
+	for (const { key, origin: to, bld } of order) {
+		if (bld === "only") continue;   // 建物だけの親（keepFine の子孫代打）＝線・塗りは子孫が持つ
 		const g = geomOf(key); if (!g || !g.ops) continue;
 		tileOps.push({ ox: to[0] - origin[0], oy: to[1] - origin[1], ops: g.ops, noLine: lineOff.has(key) });
 		for (const op of g.ops) {
@@ -110,12 +111,13 @@ export function mergeTiles(order: readonly MergeOrderItem[], geomOf: (key: strin
 
 	// 建物：全タイルから結合。xy を原点へ再ベース、z(高さ)はそのまま。
 	let bN = 0;
-	for (const { key } of order) { const g = geomOf(key); if (g && g.buildings) bN += g.buildings.pos.length; }
+	for (const { key, bld } of order) { if (bld === "no") continue; const g = geomOf(key); if (g && g.buildings) bN += g.buildings.pos.length; }   // "no"＝建物は親が持つ（keepFine の子孫代打）
 	let buildings: BuildingsGeom | null = null;
 	if (bN) {
 		const pos = new Float32Array(bN), shade = new Float32Array(bN / 3), anchor = new Float32Array(bN / 3 * 2);
 		let pi = 0, si = 0, ai = 0;
-		for (const { key, origin: to } of order) {
+		for (const { key, origin: to, bld } of order) {
+			if (bld === "no") continue;
 			const g = geomOf(key); if (!g || !g.buildings) continue;
 			const ox = to[0] - origin[0], oy = to[1] - origin[1], bp = g.buildings.pos, ba = g.buildings.anchor;
 			for (let i = 0; i < bp.length; i += 3) { pos[pi++] = bp[i] + ox; pos[pi++] = bp[i + 1] + oy; pos[pi++] = bp[i + 2]; }

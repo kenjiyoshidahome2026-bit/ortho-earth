@@ -58,7 +58,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	};
 	function requestMerge(slot: unknown, order: readonly OrderItem[], origin: unknown, hidden: Set<number> | null | undefined, sig: unknown): void {
 		// 要求だけ main が出す（何を結合するか）。結果は render worker へ直行（merge同期＝要求順＝最後が最新）。
-		sceneWorker.postMessage({ type: "merge", slot: slot as string, sig, order: order.map(o => ({ key: o.key, origin: o.origin!, z: o.z })), origin: origin as number[] | null, hidden: hidden && hidden.size ? [...hidden] : null } satisfies SceneRequest);
+		sceneWorker.postMessage({ type: "merge", slot: slot as string, sig, order: order.map(o => (o.bld ? { key: o.key, origin: o.origin!, z: o.z, bld: o.bld } : { key: o.key, origin: o.origin!, z: o.z })), origin: origin as number[] | null, hidden: hidden && hidden.size ? [...hidden] : null } satisfies SceneRequest);
 	}
 	requestMerge.debugFail = (): void => sceneWorker.postMessage({ type: "debugFailNext" } satisfies SceneRequest);   // テスト用：次の merge を故意に失敗させる
 	requestMerge.stats = (): void => sceneWorker.postMessage({ type: "stats" } satisfies SceneRequest);   // 観測用：GPU常駐プールの占有を scene worker が console に出す

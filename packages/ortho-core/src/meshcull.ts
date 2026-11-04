@@ -13,6 +13,14 @@ export function setMeshLodScale(s: number): void { lodScale = s > 0 ? s : 1; }
 let rangeM = Infinity;   // 注視点からこの距離（m）より遠い束は描かない（Infinity＝切らない・既定）。?meshrange=KM＝傾けた時の遠景の頂点代を切る（非力 GPU の実験ノブ・2026-11-04）
 /** 遠景の切り（km・0 以下＝切らない） */
 export function setMeshRange(km: number): void { rangeM = km > 0 ? km * 1000 : Infinity; }
+// ズームアウトの坂（?meshlodz=K・2026-11-05）：zoom < lodZ0 では物差しを K^(lodZ0−zoom) 倍＝引くほど「高い建物だけ」へ急に寄せる。
+// 保持帯（Mac＝z14〜15 で立てた区を消さない）で区ごとの灰色の絨毯（全建物が 1px 超＝全部描く）が残るのを、高層の星座へ変える。
+// zoom ≥ lodZ0 では 1 倍＝近景の絵は不変。K ≤ 1＝坂なし（既定）
+let lodZ0 = 15, lodZK = 1;
+/** ズームアウトの坂（renderer の起動で 1 回）：z0＝坂の上端（自動ロード線）・k＝1 ズーム引くごとの倍率（1 以下＝坂なし） */
+export function setMeshLodZoom(z0: number, k: number): void { lodZ0 = z0 > 0 ? z0 : 15; lodZK = k > 1 ? k : 1; }
+/** 坂を掛けた物差し（m/px）＝meshLodCount の mppx に渡す */
+export function meshLodMppx(mppx: number, zoom: number): number { return lodZK > 1 && zoom < lodZ0 ? mppx * lodZK ** (lodZ0 - zoom) : mppx; }
 export function meshLodCount(p: LodBatch, center: ArrayLike<number>, cosLat: number, mppx: number): number {
 	if (p.keep2d) return p.count;
 	if (rangeM !== Infinity) {   // 束の bbox の最寄りの縁までの距離（m）＝大きい束が注視点に掛かっている時は切らない

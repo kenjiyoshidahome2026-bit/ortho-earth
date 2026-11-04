@@ -271,7 +271,7 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 		refs.add(rec);
 		const noLine = lineOff.has(o.key);
 		const ox = o.origin[0] - origin[0], oy = o.origin[1] - origin[1];
-		for (const s of rec.subs) {
+		if (o.bld !== "only") for (const s of rec.subs) {   // "only"＝建物だけの親（keepFine の子孫代打・tilemanager）＝線・塗りは子孫が持つ
 			if (hidden && hidden.has(seaFbReal(s.li) ?? s.li)) continue;   // フォールバック水域は実liでチップ消灯判定
 			if (s.kind === "line" && noLine) continue;
 			let e = byLi.get(s.li); if (!e) byLi.set(s.li, e = { kind: s.kind, items: [] });
@@ -283,7 +283,7 @@ function composeMD(m: MergeRequest): { origin: number[]; layers: SceneDrawLayer[
 			if (s.kind === "line" && s.lt) e.lt ??= s.lt;   // line-gradient の見本（G-3・同上）
 			e.items.push(s.kind === "fill" ? [s.idxOff * 4, s.idxN, ox, oy, s.pt ?? 0] : [s.segOff * 6, s.segN * 6, ox, oy, s.pt ?? 0]);   // fill=byteオフセット / line=先頭頂点番号(6頂点/線分)・5 つ目＝表を読む（paint 表の (b) 類・1＝色・2＝色と線の半幅）
 		}
-		if (rec.bv.n) bldItems.push([rec.bv.off, rec.bv.n, ox, oy]);
+		if (rec.bv.n && o.bld !== "no") bldItems.push([rec.bv.off, rec.bv.n, ox, oy]);   // "no"＝建物は親が持つ
 	}
 	const pack = (items: number[][], kind: Packed["kind"], li?: number, cj?: number, dash?: number[], fx?: number[], pat?: string, pz?: PaintZoom, lt?: LineTex): Packed[] => {
 		const out: Packed[] = [];

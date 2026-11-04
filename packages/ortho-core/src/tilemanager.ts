@@ -34,7 +34,10 @@ export interface TileManagerOptions {
 	lodFloor?: LodFloor | null; memBudgetMB?: number | null; coverage?: number[] | null; minZ?: number; encoding?: string | (() => string);
 }
 /** 描く順の 1 件（ready なタイル） */
-export interface OrderItem { key: string; origin: number[] | null; z: number }
+/** bld＝建物の役（keepFine の子孫代打・2026-11-05）："no"＝線・塗りだけ（建物は親が持つ）／"only"＝建物だけ（線・塗りは子孫が持つ）／無し＝従来どおり両方 */
+export interface OrderItem { key: string; origin: number[] | null; z: number; bld?: "no" | "only" }
+/** update の中で使う枠＝TileXYZ＋建物の役（ready() が OrderItem へ写す） */
+interface SelTile extends TileXYZ { bld?: "no" | "only" }
 export interface UpdateOptions { groundR?: number; zOf?: TileZoomOf | null; tilePx?: number; maxZ?: number | null; keepFine?: number }
 export interface UpdateResult { order: OrderItem[]; coarseOrder: OrderItem[]; total: number; sel: number; covered: boolean }
 export interface TileStats { tiles: number; bytes: number; budgetBytes: number; deviceMemoryGB: number; cacheEntries: number; queue?: { queued: number; inflight: number } | null }
@@ -129,9 +132,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	// そのまま残る（ready() が落とす＝従来どおり下地が見える穴。パンの先端など、祖先も子孫も手元に無い所）
 	const FILL_UP = 2, FILL_DOWN = 2;
 	const isReady = (z: number, x: number, y: number): boolean => cache.get(`${z}/${x}/${y}`)?.status === "ready";
-	function fillGaps(sel: TileXYZ[]): TileXYZ[] {
+	function fillGaps(sel: SelTile[]): SelTile[] {
 		if (sel.every(t => isReady(t.z, t.x, t.y))) return sel;
-		const out: TileXYZ[] = [], anc: TileXYZ[] = [];
+		const out: SelTile[] = [], anc: TileXYZ[] = [];
 		for (const t of sel) {
 			if (isReady(t.z, t.x, t.y)) { out.push(t); continue; }
 			const kids = residentCover(t.z, t.x, t.y, FILL_DOWN);   // 自身は未着＝返るのは隙間なく覆う子孫だけ
@@ -185,12 +188,17 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 子孫のまま描く＝描画キー集合が変わらない＝merge シグネチャ不変＝再結合ゼロ。親の ensure は従来どおり
 		// 走る（下で ensure(selected)）＝子孫が LRU 予算で消えた象限だけ、その時点で用意済みの親へ一度で交代する。
 		// 象限単位の再帰＝端の未訪問域は親のまま・訪問済みの中心だけ細かさが残る（全か無かにしない）。
-		let drawSel = selected;
+		// 建物だけは子孫代打に乗せない（2026-11-05・本人報告「引いたときに基図らしきものが十字型に残る」）：基図の建物は z16 タイルが全棟・
+		// z14 タイルが抜粋なので、保持された象限だけ全棟の絨毯になって周囲（素の選抜段）と段差が出る。線・塗りは子孫のまま（描き直し回避は保つ）、
+		// 建物は本来の選抜段（親）が ready ならそれを "only" で混ぜ、子孫は "no"＝親の密度に揃う。親が未着の間は従来どおり子孫の建物（絵が抜けない）。
+		let drawSel: SelTile[] = selected;
 		if (opts?.keepFine) {
 			drawSel = [];
 			for (const t of selected) {
 				const cov = residentCover(t.z, t.x, t.y, opts.keepFine);
-				if (cov) drawSel.push(...cov); else drawSel.push(t);
+				if (!cov || cov[0].z === t.z) { drawSel.push(t); continue; }   // 代打なし（未着）／自身が ready で子孫では覆えない＝自身
+				if (isReady(t.z, t.x, t.y)) { for (const c of cov) drawSel.push({ ...c, bld: "no" }); drawSel.push({ ...t, bld: "only" }); }
+				else drawSel.push(...cov);
 			}
 		}
 		// 未着の枠の代打（2026-10-20・本人報告「止まった時の描き直しで一瞬の白抜き」）：選んだ枠が未着の間、その場所を
@@ -244,7 +252,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			}
 			if (evicted.length && onEvict) onEvict(evicted);
 		}
-		const ready = (arr: TileXYZ[]): OrderItem[] => { const o: OrderItem[] = []; for (const t of arr) { const k = keyOf(t), c = cache.get(k); if (c && c.status === "ready") o.push({ key: k, origin: c.origin!, z: t.z }); } return o; };
+		const ready = (arr: SelTile[]): OrderItem[] => { const o: OrderItem[] = []; for (const t of arr) { const k = keyOf(t), c = cache.get(k); if (c && c.status === "ready") o.push(t.bld ? { key: k, origin: c.origin!, z: t.z, bld: t.bld } : { key: k, origin: c.origin!, z: t.z }); } return o; };
 		// 下地は祖先フォールバック付き：ズームで下地の段(round(zoom)-4)が切り替わる度に新段が未着で
 		// 紙色の空白がチラつくのを、キャッシュ済みの粗い親で埋めて防ぐ。粗い順＝下に描かれる。
 		// フォールバックの床：opts.maxZ（全球ソースの領分に cap 中＝世界帯）は minZ まで降ろすが、
@@ -289,8 +297,8 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 窓が上がり、親のままの象限（選択レベル素のタイル）が無ラベル化するのを防ぐ。子孫は窓より上＝常に通る。
 		const near = (selMaxZ || maxZ) - 2;    // 最細から2段以内＝近景
 		const out: Label[] = [], seen = new Set<string>();
-		for (const { key, z } of order) {
-			if (z < near) continue;
+		for (const { key, z, bld } of order) {
+			if (z < near || bld === "only") continue;   // 建物だけの親（keepFine の子孫代打）＝注記は子孫が持つ
 			const c = cache.get(key);
 			if (!c || c.status !== "ready") continue;
 			for (const L of c.labels!) {
