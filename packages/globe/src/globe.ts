@@ -549,7 +549,9 @@ const labelGpuCanvas = mapEl.querySelector<HTMLCanvasElement>("#labelsgpu");   /
 const logEl = orDetached(mapEl.querySelector<HTMLElement>("#log"));
 // 低メモリ端末判定（boot/tier.js lowMem＝≤4GB のスマホ帯・iOS はタッチで一律）。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
-const LOW_MEM: GlobeScope["LOW_MEM"] = lowMem(navigator);
+// ?lowmem=0/1＝手動上書き（実機の切り分け・2026-11-05：タブレットだけ近景の建物が暴れる＝LOW_MEM 固有か Mali 固有かを決める戻し口）。
+// 0 を 4GB 機で使うと落ち得る＝A/B の間だけ。
+const LOW_MEM: GlobeScope["LOW_MEM"] = /[?&]lowmem=1/.test(location.search) || (!/[?&]lowmem=0/.test(location.search) && lowMem(navigator));
 // GPU の選び方（2026-11-03）＝既定は速い方（high-performance）。外付け GPU のあるノート PC でブラウザが内蔵 GPU を選び、遅くなっていた。
 // opts.powerPreference か ?lowpower=1 で戻せる。main の WebGL（判定の probe・重ね描き）はこの値で、描画 worker へは init で渡す。
 const POWER_PREF: GpuPowerPreference = /[?&]lowpower=1/.test(location.search) ? "low-power" : (opts.powerPreference ?? "high-performance");
