@@ -91,7 +91,7 @@ struct Frame {
 	farBounds: vec4f,  // 遠景層（far）アトラス被覆＝近窓の外を受け持つ粗い R10 第2アトラス（深ズーム×チルトで常設）
 	farP: vec4f,       // hasFar(0/1), farEdgeFade(deg), farPass(1=遠景メッシュパス・terrainFar slot のみ), Cesium の霧の濃さ（csFogDensity・地形と模型の頂点で csFogV）
 	ellTrig: vec4f,    // 楕円体 dβ 錨 (cos2φ0, sin2φ0, cos4φ0, sin4φ0)（CPU double・原点の測地緯度）。球=vec4(0)＝補正が厳密0
-	ellP: vec4f,       // x=1:楕円体（変位方向・β→φ復元のゲート）0:球, yzw=0
+	ellP: vec4f,       // x=1:楕円体（変位方向・β→φ復元のゲート）0:球, y=案A の格子 G（fill/line 系）, z=1:建物の頂点の標高は 1 標本（?elevcheap=1）, w=0
 	cogP: vec4f,       // ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）: fill系 slot=(off.xy, 1/span)・terrain系 slot=(off.xy, mesh.zw/span)
 	gnd0: vec4f,       // 地面アトラス（近窓）uv 係数＝cogP と同形（fill系＝(off.xy, 1/span)・terrain系＝(off.xy, mesh.zw/span)）
 	gnd1: vec4f,       // 同・中窓
@@ -403,6 +403,14 @@ fn elev(ll: vec2f) -> f32 {
 	let uv = (ll - F.elevBounds.xy) / F.elevBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return elevFar(ll); }
 	return elevNear(ll, mix(elevFar(ll), textureSampleLevel(elevTex, elevSamp, uv, 0.0).r, elevFadeAt(uv)));
+}
+// 軽い標高（?elevcheap=1・F.ellP.z＝1・2026-11-04 実機 Mali：建物の頂点ごとの elev/elevQ（3〜12 標本）が床だった）＝主アトラス 1 標本だけ。
+// 近景・足元層と縁フェードは引かない＝建物の足元が描画メッシュ面と数十 cm〜数 m ずれ得る（非力 GPU の見た目の代償）。窓の外は遠層 1 標本。
+fn elev1(ll: vec2f) -> f32 {
+	if (F.elevP.y < 0.5) { return 0.0; }
+	let uv = (ll - F.elevBounds.xy) / F.elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return elevFar(ll); }
+	return textureSampleLevel(elevTex, elevSamp, uv, 0.0).r;
 }
 // 案A（gl/glsl.js QELEV と 1:1）: 線・塗りのドレープ標高を「地形メッシュと同じ折れ線面」に量子化＝
 // 同じ格子頂点で elev() を取り同じ三角形分割（対角 a-c-b / b-c-d）で補間＝描画されている面に厳密に乗る。
@@ -919,7 +927,8 @@ struct BldOut {
 	var o: BldOut;
 	let rel = deltaToRel(a_pos.xy);
 	let dir = F.originPt + rel;
-	let base = elevQ(F.origin + a_anchor) * F.elevP.x;   // 基準点の標高で足元を揃える（案A＝描画メッシュ面）
+	var base = 0.0;   // 基準点の標高で足元を揃える（案A＝描画メッシュ面）。軽い標高（ellP.z）は 1 標本＝if で分ける（select は両方を評価する）
+	if (F.ellP.z > 0.5) { base = elev1(F.origin + a_anchor) * F.elevP.x; } else { base = elevQ(F.origin + a_anchor) * F.elevP.x; }
 	let h = base + a_pos.z;                              // 地形標高 + 建物高さ
 	let relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線
 	o.shade = a_shade;
@@ -999,7 +1008,9 @@ struct PlOut {
 	let lb = P.p0;   // [lng0, lat0, spanLng, spanLat]
 	let inX = smoothstep(0.0, 0.05, min(lon - lb.x, lb.x + lb.z - lon));
 	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
-	let h = elev(vec2f(lon, lat)) * F.elevP.x * select(inX * inY, 1.0, B.alpha.w > 0.5) * (1.0 - B.alpha.z);   // noLift＝平面に浮かせた統計・drape＝全域で地形に沿わせる
+	var hE = 0.0;   // 軽い標高（F.ellP.z＝?elevcheap=1）は 1 標本（if＝select は両方を評価する）
+	if (F.ellP.z > 0.5) { hE = elev1(vec2f(lon, lat)); } else { hE = elev(vec2f(lon, lat)); }
+	let h = hE * F.elevP.x * select(inX * inY, 1.0, B.alpha.w > 0.5) * (1.0 - B.alpha.z);   // noLift＝平面に浮かせた統計・drape＝全域で地形に沿わせる
 	var p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線
 	if (a_normal.w < -0.004) {   // a glTF line's ribbon (gl/glsl.ts LINE_RIBBON): across the line's direction on screen by half its width (CSS px × dpr)
 		let lb = floor(-a_normal.w * 127.0 + 0.5); let hp = floor(lb * 0.5) * 0.125 * max(F.params.w, 1.0);
