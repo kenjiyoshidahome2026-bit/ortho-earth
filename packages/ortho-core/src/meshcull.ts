@@ -7,10 +7,13 @@ export interface LodBatch { bbox: ArrayLike<number>; count: number; lodH: ArrayL
 
 /** 描く index の数。建物だけ＝橋梁（two＝両面）は「高さ 3〜5m×長さ数百 m」で小物と誤判定され桁が歯抜けになる（横浜ベイブリッジ実測）・
  *  keep2d（統計の押し出し）は低い値にも意味がある＝間引かない。遠方の束は距離で緩やかに閾値を上げる（チルト時の遠景は透視で 1px がもっと大きい＝控えめ側の近似） */
+let lodScale = 1;   // 「描かない建物」の物差しの倍率（1＝画面 1px 未満を捨てる・既定）。?meshlod=N＝N px 未満を捨てる（非力 GPU の頂点代を下げる実験ノブ・2026-11-04）
+/** LOD 打ち切りの倍率（renderer の起動で 1 回。0 以下＝1） */
+export function setMeshLodScale(s: number): void { lodScale = s > 0 ? s : 1; }
 export function meshLodCount(p: LodBatch, center: ArrayLike<number>, cosLat: number, mppx: number): number {
 	if (!p.lodH || p.two || p.keep2d) return p.count;
 	const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - center[1]) * 111320);
-	const minH = mppx * (1 + dm / 4000);
+	const minH = mppx * lodScale * (1 + dm / 4000);
 	let li = 0;
 	for (let i = p.lodH.length - 1; i > 0; i--) if (p.lodH[i] <= minH) { li = i; break; }
 	return p.lodCounts![li];
