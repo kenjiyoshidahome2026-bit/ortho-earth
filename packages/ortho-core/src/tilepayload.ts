@@ -17,7 +17,7 @@ export { opBuffers };
 export interface TilePayload { origin: number[]; dl: DrawList; labels: Label[]; buildings: BuildingsGeom | null; z: number; bytes: number }
 
 /** 組み立ての口：drape＝地形にドレープする（既定 true＝線を 700m ごとに細分）。false＝細分なし（vt perf plan §3.2・terrain の無い地図） */
-export interface PayloadOptions { drape?: boolean }
+export interface PayloadOptions { drape?: boolean; bldMinZ?: number }   // bldMinZ＝建物を立ち上げ始めるタイルの z（既定 14）
 // layers＝decode の結果（{ __empty } を含む）・t＝{ z, x, y }。戻り＝{ origin, dl, labels, buildings, z, bytes }
 export function buildTilePayload(layers: TileData, { z, x, y }: TileXYZ, style: Style, opts?: PayloadOptions): TilePayload {
 	const [w, , , n] = tileBounds(x, y, z);
@@ -26,7 +26,7 @@ export function buildTilePayload(layers: TileData, { z, x, y }: TileXYZ, style: 
 	// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域を敷く（詳細は buildEmptySeaOps。style.emptySea 未設定なら不発）
 	const seaOps = buildEmptySeaOps(layers, { z, x, y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
 	const { labels } = buildLabels({ layers, z, x, y }, style);
-	const buildings = buildBuildings({ layers, z, x, y }, origin, style.schema);
+	const buildings = buildBuildings({ layers, z, x, y }, origin, style.schema, opts?.bldMinZ ?? 14);
 	let bytes = 0; for (const b of opBuffers(dl.ops, buildings)) bytes += b.byteLength;   // geometry の実バイト（scene worker 側）＝main のメモリ予算/退避の基準
 	bytes += labelsBytes(labels);   // ＋注記が main に占める量の概算（2026-10-21）＝予算は「タイル 1 枚が両側に残す量」で縛る
 	return { origin, dl, labels, buildings, z, bytes };
