@@ -156,6 +156,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 | `?perf=1` | フレーム内訳（ema・gpuMap/gpuGint・aa=直近フレームの段数 1/4）＋GPU 識別。⚠ema は 60fps 機で 16.7ms 飽和＝差が出ない |
 | 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0/1` `?ell=1/0` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?lowmem=0/1`（LOW_MEM の強制オフ／オン＝切り分け用・0 は 4GB 機で落ち得る） `?maxact=N` `?tbudget=N` `?atmosphere=1` `?pbr=1` `?ao=1`（#46・既定 0） |
 | 建物の軽量化（LOW_MEM 既定・他は A/B ノブ） | `?bldz=N`＝基図建物の押し出し開始 z（LOW_MEM 15／他 14）・`?meshlod=N`＝画面 N px 未満の PLATEAU 建物を描かない（既定 1）・`?meshrange=KM`＝注視点から KM km より遠い PLATEAU の束を描かない（LOW_MEM 2／他＝切らない・`0` で切らない）・`?elevcheap=1/0`＝建物の頂点の標高を主アトラス 1 標本で引く（WebGPU・LOW_MEM 既定オン）・`?msplit=N`＝PLATEAU の束を高い建物から順に N 千三角形の片に小分けして送る（LOW_MEM 100／他 0＝束のまま）・`?meshchunk=1`＝GPU 転送を 1MB ずつ・`?bakelift=1`＝PLATEAU 建物の接地リフト（足元の地面の高さ×誇張）を転送時に CPU で頂点へ焼き、頂点シェーダの標高参照を無くす（焼いた後の誇張変更・真俯瞰の地形フェードには追従しない＝A/B 中・既定オフ）。2026-11-04 Mali-G615 実機：床は建物の頂点ごとの標高参照（elevQ 12 標本）だった |
+| 近景の切り取り（A/B ノブ・WebGPU） | `?nearclip=M`＝深度を FS で書くパイプライン（地形・建物・PLATEAU）の頂点 z を線形にし、カメラから M m の near 面で GPU に切らせる（既定 0＝従来＝対数深度を頂点で書く＝near 面が w≈0 まで働かない）。2026-11-05 Galaxy/Mali-G615 実機「手前の建物が手前に伸びる」（静止中・高ズーム・Mac では出ない）の対策候補＝カメラの後ろにかかる壁の切断点が無限遠に飛び、Mali の固定小数点の範囲を超えて壊れる読み。まず `?nearclip=1` で実機 A/B → 効けば既定へ。`?gl2=1` は対象外（深度を頂点で書く） |
 
 ## 8. 残リスク（監視項目）
 
