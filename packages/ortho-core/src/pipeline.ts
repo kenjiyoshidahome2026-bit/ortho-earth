@@ -80,7 +80,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings } satisfies SceneRequest, opBuffers(e.data.dl.ops, e.data.buildings));
 			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes, t: e.data.t });   // メタ＋ラベル＋geometry実バイト（退避予算用）＋worker 内の時間（計器 e）
 		};
-		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow() } satisfies TileRequest);   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
+		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search) } satisfies TileRequest);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
 		tileWorkers.push(w);
 	}
 	// 発送＝worker slot に 1 枚頼む（キュー経由でも即時でも同じ道）
