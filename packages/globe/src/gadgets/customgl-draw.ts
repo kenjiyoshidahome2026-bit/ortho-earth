@@ -43,7 +43,7 @@ void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2
 
 // 一つのオーバーレイ＝一つの閉包（2026-10-17・旧＝URL ごとに別のモジュール実体＝?ov=）。render worker の BUILTIN_OVERLAYS が create() で作る
 export function create() {
-	let gl: WebGL2RenderingContext = null!, host: OverlayHost | null = null, opts: CustomGLOpts | null = null, layer: CustomLayer | null | undefined = null, ready = false, failed: string | null = null, canvasRef: OffscreenCanvas | null = null, lastCam: CameraPose | null = null, lastSize: OverlaySize | null = null;
+	let gl: WebGL2RenderingContext = null!, host: OverlayHost | null = null, opts: CustomGLOpts | null = null, layer: CustomLayer | null | undefined = null, ready = false, failed: string | null = null, canvasRef: OffscreenCanvas | null = null, lastCam: CameraPose | null = null;
 	let loader: ReturnType<typeof createThreeLoader> | null = null;   // 層の指定に three がある時だけ（bare の three を解く）
 	let dprog: WebGLProgram | null = null, duni: Uniforms | null = null, dvao: WebGLVertexArrayObject | null = null;   // 深度の前置きパス
 	const probes: unknown[] = [];
@@ -123,7 +123,7 @@ void main() {
 	let depthUsed = false;
 	function frame(cam: CameraPose, s: CameraState, size: OverlaySize, api: OverlayApi) {
 		if (!gl) return false;
-		lastCam = cam; lastSize = size;
+		lastCam = cam;
 		const { w, h } = size;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		gl.viewport(0, 0, w, h);

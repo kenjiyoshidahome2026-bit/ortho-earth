@@ -1,13 +1,13 @@
 // 太陽・雲の口の spec の正規化（第 2 波 F2・2026-10-12）。DOM 無し＝tests/weather.mjs で検める。
 //   setSun：{ follow: "clock" }（共通の時計の太陽に directional の光を追わせる）か { azimuth, altitude }（固定・度）。intensity/color を指定すれば高度からの自動を上書き
 //   setClouds：受けて保つだけ（capabilities "clouds" は spec）。plugin が registry.clouds に { apply(map, clouds) } を足せば描く約束
+import { fin } from "./finite.ts";
 import type { CloudsSpec, LightSpecification, SunSpec } from "../globe.d.ts";
 
 /** setSun の spec を整えた物（follow "clock"｜固定の azimuth/altitude・minAltitude は常に在る） */
 export type SunSpecNorm = SunSpec & { follow: "clock" | null; minAltitude: number };
 type Loose = Record<string, unknown>;
 
-const fin = (v: unknown, d: number): number => (Number.isFinite(+(v as number)) ? +(v as number) : d);
 const clamp01 = (v: unknown, d: number): number => Math.max(0, Math.min(1, fin(v, d)));
 export function normSun(s: SunSpec | true | null | undefined): SunSpecNorm {
 	const o = (s === true ? {} : s && typeof s === "object" ? s : {}) as Loose;

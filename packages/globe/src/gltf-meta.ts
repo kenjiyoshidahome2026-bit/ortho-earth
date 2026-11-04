@@ -1,6 +1,7 @@
 // glTF の見出し（第 2 波 F4・2026-10-12）＝生の json から、アニメ・拡張・テクスチャ形式・feature ID の有無を読む純関数。DOM 無し＝tests/gltf-meta.mjs。
 //   描く側（meshdecode）は stats.gltf にこれを載せる＝模型の手綱（gadget model の ctl.animations・ctl.setAnimation）と 3D Tiles の手綱が「何が入っているか」を正直に答えられる。
 //   アニメの再生（skin/morph/ノード変換の補間）と KTX2 の変換は描かない（口だけ＝capabilities "spec"）。
+import { fin } from "./finite.ts";
 import type { StructuralMetadata } from "./mesh-features.ts";
 
 // 公開の型（globe.d.ts の GltfMeta・GltfAnimationInfo・AnimationSpec・AnimationState）の写し。この頁は meshdecode 経由で worker からも読まれ、
@@ -58,7 +59,6 @@ export function normAnimation(spec: AnimationSpec | string | number | boolean | 
 	if (o.name != null) { a = animations.find(x => x.name === String(o.name)); if (!a) throw new Error(`setAnimation: unknown animation "${o.name}" (available: ${animations.map(x => x.name).join(", ") || "none"})`); }
 	else if (o.index != null) { a = animations[+o.index]; if (!a) throw new Error(`setAnimation: animation index ${o.index} out of range (${animations.length})`); }
 	else a = animations[0] ?? null;
-	const fin = (v: unknown, d: number) => (Number.isFinite(+(v as number)) ? +(v as number) : d);
 	return { name: a?.name ?? null, index: a?.index ?? null, duration: a?.duration ?? 0, time: Math.max(0, fin(o.time, 0)), loop: o.loop !== false, speed: fin(o.speed, 1), playing: o.playing !== false };
 }
 // 生の glTF の json（GLB の JSON chunk か .gltf の文字列）。loaders.gl は扱った拡張を extensionsUsed から外す＝見出しは**読む前の生**から取る。読めなければ null

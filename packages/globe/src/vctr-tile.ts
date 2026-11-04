@@ -8,6 +8,7 @@
 // 柱の形は Cesium（Workers/createVectorTilePolygons.js）と同じ：楕円体の面の点から法線方向に最低・最高の高さ＝底と天井、側面は輪の各辺。
 // 線（POLYLINES）と点（POINTS）はまだ描かない（数だけ数える）。
 import { batchTableOf } from "./mesh-features.ts";
+import { jsonAt } from "./geom-tile.ts";   // 特徴表の JSON（geom と同じ読み方）
 import type { GeomOut, GeomPart } from "./geom-tile.ts";
 
 type BinRef = { byteOffset: number };
@@ -16,8 +17,6 @@ interface VctrFeatureTable {
 	POLYGON_COUNTS?: BinRef | number[]; POLYGON_COUNT?: BinRef | number[]; POLYGON_INDEX_COUNTS?: BinRef | number[]; POLYGON_INDEX_COUNT?: BinRef | number[];
 	POLYGON_MINIMUM_HEIGHTS?: BinRef | number[]; POLYGON_MAXIMUM_HEIGHTS?: BinRef | number[]; POLYGON_BATCH_IDS?: BinRef | number[];
 }
-const td = new TextDecoder();
-const jsonAt = (ab: ArrayBuffer, off: number, len: number): Record<string, unknown> | null => len ? JSON.parse(td.decode(new Uint8Array(ab, off, len)).replace(/[\0\s]+$/, "")) : null;
 const A = 6378137, E2 = 6.69437999014e-3;   // WGS84
 const MAX_SHORT = 32767;
 

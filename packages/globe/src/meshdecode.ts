@@ -12,7 +12,8 @@ const loaders = () => _loaders ??= import("./mesh-loaders.ts");   // 名前付�
 import { weldMesh } from "./meshq.ts";
 import { primitiveOutline } from "./outline.ts";
 import { gltfMeta, rawGltfJson } from "./gltf-meta.ts";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
-import { rigFromGltf, skinsFromGltf, jointMatrices, skinVertices, I4 as I4_ } from "./gltf-anim.ts";   // skin（2026-10-28）＝静止姿勢で焼く・区間の表を main へ   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す
+import { rigFromGltf, skinsFromGltf, jointMatrices, skinVertices, I4, m4mul, m4trs } from "./gltf-anim.ts";
+import { m3mul, m3v } from "./matrix.ts";   // skin（2026-10-28）＝静止姿勢で焼く・区間の表を main へ   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す
 import { featureSetOf, featureIdsOf, featureTextureOf, decodePropertyTables, batchTableOf, NO_FEATURE, type FeatureSet, type FeatureTexture } from "./mesh-features.ts";   // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm
 import type { GltfPlace, GltfRig, SkinSeg } from "./gltf-anim.ts";
 import type { GltfMeta, RawGltf } from "./gltf-meta.ts";   // GltfMeta＝globe.d.ts の写し（worker から読まれる頁は globe.d.ts を引けない）
@@ -752,26 +753,6 @@ export function finishMesh(geo: Float64Array, outNrm: Int8Array, rawIdx: Uint32A
 // matrix/translation だけ」より一般＝Sketchfab/Blender 書き出しの入れ子・回転・スケールが通る）。法線が無いプリミティブは三角形の
 // 面法線を頂点へ積む（PLATEAU 経路の「上向き固定」は模型には粗い）。テクスチャ/マテリアルは読まない（色は建物色＝u_bldColor）。
 const D2R = Math.PI / 180;
-const I4 = Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
-const m4mul = (a: ArrayLike<number>, b: ArrayLike<number>) => {   // 列優先 4x4（glTF の並び）＝ a·b
-	const o = new Float64Array(16);
-	for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) o[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
-	return o;
-};
-const m4trs = (t: ArrayLike<number> = [0, 0, 0], q: ArrayLike<number> = [0, 0, 0, 1], s: ArrayLike<number> = [1, 1, 1]) => {   // T·R·S（glTF node の既定の合成順）
-	const [x, y, z, w] = q as [number, number, number, number], xx = x*x, yy = y*y, zz = z*z, xy = x*y, xz = x*z, yz = y*z, wx = w*x, wy = w*y, wz = w*z;
-	return Float64Array.of(
-		(1 - 2*(yy+zz)) * s[0], 2*(xy+wz) * s[0], 2*(xz-wy) * s[0], 0,
-		2*(xy-wz) * s[1], (1 - 2*(xx+zz)) * s[1], 2*(yz+wx) * s[1], 0,
-		2*(xz+wy) * s[2], 2*(yz-wx) * s[2], (1 - 2*(xx+yy)) * s[2], 0,
-		t[0], t[1], t[2], 1);
-};
-const m3mul = (a: ArrayLike<number>, b: ArrayLike<number>) => {   // 列優先 3x3＝ a·b
-	const o = new Float64Array(9);
-	for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) o[c*3+r] = a[r]*b[c*3] + a[3+r]*b[c*3+1] + a[6+r]*b[c*3+2];
-	return o;
-};
-const m3v = (m: ArrayLike<number>, v: ArrayLike<number>): number[] => [m[0]*v[0] + m[3]*v[1] + m[6]*v[2], m[1]*v[0] + m[4]*v[1] + m[7]*v[2], m[2]*v[0] + m[5]*v[1] + m[8]*v[2]];
 const I3 = Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1);
 const SWAP = Float64Array.of(1, 0, 0, 0, 0, 1, 0, -1, 0);   // (x,y,z)→(x,−z,y)＝glTF Y-up → ECEF/ENU の Z-up（decodeBatch の軸入替と同じ）
 // ── マテリアル（2026-09-20 テクスチャ/マテリアル対応）──
@@ -1096,11 +1077,12 @@ function dracoNames(gltf: GltfDoc, raw: unknown): void {
 	}));
 }
 // 利用者のシェーダの J（2026-10-29）＝positionMC の差分 → 世界（単位球）の差分＝世界の局所線形化（ECEF の 1 m の差分・ecef2geo＋geoWorld＝頂点と同じ道）× glTF のローカル → ECEF の線形部
+/** ECEF の点 → 単位球の世界座標（接地の minH 込み＝頂点と同じ道・mcJOf と place の局所線形化が使う） */
+const ecefWorld = (e: ArrayLike<number>, minH: number) => { const g = ecef2geo(e[0], e[1], e[2]); return geoWorld(g[0], g[1], (g[2] - minH) / EARTH_W, [0, 0, 0]); };
 function mcJOf(lin: ArrayLike<number> | undefined, e0: number[] | undefined, minH: number): number[] | null {
 	if (!lin || !e0) return null;
-	const w = (e: ArrayLike<number>) => { const g = ecef2geo(e[0], e[1], e[2]); return geoWorld(g[0], g[1], (g[2] - minH) / EARTH_W, [0, 0, 0]); };
-	const w0 = w(e0), L = new Float64Array(9);
-	for (let k = 0; k < 3; k++) { const e = [...e0]; e[k] += 1; const wk = w(e); L[k*3] = wk[0] - w0[0]; L[k*3+1] = wk[1] - w0[1]; L[k*3+2] = wk[2] - w0[2]; }
+	const w0 = ecefWorld(e0, minH), L = new Float64Array(9);
+	for (let k = 0; k < 3; k++) { const e = [...e0]; e[k] += 1; const wk = ecefWorld(e, minH); L[k*3] = wk[0] - w0[0]; L[k*3+1] = wk[1] - w0[1]; L[k*3+2] = wk[2] - w0[2]; }
 	return Array.from(m3mul(L, lin));
 }
 const schemaCache = new Map<string, Promise<Record<string, unknown> | null>>();
@@ -1273,7 +1255,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 			// skin（2026-10-28）＝JOINTS_0／WEIGHTS_0 を持つ primitive は静止姿勢でスキンして焼く（p' = Σ w·W(joint)·IBM·p＝シーン座標・mesh のノードの変換は掛けない）。
 			// 束は (skin, material) ごと＝main（gadgets/model.js）が rig の時計で頂点を焼き直す（gltf-anim.skinBatch）
 			const skinIn = si >= 0 && rigSkins?.[si] && mode4 >= 4 && mode4 <= 6 ? skinnedPrim(pr, rigSkins[si], si, jointMats, nodeW) : null;
-			const { lin, ox, oy, oz, cof, mirror } = skinIn ? frameOf(I4_, A, T) : fr0;
+			const { lin, ox, oy, oz, cof, mirror } = skinIn ? frameOf(I4, A, T) : fr0;
 			if (pr.extensions?.[VOXEL_EXT] || mode4 === VOXEL_MODE) {   // voxel＝局所の形＋transform／region のまま main へ（voxel の層）。plugin が無い（tile.voxels 無し）＝飛ばす
 				const tv = tile?.voxels;
 				const v = tv ? voxelPrim(pr, gltf, lin, [ox, oy, oz], tile!.baseH != null ? -tile!.baseH : 0, tv === true ? {} : tv) : null;
@@ -1446,10 +1428,9 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	for (const b of batches) if (b.features) b.features.tables = tables;   // 束ごとに表の参照（cmpt で結果が混ざっても番号が迷わない・postMessage は同じ参照を 1 回だけ写す）
 	// place（W4）＝G：glTF のローカル → ECEF（A・T）、F：ECEF → 単位球の世界座標の局所線形化（模型の錨 T の周りで 1 m の差分＝接地の minH 込み・ecef2geo＋geoWorld と同じ道）
 	const place = rig && !places ? (() => {
-		const w = (e: ArrayLike<number>) => { const g = ecef2geo(e[0], e[1], e[2]); return geoWorld(g[0], g[1], (g[2] - minH) / EARTH_W, [0, 0, 0]); };
 		const c = inst.length ? (() => { const o = m3v(A, [inst[0].W[12], inst[0].W[13], inst[0].W[14]]); return [o[0] + T[0], o[1] + T[1], o[2] + T[2]]; })() : T;
-		const w0 = w(c), L = new Float64Array(9);
-		for (let k = 0; k < 3; k++) { const e = [...c]; e[k] += 1; const wk = w(e); L[k*3] = wk[0] - w0[0]; L[k*3+1] = wk[1] - w0[1]; L[k*3+2] = wk[2] - w0[2]; }
+		const w0 = ecefWorld(c, minH), L = new Float64Array(9);
+		for (let k = 0; k < 3; k++) { const e = [...c]; e[k] += 1; const wk = ecefWorld(e, minH); L[k*3] = wk[0] - w0[0]; L[k*3+1] = wk[1] - w0[1]; L[k*3+2] = wk[2] - w0[2]; }
 		return { G: { A: [...A], T: [...T] }, F: { L: [...L], t: [w0[0] - (L[0]*c[0] + L[3]*c[1] + L[6]*c[2]), w0[1] - (L[1]*c[0] + L[4]*c[1] + L[7]*c[2]), w0[2] - (L[2]*c[0] + L[5]*c[1] + L[8]*c[2])] } };
 	})() : null;
 	const features = nFid ? { tables, primitives: nFid, texture: nFidTex, warnings: fWarn } : null;

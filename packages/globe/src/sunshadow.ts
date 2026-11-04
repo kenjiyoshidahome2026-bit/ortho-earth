@@ -165,7 +165,7 @@ function buildingGrid(g: { tris: Float32Array[] }, W: number, H: number, cell: n
 // opts＝{ bbox, N, ground:Float32Array(N×N・row0＝北・画素の中心), observer:[lon,lat], eyeH:1.6, targetH:0, radius(m), buildings:true, tilesets?, sets?, probe?, los?:[lon,lat] }
 export async function computeViewshed(opts: ViewshedOptions) {
 	const { bbox, N, ground, observer, eyeH = 1.6, targetH = 0, radius = 1000 } = opts;
-	const [w, s, e, n] = bbox, lat0 = (s + n) / 2 * D2R, lon0 = (w + e) / 2 * D2R, kx = Math.cos(lat0) * R_EARTH, ky = R_EARTH;
+	const [w, s, e, n] = bbox, lat0 = (s + n) / 2 * D2R, kx = Math.cos(lat0) * R_EARTH, ky = R_EARTH;
 	const spanX = (e - w) * D2R * kx, spanY = (n - s) * D2R * ky, cellX = spanX / N, cellY = spanY / N, cell = (cellX + cellY) / 2;
 	// 地表 S＝地形＋建物の屋根。surface を渡されたらそれ（GPU が描いた物から取った地表＝建物は読まない・2026-10-24）
 	const g = opts.surface || opts.buildings === false ? { tris: [], count: opts.surface ? (opts.surfaceTris ?? 0) : 0, tiles: 0 } : await gatherTriangles({ ...opts, bbox });

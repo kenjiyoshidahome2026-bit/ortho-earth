@@ -82,7 +82,8 @@ import { modalOpen, registerKeyOwner, isKeyOwner } from "./gadgets/keys.ts";   /
 import { setLang, getLang, isRTL, tr } from "./i18n.ts";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
 // 型（TS 化 段 4・batch 3）＝createGlobe の口と内側の部品の形
 import type { Bbox, Gadgets, GintLayerHandle, GintLayerOptions, GlobeOptions, LonLat, OverlayHandle, QuantizedMeshSource, RasterDemSource, RasterOptions, Tiles3DOptions } from "../globe.d.ts";
-import type { GlobeInternals, GlobeMap } from "./types/map.ts";
+import { qNum } from "./urlknob.ts";   // ?maxact= 等の数値ノブ（mesh/manager と同じ 1 本）
+import type { GlobeMap } from "./types/map.ts";
 import type { GlobeMapBuilding } from "./types/install.ts";
 import type { ExtStyleDoc, GlobeLive, GlobeScope, MlPass, ModelCtl, ParsedView, PatItem, QueryGeometry, T3dCtl, UserLayerRec, UserSource, VtxDesc } from "./types/scope.ts";
 import type { MLLayer, Pipeline } from "@ortho-earth/core";
@@ -478,7 +479,7 @@ const BASE_SOURCE: GlobeScope["BASE_SOURCE"] = EXT ? extSourceFields(EXT) : PM_U
 	coverage: [0, 0, 0, 0],   // どのタイルとも重ならない＝fetch せず空タイル扱い
 	tileMinZoom: null, lodFloor: null, minZ: undefined, info: null, attrHTML: null,
 };
-const TILE = 512, D2R: GlobeScope["D2R"] = Math.PI / 180, R2D: GlobeScope["R2D"] = 180 / Math.PI;
+const D2R: GlobeScope["D2R"] = Math.PI / 180, R2D: GlobeScope["R2D"] = 180 / Math.PI;
 
 // 表示項目の固定（opts.layers）：true/false は状態を焼き付けてチップも出さない。未記述だけが客のトグル。
 // 旧romajiキー（chimei/chikei/shisetsu）は公開済み共有URL（l=）の互換のため、URL からの読みだけ受ける（opts.layers の読み替えは 2.0 で外した）。
@@ -686,7 +687,6 @@ const sceneChan = new MessageChannel();
 // ?maxact=N / ?tbudget=N ＝低メモリ端末の安全側の絞りを実機で緩めて jetsam 完走を A/B する数値ノブ（?nomd と同格）。
 // 狙いは②GPU常駐（表示区数）と④タイル予算だけを動かすこと＝①過渡デコードメモリ（jetsamの主犯）には触れない
 // ＝bldCap・BATCH_TILES・TILE_CONCURRENCY は据置。基準機は 4GB 実機（タブ予算は 8GB 機の~1.4GBより小さい）。
-const qNum = (re: RegExp, def: number) => { const m = location.search.match(re); return m ? +m[1] : def; };
 // ?nomd=1 ＝multi_draw（タイルGPU常駐）を切って従来の CPU merge へ強制フォールバック。同一ビルドで A/B 比較する検証ノブ。
 // 低メモリ端末は既定OFF：iOSではWebGLバッファがWebContentプロセス＝タブ予算(~1.4GB)に直接乗り、常駐プールは
 // 伸びる一方＝鉄道地図(z14.5都心)級の密度でjetsam（iPhone 16 Pro実機の?nomd=1 A/Bでデモ完走＝犯人確定）。

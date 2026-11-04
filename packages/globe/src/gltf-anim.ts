@@ -34,11 +34,8 @@ type M4 = ArrayLike<number>;
 
 // ── 4x4（列優先・glTF の並び）───────────────────────────────────────────────
 export const I4 = Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
-export const m4mul = (a: M4, b: M4): Float64Array => {
-	const o = new Float64Array(16);
-	for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) o[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
-	return o;
-};
+import { m4mul } from "./matrix.ts";
+export { m4mul };
 export const m4trs = (t: ArrayLike<number> = [0, 0, 0], q: ArrayLike<number> = [0, 0, 0, 1], s: ArrayLike<number> = [1, 1, 1]): Float64Array => {
 	const [x, y, z, w] = q as [number, number, number, number], xx = x*x, yy = y*y, zz = z*z, xy = x*y, xz = x*z, yz = y*z, wx = w*x, wy = w*y, wz = w*z;
 	return Float64Array.of(

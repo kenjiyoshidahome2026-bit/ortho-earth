@@ -10,7 +10,7 @@ import { flatBuilder, K } from "../flat.ts";
 import { shareStats } from "../share.ts";
 import type { Flat } from "../flat.ts";
 import type { Bbox } from "../../../globe.d.ts";
-import type { ColumnarColumns, ColumnarInput, ColumnarMeta, ColumnarReader, ColumnarSourceDef } from "./registry.ts";
+import type { ColumnarInput, ColumnarMeta, ColumnarReader, ColumnarSourceDef } from "./registry.ts";
 
 type PbfReader = InstanceType<typeof Pbf>;
 

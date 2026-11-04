@@ -12,7 +12,7 @@ import { unsupported } from "./report.ts";
 import { lngArr, boundsArr, camOpts, viewOf } from "./util.ts";
 import { GRANULARITY_GLOBE } from "./tilemesh.ts";
 import type { GlobeMap } from "../types/map.ts";
-import type { GlobeOptions, HandlerName, MarkerOptions, PopupOptions } from "../../globe.d.ts";
+import type { GlobeOptions, HandlerName, MarkerOptions } from "../../globe.d.ts";
 import type { LngLatLike, LngLatBoundsLike } from "./geo.ts";
 
 /** エンジンの地図（createGlobe の戻り） */

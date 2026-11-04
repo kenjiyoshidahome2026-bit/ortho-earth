@@ -13,7 +13,6 @@ import { shot as shotGadget } from "../gadgets/shot-stub.ts";
 import { sunShadow as sunShadowGadget } from "../gadgets/sunshadow.ts";
 import { viewshed as viewshedGadget } from "../gadgets/viewshed.ts";
 import { sunTimes, sunsOf, sunGrid } from "../sunshadow-core.ts";   // 日影時間の GPU 版（2026-10-24）＝時刻の列と升目は CPU 版と同じ式
-import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { TileLoader } from "@ortho-earth/core/elevation";
 import type { Bbox, GeoJSONFeature, GeoJSONFeatureCollection, LonLat } from "../../globe.d.ts";
 import type { Installing, ShadowsDeps, ShadowsLive, ShadowsReturn } from "../types/install.ts";

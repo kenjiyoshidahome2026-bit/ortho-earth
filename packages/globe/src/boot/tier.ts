@@ -8,6 +8,7 @@
 //   renderFx({…})          … 描画の質の旗（#46）＝atmosphere／pbr／ao の実効値（?pbr=1 等の URL × opts.render・既定は 0）
 // ノブを変えたら台帳（docs/design/fallback-ladder.md）も更新の規律。
 import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
+import { escHtml } from "../html-safe.ts";
 
 // 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
 // タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
@@ -79,7 +80,6 @@ export function probeGL(): { ok: boolean; renderer: string | null } {
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
 // reloadLabel（文字列）で「再読み込み」ボタン付き（null＝無し）。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
 // 文言は文字として出す（detail には描画 worker の例外文が入りうる＝CodeQL・2026-10-16）。訳文に & < > " は無い＝見た目は前と同じ
-const escHtml = (s: string) => s.replace(/[&<>"]/g, c => c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&quot;");
 export function fatalOverlay(mapEl: HTMLElement, title: string, detail: string, reloadLabel?: string | null): HTMLDivElement {
 	const d = document.createElement("div");
 	d.id = "fatal";   // スタイルは style.css（#fatal）。最後に起きる事件＝最後の append＝DOM順で最上面

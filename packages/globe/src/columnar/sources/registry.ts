@@ -52,7 +52,6 @@ export function registerColumnarSource(def: ColumnarSourceDef): ColumnarSourceDe
 	return def;
 }
 export const listColumnarSources = () => sources.map(s => s.name);
-export const hasColumnarSource = (name: string) => sources.some(s => s.name === name);
 // 名指し（hint）か test で選ぶ。head＝先頭バイト（Uint8Array・無ければ空）
 export function findColumnarSource({ name = "", head = new Uint8Array(0), hint = null }: { name?: string; head?: Uint8Array; hint?: string | null } = {}): ColumnarSourceDef | null {
 	if (hint) return sources.find(s => s.name === hint) ?? null;

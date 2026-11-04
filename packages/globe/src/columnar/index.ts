@@ -8,4 +8,3 @@ export { registerColumnarSource, listColumnarSources, findColumnarSource } from 
 export { buildChunk, LOD_ZOOMS } from "./chunk.ts";
 export { DEFAULT_PAINT } from "./style.ts";
 export { shareStats, gintPreferred } from "./share.ts";
-export const COLUMNAR_EXT = /\.(geopbf|parquet|geoparquet|fgb)$/i;

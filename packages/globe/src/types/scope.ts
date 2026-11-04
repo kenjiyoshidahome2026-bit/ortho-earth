@@ -9,7 +9,7 @@ import type { CameraPose } from "@ortho-earth/core/camera";
 import type { Clock } from "@ortho-earth/ephem/clock";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { DtmDecl, createGetHeight } from "@ortho-earth/core/elevation";
-import type { AnnoHandle, Bbox, CameraTarget, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, RenderedFeature, RasterOptions, RasterSpec, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
+import type { AnnoHandle, Bbox, ClipOptions, CogHandle, ColumnarLayerHandle, Gadgets, OverlayHandle, FollowHandle, GlobeOptions, LightSpecification, LonLat, MapRegistry, PaddingOptions, RasterCatalogEntry, RenderedFeature, RasterOptions, RasterSpec, SkySpecification, TerrainSourceSpec } from "../../globe.d.ts";
 import type { GeoPBF, Geometry } from "geopbf";
 import type { CzmlPlayer } from "../gadgets/czml.ts";
 import type { MeshItemRef } from "../meshpick.ts";

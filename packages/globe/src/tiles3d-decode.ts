@@ -5,6 +5,7 @@
 // 点のオーバーレイ（gadgets/points-gl.js・原点相対）の形で返す。高さは接地しない＝絶対高さ（楕円体高）−baseH をそのまま持つ。
 import { decodeModel, ecef2geo, geoWorld, earthW, fetchFor } from "./meshdecode.ts";
 import { batchTableOf } from "./mesh-features.ts";
+import { m3mul, m3v as mulL } from "./matrix.ts";   // 列優先 3x3
 import type { PropertyTable } from "./mesh-features.ts";
 import { decodeGeom, type GeomOut } from "./geom-tile.ts";
 import { decodeVctr } from "./vctr-tile.ts";
@@ -33,8 +34,6 @@ const jsonAt = (ab: ArrayBuffer, off: number, len: number): FeatureTableJson => 
 
 // 列優先 4x4（3D Tiles の transform）→ { L:列優先 3x3, t }
 const splitM4 = (m: ArrayLike<number>): Xf3 => ({ L: Float64Array.of(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]), t: [m[12], m[13], m[14]] });
-const mulL = (L: ArrayLike<number>, v: ArrayLike<number>) => [L[0] * v[0] + L[3] * v[1] + L[6] * v[2], L[1] * v[0] + L[4] * v[1] + L[7] * v[2], L[2] * v[0] + L[5] * v[1] + L[8] * v[2]];
-const m3mul = (a: ArrayLike<number>, b: ArrayLike<number>) => { const o = new Float64Array(9); for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) o[c*3+r] = a[r]*b[c*3] + a[3+r]*b[c*3+1] + a[6+r]*b[c*3+2]; return o; };
 const apply = (M: Xf3, v: ArrayLike<number>) => { const p = mulL(M.L, v); return [p[0] + M.t[0], p[1] + M.t[1], p[2] + M.t[2]]; };
 
 // 特徴表（feature table）の値＝JSON の直値か、バイナリへの { byteOffset }（componentType は仕様の既定）

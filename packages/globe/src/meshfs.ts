@@ -7,6 +7,7 @@
 // 同期ハンドルは dedicated worker 専用＝この store は meshworker からのみ使う。
 // base→worker はハッシュ固定ルーティング＝同一ファイルを複数 worker が同時に触ることは無い。
 
+import { dataStart } from "./meshq.ts";   // pos(f32) を 4B 整列（書く側と同じ式）
 import type { PlqMesh } from "./meshq.ts";
 
 /** 保存するバッチ（tiles＝部分再開の差分計算用の葉 URI） */
@@ -57,7 +58,6 @@ export function packBatch(mesh: StoredBatch): Uint8Array {
 	u8.set(new Uint8Array(mesh.idx.buffer, mesh.idx.byteOffset, mesh.idx.byteLength), o);
 	return u8;
 }
-const dataStart = (jsonLen: number) => { const h = 8 + jsonLen; return h + ((4 - h % 4) % 4); };   // pos(f32) を 4B 整列
 
 // 読み＝readAt(view, at) コールバック（worker では ah.read(view,{at})、テストでは配列コピー）。
 // headerOnly＝tiles だけ欲しい部分再開の走査用（本体3配列を読まない）。壊れていれば null。

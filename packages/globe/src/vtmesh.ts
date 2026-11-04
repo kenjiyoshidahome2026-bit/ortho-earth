@@ -139,6 +139,16 @@ export function tessellatePolygon(rings: ArrayLike<ArrayLike<number>>, E: number
 }
 
 // タイル座標 → 経緯度（度）
+/** タイルの枠 [w, s, e, n]（度）＝vtdraw／vtextrude／gjlabels の選びで使う（一本化・2026-11-05） */
+export const tileBbox = (z: number, x: number, y: number): number[] => { const n = 2 ** z, lat = (v: number) => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
+/** 2 つの bbox [w, s, e, n] が触れるか */
+export const bboxHits = (a: ArrayLike<number>, b: ArrayLike<number>): boolean => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
+/** 層の zoom 域に z が入るか（MapLibre＝minzoom 包含・maxzoom 排他） */
+export const inZoom = (L: { minzoom?: number | null; maxzoom?: number | null }, z: number): boolean => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);
+/** paint が feature-state を読むか（layout・filter は読まない＝MapLibre と同じ） */
+export const usesFS = (L: { paint?: unknown } | null | undefined): boolean => JSON.stringify(L?.paint ?? null).includes('"feature-state"');
+/** 視点の中心 (cx, cy)（度・cw＝cos(緯度)）からタイルの枠までの距離²（度²）＝近い順に並べる鍵 */
+export const tileDist2 = (cx: number, cy: number, cw: number) => (t: TileXYZ): number => { const b = tileBbox(t.z, t.x, t.y), dx = Math.max(b[0] - cx, 0, cx - b[2]) * cw, dy = Math.max(b[1] - cy, 0, cy - b[3]); return dx * dx + dy * dy; };
 export function tileToLonLat(z: number, x: number, y: number, E: number, px: number, py: number): [number, number] {
 	const n = 2 ** z, wx = (x + px / E) / n, wy = (y + py / E) / n;
 	return [wx * 360 - 180, R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * wy)))];

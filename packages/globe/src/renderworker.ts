@@ -26,7 +26,7 @@ import { sunDirAt, paintSunShadow, paintViewshed, D2R, R_EARTH, K_REFR } from ".
 import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
 import type { RendererAnalysis } from "@ortho-earth/core/gpu";
 import type { ClipPlane } from "@ortho-earth/core/clip";
-import type { DepthApi, DepthFrame } from "@ortho-earth/core/depthout";
+import type { DepthFrame } from "@ortho-earth/core/depthout";
 import type { ClockAnchor } from "@ortho-earth/ephem/clock";
 import type { Label2D, LabelImageInput, LabelLayer, SkyLabels, SkyMoon, UserLabel } from "@ortho-earth/core/labels";
 import type { GpuTextSink } from "@ortho-earth/core/textgpu";
@@ -1149,7 +1149,6 @@ function frame() {
 				const pfT2 = performance.now();
 				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;
 				if (pfT2 - pfLast > 2000 && pfN > 0) {
-					const heap = ((performance as PerfMem).memory?.usedJSHeapSize! / 1048576) | 0;
 					const glErr = glRef ? glRef.getError() : -1;   // 0以外＝どこかの draw が GL エラーを出している（perf 時のみ照会＝パイプライン停止を常用経路に持ち込まない）
 					const gm = tqN.map ? (tqSum.map / tqN.map).toFixed(2) : "-";     // GPU 実時間（timer query・数フレーム遅れの平均）
 					const gg = tqN.gint ? (tqSum.gint / tqN.gint).toFixed(2) : "-";

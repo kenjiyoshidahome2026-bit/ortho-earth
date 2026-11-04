@@ -4,6 +4,7 @@
 //   四角＝倍率（錨からの地面の距離の比）。✓＝畳む（gizmo:"auto" の模型は模型をクリックで出し直す＝model.js）。
 //   描くのは mapEl の上の SVG 1 枚（marker.js と同じく描くたび＝onFrame＋move に投影し直す）。輪は地面の円を 48 点投影した多角形＝傾けると楕円に見える（地面に貼り付いて見える）。
 //   輪の半径＝模型の外接矩形の 0.6 倍（m）。画面で 36px より小さければ 36px に広げる（遠くからでもつまめる）。地図のドラッグは pointerdown の stopPropagation で止める（marker と同じ）。
+import { cssOnce } from "./css-once.ts";
 import type { LonLat, ModelHandle, ModelTransform } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 
@@ -24,8 +25,7 @@ const CSS = `
 .oe-gizmo .gz-done rect{fill:var(--qm-surface,#fff);stroke:var(--oe-gz);stroke-width:1.5}
 .oe-gizmo .gz-done text{fill:var(--oe-gz);font:bold 13px/1 system-ui,sans-serif;text-anchor:middle;dominant-baseline:central;pointer-events:none}
 .oe-gizmo.gz-busy .gz-ring,.oe-gizmo.gz-busy .gz-spoke{opacity:1}`;
-let cssOn = false;
-const ensureCss = () => { if (cssOn) return; cssOn = true; const s = document.createElement("style"); s.textContent = CSS; document.head.append(s); };
+const ensureCss = cssOnce(CSS);
 const SVG = "http://www.w3.org/2000/svg";
 const el = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}): SVGElementTagNameMap[K] => { const e = document.createElementNS(SVG, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); return e; };
 const M_LAT = 110950, mLon = (lat: number) => Math.max(1e-3, 111320 * Math.cos(lat * Math.PI / 180));   // 1° の実寸（m）
