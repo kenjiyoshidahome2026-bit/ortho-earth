@@ -85,8 +85,16 @@ export async function createTileLoader(opts: TileLoaderOptions = {}): Promise<Ti
 	//（旧・素の await は reject が createTileLoader ごと落とし、山が永久に平らになる＝iPhone私的モード実症状）。
 	// worker 側（altpbf.js load）は元から getCache().catch(()=>null) で同じ縮退＝これで経路が揃う。
 	const cache = await Cache("GIS/alt").catch((e: unknown) => { console.warn("[tileLoader] IDB disabled (continuing without cache)", (e as Error)?.message ?? e); return null; });
-	let index = await loadAlosIndex(cache, i => { index = i; });
-	const existAlos = (lng: number, lat: number): string | undefined => index[encodeName(lng, lat)];
+	// AW3D30 一覧で起動を待たせない（2026-11-05・本人報告「モバイルの立ち上がりが遅い＝⛰ 標高ローダー 初期化中…が長い」）：一覧は proxy の
+	// check＋本体 360KB の 2 往復＝モバイル回線では数秒で、その間ローダ全体が未成立＝地形が平ら・トーストが出続けた。IDB 命中なら
+	// ほぼ即・未着の間は「一覧不明」（null）として R01 の有無の門を素通し＝bucket の焼き直し域（日本）は一覧と無関係に取れる。
+	// 海等の未整備セルはその間だけ JAXA まで行って null（従来の「無い」と同じ答え）。届いたら差し替え（取得失敗＝空は不明のまま＝従来は
+	// 「一覧到着まで R01 無し」だったが、bucket は読める方が正しい）
+	let index: Record<string, string> | null = null;
+	const tIdx = performance.now();
+	const setIndex = (i: Record<string, string>): void => { if (Object.keys(i).length) index = i; };
+	loadAlosIndex(cache, setIndex).then(i => { setIndex(i); console.log(`[tileLoader] AW3D30 index ${Object.keys(i).length ? "ready" : "unavailable (bucket only)"} in ${(performance.now() - tIdx) | 0} ms`); });
+	const existAlos = (lng: number, lat: number): boolean => !index || !!index[encodeName(lng, lat)];   // 一覧不明＝通す
 	// worker プール：1本直列だと初訪問時に視野分のセル（R10で最大64枚）が1枚ずつ順番待ちになり
 	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
 	// プール間はラウンドロビン＝並列。IDBキャッシュ後は経路無関係に即答。
@@ -183,8 +191,10 @@ export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetH
 	const dtm = opts.dtm || null;   // 地域の申告（createTileLoader と同じ物を渡すこと）
 	// createTileLoader と同じ縮退（IDB無し環境で標高取得ごと死なない）
 	const cache = await Cache(dire).catch(() => null);
-	let index = await loadAlosIndex(cache, i => { index = i; });
-	const exist = (lng: number, lat: number): string | undefined => index[encodeName(lng, lat)];
+	// 一覧で起動を待たせない（createTileLoader と同じ・2026-11-05）：未着＝不明は R01 を試す（bucket が答える・無ければ load が null → R10 へ）
+	let index: Record<string, string> | null = null;
+	loadAlosIndex(cache, i => { if (Object.keys(i).length) index = i; }).then(i => { if (Object.keys(i).length) index = i; });
+	const exist = (lng: number, lat: number): boolean => !index || !!index[encodeName(lng, lat)];
 	let isLoading: number | null = null;
 	let inflight: Promise<ElevTile | null> | null = null;   // 進行中の読込（wait 呼びが順番待ちに使う）＝return より前に宣言（load は hoist されるが let は TDZ）
 	const level1 = opts.level1||7, level2 = opts.level2||12;
