@@ -2053,7 +2053,8 @@ let lastMoveSwapT = 0;
 // ＝classic の全枚 merge と違って軽い＝移動中の要求の間引きを 1 フレーム（16ms）まで詰める＝届いたタイルが次のフレームで載る（MapLibre と同じ「届いた順に描く」）。
 // classic（?nomd=1・LOW_MEM の既定）は従来の 125／60／60 のまま。?mdgap=N＝md の 3 つの間隔を N ms に（A/B の逃げ道＝?mdgap=60 で旧のズーム・要求の間隔、?mdgap=0 で間引き無し）。
 // 追い越しは scene worker の dl の FIFO（dlApplied）が防ぐ＝sig が同じなら要求しない（swapScene）のも従来どおり。効きの物差し＝Mac の bench-perf（計器 e の move 中央値と hitch）。
-const MD_GAP_MS = noMultiDraw ? null : qNum(/[?&]mdgap=(\d+)/, 16);
+const MD_GAP_Q = qNum(/[?&]mdgap=(\d+)/, -1);   // 明示の ?mdgap=N は classic（LOW_MEM）にも効く＝移動中の全量再転送の回数を減らす A/B（2026-11-04 Mali 実機：描画は 17ms でも転送の停止が毎秒 300〜700ms）
+const MD_GAP_MS = MD_GAP_Q >= 0 ? MD_GAP_Q : noMultiDraw ? null : 16;
 const MOVE_SWAP_MS = MD_GAP_MS ?? 125, MOVE_SWAP_ZOOM_MS = MD_GAP_MS ?? 60, MAIN_REQ_GAP_MS = MD_GAP_MS ?? 60;   // MAIN_REQ_GAP_MS＝新 sig の merge 要求の最短間隔（旧 200＝届いたタイルが画面に出るまでの主因・merge 自体は数 ms・sig が同じなら要求しない）2026-09-30   // MOVE_SWAP_ZOOM_MS＝ズーム中（zoomStable でない間）の merge 要求の間隔＝新しい段のタイルは届き次第（止まるまで待たない・LOW_MEM は従来どおり止まってから）2026-09-30
 // ラベルはGLシーンと別経路（render worker のテキスト描画）＝丁目(z15.5)/空港マーク(z13)のz門で GL バッファを
 // 全再結合する理由は無い（本人指摘 2026-08-04「テキストにmergeは要らない」）。両者を merge シグネチャから外し、
