@@ -143,6 +143,24 @@ console.log("― 近景層の窓（range < 1）：陸でも無い段は親で埋
 	ok(c && c.valid === 1 && c.data[32 * 65 + 32] === 412, `z17〜15 が無くても z14 で穴が無い（valid ${c?.valid}・中央 ${c?.data[32 * 65 + 32]}）`);
 }
 
+console.log("― 在庫の無い段は細かい段へ下りる（layer.json の available が z7〜 だけ＝局所の配信・試料）―");
+{
+	// R10 のセルは z6（タイル幅≈セル/4）を選ぶが、在庫が z7 からしか無い＝旧は null（粗い窓では DEM が丸ごと入らず海だった・t-qmesh の R10 窓 2026-11-05）
+	const asked = new Set();
+	const avail = []; for (let z = 0; z <= 10; z++) avail.push(z < 7 ? [] : [{ startX: 0, startY: 0, endX: 2 ** (z + 1) - 1, endY: 2 ** z - 1 }]);
+	globalThis.fetch = async (u) => {
+		const url = String(u);
+		if (url.endsWith("layer.json")) return { ok: true, json: async () => ({ format: "quantized-mesh-1.0", tiles: ["{z}/{x}/{y}.terrain"], minzoom: 0, maxzoom: 10, bounds: [150, 30, 151, 31], available: avail }) };
+		const [z] = url.split("/").slice(-3).map(v => parseInt(v)); asked.add(z);
+		const b = makeTile([0, 0, 1, 1], 5, () => 777).ab; return { ok: true, arrayBuffer: async () => b };
+	};
+	const { createQmeshSource } = await import("../src/qmesh-src.ts");
+	const c = await createQmeshSource({ url: "https://s.test/layer.json", heights: "orthometric" }).cell(150, 30, 10, 65);
+	ok([...asked].join() === "7", `z6 に在庫が無い＝z7 から取る（取った段 ${[...asked].join(",")}）`);
+	const i = Math.round((30 + 10 - 30.5) / 10 * 64) * 65 + Math.round(0.5 / 10 * 64);
+	ok(c && c.valid > 0 && c.data[i] === 777, `R10 のセルに DEM が入る（valid ${c?.valid.toFixed(3)}・150.5E 30.5N＝${c?.data[i]}）`);
+}
+
 console.log("― 近景層の窓の段＝1025 texel に見合う深さ（タイル幅≈窓/12・13×13≤169 枚）―");
 {
 	// 1/4° の窓（目が 5 km 先＝high-dynamic-range）は従来 z11（誤差 38 m＝崖が団子）→ z13（Cesium が目の近くで見せる段）。1/8° → z14
