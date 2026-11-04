@@ -94,9 +94,14 @@ export function createQmeshSource(spec0: QmeshSpecInput): QmeshSource {
 			// 近景層の窓（range < 1）＝タイル幅≈窓/12（跨ぎ込みで最大 13×13＝169 枚・MAX_TILES 400 の内）：1025 texel の窓に見合う段（1/4°→z13・1/8°→z14・1/64°→z17）。
 			// 従来の窓/4（1/4°→z11・誤差 38m）は Cesium が目の近くで見せる z13〜14（誤差 5〜9m）より 2 段粗く、崖が団子になった（high-dynamic-range・fog 2026-10-31）
 			const zq = range === 1 && spec.cellZoom != null ? spec.cellZoom : range < 1 ? Math.floor(Math.log2(180 * 12 / range)) : Math.round(Math.log2(180 / (range / div)));
-			const z = Math.max(L.minzoom, Math.min(L.maxzoom, zq));
 			const w = Math.max(lng0, b ? b[0] : -180), e = Math.min(lng0 + range, b ? b[2] : 180), s = Math.max(lat0, b ? b[1] : -90), n = Math.min(lat0 + range, b ? b[3] : 90);
-			const [x0, y0] = qmTileAt(z, w, s), [x1, y1] = qmTileAt(z, e - 1e-9, n - 1e-9);
+			const rect = (zz: number): [number, number, number, number] => { const [x0, y0] = qmTileAt(zz, w, s), [x1, y1] = qmTileAt(zz, e - 1e-9, n - 1e-9); return [x0, y0, x1, y1]; };
+			const stocked = (zz: number, [x0, y0, x1, y1]: [number, number, number, number]): boolean => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (qmAvailable(L, zz, x, y)) return true; return false; };
+			// 段に在庫が無い（layer.json の available がその段を持たない＝細かい段だけの局所の配信・z7〜 の試料）なら、細かい段へ下りる（取る枚数が
+			// MAX_TILES に収まる限り）。旧＝その段で null＝粗い窓（R10）では DEM が丸ごと入らず既定の標高（海）だった（2026-11-05・t-qmesh の R10 窓）
+			let z = Math.max(L.minzoom, Math.min(L.maxzoom, zq)), r = rect(z);
+			while (z < L.maxzoom && !stocked(z, r)) { const r2 = rect(z + 1); if ((r2[2] - r2[0] + 1) * (r2[3] - r2[1] + 1) > MAX_TILES) break; z++; r = r2; }
+			const [x0, y0, x1, y1] = r;
 			const need: [number, number][] = []; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) need.push([x, y]);
 			if (need.length > MAX_TILES) return null;
 			const grid: QMGrid = { data: new Float32Array(N * N).fill(NaN), N, lng: lng0, lat: lat0, range };

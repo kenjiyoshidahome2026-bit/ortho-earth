@@ -593,6 +593,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			else if (m.cmd === "dem") {   // 外来の標高タイルの生き替え（#36）。terrain:false の地図は初めての DEM で地形を作る（外す時は作った地形の DEM を外す＝既定の標高に戻る・台帳 §4）
 				if (!terrain && terrLazyInit && m.data) { terrain = makeTerrain(terrLazyInit, m.data as TerrainOptions["dem"]); terrLazyInit = null; dirty = true; armRaf(); }
 				else terrain?.setDem((m.data || null) as Parameters<Terrain["setDem"]>[0]);
+				lastEnsure = null; dirty = true; armRaf();   // 窓を作り直す（世代が進んだ）：ensureIfMoved はカメラが動いた時だけ ensure を呼ぶ＝静止したまま setTerrain(null)／差し替えをすると、新しい世代の窓が二度と作られず古い DEM の山が残った（t-qmesh renderedSea・2026-11-05）
 				if (cam) labelLayer?.setElev(L => terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam!) : 0);   // 先に届いていた注記（基図・vector）へ標高を付け直す＝注記が地形より先に来ると標高 0 のまま置かれ、傾けた絵で位置がずれる（段 3 で sprite の読み込みが setTerrain を遅らせて露見・2026-09-28）
 			}
 			else if (m.cmd === "terrainExag") {   // 地形の誇張（setTerrain の exaggeration・既定 1）＝地形・持ち上げ・注記・オーバーレイを同じ倍率に

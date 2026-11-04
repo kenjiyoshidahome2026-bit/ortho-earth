@@ -86,15 +86,15 @@ export async function createTileLoader(opts: TileLoaderOptions = {}): Promise<Ti
 	// worker 側（altpbf.js load）は元から getCache().catch(()=>null) で同じ縮退＝これで経路が揃う。
 	const cache = await Cache("GIS/alt").catch((e: unknown) => { console.warn("[tileLoader] IDB disabled (continuing without cache)", (e as Error)?.message ?? e); return null; });
 	// AW3D30 一覧で起動を待たせない（2026-11-05・本人報告「モバイルの立ち上がりが遅い＝⛰ 標高ローダー 初期化中…が長い」）：一覧は proxy の
-	// check＋本体 360KB の 2 往復＝モバイル回線では数秒で、その間ローダ全体が未成立＝地形が平ら・トーストが出続けた。IDB 命中なら
-	// ほぼ即・未着の間は「一覧不明」（null）として R01 の有無の門を素通し＝bucket の焼き直し域（日本）は一覧と無関係に取れる。
-	// 海等の未整備セルはその間だけ JAXA まで行って null（従来の「無い」と同じ答え）。届いたら差し替え（取得失敗＝空は不明のまま＝従来は
-	// 「一覧到着まで R01 無し」だったが、bucket は読める方が正しい）
-	let index: Record<string, string> | null = null;
+	// check＋本体 360KB の 2 往復＝モバイル回線では数秒で、その間ローダ全体が未成立＝R10/R90 まで止まり地形が平ら・トーストが出続けた。
+	// ここでは一覧を待たずにローダを成立させ（R10・R90・byName は即）、**R01 の有無の判定だけ**が一覧の到着を待つ（従来と同じ答え＝
+	// 一覧に無いセルは null・取得失敗＝空の一覧＝R01 無し）。初版（#958）は未着の間「不明＝通す」にしたが、海のセル（一覧に無い）が
+	// JAXA の 5° zip の取り寄せ（応答まで数十秒）へ流れ、その間 getCell が待ち続け、外来 DEM（quantized-mesh）の焼き込みまで遅れた
+	// ＝検定 t-qmesh の renderedLand が落ちた（配布の門で退行として停止・2026-11-05）
+	let index: Record<string, string> | null = null;   // null＝一覧がまだ無い（到着まで R01 の判定は indexReady を待つ）
 	const tIdx = performance.now();
-	const setIndex = (i: Record<string, string>): void => { if (Object.keys(i).length) index = i; };
-	loadAlosIndex(cache, setIndex).then(i => { setIndex(i); console.log(`[tileLoader] AW3D30 index ${Object.keys(i).length ? "ready" : "unavailable (bucket only)"} in ${(performance.now() - tIdx) | 0} ms`); });
-	const existAlos = (lng: number, lat: number): boolean => !index || !!index[encodeName(lng, lat)];   // 一覧不明＝通す
+	const indexReady = loadAlosIndex(cache, i => { index = i; }).then(i => { index = i; console.log(`[tileLoader] AW3D30 index ${Object.keys(i).length ? "ready" : "unavailable (R01 off until refetched)"} in ${(performance.now() - tIdx) | 0} ms`); });
+	const existAlos = async (lng: number, lat: number): Promise<boolean> => { if (!index) await indexReady; return !!index![encodeName(lng, lat)]; };
 	// worker プール：1本直列だと初訪問時に視野分のセル（R10で最大64枚）が1枚ずつ順番待ちになり
 	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
 	// プール間はラウンドロビン＝並列。IDBキャッシュ後は経路無関係に即答。
@@ -169,7 +169,7 @@ export async function createTileLoader(opts: TileLoaderOptions = {}): Promise<Ti
 	};
 	// (lng0, lat0, range) 原点は range 刻み。tile obj | null（R01 は ALOS 無い海等で null）。
 	const loadTile = async (lng0: number, lat0: number, range: number): Promise<ElevTile | null> => {
-		if (range === 1 && !existAlos(lng0, lat0)) return null;   // R01 は ALOS 未整備（海等）
+		if (range === 1 && !(await existAlos(lng0, lat0))) return null;   // R01 は ALOS 未整備（海等）＝一覧の到着を待って判定（R10/R90 は待たない）
 		const name = encodeName(lng0, lat0, range);
 		// 形の検札（2026-08-04夜）：同じIDBキーに worker側=圧縮Blob（load_gepco）と外側=デコード済みobj（下のonmsg）の
 		// 二者が非awaitで書く＝別コネクションでコミット順不定＝Blobが最後に勝ったセルが生まれ得る。それを素通しすると
@@ -191,10 +191,10 @@ export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetH
 	const dtm = opts.dtm || null;   // 地域の申告（createTileLoader と同じ物を渡すこと）
 	// createTileLoader と同じ縮退（IDB無し環境で標高取得ごと死なない）
 	const cache = await Cache(dire).catch(() => null);
-	// 一覧で起動を待たせない（createTileLoader と同じ・2026-11-05）：未着＝不明は R01 を試す（bucket が答える・無ければ load が null → R10 へ）
+	// 一覧で起動を待たせない（createTileLoader と同じ・2026-11-05）：成立は即・R01 の有無の判定だけ一覧の到着を待つ（答えは従来どおり）
 	let index: Record<string, string> | null = null;
-	loadAlosIndex(cache, i => { if (Object.keys(i).length) index = i; }).then(i => { if (Object.keys(i).length) index = i; });
-	const exist = (lng: number, lat: number): boolean => !index || !!index[encodeName(lng, lat)];
+	const indexReady = loadAlosIndex(cache, i => { index = i; }).then(i => { index = i; });
+	const exist = async (lng: number, lat: number): Promise<boolean> => { if (!index) await indexReady; return !!index![encodeName(lng, lat)]; };
 	let isLoading: number | null = null;
 	let inflight: Promise<ElevTile | null> | null = null;   // 進行中の読込（wait 呼びが順番待ちに使う）＝return より前に宣言（load は hoist されるが let は TDZ）
 	const level1 = opts.level1||7, level2 = opts.level2||12;
@@ -266,7 +266,7 @@ export async function createGetHeight(opts: GetHeightOptions = {}): Promise<GetH
 		return calcHeight((lng-lng0)/range, (lat-lat0)/range, v)||hgt90(lng,lat,wait);
 	}
 	async function hgt01(lng: number,lat: number,wait: boolean): Promise<number>  { const range = 1;
-		const lng0 = floor(lng), lat0 = floor(lat); if (!exist(lng0,lat0)) return hgt10(lng,lat,wait);   // 索引の名は整数の南西隅（N035E139）＝小数で引くと常に外れて R10 に落ちていた（2026-09-25）
+		const lng0 = floor(lng), lat0 = floor(lat); if (!(await exist(lng0,lat0))) return hgt10(lng,lat,wait);   // 索引の名は整数の南西隅（N035E139）＝小数で引くと常に外れて R10 に落ちていた（2026-09-25）
 		const v = await load(lng0, lat0, range, wait);
 		return calcHeight((lng-lng0), (lat-lat0), v)||hgt10(lng,lat,wait);
 	}

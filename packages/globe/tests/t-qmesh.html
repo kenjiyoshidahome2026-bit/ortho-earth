@@ -36,9 +36,12 @@ try {
 	const grab = async () => { const blob = await Promise.race([shot.composite(), sleep(30000).then(() => { throw new Error("composite timeout"); })]); const bmp = await createImageBitmap(blob); const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height }); cv.getContext("2d").drawImage(bmp, 0, 0); return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height).data; };
 	const W = 960, px = (d, x, y) => { const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
 	const land = d => { const [r, g, b] = px(d, 480, 250); return b < r + 10; };
+	// 山頂（480,250）と同じ行の山腹（40,250＝約 0.2° 西＝円錐の中・約 900m）の色が違う＝地形の色が描かれている証し。地形が描かれる前の写しは行が一色
+	//（2026-11-05：旧は陸の判定だけ＝ローダの成立が遅い間は「描かれる前の一色（紙）」を陸と読んで通っていた＝ローダが即成立すると海の色で落ちた）
+	const shaded = d => { const a = px(d, 480, 250), b = px(d, 40, 250); return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2])) >= 16; };
 	const poll = async (want, ms) => { const t0 = performance.now(); let d; while (performance.now() - t0 < ms) { d = await grab(); if (want(d)) return d; await sleep(2000); } return d; };
-	const withDem = await poll(land, 60000);
-	ok("renderedLand", land(withDem), px(withDem, 480, 250).join(","));
+	const withDem = await poll(d => land(d) && shaded(d), 60000);
+	ok("renderedLand", land(withDem) && shaded(withDem), `${px(withDem, 480, 250).join(",")} flank ${px(withDem, 40, 250).join(",")}`);
 	// ④ 外す
 	await map.setTerrain(null);
 	const g0 = await map.getHeight(150.5, 30.5);
