@@ -34,7 +34,7 @@ export interface TerrainDebug {
 	lastCam: { z: number; c: number[]; p: number } | null; lastSize: TerrainSize | null;
 }
 export interface Terrain {
-	ensure(cam: CameraPose, size: TerrainSize): boolean; sampleElev(lon: number, lat: number): number; prefetch(cellLng: number, cellLat: number, range: number): Promise<TerrainTile | null>;
+	ensure(cam: CameraPose, size: TerrainSize): boolean; sampleElev(lon: number, lat: number): number; /** sampleElev を 1 セルに束ねた速い版（建物の接地リフトの焼き込み＝数万頂点/バッチ）：始点のセルで引き、外れた点は sampleElev へ */ elevSampler(lon: number, lat: number): (lon: number, lat: number) => number; /** 直近の ensure が決めた DTM 保証域（メッシュ接地リフトが有効な経緯度域・無し＝null） */ liftBounds(): number[] | null; prefetch(cellLng: number, cellLat: number, range: number): Promise<TerrainTile | null>;
 	prefetchWorld(): Promise<void>; bytes(): number; debug(): TerrainDebug; /** 遠景層（R10 の far アトラス）に載った最大標高（m）・遠景層なし＝0 */ farMaxElev(): number; setDem(spec: DemSpecInput | QmeshSpecInput | null): void; demHeight(lon: number, lat: number, zHint?: number | null): Promise<number | null>;
 }
 interface PerfHitch { elev: number; scene: number; resMs?: number; resMax?: number; upMs?: number; upMax?: number; cellN?: number }
@@ -364,6 +364,27 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const v = top + (bot - top) * ty;
 		return v < 0 && !seaOf(tile) ? 0 : v;
 	}
+	let lastLiftBounds: number[] | null = null;
+	// sampleElev の 1 セル束ね版：Map 検索と文字列キーを頂点ごとに払わない（建物 1 バッチ＝数万頂点を転送時に焼く・2026-11-04）。
+	// 始点のセル（最も細かい段）に束ね、そのセルから外れた点だけ sampleElev へ落とす＝値は sampleElev と同一。
+	function elevSampler(lon0: number, lat0: number): (lon: number, lat: number) => number {
+		let tile: TerrainTile | null | undefined = null;
+		for (const range of [1, 10, 90]) {
+			tile = r10Tiles.get(range + "," + Math.floor(lon0 / range) * range + "," + Math.floor(lat0 / range) * range);
+			if (tile) break;
+		}
+		if (!tile) return sampleElev;
+		const cx = tile.lng, cy = tile.lat, range = tile.range, { data, width: w, height: h } = tile, sea = seaOf(tile);
+		return (lon: number, lat: number): number => {
+			if (lon < cx || lon >= cx + range || lat < cy || lat >= cy + range) return sampleElev(lon, lat);
+			const gx = Math.min(w - 1, Math.max(0, (lon - cx) / range * w - 0.5)), gy = Math.min(h - 1, Math.max(0, (lat - cy) / range * h - 0.5));
+			const x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), tx = gx - x0, ty = gy - y0;
+			const r0 = (h - 1 - y0) * w + x0, r1 = r0 - w;   // y:0=南
+			const top = data[r0] + (data[r0 + 1] - data[r0]) * tx, bot = data[r1] + (data[r1 + 1] - data[r1]) * tx;
+			const v = top + (bot - top) * ty;
+			return v < 0 && !sea ? 0 : v;
+		};
+	}
 	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化＝cropResample（elevation.js へ移設・2026-09-27・門＝tests/elevation-resample.mjs）
 	// 窓縁の標高フェード幅(deg)。viewCellRange の隣セル強制包含と ensure の renderer.set で共用（値ズレ防止）。
 	const EDGE_FADE = (r: number): number => r === 90 ? 0 : r === 10 ? 1.5 : 0.4;
@@ -529,6 +550,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			// 窓は段が R01 の時だけ裸地になり得る＝そのうえで申告域と重なった分だけがリフト可。
 			const liftBounds = clipToDTM(mixed ? [c1x - 1, c1y - 1, 3, 3]
 				: range === 1 ? [r.originCX, r.originCY, r.cellsX, r.cellsY] : null, dtmBounds);
+			lastLiftBounds = liftBounds;
 			// gMax＝地形メッシュ格子の上限（renderer が窓形状から G を決める時の天井）。lowMem=1024 で
 			// 頂点+index を 75MB→33.5MB（-42MB）。メッシュは GPU 固定常駐の最大項＝3GB 機の一番効く一枠。
 			// 見た目の代償＝quad が 1.5 倍粗くなるが、スマホ/タブレットの画面密度では絵の破綻はない側。
@@ -712,7 +734,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		lru: r10Tiles.size, bytes: tileBytes, world: worldAtlas ? "atlas" : worldP ? "loading" : "none",
 		lastCam: lastEnsureCam ? { z: +lastEnsureCam.zoom.toFixed(2), c: [+lastEnsureCam.center[0].toFixed(2), +lastEnsureCam.center[1].toFixed(2)], p: +(lastEnsureCam.pitch || 0).toFixed(2) } : null,
 		lastSize: lastEnsureSize });
-	return { ensure, sampleElev, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug, setDem, demHeight, farMaxElev: () => farMax };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
+	return { ensure, sampleElev, elevSampler, liftBounds: () => lastLiftBounds, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug, setDem, demHeight, farMaxElev: () => farMax };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
 }
 
 /** 足元層（fine）の窓：画面下端（左・中央・右）の視線を目から下へ辿り（注視点の高さの球を h ごとに下げて unproject＝同じ視線上の点）、地面（sampleElev）に当たる所を探す。
