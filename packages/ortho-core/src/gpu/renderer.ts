@@ -39,7 +39,7 @@ import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標�
 import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gl と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gl と同式の正本）
-import { meshLodCount, setMeshLodScale, setMeshRange, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
+import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
 import { terrainGridUV } from "../terrainlod.ts";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
@@ -82,6 +82,8 @@ export interface RendererGPUOptions {
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
 	/** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N＝画面 N px 未満の建物を描かない・既定 1） */
 	meshLod?: number;
+	/** ズームアウトの坂（?meshlodz=K）：zoom < meshLodZ0 で LOD の物差しを K^(z0−zoom) 倍（1 以下＝坂なし） */
+	meshLodZ?: number; meshLodZ0?: number;
 	/** 注視点からこの距離（km）より遠い建物メッシュの束は描かない（?meshrange=KM・既定＝切らない） */
 	meshRange?: number;
 	/** 建物（基図の押し出し・PLATEAU）の頂点の標高を主アトラス 1 標本で引く（?elevcheap=1・既定オフ） */
@@ -335,7 +337,7 @@ function skyEnvCompute(sun: number[], oPt: ArrayLike<number>, { k = 4, sunI = 20
 }
 
 export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCanvas, rOpts: RendererGPUOptions = {}) {
-	setMeshLodScale(rOpts.meshLod || 1); setMeshRange(rOpts.meshRange || 0);
+	setMeshLodScale(rOpts.meshLod || 1); setMeshRange(rOpts.meshRange || 0); setMeshLodZoom(rOpts.meshLodZ0 || 15, rOpts.meshLodZ || 1);
 	if (typeof navigator === "undefined" || !navigator.gpu) throw new Error("WebGPU unavailable");
 	const adapter = await navigator.gpu.requestAdapter(gpuAdapterOptions(rOpts.powerPreference ?? powerPreference()));
 	if (!adapter) throw new Error("WebGPU adapter unavailable");
@@ -3392,7 +3394,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
 			const pad = 0.5 * Math.max(st.W, st.H);   // 高層ビルの頭のはみ出し余白（半画面）
-			const mppx = mppxOf(cam.zoom);   // 画面1pxが何m（LOD打ち切りの物差し・framek.ts）
+			const mppx = meshLodMppx(mppxOf(cam.zoom), cam.zoom);   // 画面1pxが何m（LOD打ち切りの物差し・framek.ts）＋ズームアウトの坂（?meshlodz）
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180), foot = betaGeo(st.eye);   // foot＝目の足元（bbox 内なら無条件で可視）
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
 			const draws: { p: MeshBatch; count: number; slot: number; pre?: boolean }[] = [];

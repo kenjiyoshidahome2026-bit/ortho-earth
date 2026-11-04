@@ -5,7 +5,7 @@
 // node tests/shared-purefns.mjs
 import { readFileSync } from "node:fs";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../src/framek.ts";
-import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes } from "../src/meshcull.ts";
+import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes, setMeshLodZoom, meshLodMppx } from "../src/meshcull.ts";
 import { dashU, userAnchorPlan, hiFillOf, worldFanRuns } from "../src/drawshared.ts";
 import { packResampleParams, cpuResampleCell } from "../src/elevcell.ts";
 import { evalPaintZoomMemo, evalPaintZoom } from "../src/paintzoom.ts";
@@ -72,6 +72,12 @@ const zooms = [-1, 0, 0.3, 1, 1.9, 2.2, 3.7, 4.9, 5, 6.4, 6.5, 8, 12, 13.5, 13.7
 	];
 	ok(P.every(p => meshLodCount(p, center, cosLat, mppx) === refCount(p)), `meshLodCount：${P.length} 束が旧 inline と同じ（${P.map(p => meshLodCount(p, center, cosLat, mppx)).join(",")}）`);
 	ok(meshLodCount(P[1], center, cosLat, mppx) < meshLodCount(P[0], center, cosLat, mppx), "meshLodCount：遠い束ほど打ち切りが強い");
+	same(meshLodMppx(5, 14), 5, "meshLodMppx：坂なし（既定）＝そのまま");
+	setMeshLodZoom(15, 8);
+	same(meshLodMppx(5, 15), 5, "meshLodMppx：坂の上端（z15）＝そのまま"); same(meshLodMppx(5, 16.3), 5, "meshLodMppx：z≥上端＝そのまま");
+	same(meshLodMppx(5, 14), 40, "meshLodMppx：1 段引く＝K 倍"); ok(Math.abs(meshLodMppx(5, 14.5) - 5 * Math.sqrt(8)) < 1e-9, "meshLodMppx：半段＝√K 倍");
+	setMeshLodZoom(15, 0);
+	same(meshLodMppx(5, 14), 5, "meshLodMppx：K≤1＝坂なしへ戻る");
 	same(liftGroundROf(100), 1 + 100 / worldRadiusM(), "liftGroundROf：注視点の高さ 100 m"); same(liftGroundROf(-5), 1, "liftGroundROf：負は 0"); same(liftGroundROf(undefined), 1, "liftGroundROf：未指定は 1");
 	const masks = new Map([["far", { bbox: [140, 36, 141, 37] }], ["near", { bbox: [139.6, 35.6, 139.8, 35.8] }], ["hidden", { bbox: [139.7, 35.68, 139.71, 35.69] }], ["mid", { bbox: [139.9, 35.9, 140, 36] }]]);
 	const picked = pickMeshMasks(masks, new Set(["hidden"]), center, 2);

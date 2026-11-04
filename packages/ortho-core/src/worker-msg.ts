@@ -33,7 +33,7 @@ export type TileResponse = TileOkResponse | TileErrorResponse;
 
 // ── ortho:scene（workers/sceneworker.ts）＝タイル geometry の保持と結合
 /** merge の order の 1 件（tilemanager の OrderItem のうち scene worker が読む分） */
-export interface SceneOrderItem { key: string; origin: number[]; z?: number }
+export interface SceneOrderItem { key: string; origin: number[]; z?: number; /** 建物の役（tilemanager OrderItem.bld） */ bld?: "no" | "only" }
 export type SceneRequest =
 	| { type: "relayCtl"; msg: unknown }   // iOS轍の中継（page→scene worker→renderPort→render worker）。msg.port があれば転送
 	| { type: "connect"; port: MessagePort }   // render worker への直結ポート
