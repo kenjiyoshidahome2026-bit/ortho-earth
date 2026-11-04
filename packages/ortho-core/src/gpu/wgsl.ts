@@ -91,7 +91,7 @@ struct Frame {
 	farBounds: vec4f,  // 遠景層（far）アトラス被覆＝近窓の外を受け持つ粗い R10 第2アトラス（深ズーム×チルトで常設）
 	farP: vec4f,       // hasFar(0/1), farEdgeFade(deg), farPass(1=遠景メッシュパス・terrainFar slot のみ), Cesium の霧の濃さ（csFogDensity・地形と模型の頂点で csFogV）
 	ellTrig: vec4f,    // 楕円体 dβ 錨 (cos2φ0, sin2φ0, cos4φ0, sin4φ0)（CPU double・原点の測地緯度）。球=vec4(0)＝補正が厳密0
-	ellP: vec4f,       // x=1:楕円体（変位方向・β→φ復元のゲート）0:球, y=案A の格子 G（fill/line 系）, z=1:建物の頂点の標高は 1 標本（?elevcheap=1）, w=0
+	ellP: vec4f,       // x=1:楕円体（変位方向・β→φ復元のゲート）0:球, y=案A の格子 G（fill/line 系）, z=1:建物の頂点の標高は 1 標本（?elevcheap=1）, w=near 面（単位球・?nearclip=M・0＝従来＝切らない）
 	cogP: vec4f,       // ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）: fill系 slot=(off.xy, 1/span)・terrain系 slot=(off.xy, mesh.zw/span)
 	gnd0: vec4f,       // 地面アトラス（近窓）uv 係数＝cogP と同形（fill系＝(off.xy, 1/span)・terrain系＝(off.xy, mesh.zw/span)）
 	gnd1: vec4f,       // 同・中窓
@@ -231,6 +231,10 @@ fn logDepthZ(w: f32) -> f32 {
 // 画素ごとに書くと 0.76m の階段になる（AO が横縞の壁として見た＝実 GPU 2026-09-29）。log1p を級数で（AO の expm1s と対・w<0.1＝7 次・相対 1e-9）
 fn log1pS(w: f32) -> f32 { if (w < 0.1) { return w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715)))))); } return log(1.0 + w); }
 fn fragDepthOf(w: f32) -> f32 { return log1pS(max(w, 1e-30)) * 1.4426950 * F.params.z * 0.5; }
+// 近景の切り取り（?nearclip=M・2026-11-05 Galaxy/Mali-G615 実機「手前の建物が手前に伸びる」）：対数深度を頂点で書くと clip z≈0（w≪1 で z∝w²）＝
+// 本当の near 面で切れず、カメラの後ろにかかる壁は w≈0 の点で切られて x/w が無限遠に飛ぶ（Apple/デスクトップは同次座標のまま耐える・Mali は固定小数点の範囲を超えて壊れる）。
+// frag_depth を書くパイプライン（fragDepthWgsl）だけ、頂点の z を透視の線形（z=(w−n)·f/(f−n)＝near n・far f＝logCoef から復元）にして GPU に n で切らせる。深度の値は frag_depth が書く＝不変。
+fn nearClipZ(w: f32) -> f32 { let n = F.ellP.w; let f = exp2(2.0 / F.params.z) - 1.0; return (w - n) * f / (f - n); }
 // sRGB ⇄ リニア（#46 段 0）。模型の baseColor は rgba8unorm-srgb ビューで読む＝標本化の時点でリニア。照明の計算はリニアで、出口で符号化する。
 // 出力面は素の bgra8/rgba8（sRGB ビューにしない＝基図・地形・建物は今までどおり表示空間の値をそのまま書く）。
 fn srgbEncode(c: vec3f) -> vec3f {
@@ -2198,7 +2202,7 @@ export function fragDepthWgsl(src: string, label = ""): string {
 	let s = src.slice(0, close) + "\n\t@location(15) cw: f32,   // clip w（frag_depth 用・#62）" + src.slice(close);
 	const vsA = "\tp.z = logDepthZ(p.w);\n\to.pos = p;";
 	if (s.split(vsA).length !== 2) throw new Error(`fragDepth(${label}): vs anchor missing/ambiguous`);
-	s = s.replace(vsA, "\tp.z = logDepthZ(p.w);\n\to.pos = p; o.cw = p.w;");
+	s = s.replace(vsA, "\tp.z = select(logDepthZ(p.w), nearClipZ(p.w), F.ellP.w > 0.0);\n\to.pos = p; o.cw = p.w;");   // ellP.w＞0＝?nearclip（本当の near 面で切る・上の nearClipZ）
 	const ff = !!m[2];
 	s = s.replace(m[0], `fn fsColor(in: ${out}${ff ? ", ff: bool" : ""}) -> vec4f {`);
 	return s + `
