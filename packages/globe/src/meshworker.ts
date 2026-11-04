@@ -27,7 +27,7 @@ type FaceCorner = [ll: number[], h: number];
 /** main からの便（type ごとに使う欄が違う・type 無し＝区のロード） */
 interface MeshMsg {
 	type?: "init" | "exclude" | "cancel" | "demote" | "promote" | "cam" | "far" | "farBake" | "purge" | "idbList" | "idbDelete";
-	meshPort?: MessagePort; ell?: boolean; lowMem?: boolean; mid?: boolean; hi?: boolean; noOpfs?: boolean; farH?: number; noBake?: boolean; bakeUrl?: string; mem?: boolean; decPorts?: MessagePort[]; dec?: number;
+	meshPort?: MessagePort; ell?: boolean; lowMem?: boolean; mid?: boolean; hi?: boolean; noOpfs?: boolean; farH?: number; noBake?: boolean; bakeUrl?: string; mem?: boolean; decPorts?: MessagePort[]; dec?: number; /** 送る束を建物の高さ順に小分けする上限（千三角形・0＝切らない・?msplit=N） */ split?: number;
 	map?: Record<string, string[]> | null; center?: number[] | null; ward: string;
 	id: number; base: string; tiles?: string[] | null; name: string; wardBbox: number[] | null; camCenter?: number[] | null; preload?: boolean; brid?: boolean;
 	clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null; doubleSided?: boolean;
@@ -307,16 +307,58 @@ const doubleSidedWards = new Set<string>();
 // wardMask 引数は未使用（旧・全量スナップショット送出の名残＝呼び出し側の引数順を保つため残置）。
 // マスクは maskCells（このバッチの断片）だけを送る＝renderer 側が届いた分だけOR合成（隙間根治の本体）。
 async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8Array | null, wardBbox: number[] | null, own = false) {
-	// クレジットは「送れた時だけ」消費する：取得後に例外（マスク導出・DataCloneError＝重複/切離しバッファ等）で送れないと
-	// クレジットが戻らず、この worker に載る全区が 2 バッチ目以降で永久に止まる（2026-09-08 停滞調査：止まった区が
-	// 同じ worker に集中＝港区/横浜中区/墨田区/新宿橋梁は全て worker 2）。送出前の準備は取得の外・postMessage 失敗は返却
-	const pos = own ? mesh.pos! : mesh.pos!.slice(), nrm = own ? mesh.nrm! : mesh.nrm!.slice(), idx = own ? mesh.idx! : mesh.idx!.slice();
 	const maskCells = maskCellsOf(mesh, wardBbox);
-	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } };
-	const transfers = [...new Set([pos.buffer, nrm.buffer, idx.buffer, maskCells?.buffer].filter(b => b && b.byteLength))] as Transferable[];   // 重複・切離し（byteLength 0）は転送リストに載せない
+	const pieces = SPLIT_TRIS > 0 ? splitByHeight(mesh, SPLIT_TRIS * 3) : null;
+	if (pieces) {   // 高さ順の小片（高い建物の片から順に送る＝先に大きい建物が立ち、小さい建物は後から・転送の山も小さく）
+		if (own) { poolPut(mesh.pos!.buffer as ArrayBuffer); poolPut(mesh.nrm!.buffer as ArrayBuffer); poolPut(mesh.idx!.buffer as ArrayBuffer); }   // 原本は送らない＝器を次の復元へ
+		for (let j = 0; j < pieces.length; j++) {
+			const q = pieces[j], mc = j ? null : maskCells;   // マスクは束で 1 回（片 0 に添える）
+			await postBatch(ward, bi, { name: j ? `${ward}#${bi}.${j}` : `${ward}#${bi}`, meshData: { pos: q.pos, nrm: q.nrm, idx: q.idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: q.lodCounts, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells: mc, maskN: MASK_N, maskBbox: wardBbox } },
+				[q.pos.buffer, q.nrm.buffer, q.idx.buffer, mc?.buffer]);
+		}
+		return;
+	}
+	const pos = own ? mesh.pos! : mesh.pos!.slice(), nrm = own ? mesh.nrm! : mesh.nrm!.slice(), idx = own ? mesh.idx! : mesh.idx!.slice();
+	await postBatch(ward, bi, { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } },
+		[pos.buffer, nrm.buffer, idx.buffer, maskCells?.buffer]);
+}
+// クレジットは「送れた時だけ」消費する：取得後に例外（マスク導出・DataCloneError＝重複/切離しバッファ等）で送れないと
+// クレジットが戻らず、この worker に載る全区が 2 バッチ目以降で永久に止まる（2026-09-08 停滞調査：止まった区が
+// 同じ worker に集中＝港区/横浜中区/墨田区/新宿橋梁は全て worker 2）。送出前の準備は取得の外・postMessage 失敗は返却
+async function postBatch(ward: string, bi: number, payload: { name: string; meshData: unknown }, bufs: Array<ArrayBufferLike | undefined>) {
+	const transfers = [...new Set(bufs.filter(b => b && b.byteLength))] as Transferable[];   // 重複・切離し（byteLength 0）は転送リストに載せない
 	await takeCredit();
 	try { meshPort!.postMessage(payload, transfers); }
 	catch (e) { onDrained(); console.warn("[mesh] send failed (credit returned)", ward, bi, (e as Error)?.message ?? e); throw e; }   // 返却＝待ち手があれば起こす・無ければ +1
+}
+// ── 束の小分け（?msplit=N・2026-11-04 実機 Mali「1 束の転送 300〜670ms」と「大きい建物から順に出る他社の動き」から）──
+// 三角形は meshdecode が建物の高さ降順に並べ lodCounts[k]＝「高さ lodH[k] 以上」の先頭 count なので、lodCounts の境目で切れば
+// 片 j は高さの 1 段（lodH[k]〜lodH[k+1]）だけを持つ。大きい段はさらに maxIdx（index 数）で等分。頂点は片ごとに詰め直す（位置の
+// 原点・bbox は束のまま＝カリングは束の粗さ）。片の lodCounts は元の count を片の範囲に切り詰めた物＝renderer の式はそのまま効く。
+let SPLIT_TRIS = 0;   // 0＝切らない（既定）。init split（千三角形）
+interface Piece { pos: Float32Array; nrm: Int8Array; idx: Uint32Array; lodCounts: number[] }
+function splitByHeight(mesh: Batch, maxIdx: number): Piece[] | null {
+	const idx = mesh.idx, pos = mesh.pos, nrm = mesh.nrm, lc = mesh.lodCounts;
+	if (!idx || !pos || !nrm || !lc || mesh.twoSided || idx.length <= maxIdx) return null;   // 橋梁（両面・間引き無し）と小さい束は切らない
+	const cuts = [...new Set([0, ...lc.map(c => Math.min(Math.max(c | 0, 0), idx.length)), idx.length])].sort((a, b) => a - b);   // 高さの段の境目（昇順＝高い段が先）
+	const ranges: Array<[number, number]> = [];
+	for (let i = 1; i < cuts.length; i++) {
+		const a = cuts[i - 1], b = cuts[i], n = Math.ceil((b - a) / maxIdx);   // 大きい段は等分（3 の倍数で切る）
+		for (let k = 0; k < n; k++) { const s = a + Math.floor((b - a) * k / n / 3) * 3, e = k === n - 1 ? b : a + Math.floor((b - a) * (k + 1) / n / 3) * 3; if (e > s) ranges.push([s, e]); }
+	}
+	if (ranges.length < 2) return null;
+	const nv = pos.length / 3, remap = new Int32Array(nv).fill(-1);
+	const out: Piece[] = [];
+	for (const [a, b] of ranges) {
+		const pidx = new Uint32Array(b - a);
+		let m = 0;
+		for (let i = a; i < b; i++) { const v = idx[i]; let r = remap[v]; if (r < 0) { r = remap[v] = m++; } pidx[i - a] = r; }
+		const ppos = new Float32Array(m * 3), pnrm = new Int8Array(m * 4);
+		for (let i = a; i < b; i++) { const v = idx[i], r = pidx[i - a]; ppos[r * 3] = pos[v * 3]; ppos[r * 3 + 1] = pos[v * 3 + 1]; ppos[r * 3 + 2] = pos[v * 3 + 2]; pnrm[r * 4] = nrm[v * 4]; pnrm[r * 4 + 1] = nrm[v * 4 + 1]; pnrm[r * 4 + 2] = nrm[v * 4 + 2]; pnrm[r * 4 + 3] = nrm[v * 4 + 3]; }
+		for (let i = a; i < b; i++) remap[idx[i]] = -1;   // 次の片のために戻す（触った頂点だけ）
+		out.push({ pos: ppos, nrm: pnrm, idx: pidx, lodCounts: lc.map(c => Math.min(Math.max((c | 0) - a, 0), b - a)) });
+	}
+	return out;
 }
 
 const cache = new Map<string, { batches: Batch[]; mask: Uint8Array | null; wardBbox: number[] | null }>();   // base URL → { batches, mask, wardBbox }（このworker内のみ有効。再訪はfetch/Draco解凍を丸ごと省略）
@@ -909,6 +951,7 @@ self.onmessage = async (e: MessageEvent<MeshMsg>) => {
 		if (e.data.ell) { ELL = true; EARTH_W = 6378137; setDecodeEnv({ ell: true }); }   // 楕円体（?ell=1）＝β球配置＋世界単位a。キャッシュは保存キー #ell で球と並存（デコードモジュール側も同じ世界へ注入）
 		if (e.data.lowMem || e.data.mid) POOL_MAX = 16 << 20;
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
+		if (e.data.split! > 0) SPLIT_TRIS = e.data.split! * 1000;   // ?msplit=N＝束を高さ順の小片（N 千三角形まで）にして送る
 		if (e.data.farH! > 0) FAR_MIN_H = e.data.farH!;   // 遠景far-DBの高さ閾値（?farh=N・既定200m）
 		if (e.data.noBake) bakeOff = true;                     // ?nobake=1＝R2 焼きを引かない（生経路のみ・A/B と切り分け用）
 		else if (e.data.bakeUrl) bakeOverride = e.data.bakeUrl;   // ?bake=URL＝置き場差し替え（ローカル焼きの検証・地域の申告より優先）

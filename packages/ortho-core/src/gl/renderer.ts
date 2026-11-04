@@ -21,7 +21,7 @@ import { packResampleParams, cpuResampleCell, RESAMPLE_U32 } from "../elevcell.t
 import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gpu と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gpu と同式の正本）
-import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gpu と共通）
+import { meshLodCount, setMeshLodScale, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gpu と共通）
 import { terrainGridUV } from "../terrainlod.ts";
 import { evalPaintZoomMemo } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
 import { createPtStore } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は WebGPU と共有の純関数
@@ -56,7 +56,7 @@ import type { GintAtlasTarget } from "./gint/embed.ts";
 
 export type { Renderer };
 /** createRenderer の rOpts（renderworker が渡す） */
-export interface GLRendererOptions { /** 既定＝gpupower.ts の値（"high-performance"） */ powerPreference?: GpuPowerPreference; msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean }
+export interface GLRendererOptions { /** 既定＝gpupower.ts の値（"high-performance"） */ powerPreference?: GpuPowerPreference; msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean; /** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N） */ meshLod?: number }
 /** draw(cam, opts) の opts */
 export interface GLDrawOptions { skipMain?: boolean; skipBase?: boolean; noTerrain?: boolean; noBld?: boolean }
 type Vec3T = [number, number, number];
@@ -184,6 +184,7 @@ const CLIP_GL_TARGETS = ["terrain", "buildings", "models", "vector"];   // 断�
 
 const DRAPE_ALL = [-180, -90, 360, 180];   // drape のバッチ＝持ち上げの範囲を全球に（DTM 保証域の外でも地形に沿わせる）
 export function createRenderer(canvas: OffscreenCanvas | HTMLCanvasElement, rOpts: GLRendererOptions = {}): Renderer {
+	setMeshLodScale(rOpts.meshLod || 1);
 	// antialias＝ブラウザ暗黙確保の MSAA（フルRetina面積で ~100MB級）。msaa1（LOW_MEM 既定・?msaa=0）＝1x 直描き。
 	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true, powerPreference: rOpts.powerPreference ?? powerPreference() }) as WebGL2RenderingContext;   // "webgl2" の口＝WebGL2。null は直下で投げる（宣言関数の中へは絞り込みが届かない＝型は非 null）
 	if (!gl) throw new Error("WebGL2 unavailable");

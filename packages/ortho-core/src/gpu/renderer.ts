@@ -39,7 +39,7 @@ import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標�
 import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gl と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gl と同式の正本）
-import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
+import { meshLodCount, setMeshLodScale, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
 import { terrainGridUV } from "../terrainlod.ts";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
@@ -80,6 +80,8 @@ export interface RendererGPUOptions {
 	/** 既定 "high-performance"（外付け GPU のあるノート PC で速い方を頼む・gpupower.ts）。"low-power"／"default" で戻せる */
 	powerPreference?: GpuPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
+	/** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N＝画面 N px 未満の建物を描かない・既定 1） */
+	meshLod?: number;
 	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして散らす（実験ノブ・既定オフ・?meshchunk=1。2026-11-04 実機 Mali で 1 バッチの転送が 100〜600ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
@@ -324,6 +326,7 @@ function skyEnvCompute(sun: number[], oPt: ArrayLike<number>, { k = 4, sunI = 20
 }
 
 export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCanvas, rOpts: RendererGPUOptions = {}) {
+	setMeshLodScale(rOpts.meshLod || 1);
 	if (typeof navigator === "undefined" || !navigator.gpu) throw new Error("WebGPU unavailable");
 	const adapter = await navigator.gpu.requestAdapter(gpuAdapterOptions(rOpts.powerPreference ?? powerPreference()));
 	if (!adapter) throw new Error("WebGPU adapter unavailable");
