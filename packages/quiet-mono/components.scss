@@ -211,6 +211,8 @@
 	padding: 5px 9px 6px; border-radius: var(--qm-r-m); pointer-events: none;
 	font: 11px/1.45 var(--qm-font-mono); color: rgba(228, 234, 244, .95);
 	&.on { display: block; }
+	.hud-copy { display: block; margin: 6px 5px 1px auto; pointer-events: auto; font: inherit; color: #fff;   /* 直近 30 秒の数字をクリップボードへ（パネルは素通し・ボタンだけ押せる） */
+		background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .3); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 	table { border-collapse: collapse; }
 	th, td { padding: 1px 5px; vertical-align: baseline; }
 	th { text-align: left; font-weight: 400; color: rgba(158, 170, 188, .9); white-space: nowrap; letter-spacing: .02em; }
