@@ -1510,13 +1510,13 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// パンで「1窓替えごとに 75MB の GPU バッファ再確保＋CPU 一時配列」＝GPUプロセスが単調に膨れる
 	// 主因だった（実測: 陸上パン34ホップで累計 GL alloc 1.2GB・GPUプロセス 1.45→1.95GB）。
 	// G が変わる時だけ作り直す＝実質「起動時に一度」。
-	// 地形メッシュの生成は時間で切る（gpu/renderer.ts と同じ・terrainMeshSliced）：初回は粗い格子（TERR_G0）で即描き、本番の G は細切れで裏で作る
+	// 地形メッシュの生成は時間で切る（gpu/renderer.ts と同じ・terrainMeshSliced）：初回は粗い格子（TERR_G0）で即描き、本番の G は細切れで裏で作る。差し替えの絵を頼める host（requestDraw）が無い＝描画が呼び手の都度（検定の頁）＝同期で作る
 	const TERR_G0 = 256, TERR_SLICE_MS = 6;
 	let meshJob: { G: number; mesh: number[]; it: ReturnType<typeof terrainMeshSliced> } | null = null;
 	function buildTerrainMesh(oLng: number, oLat: number, spanLng: number, spanLat: number, G: number): void {
 		const mesh = [oLng, oLat, spanLng, spanLat];
 		if (terrain && terrain.G === G) { terrain.mesh = mesh; meshJob = null; return; }
-		if (rOpts.terrSync || G <= TERR_G0) { meshJob = null; uploadTerrainMesh(terrainGridUV(G), buildChunkIndex(G), G, mesh); return; }
+		if (rOpts.terrSync || !rOpts.requestDraw || G <= TERR_G0) { meshJob = null; uploadTerrainMesh(terrainGridUV(G), buildChunkIndex(G), G, mesh); return; }
 		if (!terrain) uploadTerrainMesh(terrainGridUV(TERR_G0), buildChunkIndex(TERR_G0), TERR_G0, mesh);
 		else terrain.mesh = mesh;
 		if (meshJob && meshJob.G === G) { meshJob.mesh = mesh; return; }
