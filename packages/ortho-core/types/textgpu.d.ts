@@ -13,6 +13,8 @@ export interface GpuText {
 	setBudget(ms: number): void;
 	/** このフレームで予算切れの字があった（＝もう 1 フレーム描く） */
 	pending(): boolean;
+	/** この起動で焼いた字と保存（glyphstore）から写した字の数 */
+	bakeStats(): { baked: number; restored: number };
 	fontOf(font: string): [string, number];
 	begin(W: number, H: number, dpr: number): void;
 	/** 次の push の行き先：null＝最前面の canvas・数＝地図のパスの中の層の添字 li の位置（T-P2） */
@@ -37,7 +39,9 @@ export interface GpuText {
 /** 地図の描画パスの的（drawMid） */
 export interface MidTarget { format: GPUTextureFormat; samples: number; depth: GPUTextureFormat | null; W: number; H: number; dpr: number }
 /** canvas＝描く先の webgpu canvas。null＝画面に出さずテクスチャに描く（検定） */
-export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLCanvasElement | null, format?: GPUTextureFormat): GpuText;
+import type { GlyphStore } from "../src/gpu/glyphstore.ts";
+/** store＝焼いた字の保存（glyphstore）＝有れば焼かずに写す */
+export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLCanvasElement | null, format?: GPUTextureFormat, store?: GlyphStore | null): GpuText;
 /** 注記の字（線に沿う・点）を GPU へ回す受け口。attach(gt)＝GPU を据える・canvasOnly＝一時的に全部 Canvas2D（撮影） */
-export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean; /** 地図のパスの中へ回す層（T-P2）・null＝全部最前面 */ mid: ((li: number) => boolean) | null; /** 字を焼く予算（ms/フレーム・0＝無制限＝従来） */ setGlyphBudget(ms: number): void }
+export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean; /** 地図のパスの中へ回す層（T-P2）・null＝全部最前面 */ mid: ((li: number) => boolean) | null; /** 字を焼く予算（ms/フレーム・0＝無制限＝従来） */ setGlyphBudget(ms: number): void; /** この起動で焼いた字・保存から写した字（HUD） */ bakeStats(): { baked: number; restored: number } }
 export function createGpuTextSink(base: TextSink): GpuTextSink;

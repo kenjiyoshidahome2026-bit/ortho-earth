@@ -10,6 +10,7 @@ import { SDF_BASE, SDF_PAD, SDF_R, SDF_CUTOFF, baseFont, sdfFromAlpha, shelfPack
 import { pointGlyphs, pxNumOf } from "../textsink.ts";
 import type { Color, LabelShield, LineGlyph, LineIcon, Mat2, IconRect, TextLayout } from "../labels2d.ts";
 import type { PointGlyph, PointImg, SinkStats, TextPaint, TextSink } from "../textsink.ts";
+import type { GlyphStore } from "./glyphstore.ts";
 
 /** 版の中の字 1 つ（版の px）。ox, oy＝字の錨（中央・middle）から箱の左上（基準の大きさの px） */
 export interface SdfGlyph { x: number; y: number; w: number; h: number; ox: number; oy: number }
@@ -56,6 +57,8 @@ export interface GpuText {
 	setBudget(ms: number): void;
 	/** このフレームで予算切れの字があった（＝もう 1 フレーム描く） */
 	pending(): boolean;
+	/** この起動で焼いた字と保存（glyphstore）から写した字の数 */
+	bakeStats(): { baked: number; restored: number };
 	/** 書体の基準化（[基準の書体, 元の px]）＝覚える */
 	fontOf(font: string): [string, number];
 	begin(W: number, H: number, dpr: number): void;
@@ -84,7 +87,7 @@ export interface GpuText {
 export interface MidTarget { format: GPUTextureFormat; samples: number; depth: GPUTextureFormat | null; W: number; H: number; dpr: number }
 
 /** canvas＝描く先の webgpu canvas。null＝画面に出さずテクスチャに描く（検定：ソフトウェア WebGPU は canvas の present で device ごと落ちる） */
-export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLCanvasElement | null, format: GPUTextureFormat = canvas ? navigator.gpu.getPreferredCanvasFormat() : "rgba8unorm"): GpuText {
+export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLCanvasElement | null, format: GPUTextureFormat = canvas ? navigator.gpu.getPreferredCanvasFormat() : "rgba8unorm", store: GlyphStore | null = null): GpuText {   // store＝焼いた字の保存（glyphstore.ts）＝有れば焼かずに写す・焼いた字は覚えさせる
 	const ctx = canvas ? canvas.getContext("webgpu") as GPUCanvasContext : null;
 	ctx?.configure({ device, format, alphaMode: "premultiplied", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });   // COPY_SRC＝readPixels（検定の読み戻し）
 	let off: GPUTexture | null = null;
@@ -95,7 +98,8 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 	};
 	const MAXS = Math.min(4096, device.limits.maxTextureDimension2D);
 	let size = Math.min(2048, MAXS), cpu = new Uint8Array(size * size), tex = mkTex(size), dirty0 = size, dirty1 = 0, needReset = false;
-	let budgetMs = 0, bakeMs = 0, deferred = false;   // 字を焼く予算（setBudget）・このフレームで焼きに使った時間・予算切れで見送った字があった
+	let budgetMs = 0, bakeMs = 0, deferred = false;
+	let baked = 0, restored = 0;   // 計器＝この起動で焼いた字・保存から写した字（bakeStats）   // 字を焼く予算（setBudget）・このフレームで焼きに使った時間・予算切れで見送った字があった
 	const shelf = shelfPacker(size), glyphs = new Map<string, SdfGlyph | null>(), fonts = new Map<string, [string, number]>();
 	const rcv = new OffscreenCanvas(128, 128), rctx = rcv.getContext("2d", { willReadFrequently: true })!;   // 焼き場（CPU の画素＝getImageData が GPU から読み戻さない）
 	function mkTex(s: number) { return device.createTexture({ size: [s, s], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST }); }
@@ -156,8 +160,19 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 		const bf = fontOf(font)[0], key = bf + "\u0001" + ch;
 		let g = glyphs.get(key);
 		if (g !== undefined) return g;
-		if (budgetMs > 0 && bakeMs >= budgetMs) { deferred = true; return undefined; }   // 予算切れ＝このフレームは焼かない（覚えない＝次のフレームで焼く）
 		const tb = performance.now();
+		const kept = store?.get(key);   // 保存してあった字＝焼かずに版へ写す（予算の外＝写すだけなら安い）
+		if (kept) {
+			const at = place(kept.w, kept.h);
+			if (!at) { needReset = true; return null; }
+			for (let y = 0; y < kept.h; y++) cpu.set(kept.sdf.subarray(y * kept.w, (y + 1) * kept.w), (at[1] + y) * size + at[0]);
+			if (at[1] < dirty0) dirty0 = at[1]; if (at[1] + kept.h > dirty1) dirty1 = at[1] + kept.h;
+			g = { x: at[0], y: at[1], w: kept.w, h: kept.h, ox: kept.ox, oy: kept.oy };
+			glyphs.set(key, g); restored++;
+			bakeMs += performance.now() - tb;
+			return g;
+		}
+		if (budgetMs > 0 && bakeMs >= budgetMs) { deferred = true; return undefined; }   // 予算切れ＝このフレームは焼かない（覚えない＝次のフレームで焼く）
 		rctx.setTransform(1, 0, 0, 1, 0, 0); rctx.font = bf; rctx.textAlign = "center"; rctx.textBaseline = "middle";
 		const mt = rctx.measureText(ch), hw = (mt.width || 0) / 2 || SDF_BASE * 0.3;
 		const l = Math.ceil(Math.max(0, mt.actualBoundingBoxLeft ?? hw)), r = Math.ceil(Math.max(0, mt.actualBoundingBoxRight ?? hw));
@@ -175,7 +190,8 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 		for (let y = 0; y < h; y++) cpu.set(sdf.subarray(y * w, (y + 1) * w), (at[1] + y) * size + at[0]);
 		if (at[1] < dirty0) dirty0 = at[1]; if (at[1] + h > dirty1) dirty1 = at[1] + h;
 		g = { x: at[0], y: at[1], w, h, ox: -(SDF_PAD + l), oy: -(SDF_PAD + up) };
-		glyphs.set(key, g);
+		glyphs.set(key, g); baked++;
+		store?.put(key, { w, h, ox: g.ox, oy: g.oy, sdf });
 		bakeMs += performance.now() - tb;
 		return g;
 	}
@@ -287,7 +303,7 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 		});
 	}
 	function clearCanvas() { n = 0; nm = 0; midLi.length = 0; ranges = []; anchors = []; if (drewLast) { pass(false); drewLast = false; } }
-	return { glyph, fontOf, begin, setBudget(ms) { budgetMs = ms > 0 ? ms : 0; }, pending: () => deferred, target(li) { cur = li; }, push, icon, pushIcon, end, clearCanvas, readPixels, reset, midAnchors: () => anchors, drawMid, get count() { return n + nm; }, get atlasSize() { return size; },
+	return { glyph, fontOf, begin, setBudget(ms) { budgetMs = ms > 0 ? ms : 0; }, pending: () => deferred, bakeStats: () => ({ baked, restored }), target(li) { cur = li; }, push, icon, pushIcon, end, clearCanvas, readPixels, reset, midAnchors: () => anchors, drawMid, get count() { return n + nm; }, get atlasSize() { return size; },
 		destroy() { tex.destroy(); itex.destroy(); vbuf?.destroy(); mbuf?.destroy(); ubuf.destroy(); mubuf.destroy(); off?.destroy(); try { ctx?.unconfigure(); } catch { /* もう無い */ } } };
 }
 
@@ -297,7 +313,7 @@ const ROT = { a: 1, b: 0, c: 0, d: 1 };
 /** 注記の字と記号を GPU へ回す受け口（線に沿う注記・点の注記の字・記号・標識・format の記号の区間）。星空と月は Canvas2D の受け口へそのまま（T-P3 の次）。
  *  attach(gt)＝GPU を据える（null＝外す＝全部 Canvas2D）・canvasOnly＝一時的に全部 Canvas2D（撮影＝注記の canvas 1 枚で読む。地図のパスの中に描いた字は地図の絵に写っている＝描かない）。
  *  mid＝その層の注記を地図のパスの中（層の位置）に描くか（renderer の textSplit・null＝全部最前面） */
-export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean; mid: ((li: number) => boolean) | null; /** 字を焼く予算（ms/フレーム・0＝無制限＝従来） */ setGlyphBudget(ms: number): void }
+export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean; mid: ((li: number) => boolean) | null; /** 字を焼く予算（ms/フレーム・0＝無制限＝従来） */ setGlyphBudget(ms: number): void; /** この起動で焼いた字・保存から写した字（HUD） */ bakeStats(): { baked: number; restored: number } }
 const R90 = (m: Mat2): Mat2 => ({ a: m.c, b: m.d, c: -m.a, d: -m.b });   // m·rotate(90°)＝縦書きの回す字（Canvas2D の rotate(π/2) と同じ向き）
 export function createGpuTextSink(base: TextSink): GpuTextSink {
 	let gt: GpuText | null = null, on = false, glyphsG = 0, cur: number | null = null, ss = 2, glyphBudget = 0;
@@ -344,6 +360,7 @@ export function createGpuTextSink(base: TextSink): GpuTextSink {
 		mid: null,
 		attach(g) { gt = g; g?.setBudget(glyphBudget); },
 		setGlyphBudget(ms) { glyphBudget = ms > 0 ? ms : 0; gt?.setBudget(glyphBudget); },
+		bakeStats: () => gt?.bakeStats() ?? { baked: 0, restored: 0 },
 		pending: () => !!(on && gt?.pending()),
 		begin(W, H, dpr) { base.begin(W, H, dpr); on = !!gt && !s.canvasOnly; glyphsG = 0; cur = null; ss = dpr >= 1.5 ? 3 : 2; if (on) gt!.begin(W, H, dpr); },
 		layer(li, pinTop) { cur = gt && s.mid && li !== null && !pinTop && s.mid(li) ? li : null; if (on) gt!.target(cur); },

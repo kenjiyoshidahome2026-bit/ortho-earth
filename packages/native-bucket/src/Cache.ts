@@ -9,7 +9,7 @@ const _dead: Record<string, Error> = {};
 //（verify-ui の t-marker が 20 回中 4〜7 回 60 秒超・2026-10-15 実測）。全部まとめて作れば version は 1 のまま上がらない。
 // 新しいストアを足す時はここにも足す（足し忘れても従来どおり v+1 で足される＝壊れはしない）。
 const PRESET: Record<string, string[]> = {
-	GIS: ["pbf", "alt", "plateau", "pack", "base"],
+	GIS: ["pbf", "alt", "plateau", "pack", "base", "glyph"],   // glyph＝焼いた字の SDF（ortho-core gpu/glyphstore.ts・2026-11-05）
 	world: ["files", "system"],
 };
 
