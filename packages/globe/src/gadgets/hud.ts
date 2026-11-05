@@ -15,6 +15,8 @@ export interface HudSnapshot {
 	cpu?: { up: number; terr: number; map: number; gint: number; lab: number; ov: number; total: number; max: number } | null;
 	/** 注記（labels2d）の直近の描画：draw 全体の EMA・衝突判定・描いた注記と字の数 */
 	lab?: { ms: number; collideMs: number; labels: number; glyphs: number; baked?: number; restored?: number } | null;   // baked／restored＝この起動で焼いた字・保存（?glyphdb=1）から写した字
+	/** 起動の時間割（頁の起点からの ms・1 行）＝globe.ts の bootReport */
+	boot?: string | null;
 	/** main スレッドの rAF 間隔（EMA と窓内の最長・ms） */
 	main?: { ms: number; max: number; long?: Array<{ key: string; ms: number; n: number }> } | null;
 	shadow?: { active: boolean; gpuMs?: number; halfM?: number; N?: number; texelM: number; terrTris?: number; bldTris?: number; meshBatches?: number; meshTris?: number; passes?: number; skipped?: number } | null;
@@ -159,6 +161,7 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 			(s.cpu ? row("worker CPU", `${s.cpu.total.toFixed(1)} ms` + note(`max ${s.cpu.max.toFixed(0)}`)) +   // 描画 worker の JS 時間（frame との差＝描画以外の仕事・メッセージ処理など）
 				det(`upload ${s.cpu.up.toFixed(1)} · terrain ${s.cpu.terr.toFixed(1)} · map ${s.cpu.map.toFixed(1)} · lines ${s.cpu.gint.toFixed(1)} · labels ${s.cpu.lab.toFixed(1)} · overlays ${s.cpu.ov.toFixed(1)}`) : "") +
 			(s.lab ? row("labels", `${(s.lab.ms || 0).toFixed(1)} ms` + note(`collide ${(s.lab.collideMs || 0).toFixed(1)} · ${s.lab.labels || 0} labels · ${s.lab.glyphs || 0} glyphs` + (s.lab.baked != null ? ` · baked ${s.lab.baked} · kept ${s.lab.restored || 0}` : ""))) : "") +   // 注記の描画＝字を焼く時間が入る（起動時・?glyphms= で分ける）
+			(s.boot ? det(`boot: ${esc(s.boot)}`) : "") +   // 起動の時間割（頁の起点からの ms）＝どこで秒が消えたか
 			(s.main ? row("main thread", `${s.main.ms.toFixed(1)} ms` + note(`max ${s.main.max.toFixed(0)}`)) +
 				(s.main.long?.length ? det(s.main.long.map(l => `${l.ms.toFixed(0)} ms ×${l.n} ${esc(l.key)}`).join("<br>")) : "") : "") +   // 直近 15 秒の長い仕事の犯人（関数@ファイル:位置）   // main の rAF 間隔＝カメラを動かす側の詰まり
 			(s.shadow ? row("shadow", s.shadow.active ? `${(s.shadow.gpuMs || 0).toFixed(2)} ms` + note(s.shadow.halfM ? `${s.shadow.N}² · ${(s.shadow.halfM * 2 / 1000).toFixed(1)} km · ${s.shadow.texelM.toFixed(1)} m/texel` : "") : "off" + note("(z<13 or sun down)")) +
@@ -191,8 +194,9 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		const s = lastSnap, d = s?.device || {}, dev = deviceInfo(d.ua);
 		const head = [`hud log ${new Date().toISOString()} ${location.href}`,
 			`device ${dev.os} / ${dev.browser} / RAM ${d.ram ?? "?"} / cores ${d.cores ?? "?"} / GPU ${gpuLabel(s?.gpuName) || "?"} / ${d.vw}x${d.vh}@${d.dpr ?? 1} / backend ${s?.backend ?? "?"}${s?.tier ? ` / low-mem ${s.tier.active}z` : ""}`];
+		const boot = s?.boot ? [`boot (ms since navigation): ${s.boot}`] : [];
 		const long = s?.main?.long?.length ? ["main long (15s):", ...s.main.long.map(l => `  ${l.ms.toFixed(0)} ms x${l.n} ${l.key}`)] : [];
-		return [...head, ...log, ...long].join("\n");
+		return [...head, ...boot, ...log, ...long].join("\n");
 	}
 	async function copyLog(): Promise<void> {
 		const text = logText();

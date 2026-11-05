@@ -37,6 +37,11 @@ import type { Raster, RasterRenderer } from "@ortho-earth/core/raster";
 import type { ScenePortMessage, MergedScene } from "@ortho-earth/core/worker-msg";
 import type { OverlayHost, OverlayApi, LastOverlayFrame, OverlayModule } from "./types/overlay.ts";   // 同一フレームのオーバーレイの契約
 
+// 起動の時間割（?hud=1 の boot 行・[boot] timeline）：印は epoch ms（performance.timeOrigin + now）＝main が自分の起点へ直す。
+// workerStart＝この worker の起点（new Worker の頃）・script＝この脚本の評価（＝worker.js と renderworker の取得・解析・評価が済んだ）。
+const bootEp = () => performance.timeOrigin + performance.now();
+const bootMarks: Record<string, number> = { workerStart: performance.timeOrigin, script: bootEp() };
+const bootDur: Record<string, number> = {};
 /** 標高（sampleElev の 3 つ目の cam は読まれない＝従来の呼び方のまま通す） */
 type RwTerrain = Omit<Terrain, "sampleElev"> & { sampleElev(lon: number, lat: number, cam?: CameraPose): number };
 /** シーンの深度の書き出し口（renderer.depthOut(true) の戻り） */
@@ -67,6 +72,8 @@ interface RenderBackendGPU extends RenderBackend {
 	gpuInfo: string;
 	device: { pushErrorScope(filter: string): void; popErrorScope(): Promise<{ message: string } | null> };
 	gpuErrors: string[];
+	/** 起動の時間割（ms）：adapter／device の取得・init（パイプライン等の生成） */
+	boot?: { adapterMs: number; deviceMs: number; initMs: number };
 }
 /** gint.stats() の計器 */
 interface GintStats { drawn: number; fbo: number; pickMs: number; rank: number; tierW: number; edges: number; tiers: number; tiersDone: boolean; total: number; runs?: number; chunks?: number; vb?: number[] | null }
@@ -370,10 +377,11 @@ function tqFeed(tag: string, ms: number) {
 async function bootWebGL(m: RwMsg) {
 	let createRenderer, createGintLayer;
 	bootStage = "awaiting gl import";
-	try { ({ createRenderer, createGintLayer } = await import("@ortho-earth/core/gl")); }
+	try { ({ createRenderer, createGintLayer } = await import("@ortho-earth/core/gl")); bootMarks.import = bootEp(); }
 	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && (err as Error).message || err) }); return; }
 	try { renderer = createRenderer(canvas!, { powerPreference: powerPreference(), clipK: m.clipKGl, noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, quad4: m.quad4 !== false, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as RenderBackend; }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
 	catch (err) { postMessage({ type: "glfail", error: String(err && (err as Error).message || err) }); return; }
+	bootMarks.renderer = bootEp();
 	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
 	glRef = canvas!.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
 	// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
@@ -419,6 +427,7 @@ function finishInit(m: RwMsg) {
 	if (m.scenePort) {
 		m.scenePort.onmessage = (ev: MessageEvent<ScenePortMessage>) => {                  // scene worker から直結：main を経由しない geometry
 			sceneMsgN++;
+			if (!bootMarks.firstScene) { bootMarks.firstScene = bootEp(); if (sentFrame1) postMessage({ type: "bootMark", k: "firstScene", t: bootMarks.firstScene }); }   // 最初の geometry が届いた（タイルの取得・解読を含む）＝frame1 より後なら単独で main へ
 			const d = ev.data;
 			if (d.type === "relayCtl") { relayRecvN++; dispatch({ data: d.msg as RwMsg }); return; }   // iOS轍の中継路＝制御を同じディスパッチャへ（initQueue順序保証も共通）
 			// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
@@ -454,6 +463,7 @@ const dispatch = (e: { data: RwMsg }) => {
 	if (initQueue && m.type !== "init") { initQueue.push(m); return; }
 	switch (m.type) {
 		case "init":
+			bootMarks.init = bootEp();
 			if (m.ctrlPort) m.ctrlPort.onmessage = ev => dispatch(ev);   // iOS轍：直結postMessageはinit以降消える＝制御は全部このポート経由（同じディスパッチャ＝initQueue順序保証も共通）
 			setPowerPreference(m.power);   // GPU の選び方（既定 high-performance）＝この worker で作る WebGPU／WebGL も main と同じ希望で
 			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
@@ -491,8 +501,8 @@ const dispatch = (e: { data: RwMsg }) => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
-						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
+					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; bootMarks.renderer = bootEp(); if (r.boot) Object.assign(bootDur, r.boot); hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
 						r.device.pushErrorScope("validation");
@@ -1174,7 +1184,7 @@ function frame() {
 			if (animating || fogAnim || ovMore || clockSpin || accMore) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
-			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive }); }
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive, boot: { marks: { ...bootMarks, frame1: bootEp() }, dur: bootDur } }); }
 			if (frameEvents) postMessage({ type: "frame", cam: { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, fovy: cam.fovy, dpr: cam.dpr, centerAlt: cam.centerAlt }, t: performance.now() });   // この絵の cam＝main の custom 層はこれで描く（main の最新 cam で描くと地図と注記より先行してカクつく）   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
 				stayProbe = 2;
