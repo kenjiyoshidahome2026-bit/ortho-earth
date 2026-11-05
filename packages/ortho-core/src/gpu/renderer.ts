@@ -1925,13 +1925,13 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// G が変わる時だけ作り直す＝実質「起動時に一度」。頂点は uv 不変なので mesh 更新は Float32×4 の uniform だけ。
 	// 地形メッシュの生成は時間で切る（terrainMeshSliced）：G=1024 で uv＋index 33MB＝JS の 7M 回の書きと memcpy が最初の描画を 1〜2 秒止めていた
 	// （タブレット 2026-11-05）。初回は粗い格子（TERR_G0）で即描き、本番の G は setTimeout の細切れ（TERR_SLICE_MS）で作って出来たら差し替える。
-	// G が変わる時（窓の形）も同じ＝今の格子（単位格子＝窓へ伸ばすだけ）で描き続ける。?terrsync=1（rOpts.terrSync）＝従来の同期
+	// G が変わる時（窓の形）も同じ＝今の格子（単位格子＝窓へ伸ばすだけ）で描き続ける。?terrsync=1（rOpts.terrSync）＝従来の同期。差し替えの絵を頼める host（requestDraw）が無い＝描画は呼び手の都度（検定の頁・切り出し）＝同期で作る（絵が後から変わらない）
 	const TERR_G0 = 256, TERR_SLICE_MS = 6;
 	let meshJob: { G: number; mesh: number[]; it: ReturnType<typeof terrainMeshSliced> } | null = null;
 	function buildTerrainMesh(oLng: number, oLat: number, spanLng: number, spanLat: number, G: number) {
 		const mesh = [oLng, oLat, spanLng, spanLat];
 		if (terrain && terrain.G === G) { terrain.mesh = mesh; meshJob = null; return; }
-		if (rOpts.terrSync || G <= TERR_G0) { meshJob = null; uploadTerrainMesh(terrainGridUV(G), buildChunkIndex(G), G, mesh); return; }
+		if (rOpts.terrSync || !rOpts.requestDraw || G <= TERR_G0) { meshJob = null; uploadTerrainMesh(terrainGridUV(G), buildChunkIndex(G), G, mesh); return; }
 		if (!terrain) uploadTerrainMesh(terrainGridUV(TERR_G0), buildChunkIndex(TERR_G0), TERR_G0, mesh);   // 先に粗い格子で描く（最初のフレーム）
 		else terrain.mesh = mesh;   // 今の格子を新しい窓へ伸ばして描き続ける
 		if (meshJob && meshJob.G === G) { meshJob.mesh = mesh; return; }   // 同じ G を作成中＝窓だけ更新
