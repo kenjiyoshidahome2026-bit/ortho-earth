@@ -40,7 +40,7 @@ import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCa
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gl と同式の正本）
 import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
-import { terrainGridUV } from "../terrainlod.ts";
+import { terrainGridUV, terrainMeshSliced } from "../terrainlod.ts";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
 import { SUN_COUNT_WGSL, SURFACE_WGSL, MARCH_WGSL, cellPositions, bboxPoints } from "./analysis.ts";
@@ -95,6 +95,8 @@ export interface RendererGPUOptions {
 	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして散らす（実験ノブ・既定オフ・?meshchunk=1。2026-11-04 実機 Mali で 1 バッチの転送が 100〜600ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
+	/** 地形メッシュを同期で一気に作る（?terrsync=1＝従来）。既定＝粗い格子で先に描き、本番の格子は時間で切って裏で作る */
+	terrSync?: boolean;
 }
 /** 描画の質の旗（#46） */
 export interface RenderFx { atmosphere: boolean; pbr: boolean; ao: boolean }
@@ -1921,17 +1923,37 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 焼いた頂点配列(G=1536 で 18.9MB)＋index(56.5MB)を作って GPU へ上げ直しており、広域×高チルトの
 	// パンで「1窓替えごとに 75MB の GPU バッファ再確保」＝GPUメモリが単調に膨れる主因（GL 版 295c1e5 と同処置）。
 	// G が変わる時だけ作り直す＝実質「起動時に一度」。頂点は uv 不変なので mesh 更新は Float32×4 の uniform だけ。
+	// 地形メッシュの生成は時間で切る（terrainMeshSliced）：G=1024 で uv＋index 33MB＝JS の 7M 回の書きと memcpy が最初の描画を 1〜2 秒止めていた
+	// （タブレット 2026-11-05）。初回は粗い格子（TERR_G0）で即描き、本番の G は setTimeout の細切れ（TERR_SLICE_MS）で作って出来たら差し替える。
+	// G が変わる時（窓の形）も同じ＝今の格子（単位格子＝窓へ伸ばすだけ）で描き続ける。?terrsync=1（rOpts.terrSync）＝従来の同期
+	const TERR_G0 = 256, TERR_SLICE_MS = 6;
+	let meshJob: { G: number; mesh: number[]; it: ReturnType<typeof terrainMeshSliced> } | null = null;
 	function buildTerrainMesh(oLng: number, oLat: number, spanLng: number, spanLat: number, G: number) {
-		if (terrain && terrain.G === G) { terrain.mesh = [oLng, oLat, spanLng, spanLat]; return; }
-		const uv = terrainGridUV(G);
-		const { idx, chunks } = buildChunkIndex(G);   // チャンク主導の index（P4 step B）＝三角形の分割・巻きは従来と同一・並びだけチャンク毎に連続
+		const mesh = [oLng, oLat, spanLng, spanLat];
+		if (terrain && terrain.G === G) { terrain.mesh = mesh; meshJob = null; return; }
+		if (rOpts.terrSync || G <= TERR_G0) { meshJob = null; uploadTerrainMesh(terrainGridUV(G), buildChunkIndex(G), G, mesh); return; }
+		if (!terrain) uploadTerrainMesh(terrainGridUV(TERR_G0), buildChunkIndex(TERR_G0), TERR_G0, mesh);   // 先に粗い格子で描く（最初のフレーム）
+		else terrain.mesh = mesh;   // 今の格子を新しい窓へ伸ばして描き続ける
+		if (meshJob && meshJob.G === G) { meshJob.mesh = mesh; return; }   // 同じ G を作成中＝窓だけ更新
+		const job = meshJob = { G, mesh, it: terrainMeshSliced(G) };
+		const run = () => {
+			if (meshJob !== job) return;   // 取り消し（別の G・dispose・同期で作った）
+			if (job.it.step(TERR_SLICE_MS)) { setTimeout(run, 0); return; }
+			meshJob = null;
+			const r = job.it.result();
+			uploadTerrainMesh(r.uv, r, G, job.mesh);
+			rOpts.requestDraw?.();
+		};
+		setTimeout(run, 0);
+	}
+	function uploadTerrainMesh(uv: Float32Array, { idx, chunks }: { idx: Uint32Array; chunks: TerrainChunk[] }, G: number, mesh: number[]) {
 		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); }
 		const vbo = device.createBuffer({ size: uv.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 		const ibo = device.createBuffer({ size: idx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(vbo, 0, uv);
 		device.queue.writeBuffer(ibo, 0, idx);
 		memMesh = uv.byteLength + idx.byteLength;
-		terrain = { vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat], chunks };
+		terrain = { vbo, ibo, count: idx.length, G, mesh, chunks };
 	}
 	// 地形チャンクのカリング（perf plan P4 step B）：可視チャンクの区間だけ drawIndexed。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
@@ -3916,6 +3938,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		for (const m of meshMasks.values()) m.tex.destroy();
 		meshMasks.clear(); meshHidden.clear();
 		dummyMask.destroy();
+		meshJob = null;   // 裏で作っていた地形メッシュは捨てる
 		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); terrain = null; }
 		if (elevTexObj) { elevTexObj.destroy(); elevTexObj = null; }
 		if (farTexObj) { farTexObj.destroy(); farTexObj = null; }

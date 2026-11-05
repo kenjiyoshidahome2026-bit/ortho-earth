@@ -106,7 +106,7 @@ interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
 	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
-	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
+	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
@@ -379,7 +379,7 @@ async function bootWebGL(m: RwMsg) {
 	bootStage = "awaiting gl import";
 	try { ({ createRenderer, createGintLayer } = await import("@ortho-earth/core/gl")); bootMarks.import = bootEp(); }
 	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && (err as Error).message || err) }); return; }
-	try { renderer = createRenderer(canvas!, { powerPreference: powerPreference(), clipK: m.clipKGl, noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, quad4: m.quad4 !== false, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as RenderBackend; }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
+	try { renderer = createRenderer(canvas!, { powerPreference: powerPreference(), clipK: m.clipKGl, noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, quad4: m.quad4 !== false, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as RenderBackend; }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
 	catch (err) { postMessage({ type: "glfail", error: String(err && (err as Error).message || err) }); return; }
 	bootMarks.renderer = bootEp();
 	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
@@ -501,7 +501,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; bootMarks.renderer = bootEp(); if (r.boot) Object.assign(bootDur, r.boot); hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写

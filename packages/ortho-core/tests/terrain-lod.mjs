@@ -1,6 +1,6 @@
 // terrainlod（perf plan P4 step B・2026-09-27）の検定：チャンク主導 index の三角形の多重集合が従来（行主導）と同一＝絵は不変・区間は三角形境界／
 // カリングの健全性＝真俯瞰の小窓は全可視・中央の小箱は可視・地球の裏は不可視・全球窓は半球ぶん・高チルトの 8° 窓は一部（数は目安＝大きく外れたら幾何の退行）
-import { buildChunkIndex, visibleChunkRuns, chunkVisible, shadowChunkRuns } from "../src/terrainlod.ts";
+import { buildChunkIndex, visibleChunkRuns, chunkVisible, shadowChunkRuns, terrainMeshSliced, terrainGridUV } from "../src/terrainlod.ts";
 import { shadowWindow, sunVector, bboxInShadowWindow } from "../src/shadow.ts";
 import { cameraState } from "../src/camera.ts";
 let fails = 0; const ok = (c, m) => { if (!c) { console.error("✗", m); fails++; } else console.log("✓", m); };
@@ -57,5 +57,18 @@ ok(bboxInShadowWindow(wT.mvp, [139.76, 35.675, 139.775, 35.69]), "中心の区�
 ok(!bboxInShadowWindow(wT.mvp, [139.9, 35.8, 139.95, 35.85]), "北東 20km の区は刈る");
 ok(bboxInShadowWindow(wT.mvp, [139.76, 35.59, 139.78, 35.6]), "南 9km の区は窓の足の中＝落とす");
 ok(!bboxInShadowWindow(wT.mvp, [139.76, 35.545, 139.78, 35.555]), "南 14km の区は影が窓に届かない＝刈る");
+// 時間で切る生成（terrainMeshSliced・2026-11-05）＝一気に作った物と byte 単位で同一（uv・index・チャンク）。小さな予算でも必ず終わる
+for (const G of [257, 769, 1024]) {
+	const it = terrainMeshSliced(G);
+	let steps = 0; while (it.step(0.05)) steps++;   // 0.05 ms＝ほぼ毎回途中で返る
+	ok(!it.step(10), `G=${G}: 完了後の step は false`);
+	const r = it.result(), uv = terrainGridUV(G), ref = buildChunkIndex(G);
+	let same = r.uv.length === uv.length && r.idx.length === ref.idx.length;
+	for (let i = 0; same && i < uv.length; i++) if (r.uv[i] !== uv[i]) same = false;
+	for (let i = 0; same && i < ref.idx.length; i++) if (r.idx[i] !== ref.idx[i]) same = false;
+	ok(same, `G=${G}: 細切れ ${steps} 回の uv／index が一気の生成と同一`);
+	ok(r.chunks.length === ref.chunks.length && r.chunks.every((c, k) => c.first === ref.chunks[k].first && c.count === ref.chunks[k].count && c.u0 === ref.chunks[k].u0 && c.v1 === ref.chunks[k].v1), `G=${G}: チャンク表も同一`);
+	ok(steps > 1, `G=${G}: 途中で返る（${steps} 回）`);
+}
 console.log(fails ? "FAIL" : "PASS");
 process.exit(fails ? 1 : 0);

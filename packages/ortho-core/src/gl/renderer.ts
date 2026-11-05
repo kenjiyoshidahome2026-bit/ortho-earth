@@ -22,7 +22,7 @@ import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCa
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gpu と同式の正本）
 import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gpu と共通）
-import { terrainGridUV } from "../terrainlod.ts";
+import { terrainGridUV, terrainMeshSliced } from "../terrainlod.ts";
 import { evalPaintZoomMemo } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
 import { createPtStore } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は WebGPU と共有の純関数
 import type { PtLayer } from "../painttable.ts";
@@ -56,7 +56,7 @@ import type { GintAtlasTarget } from "./gint/embed.ts";
 
 export type { Renderer };
 /** createRenderer の rOpts（renderworker が渡す） */
-export interface GLRendererOptions { /** clip 空間の倍率＝2^N（?clipk=N・既定 0＝倍率なし）。u_mvp／u_clipT／u_clipMesh を K 倍して渡す＝斉次なので絵は不変（glsl.ts wTrue・gpu と対） */ clipK?: number; /** 既定＝gpupower.ts の値（"high-performance"） */ powerPreference?: GpuPowerPreference; msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean; /** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N） */ meshLod?: number; /** ズームアウトの坂（?meshlodz=K）：zoom < meshLodZ0 で LOD の物差しを K^(z0−zoom) 倍（1 以下＝坂なし） */ meshLodZ?: number; meshLodZ0?: number; /** 遠い束を描かない距離（km・?meshrange=KM） */ meshRange?: number }
+export interface GLRendererOptions { /** clip 空間の倍率＝2^N（?clipk=N・既定 0＝倍率なし）。u_mvp／u_clipT／u_clipMesh を K 倍して渡す＝斉次なので絵は不変（glsl.ts wTrue・gpu と対） */ clipK?: number; /** 既定＝gpupower.ts の値（"high-performance"） */ powerPreference?: GpuPowerPreference; msaa1?: boolean; quad4?: boolean; requestDraw?: (() => void) | null; lowMem?: boolean; noMD?: boolean; cpuElev?: boolean; terrLod?: boolean; /** 地形メッシュを同期で一気に作る（?terrsync=1＝従来）。既定＝粗い格子で先に描き、本番の格子は時間で切って裏で作る */ terrSync?: boolean; /** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N） */ meshLod?: number; /** ズームアウトの坂（?meshlodz=K）：zoom < meshLodZ0 で LOD の物差しを K^(z0−zoom) 倍（1 以下＝坂なし） */ meshLodZ?: number; meshLodZ0?: number; /** 遠い束を描かない距離（km・?meshrange=KM） */ meshRange?: number }
 /** draw(cam, opts) の opts */
 export interface GLDrawOptions { skipMain?: boolean; skipBase?: boolean; noTerrain?: boolean; noBld?: boolean }
 type Vec3T = [number, number, number];
@@ -1510,10 +1510,28 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// パンで「1窓替えごとに 75MB の GPU バッファ再確保＋CPU 一時配列」＝GPUプロセスが単調に膨れる
 	// 主因だった（実測: 陸上パン34ホップで累計 GL alloc 1.2GB・GPUプロセス 1.45→1.95GB）。
 	// G が変わる時だけ作り直す＝実質「起動時に一度」。
+	// 地形メッシュの生成は時間で切る（gpu/renderer.ts と同じ・terrainMeshSliced）：初回は粗い格子（TERR_G0）で即描き、本番の G は細切れで裏で作る
+	const TERR_G0 = 256, TERR_SLICE_MS = 6;
+	let meshJob: { G: number; mesh: number[]; it: ReturnType<typeof terrainMeshSliced> } | null = null;
 	function buildTerrainMesh(oLng: number, oLat: number, spanLng: number, spanLat: number, G: number): void {
-		if (terrain && terrain.G === G) { terrain.mesh = [oLng, oLat, spanLng, spanLat]; return; }
-		const uv = terrainGridUV(G);
-		const { idx, chunks } = buildChunkIndex(G);   // チャンク主導の index（P4 step B）＝三角形の分割・巻きは従来と同一・並びだけチャンク毎に連続
+		const mesh = [oLng, oLat, spanLng, spanLat];
+		if (terrain && terrain.G === G) { terrain.mesh = mesh; meshJob = null; return; }
+		if (rOpts.terrSync || G <= TERR_G0) { meshJob = null; uploadTerrainMesh(terrainGridUV(G), buildChunkIndex(G), G, mesh); return; }
+		if (!terrain) uploadTerrainMesh(terrainGridUV(TERR_G0), buildChunkIndex(TERR_G0), TERR_G0, mesh);
+		else terrain.mesh = mesh;
+		if (meshJob && meshJob.G === G) { meshJob.mesh = mesh; return; }
+		const job = meshJob = { G, mesh, it: terrainMeshSliced(G) };
+		const run = (): void => {
+			if (meshJob !== job) return;
+			if (job.it.step(TERR_SLICE_MS)) { setTimeout(run, 0); return; }
+			meshJob = null;
+			const r = job.it.result();
+			uploadTerrainMesh(r.uv, r, G, job.mesh);
+			rOpts.requestDraw?.();
+		};
+		setTimeout(run, 0);
+	}
+	function uploadTerrainMesh(uv: Float32Array, { idx, chunks }: { idx: Uint32Array; chunks: TerrainChunk[] }, G: number, mesh: number[]): void {
 		if (terrain) { gl.deleteVertexArray(terrain.vao); gl.deleteBuffer(terrain.vbo); gl.deleteBuffer(terrain.ibo); }
 		const vao = gl.createVertexArray()!, vbo = buffer(gl, uv), ibo = gl.createBuffer()!;
 		gl.bindVertexArray(vao);
@@ -1522,7 +1540,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
 		memMesh = uv.byteLength + idx.byteLength;
-		terrain = { vao, vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat], chunks };
+		terrain = { vao, vbo, ibo, count: idx.length, G, mesh, chunks };
 	}
 	// 地形チャンクのカリング（perf plan P4 step B・gpu/renderer.js と同じ純関数）：可視チャンクの区間だけ drawElements。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
@@ -2548,7 +2566,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose(): void { classify.dispose(); clipFree(); shadowFree(); for (const v of rawLRU.values()) gl.deleteTexture(v.tex); rawLRU.clear(); rawBytes = 0; if (rs) { gl.deleteFramebuffer(rs.fbo); gl.deleteVertexArray(rs.vao); for (const p of rs.progs) gl.deleteProgram(p); rs = null; }   // 標高セルの GPU 再標本化（P1 step 1）の資源
+	function dispose(): void { meshJob = null; classify.dispose(); clipFree(); shadowFree(); for (const v of rawLRU.values()) gl.deleteTexture(v.tex); rawLRU.clear(); rawBytes = 0; if (rs) { gl.deleteFramebuffer(rs.fbo); gl.deleteVertexArray(rs.vao); for (const p of rs.progs) gl.deleteProgram(p); rs = null; }   // 標高セルの GPU 再標本化（P1 step 1）の資源
 		for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeSlot("user"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); setGintBld(null); depthOut(false); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
