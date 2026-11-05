@@ -103,6 +103,39 @@ export function shadowChunkRuns(chunks: TerrainChunk[], mesh: ArrayLike<number>,
 	return runs;
 }
 
+/** 地形メッシュ（uv＋チャンク index）を時間で切って作る＝起動の最初のフレームを 1〜2 秒止めない（タブレット実測 2026-11-05：
+ * G=1024 の uv 1M 頂点＋index 6M を JS で作って 33MB を上げる同期の仕事が最初の描画の中にあった。G=1536 のヘッドレスでも 2.3 秒）。
+ * step(budgetMs)＝その時間だけ進めて true（続きあり）／false（完了）。result()＝完了後の { uv, idx, chunks }＝buildChunkIndex と同一の並び。
+ * 完了まで renderer は粗い格子（か今の格子）で描く＝絵は粗いだけ・止まらない。呼び手＝gpu/gl の buildTerrainMesh */
+export function terrainMeshSliced(G: number, CH = TERR_CH): { step(budgetMs: number): boolean; result(): { uv: Float32Array; idx: Uint32Array; chunks: TerrainChunk[] } } {
+	const Q = G - 1, uv = new Float32Array(G * G * 2), idx = new Uint32Array(Q * Q * 6), chunks: TerrainChunk[] = [];
+	let j = 0, c = 0, p = 0, done = false;   // j＝uv の次の行・c＝次のチャンク（cy*CH+cx）・p＝idx の書き位置
+	const step = (budgetMs: number): boolean => {
+		if (done) return false;
+		const t0 = performance.now();
+		while (j < G) {   // uv：行ごと（1 行＝G 頂点）
+			for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; uv[k] = i / Q; uv[k + 1] = j / Q; }
+			j++;
+			if ((j & 15) === 0 && performance.now() - t0 > budgetMs) return true;
+		}
+		while (c < CH * CH) {   // index：チャンクごと（buildChunkIndex と同じ順・同じ三角形）
+			const cx = c % CH, cy = (c - cx) / CH;
+			const i0 = Math.floor(cx * Q / CH), i1 = Math.floor((cx + 1) * Q / CH), j0 = Math.floor(cy * Q / CH), j1 = Math.floor((cy + 1) * Q / CH);
+			const first = p;
+			for (let jj = j0; jj < j1; jj++) for (let i = i0; i < i1; i++) {
+				const a = jj * G + i, b = a + 1, cc = a + G, d = cc + 1;
+				idx[p++] = a; idx[p++] = cc; idx[p++] = b; idx[p++] = b; idx[p++] = cc; idx[p++] = d;
+			}
+			chunks.push({ first, count: p - first, u0: i0 / Q, u1: i1 / Q, v0: j0 / Q, v1: j1 / Q });
+			c++;
+			if (performance.now() - t0 > budgetMs) return c < CH * CH;
+		}
+		done = true;
+		return false;
+	};
+	return { step, result: () => { if (!done) throw new Error("terrainMeshSliced: not done"); return { uv, idx, chunks }; } };
+}
+
 /** 単位格子 G×G の uv（i/(G−1), j/(G−1)）＝地形メッシュの頂点（両 renderer 共通・index は buildChunkIndex） */
 export function terrainGridUV(G: number): Float32Array {
 	const uv = new Float32Array(G * G * 2);
