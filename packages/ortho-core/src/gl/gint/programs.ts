@@ -822,7 +822,7 @@ precision mediump float;
 uniform float u_hidden;   // 1＝隠線パス（深度不合格側＝depthFunc GREATER で再描画）：淡く＋固定破線（CAD流）。既定0＝通常
 uniform highp vec3 u_eye; // 視点位置＝地平線フェード窓のスケール。VS(highp)と同一プログラム＝precision一致必須（mediumpだとリンク失敗＝gint全消え）
 in  vec4  v_color;
-in  float v_zr;
+in  highp float v_zr;   // 近景の zr は 1e-5 級＝mediump では潰れる（VS と精度を揃える）
 in  float v_dist;
 in  float v_perp;
 flat in float v_halfw;
@@ -838,7 +838,9 @@ void main() {
 	// 地平線フェード窓＝カメラ高さ(length(u_eye)-1)に比例（上限0.02＝低ズームは従来どおりの柔らかさ）。
 	// 旧・固定窓(-0.01..0.02)は、高ズームでは zr の最大値(=カメラ距離-1≈1e-3級)ごと窓の内側＝
 	// 画面全体の gint 線が常時半透明(α≈0.35)だった（geoedit の太線で発覚 8/20。海岸線は z<7 専用で無傷だった理由）
-	float win = clamp((length(u_eye) - 1.0) * 0.5, 2e-4, 0.02);
+	// 下限は 2e-4（≈1.3km）だった＝カメラ高度がそれを割る z16.5 前後から足元まで窓の内側＝線が全面半透明（z17.3 で α≈0.73・z18.5 で ≈0.47）、
+	// 線分ごとの丸端が重なる所だけ濃く「数珠・波打つ縁」になった（本人報告 2026-11-05「道路がギザギザ」）。窓は高さに比例させ切る＝足元の zr≈h は常に窓の外。
+	highp float win = clamp((length(u_eye) - 1.0) * 0.5, 1e-8, 0.02);
 	float alpha = v_color.a * smoothstep(-win * 0.5, win, v_zr);
 	if (u_hidden > 0.5) {
 		// 隠線（尾根の向こう）＝淡い固定破線：消し去らず「向こう側に在る」ことだけ静かに残す（CAD の隠線表現）。

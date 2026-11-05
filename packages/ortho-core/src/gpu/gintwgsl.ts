@@ -555,7 +555,8 @@ struct LineOut {
 	if (in.zr < -0.05) { discard; }
 	if (in.color.a == 0.0) { discard; }
 	// 地平線フェード窓＝カメラ高さ比例（GL版 FS_RENDER と同時修正 8/20：固定窓は高ズームで全面半透明化）
-	let win = clamp((length(F.eye) - 1.0) * 0.5, 2e-4, 0.02);
+	// 下限 2e-4（≈1.3km）はカメラ高度がそれを割る近景で線を全面半透明にした（GL 版 FS_RENDER と同時修正 2026-11-05）
+	let win = clamp((length(F.eye) - 1.0) * 0.5, 1e-8, 0.02);
 	var alpha = in.color.a * smoothstep(-win * 0.5, win, in.zr);
 	if (P.a.w > 0.5) {   // 隠線（尾根の向こう）＝淡い固定破線（CAD流）
 		let t = fmod(in.distBase + in.dist, 10.0);
