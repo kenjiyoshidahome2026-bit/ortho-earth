@@ -265,7 +265,7 @@ export async function createGlobe(opts: HostOptions = {}): Promise<GlobeMap> {
 const BOOT: Record<string, number> = { script: performance.now() };
 try { performance.setResourceTimingBufferSize(1000); } catch { /* 無い環境は既定（250）のまま */ }   // js の合計（下）＝タイルが先に枠を埋めても JS の項が残るように
 { const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined; if (nav) BOOT.html = nav.responseEnd; }
-let bootLine = "";
+let bootLine = "", bootCpu1: Record<string, number> | null = null;   // bootCpu1＝最初に描いたフレームの部位別 JS 時間（worker）
 const bootReport = (stage: string) => {
 	const ms = (k: string) => (BOOT[k] != null ? `${BOOT[k] | 0}` : "–");
 	const dur = (k: string) => (BOOT[k] != null ? `+${BOOT[k] | 0}` : "–");
@@ -273,7 +273,8 @@ const bootReport = (stage: string) => {
 	for (const e of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) if (/\.js(\?|$)/.test(e.name)) { jsN++; jsBytes += e.transferSize || 0; if (!e.transferSize) jsCached++; }
 	bootLine = `html ${ms("html")} · script ${ms("script")} · worker ${ms("worker")} · init ${ms("init")} · worker-script ${ms("w:script")} · worker-init ${ms("w:init")} · import ${ms("w:import")} · renderer ${ms("w:renderer")}`
 		+ (BOOT["d:initMs"] != null ? ` (adapter ${dur("d:adapterMs")} · device ${dur("d:deviceMs")} · pipelines ${dur("d:initMs")})` : "")
-		+ ` · first-tiles ${ms("w:firstScene")} · frame1 ${ms("frame1")} · idle ${ms("idle")} · present ${ms("present")} · js ${(jsBytes / 1048576).toFixed(1)} MB/${jsN} files${jsCached ? ` (${jsCached} cached)` : ""}`;
+		+ ` · first-tiles ${ms("w:firstScene")} · draw0 ${ms("w:draw0")} · frame1 ${ms("frame1")} · idle ${ms("idle")} · present ${ms("present")} · js ${(jsBytes / 1048576).toFixed(1)} MB/${jsN} files${jsCached ? ` (${jsCached} cached)` : ""}`
+		+ (bootCpu1 ? ` · frame1 cpu ${bootCpu1.total | 0} (up ${bootCpu1.up | 0} · terr ${bootCpu1.terr | 0} · map ${bootCpu1.map | 0} · gint ${bootCpu1.gint | 0} · lab ${bootCpu1.lab | 0} · ov ${bootCpu1.ov | 0})` : "");
 	console.log(`[boot] timeline @${stage} (ms since navigation): ${bootLine}`);
 };
 const urlToken = {};   // この地図の URL の持ち主の札
@@ -1002,7 +1003,7 @@ renderWorker.onmessage = e => {
 		mapEl.querySelector("#fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 received backend=${dbgHost.__backend}`);
 		BOOT.frame1 = performance.now();
-		if (d.boot) { for (const [k, v] of Object.entries((d.boot.marks || {}) as Record<string, number>)) BOOT["w:" + k] = v - performance.timeOrigin; for (const [k, v] of Object.entries((d.boot.dur || {}) as Record<string, number>)) BOOT["d:" + k] = v; }   // worker の印（epoch）→ 頁の起点へ
+		if (d.boot) { for (const [k, v] of Object.entries((d.boot.marks || {}) as Record<string, number>)) BOOT["w:" + k] = v - performance.timeOrigin; for (const [k, v] of Object.entries((d.boot.dur || {}) as Record<string, number>)) BOOT["d:" + k] = v; bootCpu1 = d.boot.cpu1 || null; }   // worker の印（epoch）→ 頁の起点へ
 		bootReport("frame1");
 		if (!mapLoaded) { mapLoaded = true; for (const cb of mapOn.load) { try { cb({}); } catch (e) { console.error("[map.on load]", e); } } }
 		diagHud && diagHud("frame1", `received ✓ backend=${dbgHost.__backend}`);
