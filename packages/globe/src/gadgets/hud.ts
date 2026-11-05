@@ -14,7 +14,7 @@ export interface HudSnapshot {
 	/** render worker の JS 時間（描いたフレームの部位別 EMA・ms）と窓内の最長 */
 	cpu?: { up: number; terr: number; map: number; gint: number; lab: number; ov: number; total: number; max: number } | null;
 	/** 注記（labels2d）の直近の描画：draw 全体の EMA・衝突判定・描いた注記と字の数 */
-	lab?: { ms: number; collideMs: number; labels: number; glyphs: number } | null;
+	lab?: { ms: number; collideMs: number; labels: number; glyphs: number; baked?: number; restored?: number } | null;   // baked／restored＝この起動で焼いた字・保存（?glyphdb=1）から写した字
 	/** main スレッドの rAF 間隔（EMA と窓内の最長・ms） */
 	main?: { ms: number; max: number; long?: Array<{ key: string; ms: number; n: number }> } | null;
 	shadow?: { active: boolean; gpuMs?: number; halfM?: number; N?: number; texelM: number; terrTris?: number; bldTris?: number; meshBatches?: number; meshTris?: number; passes?: number; skipped?: number } | null;
@@ -158,7 +158,7 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 			row("frame", `${(s.frameMs || 0).toFixed(1)} ms` + note(`(×${(s.res ?? 1).toFixed(2)})`)) +   // フレーム時間と動的解像度を1行に
 			(s.cpu ? row("worker CPU", `${s.cpu.total.toFixed(1)} ms` + note(`max ${s.cpu.max.toFixed(0)}`)) +   // 描画 worker の JS 時間（frame との差＝描画以外の仕事・メッセージ処理など）
 				det(`upload ${s.cpu.up.toFixed(1)} · terrain ${s.cpu.terr.toFixed(1)} · map ${s.cpu.map.toFixed(1)} · lines ${s.cpu.gint.toFixed(1)} · labels ${s.cpu.lab.toFixed(1)} · overlays ${s.cpu.ov.toFixed(1)}`) : "") +
-			(s.lab ? row("labels", `${(s.lab.ms || 0).toFixed(1)} ms` + note(`collide ${(s.lab.collideMs || 0).toFixed(1)} · ${s.lab.labels || 0} labels · ${s.lab.glyphs || 0} glyphs`)) : "") +   // 注記の描画＝字を焼く時間が入る（起動時・?glyphms= で分ける）
+			(s.lab ? row("labels", `${(s.lab.ms || 0).toFixed(1)} ms` + note(`collide ${(s.lab.collideMs || 0).toFixed(1)} · ${s.lab.labels || 0} labels · ${s.lab.glyphs || 0} glyphs` + (s.lab.baked != null ? ` · baked ${s.lab.baked} · kept ${s.lab.restored || 0}` : ""))) : "") +   // 注記の描画＝字を焼く時間が入る（起動時・?glyphms= で分ける）
 			(s.main ? row("main thread", `${s.main.ms.toFixed(1)} ms` + note(`max ${s.main.max.toFixed(0)}`)) +
 				(s.main.long?.length ? det(s.main.long.map(l => `${l.ms.toFixed(0)} ms ×${l.n} ${esc(l.key)}`).join("<br>")) : "") : "") +   // 直近 15 秒の長い仕事の犯人（関数@ファイル:位置）   // main の rAF 間隔＝カメラを動かす側の詰まり
 			(s.shadow ? row("shadow", s.shadow.active ? `${(s.shadow.gpuMs || 0).toFixed(2)} ms` + note(s.shadow.halfM ? `${s.shadow.N}² · ${(s.shadow.halfM * 2 / 1000).toFixed(1)} km · ${s.shadow.texelM.toFixed(1)} m/texel` : "") : "off" + note("(z<13 or sun down)")) +

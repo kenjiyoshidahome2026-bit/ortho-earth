@@ -8,6 +8,8 @@
 import { createLabelLayer } from "@ortho-earth/core/labels";
 import { setPowerPreference, powerPreference, type GpuPowerPreference } from "@ortho-earth/core/gpupower";
 import { createGpuTextSink, createGpuText } from "@ortho-earth/core/textgpu";   // 注記の字（線に沿う・点）を WebGPU で（テキスト GPU 化 T-P1・T-P2・既定＝?text=2d でない時に据える）
+import { createGlyphStore, SDF_VER, type GlyphStore } from "@ortho-earth/core/glyphstore";   // 焼いた字の保存（IndexedDB GIS/glyph・?glyphdb=1）
+import { Cache } from "native-bucket";
 import { createLabelReceiver } from "@ortho-earth/core/labelsync";   // main からの注記は差分（持っている物は番号だけ・2026-10-03）
 import { createTerrain } from "@ortho-earth/core/terrain";
 import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";
@@ -96,7 +98,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; glyphMs?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -124,7 +126,8 @@ type PerfMem = { memory?: { usedJSHeapSize: number } };
 
 let renderer: RenderBackend | null = null, labelLayer: LabelLayer | null = null, canvas: OffscreenCanvas | null = null, labelCanvas: OffscreenCanvas | null = null;
 // 注記の字（既定・?text=2d で Canvas2D・T-P1・T-P2）＝注記の字（線に沿う・点）は注記の canvas の上に重ねた webgpu の canvas へ。WebGPU で起動できた時だけ GPU を据える（GL2 は全部 Canvas2D のまま）
-let labelGpuCanvas: OffscreenCanvas | null = null, textSink: GpuTextSink | null = null, textInPass = false;   // textInPass＝注記を地図より先に描き、層の位置の字を地図のパスへ渡す（T-P2）
+let labelGpuCanvas: OffscreenCanvas | null = null, textSink: GpuTextSink | null = null, textInPass = false;
+let glyphStore: GlyphStore | null = null;   // ?glyphdb=1＝焼いた字を IndexedDB に保存して次の起動は焼かない（版＝SDF の定数 + UA）   // textInPass＝注記を地図より先に描き、層の位置の字を地図のパスへ渡す（T-P2）
 // 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。
 // モジュール（依存ゼロ・URL で import()）の契約＝{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }。
 // ready 前に届いた message は queue に貯めて init 後に順に渡す。name → { canvas, mod, queue }
@@ -459,7 +462,8 @@ const dispatch = (e: { data: RwMsg }) => {
 			labelGpuCanvas = m.labelGpuCanvas ?? null;
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}), ...(labelGpuCanvas ? { sinkWrap: b => (textSink = createGpuTextSink(b)) } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
 			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
-			textSink?.setGlyphBudget(m.glyphMs || 0);   // ?glyphms=N＝字を焼く予算（ms/フレーム）＝起動の注記 1 フレーム 1.4 秒（タブレット）を数フレームに分ける計器（0＝従来）
+			textSink?.setGlyphBudget(m.glyphMs || 0);
+			if (m.glyphDb && labelGpuCanvas) glyphStore = createGlyphStore(() => Cache("GIS/glyph"), `${SDF_VER}|${navigator.userAgent}`);   // 読み込みは裏で＝来るまでに頼まれた字は従来どおり焼く   // ?glyphms=N＝字を焼く予算（ms/フレーム）＝起動の注記 1 フレーム 1.4 秒（タブレット）を数フレームに分ける計器（0＝従来）
 			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
 			if (typeof m.resFix === "number" && m.resFix > 0) {   // ?res=0.7 等＝動的解像度をその段に固定（実機で「解像度を下げれば滑らかか」を切り分ける計器）
@@ -497,7 +501,7 @@ const dispatch = (e: { data: RwMsg }) => {
 							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU diagnostics " + r.gpuErrors.length + " issue(s): " + r.gpuErrors.slice(0, 4).join(" | "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
-						if (textSink && labelGpuCanvas) try { const gt = createGpuText(r.device as unknown as GPUDevice, labelGpuCanvas); textSink.attach(gt); r.set("text", gt); textInPass = !!r.textSplit; console.log("[render] text=gpu (label glyphs on WebGPU" + (textInPass ? ", in the map pass at style layer positions)" : ")")); } catch (e) { console.warn("[render] text=gpu init failed = Canvas2D:", (e as Error)?.message || e); }   // 層の位置（T-P2）＝後ろに塗りか線がある層の注記の字は地図のパスの中
+						if (textSink && labelGpuCanvas) try { const gt = createGpuText(r.device as unknown as GPUDevice, labelGpuCanvas, undefined, glyphStore); textSink.attach(gt); r.set("text", gt); textInPass = !!r.textSplit; console.log("[render] text=gpu (label glyphs on WebGPU" + (textInPass ? ", in the map pass at style layer positions)" : ")")); } catch (e) { console.warn("[render] text=gpu init failed = Canvas2D:", (e as Error)?.message || e); }   // 層の位置（T-P2）＝後ろに塗りか線がある層の注記の字は地図のパスの中
 						if (!m.noGint) gint = createGintLayerGPU(r as unknown as Parameters<typeof createGintLayerGPU>[0], { requestDraw: () => { dirty = true; kick(); }, noSB: !!m.noGintSB, quad4: m.quad4 !== false }) as unknown as GintEngine;   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
 						bootStage = "gint ready";
 						console.log("[render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)");
@@ -520,7 +524,7 @@ const dispatch = (e: { data: RwMsg }) => {
 					});
 			break;
 		case "fontFace":   // Web フォント（main の map.addFontFace）＝この worker の canvas（注記・記号・集約）で使えるようにする。self.fonts が無い環境（古い WebKit）は黙って既定の束
-			(async () => { try { if (typeof FontFace !== "function" || !self.fonts) return; const ff = new FontFace(m.family!, m.source!, m.descriptors || {}); await ff.load(); self.fonts.add(ff); labelLayer?.clearFontCache?.(); dirty = true; armRaf(); } catch (err) { console.warn("[render] fontFace", m.family, (err as Error)?.message || err); } })();
+			(async () => { try { if (typeof FontFace !== "function" || !self.fonts) return; const ff = new FontFace(m.family!, m.source!, m.descriptors || {}); await ff.load(); self.fonts.add(ff); glyphStore?.excludeFamily(m.family!); labelLayer?.clearFontCache?.(); dirty = true; armRaf(); } catch (err) { console.warn("[render] fontFace", m.family, (err as Error)?.message || err); } })();
 			break;
 		case "overlayAdd": overlayAdd(m); break;                 // 同一フレームのオーバーレイ（上の overlays）
 		case "overlayMsg": { const o = overlays.get(m.name!); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); noteTime(); dirty = true; armRaf(); } break; }   // 毎フレームの状態（地震の再生等）＝時計で動く描き直し（#125）
@@ -1230,7 +1234,7 @@ function frame() {
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
-			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs }, cpu: { ...cpuEma, max: cpuMax } });
+			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax } });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
 	// 描くもの（dirty・未消化の転送・予約）がある時だけ次の rAF を張る。無ければ寝る＝受信の kick() か静止タイマ（armSettle）か
