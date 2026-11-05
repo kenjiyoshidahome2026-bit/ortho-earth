@@ -25,7 +25,8 @@ async function snap(map) {
 }
 // 暖色の灯り＝赤が 150 以上で青より 40 以上強い
 const warm = px => { let c = 0; for (let i = 0; i < px.length; i += 4) if (px[i] > 150 && px[i] - px[i + 2] > 40) c++; return c; };
-const diff = (a, b) => { let m = 0; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m; };
+// 寸法が違う 2 枚（動的解像度の段が撮影の間に動いた＝runner は ?res=1 で止める）は NaN ではなく Infinity＝落ちた理由が読める
+const diff = (a, b) => { if (a.length !== b.length) { console.warn(`[t-citylights] snapshot size changed ${a.length / 4}px → ${b.length / 4}px`); return Infinity; } let m = 0; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m; };
 const bright = (px, th) => { let c = 0; for (let i = 0; i < px.length; i += 4) if ((px[i] + px[i + 1] + px[i + 2]) / 3 > th) c++; return c; };
 const mean = px => { let s = 0; for (let i = 0; i < px.length; i += 4) s += (px[i] + px[i + 1] + px[i + 2]) / 3; return s / (px.length / 4); };
 const alpha1 = px => { for (let i = 3; i < px.length; i += 4) if (px[i] !== 255) return false; return true; };
