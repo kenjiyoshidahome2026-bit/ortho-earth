@@ -303,7 +303,7 @@ setInterval(() => {
 	if (renderer && performance.now() - lastFrameRun > 100) { pumpTicks++; frame(); }
 }, 33);
 // ?hud=1（init.mem・旧mem=1）＝状態盤テレメトリを main へ~2Hzで送る（terrain LRU＋JSヒープ＋GPU固定＋描画実測）。main が plateau/tiles と合算して HUD 表示。
-let memOn = false, memLast = 0, hudFrames = 0, hudGpuName = "";
+let memOn = false, memWant = false, memLast = 0, hudFrames = 0, hudGpuName = "";
 // ?hud=1 の CPU 内訳（2026-11-03・Android タブレットで 1 フレーム 100ms 超・解像度を下げても不変＝GPU でなく CPU）。
 // 描いたフレームごとに worker の JS 時間を部位別に測り EMA で HUD へ＝実機の画面だけで「何に食われているか」が分かる計器
 const cpuEma = { up: 0, terr: 0, map: 0, gint: 0, lab: 0, ov: 0, total: 0 };
@@ -490,7 +490,7 @@ const dispatch = (e: { data: RwMsg }) => {
 				lc.port1.onmessage = () => { loopN++; };
 				setInterval(() => { lc.port2.postMessage(1); postMessage({ type: "pingReq" }); }, 500);
 			}
-			memOn = !!m.mem;
+			memWant = !!m.mem; memOn = true;   // 最初のフレームまでは常に計る（部位別の時間が boot の行に載る）＝frame1 の後に memWant へ戻す
 			noBld = !!m.noBld;
 			drawHudOn = !!m.drawHud;
 			(self as RwSelf).__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
@@ -1119,6 +1119,7 @@ function frame() {
 		if (dirty && renderer && cam && !holdForBatch(lastFrameRun)) {   // 読込の最中の止まった画面は束ねる（上の holdForBatch）＝dirty は立ったまま次のティックへ
 			if (resPending) applyRes();   // 予約されたリサイズ＝描画の直前に適用（クリア→同一タスクで全描画＝白フレームをcommitさせない）
 			dirty = false; drew = true;
+			if (!bootMarks.draw0) bootMarks.draw0 = bootEp();   // 最初の描画の始まり（frame1 との差＝最初のフレームの長さ）
 			if (clockSet !== clockA) { renderer.set("view", { clock: clockA }); clockSet = clockA; }
 			// 動的解像度中は GL 側の dpr に resScale を掛ける＝線の太さ(SDF capsule)が CSS 上で不変。
 			// ラベルは自前 canvas（フル解像度）＋自前 cameraState なので素の cam のまま＝幾何は両者で一致する。
@@ -1184,7 +1185,7 @@ function frame() {
 			if (animating || fogAnim || ovMore || clockSpin || accMore) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
-			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive, boot: { marks: { ...bootMarks, frame1: bootEp() }, dur: bootDur } }); }
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive, boot: { marks: { ...bootMarks, frame1: bootEp() }, dur: bootDur, cpu1: { ...cpuAcc, total: performance.now() - lastFrameRun } } }); memOn = memWant; }
 			if (frameEvents) postMessage({ type: "frame", cam: { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, fovy: cam.fovy, dpr: cam.dpr, centerAlt: cam.centerAlt }, t: performance.now() });   // この絵の cam＝main の custom 層はこれで描く（main の最新 cam で描くと地図と注記より先行してカクつく）   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
 				stayProbe = 2;
