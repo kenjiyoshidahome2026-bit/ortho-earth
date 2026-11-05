@@ -339,8 +339,10 @@ function skyEnvCompute(sun: number[], oPt: ArrayLike<number>, { k = 4, sunI = 20
 export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCanvas, rOpts: RendererGPUOptions = {}) {
 	setMeshLodScale(rOpts.meshLod || 1); setMeshRange(rOpts.meshRange || 0); setMeshLodZoom(rOpts.meshLodZ0 || 15, rOpts.meshLodZ || 1);
 	if (typeof navigator === "undefined" || !navigator.gpu) throw new Error("WebGPU unavailable");
+	const tBoot0 = performance.now();   // 起動の時間割（adapter／device／init＝パイプライン等の生成）＝renderworker が frame1 で main へ（?hud=1 の boot 行）
 	const adapter = await navigator.gpu.requestAdapter(gpuAdapterOptions(rOpts.powerPreference ?? powerPreference()));
 	if (!adapter) throw new Error("WebGPU adapter unavailable");
+	const tAdapter = performance.now();
 	// A/B 計測用の GPU 識別（WebGL の WEBGL_debug_renderer_info 相当）。info は環境で空の事があるので緩く。
 	const ai: Partial<GPUAdapterInfo> = adapter.info || {};
 	const gpuInfo = [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean).join(" ") || "unknown";
@@ -367,6 +369,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			...(AL.maxSampledTexturesPerShaderStage ? { maxSampledTexturesPerShaderStage: AL.maxSampledTexturesPerShaderStage } : {}),
 			...(AL.maxSamplersPerShaderStage ? { maxSamplersPerShaderStage: AL.maxSamplersPerShaderStage } : {}) },
 	});
+	const tDevice = performance.now();
 	const ctx = (canvas as { getContext(id: "webgpu"): GPUCanvasContext | null }).getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
 	const format = navigator.gpu.getPreferredCanvasFormat();
@@ -3938,6 +3941,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors,
+		boot: { adapterMs: tAdapter - tBoot0, deviceMs: tDevice - tAdapter, initMs: performance.now() - tDevice },   // 起動の時間割（ms）：adapter 取得／device 取得／init（シェーダ・パイプライン・資源の生成）
 		meshUpPump, meshUpBusy: () => meshUp.size > 0 || meshSettled.length > 0,   // settled が残る間も pump を回す＝捨てた荷の参照を握り続けない meshUpPending: (key: string) => meshUp.has(key),   // 建物の小分け転送（2026-11-04）：renderworker が毎フレーム pump し、上がり切った（か捨てた）キーの ack を返す get hasTQ() { return !!tq; },
 		shadowStats: () => shadow.on ? { on: true, active: shStat.active, passes: shStat.passes, skipped: shStat.skipped, ...(shStat.last || {}), cascades: shStat.cascades || [] } : null,   // 影の計器（#112 段 0・?hud=1 のテレメトリ）＝消している間は null
 		analysis,   // 日影時間・可視域の GPU 版（2026-10-24）＝描いている物から測る

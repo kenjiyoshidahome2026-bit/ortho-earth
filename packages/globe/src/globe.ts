@@ -260,6 +260,22 @@ interface RegionDecl {
 	install?(map: GlobeMap, host: object): unknown;
 }
 export async function createGlobe(opts: HostOptions = {}): Promise<GlobeMap> {
+// 起動の時間割（[boot] timeline・?hud=1 の boot 行）：頁の起点（navigation）からの ms。html＝HTML が届いた・script＝createGlobe が呼ばれた
+// （＝JS の取得・解析・評価まで）・worker＝render worker を作った・init＝init を送った。w:*＝render worker の印（epoch → 頁の起点へ直す）。
+const BOOT: Record<string, number> = { script: performance.now() };
+try { performance.setResourceTimingBufferSize(1000); } catch { /* 無い環境は既定（250）のまま */ }   // js の合計（下）＝タイルが先に枠を埋めても JS の項が残るように
+{ const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined; if (nav) BOOT.html = nav.responseEnd; }
+let bootLine = "";
+const bootReport = (stage: string) => {
+	const ms = (k: string) => (BOOT[k] != null ? `${BOOT[k] | 0}` : "–");
+	const dur = (k: string) => (BOOT[k] != null ? `+${BOOT[k] | 0}` : "–");
+	let jsBytes = 0, jsN = 0, jsCached = 0;
+	for (const e of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) if (/\.js(\?|$)/.test(e.name)) { jsN++; jsBytes += e.transferSize || 0; if (!e.transferSize) jsCached++; }
+	bootLine = `html ${ms("html")} · script ${ms("script")} · worker ${ms("worker")} · init ${ms("init")} · worker-script ${ms("w:script")} · worker-init ${ms("w:init")} · import ${ms("w:import")} · renderer ${ms("w:renderer")}`
+		+ (BOOT["d:initMs"] != null ? ` (adapter ${dur("d:adapterMs")} · device ${dur("d:deviceMs")} · pipelines ${dur("d:initMs")})` : "")
+		+ ` · first-tiles ${ms("w:firstScene")} · frame1 ${ms("frame1")} · idle ${ms("idle")} · present ${ms("present")} · js ${(jsBytes / 1048576).toFixed(1)} MB/${jsN} files${jsCached ? ` (${jsCached} cached)` : ""}`;
+	console.log(`[boot] timeline @${stage} (ms since navigation): ${bootLine}`);
+};
 const urlToken = {};   // この地図の URL の持ち主の札
 const URL_OWN: GlobeScope["URL_OWN"] = opts.urlHash !== false && !URL_OWNER;
 if (URL_OWN) URL_OWNER = urlToken;
@@ -682,6 +698,7 @@ if (labelGpuCanvas) { labelGpuCanvas.width = size.w; labelGpuCanvas.height = siz
 const labelOffscreen = labelCanvas.transferControlToOffscreen();
 const labelGpuOffscreen = labelGpuCanvas ? labelGpuCanvas.transferControlToOffscreen() : null;
 const renderWorker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: "render" });   // 入口 1 本（worker.js）＝役割は name で指名
+BOOT.worker = performance.now();
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
 // ?maxact=N / ?tbudget=N ＝低メモリ端末の安全側の絞りを実機で緩めて jetsam 完走を A/B する数値ノブ（?nomd と同格）。
@@ -895,6 +912,7 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 const clipKQ = /[?&]clipk=(\d+)/.exec(location.search);
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
 renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, resFix: Number((/[?&]res=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphMs: Number((/[?&]glyphms=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphDb: /[?&]glyphdb=1/.test(location.search), mem: hudOn, lowMem: LOW_MEM, meshChunk: /[?&]meshchunk=1/.test(location.search), meshLod: qNum(/[?&]meshlod=([\d.]+)/, LOW_MEM ? 2 : 0), meshLodZ: qNum(/[?&]meshlodz=([\d.]+)/, 0), meshLodZ0: qNum(/[?&]paz=([\d.]+)/, 15), meshRange: qNum(/[?&]meshrange=([\d.]+)/, LOW_MEM ? 2 : 0), elevCheap: /[?&]elevcheap=1/.test(location.search) || (LOW_MEM && !/[?&]elevcheap=0/.test(location.search)), bakeLift: /[?&]bakelift=1/.test(location.search), nearClip: Number((/[?&]nearclip=([\d.]+)/.exec(location.search) || [])[1]) || 0, clipK: clipKQ ? +clipKQ[1] : 20, clipKGl: clipKQ ? +clipKQ[1] : 20, noMixed: noMixedR01, noFarTerr, noNearTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+BOOT.init = performance.now();
 if (TERR_EXAG !== 1) wPost({ type: "set", cmd: "terrainExag", data: TERR_EXAG });   // opts.terrain の exaggeration＝起動の材料（1）の上に掛ける
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
@@ -977,11 +995,15 @@ renderWorker.onmessage = e => {
 	if (d.type === "overlayPickResult") { const f = pickWait.get(d.seq); pickWait.delete(d.seq); f?.(d.hits || []); return; }   // 統一 picking（PR-1）の答え
 	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
 	if (d.type === "overlayStage") { ((dbgHost.__overlay ??= {}) as Record<string, unknown>)[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
+	if (d.type === "bootMark") { BOOT["w:" + d.k] = d.t - performance.timeOrigin; return; }   // 起動の時間割の遅れて来た印（frame1 の後に届いた最初のタイルなど）
 	if (d.type === "frame1") {
 		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; paintTable = !!d.pt; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		sendSsr(); sendSceneFx();   // SSR・場面の効果＝描き手が決まった（WebGPU なら setPostChain の ssr を今送る）
 		mapEl.querySelector("#fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 received backend=${dbgHost.__backend}`);
+		BOOT.frame1 = performance.now();
+		if (d.boot) { for (const [k, v] of Object.entries((d.boot.marks || {}) as Record<string, number>)) BOOT["w:" + k] = v - performance.timeOrigin; for (const [k, v] of Object.entries((d.boot.dur || {}) as Record<string, number>)) BOOT["d:" + k] = v; }   // worker の印（epoch）→ 頁の起点へ
+		bootReport("frame1");
 		if (!mapLoaded) { mapLoaded = true; for (const cb of mapOn.load) { try { cb({}); } catch (e) { console.error("[map.on load]", e); } } }
 		diagHud && diagHud("frame1", `received ✓ backend=${dbgHost.__backend}`);
 		// フォールバック GL2 の画面表示（柔らか鍵の③）：黙って重いモードで走らない。タップ＝印を全消しして
@@ -1019,7 +1041,7 @@ renderWorker.onmessage = e => {
 				const px = g.getImageData(0, 0, 16, 16).data;
 				let nz = 0; for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
 				if (nz === 0) bail("no pixels reached the canvas");
-				else { console.log(`[boot] WebGPU present verified (pixels ${nz}/256, ${(performance.now() - tv) | 0} ms, ${(tv - t0) | 0} ms after frame1)`); diagHud && diagHud("present", `OK ✓ pixels ${nz}/256`); sessionStorage.removeItem("oj.nogpuN"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
+				else { console.log(`[boot] WebGPU present verified (pixels ${nz}/256, ${(performance.now() - tv) | 0} ms, ${(tv - t0) | 0} ms after frame1)`); diagHud && diagHud("present", `OK ✓ pixels ${nz}/256`); sessionStorage.removeItem("oj.nogpuN"); BOOT.present = performance.now(); bootReport("present"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
 			} catch (e) { bail("exception during verification: " + (e && (e as Error).message)); }
 			};
 			const verify = () => { if (done) return; done = true; requestAnimationFrame(verifyPresent); };
@@ -2494,7 +2516,7 @@ function hudSnapshot() {
 	const nc = (navigator as NavigatorPlus).connection || {};
 	return {
 		backend: (dbgHost.__backend as string | undefined) || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
-		cpu: memCpu, lab: memLab as HudSnapshot["lab"], main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
+		cpu: memCpu, lab: memLab as HudSnapshot["lab"], boot: bootLine || null, main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
@@ -2571,6 +2593,7 @@ function checkIdle(now: number) {
 	if (idleState === 0) { idleState = 1; idleSince = now; return; }
 	if (idleState === 1 && now - idleSince >= 100) {
 		idleState = 2;
+		if (BOOT.idle == null) { BOOT.idle = now; bootReport("idle"); }   // 最初の idle＝起動の時間割の締め（present の検証はこの後）
 		for (const cb of [...mapOn.idle]) { try { cb({}); } catch (e) { console.error("[map.on idle]", e); } }
 	}
 }
