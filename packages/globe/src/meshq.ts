@@ -521,7 +521,7 @@ export function packPLQ(mesh: PlqMesh, opts: { weld?: boolean; prism?: boolean; 
 	u8.set(prismBytes, o);
 	return u8;
 }
-const dataStart = (jsonLen: number) => { const h = 8 + jsonLen; return h + ((4 - h % 4) % 4); };
+export const dataStart = (jsonLen: number) => { const h = 8 + jsonLen; return h + ((4 - h % 4) % 4); };   // pos(f32) を 4B 整列（meshfs も使う）
 
 // ヘッダだけ読む（統計・検分用）
 export function headPLQ(u8: Uint8Array | ArrayBuffer): PlqHead | null {

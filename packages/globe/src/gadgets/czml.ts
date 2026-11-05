@@ -7,6 +7,7 @@
 import { trackOf, styleOf, positionAt, availableAt, ecefToLlh, parseIntervals } from "../czml-time.ts";
 import { CLOCK_SPEEDS } from "@ortho-earth/ephem/clock";
 import { sanitizeHTML } from "geopbf/sanitize";
+import { escHtml as esc } from "../html-safe.ts";
 import type { Feature } from "geopbf";
 import type { LonLat, OrthoClock, OverlayHandle, Popup } from "../../globe.d.ts";
 import type { CzmlStyle, CzmlTrack } from "../czml-time.ts";
@@ -111,7 +112,6 @@ export function createCzmlPlayer({ map, keepUrlClock = () => false }: { map: Glo
 				if (d < bd) { bd = d; best = { tr, lon, lat }; }
 			}
 			if (!best) return false;
-			const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
 			const name = best.tr.name ?? best.tr.id ?? "", desc = best.tr.description;
 			popup?.remove();
 			popup = new map.Popup({ closeButton: true }).setLngLat([best.lon, best.lat]).setHTML(`<b>${esc(name)}</b>${desc ? `<div>${sanitizeHTML(String(desc))}</div>` : ""}`).addTo(map);

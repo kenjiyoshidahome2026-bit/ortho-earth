@@ -16,6 +16,7 @@ import { parseRGBA, isColor } from "@ortho-earth/core/color";
 import { buildTileDrawList, DASH_GPU_MAX, dashOffsetOk } from "@ortho-earth/core/build";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
 import { liOf, substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, ringGeom, unitsPerPx, labelPointsOf } from "./vtops.ts";
+import { usesFS } from "./vtmesh.ts";   // paint が feature-state を読むか（gadgets/vtdraw と同じ 1 本）
 import type { DecodedFeature, DecodedLayer } from "@ortho-earth/core/decode";
 import type { ExprContext } from "@ortho-earth/core/expr";
 import type { StyleLayer } from "@ortho-earth/core/build";
@@ -49,7 +50,6 @@ const foldLayerOpacity = (L: StyleLayer, ctx: ExprContext) => {
 };
 const num = (e: unknown, ctx: ExprContext, dflt: number): number => { if (e == null) return dflt; const v = evalExpr(e, ctx); return typeof v === "number" && Number.isFinite(v) ? v : dflt; };   // ML の評価エラー＝既定値
 const alphaOf = (e: unknown, ctx: ExprContext) => { const v = e == null ? "#000000" : evalExpr(e, ctx); return isColor(v) ? parseRGBA(v)[3] : 1; };
-const usesFS = (L: StyleLayer) => JSON.stringify(L.paint ?? null).includes('"feature-state"');   // gadgets/vtdraw.js の usesFS と同じ（worker は gadgets を読まない）
 
 self.onmessage = (e: MessageEvent) => {
 	const m = e.data as VtMsg;

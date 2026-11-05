@@ -77,7 +77,7 @@ export function create() {
 	let M: TMatrix4 | null = null, Minv: TMatrix4 | null = null, origin: number[] | null = null, ready = false, failed: string | null = null, lastT = 0, lastW = 0, lastH = 0;
 	let du: DepthUniforms | null = null, extTex: TExternalTexture | null = null, depthUsed = false, dead = false;
 	let loader: ReturnType<typeof createThreeLoader> | null = null, queue: ThreeMsg[] | null = null;
-	let gpu: { device: GPUDevice; ctx: GPUCanvasContext; renderer: TGpuRenderer; pre: ReturnType<typeof createDepthPrepass> | null } | null = null, canvasRef: OffscreenCanvas | null = null;   // renderer: "webgpu" の時
+	let gpu: { device: GPUDevice; ctx: GPUCanvasContext; renderer: TGpuRenderer; pre: ReturnType<typeof createDepthPrepass> | null } | null = null;   // renderer: "webgpu" の時
 	const patched = new WeakSet<TMaterial>();
 	const probes: unknown[] = [];
 	let helpers: Helpers | null = null;
@@ -138,7 +138,6 @@ export function create() {
 				const rev = parseInt(THREE.REVISION || "0", 10);
 				let depthOn = want;
 				if (want && !THREE.ExternalTexture && opts!.renderer !== "webgpu") { depthOn = false; console.warn(`[three overlay] three r${rev || "?"} has no THREE.ExternalTexture: drawn without scene depth (not hidden by terrain or buildings). Use three r${MIN_DEPTH_REVISION} or later, or pass depth: false.`); }
-				canvasRef = canvas;
 				if (opts!.renderer === "webgpu") {
 					const WGR = THREE.WebGPURenderer;
 					if (!WGR) throw new Error(`three overlay: renderer "webgpu" needs three.webgpu.js (opts.three = ${opts!.three})`);
@@ -237,7 +236,7 @@ export function create() {
 		dead = true;
 		try { user?.dispose?.(helpers); } catch { /* 利用者の後始末 */ }
 		try { renderer?.dispose(); renderer?.forceContextLoss?.(); } catch { /* 文脈はもう無い */ }
-		loader?.dispose(); gpu?.pre?.dispose(); gpu = null; canvasRef = null;
+		loader?.dispose(); gpu?.pre?.dispose(); gpu = null;
 		THREE = renderer = scene = camera = user = helpers = M = Minv = du = extTex = loader = null; ready = false; lastW = lastH = 0; queue = null;
 	}
 	return { init, message, frame, pick, destroy, _state: () => ({ ready, failed, depthUsed }) };

@@ -8,6 +8,7 @@
 // グラフ：縦軸基準（最低標高/0m）切替・縦横比（縦誇張）表示・ホバーで地図上に対応点マーカー・PNG/GeoJSON保存。
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・sampleHeight・signal・cut／canCut（3D で切る＝#111・WebGPU の時だけ）。
 import { gadgetStack } from "./stack.ts";
+import { comma, fmtDist } from "./fmt.ts";   // 表示整形（measure と同じ刻み）
 import { geodesicDistance } from "@ortho-earth/core";
 import { tr } from "../i18n.ts";
 import type { LonLat, PathGadget } from "../../globe.d.ts";
@@ -317,12 +318,7 @@ function niceStep(raw: number) {   // 目盛の刻み＝1-2-5系列へ切り上�
 	const p = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-9)))), m = raw / p;
 	return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
 }
-function comma(n: string | number) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
 function fmtNum(v: number) { return comma(Math.round(v * 100) / 100); }
-function fmtDist(m: number) {   // measure と同じ刻み（<100m=小数1m/<1km=整数m/<10km=小数2km/<100km=小数1km/以上=整数km）
-	const km = m / 1000, c = (v: number, n: number) => comma(v.toFixed(n));
-	return km < 0.1 ? c(m, 1) + " m" : km < 1 ? c(Math.round(m), 0) + " m" : km < 10 ? c(km, 2) + " km" : km < 100 ? c(km, 1) + " km" : c(km, 0) + " km";
-}
 function download(blob: Blob, name: string) {
 	const a = document.createElement("a");
 	a.href = URL.createObjectURL(blob); a.download = name; a.click();

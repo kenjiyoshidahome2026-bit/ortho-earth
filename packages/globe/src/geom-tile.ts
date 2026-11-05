@@ -5,6 +5,7 @@
 // 単位の形は Cesium と同じ（箱＝±0.5・円柱＝半径 1・長さ 1（z ±0.5）・楕円体／球＝半径 1）。位置＝タイルの変換 × 立体の行列 × 単位の形。
 // 出力＝地物ごとの閉じた三角形（外向きに反時計回り・ECEF を center からの差で）＝分類の柱（core の set("classify")）と同じ使い方。
 import { batchTableOf, type PropertyTable } from "./mesh-features.ts";
+import { m4mul as mul4 } from "./matrix.ts";
 
 export interface GeomPart {
 	/** 地物の番号（batch id） */ id: number; /** ECEF（m）−center の頂点 */ pos: Float32Array; idx: Uint32Array;
@@ -16,7 +17,7 @@ type BinRef = { byteOffset: number };
 interface GeomFeatureTable { BOXES_LENGTH?: number; CYLINDERS_LENGTH?: number; ELLIPSOIDS_LENGTH?: number; SPHERES_LENGTH?: number; BOXES?: BinRef; CYLINDERS?: BinRef; ELLIPSOIDS?: BinRef; SPHERES?: BinRef;
 	BOX_BATCH_IDS?: BinRef; CYLINDER_BATCH_IDS?: BinRef; ELLIPSOID_BATCH_IDS?: BinRef; SPHERE_BATCH_IDS?: BinRef; RTC_CENTER?: number[] }
 const td = new TextDecoder();
-const jsonAt = (ab: ArrayBuffer, off: number, len: number): Record<string, unknown> | null => len ? JSON.parse(td.decode(new Uint8Array(ab, off, len)).replace(/[\0\s]+$/, "")) : null;
+export const jsonAt = (ab: ArrayBuffer, off: number, len: number): Record<string, unknown> | null => len ? JSON.parse(td.decode(new Uint8Array(ab, off, len)).replace(/[\0\s]+$/, "")) : null;
 
 // 単位の形（頂点・三角形）＝凸なので、向きは三角形ごとに「重心から外へ」で揃える
 interface Unit { pos: Float64Array; idx: Uint32Array }
@@ -50,7 +51,6 @@ function unitShapes() {
 }
 
 // 列優先 4x4 の積と点
-const mul4 = (a: ArrayLike<number>, b: ArrayLike<number>): Float64Array => { const o = new Float64Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; };
 // アフィンの 4x4（最後の行 0 0 0 1）の逆＝3x3 の逆と平行移動
 function inv4(m: ArrayLike<number>): Float64Array | null {
 	const a = m[0], b = m[4], c = m[8], d = m[1], e = m[5], f = m[9], g = m[2], h = m[6], k = m[10];

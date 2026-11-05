@@ -8,6 +8,7 @@
 import { selectLOD, ML_CZ0_KEY, ML_CZ1_KEY } from "@ortho-earth/core";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
 import { clipLineGeom, substituteZoom, quantZoom } from "../vtops.ts";
+import { tileDist2 } from "../vtmesh.ts";
 import { poleOf } from "./symbols-core.ts";
 import type { MLLayer, TileXYZ } from "@ortho-earth/core";
 import type { GlobeMap } from "../types/map.ts";
@@ -38,9 +39,8 @@ type GJSrc = { type?: unknown; coordinates?: unknown; features?: Array<GJFeature
 
 // 焼く層＝表示の z（quantZoom）を ["zoom"] に差し込む（worker と同じ近似）・zoom 域は描く側（sendLabels の meta）・source-layer は仮の "g"
 const layerAt = (L0: MLLayer, pz: number): MLLayer => ({ ...L0, "source-layer": "g", minzoom: undefined, maxzoom: undefined, ...(L0.filter != null ? { filter: substituteZoom(L0.filter, pz) } : {}), paint: substituteZoom(L0.paint || {}, pz), layout: { ...substituteZoom(L0.layout || {}, pz), visibility: "visible" } }) as MLLayer;
-const E = 4096, D2R = Math.PI / 180, R2D = 180 / Math.PI, MAX_TILES = 48, TILE_PX = 512 * Math.SQRT2;
+const E = 4096, D2R = Math.PI / 180, MAX_TILES = 48, TILE_PX = 512 * Math.SQRT2;
 const merc = (lon: number, lat: number) => { const s = Math.sin(Math.max(-85.05, Math.min(85.05, lat)) * D2R); return [lon / 360 + 0.5, 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)]; };
-const tileBbox = (z: number, x: number, y: number) => { const n = 2 ** z, lat = (v: number) => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
 
 // GeoJSON → 線の地物（LineString／MultiLineString だけ・点と面は捨てる＝MapLibre の line 配置と同じ）。parts＝世界メルカトル [0,1] の平らな列・bbox＝同じ単位
 function gjLineFeatures(src: unknown): LineFeat[] {
@@ -95,7 +95,7 @@ export function createGJLabels(map: GlobeMap, { cam, size, dpr = 1, sendLabels }
 		const fine = Math.max(...ts.map(t => t.z));
 		ts = ts.filter(t => t.z >= fine - 2);   // 急な傾きの遠くの粗い段は捨てる（vtdraw と同じ）
 		const [cx, cy] = cam.center, cw = Math.cos(cy * D2R);
-		const d2 = (t: TileXYZ) => { const b = tileBbox(t.z, t.x, t.y), dx = Math.max(b[0] - cx, 0, cx - b[2]) * cw, dy = Math.max(b[1] - cy, 0, cy - b[3]); return dx * dx + dy * dy; };
+		const d2 = tileDist2(cx, cy, cw);
 		return ts.sort((a, b) => d2(a) - d2(b)).slice(0, MAX_TILES);
 	};
 	const build = (s: GJLayer, ts: TileXYZ[], pz: number) => {

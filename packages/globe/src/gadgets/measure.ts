@@ -10,6 +10,7 @@
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・requestDraw・signal。
 import { gadgetStack } from "./stack.ts";
 import { keyBusy } from "./keys.ts";
+import { comma, fmtDist } from "./fmt.ts";   // 表示整形（profile と同じ刻み）
 import { geodesicDistance, geodesicArea } from "@ortho-earth/core";
 import { tr } from "../i18n.ts";
 import type { LonLat, PathGadget } from "../../globe.d.ts";
@@ -224,11 +225,6 @@ export function measure(this: GlobeMap, { makeProjector, unprojectXY, setClick, 
 }
 
 // ---- 表示整形（ortho-map の FIX/FIXA に合わせる）----
-function comma(n: string) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
-function fmtDist(m: number) {   // m入力：<100m=小数1m ／ <1km=整数m ／ <10km=小数2km ／ <100km=小数1km ／ 以上=整数km
-	const km = m / 1000, c = (v: number, n: number) => comma(v.toFixed(n));
-	return km < 0.1 ? c(m, 1) + " m" : km < 1 ? c(Math.round(m), 0) + " m" : km < 10 ? c(km, 2) + " km" : km < 100 ? c(km, 1) + " km" : c(km, 0) + " km";
-}
 function fmtArea(m2: number) {   // <1e6=整数m² ／ <1e9=小数3km² ／ 以上=整数km²
 	const c = (v: number, n: number) => comma((+v).toFixed(n));
 	return m2 < 1e6 ? c(Math.round(m2), 0) + " m²" : m2 < 1e9 ? c(m2 / 1e6, 3) + " km²" : c(m2 / 1e6, 0) + " km²";

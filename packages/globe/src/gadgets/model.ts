@@ -13,6 +13,7 @@
 //         「元の ENU → 今の ENU」の回転＋倍率＋平行移動を畳んで renderer へ（アニメの姿勢と合成）。地形への持ち上げは shader が頂点の今の経緯度で引く＝動かした先の地面に乗る。
 //         ギズモ（handle.gizmo(true)・model-gizmo.js）＝錨の取っ手（移動）・輪（回転）・角（倍率）を DOM で描き、つまんで動かす。
 import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
+import { m3v, m3mul as m3mulF } from "../matrix.ts";   // 列優先 3x3（置き方の算術）
 import { normAnimation } from "../gltf-meta.ts";   // アニメの spec（F4）
 import { samplePose, worldXf, batchXf, wrapTime, skinBatch } from "../gltf-anim.ts";
 import { createGizmo } from "./model-gizmo.ts";   // 置き方の取っ手（2026-10-18）
@@ -270,8 +271,6 @@ export function extrudePolys(src: ExtrudeSrc, { height, base, color, scale = 1, 
 const DEFAULT_BOTTOM = 2000;   // 統計の押し出しの既定の床[m]（本人裁定 2026-09-22「bottom=2000 ぐらい」＝日本の大半の山地より上・超える峰は寄ると頭が出る）
 // ── 置き方の算術（2026-10-18）─────────────────────────────────────────────────
 // 世界座標（β単位球・lonlatTo3D と同じ軸＝y が北極）の ENU 基底。E＝経度方向・U＝動径・N＝E×U（右手系・lon=0,lat=0 で (0,1,0)）
-const m3v = (L: ArrayLike<number>, v: ArrayLike<number>) => [L[0]*v[0] + L[3]*v[1] + L[6]*v[2], L[1]*v[0] + L[4]*v[1] + L[7]*v[2], L[2]*v[0] + L[5]*v[1] + L[8]*v[2]];   // 列優先 3x3 × ベクトル
-const m3mulF = (a: ArrayLike<number>, b: ArrayLike<number>) => { const o = new Float64Array(9); for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) o[c*3+r] = a[r]*b[c*3] + a[3+r]*b[c*3+1] + a[6+r]*b[c*3+2]; return o; };
 function enuBasis(lon: number, lat: number): { P: number[]; E: number[]; N: number[]; U: number[] } {
 	const P = lonlatTo3D(lon, lat), l = lon * Math.PI / 180;
 	const U = P, E = [-Math.sin(l), 0, Math.cos(l)];

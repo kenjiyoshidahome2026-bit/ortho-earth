@@ -10,7 +10,7 @@
 // 問い合わせ＝worker に残した「描いた地物」から、光線の地面の区間で候補を絞り、屋根と壁の画面の投影で当てる（MapLibre の押し出しの当て方）。
 import { workerPool } from "../worker-rpc.ts";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr } from "@ortho-earth/core";
-import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.ts";
+import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey, tileBbox, bboxHits, inZoom, usesFS, tileDist2 } from "../vtmesh.ts";
 import { hitExtrusion } from "../extrude-ml.ts";   // 当たり＝geojson の押し出しと同じ（屋根と壁・奥行き）
 import type { MLLayer } from "@ortho-earth/core";
 import type { RenderedFeature } from "../../globe.d.ts";
@@ -73,9 +73,6 @@ export interface VTExtrudeEnv {
 }
 
 const R2D = 180 / Math.PI;
-const tileBbox = (z: number, x: number, y: number) => { const n = 2 ** z, lat = (v: number) => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
-const hits = (a: ArrayLike<number>, b: ArrayLike<number>) => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
-const inZoom = (L: MLLayer, z: number) => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);
 const meshBytes = (d: VtxMesh) => d.pos.byteLength + d.nrm.byteLength + d.idx.byteLength + d.uv.byteLength + d.col.byteLength;
 
 // desc（source の記述子・globe が作る）＝{ tileUrl:(z,x,y)=>URL|null, pmtiles: URL|null, minzoom, maxzoom, bounds:[w,s,e,n]|null, coverage:[w,s,e,n]|null, promoteId, tag（同じ source かの印） }
@@ -90,7 +87,6 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 	const uploads: Upload[] = [];          // [{ id, key, gen, lt, data }]
 	// feature-state（MapLibre の setFeatureState＝source・sourceLayer・id）の置き場は呼び手（globe）＝sid → Map<fsKey(sourceLayer, id), { id, state }>（層より先に置かれても残る）。
 	// ここは読むだけ（組み立てと問い合わせ）＋変わった地物を含むタイルに印（touchFS）。paint の ["feature-state"] だけが読む（filter は読まない＝MapLibre と同じ）
-	const usesFS = (L: MLLayer) => JSON.stringify(L.paint ?? null).includes('"feature-state"');
 	let clock = 0, building = 0, rafU = 0, rafP = 0, lastUpd = 0, settledZoom = cam.zoom, moving = false;
 	// 送り口＝PLATEAU と同じ専用のポート（meshPort）＝render worker は 1 件適用するたびに受け取りの印（drained）を返す。
 	// 印の数で送る量を絞る（背圧：遅い端末で render worker の列が溜まらない＝層を外した時の解放も待たされない）・isSourceLoaded は「描画側に載った」まで待つ。
@@ -126,12 +122,12 @@ const evalIn = (e: unknown, z: number) => evalExpr(e, { zoom: z, props: {}, geom
 		const { desc } = src, { w, h } = size();
 		let ts = selectLOD(cam, w, h, { minZ: desc.minzoom ?? 0, maxZ: desc.maxzoom ?? 22, tilePx: TILE_PX * dpr * tileBias, zOf: zoomOf?.(desc.tileSize ?? 512) ?? null });   // zoomOf＝MapLibre の目盛りの地図でタイルの z を MapLibre の規則で（globe.js の mlZoomOf・core mlcover.js）
 		const area = desc.bounds || desc.coverage;
-		if (area) ts = ts.filter(t => hits(tileBbox(t.z, t.x, t.y), area));
+		if (area) ts = ts.filter(t => bboxHits(tileBbox(t.z, t.x, t.y), area));
 		if (!ts.length) return [];
 		const fine = Math.max(...ts.map(t => t.z));
 		if (!zoomOf) ts = ts.filter(t => t.z >= fine - 2);   // MapLibre の目盛り（zoomOf）＝coveringTiles が選んだ集合をそのまま（急な傾きの遠くは何段も粗い＝切ると遠景の建物が消える・set-center-point-above-ground・2026-09-30）
 		const [cx, cy] = cam.center, cw = Math.cos(cy / R2D);
-		const d2 = (t: TileXYZ) => { const b = tileBbox(t.z, t.x, t.y), dx = Math.max(b[0] - cx, 0, cx - b[2]) * cw, dy = Math.max(b[1] - cy, 0, cy - b[3]); return dx * dx + dy * dy; };
+		const d2 = tileDist2(cx, cy, cw);
 		ts.sort((a, b) => d2(a) - d2(b));
 		ts = ts.slice(0, zoomOf ? MAX_TILES * 3 : MAX_TILES);   // MapLibre の目盛りは上限を緩める（MapLibre に上限は無い・予算は下で見る）
 		// 予算を見た選び＝組んだタイルは実際のバイト・まだの物はこの source の中央値（無ければ 1MB）で見積もり、遠い方から落とす（近い 1 枚は必ず残す）

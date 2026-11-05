@@ -193,7 +193,7 @@ function xorMask(m: boolean[][], fn: boolean[][], fnMask: (r: number, c: number)
 function penalty(m: boolean[][], size: number): number {
 	let s = 0;
 	// 規則1：行/列の同色連続（5以上で 3+超過分）
-	for (let r = 0; r < size; r++) for (const line of [r]) {
+	for (let r = 0; r < size; r++) {
 		let run = 1; for (let c = 1; c < size; c++) { if (m[r][c] === m[r][c - 1]) { run++; if (run === 5) s += 3; else if (run > 5) s++; } else run = 1; }
 	}
 	for (let c = 0; c < size; c++) { let run = 1; for (let r = 1; r < size; r++) { if (m[r][c] === m[r - 1][c]) { run++; if (run === 5) s += 3; else if (run > 5) s++; } else run = 1; } }

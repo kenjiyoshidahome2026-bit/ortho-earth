@@ -7,7 +7,7 @@ import { addProtocol, removeProtocol } from "../request.ts";
 import { geopbf, geopbfCachePrune } from "geopbf";
 import { tr } from "../i18n.ts";
 import type { GeoPBF } from "geopbf";
-import type { Feature, FeatureCollection } from "geopbf";
+import type { FeatureCollection } from "geopbf";
 import type { Installing, IntakeCtx, IntakeDeps, IntakeLive, IntakeResult, IntakeReturn } from "../types/install.ts";
 import type { IntakeApi } from "../types/map.ts";
 
@@ -224,7 +224,7 @@ export function installIntake(map: Installing<IntakeApi>, live: IntakeLive, {
 		}
 		live.editDocHook?.(pbf, file.name, persist);
 		// 高さの列を持つ面＝自動で 3D 押し出し（geoedit の面パネル「高さ」もここ）。?extrude=0＝しない／?extrude=<列名>[,倍率]＝列を指定
-		const ex = await live.autoExtrude(pbf);
+		await live.autoExtrude(pbf);
 		const bb = pbf.unPackGint.bbox;
 		if (fit && bb && bb.length === 4) {
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;

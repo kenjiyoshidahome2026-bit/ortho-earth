@@ -3,11 +3,11 @@
 //   plugin の type＝registry.postEffects.add(type, { apply(map, passes) })＝setPostChain のたびに、その type の pass の配列（無ければ []）で呼ぶ（自前の overlay／CSS filter で描く約束）。
 //   setPostProcess({ bloom, vignette }) は従来どおり＝鎖の bloom→vignette の 2 段に写る。DOM 無し＝tests/postchain.mjs。
 import { normPost, normStages } from "@ortho-earth/core/postfx";
+import { fin } from "./finite.ts";
 import type { PostProcessNormalized, PostProcessOptions, PostStage, TonemapMode } from "@ortho-earth/core/postfx";
 export const POST_TYPES: readonly string[] = Object.freeze(["bloom", "vignette", "fxaa", "smaa", "tonemap", "lut", "dof", "ssr", "silhouette", "grey", "brightness", "nightVision", "glsl", "lensFlare", "depthOfField", "cesiumBloom", "contactShadow", "heightFog", "godRays", "rain", "toon"]);   // contactShadow〜toon＝場面の効果（2026-11-01・WebGPU だけ・renderer の "sceneFx"）。 silhouette〜cesiumBloom＝画面の段（Cesium の postProcessStages 相当・2026-10-28）＝固定の鎖の後に並び順どおり
 const LEGACY_KEYS = ["fxaa", "bloom", "tonemap", "lut", "vignette"];
 const STAGE_TYPES = new Set(["silhouette", "grey", "brightness", "nightVision", "glsl", "lensFlare", "depthOfField", "cesiumBloom"]);   // setPostProcess({ ... }) の旧形が受ける鍵＝描く順
-const fin = (v: unknown, d: number): number => (Number.isFinite(+(v as number)) ? +(v as number) : d);
 const nn = (v: unknown, d: number, lo = 0, hi = Infinity): number => Math.min(hi, Math.max(lo, fin(v, d)));
 // 正規化した pass（type ごとの既定を補った物）。plugin の pass（PluginPass）は受けた鍵をそのまま
 type PassBase = { id?: string; type: string; enabled: boolean };

@@ -7,6 +7,7 @@
 // 検査の層を利用者の層として足す（vector＝vtdraw・geojson＝gint）＝戻すと焼き直しなしで元の絵。問い合わせは非同期（queryRenderedFeatures）。
 // 地図の内側から受け取る物（抽象アクセス）：listSources()＝層の台帳・view.set(on, { background })＝下地・canvas／evXY＝ポインタの座標。
 import { Popup } from "./marker.ts";
+import { cssOnce } from "./css-once.ts";
 import { INSPECT_ICON } from "./inspect-stub.ts";
 import { tr } from "../i18n.ts";
 import type { InspectHandle, InspectOptions, InspectSource, MapLibreLayer, QueryOptions, RenderedFeature } from "../../globe.d.ts";
@@ -34,8 +35,7 @@ const CSS = `
 .maplibregl-inspect_property { display: table-row; }
 .maplibregl-inspect_property-name { display: table-cell; padding-right: 10px; color: #666; }
 .maplibregl-inspect_property-value { display: table-cell; word-break: break-all; }`;
-let cssOn = false;
-const ensureCss = () => { if (cssOn) return; cssOn = true; const s = document.createElement("style"); s.textContent = CSS; document.head.append(s); };
+const ensureCss = cssOnce(CSS);
 
 // 層の色（公式の brightColor と同じ考え＝層名を種にした明るい色・よくある層名は色相を寄せる）。randomcolor は持たない＝色相の帯と明るさだけ写す
 const HUE: Record<string, [number, number]> = { blue: [179, 257], pink: [283, 334], orange: [18, 46], yellow: [46, 62], green: [62, 178] };

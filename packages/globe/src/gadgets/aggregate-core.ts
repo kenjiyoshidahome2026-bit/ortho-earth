@@ -1,6 +1,7 @@
 // 点の集約（クラスタ）とヒートマップの計算部分（DOM・オーバーレイ無し＝Node の検定からも読める）。描画側は gadgets/aggregate.ts。
 import { evalExpr, originOfLayer, ML_CZ0_KEY, ML_CZ1_KEY, ML_CEZ_KEY } from "@ortho-earth/core";
 import { evalColor } from "./model.ts";
+import { mercY } from "../cells/core.ts";   // 世界メルカトル [0,1]（quadkey と同じ式）
 import type { ExprContext } from "@ortho-earth/core";
 
 /** 層の出自（"ml"＝MapLibre の層・undefined＝ネイティブ） */
@@ -18,7 +19,6 @@ export interface Clusters { levels: ClusterItem[][]; minLevel: number; maxLevel:
 export interface HeatStyle { radius: number[]; intensity: number[]; zStep: number; opacity: number; ramp: Uint8Array }
 
 export const D2R = Math.PI / 180;
-const mercY = (lat: number) => { const s = Math.sin(Math.max(-85.05112878, Math.min(85.05112878, lat)) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
 const unMercY = (y: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) / D2R;
 export const ctxOf = (zoom: number, props: Props | null | undefined, origin: Origin, gs: GlobalState): ExprContext => ({ zoom, props: props || {}, geom: "Point", vars: {}, gs, origin });   // gs＝地図の global-state（#173 段 3b）   // origin＝"ml"（MapLibre の層）
 

@@ -10,7 +10,7 @@ import { normClouds, normSun, sunToLight } from "../weather.ts";
 import { normSky } from "../sky-spec.ts";
 import type { AtmosphereSpec, CameraOptions, CameraTarget, LightSpec, LonLat, MeshLightingSpec, GroundLightingSpec, GroundMaterialSpec, PaddingOptions } from "../../globe.d.ts";
 import type { CameraDeps, CameraLive, CameraReturn, Installing } from "../types/install.ts";
-import type { CameraApi, GlobeMap } from "../types/map.ts";
+import type { CameraApi } from "../types/map.ts";
 import type { FollowState } from "../types/scope.ts";
 import type { CloudShell } from "../clouds.ts";
 import type { SunSpecNorm } from "../weather.ts";

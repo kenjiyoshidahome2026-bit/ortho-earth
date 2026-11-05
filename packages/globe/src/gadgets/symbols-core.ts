@@ -1,5 +1,5 @@
 // 記号の層の評価（MapLibre の symbol 層の layout/paint → 描く記号の列）。DOM なし＝検定 t-symbols が直接読む。
-import { evalExpr, truthy, originOfLayer, parseFontStack, fontCss, pickImage } from "@ortho-earth/core";
+import { evalExpr, truthy, originOfLayer, parseFontStack, pickImage } from "@ortho-earth/core";
 import { evalColor } from "./model.ts";
 import type { ExprContext, MLLayer } from "@ortho-earth/core";
 

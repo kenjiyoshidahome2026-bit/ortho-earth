@@ -43,6 +43,7 @@ import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
 import { insideUnit, type GeomOut } from "../geom-tile.ts";
+import { planesOf } from "../frustum.ts";   // mvp → 視錐台の 6 面（copc と同じ 1 本）
 
 /** タイルの content（読む欄だけ） */
 interface ContentJson { uri?: string; url?: string; metadata?: MetadataEntityJson; group?: number }
@@ -242,16 +243,6 @@ export function sphereOf(bv: BoundingVolume | undefined, M: ArrayLike<number>): 
 	}
 	if (bv?.sphere) { const s = bv.sphere, c = m4pt(M, [s[0], s[1], s[2]]); const k = Math.max(len(m4vec(M, [1, 0, 0])), len(m4vec(M, [0, 1, 0])), len(m4vec(M, [0, 0, 1]))); return { c, r: s[3] * k }; }
 	return null;
-}
-// mvp（列優先）から視錐台の 6 面（法線は内向き・正規化）
-function planesOf(m: ArrayLike<number>) {
-	const row = (i: number) => [m[i], m[4 + i], m[8 + i], m[12 + i]];
-	const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3), out: number[][] = [];
-	for (const [a, sg] of [[r0, 1], [r0, -1], [r1, 1], [r1, -1], [r2, 1], [r2, -1]] as Array<[number[], number]>) {
-		const p = [r3[0] + sg * a[0], r3[1] + sg * a[1], r3[2] + sg * a[2], r3[3] + sg * a[3]], l = Math.hypot(p[0], p[1], p[2]) || 1;
-		out.push([p[0] / l, p[1] / l, p[2] / l, p[3] / l]);
-	}
-	return out;
 }
 
 let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;

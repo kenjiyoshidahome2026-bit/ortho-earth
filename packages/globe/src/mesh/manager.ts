@@ -28,6 +28,8 @@
 //   setVisible(on) / visible  … 建物 3D を出す／伏せる（map.setMeshVisible・2026-10-21）。伏せている間は表示しない・新しく読み始めない（常駐は保つ＝戻すとタダ）
 import { parseViewHash, wrapLon } from "@ortho-earth/core";
 import { createMeshDb } from "../meshdb.ts";
+import { escHtml } from "../html-safe.ts";
+import { qNum } from "../urlknob.ts";
 import { dockStack } from "../gadgets/stack.ts";   // 左下ドック（読込トーストの容れ物）
 import { tr } from "../i18n.ts";
 import type { GlobeInternals } from "../types/map.ts";
@@ -90,9 +92,10 @@ export interface MeshManager {
 }
 
 const t = tr();   // 英語キー＝t("…") がそのまま辞書のキー（i18n-scan が plateau/ も舐める）
-const qNum = (re: RegExp, def: number) => { const m = location.search.match(re); return m ? +m[1] : def; };   // ?paz= 等の調律ノブ（app.js と同形）
 
 const D2R = Math.PI / 180;
+/** 区の bbox（度）から点 p までの距離²（度²・中なら 0）＝選びと優先順位の鍵（4 か所で同じ物を持っていた＝一本化・2026-11-05） */
+const pd2 = (s: MeshSet, p: ArrayLike<number>) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
 
 export function createMeshManager(env: MeshEnv): MeshManager {
 const { meshOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, dbgHost, mapEl, renderer, attachMeshPort, emit, requestDraw, footPoint, viewBbox, playingNow, flyTo } = env;
@@ -151,7 +154,6 @@ dbgHost.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baki
 			const view = viewBbox(env.cam);
 			const foot = footPoint();
 			if (foot) { view[0] = Math.min(view[0], foot[0]); view[1] = Math.min(view[1], foot[1]); view[2] = Math.max(view[2], foot[0]); view[3] = Math.max(view[3], foot[1]); }
-			const pd2 = (s: MeshSet, p: ArrayLike<number>) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
 			return SETS.filter(s => !s.noMask && bboxIntersects(s.bbox, view) && !meshDead(s.name))
 				.map(s => ({ n: s.name, d: +Math.sqrt(pd2(s, foot || env.cam.center)).toFixed(4) }))
 				.sort((a, b) => a.d - b.d).slice(0, 8).map(h => `${h.n}:${h.d}`);
@@ -351,7 +353,6 @@ dockStack(mapEl).append(meshEl);
 const meshProg = new Map<string, MeshProgEntry>();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
 let sceneProgTap: MeshProgressTap = null;   // シーン再生(waitLoading)の進捗パネルへの中継口＝待機中だけ playScene が配線（宣言は使用点 renderMeshProg より先＝初期化中の worker 便で TDZ を踏まない）
 // 市区町村ごとに 1 行＝名前・プログレスバー・枚数（本人指定 9/8）。待ち行列の区は「待機」行（バー空）。
-const escHtml = (s: unknown) => String(s).replace(/[&<>"]/g, c => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" } as Record<string, string>)[c]));
 function renderMeshProg() {
 	const rows: string[] = [];
 	for (const p of meshProg.values()) {
@@ -431,7 +432,6 @@ function deriveScriptSets(views: unknown[]) {
 		const fwd = v.pitch > 0.35
 			? [p[0] + Math.sin(v.bearing) * NEIGH / Math.max(0.2, Math.cos(v.lat * D2R)), p[1] + Math.cos(v.bearing) * NEIGH]
 			: p;
-		const pd2 = (s: MeshSet, q: number[]) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
 		// 同点タイブレーク＝重心距離（autoMesh の near と同じ規約）。bbox は矩形＝密集地では複数区の
 		// bbox が停止点を含み pd2=0 の同点になり、旧・カタログ配列順の成り行きで
 		// 東京駅→港区／スカイツリー→荒川区／新宿→渋谷区 と「主役でない区」を先読みしていた
@@ -448,9 +448,8 @@ function deriveScriptSets(views: unknown[]) {
 	}
 	const wanted: MeshSet[] = [], seen = new Set<string>();
 	const take = (s: MeshSet | undefined) => { if (s && !seen.has(s.name)) { seen.add(s.name); wanted.push(s); } };
-	const pd2q = (s: MeshSet, q: number[]) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	for (const v of perView) { take(v.bld[0]); v.brid.forEach(take); }          // 一巡目＝各停止位置の中心区＋橋梁（軽くて主役）
-	for (const v of perView) v.bld.slice(1).filter(s => pd2q(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
+	for (const v of perView) v.bld.slice(1).filter(s => pd2(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
 	return wanted;
 }
 // 静穏窓の大掃除（裁定2026-08-12「書き終わった後の静かな時間を活用」）＝自動上演の各行で書き終わりゲートが
@@ -674,7 +673,6 @@ function autoMesh(settled = false) {
 	// 足元に居ても落選し、チルト北向きの構図で手前だけ基図の間引き建物になる。
 	// 優先順位＝チルト時は「画面下方（足元）に近い区」が主キー（手前＝一番大きく見える建物が先）、
 	// 同点は中心への近さ、それも同点（bbox重複）は重心距離。ロード発火もこの順＝手前から立ち始める。
-	const pd2 = (s: MeshSet, p: ArrayLike<number>) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	const d2 = (s: MeshSet) => pd2(s, foot || env.cam.center);   // 主キー：足元（真俯瞰は中心）
 	const m2 = (s: MeshSet) => pd2(s, env.cam.center);           // 第2キー：中心
 	const c2 = (s: MeshSet) => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - env.cam.center[0]) ** 2 + (cy - env.cam.center[1]) ** 2; };

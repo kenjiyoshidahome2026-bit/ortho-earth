@@ -3,9 +3,9 @@
 // 自宅で仕込み、ストレージが気になれば返す道具。DOM は open 初回に自前で組む＝main は worker 配線
 // （idbList/idbDelete/preload）とカタログの getter を渡すだけ。進捗は main の renderMeshProg から onProg で中継される。
 import { tr } from "./i18n.ts";
+import { escHtml as esc } from "./html-safe.ts";   // 題（地域の申告の i18n キー＝訳が無ければキーそのまま）は呼び手の入力＝innerHTML へ入れる前に逃がす（CodeQL）
 
 const t = tr();
-const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);   // 題（地域の申告の i18n キー＝訳が無ければキーそのまま）は呼び手の入力＝innerHTML へ入れる前に逃がす（CodeQL）
 
 /** 地区（台帳の 1 件・name＝表示名・base＝tileset の基底 URL） */
 export interface MeshDbSet { name: string; base: string; [k: string]: unknown }

@@ -23,6 +23,8 @@ export interface ShadeInput { h: ArrayLike<number>; n: number; hN?: ArrayLike<nu
 export interface HillshadeStats { req: number; ok: number; empty: number; err: number; last: string | null; zs?: Record<number, number>; lastErr?: string; gpu: number; cpu: number }
 
 const PI = Math.PI;
+/** MapLibre の色は事前乗算（CPU の shadeTile と GPU の hillshade-gl で同じ式） */
+export const pm = (c: ArrayLike<number>): number[] => [c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]];
 let cctx: OffscreenCanvasRenderingContext2D | null = null;
 // CSS の色（名前・hsl・rgba…）→ [r,g,b,a]（0..1）。canvas に塗って読む＝ブラウザの解釈そのまま
 export function cssColor(c: unknown, d: RGBA = [0, 0, 0, 1]): RGBA {
@@ -80,7 +82,6 @@ export function shadeTile(inp: ShadeInput): Uint8ClampedArray<ArrayBuffer> {
 	const I = p.exaggeration, method = p.method || "standard";
 	const shadows = (p.shadows || [p.shadow]) as RGBA[], highlights = (p.highlights || [p.highlight]) as RGBA[], azs = (p.directions || [p.direction] as number[]).map(d => d * PI / 180), alts = (p.altitudes || [45]).map(d => d * PI / 180);
 	const L = Math.max(shadows.length, highlights.length, azs.length, alts.length);
-	const pm = (c: RGBA) => [c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]];   // MapLibre の色は事前乗算
 	const S = shadows.map(pm), H = highlights.map(pm), A = pm(p.accent), k = Math.max(0, Math.min(1, I * 2));
 	const base = 1.875 - I * 1.75, maxV = 0.5 * PI, pb = Math.pow(base, maxV) - 1;
 	const aspectOf = (dx: number, dy: number) => dx !== 0 ? Math.atan2(dy, -dx) : PI / 2 * (dy > 0 ? 1 : -1);   // get_aspect

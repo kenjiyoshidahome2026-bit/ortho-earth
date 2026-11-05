@@ -1,13 +1,13 @@
 // MapLibre の custom 層に渡す args（CustomLayerInterface の render(gl, args)）を cam から組む純関数＝main の customgl.js と render worker の customgl-draw.js が同じ物を使う（worker 側は renderworker が host.customArgs で渡す＝customgl-draw.js は ?url の依存ゼロ）（deck.gl 差分 PR-7・2026-10-12）。
 // 行列＝mvp · [メルカトル → 単位球]（視点の中心で局所線形化）・prelude（mercator／globe の variant）・getProjectionData（タイル単位）。中身は customgl.js から切り出し（挙動は同じ）。
 import { cameraState, lonlatTo3D, ellipsoidOn } from "@ortho-earth/core/camera";   // camera の口だけ（render worker も読む＝core の根（DOM の input 等）を worker へ引かない）
+import { m4mul as mul } from "../matrix.ts";
 import type { CameraPose } from "@ortho-earth/core/camera";
 
 const PI = Math.PI, D2R = PI / 180, EARTH_R_ML = 6371008.8;   // MapLibre の地球の半径（MercatorCoordinate と同じ）
 const mercX = (lng: number) => (180 + lng) / 360;
 const mercY = (lat: number) => (180 - (180 / PI) * Math.log(Math.tan(PI / 4 + lat * PI / 360))) / 360;
 // 4×4（列優先・gl-matrix の並び）の積 a·b
-const mul = (a: ArrayLike<number>, b: ArrayLike<number>): Float64Array => { const o = new Float64Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; };
 // メルカトルの vertex の下ごしらえ（MapLibre の shaders/_prelude_projection.vertex.glsl の mercator 版と同じ名前・同じ働き）
 const PRELUDE = `uniform mat4 u_projection_matrix;
 uniform vec4 u_projection_tile_mercator_coords;

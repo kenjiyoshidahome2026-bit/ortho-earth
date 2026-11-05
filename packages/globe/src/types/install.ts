@@ -8,7 +8,7 @@
 //   書く installer は第 2 引数でその名を挙げる（例：camera の __clouds）。これで installer が書けるのは自分の interface の口だけになる（他の口へ代入すると型の誤り）。
 //   限界：install の最中に（関数の外で）まだ付いていない口を読む誤りは咎められない＝順は globe.js（batch 3 で globe.ts）の呼ぶ順が正本。
 import type { GlobeInternals, GlobeMap, RegisterGadget, StyleApi } from "./map.ts";
-import type { DrawSize, GlobeCam, GlobeLive, GlobeScope, InlineSourceLayer, ModelCtl, UserLayerRec, UserSource, WPost } from "./scope.ts";
+import type { GlobeLive, GlobeScope, InlineSourceLayer, ModelCtl, UserLayerRec, UserSource } from "./scope.ts";
 import type { ClipPlane } from "@ortho-earth/core/clip";
 import type { MLLayer, queryTiles } from "@ortho-earth/core";
 import type { CameraState } from "@ortho-earth/core/camera";

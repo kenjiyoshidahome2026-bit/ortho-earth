@@ -10,7 +10,7 @@ import { normSplat } from "../splat.ts";
 import { normVoxel } from "../voxel.ts";
 import { sanitizeHTML } from "geopbf/sanitize";
 import { tr } from "../i18n.ts";
-import type { Feature, FeatureCollection } from "geopbf";
+import type { Feature } from "geopbf";
 import type { FeatureService } from "geopbf/featureservice";
 import type { CellCache } from "../featureservice.ts";
 import type { Bbox, CellsLayerHandle, DataLayerHandle, MapLibreLayer, OverlayHandle } from "../../globe.d.ts";

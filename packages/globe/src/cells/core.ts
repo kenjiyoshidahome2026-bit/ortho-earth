@@ -111,7 +111,7 @@ export const geohash = {
 };
 
 // ── quadkey（Bing・メルカトルのタイル）
-const mercY = (lat: number) => { const s = Math.sin(Math.max(-85.05112878, Math.min(85.05112878, lat)) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+export const mercY = (lat: number) => { const s = Math.sin(Math.max(-85.05112878, Math.min(85.05112878, lat)) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };   // 世界メルカトル [0,1]（aggregate-core も使う）
 const unMercY = (y: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * R2D;
 export const quadkey = {
 	encode(lon: number, lat: number, z = 10) {

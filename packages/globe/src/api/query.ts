@@ -193,7 +193,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		return { bbox: [Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1])), Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))] };
 	};
 	const queryUserSync = (geometry: QGeom | undefined, qo: QueryOptions = {}, hook: ((out: HitFeature[]) => void) | null = null) => {
-		const W = size.w / live.dpr, H = size.h / live.dpr, tolPx = qo.tolerance ?? 0, tolUser = qo.tolerance ?? 3;
+		const tolPx = qo.tolerance ?? 0, tolUser = qo.tolerance ?? 3;
 		const want = qo.layers ? new Set(qo.layers) : null, take = (id: string) => !want || want.has(id);
 		const area = queryArea(geometry); if (!area) return null;
 		const inBox = (lon: number, lat: number) => area.bbox ? lon >= area.bbox[0] && lon <= area.bbox[2] && lat >= area.bbox[1] && lat <= area.bbox[3] : false;
@@ -316,7 +316,7 @@ export function installQuery(map: Installing<QueryApi>, live: QueryLive, {
 		if (!Array.isArray(geometry) && geometry && typeof geometry === "object") { qo = geometry; geometry = undefined; }   // MapLibre と同じ＝第 1 引数に opts だけも可
 		if (qo.filter != null) qo = { ...qo, filter: normalizeMLLayer({ filter: qo.filter } as MLLayer, PUBLIC_DZ).filter as StyleExpression };   // 問い合わせの filter も ML の入口 1 本（旧式フィルタ・目盛り）
 		// 許し（公式例の門 §8 B・2026-09-27）＝既定 0（MapLibre と同じ・旧 3px は線に余計に当たっていた＝83 例）。単一スロットの user 層（内製・線幅を持たない）だけ従来の 3px
-		const W = size.w / live.dpr, H = size.h / live.dpr, tolPx = qo.tolerance ?? 0, tolUser = qo.tolerance ?? 3;
+		const W = size.w / live.dpr, H = size.h / live.dpr, tolPx = qo.tolerance ?? 0;
 		// 基図と vector source の許しの px→タイル単位＝MapLibre の目盛りの地図は ML と同じ一様なメルカトルの px（512×2^z_ML＝256×2^(z−dz+1)）。
 		// 問い合わせ点の cos を掛けると低ズームの地球の高緯度で ML より 1/cos 広い（o1023d：z0.9・緯度 60〜79° で海岸線を余計に拾った）。目盛りなし（dz 0）＝この地図の画面（core の既定）
 		const pxScale = PUBLIC_DZ ? 2 ** (1 - PUBLIC_DZ) : null;

@@ -55,7 +55,7 @@ self.onmessage = async (e: MessageEvent<ModelJob>) => {
 	try { await work(e); } finally { leave(); }
 };
 async function work(e: MessageEvent<ModelJob>) {
-	const { id, kind, ab, at, heading, scale, baseUri, ell, textures, ground, mask, polys } = e.data;
+	const { id, kind, ab, at, heading, scale, baseUri, textures, ground, mask, polys } = e.data;
 	try {
 		if ("transcoders" in e.data) setTextureTranscoders(e.data.transcoders);   // registry.textureTranscoders の写し（W5）＝模型・3D Tiles の KTX2
 		if (kind === "extrude") {

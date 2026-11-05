@@ -7,6 +7,7 @@
 // 台帳＝IDB GIS/pack（native-bucket の Cache）。SW（packages/globe/scripts/lib/sw.js＝各アプリ共通）が PACK_CACHE の URL を cache-first で返す＝機内モードで同じ範囲が開く。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.ts";
+import { escHtml as esc } from "../html-safe.ts";
 import { Cache } from "native-bucket";
 import { expandTemplate } from "@ortho-earth/core/raster-src";   // {z}/{x}/{y}・{s}・{-y}/tms の展開＝エンジンと同じ URL を作る
 import { PACK_CACHE, tilesFor, tileCount, demNames, estimateBytes, bboxIntersects, fmtMB, runFetches, tplOf } from "../offline-pack.ts";
@@ -106,7 +107,6 @@ export function offline(this: GlobeMap, { sources, bounds, onOpen, signal, zmaxD
 		$(".of-list").querySelectorAll(".of-del").forEach(b => b.addEventListener("click", () => delPack(b.closest<HTMLElement>(".of-row")!.dataset.id!)));
 		$(".of-list").querySelectorAll(".of-go").forEach(b => b.addEventListener("click", () => { const p = rows.find(x => x.id === b.closest<HTMLElement>(".of-row")!.dataset.id); if (p) map.fitBounds(p.bbox, { animate: true }); }));
 	};
-	const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
 	const delPack = async (id: string) => {
 		const led = await ledger(), cache = await store(); if (!led) return;
 		const p = await led(id) as Pack | undefined; if (!p) return;

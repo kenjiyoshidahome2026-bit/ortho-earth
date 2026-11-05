@@ -7,6 +7,7 @@
 // 状態の正本は map.raster（select/toggle/selected/onChange）＝URL ?r= と同期するのは app.js 側。ここは表示と操作だけ。
 import { gadgetStack } from "./stack.ts";
 import { tr } from "../i18n.ts";
+import { escHtml as esc } from "../html-safe.ts";   // 目録の id・名前は呼び手の入力＝innerHTML へ入れる前に逃がす（CodeQL・2026-10-15）
 import type { RasterAPI, RasterCatalogEntry } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
@@ -34,7 +35,6 @@ export function raster(this: GlobeMap, { raster, catalog = [], signal }: RasterG
 	gadgetStack(mapEl).append(box);   // 置き場所はスタック（搭載順＝縦の並び）。パネルはボタンの右へ開く（#search と同じ流儀）
 
 	const unders = catalog.filter(c => (c.order || "under") !== "over"), overs = catalog.filter(c => c.order === "over");
-	const esc = (s: unknown) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);   // 目録の id・名前は呼び手の入力＝innerHTML へ入れる前に逃がす（CodeQL・2026-10-15）
 	const label = (c: RasterCatalogEntry) => esc(c.key ? t(c.key) : (c.name || c.id));
 	function render() {
 		const sel = raster!.selected();

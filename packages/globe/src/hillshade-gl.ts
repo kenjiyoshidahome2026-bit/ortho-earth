@@ -3,7 +3,7 @@
 // readPixels で読み戻す＝port プロバイダの形（RGBA8・事前乗算なし → createImageBitmap）はそのまま＝render worker は無改修。
 // 式は shadeTile の写し（MapLibre 6.11.2 の hillshade_prepare＋hillshade fragment）。GPU は f32＝JS（f64）と丸めが違う＝画素は ±数階調ずれ得る
 // （tests/t-hillshade-gl.html が 5 つの method で差を測る）。WebGL2・R32F の読み・光の本数 ≤ 8 のどれかが叶わなければ null＝呼び手は CPU（shadeTile）で描く。
-import { heightAt } from "./hillshade.ts";
+import { heightAt, pm } from "./hillshade.ts";   // pm＝MapLibre の色は事前乗算（shadeTile と同じ）
 import type { ShadeInput } from "./hillshade.ts";
 import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU（high-performance）
 
@@ -87,7 +87,6 @@ export function createShadeGL(): ShadeGL | null {
 	const hTex = gl.createTexture()!, oTex = gl.createTexture()!, fb = gl.createFramebuffer()!, vao = gl.createVertexArray()!;
 	for (const t of [hTex, oTex]) { gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); }
 	let size = 0, pad = new Float32Array(0);
-	const pm = (c: number[]) => [c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]];   // MapLibre の色は事前乗算（shadeTile と同じ）
 	const vec4s = (cs: number[][]) => { const a = new Float32Array(MAX_L * 4); cs.slice(0, MAX_L).forEach((c, i) => a.set(pm(c), i * 4)); return a; };
 	const floats = (v: number[]) => { const a = new Float32Array(MAX_L); a.set(v.slice(0, MAX_L)); return a; };
 	return {

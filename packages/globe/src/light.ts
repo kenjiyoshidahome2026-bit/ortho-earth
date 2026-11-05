@@ -2,6 +2,7 @@
 // position＝[r, azimuthal, polar]（度）：azimuthal＝光源の方位（0°＝anchor:"map" なら真北・"viewport" なら画面の上、時計回り）・polar＝天頂からの角。
 // 文書の意味で実装（MapLibre の shader の軸の符号は本物と未照合）。r は向きに効かない（MapLibre も同じ）。
 import { parseRGBA, lonlatTo3D } from "@ortho-earth/core";
+import { fin } from "./finite.ts";
 import type { LightSpec, LightSpecification } from "../globe.d.ts";
 
 /** 部分指定・不正値も受ける入力（中身は既定で補う） */
@@ -35,7 +36,6 @@ export function lightPayload(light: LightSpecification | null | undefined, beari
 //   point/spot/ambient/hemisphere は第 3 波 W2（2026-10-12）で描く（下の localLightsPayload → renderer "lights"・メッシュ＝模型・LOD2 建物の陰影に足す・上限 8 灯）。ibl は受けて保つだけ（"spec"）＝plugin（registry.lights に type を足し apply(map, lights) で自前描画）が描く。
 //   位置は [lon, lat, alt m]・向きは [east, north, up]・角は度・距離は m・色は CSS 文字列・intensity は 0〜（directional だけ MapLibre どおり 0〜1）
 export const LIGHT_TYPES: readonly string[] = Object.freeze(["directional", "point", "spot", "ambient", "hemisphere", "ibl"]);
-const fin = (v: unknown, d: number): number => (Number.isFinite(+(v as number)) ? +(v as number) : d);
 const nn = (v: unknown, d: number): number => Math.max(0, fin(v, d));
 const col = (v: unknown, d: string): string => (typeof v === "string" && v ? v : d);
 const llh = <D>(v: unknown, d: D): number[] | D => (Array.isArray(v) && v.length >= 2 && v.slice(0, 2).every(x => Number.isFinite(+x)) ? [+v[0], +v[1], fin(v[2], 0)] : d);

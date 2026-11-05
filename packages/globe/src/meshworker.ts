@@ -3,7 +3,7 @@
 // 重複面dedup→RTE delta を行い、完成したバッチから順に render worker へ直結ポートで transfer 送信＝逐次表示。
 // 区全体を待たず「目の前のビルが数秒で立ち始める」。被覆マスクは区単位で累積（シェーダのマスクスロットを消費しない）。
 // main.js 側は複数のこの worker をプールし、base URL のハッシュで固定ルーティング（同じ地区は常に同じ worker＝内部cacheが効く）。
-import { decodeBatch, setDecodeEnv, fetchAB, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./meshdecode.ts";   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
+import { decodeBatch, setDecodeEnv, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./meshdecode.ts";   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
 import { PLQ_VER, bakeDir, unpackPLQ } from "./meshq.ts";
 import { Cache } from "native-bucket";
 import { opfsStore } from "./meshfs.ts";
