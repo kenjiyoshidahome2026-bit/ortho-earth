@@ -801,6 +801,7 @@ export function createLabelLayer(canvas: OffscreenCanvas | HTMLCanvasElement, { 
 		for (const k of fades.keys()) if (!winners.has(k)) drawOne(k);
 		drawSky(st, cam, Wc, Hc, dpr);   // 星空の注記も end の前（GPU の受け口は end で列を送る）
 		sink.end();
+		if (sink.pending?.()) animating = true;   // 字を焼く予算切れで描き残した注記＝次のフレームを頼む（フェードと同じ経路）
 		function drawOne(k: string) {
 			const L = winners.get(k) || labelByKey.get(k) || kidByKey.get(k);   // 子（lp 2 の錨）はフェードアウト中も鍵で引く
 			if (!L) { fades.delete(k); return; }

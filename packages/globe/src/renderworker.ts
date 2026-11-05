@@ -96,7 +96,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -459,6 +459,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			labelGpuCanvas = m.labelGpuCanvas ?? null;
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}), ...(labelGpuCanvas ? { sinkWrap: b => (textSink = createGpuTextSink(b)) } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
 			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
+			textSink?.setGlyphBudget(m.glyphMs || 0);   // ?glyphms=N＝字を焼く予算（ms/フレーム）＝起動の注記 1 フレーム 1.4 秒（タブレット）を数フレームに分ける計器（0＝従来）
 			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
 			if (typeof m.resFix === "number" && m.resFix > 0) {   // ?res=0.7 等＝動的解像度をその段に固定（実機で「解像度を下げれば滑らかか」を切り分ける計器）

@@ -8,7 +8,11 @@ export interface SdfGlyph { x: number; y: number; w: number; h: number; ox: numb
 /** 記号の版の中の絵 1 つ（版の px）。k＝版の px／元の絵の px */
 export interface GpuIcon { x: number; y: number; w: number; h: number; k: number }
 export interface GpuText {
-	glyph(font: string, ch: string): SdfGlyph | null;
+	glyph(font: string, ch: string): SdfGlyph | null | undefined;
+	/** 1 フレームに字を焼く時間の予算（ms・0＝無制限）。超えた字は undefined＝次のフレームで焼く */
+	setBudget(ms: number): void;
+	/** このフレームで予算切れの字があった（＝もう 1 フレーム描く） */
+	pending(): boolean;
 	fontOf(font: string): [string, number];
 	begin(W: number, H: number, dpr: number): void;
 	/** 次の push の行き先：null＝最前面の canvas・数＝地図のパスの中の層の添字 li の位置（T-P2） */
@@ -35,5 +39,5 @@ export interface MidTarget { format: GPUTextureFormat; samples: number; depth: G
 /** canvas＝描く先の webgpu canvas。null＝画面に出さずテクスチャに描く（検定） */
 export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLCanvasElement | null, format?: GPUTextureFormat): GpuText;
 /** 注記の字（線に沿う・点）を GPU へ回す受け口。attach(gt)＝GPU を据える・canvasOnly＝一時的に全部 Canvas2D（撮影） */
-export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean; /** 地図のパスの中へ回す層（T-P2）・null＝全部最前面 */ mid: ((li: number) => boolean) | null }
+export interface GpuTextSink extends TextSink { attach(gt: GpuText | null): void; canvasOnly: boolean; /** 地図のパスの中へ回す層（T-P2）・null＝全部最前面 */ mid: ((li: number) => boolean) | null; /** 字を焼く予算（ms/フレーム・0＝無制限＝従来） */ setGlyphBudget(ms: number): void }
 export function createGpuTextSink(base: TextSink): GpuTextSink;

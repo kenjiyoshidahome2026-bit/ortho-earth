@@ -59,6 +59,8 @@ export interface TextSink {
 	/** 点の注記の文字（行の束・縦書き・format の run）。(x0, y0)＝箱の左上（T があれば錨を原点にした T の空間・無ければ画面）・img＝format の記号の区間の絵 */
 	pointText(tl: TextLayout, font: string, T: Mat2 | null, sx: number, sy: number, x0: number, y0: number, just: string, p: TextPaint, o: number, img: (name: string) => CanvasImageSource | null): void;
 	stats(): SinkStats;
+	/** このフレームで描き残した注記がある（字を焼く予算切れ＝GPU の受け口）＝もう 1 フレーム描く */
+	pending?(): boolean;
 }
 
 // 書体の文字列（"bold 12.5px …"）から最初の「数（小数可）px」の数の部分（旧＝font.match(/(\d+(?:\.\d+)?)px/)?.[1]）。
