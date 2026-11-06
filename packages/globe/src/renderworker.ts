@@ -8,7 +8,8 @@
 import { createLabelLayer } from "@ortho-earth/core/labels";
 import { setPowerPreference, powerPreference, type GpuPowerPreference } from "@ortho-earth/core/gpupower";
 import { createGpuTextSink, createGpuText } from "@ortho-earth/core/textgpu";   // 注記の字（線に沿う・点）を WebGPU で（テキスト GPU 化 T-P1・T-P2・既定＝?text=2d でない時に据える）
-import { createGlyphStore, SDF_VER, type GlyphStore } from "@ortho-earth/core/glyphstore";   // 焼いた字の保存（IndexedDB GIS/glyph・?glyphdb=1）
+import { createGlyphStore, SDF_VER, type GlyphStore } from "@ortho-earth/core/glyphstore";
+import { warmFonts } from "./fontwarm.ts";   // ?fontwarm=2＝render worker で書体を温める   // 焼いた字の保存（IndexedDB GIS/glyph・?glyphdb=1）
 import { Cache } from "native-bucket";
 import { createLabelReceiver } from "@ortho-earth/core/labelsync";   // main からの注記は差分（持っている物は番号だけ・2026-10-03）
 import { createTerrain } from "@ortho-earth/core/terrain";
@@ -105,7 +106,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -473,6 +474,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}), ...(labelGpuCanvas ? { sinkWrap: b => (textSink = createGpuTextSink(b)) } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
 			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
 			textSink?.setGlyphBudget(m.glyphMs || 0);
+			if (m.fontWarm === 2) { bootDur.fontWarmMs = warmFonts(); bootMarks.fontwarm = bootEp(); }   // ?fontwarm=2＝この worker で先に書体を温める（冷えた端末の最初の字焼きの数秒を frame1 の前へ・ms は boot 行へ）
 			if (m.glyphDb && labelGpuCanvas) glyphStore = createGlyphStore(() => Cache("GIS/glyph"), `${SDF_VER}|${navigator.userAgent}`);   // 読み込みは裏で＝来るまでに頼まれた字は従来どおり焼く   // ?glyphms=N＝字を焼く予算（ms/フレーム）＝起動の注記 1 フレーム 1.4 秒（タブレット）を数フレームに分ける計器（0＝従来）
 			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
@@ -1185,7 +1187,7 @@ function frame() {
 			if (animating || fogAnim || ovMore || clockSpin || accMore) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
-			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive, boot: { marks: { ...bootMarks, frame1: bootEp() }, dur: bootDur, cpu1: { ...cpuAcc, total: performance.now() - lastFrameRun } } }); memOn = memWant; }
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive, boot: { marks: { ...bootMarks, frame1: bootEp() }, dur: bootDur, cpu1: { ...cpuAcc, total: performance.now() - lastFrameRun, ...(textSink ? (b => ({ glyphs: b.baked, glyphFirst: b.firstMs, glyphBake: b.bakeMs }))(textSink.bakeStats()) : {}) } } }); memOn = memWant; }
 			if (frameEvents) postMessage({ type: "frame", cam: { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, fovy: cam.fovy, dpr: cam.dpr, centerAlt: cam.centerAlt }, t: performance.now() });   // この絵の cam＝main の custom 層はこれで描く（main の最新 cam で描くと地図と注記より先行してカクつく）   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
 				stayProbe = 2;
