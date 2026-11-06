@@ -2566,6 +2566,7 @@ function hudSnapshot() {
 		backend: (dbgHost.__backend as string | undefined) || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
 		cpu: memCpu, lab: memLab as HudSnapshot["lab"], boot: bootLine || null, main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
+		idleBlock: BOOT.idle == null ? idleBlockers() : null,   // 最初の idle がまだ＝何が塞いでいるか（present の検証が 8 s の予備タイマーに落ちる原因・2026-11-06 Galaxy）
 		tileLat: tileLatSnap(),   // 基図タイルの計器 e（必要→画面）と main merge の要求→着地＝「タイル 69 枚が揃った後に何秒黙るか」を USB 無しで切り分ける（2026-11-06 Galaxy）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
@@ -2635,6 +2636,18 @@ dbgHost.__labelsMain = () => { const by: Record<string, number> = {}; for (const
 // 診断の窓（debugGlobals）＝idle を塞いでいる材料を全部返す（公式例の門で「idle が来ない」を切り分ける）
 dbgHost.__idleWhy = () => ({ rasterFading, mapLoaded, moving, geBusy, groundElevM, noTerr, centerAlt: cam.centerAlt || 0, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
 	sources: [...mlSources.keys(), ...Object.keys(EXT?.ms.sources || {})].map(id => [id, map.isSourceLoaded(id)]), mounting: [...mlLayers].filter(([, v]) => v.mounting).map(([k]) => k), idleState });
+// idle を塞いでいる材料の名前（HUD の copy 30s log 用・__idleWhy の要約）。空＝静か
+function idleBlockers(): string[] {
+	const b: string[] = [];
+	if (!mapLoaded) b.push("load"); if (moving) b.push("moving"); if (flightCtl.active) b.push("flight"); if (needsDraw) b.push("needsDraw");
+	if (!(coverOk || noVecBase())) b.push("cover"); if (elevBusy) b.push(`elev ${elevN}`); if (centerElevMode === "ground" && !noTerr && geBusy) b.push("groundElev");
+	const ml = meshMgr.visibleLoading().length; if (ml) b.push(`mesh ${ml}`);
+	if (rasterPendTotal) b.push(`raster ${rasterPendTotal} (${[...rasterPend].filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(" ")})`); if (rasterFading) b.push("rasterFade");
+	if (extExtras.mounting) b.push("extMount");
+	const src = [...mlSources.keys()].filter(id => !map.isSourceLoaded(id)); if (src.length) b.push(`source ${src.join(",")}`);
+	if (EXT) { const es = Object.keys(EXT.ms.sources || {}).filter(id => !map.isSourceLoaded(id)); if (es.length) b.push(`extSource ${es.join(",")}`); }
+	return b;
+}
 function checkIdle(now: number) {
 	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !(centerElevMode === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !rasterFading && !extExtras.mounting
 		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
