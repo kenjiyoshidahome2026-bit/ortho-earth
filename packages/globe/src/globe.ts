@@ -267,8 +267,11 @@ const BOOT: Record<string, number> = { script: performance.now() };
 try { performance.setResourceTimingBufferSize(1000); } catch { /* 無い環境は既定（250）のまま */ }   // js の合計（下）＝タイルが先に枠を埋めても JS の項が残るように
 { const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined; if (nav) BOOT.html = nav.responseEnd; }
 let bootLine = "", bootCpu1: Record<string, number> | null = null;   // bootCpu1＝最初に描いたフレームの部位別 JS 時間（worker）
-const FONTWARM = qNum(/[?&]fontwarm=(\d)/, 0);   // 字の温め（fontwarm.ts）：1＝別 worker で並行・2＝render worker の init で同期。0＝しない（既定）
-if (FONTWARM === 1) warmFontsInWorker().then(ms => { BOOT.fontwarm = performance.now(); BOOT["d:fontWarmMs"] = ms; });
+// 字の温め（fontwarm.ts）：1＝別 worker で並行（既定・2026-11-06 本人裁定「5 秒なら計器でなく構造で」）・2＝render worker の init で同期・0＝しない（逃げ道）。
+// 既定 1 では、注記は「書体が開いた」合図（fontsReady）が render worker に届くまで描かない＝最初の絵は地形・基図・建物だけで出る。温かい端末では合図が frame1 より先に来る＝見た目は従来どおり。
+const FONTWARM = qNum(/[?&]fontwarm=(\d)/, 1);
+let fontsReadySend: (() => void) | null = null, fontsReadyDue = false;   // 合図の送り手（ctrlPort が出来た後に差す）・出来る前に温めが済んだ時の保留
+if (FONTWARM === 1) warmFontsInWorker().then(ms => { BOOT.fontwarm = performance.now(); BOOT["d:fontWarmMs"] = ms; if (fontsReadySend) fontsReadySend(); else fontsReadyDue = true; });
 const bootReport = (stage: string) => {
 	const ms = (k: string) => (BOOT[k] != null ? `${BOOT[k] | 0}` : "–");
 	const dur = (k: string) => (BOOT[k] != null ? `+${BOOT[k] | 0}` : "–");
@@ -276,11 +279,27 @@ const bootReport = (stage: string) => {
 	for (const e of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) if (/\.js(\?|$)/.test(e.name)) { jsN++; jsBytes += e.transferSize || 0; if (!e.transferSize) jsCached++; }
 	bootLine = `html ${ms("html")} · script ${ms("script")} · worker ${ms("worker")} · init ${ms("init")} · worker-script ${ms("w:script")} · worker-init ${ms("w:init")} · import ${ms("w:import")} · renderer ${ms("w:renderer")}`
 		+ (BOOT["d:initMs"] != null ? ` (adapter ${dur("d:adapterMs")} · device ${dur("d:deviceMs")} · pipelines ${dur("d:initMs")})` : "")
-		+ (BOOT["w:fontwarm"] != null ? ` · fontwarm ${ms("w:fontwarm")}` : "") + ` · first-tiles ${ms("w:firstScene")} · draw0 ${ms("w:draw0")} · frame1 ${ms("frame1")} · idle ${ms("idle")} · present ${ms("present")} · js ${(jsBytes / 1048576).toFixed(1)} MB/${jsN} files${jsCached ? ` (${jsCached} cached)` : ""}`
+		+ (BOOT["w:fontwarm"] != null ? ` · fontwarm ${ms("w:fontwarm")}` : "") + (BOOT["w:fontsReady"] != null ? ` · fonts-ready ${ms("w:fontsReady")}` : "") + ` · first-tiles ${ms("w:firstScene")} · draw0 ${ms("w:draw0")} · frame1 ${ms("frame1")} · idle ${ms("idle")} · present ${ms("present")} · js ${(jsBytes / 1048576).toFixed(1)} MB/${jsN} files${jsCached ? ` (${jsCached} cached)` : ""}`
 		+ (bootCpu1 ? ` · frame1 cpu ${bootCpu1.total | 0} (up ${bootCpu1.up | 0} · terr ${bootCpu1.terr | 0} · map ${bootCpu1.map | 0} · gint ${bootCpu1.gint | 0} · lab ${bootCpu1.lab | 0} · ov ${bootCpu1.ov | 0})` : "")
 		+ (bootCpu1 && bootCpu1.glyphs != null ? ` · glyphs ${bootCpu1.glyphs | 0} (first ${bootCpu1.glyphFirst | 0} · bake ${bootCpu1.glyphBake | 0})` : "")   // 最初のフレームで焼いた字：最初の 1 字の ms（書体の読み込み）・焼きの合計
 		+ (BOOT["d:fontWarmMs"] != null ? ` · fontwarm ${FONTWARM} ${BOOT["d:fontWarmMs"] | 0} ms${BOOT.fontwarm != null ? ` @${BOOT.fontwarm | 0}` : ""}` : "");
 	console.log(`[boot] timeline @${stage} (ms since navigation): ${bootLine}`);
+	bootHistSave(stage);
+};
+// 起動の履歴（2026-11-06・本人「1 本の 30s ログを信じないで。タイミングで変わる」）＝boot 行を端末の localStorage に直近 10 回ぶん溜め、
+// ?hud=1 の copy 30s log に「boot history」として載せる。1 回のコピーで温・冷（gap＝前の起動からの分）のばらつきが見える。
+// ?hud 無しの起動も記録する（冷えた起動はたいてい計器無しで開く）。数百 B×10・同一起点（timeOrigin）の行は段（frame1→idle→present）ごとに上書き。
+const BOOT_HIST_KEY = "oj.boothist", BOOT_HIST_N = 10, BOOT_ID = performance.timeOrigin;
+const bootHistSave = (stage: string) => {
+	try {
+		type BootHist = { id: number; at: string; q: string; stage: string; gapMin: number | null; line: string };
+		const a = JSON.parse(localStorage.getItem(BOOT_HIST_KEY) || "[]") as BootHist[];
+		const i = a.findIndex(e => e.id === BOOT_ID), prev = i < 0 ? a[a.length - 1] : a[i - 1];
+		const e: BootHist = { id: BOOT_ID, at: new Date(BOOT_ID).toISOString(), q: location.search, stage, gapMin: prev ? Math.round((BOOT_ID - prev.id) / 60000) : null, line: bootLine };
+		if (i < 0) a.push(e); else a[i] = e;
+		while (a.length > BOOT_HIST_N) a.shift();
+		localStorage.setItem(BOOT_HIST_KEY, JSON.stringify(a));
+	} catch { /* localStorage が無い・満杯＝記録しないだけ */ }
 };
 const urlToken = {};   // この地図の URL の持ち主の札
 const URL_OWN: GlobeScope["URL_OWN"] = opts.urlHash !== false && !URL_OWNER;
@@ -919,6 +938,8 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 const clipKQ = /[?&]clipk=(\d+)/.exec(location.search);
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
 renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, resFix: Number((/[?&]res=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphMs: Number((/[?&]glyphms=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphDb: /[?&]glyphdb=1/.test(location.search), mem: hudOn, lowMem: LOW_MEM, meshChunk: /[?&]meshchunk=1/.test(location.search), meshLod: qNum(/[?&]meshlod=([\d.]+)/, LOW_MEM ? 2 : 0), meshLodZ: qNum(/[?&]meshlodz=([\d.]+)/, 0), meshLodZ0: qNum(/[?&]paz=([\d.]+)/, 15), meshRange: qNum(/[?&]meshrange=([\d.]+)/, LOW_MEM ? 2 : 0), elevCheap: /[?&]elevcheap=1/.test(location.search) || (LOW_MEM && !/[?&]elevcheap=0/.test(location.search)), bakeLift: /[?&]bakelift=1/.test(location.search), nearClip: Number((/[?&]nearclip=([\d.]+)/.exec(location.search) || [])[1]) || 0, clipK: clipKQ ? +clipKQ[1] : 20, clipKGl: clipKQ ? +clipKQ[1] : 20, noMixed: noMixedR01, noFarTerr, noNearTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, terrSync: TERRSYNC, fontWarm: FONTWARM, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+fontsReadySend = () => wPost({ type: "fontsReady" });   // 書体の温めが済んだ合図（init の後＝ctrlPort が生きている）
+if (fontsReadyDue) fontsReadySend();
 BOOT.init = performance.now();
 if (TERR_EXAG !== 1) wPost({ type: "set", cmd: "terrainExag", data: TERR_EXAG });   // opts.terrain の exaggeration＝起動の材料（1）の上に掛ける
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。

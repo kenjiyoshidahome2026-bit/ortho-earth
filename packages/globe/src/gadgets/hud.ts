@@ -195,8 +195,18 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		const head = [`hud log ${new Date().toISOString()} ${location.href}`,
 			`device ${dev.os} / ${dev.browser} / RAM ${d.ram ?? "?"} / cores ${d.cores ?? "?"} / GPU ${gpuLabel(s?.gpuName) || "?"} / ${d.vw}x${d.vh}@${d.dpr ?? 1} / backend ${s?.backend ?? "?"}${s?.tier ? ` / low-mem ${s.tier.active}z` : ""}`];
 		const boot = s?.boot ? [`boot (ms since navigation): ${s.boot}`] : [];
+		const hist = bootHistLines();   // 直近の起動の boot 行（globe.ts bootHistSave・?hud 無しの起動も含む）＝1 本のログで決めない
 		const long = s?.main?.long?.length ? ["main long (15s):", ...s.main.long.map(l => `  ${l.ms.toFixed(0)} ms x${l.n} ${l.key}`)] : [];
-		return [...head, ...boot, ...log, ...long].join("\n");
+		return [...head, ...boot, ...hist, ...log, ...long].join("\n");
+	}
+	// 起動の履歴（localStorage oj.boothist）：この起動を含む直近 10 回・古い順。gap＝前の起動からの分（大きい＝冷えた端末）。q＝その起動の URL の ?以降
+	function bootHistLines(): string[] {
+		try {
+			const a = JSON.parse(localStorage.getItem("oj.boothist") || "[]") as Array<{ at: string; q: string; stage: string; gapMin: number | null; line: string }>;
+			if (a.length < 2) return [];
+			const gap = (m: number | null) => m == null ? "first" : m >= 60 ? `${(m / 60).toFixed(1)}h` : `${m}m`;
+			return [`boot history (last ${a.length} loads, oldest first; gap = since previous load):`, ...a.map(e => `  ${e.at.slice(0, 19)}Z gap ${gap(e.gapMin)} ${e.q || "(no query)"} @${e.stage}: ${e.line}`)];
+		} catch { return []; }
 	}
 	async function copyLog(): Promise<void> {
 		const text = logText();
