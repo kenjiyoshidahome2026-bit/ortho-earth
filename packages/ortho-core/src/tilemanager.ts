@@ -38,7 +38,8 @@ export interface TileManagerOptions {
 export interface OrderItem { key: string; origin: number[] | null; z: number; bld?: "no" | "only" }
 /** update の中で使う枠＝TileXYZ＋建物の役（ready() が OrderItem へ写す） */
 interface SelTile extends TileXYZ { bld?: "no" | "only" }
-export interface UpdateOptions { groundR?: number; zOf?: TileZoomOf | null; tilePx?: number; maxZ?: number | null; keepFine?: number }
+/** bldRange＝注視点（cam.center）から N km より遠い枠は建物を立てない（bld:"no"・"only" の枠は外す）＝0/無指定＝従来。LOW_MEM の斜め遠景で押し出し建物の頂点が GPU を詰まらせる対策（2026-11-06） */
+export interface UpdateOptions { groundR?: number; zOf?: TileZoomOf | null; tilePx?: number; maxZ?: number | null; keepFine?: number; bldRange?: number }
 export interface UpdateResult { order: OrderItem[]; coarseOrder: OrderItem[]; total: number; sel: number; covered: boolean }
 export interface TileStats { tiles: number; bytes: number; budgetBytes: number; deviceMemoryGB: number; cacheEntries: number; queue?: { queued: number; inflight: number } | null }
 export interface TileManager { update(cam: CameraPose, W: number, H: number, opts?: UpdateOptions | null): UpdateResult; buildScene(order: readonly OrderItem[], opts?: MergeOptions): MergedScene; labels(order: readonly OrderItem[]): Label[]; cache: Map<string, TileEntry>; stats(): TileStats; reset(): void; shown(keys: Iterable<string>): TileLatency[] }
@@ -206,7 +207,17 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 選びが変わった瞬間（静止の手前詳細化で一段細かく割れる・ズーム・パンの先）に未着の区画が一度空になり、取得→展開→結合→
 		// 転送の後でやっと描かれた（下地の線は main に線がある間は伏せる＝紙色の白抜き）。祖先で埋める時は、その祖先の下の枠を
 		// ready な物も含めてまとめて祖先に替える＝兄弟がそろうまで親のまま（重ねて描かない・3D Tiles と同じ「塊で入れ替える」）
-		const fillSel = fillGaps(drawSel);
+		let fillSel = fillGaps(drawSel);
+		// 遠い枠の建物を平らに（bldRange・km）：タイル中心が注視点から範囲外＝bld:"no"（線・塗りはそのまま）。"only"（keepFine の親の建物役）は外す。
+		// 2026-11-06 Galaxy/Mali-G615 実測＝z17.8・74° で視野 69 枚の基図建物を 1 シーン（+112 MB）で上げ、main が 8〜10 秒 GPU 待ちで固まった。
+		// 結合の鍵（sig）に bld が入るので、範囲の出入りで再結合が起きる＝カメラが止まった時の swap と同じ経路（毎フレームではない）。
+		if (opts?.bldRange && opts.bldRange > 0) {
+			const R = opts.bldRange, cl = Math.cos(cam.center[1] * Math.PI / 180);
+			const farOf = (t: TileXYZ): boolean => { const n = 1 << t.z, lon = ((t.x + 0.5) / n) * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (t.y + 0.5) / n))) * 180 / Math.PI; let dl = lon - cam.center[0]; if (dl > 180) dl -= 360; else if (dl < -180) dl += 360; return 111.32 * Math.hypot(dl * cl, lat - cam.center[1]) > R; };
+			const out: SelTile[] = [];
+			for (const t of fillSel) { if (!farOf(t)) { out.push(t); continue; } if (t.bld === "only") continue; out.push(t.bld === "no" ? t : { ...t, bld: "no" }); }
+			fillSel = out;
+		}
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		// lodFloor 有効時は下地も z8 で敷く（floorZ が強制分割・maxZ が上限開放）：z5-7 の下地は海（WA）を
 		// 持たないため、移動中に下地が顔を出す瞬間だけ海が紙色に白転してちらつく（実害はまさに下地側だった）。
