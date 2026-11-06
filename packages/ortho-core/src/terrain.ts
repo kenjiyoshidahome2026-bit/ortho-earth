@@ -21,7 +21,9 @@ export interface TerrainRenderer { set(slot: string, data?: unknown, extra?: unk
 export type PendingCallback = (n: number, range: number, stat?: string | null) => void;
 export interface TerrainOptions {
 	renderer: TerrainRenderer; requestDraw: () => void; exag: number; earthM: number; apiUrl?: string; onPending?: PendingCallback | null;
-	lowMem?: boolean; noMixed?: boolean; noFar?: boolean; noNear?: boolean; dtm?: DtmDecl | null; dem?: DemSpecInput | QmeshSpecInput | null; gMax?: number | null;
+	lowMem?: boolean; noMixed?: boolean; noFar?: boolean; noNear?: boolean;
+	/** R01（1°・細密）へ切り替えるズーム（既定 13）。上げると R01 の読み込み（1 窓 9 枚・1 枚数十 MB のデコード）が始まる段が深くなり、混成窓・近景層の段も同じ幅だけずれる（?r01z=N・LOW_MEM 向け） */
+	r01Zoom?: number; dtm?: DtmDecl | null; dem?: DemSpecInput | QmeshSpecInput | null; gMax?: number | null;
 	/** 検定用：標高タイルの読み手を直に渡す（無ければ createTileLoader＝altpbf） */
 	tileLoader?: TileLoader | null;
 }
@@ -55,7 +57,7 @@ export function clipToDTM(box: number[] | null | undefined, dtm: number[] | null
 // 未申告＝保証なし＝接地リフトをしない（建物は海面高に置く）。地域の知識はアプリが持つ（2026-09-17）。
 // dem＝外来の標高タイル（raster-dem の spec・#36）。R01・R10 のセルを上書きする（DEM が有効な画素だけ・無い所は altpbf の標高のまま）。
 //   dem.dtm＝true（裸地の申告）なら、地域の申告が無い所ではその範囲で接地リフトしてよい。setDem(spec|null) で生き替え。
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, noNear = false, dtm = null, dem = null, gMax = null, tileLoader = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, noNear = false, r01Zoom = 13, dtm = null, dem = null, gMax = null, tileLoader = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
 	const dtmDecl = dtm || null;
 	const S = self as unknown as PerfSelf;
 	// 計器 a（perf plan §1・?perf=1）：セル 1 枚の再標本化（resample）と GPU への上げ（upload＝f16 変換＋writeTexture 発行）の時間。
@@ -167,7 +169,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	function selectRange(cam: CameraPose): number {
 		const z = cam.zoom;
 		if (z < 5.5) return 90;
-		if (z < 13 || ((cam.pitch || 0) > 0.9 && z < 14)) return 10;
+		if (z < r01Zoom || ((cam.pitch || 0) > 0.9 && z < r01Zoom + 1)) return 10;
 		return 1;
 	}
 	// DEM のセル（格子点・row0＝北）に、無効（NaN）の画素だけ altpbf のタイルの値を入れる（無ければ 0＝海）
@@ -530,7 +532,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// +1GBスパイクが富士3Dで iOSタブ予算(~1.4GB)を突破していた（80170b8）。→ アトラスR16F化（2B/texel＝半減）＋
 		// iOS 4GB実機で peak 84MB・完走を実測して安全確認＝lowMemでも既定ON（全端末で近景R01）。
 		// 逃げ道＝?nor01=1（過渡デコードで落ちる端末が出たら無効化＝全面R10へ）。
-		const mixed = !noMixed && (cam.pitch || 0) > 0.9 && cam.zoom >= 11.5 && cam.zoom < 14;
+		const mixed = !noMixed && (cam.pitch || 0) > 0.9 && cam.zoom >= r01Zoom - 1.5 && cam.zoom < r01Zoom + 1;   // 段は r01Zoom（既定 13）基準＝11.5〜14
 		const range = mixed ? 1 : selectRange(cam);
 		const r = viewCellRange(cam, size, range, mixed);
 		const key = [demGen, mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
@@ -680,7 +682,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			requestDraw();
 		}
 		// ── 近景層（near）＝目の足元の細密窓（1 セル）。純 R01 窓×z≥13.5 でだけ（混成・R10・R90 は近窓自体が粗い＝対象外）
-		const nearOn = !noNear && range === 1 && !mixed && cam.zoom >= 13.5;
+		const nearOn = !noNear && range === 1 && !mixed && cam.zoom >= r01Zoom + 0.5;
 		if (nearOn) {
 			const st = cameraState(cam, size.w, size.h);
 			const camDeg = st.camDist * 180 / Math.PI;
