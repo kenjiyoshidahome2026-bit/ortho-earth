@@ -110,6 +110,7 @@ interface RwMsg {
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
+	warmPipes?: number;   // ?warmpipe=1/2＝lazy の束の最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝Async 並列・renderer.ts）
 	lazyPipes?: boolean;   // ?lazypipe=1＝WebGPU のパイプラインを初回使用時に作る（renderer.ts）
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
 	url?: string; builtin?: string; opts?: RwOpts | null; x?: number; y?: number; r?: number; names?: string[]; seq?: number;
@@ -507,7 +508,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; bootMarks.renderer = bootEp(); if (r.boot) Object.assign(bootDur, r.boot); hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写

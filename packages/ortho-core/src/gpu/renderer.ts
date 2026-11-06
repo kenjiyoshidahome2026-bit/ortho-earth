@@ -12,7 +12,7 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { pipeSet, lbl } from "./pipeset.ts";
+import { pipeSet, lbl, warmPipes } from "./pipeset.ts";
 import { viewRays } from "../camera.ts";
 import { cameraState, lonlatTo3D, ellNormal3D, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
@@ -82,6 +82,9 @@ export interface RendererGPUOptions {
 	powerPreference?: GpuPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
 	/** パイプラインを初回使用時に作る（?lazypipe=1）。既定＝起動時に全部（従来）。2026-11-06 Galaxy：GPU プロセスの直列コンパイル 9.6 秒の切り分け・短縮 */
 	lazyPipes?: boolean;
+	/** lazyPipes の束のうち最初のフレームに要る 10 本を起動時に先に作る（?warmpipe=1＝同期・2＝createRenderPipelineAsync で並列）。2026-11-06 Galaxy のトレース：
+	 *  同じ 10 本が eager（起動直後・GPU プロセスが暇）では計 0.2 秒、lazy（初回描画の最中・タイル復号と競合）では 4.2 秒＝作る「時機」で 20 倍違う */
+	warmPipes?: number;
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
 	/** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N＝画面 N px 未満の建物を描かない・既定 1） */
 	meshLod?: number;
@@ -759,6 +762,13 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const pipeSets = new Map<number, ReturnType<typeof buildPipes>>();
 	const pipesFor = (sc: number) => { let p = pipeSets.get(sc); if (!p) { p = buildPipes(sc); pipeSets.set(sc, p); } return p; };
 	let P = pipesFor(SAMPLES);   // 品質段（既定4x）は起動時に先行コンパイル＝初回フレーム検証スコープで検札。1x は初の遷移フレームで遅延生成
+	// 最初のフレームに要る本体 10 本（2026-11-06 Galaxy の lazy トレース＝初回描画で作られた main1x.* の全部）。lazy のときだけ意味がある（eager は上で全部作った）
+	const FIRST_FRAME_PIPES = ["globe", "fillOff", "lineOff", "terrain", "fillTest", "lineTest", "bld", "mesh", "meshTex", "meshTexBlend"] as const;
+	if (LAZY && rOpts.warmPipes) {
+		const tw = performance.now();
+		if (rOpts.warmPipes >= 2) { const w = await warmPipes(P, device, FIRST_FRAME_PIPES); console.log(`[boot] warm pipes async: ${w.made}/${w.asked} in ${w.ms | 0} ms${w.failed.length ? " failed " + w.failed.join(",") : ""}`); }
+		else { for (const k of FIRST_FRAME_PIPES) void P[k]; console.log(`[boot] warm pipes sync: ${FIRST_FRAME_PIPES.length} in ${(performance.now() - tw) | 0} ms`); }
+	}
 
 	// ── 建物の影（リアルタイム shadow map・2026-09-24）。set("shadow",{on:true}) の間だけ、ここの資源・シェーダ・パイプラインを作って使う。
 	// 影なしのフレームは従来と同じパイプライン・bind group・パスのまま（影響ゼロの約束）＝消したら資源を返す（パイプラインは再点灯用に保持）。
