@@ -5,7 +5,7 @@
 // 2＝render worker 自身が init で同期に温める（worker のプロセス内の書体キャッシュも温まる・その分 frame1 は遅れる）
 // どちらも計器＝掛かった ms を boot 行に出す（冷えた端末の書体の読み込みがいくらかを直接測る）。
 
-import { LABEL_FONT_STACK } from "@ortho-earth/core";
+import { LABEL_FONT_STACK } from "@ortho-earth/core/labels";   // 根の口（index）は DOM 前提の入力系を含む＝worker の型検査が落ちるので labels の口から
 
 /** 温めに描く字＝CJK の書体を読ませるのが目的なので字の意味は問わない：かな・カナと CJK 統合漢字の先頭 256 字（符号位置から作る＝硬い層に地名の語を書かない） */
 export const WARM_TEXT = (() => {
