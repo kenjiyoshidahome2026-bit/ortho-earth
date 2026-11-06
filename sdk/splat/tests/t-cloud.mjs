@@ -1,7 +1,7 @@
 // 点群 → Gaussian splat（cloud.ts・2026-11-06）の node の検定＝計画・ハッシュ・CPU の参照実装（面＝薄い楕円・段ごとの個数・まとめの重み・穴なし）・段の選び・色・共分散 → 尺と向き・SplatData・tileset・glb。
 // WebGPU の変換器（cloud-gpu.ts）は同じ式＝実 GPU の検定は packages/globe の t-pcsplat（verify:webgpu）。node tests/t-cloud.mjs
 import { gunzipSync } from "node:zlib";
-import { cloudPlan, cellHash, levelFor, colorize, buildCloudCpu, covToScaleRot, cloudLevelToSplatData, enuToEcefTransform, enuToGltfAxes, cloudTileset, cloudLevelGlb, CLOUD_DEFAULTS, cloudFormatOf, encodeSpzRaw, decodeSpz, quatMat, cloudToSpz, spzPlacement, cloudTo3DTiles, zipStore, crc32 } from "../src/index.ts";
+import { cloudPlan, cellHash, levelFor, colorize, buildCloudCpu, dropGhostCells, covToScaleRot, cloudLevelToSplatData, enuToEcefTransform, enuToGltfAxes, cloudTileset, cloudLevelGlb, CLOUD_DEFAULTS, cloudFormatOf, encodeSpzRaw, decodeSpz, quatMat, cloudToSpz, spzPlacement, cloudTo3DTiles, zipStore, crc32 } from "../src/index.ts";
 import { crc32 as zlibCrc32 } from "node:zlib";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
@@ -133,6 +133,23 @@ const bbOf = (pts, n) => { const b = [Infinity, Infinity, Infinity, -Infinity, -
 	const zdv = new DataView(zip.buffer), eocd = zip.length - 22;
 	ok("zip", zdv.getUint32(0, true) === 0x04034B50 && zdv.getUint32(eocd, true) === 0x06054B50 && zdv.getUint16(eocd + 10, true) === 2 && zdv.getUint32(14, true) === crc32(new TextEncoder().encode("hello")) && crc32(new Uint8Array([0, 1, 2, 255])) === zlibCrc32(new Uint8Array([0, 1, 2, 255])));
 	ok("zip.cd", zdv.getUint32(zdv.getUint32(eocd + 16, true), true) === 0x02014B50);
+}
+// ---- 借りた点（隣の縁）だけのセルを捨てる＝継ぎ目（dropGhostCells）----
+{
+	// 地面 x∈[−40, 1.7)（自分）＋ x∈[1.7, 12)（隣から借りた点・α 0）・間隔 0.5 m（縁はセルの格子に揃わない）
+	const P = [], C = [];
+	for (let x = -40; x < 12; x += 0.5) for (let y = -20; y < 20; y += 0.5) { P.push(x, y, 0.3 * Math.sin(x / 7)); C.push(90, 160, 70, x < 1.7 ? 255 : 0); }
+	const n = P.length / 3, pts = new Float32Array(P), rgba = new Uint8Array(C), own = P.filter((_, i) => i % 3 === 0).filter(x => x < 1.7).length;
+	const plan = cloudPlan(n, bbOf(pts, n), { levels: 4 });
+	const L = buildCloudCpu(pts, rgba, n, plan).map(l => dropGhostCells(l, 255));
+	const ownPts = new Float32Array(P.slice(0, own * 3)), alone = buildCloudCpu(ownPts, new Uint8Array(C.slice(0, own * 4)).fill(255), own, plan);
+	const maxX = l => { let m = -Infinity; for (let i = 0; i < l.n; i++) m = Math.max(m, l.ctr[i * 4]); return m; };
+	ok("ghost.dropped", L.every(l => { for (let i = 0; i < l.n; i++) if (l.ctr[i * 4] > 1.7 + l.cell / 2) return false; return true; }), L.map(maxX).map(v => v.toFixed(2)).join(","));   // 借りた所（x ≥ 1.7）に寄った物は残らない（縁のセルの混ざりだけ）
+	ok("ghost.alpha", L.every(l => Array.from(l.col).every(c => c >>> 24 === 255)));
+	const top = L.length - 1;
+	// 粗い段＝借りた点がある方が縁のセルの中心が外へ出る（無いと内側へ寄る＝隣との間に隙間）
+	ok("ghost.edge", maxX(L[top]) - maxX(alone[top]) > L[top].cell * 0.2, `with ${maxX(L[top]).toFixed(2)} alone ${maxX(alone[top]).toFixed(2)} cell ${L[top].cell.toFixed(2)}`);
+	ok("ghost.none", dropGhostCells(L[0], 0) === L[0] && dropGhostCells({ ...L[0], col: new Uint32Array(L[0].n) }, 255).n === 0);
 }
 console.log(fails ? `${fails} FAIL` : "ALL PASS cloud");
 process.exit(fails ? 1 : 0);

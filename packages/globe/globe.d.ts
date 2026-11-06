@@ -1271,8 +1271,9 @@ export interface COPCHandle {
 	/** 地形に合わせる＝読んだ節の地面の点（分類 2）と描いている地形の差の中央値（m）を heightOffset に（apply:false＝測るだけ）。見本が無ければ offset は null */
 	fitTerrain(opts?: { apply?: boolean }): Promise<{ offset: number | null; samples: number }>;
 }
-/** map.readPointCloud の opts（2026-11-06）＝crs・vertical・onProgress は COPCOptions と同じ。maxPoints＝読む点の上限（既定 400 万・LOW_MEM 150 万・0＝全部） */
-export interface PointCloudReadOptions { crs?: string; vertical?: "orthometric" | "ellipsoidal"; onProgress?: (loaded: number, total: number) => void; maxPoints?: number }
+/** map.readPointCloud の opts（2026-11-06）＝crs・vertical・onProgress は COPCOptions と同じ。maxPoints＝読む点の上限（既定 400 万・LOW_MEM 150 万・0＝全部・手元に持つのもこの数まで＝読みながら間引く）。
+ *  classes＝残す分類（ASPRS の番号・例 [2]＝地面・[6]＝建物・無し／空＝全部）＝上限の枠を残す分類だけに使う（2026-11-07） */
+export interface PointCloudReadOptions { crs?: string; vertical?: "orthometric" | "ellipsoidal"; onProgress?: (loaded: number, total: number) => void; maxPoints?: number; classes?: ArrayLike<number> }
 /** map.readPointCloud の戻り＝錨（[lon, lat, 標高 m]）からの東北上 m の点（Float32・n×3）・標高（m）・RGB（8 bit・n×3・無ければ null）・強度・分類・範囲（東北上の min xyz・max xyz）・
  *  total＝ファイルの点の総数（n ≤ total＝間引いた）・ms（read＝取得・total＝全体）・info＝addPointCloud と同じ見出し */
 export interface PointCloudDump { n: number; anchor: [number, number, number]; pts: Float32Array; elev: Float32Array; rgb: Uint8Array | null; intensity: Uint16Array; cls: Uint8Array; bb: number[]; total: number; ms: { read: number; total: number }; info: COPCHandle["info"] }
