@@ -110,6 +110,7 @@ interface RwMsg {
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
+	meshDrain?: number;   // ?meshdrain=MS＝建物メッシュの小片を 1 フレームに時間予算 MS ms ぶん（＋フレームの合間も timer で）当てる。0＝従来の 1 フレーム 1 個
 	warmPipes?: number;   // ?warmpipe=1/2＝lazy の束の最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝Async 並列・renderer.ts）
 	lazyPipes?: boolean;   // ?lazypipe=1＝WebGPU のパイプラインを初回使用時に作る（renderer.ts）
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
@@ -506,6 +507,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			// バックエンドの起動は両経路とも非同期（選んだ片方だけを dynamic import）＝その間のメッセージは initQueue へ
 			// 待避し順序ごと再投入。WebGPU（?gpu=1）は adapter/device 取得も非同期・失敗（非対応・adapter無し）は WebGL2 へ
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
+			MESH_DRAIN_MS = m.meshDrain! > 0 ? m.meshDrain! : 0;   // ?meshdrain=MS（建物メッシュの小片の消化予算）
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
 					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
@@ -549,7 +551,7 @@ const dispatch = (e: { data: RwMsg }) => {
 		case "overlayPick": overlayPick(m); break;               // 統一 picking（PR-1）＝最後に描いたフレームの cam で当てる
 		case "overlayRemove": { const o = overlays.get(m.name!); if (o) { overlays.delete(m.name!); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { if (ev.data.meshData) { meshRx.n++; if (!meshRx.firstRecv) meshRx.firstRecv = absNow(); } meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
+			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { if (ev.data.meshData) { meshRx.n++; if (!meshRx.firstRecv) meshRx.firstRecv = absNow(); } meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); meshDrainArm(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
 		case "resize": {                                         // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			// 端末上限クランプ＝縦長ウィンドウ×高dpr（ブラウザ拡大率・特殊ディスプレイ）でスワップチェイン/
@@ -945,6 +947,16 @@ function drainUploads0() {
 		dirty = true; uploadSkip = 2;
 		return;
 	}
+	drainMesh(MESH_DRAIN_MS);
+}
+// 建物メッシュの受け口の消化：budget＝0 なら荷（meshData）1 個で打ち切り（従来）。budget>0 なら時間予算の間 続けて当てる（2026-11-06 Galaxy：
+// LOW_MEM の msplit=100 で 1 区 138 MB が 134 個の小片になり、1 フレーム 1 個 × 4〜6 fps ＝ 10 秒・送る側は credit 待ち 8.7 s。小片は 1 個 1 MB 級＝1 フレームに何個でも上がる）
+let MESH_DRAIN_MS = 0, meshDrainT: ReturnType<typeof setTimeout> | null = null;
+function meshDrainTick() { meshDrainT = null; if (!renderer) return; drainMesh(MESH_DRAIN_MS); if (dirty) kick(); }
+function meshDrainArm() { if (MESH_DRAIN_MS > 0 && !meshDrainT && !renderer?.meshUpBusy?.() && meshInbox.some(i => i.meshData)) meshDrainT = setTimeout(meshDrainTick, 0); }   // 小分け転送（?meshchunk）が上がり切るまでは張らない（空回り防止）＝pumpMeshUp の完了が張り直す   // フレームの合間（GPU 待ちで worker が空いている時間）にも消化する＝低 fps でもフレーム数に縛られない
+function drainMesh(budget: number) {
+	if (!renderer) return;
+	const t0 = performance.now();
 	while (meshInbox.length) {
 		const item = meshInbox.shift()!;
 		if ("vis" in item) {   // 表示切替＝フラグだけ＝同フレームで続けて消化
@@ -981,8 +993,9 @@ function drainUploads0() {
 			else if (item.port) ackMesh(item);
 		}
 		if (!deferred && !unseen) dirty = true;
-		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
+		if (meshData) { uploadSkip = 2; if (!budget || performance.now() - t0 >= budget) break; }   // 重い転送は1件で打ち切り（budget=0）／予算の間は続ける。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}
+	meshDrainArm();
 }
 // 接地リフトの焼き込み（?bakelift=1・2026-11-04 実機 Mali：建物の頂点ごとの標高参照（elev/elevQ・elev1 でも 1 標本）が VS の床だった）：
 // 頂点シェーダが毎フレーム引いていた「足元の地面の高さ × 誇張 × 測地法線」を転送時に 1 回だけ CPU で足し、バッチに liftBaked を立てる
@@ -1042,7 +1055,7 @@ function pumpMeshUp(ms = 4) {
 		dirty = true;
 	}
 	if (done.length || renderer.meshUpBusy?.()) { uploadSkip = 2; lastLoadT = performance.now(); }
-	if (done.length) kick();   // 立った区を描く（timer から来た時も次の rAF を張る）
+	if (done.length) { kick(); meshDrainArm(); }   // 立った区を描く（timer から来た時も次の rAF を張る）・待たせていた小片の消化を再開
 	if (renderer.meshUpBusy?.() && !meshUpTimer) meshUpTimer = setTimeout(meshUpTick, 0);
 }
 // キャンバスのリサイズは即適用しない：canvas.width/height 代入はバッファを透明にクリアし、その状態が
