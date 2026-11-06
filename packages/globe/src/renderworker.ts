@@ -551,7 +551,7 @@ const dispatch = (e: { data: RwMsg }) => {
 		case "overlayPick": overlayPick(m); break;               // 統一 picking（PR-1）＝最後に描いたフレームの cam で当てる
 		case "overlayRemove": { const o = overlays.get(m.name!); if (o) { overlays.delete(m.name!); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { if (ev.data.meshData) { meshRx.n++; if (!meshRx.firstRecv) meshRx.firstRecv = absNow(); } meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); meshDrainArm(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
+			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { if (ev.data.meshData) { meshRx.n++; if (!meshRx.firstRecv) meshRx.firstRecv = absNow(); if (meshRx.emptyT) { const g = performance.now() - meshRx.emptyT; if (g < 3000) meshRx.starveMs += g; meshRx.emptyT = 0; } } meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); meshDrainArm(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
 		case "resize": {                                         // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			// 端末上限クランプ＝縦長ウィンドウ×高dpr（ブラウザ拡大率・特殊ディスプレイ）でスワップチェイン/
@@ -952,11 +952,11 @@ function drainUploads0() {
 // 建物メッシュの受け口の消化：budget＝0 なら荷（meshData）1 個で打ち切り（従来）。budget>0 なら時間予算の間 続けて当てる（2026-11-06 Galaxy：
 // LOW_MEM の msplit=100 で 1 区 138 MB が 134 個の小片になり、1 フレーム 1 個 × 4〜6 fps ＝ 10 秒・送る側は credit 待ち 8.7 s。小片は 1 個 1 MB 級＝1 フレームに何個でも上がる）
 let MESH_DRAIN_MS = 0, meshDrainT: ReturnType<typeof setTimeout> | null = null;
-function meshDrainTick() { meshDrainT = null; if (!renderer) return; drainMesh(MESH_DRAIN_MS); if (dirty) kick(); }
+function meshDrainTick() { meshDrainT = null; if (!renderer) return; drainMesh(MESH_DRAIN_MS, true); if (dirty) kick(); }
 function meshDrainArm() { if (MESH_DRAIN_MS > 0 && !meshDrainT && !renderer?.meshUpBusy?.() && meshInbox.some(i => i.meshData)) meshDrainT = setTimeout(meshDrainTick, 0); }   // 小分け転送（?meshchunk）が上がり切るまでは張らない（空回り防止）＝pumpMeshUp の完了が張り直す   // フレームの合間（GPU 待ちで worker が空いている時間）にも消化する＝低 fps でもフレーム数に縛られない
-function drainMesh(budget: number) {
+function drainMesh(budget: number, timer = false) {
 	if (!renderer) return;
-	const t0 = performance.now();
+	const t0 = performance.now(); let did = 0;
 	while (meshInbox.length) {
 		const item = meshInbox.shift()!;
 		if ("vis" in item) {   // 表示切替＝フラグだけ＝同フレームで続けて消化
@@ -985,9 +985,11 @@ function drainMesh(budget: number) {
 		if (!meshData) hiddenWards.delete(String(name));   // 解放＝renderer も伏せ印を消す
 		if (bakeLift && meshData) bakeMeshLift(meshData);
 		let deferred = false;
-		if (meshData) { meshRx.applied++; if (!meshRx.firstApply) meshRx.firstApply = absNow(); }
+		if (meshData) { meshRx.applied++; did++; if (!meshRx.firstApply) meshRx.firstApply = absNow(); meshRx.applyBytes += (meshData.pos?.byteLength || 0) + (meshData.nrm?.byteLength || 0) + (meshData.idx?.byteLength || 0); }
+		const ta = performance.now();
 		try { renderer.set("meshSet", meshData, name); }
 		finally {
+			if (meshData) { const dt = performance.now() - ta; meshRx.applyMs += dt; if (dt > meshRx.applyMax) meshRx.applyMax = dt; }
 			// 小分け転送（WebGPU）：まだ上がっていない＝中身の ArrayBuffer を返せない＝ack は上がり切った時（pumpMeshUp）
 			if (item.port && meshData && renderer.meshUpPending?.(String(name))) { meshAcks.set(meshData, item); deferred = true; }
 			else if (item.port) ackMesh(item);
@@ -995,6 +997,8 @@ function drainMesh(budget: number) {
 		if (!deferred && !unseen) dirty = true;
 		if (meshData) { uploadSkip = 2; if (!budget || performance.now() - t0 >= budget) break; }   // 重い転送は1件で打ち切り（budget=0）／予算の間は続ける。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}
+	if (did) { if (timer) meshRx.inTimer++; else meshRx.inFrame++; }
+	if (meshRx.n && !meshRx.emptyT && !meshInbox.some(i => i.meshData)) meshRx.emptyT = performance.now();   // 受け口が空＝次の片が届くまでは送り手（credit の往復・読み・分割）待ち
 	meshDrainArm();
 }
 // 接地リフトの焼き込み（?bakelift=1・2026-11-04 実機 Mali：建物の頂点ごとの標高参照（elev/elevQ・elev1 でも 1 標本）が VS の床だった）：
@@ -1032,7 +1036,7 @@ function bakeMeshLift(dd: NonNullable<MeshItem["meshData"]>): void {
 //（使い捨て根絶＝復元churnのヒープ高水位対策）。共有バッファ等で transfer 不可なら ack だけ（従来動作）。
 const meshAcks = new Map<unknown, MeshItem>();   // 小分け転送中の荷 → その ack（荷の同一性で引く）
 // 建物メッシュの受け口の計器（?hud=1・HUD の mesh timeline）：受けた荷・GPU へ当てた荷・ack した荷の数と最初/最後の時刻（絶対時刻＝main が navigation 起点へ直す）・pump に使った ms
-const meshRx = { n: 0, firstRecv: 0, applied: 0, firstApply: 0, acked: 0, lastAck: 0, pumpMs: 0 };
+const meshRx = { n: 0, firstRecv: 0, applied: 0, firstApply: 0, acked: 0, lastAck: 0, pumpMs: 0, applyMs: 0, applyMax: 0, applyBytes: 0, inFrame: 0, inTimer: 0, starveMs: 0, emptyT: 0 };   // applyMs＝renderer.set(meshSet) の中（writeBuffer＝GPU 側の詰まりはここに出る）・inFrame/inTimer＝片を当てた回（フレームの中／合間）・starveMs＝受け口が空で送り手を待った時間
 const absNow = () => performance.timeOrigin + performance.now();
 function ackMesh(item: MeshItem) {
 	meshRx.acked++; meshRx.lastAck = absNow();

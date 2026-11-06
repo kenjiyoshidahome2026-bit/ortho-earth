@@ -759,7 +759,7 @@ const drawHud = /[?&]drawhud=1/.test(location.search);
 let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number; pool?: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
 let memCpu: HudSnapshot["cpu"] = null;
-let memMeshRx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number } | null = null;   // ?hud=1 の render worker の建物メッシュ受け口（絶対時刻＝HUD で navigation 起点へ直す）   // ?hud=1 の worker CPU 内訳（部位別 ms の EMA・窓内の最長）＝実機の画面で「何に食われているか」
+let memMeshRx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number; applyMs?: number; applyMax?: number; applyBytes?: number; inFrame?: number; inTimer?: number; starveMs?: number } | null = null;   // ?hud=1 の render worker の建物メッシュ受け口（絶対時刻＝HUD で navigation 起点へ直す）   // ?hud=1 の worker CPU 内訳（部位別 ms の EMA・窓内の最長）＝実機の画面で「何に食われているか」
 // main スレッドの詰まり：HUD を載せた時だけ rAF 間隔を測る（EMA と窓内の最長）＝カメラを動かす側（デモの動き・飛行）が飢えていないか
 let mainEma = 0, mainMax = 0, mainLast = 0;
 if (hudOn) { const tick = (t: number) => { if (mainLast) { const dt = t - mainLast; if (dt < 2000) { mainEma = mainEma ? mainEma + (dt - mainEma) * 0.15 : dt; mainMax = Math.max(mainMax, dt); } } mainLast = t; requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
