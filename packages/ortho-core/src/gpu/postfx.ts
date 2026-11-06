@@ -133,7 +133,7 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 		{ binding: 3, visibility: F, texture: {} },
 		{ binding: 4, visibility: F, texture: {} },
 	] });
-	const pipe = (code: string, layout: GPUBindGroupLayout, fmt: GPUTextureFormat): GPURenderPipeline => device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [{ format: fmt }] }, primitive: { topology: "triangle-list" } });
+	const pipe = (code: string, layout: GPUBindGroupLayout, fmt: GPUTextureFormat): GPURenderPipeline => device.createRenderPipeline({ label: "postfx", layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [{ format: fmt }] }, primitive: { topology: "triangle-list" } });
 	const pBright = pipe(BRIGHT, bgl, "rgba8unorm"), pBlur = pipe(BLUR, bgl, "rgba8unorm"), pComp = pipe(COMP, bglComp, format);
 	const smp = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	const ub = [0, 1, 2, 3].map(() => device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));   // 明部・横・縦・合成

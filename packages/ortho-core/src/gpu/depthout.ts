@@ -37,7 +37,7 @@ export function createDepthOutGPU(device: GPUDevice): DepthOutGPU {
 		let p = pipes.get(ms);
 		if (!p) {
 			const module = device.createShaderModule({ code: WGSL(ms) });
-			p = device.createRenderPipeline({ layout: "auto", vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] }, primitive: { topology: "triangle-list" } });
+			p = device.createRenderPipeline({ label: "depthout", layout: "auto", vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] }, primitive: { topology: "triangle-list" } });
 			pipes.set(ms, p);
 		}
 		return p;
