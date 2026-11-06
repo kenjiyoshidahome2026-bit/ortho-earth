@@ -23,6 +23,8 @@ export interface HudSnapshot {
 	vt?: { shown: number; bytes: number; rttMs: number; decodeMs: number; buildMs: number; mergeMs: number; pending?: boolean; fsMs?: number | null } | null;
 	/** 基図タイルの計器 e（必要→画面・主層のみ）の分位 [med, p90, max]（ms）と main merge の要求→着地（ms・-1＝未着）＝copy 30s log の行 */
 	tileLat?: { all: TileLatQ; recent: TileLatQ; merges: Array<{ n: number; reqAt: number; ms: number }> } | null;
+	/** 最初の idle がまだ来ていないとき、塞いでいる材料の名前（globe.ts idleBlockers）。null＝idle 済み */
+	idleBlock?: string[] | null;
 	tiles: { bytes: number; budget: number }; terrain: number; mesh?: { bytes: number; regions: number } | null;
 	heap?: number | null; gpuBytes?: number | null; gpu?: { atlas: number; mesh: number; msaa: number; pool?: number } | null; raster?: number | null;
 	transient: { bytes: number; cache: number; live: number };
@@ -200,7 +202,8 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		const boot = s?.boot ? [`boot (ms since navigation): ${s.boot}`] : [];
 		const hist = bootHistLines();   // 直近の起動の boot 行（globe.ts bootHistSave・?hud 無しの起動も含む）＝1 本のログで決めない
 		const long = s?.main?.long?.length ? ["main long (15s):", ...s.main.long.map(l => `  ${l.ms.toFixed(0)} ms x${l.n} ${l.key}`)] : [];
-		return [...head, ...boot, ...hist, ...log, ...long, ...tileLatLines(s?.tileLat)].join("\n");
+		const idle = s?.idleBlock ? [`idle: not reached yet — blocked by: ${s.idleBlock.join(" · ") || "(nothing — waiting the 100 ms of quiet)"}`] : [];   // present の検証が frame1+8 s の予備タイマーに落ちる原因
+		return [...head, ...boot, ...hist, ...log, ...long, ...tileLatLines(s?.tileLat), ...idle].join("\n");
 	}
 	// 基図タイルの計器 e（必要→画面）と main merge（要求→着地）：タイルが揃った後の沈黙が「取得／組み立て／キュー待ち／結合待ち」のどれかを 1 本のログで切り分ける（2026-11-06）
 	function tileLatLines(t: HudSnapshot["tileLat"]): string[] {
