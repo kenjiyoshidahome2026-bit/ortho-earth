@@ -74,6 +74,11 @@ const takeCredit = () => {
 const stallWatch = new Map<string, { t: number; stage: string; extra: string }>();   // ward → { t, stage, extra }
 let stallLast = "";
 const stallNote = (s: string) => { stallLast = s; };
+// 区の時間割（HUD の copy 30s log「mesh timeline」・2026-11-06 Galaxy：idle を塞ぐ最大の材料が建物メッシュ 6〜11 s＝どの段で消えるかを USB 無しで読む）。
+// t＝絶対時刻（worker の timeOrigin は main と違う＝main 側で navigation 起点へ直す）。creditWait＝render worker の消化 ack 待ちの累計（区ごと）
+const tl = (ward: string, ev: string, x = "") => self.postMessage({ tl: { name: ward, ev, t: performance.timeOrigin + performance.now(), x } });
+const creditWait = new Map<string, number>();
+const creditLine = (ward: string) => `credit wait ${((creditWait.get(ward) || 0) / 1000).toFixed(1)} s`;
 function stallTouch(ward: string, stage: string, extra = "") { const e = stallWatch.get(ward); if (e) { e.t = performance.now(); e.stage = stage; e.extra = extra; } }
 setInterval(() => {
 	const now = performance.now();
@@ -327,7 +332,7 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 // 同じ worker に集中＝港区/横浜中区/墨田区/新宿橋梁は全て worker 2）。送出前の準備は取得の外・postMessage 失敗は返却
 async function postBatch(ward: string, bi: number, payload: { name: string; meshData: unknown }, bufs: Array<ArrayBufferLike | undefined>) {
 	const transfers = [...new Set(bufs.filter(b => b && b.byteLength))] as Transferable[];   // 重複・切離し（byteLength 0）は転送リストに載せない
-	await takeCredit();
+	const tc = performance.now(); await takeCredit(); creditWait.set(ward, (creditWait.get(ward) || 0) + performance.now() - tc);
 	try { meshPort!.postMessage(payload, transfers); }
 	catch (e) { onDrained(); console.warn("[mesh] send failed (credit returned)", ward, bi, (e as Error)?.message ?? e); throw e; }   // 返却＝待ち手があれば起こす・無ければ +1
 }
@@ -649,6 +654,7 @@ async function bakeManifest(base: string, brid: boolean, wardBbox: number[] | nu
 // 返り値: true=完了 / false=空データ / "cancelled"=視野離脱キャンセル（main は failed 扱いにしない）。
 async function loadMesh(base: string, tiles: string[] | null | undefined, ward: string, wardBbox: number[] | null, camCenter: number[] | null | undefined, preload = false, brid = false, clip: ArrayLike<number> | null = null, tilesetUrl: string | null = null, bakeBase: string | null = null): Promise<boolean | "cancelled" | "demoted"> {
 	const bakeRoot = bakeRootOf(bakeBase);   // この区の焼きの置き場（null＝焼きを持たない地域／?nobake=1）
+	tl(ward, "recv");
 	if (cache.has(base)) {
 		const c = cache.get(base)!;
 		cache.delete(base); cache.set(base, c);   // LRU touch（最近使用へ）
@@ -658,6 +664,7 @@ async function loadMesh(base: string, tiles: string[] | null | undefined, ward: 
 	}
 	const sk = storeKey(base);   // 保存キー（球/楕円体で別）＝IDB/OPFS を触る所は全て sk・RAM/lane/ネットワークは base
 	await fsReady;   // OPFS の可否が確定してから台帳を検分（init 直後の初回ロードとの競争を断つ）
+	tl(ward, "fs");
 	// ── far-DB導出の要否（裁定2026-08-04＝復元時にも導出・再焼き不要）：#far が無い/形式・閾値が変わった時だけ、
 	// このロードのついでに各バッチへ farBoxesOf を掛けて累積し、全バッチを本体込みで見られた場合のみ保存 ──
 	const idbF = await idbReady;
@@ -678,6 +685,7 @@ async function loadMesh(base: string, tiles: string[] | null | undefined, ward: 
 	// ── 完全焼きのストリーミング復元：1バッチ 読む→送る→手放す（区全量をRAMに積まない＝温読了時ピークの根治）──
 	// 滞留はクレジット（CREDIT_MAX×バッチ）で頭打ち。欠け（並行退避等）はそこで打ち切り→下の部分再開が差分で受ける。
 	const whole = await loadMeta(sk, brid);
+	tl(ward, "meta", whole ? (whole.partial ? `partial ${whole.count}` : `bake-hit ${whole.count} batches`) : "miss");
 	if (whole && !whole.partial) {
 		if (preload) {
 			if (await storedComplete(sk, whole)) { touchMeta(sk, whole); return true; }   // 本体は読まない（存在確認のみ）
@@ -696,6 +704,7 @@ async function loadMesh(base: string, tiles: string[] | null | undefined, ward: 
 			}
 			if (bi === whole.count) {
 				console.log("[mesh] bake hit (streaming restore; fetch/decode/transform skipped)", base, `(${whole.count} batches)`);
+				tl(ward, "restored", `${whole.count} batches · ${creditLine(ward)}`); creditWait.delete(ward);
 				farSave("restore");   // 待たない＝表示経路を塞がない
 				touchMeta(sk, whole);
 				meshBytes.set(base, whole.bytes || batchBytes(keep || []));   // 常駐LRUの物差し（cache 不在構成でも実測を返す）
@@ -789,6 +798,7 @@ async function loadMesh(base: string, tiles: string[] | null | undefined, ward: 
 		}
 	}
 	if (stop()) { console.log("[mesh] cancelled (left view, scan stage)", ward); return "cancelled"; }
+	tl(ward, "leaves", `${leaves.length} tiles${bake ? ` · bake ${bake.batches.length} batches` : ""}`);
 	const totalTiles = leaves.length;
 	if (doneTiles.size) leaves = leaves.filter(t => !doneTiles.has(t.uri));   // 保存済みタイルは読まない（差分だけ）
 	// カメラ近傍から遠方の順に＝最初のバッチが「目の前」になる。center 不明のタイルは末尾。
@@ -912,6 +922,7 @@ async function loadMesh(base: string, tiles: string[] | null | undefined, ward: 
 			if (stop()) { console.log("[mesh] cancelled (left view, bake stage)", ward); return "cancelled"; }
 			const b = todo[i];
 			const mesh = await inflight.shift();
+			if (i === 0) tl(ward, "bake#1");
 			if (laneOf() !== "fast") await new Promise(r => setTimeout(r, 250));
 			fill();
 			if (!mesh) { console.warn("[mesh] bake batch unreadable → live path", b.f); continue; }
@@ -924,7 +935,9 @@ async function loadMesh(base: string, tiles: string[] | null | undefined, ward: 
 		}
 		if (used.size) remaining = remaining.filter(t => !used.has(t.uri));
 		console.log(`[mesh] bake covered ${used.size} tiles${remaining.length ? ` (live path for ${remaining.length})` : ""}`, base);
+		tl(ward, "bake", `${used.size} tiles`);
 	}
+	if (remaining.length) tl(ward, "live", `${remaining.length} tiles`);
 	while (remaining.length) {
 		if (stop()) { console.log("[mesh] cancelled (left view)", ward, `stopped at ${tilesDone}/${totalTiles} tiles`); return "cancelled"; }
 		// ②区内デコード並列：fastレーン×プールありなら並行発注（preload/slow/lowMemは従来どおり直列＝静かに）
@@ -953,6 +966,7 @@ async function loadMesh(base: string, tiles: string[] | null | undefined, ward: 
 		memReport();
 	}
 	console.log("[mesh] done", base, `(${batchCount} batches)`);
+	tl(ward, "done", `${batchCount} batches · ${creditLine(ward)}`); creditWait.delete(ward);
 	await farSave("complete");   // 全バッチ本体を見た時だけ中身がある（farOk）。数十KB＝一瞬
 	// 完成印＝partial を外した meta（バッチ本体は逐次書き済み）＋LRU退避・孤児掃除。表示経路は待たせない。
 	const storing = (async () => {
