@@ -27,7 +27,10 @@ export const VERSION = "0.6.0";
 /** your own reader, e.g. a WASM build: bytes → SplatData (crs "local" by default) */
 export type SplatDecoder = (bytes: Uint8Array) => SplatData | Promise<SplatData>;
 export type SplatDecoders = Partial<Record<SplatFormat, SplatDecoder>>;
-export type SplatSource = SplatData | string | URL | ArrayBuffer | Uint8Array | File | Blob;   // File／Blob＝点群（.las／.laz／.zip のドロップ）だけ
+export type SplatSource = SplatData | string | URL | ArrayBuffer | Uint8Array | File | Blob | PointCloudDump;   // File／Blob＝点群（.las／.laz／.zip のドロップ）・PointCloudDump＝map.readPointCloud で読んだ点（頁が自分で読んで保管した物を渡す）
+/** 点群の点（map.readPointCloud の戻り）を source にする時の形＝pts（東北上 Float32 n×3）・anchor・n は必須、色の材料（rgb／elev／intensity／cls）は任意。**pts と rgba は描き手へ transfer する（渡した配列は空になる）** */
+export type PointCloudDump = { n: number; anchor: [number, number, number]; pts: Float32Array; elev?: Float32Array | null; rgb?: Uint8Array | null; intensity?: Uint16Array | null; cls?: Uint8Array | null; bb?: number[]; total?: number; info?: unknown; ms?: { read?: number } };
+export const isCloudDump = (src: unknown): src is PointCloudDump => !!src && typeof src === "object" && (src as PointCloudDump).pts instanceof Float32Array && Array.isArray((src as PointCloudDump).anchor) && typeof (src as PointCloudDump).n === "number";
 export interface SplatOptions {
 	kind?: "splat";
 	id?: string;
@@ -178,6 +181,7 @@ async function load(src: SplatSource, o: SplatOptions, decoders: SplatDecoders |
 		checkEnum(fmt, SPLAT_FORMATS, "format");
 		bytesOrUrl = typeof src === "string" || src instanceof URL ? new URL(String(src), globalThis.location?.href).href : src;
 	} else if (src instanceof Blob) throw new Error("splat: a File / Blob source must be a point cloud (.las / .laz / .zip)");
+	else if (isCloudDump(src)) throw new Error("splat: a PointCloudDump source needs the WebGPU point cloud path (it is routed there by addData)");
 	else checkSplatData(src);   // 形の間違いは今・同期に投げる（worker へ送ってからでは遅い）
 	const own = fmt ? decoders?.[fmt] : undefined;
 	if (!own) {
@@ -203,6 +207,8 @@ async function load(src: SplatSource, o: SplatOptions, decoders: SplatDecoders |
 const isFileSource = (src: SplatSource): src is string | URL | ArrayBuffer | Uint8Array => typeof src === "string" || src instanceof URL || src instanceof ArrayBuffer || src instanceof Uint8Array;
 /** 点群の source か（URL／File の名が .las／.laz／.zip・opts.format が las|laz|zip） */
 const isCloudSource = (src: unknown, o: SplatOptions): src is string | URL | File | Blob => (o.format != null && CLOUD_FORMATS.includes(o.format)) || (typeof src === "string" || src instanceof URL ? !!cloudFormatOf(String(src).split(/[?#]/)[0]) : typeof File !== "undefined" && src instanceof File ? !!cloudFormatOf(src.name) : false);
+/** 東北上の点の範囲（dump に bb が無い時） */
+const bbOf = (pts: Float32Array, n: number): number[] => { const bb = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]; for (let i = 0; i < n * 3; i += 3) for (let k = 0; k < 3; k++) { const v = pts[i + k]; if (v < bb[k]) bb[k] = v; if (v > bb[k + 3]) bb[k + 3] = v; } return n ? bb : [0, 0, 0, 0, 0, 0]; };
 // 統一 picking の答え（この描き手の pick は id・index・distance・lngLat・properties を必ず入れる）
 const isSplatHit = (id: string) => (t: OverlayPick): t is SplatHit => t.layer === id;
 
@@ -229,17 +235,19 @@ export function createSplat(map: SplatMap, data: SplatSource, opts: SplatOptions
 	});
 	const took = (d: CloudReply, read: number): void => { h.levels = d.levels ?? null; h.n = (d.levels ?? []).reduce((a, l) => a + l.n, 0); h.plan = d.plan ?? h.plan; h.ms = { read, build: d.ms?.build ?? 0, total: read + (d.ms?.total ?? 0) }; h.reader = "worker"; };
 	// 点群の source＝map.readPointCloud（エンジンの copc worker が読む）→ 色 → 描き手へ（変換は render worker の WebGPU）
-	const runCloud = async (src: string | URL | File | Blob, o: SplatOptions): Promise<SplatHandle> => {
+	const runCloud = async (src: string | URL | File | Blob | PointCloudDump, o: SplatOptions): Promise<SplatHandle> => {
 		const my = ++seq;
 		if (typeof map.readPointCloud !== "function") throw new Error("splat: point cloud sources need @ortho-earth/globe 2.4 or newer (map.readPointCloud)");
 		if (o.transform != null || o.origin != null) throw new Error("splat: point cloud sources are placed by their own coordinates (no origin / transform)");
 		const t0 = performance.now();
-		const d = await map.readPointCloud(src instanceof URL ? src.href : src, { crs: o.crs, vertical: o.vertical, maxPoints: o.maxPoints, onProgress: o.onProgress });
+		const d: PointCloudDump = isCloudDump(src) ? src : await map.readPointCloud(src instanceof URL ? src.href : src, { crs: o.crs, vertical: o.vertical, maxPoints: o.maxPoints, onProgress: o.onProgress });
 		if (removed || my !== seq) return h;
-		const rgba = colorize(d, o.color ?? "auto", { opacity: o.opacity ?? 1, elevationRange: o.elevationRange, intensityRange: o.intensityRange });
-		const read = performance.now() - t0;
-		h.anchor = d.anchor; h.points = d.n; h.info = d.info; cur = src as SplatSource;
-		const r = await awaitCloud(() => ov.post({ type: "cloud", q: id, n: d.n, anchor: d.anchor, alt: o.altitude ?? "absolute", pts: d.pts, rgba, bb: d.bb, depthTest: o.depthTest !== false, properties: o.properties ?? null, on: visible, params: { ...(o.cloud ?? {}) } }, [d.pts.buffer as ArrayBuffer, rgba.buffer]));
+		if (d.pts.length !== d.n * 3) throw new TypeError("splat: PointCloudDump.pts must be a Float32Array of n × 3");
+		const rgba = colorize({ n: d.n, rgb: d.rgb ?? null, elev: d.elev ?? null, intensity: d.intensity ?? null, cls: d.cls ?? null }, o.color ?? "auto", { opacity: o.opacity ?? 1, elevationRange: o.elevationRange, intensityRange: o.intensityRange });
+		const read = isCloudDump(src) ? (d.ms?.read ?? 0) : performance.now() - t0;
+		const bb = d.bb ?? bbOf(d.pts, d.n);
+		h.anchor = d.anchor; h.points = d.n; h.info = d.info ?? null; cur = src as SplatSource;
+		const r = await awaitCloud(() => ov.post({ type: "cloud", q: id, n: d.n, anchor: d.anchor, alt: o.altitude ?? "absolute", pts: d.pts, rgba, bb, depthTest: o.depthTest !== false, properties: o.properties ?? null, on: visible, params: { ...(o.cloud ?? {}) } }, [d.pts.buffer as ArrayBuffer, rgba.buffer]));
 		if (removed || my !== seq) return h;
 		took(r, read);
 		return h;
@@ -256,7 +264,7 @@ export function createSplat(map: SplatMap, data: SplatSource, opts: SplatOptions
 		return h;
 	};
 	const run = async (src: SplatSource, o: SplatOptions): Promise<SplatHandle> => {
-		if (isCloudSource(src, o)) return runCloud(src, o);
+		if (isCloudSource(src, o) || isCloudDump(src)) return runCloud(src, o);
 		if (src && typeof src === "object" && "levels" in (src as object)) return runLevels(src as unknown as CloudData, o);
 		const my = ++seq;
 		const p = await load(src, o, decoders);

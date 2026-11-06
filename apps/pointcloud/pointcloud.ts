@@ -4,10 +4,16 @@
 //   一覧は S3 の ListObjectsV2 を頁が直に引く（台帳を焼かない＝県が足した物もそのまま出る）。.zip はエンジン（copc-worker の ZIP の口）が範囲読みで解く。
 //   熱海の見本（COPC・ortho-data の gh-pages）も残す＝節だけ範囲読みの速さを見せる方。
 // 図郭の番号と VIII 系の換算＝pointcloud-sheets.ts（"08MC4919"＝VIII 系・M 行 C 列・5000 の 4 行 9 列・500 の 1 行 9 列）。
-// 見せ方＝点の大きさ・色・細かさ・不透明度・距離で縮む、高さ＝足し込み（読み直さずに効く）と「地形に合わせる」（地面の点と描いている地形の差の中央値）。
+// 描き方（2026-11-06・本人「Gaussian splat・ブラウザ内・WebGPU・CPU の fallback なし」）＝点をそのまま描かず、エンジンが読んだ点（map.readPointCloud）を @ortho-earth/splat の cloud（render worker の WebGPU compute）が
+//   段つきの Gaussian splat にして描く。読んだ点（points）と変換した段（cloud）は端末に保管（pc-cache.ts＝OPFS → IndexedDB）＝二度目は回線も変換も要らない・色や粗さを変えるのは保管した点から変換し直す（回線なし）。
+//   WebGPU の無い器は頁全体をエラー（pointcloud-page.ts・本人裁定「頁全体をエラーで大丈夫」）。
+// 見せ方＝粗さ（detail）・色・不透明度、高さ＝足し込み（錨の高さ＝読み直さずに効く）と「地形に合わせる」（地面の点と描いている地形の差の中央値）。
 import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";
+import { splatPlugin, type SplatHandle, type SplatOptions, type CloudData, type CloudColor } from "@ortho-earth/splat";
 import { toPlane, toLonLat, sheetBox, sheetAt, sheetRing } from "./pointcloud-sheets.ts";
-import type { GlobeMap, COPCHandle, COPCOptions, LayerMouseEvent, GeoJSONFeature, Bbox } from "@ortho-earth/globe";
+import { openPcCache, type PcCache } from "./pc-cache.ts";
+import { pack, unpack, cacheKey } from "./pc-pack.ts";
+import type { GlobeMap, PointCloudDump, LayerMouseEvent, GeoJSONFeature, Bbox } from "@ortho-earth/globe";
 
 const t = tr();
 const S3 = "https://virtual-shizuoka.s3.ap-northeast-1.amazonaws.com/";
@@ -32,10 +38,12 @@ const BIG_MB = 250;   // これより大きい .zip は印を付ける（取る�
 // 案内板の長文（英語キー）＝訳は頁の辞書 i18n/pages/pointcloud.json
 const HOW = [
 	"Shizuoka Prefecture publishes its laser surveys on AWS as one ZIP file per 400 m × 300 m map sheet (a LAS file inside, CC BY 4.0). The page lists the bucket directly — no index is baked here, so new data shows up as soon as the prefecture adds it.",
-	"Clicking a sheet reads just that file's entry in the ZIP by HTTP Range, unpacks it in a worker as it arrives, and builds an octree on the spot. Only the decoded points are kept — the ZIP itself is never held in memory.",
+	"Clicking a sheet reads just that file's entry in the ZIP by HTTP Range and unpacks it in a worker as it arrives. The points are then turned into Gaussian splats on the GPU (WebGPU compute): one splat per cell, shaped by its neighbours, in several levels of detail — a far view draws a few thousand splats, a close view the finest level.",
 	"The files carry no coordinate system, so the page passes Japan Plane Rectangular CS VIII (EPSG:6676) and treats heights as orthometric (above the geoid), like the map's terrain.",
-	"The Atami sample is the same survey converted to COPC: only the octree nodes in view are fetched, which is why it opens at once.",
+	"The points and the converted splats are saved on this device (OPFS, or IndexedDB where OPFS is missing). Opening the same sheet again needs no download and no conversion, and changing the colour or detail re-converts the saved points without downloading.",
+	"The Atami sample is the same survey converted to COPC, read from its shallowest octree nodes first up to the point limit.",
 	"Fit to terrain compares the ground points (class 2) with the terrain that is drawn and moves the cloud by the median difference. The map's terrain comes from different source data, so a few metres of difference are normal.",
+	"This page needs WebGPU (Chrome, Edge, Safari 26 or newer, Firefox 141 or newer). There is no WebGL2 fallback — the conversion runs on the GPU by design.",
 ];
 
 const CSS = `
@@ -72,6 +80,7 @@ const CSS = `
 #side details summary { cursor: pointer; font-weight: 600; color: #fff; padding: 4px 0; }
 #side details ul { margin: 4px 0 6px; padding-inline-start: 18px; color: rgba(255,255,255,.78); }
 #side details li { margin: 3px 0; }
+#side .cache { padding: 6px 16px 0; color: rgba(255,255,255,.62); font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 #side .foot { padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.5); font-size: 11px; }
 #side .foot a { color: inherit; }`;
 
@@ -91,6 +100,19 @@ async function listS3(prefix: string, signal?: AbortSignal): Promise<{ dirs: str
 }
 const last = (p: string) => p.replace(/\/$/, "").split("/").pop()!;
 
+/** 頁全体のエラー（WebGPU が無い・startupFailed と同じ形・pointcloud-page.ts が本体を起こす前に呼ぶ） */
+export function noWebGpu() {
+	const t = tr();
+	const d = document.createElement("div");
+	d.id = "page-fatal"; d.setAttribute("role", "alert");
+	d.style.cssText = "position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:24px;background:#f4f1ea;color:#333;font:14px/1.9 system-ui,sans-serif";
+	d.innerHTML = `<div style="max-width:540px"><div style="font-size:18px;font-weight:600;margin-bottom:10px"></div><div style="color:#555"></div></div>`;
+	(d.firstElementChild!.children[0] as HTMLElement).textContent = t("This page needs WebGPU");
+	(d.firstElementChild!.children[1] as HTMLElement).textContent = t("The point clouds are converted to Gaussian splats on the GPU, which needs WebGPU. Use Chrome or Edge, Safari 26 or newer, or Firefox 141 or newer, with hardware acceleration on.");
+	document.body.append(d);
+	console.error("[pointcloud] WebGPU is not available: the page shows an error (no WebGL2 fallback by design)");
+}
+
 export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	const lang = getLang();
 	document.head.insertAdjacentHTML("beforeend", `<style>${CSS}</style>`);
@@ -106,12 +128,11 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<div class="status" id="pc-status"></div>
 		<div class="info" id="pc-info"></div>
 		<h2>${t("Display")}</h2>
-		<div class="row"><label for="pc-size">${t("Point size")}</label><input type="range" id="pc-size" min="0.5" max="8" step="0.5" value="2"><output id="pc-size-v"></output></div>
 		<div class="row"><label for="pc-color">${t("Colour")}</label><select id="pc-color">${["auto", "rgb", "elevation", "intensity", "classification"].map(c => `<option value="${c}">${t({ auto: "Automatic", rgb: "True colour (RGB)", elevation: "Height", intensity: "Intensity", classification: "Classification" }[c]!)}</option>`).join("")}</select></div>
-		<div class="row"><label for="pc-density">${t("Detail")}</label><input type="range" id="pc-density" min="1" max="8" step="0.5" value="3"><output id="pc-density-v"></output></div>
+		<div class="row"><label for="pc-detail">${t("Detail")}</label><input type="range" id="pc-detail" min="0.5" max="4" step="0.5" value="1"><output id="pc-detail-v"></output></div>
 		<div class="row"><label for="pc-opacity">${t("Opacity")}</label><input type="range" id="pc-opacity" min="0.1" max="1" step="0.05" value="1"><output id="pc-opacity-v"></output></div>
-		<label class="check"><input type="checkbox" id="pc-atten" checked>${t("Shrink points with distance")}</label>
 		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show map sheets")}</label>
+		<div class="cache"><span id="pc-cache"></span><button class="btn" id="pc-cache-clear">${t("Clear")}</button></div>
 		<h2>${t("Height")}</h2>
 		<div class="row"><label for="pc-lift">${t("Raise / lower")}</label><input type="range" id="pc-lift" min="-30" max="30" step="0.1" value="0"><output id="pc-lift-v"></output></div>
 		<div class="row"><button class="btn" id="pc-fit">${t("Fit to terrain")}</button><button class="btn" id="pc-zero">${t("Reset")}</button></div>
@@ -127,73 +148,108 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	const tf = (tr: string, ...v: Array<string | number>) => v.reduce<string>((s, x, i) => s.replace(`$${i + 1}`, String(x)), tr);   // 差し込み（$1 $2 …）＝tf(t("…"), …)
 	$<HTMLSelectElement>(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", (e.target as HTMLSelectElement).value); location.href = u.href; };
 
-	// ── 見せ方（手綱に setOptions・次に開く物にも同じ値） ──
-	const style = (): Partial<COPCOptions> => ({
-		pointSize: +$<HTMLInputElement>("#pc-size").value, color: $<HTMLSelectElement>("#pc-color").value as COPCOptions["color"], density: +$<HTMLInputElement>("#pc-density").value,
-		opacity: +$<HTMLInputElement>("#pc-opacity").value, attenuation: $<HTMLInputElement>("#pc-atten").checked, heightOffset: +$<HTMLInputElement>("#pc-lift").value,
-	});
+	// ── 描き手＝@ortho-earth/splat（WebGPU の描き手を指名＝本体が ?gl2=1 で WebGL2 でも自前の device で） ──
+	map.use(splatPlugin({ backend: "webgpu" }));
+	const cache = await openPcCache();
+	console.info(`[pointcloud] cache: ${cache.kind}`);
+	const showCache = async () => { const { entries, total } = await cache.list(); const el = $("#pc-cache"); el.textContent = cache.kind === "none" ? t("Nothing is saved on this device (storage is unavailable).") : tf(t("Saved on this device: $1 items, $2"), fmtN(entries.length), mb(total)); $<HTMLButtonElement>("#pc-cache-clear").disabled = !entries.length; };
+	$("#pc-cache-clear").onclick = async () => { await cache.clear(); showCache(); };
+	showCache();
+
+	// ── 見せ方（色・粗さ・不透明度は splat に焼き込む＝変えたら保管した点から変換し直す・高さは錨＝読み直さずに効く） ──
+	const style = () => ({ color: $<HTMLSelectElement>("#pc-color").value as CloudColor, detail: +$<HTMLInputElement>("#pc-detail").value, opacity: +$<HTMLInputElement>("#pc-opacity").value });
 	const outs = () => {
-		$("#pc-size-v").textContent = `${$<HTMLInputElement>("#pc-size").value} px`;
-		$("#pc-density-v").textContent = `${$<HTMLInputElement>("#pc-density").value} px`;
+		$("#pc-detail-v").textContent = `×${$<HTMLInputElement>("#pc-detail").value}`;
 		$("#pc-opacity-v").textContent = `${Math.round(+$<HTMLInputElement>("#pc-opacity").value * 100)}%`;
 		const v = +$<HTMLInputElement>("#pc-lift").value; $("#pc-lift-v").textContent = `${v > 0 ? "+" : ""}${v.toFixed(1)} m`;
 	};
-	let cur: COPCHandle | null = null, curKey: string | null = null, loading: AbortController | null = null;
-	const restyle = () => { outs(); cur?.setOptions(style()); };
-	for (const id of ["#pc-size", "#pc-density", "#pc-opacity", "#pc-lift"]) $(id).addEventListener("input", restyle);
-	for (const id of ["#pc-color", "#pc-atten"]) $(id).addEventListener("change", restyle);
-	const setLift = (v: number) => { $<HTMLInputElement>("#pc-lift").value = String(Math.max(-30, Math.min(30, v))); restyle(); };
+	/** 今出している物＝手綱・鍵・元・地面の見本（fit 用）・錨の高さ */
+	let cur: SplatHandle | null = null, curKey: string | null = null, loading: AbortController | null = null;
+	let curSrc: { src: string; key: string; label: string; extra: Partial<SplatOptions> } | null = null, ground: Array<[number, number, number]> = [], alt0 = 0;
+	const lift = () => { outs(); if (cur) cur.setAltitude(alt0 + +$<HTMLInputElement>("#pc-lift").value); };
+	$("#pc-lift").addEventListener("input", lift);
+	const restyle = () => { outs(); if (curSrc) open(curSrc.src, curSrc.key, curSrc.label, curSrc.extra, true); };
+	for (const id of ["#pc-color", "#pc-detail", "#pc-opacity"]) $(id).addEventListener("change", restyle);
+	const setLift = (v: number) => { $<HTMLInputElement>("#pc-lift").value = String(Math.max(-30, Math.min(30, v))); lift(); };
 	outs();
 
-	// ── 地形に合わせる（地面の点と描いている地形の差） ──
-	const gapText = (r: { offset: number | null; samples: number }) => r.offset == null ? t("No ground points loaded yet — try again in a moment.") : tf(t("Terrain minus points: $1 m (median of $2 ground points)"), `${r.offset > 0 ? "+" : ""}${r.offset.toFixed(2)}`, fmtN(r.samples));
+	// ── 地形に合わせる（地面の点＝分類 2 の見本と、描いている地形の差の中央値） ──
+	const R = 6371000, D2R = Math.PI / 180, GS_MAX = 1200;
+	const groundOf = (d: PointCloudDump): Array<[number, number, number]> => {   // 東北上 → 経緯度（dumpEnu の逆）・高さは標高
+		const out: Array<[number, number, number]> = [], lon0 = d.anchor[0], lat0 = d.anchor[1], ce = Math.cos(lat0 * D2R) * D2R * R, cn = D2R * R;
+		let g = 0; for (let i = 0; i < d.n; i++) if (d.cls[i] === 2) g++;
+		if (!g) return out;
+		const stride = Math.max(1, Math.ceil(g / GS_MAX));
+		for (let i = 0, k = 0; i < d.n; i++) if (d.cls[i] === 2 && k++ % stride === 0) out.push([lon0 + d.pts[i * 3] / ce, lat0 + d.pts[i * 3 + 1] / cn, d.elev[i]]);
+		return out;
+	};
+	const gapText = (r: { offset: number | null; samples: number }) => r.offset == null ? t("No ground points (class 2) in this file.") : tf(t("Terrain minus points: $1 m (median of $2 ground points)"), `${r.offset > 0 ? "+" : ""}${r.offset.toFixed(2)}`, fmtN(r.samples));
 	// 地形の標高は着荷を待つ＝来なければ 12 秒で諦める（null＝読めなかった）
-	const measure = (h: COPCHandle) => Promise.race([h.fitTerrain({ apply: false }), new Promise<null>(r => setTimeout(() => r(null), 12000))]).catch(() => null);
-	const fit = async (h: COPCHandle) => {
+	const measure = async (): Promise<{ offset: number | null; samples: number } | null> => {
+		if (!ground.length) return { offset: null, samples: 0 };
+		const hs = await Promise.race([map.sampleTerrain(ground.map(p => [p[0], p[1]] as [number, number])), new Promise<null>(r => setTimeout(() => r(null), 12000))]).catch(() => null);
+		if (!hs) return null;
+		const d = hs.map((h, i) => h.height - ground[i][2]).filter(Number.isFinite).sort((a, b) => a - b);
+		return d.length ? { offset: Math.round(d[d.length >> 1] * 100) / 100, samples: d.length } : { offset: null, samples: 0 };
+	};
+	const fit = async (h: SplatHandle, auto = false) => {
 		$("#pc-gap").textContent = t("Reading the terrain…");
-		const r = await measure(h);
+		const r = await measure();
 		if (h !== cur) return;
 		if (!r) { $("#pc-gap").textContent = t("Could not read the terrain height here."); return; }
 		$("#pc-gap").textContent = gapText(r);
-		if (r.offset != null) setLift(r.offset);
+		if (r.offset != null && (!auto || $<HTMLInputElement>("#pc-autofit").checked)) setLift(r.offset);
 	};
 	$("#pc-fit").onclick = () => { if (cur) fit(cur).catch(e => console.warn("[pointcloud] fit", e)); };
 	$("#pc-zero").onclick = () => setLift(0);
-	// 読んだ後に一度測る＝節が地面の見本を持ってくるのを少し待つ（見本が無ければもう一度）
-	const autoFit = (h: COPCHandle, tries = 4) => setTimeout(async () => {
-		if (h !== cur) return;
-		const r = await measure(h);
-		if (h !== cur) return;
-		if (!r) { $("#pc-gap").textContent = t("Could not read the terrain height here."); return; }
-		if ((r.offset == null || r.samples < 40) && tries > 1) return autoFit(h, tries - 1);
-		$("#pc-gap").textContent = gapText(r);
-		if (r.offset != null && $<HTMLInputElement>("#pc-autofit").checked) setLift(r.offset);
-	}, 1500);
 
-	// ── 読む ──
-	const open = async (src: string, key: string, label: string, extra: Partial<COPCOptions> = {}) => {
+	// ── 読む：保管した段 → 保管した点 → 回線（読んだ点と変換した段はその場で保管） ──
+	const open = async (src: string, key: string, label: string, extra: Partial<SplatOptions> = {}, restyling = false) => {
 		loading?.abort(); const ac = loading = new AbortController();
-		if (cur) { cur.remove(); cur = null; }
-		curKey = key; highlight();
-		$("#pc-info").textContent = ""; $("#pc-gap").textContent = "";
-		if ($<HTMLInputElement>("#pc-autofit").checked) setLift(0);
+		const prev = cur; cur = null;   // 見せ方の変え直しは絵が出るまで前の物を残す（ちらつかない）
+		if (!restyling) { prev?.remove(); ground = []; }
+		curKey = key; curSrc = { src, key, label, extra }; highlight();
+		$("#pc-info").textContent = ""; if (!restyling) $("#pc-gap").textContent = "";
+		if (!restyling && $<HTMLInputElement>("#pc-autofit").checked) $<HTMLInputElement>("#pc-lift").value = "0";
 		status(tf(t("Opening $1…"), label)); bar(0);
-		const t0 = performance.now();
+		const t0 = performance.now(), st = style(), kCloud = cacheKey("cloud", key, "auto", st), kPts = cacheKey("points", key, "auto");
+		const done = (e: unknown) => { if (ac.signal.aborted) return true; if (e) { bar(null); curKey = null; curSrc = null; highlight(); status(`${label}: ${String((e as Error)?.message || e)}`, true); return true; } return false; };
 		try {
-			const h = await map.addPointCloud(src, { id: "pc", attribution: ATTR, ...style(), ...extra,
-				onProgress: (a, b) => { if (ac.signal.aborted) return; bar(a / b); status(a < b ? tf(t("Downloading $1 — $2 / $3"), label, mb(a), mb(b)) : t("Building the octree…")); } });
-			if (ac.signal.aborted) { h.remove(); return; }
-			cur = h; bar(null);
-			const i = h.info;
-			status(`${label} — ${tf(t("$1 points"), fmtN(i.count))} · ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-			$("#pc-info").textContent = `${i.copc ? "COPC" : i.inMemory ? "LAS → octree" : "LAS"} · ${i.crs}\n${t("Height")}: ${i.zRange.map(v => v.toFixed(1)).join(" – ")} m (${i.vertical})`;
-			autoFit(h);
-			const u = new URL(location.href); if (key.startsWith("s3:")) u.searchParams.set("sheet", key.slice(3)); else u.searchParams.delete("sheet"); history.replaceState(null, "", u.href);
-		} catch (e) {
+			let h: SplatHandle, from = "", d: PointCloudDump | null = null;
+			const saved = await cache.get(kCloud);
 			if (ac.signal.aborted) return;
-			bar(null); curKey = null; highlight();
-			status(`${label}: ${String((e as Error)?.message || e)}`, true);
-		}
+			if (saved) {   // ① 変換済みの段＝載せるだけ
+				const c = unpack<CloudData & { points: number; info: unknown }>(saved);
+				status(t("Loading the saved splats…"));
+				h = map.addData({ anchor: c.anchor, levels: c.levels.map(l => ({ ...l, ctr: l.ctr.slice(), cov: l.cov.slice(), col: l.col.slice() })) } satisfies CloudData, { kind: "splat", id: "pc", attribution: ATTR }) as SplatHandle;
+				await h.ready; h.points = c.points; h.info = c.info; from = t("from this device");
+				if (!ground.length) { const p = await cache.get(kPts); if (p) ground = groundOf(unpack<PointCloudDump>(p)); }
+			} else {
+				const savedPts = await cache.get(kPts);
+				if (ac.signal.aborted) return;
+				if (savedPts) { d = unpack<PointCloudDump>(savedPts); d = { ...d, pts: d.pts.slice() }; from = t("from this device"); }   // ② 保管した点＝変換だけ（pts は transfer されるのでコピー）
+				else {   // ③ 回線＝読んで保管
+					d = await map.readPointCloud(src, { ...extra, onProgress: (a, b) => { if (ac.signal.aborted) return; bar(a / b); status(a < b ? tf(t("Downloading $1 — $2 / $3"), label, mb(a), mb(b)) : t("Decoding…")); } });
+					if (ac.signal.aborted) return;
+					cache.put(kPts, pack(d)).catch(e => console.warn("[pointcloud] cache points", e));
+				}
+				ground = groundOf(d);
+				status(t("Converting to splats on the GPU…")); bar(null);
+				h = map.addData(d, { kind: "splat", id: "pc", attribution: ATTR, color: st.color, opacity: st.opacity, cloud: { detail: st.detail } }) as SplatHandle;
+				await h.ready;
+				// 変換した段を保管（絵が出た後・読み戻しは GPU から）
+				h.read().then(c => cache.put(kCloud, pack({ ...c, points: h.points, info: h.info }))).then(showCache).catch(e => console.warn("[pointcloud] cache cloud", e));
+			}
+			if (ac.signal.aborted) { h.remove(); return; }
+			prev?.remove();
+			cur = h; alt0 = h.anchor![2]; lift(); bar(null);
+			const i = h.info as { copc?: boolean; crs?: string; vertical?: string; zRange?: number[] } | null;
+			status(`${label} — ${tf(t("$1 points → $2 splats in $3 levels"), fmtN(h.points), fmtN(h.n), String(h.levels?.length ?? 0))} · ${((performance.now() - t0) / 1000).toFixed(1)} s${from ? ` · ${from}` : ""}`);
+			$("#pc-info").textContent = `${i?.copc ? "COPC" : "LAS"} · ${i?.crs ?? ""}${i?.zRange ? `\n${t("Height")}: ${i.zRange.map(v => v.toFixed(1)).join(" – ")} m (${i.vertical})` : ""}${h.ms ? `\n${t("Conversion")}: ${h.ms.build} ms` : ""}`;
+			if (!restyling) fit(h, true).catch(e => console.warn("[pointcloud] fit", e));
+			showCache();
+			const u = new URL(location.href); if (key.startsWith("s3:")) u.searchParams.set("sheet", key.slice(3)); else u.searchParams.delete("sheet"); history.replaceState(null, "", u.href);
+		} catch (e) { done(e); }
 	};
 	const openSheet = (f: { key: string; size: number }) => open(S3 + f.key, "s3:" + f.key, last(f.key).replace(/\.zip$/i, ""), { crs: "EPSG:6676", vertical: "orthometric" });
 	$("#pc-atami").onclick = () => { open(ATAMI, "atami", t("Atami sample (COPC)")); };
@@ -273,6 +329,6 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		const s = SETS.find(x => q.startsWith(x.id + "/")); if (s && s.id !== set) { $<HTMLSelectElement>("#pc-set").value = s.id; await chooseSet(s.id); }
 		if (b) chooseBlock(code.slice(0, 4));
 		openSheet({ key: q, size: 0 });
-	} else open(ATAMI, "atami", t("Atami sample (COPC)"), { fit: false });   // 視点は頁の既定（ATAMI_VIEW）か共有 URL の hash
-	return { open, chooseSet, chooseBlock, get handle() { return cur; } };
+	} else open(ATAMI, "atami", t("Atami sample (COPC)"));   // 視点は頁の既定（ATAMI_VIEW）か共有 URL の hash
+	return { open, chooseSet, chooseBlock, cache, get handle() { return cur; } };
 }

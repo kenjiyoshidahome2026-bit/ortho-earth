@@ -27,7 +27,7 @@ Every page under `apps/*` is a shell over the packages. All URLs are on `https:/
 | [/japan/models](https://www.ortho-earth.com/japan/models) | `apps/models` | Famous places as 3D models |
 | [/japan/onsen](https://www.ortho-earth.com/japan/onsen) | `apps/onsen` | About 5,300 hot springs |
 | [/japan/fireworks](https://www.ortho-earth.com/japan/fireworks) | `apps/fireworks` | Fireworks in the 3D scene |
-| [/japan/pointcloud](https://www.ortho-earth.com/japan/pointcloud) | `apps/pointcloud` | Point clouds of Shizuoka and Atami (COPC) |
+| [/japan/pointcloud](https://www.ortho-earth.com/japan/pointcloud) | `apps/pointcloud` | Point clouds of Shizuoka and Atami (COPC), drawn as Gaussian splats converted on the GPU (WebGPU only) and cached on the device |
 | [/japan/scene](https://www.ortho-earth.com/japan/scene) | `apps/scene` | Scenes editor: camera scripts exported as MP4 |
 | [/japan/tellus](https://www.ortho-earth.com/japan/tellus) | `apps/tellus` | Tellus satellite data (PALSAR-2, AVNIR-2, GCOM) |
 | [/japan/geoedit](https://www.ortho-earth.com/japan/geoedit) | `apps/geoedit-app` | Topological GeoPBF editor |
