@@ -3,6 +3,7 @@
 //     項の見つけ方＝先頭の局所ヘッダが .las／.laz で大きさを持っていればそれ（総長が要らない＝S3 は CORS で Content-Range を見せないので総長が分からない）、
 //     でなければ末尾（EOCD・中央ディレクトリ）から（総長が要る）。
 //   ZIP 全体を手元に持たない（解いた LAS だけ）＝URL は S3 などの範囲読みのまま。読みながら頭（LAS のヘッダ）を覗き、点の数が上限を超えていれば取り終える前に断る。
+//   map.readPointCloud（読むだけ）は Blob も作らない＝streamPointCloud が解いた中身を流し、copc-worker が束ごとに間引いて貯める（2026-11-07）。
 //   対応＝格納（0）と deflate（8）・ZIP64 の大きさ。暗号化・分割は断る。node で検定できる純関数（parse*）＝tests/t-pointcloud-zip.mjs。
 import type { Source } from "geopbf/cog/source";
 
@@ -88,13 +89,8 @@ export function lasPointCount(h: Uint8Array): number | null {
 	return h[25] >= 4 && h.length >= 255 ? Number(dv.getBigUint64(247, true)) || legacy : legacy;
 }
 
-/**
- * ZIP の中の最初の LAS/LAZ を解いて Blob にする。
- * @param src  ZIP（URL は範囲読み・Blob はそのまま）
- * @param o.onProgress  取った生のバイト／その項の生の総長
- * @param o.check  LAS の点の数を見て断る理由を返す（null＝続ける）＝取り終える前に止める
- */
-export async function unzipPointCloud(src: Source, { onProgress, check, chunk = 8 << 20 }: { onProgress?: (loaded: number, total: number) => void; check?: (count: number) => string | null; chunk?: number } = {}): Promise<{ blob: Blob; name: string }> {
+/** 点群の項と生のバイトの始まり（先頭の局所ヘッダ → 無理なら末尾の中央ディレクトリ）＝unzipPointCloud／streamPointCloud の共通 */
+async function findPointEntry(src: Source): Promise<{ entry: ZipEntry; start: number }> {
 	let entry: ZipEntry | null, start: number;
 	const local = parseLocalEntry(src.head);
 	if (local) { entry = local.entry; start = local.dataOffset; }
@@ -109,6 +105,17 @@ export async function unzipPointCloud(src: Source, { onProgress, check, chunk = 
 	}
 	if (entry.flags & 1) throw new Error("pointcloud: the ZIP is encrypted");
 	if (entry.method !== 0 && entry.method !== 8) throw new Error(`pointcloud: ZIP compression method ${entry.method} is not supported (stored and deflate are)`);
+	return { entry, start };
+}
+
+/**
+ * ZIP の中の最初の LAS/LAZ を解いて Blob にする。
+ * @param src  ZIP（URL は範囲読み・Blob はそのまま）
+ * @param o.onProgress  取った生のバイト／その項の生の総長
+ * @param o.check  LAS の点の数を見て断る理由を返す（null＝続ける）＝取り終える前に止める
+ */
+export async function unzipPointCloud(src: Source, { onProgress, check, chunk = 8 << 20 }: { onProgress?: (loaded: number, total: number) => void; check?: (count: number) => string | null; chunk?: number } = {}): Promise<{ blob: Blob; name: string }> {
+	const { entry, start } = await findPointEntry(src);
 	const total = entry.csize;
 	// 生のバイト → （deflate なら）解く → Blob（一方）・頭を覗く（もう一方）
 	const ts = entry.method === 8 ? new DecompressionStream("deflate-raw") : new TransformStream<Uint8Array, Uint8Array>();
@@ -141,4 +148,57 @@ export async function unzipPointCloud(src: Source, { onProgress, check, chunk = 
 		writer.abort(e).catch(() => {}); blobP.catch(() => {});
 		throw e;
 	}
+}
+
+/**
+ * ZIP の中の最初の LAS/LAZ を解きながら流す（Blob を作らない＝map.readPointCloud の丸ごと読み・2026-11-07）。
+ * 読み手が取った分だけ先を範囲読みする（DecompressionStream の背圧）＝手元に持つのは束 1〜2 本＝大きな図郭でも解いた LAS 全体を持たない。
+ * @returns stream＝解いた中身・name＝項の名前・usize＝解いた総長（書いてあれば）
+ */
+export async function streamPointCloud(src: Source, { onProgress, chunk = 8 << 20 }: { onProgress?: (loaded: number, total: number) => void; chunk?: number } = {}): Promise<{ stream: ReadableStream<Uint8Array>; name: string; usize: number }> {
+	const { entry, start } = await findPointEntry(src);
+	const total = entry.csize;
+	const ts = entry.method === 8 ? new DecompressionStream("deflate-raw") : new TransformStream<Uint8Array, Uint8Array>();
+	const writer = ts.writable.getWriter();
+	(async () => {   // 生のバイトを流し込む（待たない＝読み手が引いた分だけ進む）
+		try {
+			let next: Promise<ArrayBuffer | Uint8Array> | null = total ? src.read(start, Math.min(chunk, total)) : null;
+			for (let at = 0; next;) {
+				const buf = new Uint8Array(await next), got = at + buf.length;
+				await writer.ready;
+				next = got < total ? src.read(start + got, Math.min(chunk, total - got)) : null;
+				await writer.write(buf);
+				at = got; onProgress?.(at, total);
+			}
+			await writer.close();
+		} catch (e) { writer.abort(e).catch(() => {}); }
+	})();
+	return { stream: ts.readable as ReadableStream<Uint8Array>, name: entry.name, usize: entry.usize };
+}
+
+/** 前にしか進まない読み口（streamPointCloud の中身を Source の read の形で）。head＝先頭 headBytes。後ろへ戻る読みは head の内だけ */
+export interface StreamSource { head: ArrayBuffer; size: number | null; read(offset: number, length: number): Promise<ArrayBuffer>; cancel(): void }
+export async function streamSource(stream: ReadableStream<Uint8Array>, size: number | null, headBytes = 65536): Promise<StreamSource> {
+	const rd = stream.getReader();
+	let parts: Uint8Array[] = [], base = 0, have = 0, done = false;   // parts＝まだ渡していない中身（base＝その始まりのファイル位置）
+	const pull = async (until: number) => { while (!done && base + have < until) { const r = await rd.read(); if (r.done) { done = true; break; } parts.push(r.value); have += r.value.length; } };
+	const take = (offset: number, length: number): ArrayBuffer => {
+		// offset より前を捨てる
+		let skip = offset - base;
+		while (skip > 0 && parts.length) { const p = parts[0]; if (p.length <= skip) { parts.shift(); skip -= p.length; have -= p.length; base += p.length; } else { parts[0] = p.subarray(skip); have -= skip; base += skip; skip = 0; } }
+		const n = Math.min(length, have), out = new Uint8Array(n); let o = 0;
+		for (let i = 0; i < parts.length && o < n; i++) { const p = parts[i], k = Math.min(p.length, n - o); out.set(p.subarray(0, k), o); o += k; }
+		return out.buffer;
+	};
+	await pull(headBytes);
+	const headBuf = take(0, headBytes);   // 捨てない（base は 0 のまま）
+	return {
+		head: headBuf, size,
+		async read(offset, length) {
+			if (offset < base) { if (offset + length <= headBuf.byteLength) return headBuf.slice(offset, offset + length); throw new Error("pointcloud: a streamed ZIP entry can only be read forward"); }
+			await pull(offset + length);
+			return take(offset, length);
+		},
+		cancel() { done = true; parts = []; rd.cancel().catch(() => {}); },
+	};
 }

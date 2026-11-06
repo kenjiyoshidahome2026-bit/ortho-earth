@@ -15,7 +15,7 @@ import type { OverlayFrameApi } from "@ortho-earth/globe";
 import type { SplatMessage, SplatLayerBody, SplatPickResult, SplatAltitude, CamState, SplatApi, PickContext, OverlayHost, CloudMessage, CloudLevelsMessage } from "./splat-gl.ts";
 import { createCloudBuilder } from "./cloud-gpu.ts";
 import type { CloudBuilder, GpuLevel } from "./cloud-gpu.ts";
-import { cloudPlan, levelFor } from "./cloud.ts";
+import { cloudPlan, levelFor, dropGhostCells } from "./cloud.ts";
 
 // WebGPU の定数（lib.dom は名前空間の定数を持たない＝数で書く・@webgpu/types と同じ値）
 const BUF = { MAP_READ: 0x01, COPY_SRC: 0x04, COPY_DST: 0x08, UNIFORM: 0x40, STORAGE: 0x80 } as const;
@@ -306,6 +306,14 @@ export function create(): SplatGpuModule {
 		const t0 = performance.now(), plan = cloudPlan(d.n, d.bb, d.params);
 		const b = await builderGet();
 		const r = await b.build(d.pts, d.rgba, d.n, plan);
+		if (d.ghost && !dead && device) {   // 借りた点（α 0）だけのセルを捨てる＝読み戻して CPU で詰め、載せ直す（段は 2〜8・図郭 1 枚で数十 ms）
+			for (let i = 0; i < r.levels.length; i++) {
+				const L = r.levels[i], c = await b.read(L), kept = dropGhostCells({ n: L.n, cell: L.cell, ...c, bb: Array.from(L.bb), radius: L.radius }, d.alpha ?? 255);
+				for (const x of [L.bCtr, L.bCov, L.bCol, L.bOrder]) x.destroy();
+				r.levels[i] = b.upload(kept);
+			}
+			while (r.levels.length > 1 && !r.levels[r.levels.length - 1].n) { const L = r.levels.pop()!; for (const x of [L.bCtr, L.bCov, L.bCol, L.bOrder]) x.destroy(); }
+		}
 		if (dead || !device) { for (const L of r.levels) for (const x of [L.bCtr, L.bCov, L.bCol, L.bOrder]) x.destroy(); return; }
 		removeQ(d.q);
 		for (let i = 0; i < r.levels.length; i++) { const L = buildCloudLayer(d.q, r.levels[i], i, { ...d, pxPerSplat: plan.pxPerSplat }); layers.set(L.q, L); }

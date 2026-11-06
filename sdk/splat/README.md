@@ -52,7 +52,7 @@ const zip = zipStore(await cloudTo3DTiles(data));      // tileset.json, level0.g
 | option | meaning |
 |---|---|
 | `crs`, `vertical` | the file's horizontal CRS (`"EPSG:6676"` or WKT) and `"orthometric"` / `"ellipsoidal"` when the file does not say |
-| `maxPoints` | at most this many points are read (default 4,000,000; 1,500,000 on low-memory devices; `0` = all) |
+| `maxPoints` | at most this many points are read (default 4,000,000; 1,500,000 on low-memory devices; `0` = all). Only this many are ever held: a plain LAS / LAZ is thinned while it is read, and a LAS inside a `.zip` is unpacked as it streams in, so the whole file is never in memory |
 | `color` | `"auto"` (RGB when the file has it, else elevation), `"rgb"`, `"elevation"`, `"intensity"`, `"classification"` (ASPRS colors); `elevationRange` / `intensityRange` set the ramps |
 | `cloud.detail` | level-0 cell = point spacing × detail (`2` → about a quarter of the splats) |
 | `cloud.levels` | number of levels (default: until the coarsest cell is 1/16 of the extent, 1–8) |
@@ -60,6 +60,13 @@ const zip = zipStore(await cloudTo3DTiles(data));      // tileset.json, level0.g
 | `cloud.pxPerSplat` | switch to the finer level when a splat is wider than this many pixels (default 1.5) |
 
 **CLI** (repo tool, not in the npm package): `node sdk/splat/scripts/las2splat.mjs <in.las|.laz|.copc.laz|.zip> --out <dir> [--gpu|--cpu] [--crs EPSG:6676] [--vertical orthometric] [--max-points 4000000] [--color auto] [--detail 1] [--levels N] [--format tiles|spz|both]`. `--gpu` (default) opens `packages/globe/tests/tool-las2splat.html` in the headless Chrome for Testing with a real GPU (the same stand as `verify:webgpu`) and runs the browser pipeline, writing the files back through a small local HTTP server; `--cpu` runs the same algorithm in node (`buildCloudCpu`, laz-perf, the engine's CRS and ENU helpers) and is slow for millions of points. Output: `tileset.json` + `level<L>.glb`, and/or `<name>.spz` + `placement.json`.
+
+**Sheets side by side (seams).** A point cloud cut into tiles shows a gap at each tile edge: the edge cells hold points from one side only, so their centres move inward, by up to half a cell on the coarse levels. To close it, pass the tile's own points and then a thin strip of the neighbours' points (moved into the tile's ENU frame) as one `PointCloudDump`, with `ghost` = how many trailing points are borrowed. They shape the edge cells and are then dropped: cells made only of borrowed points are removed, and the others get the tile's opacity back (`dropGhostCells`, run in the render worker after the build). `/japan/pointcloud` does this with the sheets shown around each one (`apps/pointcloud/pc-sheet.ts`).
+
+```js
+const d = await map.readPointCloud(url, { crs: "EPSG:6676", classes: [2, 6] });   // classes: keep only these ASPRS classes (here ground and buildings)
+map.addData({ ...d, n: d.n + strip.n, pts: concat(d.pts, strip.pts), /* elev, rgb, intensity, cls likewise */ ghost: strip.n }, { kind: "splat" });
+```
 
 This is **WebGPU only** by design: with the WebGL2 renderer `ready` rejects (`WebGPU is required for point cloud splats`) and nothing is converted on the CPU. `buildCloudCpu` (the same algorithm in plain JS) exists for tests and the CLI, not for the page.
 

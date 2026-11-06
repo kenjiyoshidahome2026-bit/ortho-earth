@@ -100,7 +100,7 @@ export function buildCloudCpu(pts: Float32Array, rgba: Uint8Array, n: number, pl
 	let pos = new Float32Array(n * 4), cov: Float32Array | null = null, cnt = n;
 	const colIn = new Uint32Array(rgba.buffer, rgba.byteOffset, n);
 	for (let i = 0; i < n; i++) { pos[i * 4] = pts[i * 3]; pos[i * 4 + 1] = pts[i * 3 + 1]; pos[i * 4 + 2] = pts[i * 3 + 2]; }
-	const posU = new Uint32Array(pos.buffer); for (let i = 0; i < n; i++) posU[i * 4 + 3] = colIn[i];
+	let posU = new Uint32Array(pos.buffer); for (let i = 0; i < n; i++) posU[i * 4 + 3] = colIn[i];
 	const out: CloudLevel[] = [];
 	const starts = new Uint32Array(H + 1), order = new Uint32Array(n), cell = [0, 0, 0];
 	const cellOf = (P: Float32Array, i: number, inv: number): void => { cell[0] = Math.floor(P[i * 4] * inv); cell[1] = Math.floor(P[i * 4 + 1] * inv); cell[2] = Math.floor(P[i * 4 + 2] * inv); };
@@ -170,10 +170,33 @@ export function buildCloudCpu(pts: Float32Array, rgba: Uint8Array, n: number, pl
 		}
 		if (!m) bb.fill(0);
 		out.push({ n: m, cell: c, ctr: nctr, cov: ncov, col: ncol, bb, radius: Math.sqrt(rad2) });
-		pos = nctr; cov = ncov; cnt = m;
+		pos = nctr; posU = nctrU; cov = ncov; cnt = m;   // 色の bit も次の段の物を読む（旧＝level 0 の列を読み続けていた＝粗い段の色が別の点の色）
 		if (m <= 1) break;
 	}
 	return out;
+}
+
+// ---- 借りた点（隣の図郭の縁）だけのセルを捨てる（継ぎ目・2026-11-07）----
+// 借りた点は色の α を 0 にして変換する＝近傍の形と、縁のセルの中心（内側へ寄らない）には効く。セルの α＝点の α の重みつき平均＝借りた点だけのセルは 0。
+// 変換の後に α が 0 のセルを捨て、残りの α を自分の点の α（a）に戻す（縁のセルは自分と借りた点の混ざり＝薄くなっていた）。段ごとに独立（粗い段も細かい段の借りたセルを含めて作ってから捨てる）。
+/** 借りた点だけのセル（α 0）を捨て、残りの α を a（0〜255）に戻した段。a が 0（不透明度 0）なら何も捨てない */
+export function dropGhostCells(L: CloudLevel, a: number): CloudLevel {
+	a = Math.max(0, Math.min(255, Math.round(a)));
+	if (!a) return L;
+	let m = 0; for (let i = 0; i < L.n; i++) if (L.col[i] >>> 24) m++;
+	const ctr = new Float32Array(m * 4), cov = new Float32Array(m * 8), col = new Uint32Array(m), ctrU = new Uint32Array(ctr.buffer);
+	const bb = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]; let rad2 = 0;
+	for (let i = 0, j = 0; i < L.n; i++) {
+		if (!(L.col[i] >>> 24)) continue;
+		const c = ((L.col[i] & 0xffffff) | (a << 24)) >>> 0, x = L.ctr[i * 4], y = L.ctr[i * 4 + 1], z = L.ctr[i * 4 + 2];
+		ctr[j * 4] = x; ctr[j * 4 + 1] = y; ctr[j * 4 + 2] = z; ctrU[j * 4 + 3] = c; col[j] = c;
+		cov.set(L.cov.subarray(i * 8, i * 8 + 8), j * 8);
+		if (x < bb[0]) bb[0] = x; if (y < bb[1]) bb[1] = y; if (z < bb[2]) bb[2] = z; if (x > bb[3]) bb[3] = x; if (y > bb[4]) bb[4] = y; if (z > bb[5]) bb[5] = z;
+		const d2 = x * x + y * y + z * z; if (d2 > rad2) rad2 = d2;
+		j++;
+	}
+	if (!m) bb.fill(0);
+	return { n: m, cell: L.cell, ctr, cov, col, bb, radius: Math.sqrt(rad2) };
 }
 
 // ---- 書き出し（共分散 → 尺と向き）----

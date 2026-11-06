@@ -82,17 +82,19 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	}
 	// 丸ごと読む（map.readPointCloud・2026-11-06）＝描かずに点を返す：錨（[lon, lat, 標高 m]）からの東北上 m（Float32）・標高・RGB・強度・分類。
 	//   点群 → Gaussian splat（@ortho-earth/splat の cloud＝WebGPU の変換器）の材料。COPC は階層を全部読んで浅い節から順に上限まで・普通の LAS/LAZ/ZIP は丸ごと読んで等間隔に間引く
+	//   手元に持つのは上限の点数分だけ（2026-11-07）＝読みながら間引く（器が満ちたら 1 つ置きに詰める）・八分木は作らない・ZIP の中の LAS は Blob にせず流して読む。classes＝残す分類（ASPRS の番号）
 	async function read(src: string | File | Blob, opts: PointCloudReadOptions = {}): Promise<PointCloudDump> {
 		const id = `read${++seq}`;
 		let url = src, headers: Record<string, string> | undefined;
 		if (typeof src === "string") { const r = requester.resolve(new URL(src, location.href).href, "Source"); url = r.url; headers = r.headers; }
 		if (opts.onProgress) readProgress.set(id, opts.onProgress);
 		try {
-			const opened = await rpc<{ info: COPCInfo }>({ type: "open", id, src: url, headers, crs: opts.crs, vertical: opts.vertical }, `o${id}`);
+			const maxPoints = opts.maxPoints ?? (lowMem ? 1.5e6 : 4e6), classes = opts.classes?.length ? Array.from(opts.classes) : null;
+			const opened = await rpc<{ info: COPCInfo }>({ type: "open", id, src: url, headers, crs: opts.crs, vertical: opts.vertical, read: { maxPoints, classes } }, `o${id}`);   // read＝八分木を作らず上限までに間引きながら貯める（ZIP の LAS は流して読む）
 			let N = 0;
 			if (opened.info.vertical === "ellipsoidal") { await loadGeoid().catch(() => {}); N = geoidHeight(opened.info.center[0], opened.info.center[1]) || 0; }
 			const q = ++rid;
-			const r = await rpc<Omit<PointCloudDump, "info">>({ type: "dump", id, rid: q, maxPoints: opts.maxPoints ?? (lowMem ? 1.5e6 : 4e6), N }, q);
+			const r = await rpc<Omit<PointCloudDump, "info">>({ type: "dump", id, rid: q, maxPoints, classes, N }, q);
 			return { ...r, info: opened.info };
 		} finally { readProgress.delete(id); w.postMessage({ type: "close", id }); }
 	}

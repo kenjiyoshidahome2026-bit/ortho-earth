@@ -10,7 +10,7 @@ import type { GlobeMap, OrthoPlugin, OverlayHandle, OverlayPick } from "@ortho-e
 import { formatOf, checkEnum, checkSplatData, checkTransform, prepare, readerFor, transferables, SPLAT_FORMATS } from "./formats.ts";
 import { cloudFormatOf, colorize, CLOUD_FORMATS } from "./cloud.ts";
 import type { CloudParams, CloudColor, CloudLevel, CloudPlan } from "./cloud.ts";
-export { cloudPlan, cellHash, levelFor, colorize, buildCloudCpu, covToScaleRot, cloudLevelToSplatData, enuToEcefTransform, enuToGltfAxes, cloudTileset, cloudLevelGlb, CLOUD_DEFAULTS, CLOUD_FORMATS, cloudFormatOf } from "./cloud.ts";
+export { cloudPlan, cellHash, levelFor, colorize, buildCloudCpu, dropGhostCells, covToScaleRot, cloudLevelToSplatData, enuToEcefTransform, enuToGltfAxes, cloudTileset, cloudLevelGlb, CLOUD_DEFAULTS, CLOUD_FORMATS, cloudFormatOf } from "./cloud.ts";
 export type { CloudParams, CloudPlan, CloudLevel, CloudColor } from "./cloud.ts";
 import type { SplatData, SplatFormat, SplatCrs, SplatAxes, Hpr, Origin, Prepared, PrepareOptions } from "./formats.ts";
 import type { ReaderRequest, ReaderReply } from "./splat-reader.ts";
@@ -22,15 +22,16 @@ export type { SplatBackend, SplatDrawOpts } from "./splat-draw.ts";
 import type { SplatBackend } from "./splat-draw.ts";
 // 描き手（worker）の URL＝入口（splat-draw.js が WebGPU／WebGL2 を選んで兄弟を import）。字面は .js のまま＝npm の dist では実体・repo の中では Vite が .ts に読み替える
 const SPLAT_URL = new URL("./splat-draw.js", import.meta.url).href;
-export const VERSION = "0.6.0";
+export const VERSION = "0.8.0";
 
 // ---- 公開の型（map.addData の opts と手綱） ----
 /** your own reader, e.g. a WASM build: bytes → SplatData (crs "local" by default) */
 export type SplatDecoder = (bytes: Uint8Array) => SplatData | Promise<SplatData>;
 export type SplatDecoders = Partial<Record<SplatFormat, SplatDecoder>>;
 export type SplatSource = SplatData | string | URL | ArrayBuffer | Uint8Array | File | Blob | PointCloudDump;   // File／Blob＝点群（.las／.laz／.zip のドロップ）・PointCloudDump＝map.readPointCloud で読んだ点（頁が自分で読んで保管した物を渡す）
-/** 点群の点（map.readPointCloud の戻り）を source にする時の形＝pts（東北上 Float32 n×3）・anchor・n は必須、色の材料（rgb／elev／intensity／cls）は任意。**pts と rgba は描き手へ transfer する（渡した配列は空になる）** */
-export type PointCloudDump = { n: number; anchor: [number, number, number]; pts: Float32Array; elev?: Float32Array | null; rgb?: Uint8Array | null; intensity?: Uint16Array | null; cls?: Uint8Array | null; bb?: number[]; total?: number; info?: unknown; ms?: { read?: number } };
+/** 点群の点（map.readPointCloud の戻り）を source にする時の形＝pts（東北上 Float32 n×3）・anchor・n は必須、色の材料（rgb／elev／intensity／cls）は任意。**pts と rgba は描き手へ transfer する（渡した配列は空になる）**
+ *  ghost＝末尾の ghost 点は借りた点（隣の図郭の縁・2026-11-07）＝縁の形と中心には効くが、借りた点だけのセルは捨てる（dropGhostCells）＝隣と並べた時の継ぎ目を消す */
+export type PointCloudDump = { ghost?: number; n: number; anchor: [number, number, number]; pts: Float32Array; elev?: Float32Array | null; rgb?: Uint8Array | null; intensity?: Uint16Array | null; cls?: Uint8Array | null; bb?: number[]; total?: number; info?: unknown; ms?: { read?: number } };
 export const isCloudDump = (src: unknown): src is PointCloudDump => !!src && typeof src === "object" && (src as PointCloudDump).pts instanceof Float32Array && Array.isArray((src as PointCloudDump).anchor) && typeof (src as PointCloudDump).n === "number";
 export interface SplatOptions {
 	kind?: "splat";
@@ -245,10 +246,12 @@ export function createSplat(map: SplatMap, data: SplatSource, opts: SplatOptions
 		if (removed || my !== seq) return h;
 		if (d.pts.length !== d.n * 3) throw new TypeError("splat: PointCloudDump.pts must be a Float32Array of n × 3");
 		const rgba = colorize({ n: d.n, rgb: d.rgb ?? null, elev: d.elev ?? null, intensity: d.intensity ?? null, cls: d.cls ?? null }, o.color ?? "auto", { opacity: o.opacity ?? 1, elevationRange: o.elevationRange, intensityRange: o.intensityRange });
+		const ghost = Math.max(0, Math.min(d.n, Math.floor(d.ghost ?? 0)));   // 借りた点＝α 0（変換の後に借りた点だけのセルを捨てる）
+		for (let i = d.n - ghost; i < d.n; i++) rgba[i * 4 + 3] = 0;
 		const read = isCloudDump(src) ? (d.ms?.read ?? 0) : performance.now() - t0;
 		const bb = d.bb ?? bbOf(d.pts, d.n);
-		h.anchor = d.anchor; h.points = d.n; h.info = d.info ?? null; cur = src as SplatSource;
-		const r = await awaitCloud(() => ov.post({ type: "cloud", q: id, n: d.n, anchor: d.anchor, alt: o.altitude ?? "absolute", pts: d.pts, rgba, bb, depthTest: o.depthTest !== false, properties: o.properties ?? null, on: visible, params: { ...(o.cloud ?? {}) } }, [d.pts.buffer as ArrayBuffer, rgba.buffer]));
+		h.anchor = d.anchor; h.points = d.n - ghost; h.info = d.info ?? null; cur = src as SplatSource;
+		const r = await awaitCloud(() => ov.post({ type: "cloud", q: id, n: d.n, anchor: d.anchor, alt: o.altitude ?? "absolute", pts: d.pts, rgba, bb, ghost, alpha: Math.round(Math.max(0, Math.min(1, o.opacity ?? 1)) * 255), depthTest: o.depthTest !== false, properties: o.properties ?? null, on: visible, params: { ...(o.cloud ?? {}) } }, [d.pts.buffer as ArrayBuffer, rgba.buffer]));
 		if (removed || my !== seq) return h;
 		took(r, read);
 		return h;

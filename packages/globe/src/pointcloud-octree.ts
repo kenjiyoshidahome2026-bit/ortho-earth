@@ -51,6 +51,59 @@ export function appendRaw(s: PointStore, r: RawRecords, k: number): number {
 	return k;
 }
 
+// ---- 読むだけ（map.readPointCloud・2026-11-07）＝八分木を作らず、上限の点数までに間引きながら貯める ----
+// 総数が分からない（分類で落とす）でも器は cap 点で足りる：満ちたら 1 つ置きに詰めて間引きの幅（stride）を 2 倍にする。
+//   残る点＝受けた点（分類で落ちなかった物）の stride 個に 1 つ（受けた順の番号が stride の倍数の物）＝等間隔の間引きと同じ物。範囲（min／max）は受けた全点から取る。
+/** 間引きながら貯める器（PointStore に受けた数と幅を足した物） */
+export interface ThinStore extends PointStore { seen: number; stride: number }
+/** 分類の表（256 の印・1＝残す）。classes が空・無し＝null（全部残す） */
+export function classMask(classes?: ArrayLike<number> | null): Uint8Array | null {
+	if (!classes || !classes.length) return null;
+	const m = new Uint8Array(256); for (let i = 0; i < classes.length; i++) { const c = classes[i]; if (Number.isInteger(c) && c >= 0 && c < 256) m[c] = 1; }
+	return m;
+}
+/** 器を作る（cap＝持つ点の上限・stride＝初めの幅＝総数が分かれば ceil(総数／cap) で詰め直しを省ける） */
+export function createThinStore(cap: number, o: { rgb: boolean; scale: ArrayLike<number>; offset: ArrayLike<number> }, stride = 1): ThinStore {
+	return Object.assign(createStore(Math.max(2, Math.floor(cap)), o), { seen: 0, stride: Math.max(1, Math.floor(stride)) });
+}
+/** 1 つ置きに詰める（幅 2 倍） */
+function halve(s: ThinStore): void {
+	const m = Math.ceil(s.at / 2);
+	for (let j = 0; j < m; j++) {
+		const p = j * 2; s.X[j] = s.X[p]; s.Y[j] = s.Y[p]; s.Z[j] = s.Z[p]; s.intensity[j] = s.intensity[p]; s.classification[j] = s.classification[p];
+		if (s.rgb) { s.rgb[j * 3] = s.rgb[p * 3]; s.rgb[j * 3 + 1] = s.rgb[p * 3 + 1]; s.rgb[j * 3 + 2] = s.rgb[p * 3 + 2]; }
+	}
+	s.at = m; s.stride *= 2;
+}
+/** readRecordsRaw の列を間引きながら足す（mask＝classMask・null＝全部）。戻り＝残した数 */
+export function appendThin(s: ThinStore, r: RawRecords, k: number, mask: Uint8Array | null = null): number {
+	const { X, Y, Z } = r, [sx, sy, sz] = s.scale as number[], [ox, oy, oz] = s.offset as number[];
+	let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity, kept = 0;
+	for (let i = 0; i < k; i++) {
+		if (mask && !mask[r.classification[i]]) continue;
+		const x = X[i], y = Y[i], z = Z[i];
+		if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
+		const q = s.seen++;
+		if (q % s.stride) continue;
+		if (s.at === s.n) { halve(s); if (q % s.stride) continue; }
+		const a = s.at++;
+		s.X[a] = x; s.Y[a] = y; s.Z[a] = z; s.intensity[a] = r.intensity[i]; s.classification[a] = r.classification[i];
+		if (s.rgb && r.rgb) { s.rgb[a * 3] = r.rgb[i * 3]; s.rgb[a * 3 + 1] = r.rgb[i * 3 + 1]; s.rgb[a * 3 + 2] = r.rgb[i * 3 + 2]; }
+		kept++;
+	}
+	if (x0 <= x1) {
+		const lo = [x0 * sx + ox, y0 * sy + oy, z0 * sz + oz], hi = [x1 * sx + ox, y1 * sy + oy, z1 * sz + oz];
+		for (let j = 0; j < 3; j++) { const a0 = Math.min(lo[j], hi[j]), a1 = Math.max(lo[j], hi[j]); if (a0 < s.min[j]) s.min[j] = a0; if (a1 > s.max[j]) s.max[j] = a1; }
+	}
+	return kept;
+}
+/** 八分木を作らない時の見出し（buildOctree の info と同じ形＝立方体と根の点の間隔の目安） */
+export function storeInfo(s: PointStore): { center: number[]; halfsize: number; spacing: number } {
+	const center = [0, 1, 2].map(j => (s.min[j] + s.max[j]) / 2), ext = Math.max(s.max[0] - s.min[0], s.max[1] - s.min[1], s.max[2] - s.min[2]);
+	const halfsize = Math.max(ext / 2 * (1 + 1e-6), 1e-3);
+	return { center, halfsize, spacing: halfsize * 2 / G };
+}
+
 /**
  * 八分木を作る。random＝先に混ぜる（既定＝混ぜない＝読んだ順のまま。LAS は走査の順＝近い点が近くに並ぶので読みが速い・升に 1 点ずつなので混ぜなくても見本は全体に散る）
  * @returns {{ info: { center: number[], halfsize: number, spacing: number }, nodes: Array<{ key: number[], start: number, count: number }>, idx: Uint32Array }}

@@ -2,10 +2,11 @@
 //  ① 中央ディレクトリ・局所ヘッダを読む（deflate・格納・ZIP64 の大きさ）
 //  ② 解いた中身が元と同じ・進み具合が総長まで届く・範囲読みは項の生のバイトだけ（ZIP 全体を取らない）
 //  ③ 点の数を見て、取り終える前に断る
+//  ④ 流して読む（streamPointCloud＋streamSource＝Blob を作らない・読み手が引いた分だけ先を取る・前にだけ進む）
 import assert from "node:assert/strict";
 import zlib from "node:zlib";
 import { openSource } from "geopbf/cog/source";
-import { isZip, parseEOCD, parseCentralDirectory, pickPointEntry, parseLocalEntry, localDataOffset, lasPointCount, unzipPointCloud } from "../src/pointcloud-zip.ts";
+import { isZip, parseEOCD, parseCentralDirectory, pickPointEntry, parseLocalEntry, localDataOffset, lasPointCount, unzipPointCloud, streamPointCloud, streamSource } from "../src/pointcloud-zip.ts";
 
 let tn = 0;
 const t = async (name, fn) => { await fn(); tn++; console.log("  ✔", name); };
@@ -97,5 +98,26 @@ await t("③ 点の数の上限＝取り終える前に断る", async () => {
 await t("壊れた ZIP・点群の無い ZIP は理由つきで断る", async () => {
 	await assert.rejects(unzipPointCloud(await openSource(new Blob([new Uint8Array(100)]))), /no end of central directory/);
 	await assert.rejects(unzipPointCloud(await openSource(new Blob([makeZip([["a.txt", new Uint8Array(3), 0]])]))), /no \.las or \.laz/);
+});
+await t("④ 流して読む＝中身が元と同じ・頭は戻って読める・引いた分だけ取る", async () => {
+	const big = fakeLas(42, 3 << 20), z = makeZip([["08MC4919.las", big, 8]]);
+	const { reads, src } = counted(z);
+	const s = await openSource(src, { headerBytes: 64 }); s.size = null;
+	const prog = [];
+	const { stream, name, usize } = await streamPointCloud(s, { chunk: 65536, onProgress: (a, b) => prog.push([a, b]) });
+	assert.equal(name, "08MC4919.las"); assert.equal(usize, big.length);
+	const ss = await streamSource(stream, usize, 1000);
+	assert.deepEqual(new Uint8Array(ss.head), big.subarray(0, 1000));
+	assert.deepEqual(new Uint8Array(await ss.read(0, 375)), big.subarray(0, 375));   // 頭の内は戻れる
+	assert.deepEqual(new Uint8Array(await ss.read(500, 100)), big.subarray(500, 600));
+	await new Promise(r => setTimeout(r, 30));
+	const early = reads.length;
+	assert.ok(early < Math.ceil(z.length / 65536) - 4, `prefetched ${early} chunks before being asked`);   // 背圧＝読み手が引くまで先を取らない
+	// 前へ飛んで読む・末尾は短く返る
+	assert.deepEqual(new Uint8Array(await ss.read(2 << 20, 4096)), big.subarray(2 << 20, (2 << 20) + 4096));
+	assert.deepEqual(new Uint8Array(await ss.read(big.length - 10, 100)), big.subarray(big.length - 10));
+	await assert.rejects(ss.read(5000, 10), /only be read forward/);
+	assert.deepEqual(prog.at(-1), [prog.at(-1)[1], prog.at(-1)[1]]);
+	ss.cancel();
 });
 console.log(`t-pointcloud-zip: ${tn} 件 OK`);
