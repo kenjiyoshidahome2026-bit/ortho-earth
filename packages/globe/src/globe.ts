@@ -1163,6 +1163,10 @@ let readyKeys: Set<string> | null = null, readyTail = "";   // readySig 確定�
 // 2026-11-05 既定 0（本人裁定・Mac 実機「?keepfine=0 はかなりいい絵・すごく動きが軽く見える」）：保持は引いた後も細かいタイルの頂点を描き続ける＝重く、
 // 基図建物は z16 全棟／z14 抜粋なので保持した象限だけ全棟の絨毯が十字型に残っていた。?keepfine=2 で旧保持（そのときも建物は親の密度＝tilemanager の bld 役）
 const KEEP_FINE = (gpuBackend && !LOW_MEM) ? qNum(/[?&]keepfine=(\d+)/, 0) : 0;
+// bldRange（?bldrange=KM）＝注視点から KM km より遠い基図タイルの建物を立てない（足元の塗りは残る・tilemanager）。2026-11-06 Galaxy/Mali-G615：z17.8・74° で
+// 視野 69 枚の押し出し建物を 1 シーン（+112 MB）で GPU へ上げ、main が 8〜10 秒 GPU 待ちで固まった（PLATEAU 0 区でも）。PLATEAU の meshrange と同じ考えを基図の建物へ。
+// まず A/B ノブ（既定 0＝従来）。実機で見栄えと固まりの消え方を見てから LOW_MEM の既定を決める（device-testing-rule）
+const BLD_RANGE = qNum(/[?&]bldrange=([\d.]+)/, 0);
 // 子孫代打は 3D（チルト）限定：真俯瞰=2D は「素の選抜と同じベクトルタイル」を見せる（本人裁定 2026-08-04）。
 // チルトから回復した平面図に細密パッチが残ると、周囲と線幅・密度の質感が違う継ぎはぎになる（横浜実絵）。
 // 閾値は flat2d/hideBldFill と同じ 0.02rad＝「3Dが立つ瞬間」と同期。
@@ -2425,7 +2429,7 @@ function render() {
 	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-		tu = tiles.update(cam, size.w, size.h, { tilePx: ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		tu = tiles.update(cam, size.w, size.h, { tilePx: ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), bldRange: BLD_RANGE, maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		lastTileOrder = tu.order;   // 描いている基図タイル＝map.queryRenderedFeatures の問い合わせ先
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys!.has(t.key));
