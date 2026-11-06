@@ -25,6 +25,7 @@ export { createGintLayer } from "./gl/gint/embed.ts";
 export { buildFidStyle } from "./gint/style.ts";
 export { buildLabels } from "./labels.ts";
 export { parseFontStack, fontCss } from "./fontstack.ts";   // text-font → CSS の書体（段 2）
+export { LABEL_FONT_STACK } from "./labels2d.ts";   // 注記の既定の書体の束（起動の温めと揃える・2026-11-06）
 export type { FontStack } from "./fontstack.ts";
 export { buildGeoJSONOverlay, pointInFeature } from "./geojson.ts";
 export { buildBuildings, buildDrapedGeometry } from "./buildings.ts";

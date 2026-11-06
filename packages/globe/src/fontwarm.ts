@@ -5,6 +5,8 @@
 // 2＝render worker 自身が init で同期に温める（worker のプロセス内の書体キャッシュも温まる・その分 frame1 は遅れる）
 // どちらも計器＝掛かった ms を boot 行に出す（冷えた端末の書体の読み込みがいくらかを直接測る）。
 
+import { LABEL_FONT_STACK } from "@ortho-earth/core/labels";   // 根の口（index）は DOM 前提の入力系を含む＝worker の型検査が落ちるので labels の口から
+
 /** 温めに描く字＝CJK の書体を読ませるのが目的なので字の意味は問わない：かな・カナと CJK 統合漢字の先頭 256 字（符号位置から作る＝硬い層に地名の語を書かない） */
 export const WARM_TEXT = (() => {
 	let t = "";
@@ -14,8 +16,8 @@ export const WARM_TEXT = (() => {
 	return t;
 })();
 
-/** 字の書体＝注記の焼き場と同じ大きさ（書体の束は style のものだが、CJK の字の落ち先の OS 書体は同じ） */
-export const WARM_FONT = "32px sans-serif";   // 32＝ortho-core sdf.ts の SDF_BASE（焼き場の字の大きさ・口が無いので値を写す）
+/** 字の書体＝注記と同じ束（labels2d の既定）・焼き場と同じ大きさ。束を揃える＝ブラウザの書体の照合（名前ごとの探索）も同じ鍵で温まる */
+export const WARM_FONT = `32px ${LABEL_FONT_STACK}`;   // 32＝ortho-core sdf.ts の SDF_BASE（焼き場の字の大きさ・口が無いので値を写す）
 
 /** 同期に温める（worker でも main でも）：WARM_TEXT を 1 字ずつ measureText + fillText。返り＝掛かった ms */
 export function warmFonts(font = WARM_FONT, text = WARM_TEXT): number {

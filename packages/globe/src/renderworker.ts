@@ -474,7 +474,10 @@ const dispatch = (e: { data: RwMsg }) => {
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}), ...(labelGpuCanvas ? { sinkWrap: b => (textSink = createGpuTextSink(b)) } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
 			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
 			textSink?.setGlyphBudget(m.glyphMs || 0);
-			if (m.fontWarm === 2) { bootDur.fontWarmMs = warmFonts(); bootMarks.fontwarm = bootEp(); }   // ?fontwarm=2＝この worker で先に書体を温める（冷えた端末の最初の字焼きの数秒を frame1 の前へ・ms は boot 行へ）
+			if (m.fontWarm === 2) { bootDur.fontWarmMs = warmFonts(); bootMarks.fontwarm = bootEp(); }
+			// fontWarm=1（既定）：注記は main の温めが済む合図（fontsReady）まで描かない＝最初の絵が OS の書体の読み込み（冷えた Android で数秒）を待たない。
+			// 合図が来ない事故（worker を作れない等）は 15 秒で解除＝注記が永久に出ないことはない
+			if (m.fontWarm === 1) { labelsWait = true; setTimeout(() => { if (labelsWait) { console.warn("[render] fontsReady did not arrive in 15 s = drawing labels anyway"); openLabels(); } }, 15000); }   // ?fontwarm=2＝この worker で先に書体を温める（冷えた端末の最初の字焼きの数秒を frame1 の前へ・ms は boot 行へ）
 			if (m.glyphDb && labelGpuCanvas) glyphStore = createGlyphStore(() => Cache("GIS/glyph"), `${SDF_VER}|${navigator.userAgent}`);   // 読み込みは裏で＝来るまでに頼まれた字は従来どおり焼く   // ?glyphms=N＝字を焼く予算（ms/フレーム）＝起動の注記 1 フレーム 1.4 秒（タブレット）を数フレームに分ける計器（0＝従来）
 			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
@@ -535,6 +538,7 @@ const dispatch = (e: { data: RwMsg }) => {
 						bootStage = "queue released(" + (q ? q.length : 0) + ")";
 					});
 			break;
+		case "fontsReady": openLabels(); break;   // main の書体の温めが済んだ（fontwarm.ts）＝注記を描き始める
 		case "fontFace":   // Web フォント（main の map.addFontFace）＝この worker の canvas（注記・記号・集約）で使えるようにする。self.fonts が無い環境（古い WebKit）は黙って既定の束
 			(async () => { try { if (typeof FontFace !== "function" || !self.fonts) return; const ff = new FontFace(m.family!, m.source!, m.descriptors || {}); await ff.load(); self.fonts.add(ff); glyphStore?.excludeFamily(m.family!); labelLayer?.clearFontCache?.(); dirty = true; armRaf(); } catch (err) { console.warn("[render] fontFace", m.family, (err as Error)?.message || err); } })();
 			break;
@@ -708,8 +712,16 @@ self.addEventListener("unhandledrejection", e => { try { postMessage({ type: "dr
 
 // 注記を描く（地図と同じ cam＝完全同期）。skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear() でフェード状態ごと流す（新しい段の merge で戻る時はフェードインから＝可逆な退場）。
 // 層の位置（T-P2）：真俯瞰（傾き 0.02 未満）の間だけ、基図の最後の塗り・線より前の層の注記の字を地図のパスの中へ。傾けた絵は今までどおり全部最前面（建物の陰の道の名を隠さない・2026-10-13 裁定）
+let labelsWait = false;   // 書体の温め待ち（init fontWarm=1 → fontsReady で解除）
+function openLabels(): void {
+	if (!labelsWait) return;
+	labelsWait = false; bootMarks.fontsReady = bootEp();
+	if (sentFrame1) postMessage({ type: "bootMark", k: "fontsReady", t: bootMarks.fontsReady });   // frame1 より後に来た＝boot 行へ遅れて載せる
+	dirty = true; armRaf();   // 注記を乗せた絵を描く
+}
 function drawLabels(): boolean {
 	if (!labelLayer || !cam) return false;
+	if (labelsWait) return false;   // 書体が開くまで注記は描かない（canvas は空のまま）
 	if (textSink) { const sp = textInPass && (cam.pitch || 0) < 0.02 ? renderer?.textSplit?.() ?? -1 : -1; textSink.mid = sp >= 0 ? (li => li < sp) : null; }
 	const animating = opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam);
 	if (!opts?.skipMain) { const ls = labelLayer.stats(); labEma = labEma ? labEma * 0.9 + ls.drawMs * 0.1 : ls.drawMs; labCollide = ls.collideMs; labN = ls.labels; labGlyphs = ls.glyphs; }
