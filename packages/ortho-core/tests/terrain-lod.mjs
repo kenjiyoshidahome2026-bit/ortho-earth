@@ -70,5 +70,14 @@ for (const G of [257, 769, 1024]) {
 	ok(r.chunks.length === ref.chunks.length && r.chunks.every((c, k) => c.first === ref.chunks[k].first && c.count === ref.chunks[k].count && c.u0 === ref.chunks[k].u0 && c.v1 === ref.chunks[k].v1), `G=${G}: チャンク表も同一`);
 	ok(steps > 1, `G=${G}: 途中で返る（${steps} 回）`);
 }
+// 退行（2026-11-06 deploy run 278・検定 clock で「terrainMeshSliced: not done」）：予算が毎回尽きる（負の予算＝常に時間切れ）と、
+// 最後のチャンクを書いた直後の時間切れで step が false を返しながら完了の印を立てず、result() が投げた。step が false を返したら必ず result() が取れること
+{
+	const it = terrainMeshSliced(513);
+	let steps = 0; while (it.step(-1)) steps++;
+	let got = null; try { got = it.result(); } catch (e) { got = null; }
+	ok(got !== null, `予算が常に尽きる（${steps} 回）でも step=false の後の result() は投げない`);
+	ok(got !== null && got.chunks.length === 256, "チャンク 256 個そろう");
+}
 console.log(fails ? "FAIL" : "PASS");
 process.exit(fails ? 1 : 0);
