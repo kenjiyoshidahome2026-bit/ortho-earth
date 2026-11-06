@@ -758,7 +758,8 @@ const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボ�
 const drawHud = /[?&]drawhud=1/.test(location.search);
 let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number; pool?: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
-let memCpu: HudSnapshot["cpu"] = null;   // ?hud=1 の worker CPU 内訳（部位別 ms の EMA・窓内の最長）＝実機の画面で「何に食われているか」
+let memCpu: HudSnapshot["cpu"] = null;
+let memMeshRx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number } | null = null;   // ?hud=1 の render worker の建物メッシュ受け口（絶対時刻＝HUD で navigation 起点へ直す）   // ?hud=1 の worker CPU 内訳（部位別 ms の EMA・窓内の最長）＝実機の画面で「何に食われているか」
 // main スレッドの詰まり：HUD を載せた時だけ rAF 間隔を測る（EMA と窓内の最長）＝カメラを動かす側（デモの動き・飛行）が飢えていないか
 let mainEma = 0, mainMax = 0, mainLast = 0;
 if (hudOn) { const tick = (t: number) => { if (mainLast) { const dt = t - mainLast; if (dt < 2000) { mainEma = mainEma ? mainEma + (dt - mainEma) * 0.15 : dt; mainMax = Math.max(mainMax, dt); } } mainLast = t; requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
@@ -1011,7 +1012,14 @@ let extActive: string | null = null;        // カーソルを持つ追加層の
 const mapOn: GlobeScope["mapOn"] = { click: [], move: [], load: [], mesh: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／mesh=建物3D の読込合図）
 // map.on("mesh")（1.x の旧名 "plateau" は 2.0 で外した）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
-const emitMesh = (e: unknown) => { for (const cb of [...mapOn.mesh]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
+// 建物メッシュの時間割の main 側（HUD の copy 30s log）：起こした（wake）・manager が来た・登録簿が来た。区ごとの段は manager.timeline()・受け口は render worker の mem 便
+const meshTlMain: Array<[string, number, string]> = [];
+const meshTlSnap = (): HudSnapshot["meshTl"] => {
+	const t = meshMgr.timeline(), rx = memMeshRx, o = performance.timeOrigin;
+	return { main: t.spawn ? [...meshTlMain, ["worker spawn", t.spawn, ""]] : meshTlMain, wards: t.wards,
+		rx: rx ? { ...rx, firstRecv: rx.firstRecv ? rx.firstRecv - o : 0, firstApply: rx.firstApply ? rx.firstApply - o : 0, lastAck: rx.lastAck ? rx.lastAck - o : 0 } : null };
+};
+const emitMesh = (e: unknown) => { const q = e as { phase?: string; count?: number }; if (q?.phase === "catalog") meshTlMain.push(["catalog", performance.now(), `${q.count} sets`]); for (const cb of [...mapOn.mesh]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
 let mapLoaded: GlobeLive["mapLoaded"] = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
 renderWorker.onmessage = e => {
 	const d = e.data;
@@ -1147,7 +1155,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; rasterFading = !!d.fading; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; memMeshRx = d.meshRx ?? memMeshRx; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -1355,8 +1363,9 @@ const meshEnv = {
 };
 let meshReal: MeshManager | null = null, meshWake: Promise<MeshManager | null> | null = null, meshGone = false, meshTap: MeshProgressTap = null, meshVisible = true;   // meshVisible＝map.setMeshVisible（起こす前に来ても覚えておく）
 const MESH_NO_PROGRESS: MeshManager["progress"] = new Map();
-const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./mesh/manager.ts").then(async ({ createMeshManager }) => {
+const wakeMesh = () => meshWake ??= (meshTlMain.push(["wake", performance.now(), ""]), !meshOn ? Promise.resolve(null) : import("./mesh/manager.ts").then(async ({ createMeshManager }) => {
 	if (meshGone) return null;   // 起こしている間に destroy された
+	meshTlMain.push(["manager", performance.now(), ""]);
 	const catalog = loadMeshCatalog();
 	meshReal = createMeshManager(Object.assign(Object.create(meshEnv), { catalog }));   // スプレッド禁止＝cam/moving 等の getter をその瞬間の値に固めてしまう（原型鎖で生きたまま覗かせる）
 	if (meshTap) meshReal.setProgressTap(meshTap);
@@ -1366,7 +1375,7 @@ const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./
 	await catalog?.catch(() => {});   // 登録簿が manager に入ってから解決（manager の受け取りは先に登録済み＝この後に走る）
 	requestDraw();
 	return meshReal;
-}).catch(e => { console.error("[mesh] manager load failed", e); return null; });
+}).catch(e => { console.error("[mesh] manager load failed", e); return null; }));
 // 代理の窓口の型＝本物（MeshManager）と同じ口。違いは standUp／openDb が本物を起こしてから呼ぶ（非同期・起こせなければ undefined）・
 // firstRevealSets は台本の視点（検めていない列）をそのまま受けて本物へ渡す・ready が増える
 const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "firstRevealSets" | "setVisible" | "visible"> & {
@@ -1390,6 +1399,7 @@ const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "first
 	isDead: (name: string) => meshReal?.isDead(name) ?? false,
 	visibleLoading: () => meshReal?.visibleLoading() ?? [],
 	memStats: () => meshReal?.memStats() ?? { bytes: 0, regions: 0, transient: { cache: 0, live: 0, bytes: 0 }, tier: null },
+	timeline: () => meshReal?.timeline() ?? { spawn: 0, wards: [] },
 	ready: wakeMesh,
 };
 // --- 地中フェード（クランプの代替・2026-07-28）: カメラが地表(DTM)より下へ潜ったら全画面を暗色で覆う ---
@@ -2570,6 +2580,7 @@ function hudSnapshot() {
 		cpu: memCpu, lab: memLab as HudSnapshot["lab"], boot: bootLine || null, main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
 		idleBlock: BOOT.idle == null ? idleBlockers() : null, idleHist: idleHistLines(), idleAt: BOOT.idle == null ? null : BOOT.idle | 0,   // 最初の idle がまだ＝何が塞いでいるか（present の検証が 8 s の予備タイマーに落ちる原因・2026-11-06 Galaxy）
+		meshTl: meshTlSnap(),   // 建物メッシュの時間割（idle を塞ぐ最大の材料・2026-11-06 Galaxy）
 		tileLat: tileLatSnap(),   // 基図タイルの計器 e（必要→画面）と main merge の要求→着地＝「タイル 69 枚が揃った後に何秒黙るか」を USB 無しで切り分ける（2026-11-06 Galaxy）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,

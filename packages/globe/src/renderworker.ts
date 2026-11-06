@@ -549,7 +549,7 @@ const dispatch = (e: { data: RwMsg }) => {
 		case "overlayPick": overlayPick(m); break;               // 統一 picking（PR-1）＝最後に描いたフレームの cam で当てる
 		case "overlayRemove": { const o = overlays.get(m.name!); if (o) { overlays.delete(m.name!); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
+			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { if (ev.data.meshData) { meshRx.n++; if (!meshRx.firstRecv) meshRx.firstRecv = absNow(); } meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
 		case "resize": {                                         // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			// 端末上限クランプ＝縦長ウィンドウ×高dpr（ブラウザ拡大率・特殊ディスプレイ）でスワップチェイン/
@@ -973,6 +973,7 @@ function drainUploads0() {
 		if (!meshData) hiddenWards.delete(String(name));   // 解放＝renderer も伏せ印を消す
 		if (bakeLift && meshData) bakeMeshLift(meshData);
 		let deferred = false;
+		if (meshData) { meshRx.applied++; if (!meshRx.firstApply) meshRx.firstApply = absNow(); }
 		try { renderer.set("meshSet", meshData, name); }
 		finally {
 			// 小分け転送（WebGPU）：まだ上がっていない＝中身の ArrayBuffer を返せない＝ack は上がり切った時（pumpMeshUp）
@@ -1017,7 +1018,11 @@ function bakeMeshLift(dd: NonNullable<MeshItem["meshData"]>): void {
 // この時点で同期コピー済み＝pos/nrm/idx の ArrayBuffer を transfer で返し、plateau worker が次の復元で再利用
 //（使い捨て根絶＝復元churnのヒープ高水位対策）。共有バッファ等で transfer 不可なら ack だけ（従来動作）。
 const meshAcks = new Map<unknown, MeshItem>();   // 小分け転送中の荷 → その ack（荷の同一性で引く）
+// 建物メッシュの受け口の計器（?hud=1・HUD の mesh timeline）：受けた荷・GPU へ当てた荷・ack した荷の数と最初/最後の時刻（絶対時刻＝main が navigation 起点へ直す）・pump に使った ms
+const meshRx = { n: 0, firstRecv: 0, applied: 0, firstApply: 0, acked: 0, lastAck: 0, pumpMs: 0 };
+const absNow = () => performance.timeOrigin + performance.now();
 function ackMesh(item: MeshItem) {
+	meshRx.acked++; meshRx.lastAck = absNow();
 	const meshData = item.meshData;
 	const rec = meshData ? [...new Set([meshData.pos?.buffer, meshData.nrm?.buffer, meshData.idx?.buffer].filter(b => b && b.byteLength))] as ArrayBuffer[] : [];
 	try { item.port!.postMessage({ drained: 1, recycle: rec }, rec); }
@@ -1030,7 +1035,7 @@ let meshUpTimer: ReturnType<typeof setTimeout> | null = null;
 function meshUpTick() { meshUpTimer = null; pumpMeshUp(6); }
 function pumpMeshUp(ms = 4) {
 	if (!renderer?.meshUpPump || !renderer.meshUpBusy?.() && !meshAcks.size) return;
-	const done = renderer.meshUpPump(ms);
+	const tp = performance.now(); const done = renderer.meshUpPump(ms); meshRx.pumpMs += performance.now() - tp;
 	for (const d of done) {
 		const it = meshAcks.get(d);
 		if (it) { meshAcks.delete(d); ackMesh(it); }
@@ -1261,7 +1266,7 @@ function frame() {
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
-			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax } });
+			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length } });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
 	// 描くもの（dirty・未消化の転送・予約）がある時だけ次の rAF を張る。無ければ寝る＝受信の kick() か静止タイマ（armSettle）か

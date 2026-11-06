@@ -55,7 +55,10 @@ interface MwReply {
 	farMiss?: { name: string; perm?: boolean }; farSent?: { name: string }; farReady?: { name: string };
 	items?: MeshDbCached[]; base?: string; n?: number; cache?: number; live?: number;
 	id?: number; ok?: WorkerAck; bytes?: number; error?: string;
+	tl?: { name: string; ev: string; t: number; x?: string };
 }
+/** 区の時間割の 1 区（HUD の copy 30s log）＝[段, ms since navigation, 添え書き] の列 */
+export interface MeshTlWard { name: string; ev: Array<[string, number, string]> }
 /** createMeshManager の env（globe.js の meshEnv＋catalog・cam 等は getter＝毎回読む） */
 export interface MeshEnv {
 	meshOn: boolean;
@@ -86,6 +89,8 @@ export interface MeshManager {
 	isActive(name: string): boolean; isDead(name: string): boolean;
 	visibleLoading(): string[];
 	memStats(): { bytes: number; regions: number; transient: { cache: number; live: number; bytes: number }; tier: { active: number; residentGB: number; workers: number } | null };
+	/** 区の時間割（HUD の copy 30s log）：worker を起こした時刻と、区ごとの段の時刻（start→recv→fs→meta→…→ack） */
+	timeline(): { spawn: number; wards: MeshTlWard[] };
 	openDb(): void;
 	setVisible(on: boolean): void;
 	readonly visible: boolean;
@@ -189,6 +194,9 @@ const MESH_FAR_DEG = 0.5;                    // 本削除の距離閾値（deg�
 const meshActive = new Map<string, MeshSet>();           // 表示中の地区（renderer で vis=on）：name → set({name,base,bbox})
 const meshResident = new Map<string, MeshSet>();         // GPUにVAOが乗っている地区（表示中＋非表示）：name → set。Map挿入順＝LRU
 const meshLoading = new Set<string>();          // fetch/デコード中の地区名（二重発火防止）
+// 区の時間割（HUD の copy 30s log・2026-11-06 Galaxy）：main の start/ack と worker の tl 便（recv/fs/meta/restored/leaves/bake/live/done）を区名で束ねる。直近 6 区
+const meshTl = new Map<string, MeshTlWard["ev"]>(); let meshTlSpawn = 0;
+function tlAdd(name: string, ev: string, t: number, x = "") { let a = meshTl.get(name); if (!a) { a = []; meshTl.set(name, a); if (meshTl.size > 6) meshTl.delete(meshTl.keys().next().value!); } a.push([ev, t, x]); }
 const meshAutoLoading = new Map<string, MeshSet>();      // autoMesh 発のロード中地区：name → set。視界確定時の退避対象（手動/プレロードは含めない）
 const meshCancelling = new Set<string>();       // 遠方離脱→キャンセル送信済みの地区名。bldCap から除外＋再訪は promote で即再開（un-cancel）。部分はIDBに残る
 // ── 同時ロード数と待ち行列（本人指定 2026-09-08「最大読み取り数は 3・後は待ち行列。スコープから外れたら途中までを保存して即座に打ち切り」）──
@@ -250,6 +258,7 @@ let meshCamSent = 0;   // カメラ放送のスロットル（ロード中のみ
 // 最初の要求（ロード／遠景／IDB 管理／焼き）で立てる。plateau OFF＝1 本も起こさない（従来どおり）。
 function spawnMeshWorkers() {
 	if (meshWorkers.length || !meshOn) return;
+	meshTlSpawn = performance.now();
 	for (let i = 0; i < MESH_NW; i++) {
 	const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "mesh" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
@@ -267,6 +276,7 @@ function spawnMeshWorkers() {
 	w.postMessage({ type: "init", meshPort: meshChan.port1, decPorts, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: MESH_DEC, split: qNum(/[?&]msplit=(\d+)/, LOW_MEM ? 100 : 0), mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: MESH_BAKE_URL }, [meshChan.port1, ...decPorts]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	attachMeshPort(meshChan.port2);   // render worker へ直結ポートを渡す（transfer は app 側）
 	w.onmessage = (e: MessageEvent<MwReply>) => {
+		if (e.data.tl) { const q = e.data.tl; tlAdd(q.name, q.ev, q.t - performance.timeOrigin, q.x || ""); return; }   // 区の時間割（worker の絶対時刻 → navigation 起点）
 		if (e.data.prog) { const p = e.data.prog; const old = meshProg.get(p.name); if (old?.stall && (old.done ?? -1) === (p.done ?? -2)) p.stall = old.stall; meshProg.set(p.name, p); renderMeshProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）。停滞印は進捗が動くまで残す
 		if (e.data.type === "stall") {   // worker の見張り（30s 無進捗）＝トーストに ⚠ 理由を出し、60s 超で一度だけ打ち切り→再要求（partial から続き）
 			const n = e.data.name!, p: MeshProgEntry = meshProg.get(n) || { name: n };
@@ -312,6 +322,7 @@ function spawnMeshWorkers() {
 		const p = meshPending.get(e.data.id!); if (!p) return; meshPending.delete(e.data.id!);
 		if (p.name) { meshProg.delete(p.name); renderMeshProg(); }   // 完了/失敗どちらでも ack で消灯＝消し忘れが無い
 		if (e.data.bytes && p.name) meshBytes.set(p.name, e.data.bytes);   // 実測メッシュバイト＝常駐バイト予算LRUの物差し
+		if (p.name) tlAdd(p.name, "ack", performance.now(), e.data.error ? "error" : `${e.data.ok}${e.data.bytes ? ` · ${(e.data.bytes / 1048576) | 0} MB` : ""}`);
 		if (e.data.error) p.reject(new Error(e.data.error));
 		else p.resolve(e.data.ok!);   // ok=false は0三角形など soft failure（worker側でconsole.error済み）。メッシュ本体は直結ポートで render worker へ送付済み
 	};
@@ -342,6 +353,7 @@ function workerLoadMesh(base: string, tiles: string[] | undefined, name: string,
 	// clip/tilesetUrl＝登録簿の任意欄（オランダ3DBAG等の「国土1枚もの」を街の矩形で切って使うため。PLATEAUは共に undefined）
 	// bakeBase＝R2 焼きの置き場（地域の申告 buildings.bakeBase を globe が set へ刻む・null＝焼きを持たない地域＝生経路のみ）
 	// doubleSided＝裏面を捨てない（面の向きが揃っていない配信＝オランダ PDOK）。間引き・接地は建物のまま＝橋梁モードとは別
+	tlAdd(name, "start", performance.now());
 	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: meshSortAnchor(), clip: ex.clip || null, tilesetUrl: ex.tilesetUrl || null, bakeBase: ex.bakeBase || null, doubleSided: !!ex.doubleSided });
 	return new Promise<WorkerAck>((resolve, reject) => meshPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
 }
@@ -863,6 +875,7 @@ return {
 	isActive: name => meshActive.has(name), isDead: meshDead,
 	visibleLoading: () => [...meshAutoLoading.keys()].filter(n => !meshCancelling.has(n)),   // 「これから見える区」＝cancel 中は載せない（旧 slow レーン在庫化＝demote は待ち行列制 9/8 で廃止）
 	memStats, openDb: meshDb.open,
+	timeline: () => ({ spawn: meshTlSpawn, wards: [...meshTl].map(([name, ev]) => ({ name, ev })) }),
 	setVisible: on => { if (meshShown === !!on) return; meshShown = !!on; clearTimeout(hideEvictT); if (!meshShown) hideEvictT = setTimeout(evictHidden, HIDE_EVICT_MS); autoMesh(true); requestDraw(); },
 	get visible() { return meshShown; },
 };
