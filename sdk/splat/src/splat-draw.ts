@@ -22,6 +22,7 @@ const hasGpu = (): boolean => !!(globalThis as { navigator?: { gpu?: unknown } }
 
 export function init(canvas: OffscreenCanvas, opts: SplatDrawOpts = {}, h: OverlayHost | null = null): { depth: true } | undefined {
 	const pref = opts.backend ?? "auto", want = opts.depth !== false, t0 = performance.now();
+	hostRef = h;
 	(async () => {
 		try {
 			const tryGpu = pref === "webgpu" ? hasGpu() : pref === "auto" && hasGpu() && !!h?.gpuDevice?.();   // auto＝本体の device がある時だけ
@@ -44,22 +45,31 @@ export function init(canvas: OffscreenCanvas, opts: SplatDrawOpts = {}, h: Overl
 				m.init(canvas, { depth: want }, h);
 				impl = { kind: "webgl2", m };
 			}
-			for (const d of queue) impl.m.message(d);
-			queue = [];
 			console.info(`[splat] backend=${impl.kind}${impl.kind === "webgpu" && impl.m.shared ? " (map's device)" : ""} in ${Math.round(performance.now() - t0)}ms`);
-			h?.post?.({ type: "backend", backend: impl.kind, shared: impl.kind === "webgpu" && impl.m.shared });
+			h?.post?.({ type: "backend", backend: impl.kind, shared: impl.kind === "webgpu" && impl.m.shared });   // 断り（refuse）より先＝手綱の backend が埋まってから reject が届く
+			for (const d of queue) { if (impl.kind === "webgl2" && refuse(d, h)) continue; impl.m.message(d); }
+			queue = [];
 			h?.requestDraw?.();
 		} catch (e) {
 			const error = String((e as { message?: string } | null)?.message || e);
 			console.error("[splat] overlay failed", e);
 			h?.post?.({ type: "backend", backend: null, error });
-			for (const d of queue) if (d.type === "probe") h?.post?.({ type: "pixels", id: d.id, error });   // 検定の probe を宙吊りにしない
+			for (const d of queue) { if (d.type === "probe") h?.post?.({ type: "pixels", id: d.id, error }); else if (d.type === "cloud" || d.type === "cloudLevels") h?.post?.({ type: "cloud", q: d.q, error }); else if (d.type === "cloudRead") h?.post?.({ type: "cloudData", id: d.id, q: d.q, error }); }   // 検定の probe・cloud の手綱を宙吊りにしない
 			queue = [];
 		}
 	})();
 	return want ? { depth: true } : undefined;
 }
-export function message(d: SplatMessage): void { if (impl) impl.m.message(d); else queue.push(d); }
+// cloud（点群 → splat）は WebGPU の描き手だけ＝WebGL2 に落ちた器では断る（main の手綱が reject する）
+const isCloud = (d: SplatMessage): d is Extract<SplatMessage, { type: "cloud" | "cloudLevels" | "cloudRead" }> => d.type === "cloud" || d.type === "cloudLevels" || d.type === "cloudRead";
+function refuse(d: SplatMessage, h: OverlayHost | null): boolean {
+	if (!isCloud(d)) return false;
+	const error = "WebGPU is required for point cloud splats (the splat overlay is drawing with WebGL2)";
+	h?.post?.(d.type === "cloudRead" ? { type: "cloudData", id: d.id, q: d.q, error } : { type: "cloud", q: d.q, error });
+	return true;
+}
+let hostRef: OverlayHost | null = null;
+export function message(d: SplatMessage): void { if (impl) { if (impl.kind === "webgl2" && refuse(d, hostRef)) return; impl.m.message(d); } else queue.push(d); }
 export function frame(cam: unknown, s: CamState, size: { w: number; h: number }, api: SplatApi): boolean { return impl ? impl.m.frame(cam, s, size, api) : false; }
 export function pick(x: number, y: number, r: number, ctx: PickContext | null | undefined): SplatPickResult | null | Promise<SplatPickResult | null> { return impl ? impl.m.pick(x, y, r, ctx) : null; }
 export function destroy(): void { dead = true; impl?.m.destroy(); impl = null; queue = []; }

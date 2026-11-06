@@ -28,6 +28,36 @@ room.setVisible(false);
 mine.remove();
 ```
 
+## Point clouds → splats (WebGPU)
+
+A LAS / LAZ / COPC file, or a `.zip` with a LAS inside, can be given as a splat source. The engine reads the points (`map.readPointCloud`, the COPC worker: CRS, geoid, ENU placement, at most `maxPoints` of them, the shallow COPC nodes first), and the render worker turns them into Gaussian splats **on the GPU** with WebGPU compute: a spatial-hash counting sort, one splat per cell with its covariance from the neighbouring points (so a road becomes thin flat splats and a wall becomes upright ones), and coarser levels (cell × 2, × 4, …) merged from the finer one. Each frame draws the level whose splats are about `pxPerSplat` pixels on screen, so a far view costs a few thousand splats and a close view the finest level. Nothing is sent back to the main thread unless you ask for it.
+
+```js
+const pc = map.addData("https://…/08NF2392.zip", { kind: "splat", id: "pc", crs: "EPSG:6676", vertical: "orthometric", color: "auto",
+	maxPoints: 4e6, cloud: { detail: 1 }, onProgress: (loaded, total) => {} });
+await pc.ready;                               // rejects with "WebGPU is required …" when the overlay draws with WebGL2
+pc.points; pc.levels; pc.level; pc.plan; pc.ms;   // points read · [{ n, cell, radius, bb }] (level 0 is the finest) · level drawn last frame · plan · { read, build, total } ms
+pc.setAltitude(alt);                          // move the anchor (m above the ellipsoid)
+
+const data = await pc.read();                 // { anchor, levels: [{ n, cell, ctr, cov, col, bb, radius }] } — the GPU buffers, for OPFS / IndexedDB
+const again = addSplatCloud(map, data, { id: "pc2" });   // back on the map with no conversion (ms.build = 0)
+
+// export: SPZ per level, or 3D Tiles (KHR_gaussian_splatting + SPZ) with one tile per level (REPLACE refinement)
+import { cloudLevelToSplatData, cloudTileset, cloudLevelGlb, enuToGltfAxes, encodeSpzRaw } from "@ortho-earth/splat";
+```
+
+| option | meaning |
+|---|---|
+| `crs`, `vertical` | the file's horizontal CRS (`"EPSG:6676"` or WKT) and `"orthometric"` / `"ellipsoidal"` when the file does not say |
+| `maxPoints` | at most this many points are read (default 4,000,000; 1,500,000 on low-memory devices; `0` = all) |
+| `color` | `"auto"` (RGB when the file has it, else elevation), `"rgb"`, `"elevation"`, `"intensity"`, `"classification"` (ASPRS colors); `elevationRange` / `intensityRange` set the ramps |
+| `cloud.detail` | level-0 cell = point spacing × detail (`2` → about a quarter of the splats) |
+| `cloud.levels` | number of levels (default: until the coarsest cell is 1/16 of the extent, 1–8) |
+| `cloud.fill`, `cloud.cap`, `cloud.maxNb`, `cloud.radius` | thickness added to each splat, the size cap, and the neighbour count / radius (× cell) of the covariance |
+| `cloud.pxPerSplat` | switch to the finer level when a splat is wider than this many pixels (default 1.5) |
+
+This is **WebGPU only** by design: with the WebGL2 renderer `ready` rejects (`WebGPU is required for point cloud splats`) and nothing is converted on the CPU. `buildCloudCpu` (the same algorithm in plain JS) exists for tests and the CLI, not for the page.
+
 ## Options
 
 | option | meaning |
@@ -68,7 +98,7 @@ mine.remove();
 - `map.snapshot()` does not include the WebGPU overlay canvas yet.
 - The SH coefficients are stored as 8-bit signed values scaled by the layer's largest coefficient, like `.spz`.
 
-Tests: `npm test -w @ortho-earth/splat` (node: the five readers including `.spz` v2 and v3, `.ksplat` at compression 0 / 1 / 2 with buckets and the SH reorder, `.sog` v2 from a synthetic zip with a PNG stand-in decoder, and the `.ply` SH reorder, ENU placement for lnglat / ecef / local, a local layer placed by a `transform`, covariances, SH packing and the SH frame, sorting, the LoD rank and count, the reader's `read` with bytes / URL / data, plugin shape) and, in `packages/globe`, `npm run verify:ui -- t-psplat` (WebGL2) and `npm run verify:webgpu -- t-psplat` (WebGPU): a tower at Tokyo Station, a splat in front is drawn and one behind is hidden, an elongated ellipse stays elongated on screen, a near splat is drawn over a far one, `.splat` and `.spz` URLs, a degree-1 SH splat changes color with the view (WebGPU), every source read in the worker, a 20,000-splat patch drawn with fewer splats while it is small on screen and with all of them after `lod: false` (WebGPU), picks, setVisible, remove, unuse. The 3D Tiles path: `npm test -w @ortho-earth/globe` (node: `tests/tiles3d-splat.mjs` decodes a fixture tileset with Release Candidate names, degree-1 SH, the draft names and an SPZ child) and `npm run verify:ui -- t-tiles3d-splat` / `verify:webgpu -- t-tiles3d-splat` (four children in four colors land in the right quadrants, picks carry the tile id, the parent alone when far, remove takes every layer down; `?v=noplugin` = points fallback).
+Tests: `npm test -w @ortho-earth/splat` (node: `t-cloud.mjs` = the point-cloud plan, hash, level choice, colors, the CPU reference build, SPZ / glTF axes / 3D Tiles helpers; `t-splat.mjs` = the five readers including `.spz` v2 and v3, `.ksplat` at compression 0 / 1 / 2 with buckets and the SH reorder, `.sog` v2 from a synthetic zip with a PNG stand-in decoder, and the `.ply` SH reorder, ENU placement for lnglat / ecef / local, a local layer placed by a `transform`, covariances, SH packing and the SH frame, sorting, the LoD rank and count, the reader's `read` with bytes / URL / data, plugin shape) and, in `packages/globe`, `npm run verify:ui -- t-psplat` (WebGL2) and `npm run verify:webgpu -- t-psplat` (WebGPU): a tower at Tokyo Station, a splat in front is drawn and one behind is hidden, an elongated ellipse stays elongated on screen, a near splat is drawn over a far one, `.splat` and `.spz` URLs, a degree-1 SH splat changes color with the view (WebGPU), every source read in the worker, a 20,000-splat patch drawn with fewer splats while it is small on screen and with all of them after `lod: false` (WebGPU), picks, setVisible, remove, unuse. The 3D Tiles path: `npm test -w @ortho-earth/globe` (node: `tests/tiles3d-splat.mjs` decodes a fixture tileset with Release Candidate names, degree-1 SH, the draft names and an SPZ child) and `npm run verify:ui -- t-tiles3d-splat` / `verify:webgpu -- t-tiles3d-splat` (four children in four colors land in the right quadrants, picks carry the tile id, the parent alone when far, remove takes every layer down; `?v=noplugin` = points fallback).
 
 ## License
 

@@ -1,0 +1,119 @@
+<!doctype html>
+<!-- 点群 → Gaussian splat（@ortho-earth/splat の cloud・2026-11-06）の実描画の検分。試料＝fixtures/copc/ellipsoid.copc.laz（t-copc と同じ・合成の楕円体 10 万点・RGB・EPSG:3857・ニューヨーク湾）。
+     既定（verify:webgpu＝実 GPU）：map.addData(copcUrl, { kind: "splat" })＝エンジンの map.readPointCloud が点を丸ごと読み（COPC＝浅い節から・maxPoints）、render worker の WebGPU（cloud-gpu.ts）が段の層にする。
+       ①手綱＝points・anchor・levels（level 0 が細かい・個数は段ごとに減る）・n＝段の和・ms ②画素＝錨の所に splat が描かれる（RGB の fixture＝色つき）③段の切り替え＝引くと h.level が上がる・寄ると 0
+       ④当たり＝pick の layer は手綱の id・properties.level ⑤read()＝段の読み戻し（ctr Float32Array(n×4)…）→ addSplatCloud で載せ直すと同じ絵（変換なし・ms.build＝0）
+       ⑥setAltitude＝画素が上へ動く ⑦color: "classification"・cloud: { detail: 2 }＝splat が約 1/4 ⑧remove＝画素が消える・group の層も消える
+     ?v=refuse（verify:ui＝gl2=1・SwiftShader＝WebGL2 の描き手）：map.readPointCloud は点を返す（錨・東北上・RGB・範囲）が、addData の ready は "WebGPU is required" で reject＝CPU には落ちない（本人裁定 2026-11-06） -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pcsplat</title></head>
+<body><div id="map"></div>
+<script type="module">
+const V = new URLSearchParams(location.search).get("v") || "gpu";
+const { createGlobe } = await import("@ortho-earth/globe");
+const { splatPlugin, addSplatCloud } = await import("@ortho-earth/splat");
+const t = [];
+let stage = "boot";
+const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-pcsplat @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
+const heart = setInterval(beat, 1000);
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); beat(); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(500); } return null; };
+const FX = new URL("./fixtures/copc/ellipsoid.copc.laz", location.href).href;
+const C = [-74.0445, 40.6892];
+try {
+	const map = await createGlobe({ target: "#map", view: "#16/40.6892/-74.0445", chips: false, persistView: false, debugGlobals: true });
+	await map.once("load");
+	map.use(splatPlugin());
+	// ---- エンジンの読み（どの器でも） ----
+	stage = "read";
+	const t0 = performance.now();
+	const d = await map.readPointCloud(FX, { maxPoints: 40000 });
+	ok("read.n", d.n > 20000 && d.n <= 40000 && d.total === 100000 && d.pts.length === d.n * 3 && d.rgb?.length === d.n * 3 && d.cls.length === d.n, `${d.n}/${d.total} in ${Math.round(performance.now() - t0)} ms`);
+	ok("read.anchor", Math.abs(d.anchor[0] - C[0]) < 0.002 && Math.abs(d.anchor[1] - C[1]) < 0.002 && Number.isFinite(d.anchor[2]), JSON.stringify(d.anchor));
+	ok("read.enu", d.bb[0] < -50 && d.bb[3] > 50 && d.bb[1] < -50 && d.bb[4] > 20 && Math.abs(d.pts[0]) < 2000, JSON.stringify(d.bb.map(v => +v.toFixed(1))));
+	ok("read.info", d.info.count === 100000 && d.info.copc === true && /3857/.test(d.info.crs), JSON.stringify({ crs: d.info.crs, v: d.info.vertical }));
+	if (V === "refuse") {
+		// WebGL2 の描き手＝変換はしない（断る）
+		stage = "refuse";
+		const h = map.addData(FX, { kind: "splat", id: "pc", maxPoints: 20000 });
+		let err = null; try { await h.ready; } catch (e) { err = String(e?.message || e); }
+		ok("refuse", !!err && /WebGPU/.test(err), String(err).slice(0, 120));
+		ok("refuse.backend", h.backend === "webgl2", String(h.backend));
+		h.remove();
+	} else {
+		const dpr = Math.min(2, devicePixelRatio || 1);
+		const probe = h => new Promise(res => { const ov = h.overlay, prev = ov.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { ov.onmessage = prev; res(null); }, 8000);
+			ov.onmessage = x => { if (x?.type === "pixels" && x.id === id) { clearTimeout(tm); ov.onmessage = prev; res(x); } else prev?.(x); }; ov.post({ type: "probe", id }); });
+		const count = p => { if (!p) return { n: -1, cy: 0 }; let n = 0, sy = 0; for (let k = 0; k < p.data.length; k += 4) if (p.data[k + 3] > 20) { n++; sy += Math.floor(k / 4 / p.w); } return { n, cy: n ? sy / n / dpr : 0 }; };
+		const colored = p => { let c = 0; for (let k = 0; k < p.data.length; k += 4) if (p.data[k + 3] > 120) { const a = p.data[k + 3] / 255, r = p.data[k] / a, g = p.data[k + 1] / a, b = p.data[k + 2] / a; if (Math.max(r, g, b) - Math.min(r, g, b) > 40) c++; } return c; };
+		const drawn = async (h, min = 200) => until(async () => { const p = await probe(h); const c = count(p); return c.n >= min ? { p, ...c } : null; }, 40000);
+		// ① 変換
+		stage = "convert";
+		const t1 = performance.now();
+		const h = map.addData(FX, { kind: "splat", id: "pc", maxPoints: 40000, properties: { src: "fixture" } });
+		await h.ready;
+		const L = h.levels;
+		ok("backend", h.backend === "webgpu", String(h.backend));
+		ok("levels", Array.isArray(L) && L.length >= 2 && L.every((l, i) => l.n > 0 && (i === 0 || l.n < L[i - 1].n) && (i === 0 || l.cell === L[i - 1].cell * 2)), JSON.stringify(L?.map(l => [l.n, +l.cell.toFixed(2)])));
+		ok("handle", h.points === d.n && h.n === L.reduce((a, l) => a + l.n, 0) && h.anchor && Math.abs(h.anchor[0] - d.anchor[0]) < 1e-9 && h.plan?.cell0 > 0 && h.ms?.build >= 0, `n=${h.n} points=${h.points} ms=${JSON.stringify(h.ms)} wall=${Math.round(performance.now() - t1)}`);
+		ok("level0.count", L[0].n > d.n * 0.3 && L[0].n <= d.n, `${L[0].n}/${d.n}`);
+		// ② 画素（寄った所＝細かい段）
+		stage = "pixels";
+		map.jumpTo({ center: C, zoom: 16.5, pitch: 45 });
+		const a = await drawn(h);
+		ok("drawn", !!a, a ? `${a.n} px` : "none");
+		ok("colored", !!a && colored(a.p) > a.n * 0.3, a ? String(colored(a.p)) : "");
+		const lvNear = await until(async () => h.level >= 0 ? h.level + 1 : null, 10000);
+		// ③ 引く＝粗い段へ
+		map.jumpTo({ center: C, zoom: 11, pitch: 0 });
+		const lvFar = await until(async () => h.level > (lvNear - 1) ? h.level : null, 20000);
+		ok("level.switch", lvNear != null && lvFar != null && lvFar > lvNear - 1, `near=${lvNear == null ? null : lvNear - 1} far=${lvFar}`);
+		const far = await drawn(h, 20);
+		ok("drawn.far", !!far, far ? `${far.n} px` : "none");
+		map.jumpTo({ center: C, zoom: 16.5, pitch: 45 });
+		await until(async () => h.level === 0 ? true : null, 20000);
+		ok("level.back", h.level === 0, String(h.level));
+		// ④ 当たり
+		stage = "pick";
+		const b = await drawn(h);
+		let hit = [];
+		if (b) { const [x, y] = [b.p.w / dpr / 2, b.cy]; hit = await until(async () => { const r = await h.pick(x, y, 12); return r.length ? r : null; }, 20000) || []; }
+		ok("pick", hit.length === 1 && hit[0].layer === "pc" && hit[0].properties?.src === "fixture" && hit[0].properties?.level === 0 && Math.abs(hit[0].lngLat[1] - C[1]) < 0.01, JSON.stringify(hit.map(x => ({ l: x.layer, p: x.properties, ll: x.lngLat }))));
+		// ⑤ 読み戻し → 載せ直し
+		stage = "read";
+		const data = await h.read();
+		ok("read", data.levels.length === L.length && data.levels[0].ctr instanceof Float32Array && data.levels[0].ctr.length === L[0].n * 4 && data.levels[0].cov.length === L[0].n * 8 && data.levels[0].col.length === L[0].n && Math.abs(data.anchor[1] - d.anchor[1]) < 1e-9);
+		const w0 = new Float32Array(data.levels[1].cov.buffer).filter((_, k) => k % 8 === 6).reduce((s, v) => s + v, 0);
+		ok("read.weights", Math.abs(w0 - d.n) < 1, `${w0} vs ${d.n}`);
+		h.setVisible(false);
+		const h2 = addSplatCloud(map, data, { id: "pc2", properties: { src: "cache" } });
+		await h2.ready;
+		ok("cache", h2.levels?.length === L.length && h2.n === h.n && h2.ms?.build === 0 && h2.backend === "webgpu", JSON.stringify(h2.levels?.map(l => l.n)));
+		const c2 = await drawn(h2);
+		ok("cache.drawn", !!c2 && !!b && Math.abs(c2.n - b.n) < b.n * 0.3, `${c2?.n} vs ${b?.n}`);
+		// ⑥ 高さ
+		stage = "alt";
+		h2.setAltitude(d.anchor[2] + 300);
+		const up = await until(async () => { const p = await probe(h2); const c = count(p); return c.n > 50 && c.cy < c2.cy - 20 ? c : null; }, 20000);
+		ok("altitude", !!up, up ? `${c2.cy.toFixed(0)} → ${up.cy.toFixed(0)}` : "no move");
+		h2.remove();
+		// ⑦ 色と粗さ
+		stage = "opts";
+		const h3 = map.addData(FX, { kind: "splat", id: "pc3", maxPoints: 40000, color: "classification", cloud: { detail: 2, levels: 2 } });
+		await h3.ready;
+		ok("detail", h3.levels.length === 2 && h3.levels[0].n < L[0].n * 0.5 && Math.abs(h3.plan.cell0 - h.plan.cell0 * 2) < 1e-6, `${h3.levels[0].n} vs ${L[0].n}`);
+		const c3 = await drawn(h3);
+		ok("classification", !!c3 && colored(c3.p) < c3.n * 0.2, c3 ? `${colored(c3.p)}/${c3.n}` : "");   // 分類＝fixture は未分類＝灰
+		h3.remove();
+		// ⑧ 撤去
+		stage = "remove";
+		h.remove();
+		const gone = await until(async () => { const p = await probe(h3).catch(() => null); return !p || count(p).n === 0 ? true : null; }, 10000);
+		ok("removed", !!gone);
+		let bad = false; try { map.addData(FX, { kind: "splat", id: "x", color: "nope" }); } catch { bad = true; }
+		ok("badColor", bad);
+	}
+	clearInterval(heart);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }
+</script></body></html>

@@ -8,7 +8,7 @@
 // 呼ぶ口 map.gadget.<名前>(…) は今のまま＝名前ごとの引数と戻りは globe.d.ts の Gadgets（＋表示の門 GadgetGate）。
 
 import type {
-	Bbox, BodyPosition, COPCHandle, COPCOptions, CameraOptions, CameraPose,
+	Bbox, BodyPosition, COPCHandle, COPCOptions, PointCloudDump, PointCloudReadOptions, CameraOptions, CameraPose,
 	CameraTarget, Capability, CapabilityKey, SampleHeightResult, RaycastHit, ClassificationOptions, ClassificationHandle, CzmlHandle, CellsLayerHandle, CellsLayerOptions, ClipOptions,
 	CloudsSpec, ColumnarLayerHandle, ColumnarLayerOptions,
 	ContourLayerHandle, ContourLayerOptions, DataLayerHandle, DataLayerOptions,
@@ -289,6 +289,9 @@ export interface GlobeCoreApi {
 	/** 点群（LAS／LAZ／COPC）を足す。COPC は節だけ範囲読み。普通の LAS/LAZ（1.0〜1.4・点の形式 0〜10）はファイルを丸ごと読み、その場で八分木を作る。
 	 *  丸ごと読みの上限＝2,000 万点・URL は 500 MB（超えたら COPC への変換を案内して reject）。.las／.laz のドロップも同じ */
 	addPointCloud(src: string | File | Blob, opts?: COPCOptions): Promise<COPCHandle>;   // globe.js:2921
+	/** 点群（LAS／LAZ／COPC／ZIP）を描かずに丸ごと読む＝錨（[lon, lat, 標高 m]）からの東北上 m の点・標高・RGB・強度・分類（上限つき＝COPC は浅い節から・他は等間隔に間引く）。
+	 *  点群 → Gaussian splat（@ortho-earth/splat の cloud＝WebGPU の変換器）の材料（2026-11-06） */
+	readPointCloud(src: string | File | Blob, opts?: PointCloudReadOptions): Promise<PointCloudDump>;
 	/** 点群を外す（id を省く＝全部） */
 	removePointCloud(id?: string): Promise<boolean>;   // globe.js:2922
 	// delegates to gadget.tiles3d (globe.js:2971) = typed from the same registry entry
