@@ -28,7 +28,7 @@ export interface HudSnapshot {
 	/** 最初の idle までに塞いだ材料の時間加重の帳（"cover 3.1 s" …・main が止まっていた分は "main stalled"）と、最初の idle の時刻（ms since navigation・null＝まだ） */
 	idleHist?: string[]; idleAt?: number | null;
 	/** 建物メッシュの時間割（ms since navigation）：main（wake/manager/catalog/spawn）・区ごとの段・render worker の受け口（globe.ts meshTlSnap） */
-	meshTl?: { main: Array<[string, number, string]>; wards: Array<{ name: string; ev: Array<[string, number, string]> }>; rx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number } | null } | null;
+	meshTl?: { main: Array<[string, number, string]>; wards: Array<{ name: string; ev: Array<[string, number, string]> }>; rx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number; applyMs?: number; applyMax?: number; applyBytes?: number; inFrame?: number; inTimer?: number; starveMs?: number } | null } | null;
 	tiles: { bytes: number; budget: number }; terrain: number; mesh?: { bytes: number; regions: number } | null;
 	heap?: number | null; gpuBytes?: number | null; gpu?: { atlas: number; mesh: number; msaa: number; pool?: number } | null; raster?: number | null;
 	transient: { bytes: number; cache: number; live: number };
@@ -219,6 +219,7 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		for (const w of m.wards) out.push(`  ${w.name}: ${ev(w.ev)}`);
 		const r = m.rx;
 		if (r && r.n) out.push(`  render: ${r.n} pieces received (first ${sec(r.firstRecv)}) · ${r.applied} applied (first ${sec(r.firstApply)}) · ${r.acked} acked (last ${sec(r.lastAck)}) · pump ${sec(r.pumpMs)} s · inbox ${r.inbox}`);
+		if (r && r.applied) out.push(`  render apply: set() ${sec(r.applyMs || 0)} s total · max ${Math.round(r.applyMax || 0)} ms · ${((r.applyBytes || 0) / 1048576).toFixed(0)} MB · drained in ${r.inFrame || 0} frames + ${r.inTimer || 0} timer ticks · starved (inbox empty, waiting for sender) ${sec(r.starveMs || 0)} s`);
 		return out;
 	}
 	// 基図タイルの計器 e（必要→画面）と main merge（要求→着地）：タイルが揃った後の沈黙が「取得／組み立て／キュー待ち／結合待ち」のどれかを 1 本のログで切り分ける（2026-11-06）
