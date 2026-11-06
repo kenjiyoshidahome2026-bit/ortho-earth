@@ -922,7 +922,9 @@ const TERRLOD = !/[?&]terrlod=0/.test(location.search);
 const TERRSYNC = /[?&]terrsync=1/.test(location.search);
 // ?lazypipe=1＝WebGPU のパイプラインを初回使用時に作る（2026-11-06 Galaxy/Mali 実測：起動時に 59 本を GPU プロセスが 1 本ずつ 9.6 秒＝起動後 10 秒の固まりの正体）。
 // まず A/B ノブ（既定 0＝従来＝全部先に作る）。実機のトレースで短縮を見てから既定を決める（device-testing-rule）
-const LAZY_PIPES = /[?&]lazypipe=1/.test(location.search);   // 地形メッシュを同期で一気に作る（従来）＝起動の最初のフレームの切り分け用   // perf plan P4 の逃げ道＝0 で地形メッシュのチャンク刈りを止める（全量 1 draw＝従来）
+// WebGPU のパイプラインを初回使用時に作る（?lazypipe=1／0）。LOW_MEM は既定 ON（2026-11-06 Galaxy/Mali-G615 の adb トレース 3 回ずつ：起動時の生成 59→16 本、
+// GPU プロセスの詰まり 7.3→4.2 s、描画 worker の停止 8.7→6.0 s で解け、frame1 1.6 s 安定〔eager は 2 回に 1 回 4.2 s〕）。デスクトップは従来どおり起動時に全部（ms 単位＝遅延の意味が無い）
+const LAZY_PIPES = /[?&]lazypipe=1/.test(location.search) || (LOW_MEM && !/[?&]lazypipe=0/.test(location.search));
 // ?farterr=0 ＝遠景地形層（深ズーム×チルトの R10 第2アトラス＝ズームインしても遠方の山が消えない一般則）を
 // 無効化する逃げ道。コスト＝GPU 10-16MB＋遠景メッシュ2度描き（チルト深ズーム時のみ）。
 const noFarTerr = /[?&]farterr=0/.test(location.search);
