@@ -65,7 +65,7 @@ export function createGlslBridge(device: GPUDevice, format: GPUTextureFormat, re
 	const F = GPUShaderStage.FRAGMENT;
 	const lC = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: F, texture: {} }] });
 	const lD = (ms: boolean) => device.createBindGroupLayout({ entries: [{ binding: 0, visibility: F, texture: { sampleType: "depth", multisampled: ms } }] });
-	const mk = (code: string, l: GPUBindGroupLayout): GPURenderPipeline => { const m = device.createShaderModule({ code }); return device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), vertex: { module: m, entryPoint: "vs" }, fragment: { module: m, entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } }); };
+	const mk = (code: string, l: GPUBindGroupLayout): GPURenderPipeline => { const m = device.createShaderModule({ code }); return device.createRenderPipeline({ label: "glslbridge", layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), vertex: { module: m, entryPoint: "vs" }, fragment: { module: m, entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } }); };
 	// 写した ImageBitmap の行 0 が GL のテクスチャのどちらへ来るかは器で違う（UNPACK_FLIP_Y は仕様では ImageBitmap に効かない・SwiftShader の Chrome は効かせ、
 	// Mac の Chrome は効かない＝fog-post-process が上下さかさま・2026-10-31）。FLIP_Y は使わず、最初に 1×2 の試しを写して向きを測り、写す側（WebGPU）で返す
 	let flip: boolean | null = null;
@@ -85,7 +85,7 @@ export function createGlslBridge(device: GPUDevice, format: GPUTextureFormat, re
 		size = [0, 0]; cC.width = 1; cC.height = 2;
 		xC.configure({ device, format, alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT });
 		const m = device.createShaderModule({ code: PROBE_WGSL });
-		const p = device.createRenderPipeline({ layout: "auto", vertex: { module: m, entryPoint: "vs" }, fragment: { module: m, entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } });
+		const p = device.createRenderPipeline({ label: "glslbridgeBlit", layout: "auto", vertex: { module: m, entryPoint: "vs" }, fragment: { module: m, entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } });
 		const enc = device.createCommandEncoder(), r = enc.beginRenderPass({ colorAttachments: [{ view: xC.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 1 }, storeOp: "store" }] });
 		r.setPipeline(p); r.draw(3); r.end(); device.queue.submit([enc.finish()]);
 		const t = texOf();

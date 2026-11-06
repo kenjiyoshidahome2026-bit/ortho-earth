@@ -19,6 +19,7 @@
 //    blend/stencil はパイプライン焼き込み＝GL の「状態切替と退避復元」の踊りが構造ごと消える。
 //  ・stencil はパス先頭 stencilLoadOp:"clear"＋中間クリアは「フルスクリーン replace(0) 描き」（mid-pass clear が無いため）。
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
+import { pipeSet, lbl, named } from "./pipeset.ts";
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.ts";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
 import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns } from "../gint/utility.ts";
@@ -53,6 +54,8 @@ export interface GintClipInfo { planes: ClipPlane[]; poly?: ClipPoly | null; st:
 /** host＝createRendererGPU の戻りのうち gint が読む面 */
 export interface GintHost {
 	device: GPUDevice; format: GPUTextureFormat; samples?: number; quad4?: boolean; gpuErrors?: string[];
+	/** パイプラインを初回使用時に作る（renderer の lazyPipes＝?lazypipe=1） */
+	lazyPipes?: boolean;
 	frameInfo(): GintFrame | null;
 	passTS?: (tag: string) => GPURenderPassTimestampWrites | undefined;
 	clipInfo?: () => GintClipInfo | null;
@@ -158,7 +161,8 @@ export function uploadTexArrU32(device: GPUDevice, raw: Uint32Array, w: number, 
 }
 const ROLE = { stencil: 0, fill: 1, line: 2, lineHidden: 3, hilite: 4, maskStencil: 5, maskFill: 6, point: 7, pointHi: 8, pickLine: 9, pickPoint: 10 };
 
-export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = host.quad4 !== false, layerH = 0 }: GintGPUOptions = {}) {   // layerH＝2D 配列の層の高さの上書き（検定用・?gintlh=）   // quad4＝線・点を index の 4 頂点で描く（perf plan P3・既定 true・?quad4=0 で旧 6 頂点）
+export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = host.quad4 !== false, layerH = 0 }: GintGPUOptions = {}) {
+	const LAZY = !!host.lazyPipes;   // ?lazypipe=1（renderer と同じ）＝パイプラインを初回使用時に作る（2026-11-06 Galaxy 実測：gint の 28 本が起動時の GPU プロセスを数秒ふさいだ）   // layerH＝2D 配列の層の高さの上書き（検定用・?gintlh=）   // quad4＝線・点を index の 4 頂点で描く（perf plan P3・既定 true・?quad4=0 で旧 6 頂点）
 	const { device, format } = host;
 	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
 	const bump = () => { bakeRev++; requestDraw?.(); };
@@ -222,7 +226,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	const keepDS: GPUDepthStencilState = { format: DS, depthWriteEnabled: false, depthCompare: "always" };
 	const pipe = (mod: GPUShaderModule, vs: string, fs: string, { ds = keepDS, blend = SBLEND, writeMask, samples = host.samples || 4, fmt = format, lay = layout }: PipeOpts = {}): GPURenderPipeline =>   // 既定＝renderer の MSAA 段数（?msaa=0＝1x に追随）
 		device.createRenderPipeline({
-			layout: lay,
+			label: lbl(), layout: lay,
 			vertex: { module: mod, entryPoint: vs },
 			fragment: { module: mod, entryPoint: fs, targets: [{ format: fmt, blend, writeMask }] },
 			primitive: { topology: "triangle-list" },
@@ -240,11 +244,13 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	// 遮蔽消し込み（ドレープ塗り時のみ）：建物 bit7 が立つ画素の winding を 0 へ（ref 0x80・replace は ref&0x7F=0 を書く）
 	//＝cover(≠0) が建物の陰を自然にスキップ。ドレープ面＝地形面そのものなので「建物が見えている画素」の判定だけで正しい。
 	const stOcc: GPUDepthStencilState = { ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilReadMask: 0x80, stencilWriteMask: 0x7F };
-	const pickLinePipe = pipe(lineMod, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
-	const pickPointPipe = pipe(pointMod, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
 	// pick は 1x 固定＝pipeSets の外だが、group(2) のレイアウトはパイプラインと bind group で一致必須＝storage 版も対で持つ
-	const pickLinePipeSB = SB ? pipe(lineModSB, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", lay: layoutSB }) : null!;
-	const pickPointPipeSB = SB ? pipe(pointModSB, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", lay: layoutSB }) : null!;
+	const pick = pipeSet("gintPick", LAZY, {
+		line: () => pipe(lineMod, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" }),
+		point: () => pipe(pointMod, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" }),
+		lineSB: () => SB ? pipe(lineModSB, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", lay: layoutSB }) : null!,
+		pointSB: () => SB ? pipe(pointModSB, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", lay: layoutSB }) : null!,
+	});
 	// ── 断面とクリッピング平面（#111 段 3）＝切っている時だけの派生（gintwgsl.js gintClipWGSL・素のパイプラインは不変）。
 	// 面は host.clipInfo()（renderer が毎フレーム {planes, st}／切らない時 null）＝GF の末尾へ gint の原点で詰める（packGF）。地面アトラスへ焼く経路は素のまま（地形の派生で切れる）
 	const clipInfo = () => host.clipInfo?.() || null;
@@ -257,10 +263,10 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	})();
 	const pickClip: { t?: GPURenderPipeline[]; b?: GPURenderPipeline[] } = {};
 	const pickPipesFor = (sb: boolean, clip: boolean): GPURenderPipeline[] => {   // 拾い（1x・rgba8）＝素か切る派生
-		if (!clip) return sb ? [pickLinePipeSB, pickPointPipeSB] : [pickLinePipe, pickPointPipe];
+		if (!clip) return sb ? [pick.lineSB, pick.pointSB] : [pick.line, pick.point];
 		const k = sb ? "b" : "t";
 		if (!pickClip[k]) { const m = clipMods(), o: PipeOpts = { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", ...(sb ? { lay: layoutSB } : {}) };
-			pickClip[k] = [pipe(sb ? m.lineSB : m.line, "vsPickLine", "fsPick", o), pipe(sb ? m.pointSB : m.point, "vsPickPoint", "fsPickPoint", o)]; }
+			pickClip[k] = named(`gintPickClip${sb ? "SB" : ""}`, () => [pipe(sb ? m.lineSB : m.line, "vsPickLine", "fsPick", o), pipe(sb ? m.pointSB : m.point, "vsPickPoint", "fsPickPoint", o)]); }
 		return pickClip[k]!;
 	};
 	// コロプレス ID 塗り（idfill.js）：① winding 和を ID テクスチャへ加算蓄積（fan 幾何・単一サンプル・深度なし）
@@ -273,12 +279,11 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	const ID_MAX_FID = canIdF32 ? (1 << 20) : 2047, ID_FMT = canIdF32 ? "rgba32float" : "rgba16float";   // α＝前向き扇の最大 fid+1（MAX blend）＝重複画素の後勝ち（2026-09-15）
 	if (!canIdF32) console.warn("[gint] no float32-blendable = idfill uses rg16float (fill holes possible in large-fid municipality choropleth)");
 	const mkIdAccum = (mod: GPUShaderModule, lay: GPUPipelineLayout): GPURenderPipeline => device.createRenderPipeline({
-		layout: lay, vertex: { module: mod, entryPoint: "vsId" },
+		label: lbl(), layout: lay, vertex: { module: mod, entryPoint: "vsId" },
 		fragment: { module: mod, entryPoint: "fsId", targets: [{ format: ID_FMT, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "max" } } }] },
 		primitive: { topology: "triangle-list" }, multisample: { count: 1 },
 	});
-	const idAccumPipe = mkIdAccum(stencilMod, layout);
-	const idAccumPipeSB = SB ? mkIdAccum(stencilModSB, layoutSB) : null!;
+	const idAccum = pipeSet("gintIdAccum", LAZY, { t: () => mkIdAccum(stencilMod, layout), sb: () => SB ? mkIdAccum(stencilModSB, layoutSB) : null! });
 	const idResolveMod = mkMod(GINT_IDRESOLVE_WGSL, "idresolve");
 	const bglIdResolve = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },   // idTex rg16float
@@ -287,7 +292,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	] });
 	const idResolveLayout = device.createPipelineLayout({ bindGroupLayouts: [bglIdResolve] });
 	const mkIdResolve = (ds: GPUDepthStencilState, sc: number, mod = idResolveMod): GPURenderPipeline => device.createRenderPipeline({
-		layout: idResolveLayout,
+		label: lbl(), layout: idResolveLayout,
 		vertex: { module: mod, entryPoint: "vs" },
 		fragment: { module: mod, entryPoint: "fs", targets: [{ format, blend: SBLEND }] },
 		primitive: { topology: "triangle-list" }, depthStencil: ds, multisample: { count: sc },   // main パスへ描く＝renderer のフレーム段数に追随
@@ -300,18 +305,18 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	// マスク専用の stencil シェーダ（旧 GL の VS_STENCIL_MASK）は持たない：drawHighlight の mask fan は stencilProgram＝レンジ描画（GL 側の未使用の写しも撤去済み）
 	const buildPipes = (sc: number, sb: boolean, clip: boolean) => { const cm = clip ? clipMods() : null;   // clip＝断面の派生（#111 段 3）
 		const [lm, sm, pm, lay] = sb ? (cm ? [cm.lineSB, cm.stencilSB, cm.pointSB, layoutSB] : [lineModSB, stencilModSB, pointModSB, layoutSB]) : (cm ? [cm.line, cm.stencil, cm.point, layout] : [lineMod, stencilMod, pointMod, layout]);
-		const rm = cm ? cm.resolve : idResolveMod; return ({
-		stencilFan: pipe(sm, "vsStencil", "fsNull", { ds: stFan, blend: undefined, writeMask: 0, samples: sc, lay }),
-		cover: pipe(sm, "vsFull", "fsFill", { ds: stCoverNE, samples: sc, lay }),
-		coverEq: pipe(sm, "vsFull", "fsFill", { ds: stCoverEQ, samples: sc, lay }),
-		zero: pipe(sm, "vsFull", "fsNull", { ds: stZero, blend: undefined, writeMask: 0, samples: sc, lay }),
-		occlude: pipe(sm, "vsFull", "fsNull", { ds: stOcc, blend: undefined, writeMask: 0, samples: sc, lay }),   // 建物 bit7→winding 消し込み
-		line: pipe(lm, "vsRender", "fsRender", { samples: sc, lay }),
-		lineTest: pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" }, samples: sc, lay }),
-		lineHidden: pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" }, samples: sc, lay }),
-		point: pipe(pm, "vsPoint", "fsPoint", { samples: sc, lay }),
-		idResolve: mkIdResolve(keepDS, sc, rm),
-		idResolveOcc: mkIdResolve(stIdOcc, sc, rm),
+		const rm = cm ? cm.resolve : idResolveMod; return pipeSet(`gint${sb ? "SB" : ""}${clip ? "Clip" : ""}${sc}x`, LAZY, {
+		stencilFan: () => pipe(sm, "vsStencil", "fsNull", { ds: stFan, blend: undefined, writeMask: 0, samples: sc, lay }),
+		cover: () => pipe(sm, "vsFull", "fsFill", { ds: stCoverNE, samples: sc, lay }),
+		coverEq: () => pipe(sm, "vsFull", "fsFill", { ds: stCoverEQ, samples: sc, lay }),
+		zero: () => pipe(sm, "vsFull", "fsNull", { ds: stZero, blend: undefined, writeMask: 0, samples: sc, lay }),
+		occlude: () => pipe(sm, "vsFull", "fsNull", { ds: stOcc, blend: undefined, writeMask: 0, samples: sc, lay }),   // 建物 bit7→winding 消し込み
+		line: () => pipe(lm, "vsRender", "fsRender", { samples: sc, lay }),
+		lineTest: () => pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" }, samples: sc, lay }),
+		lineHidden: () => pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" }, samples: sc, lay }),
+		point: () => pipe(pm, "vsPoint", "fsPoint", { samples: sc, lay }),
+		idResolve: () => mkIdResolve(keepDS, sc, rm),
+		idResolveOcc: () => mkIdResolve(stIdOcc, sc, rm),
 	}); };
 	const pipeSets = new Map<string, ReturnType<typeof buildPipes>>();
 	// キーは (storage か) × MSAA 段＝層ごとに経路が変わっても互いのキャッシュを潰さない
@@ -965,7 +970,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 			if (ci) { packClip(idRF, 4, data.origin, ci, 56); idRF[52] = V.width; idRF[53] = V.height; }
 			device.queue.writeBuffer(L.idRBuf, 0, idRCPU);
 			const idPass = fr.enc.beginRenderPass({ timestampWrites: host.passTS?.("gint"), colorAttachments: [{ view: idTexView!, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
-			idPass.setPipeline(L.sbOn ? idAccumPipeSB : idAccumPipe);
+			idPass.setPipeline(L.sbOn ? idAccum.sb : idAccum.t);
 			idPass.setBindGroup(0, L.frameBG[GF_FILL]); idPass.setBindGroup(1, L.paramBG[ROLE.stencil]);
 			idPass.setBindGroup(2, texBG(L.sbOn, L.arcTex, L.metaTex)); idPass.setBindGroup(3, aux);
 			idPass.draw(L.polyEdges * 3);
@@ -1307,7 +1312,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	// idfill）だけを窓座標モード（GF.atlasQ.x=1）で描く＝球面投影・地平クランプ・ドレープ無し（地形には FS の標本化で乗る）。
 	// stencil は窓寸の stencil8 を寸法ごとに 1 枚共有（窓・層ごとに pass 先頭で clear）。画面側 draw は ctx.facesInAtlas で面を省く。
 	const stA: GPUDepthStencilState = { format: "stencil8", depthWriteEnabled: false, depthCompare: "always" };
-	const pipeA = (mod: GPUShaderModule, vs: string, fs: string, ds: GPUDepthStencilState, lay: GPUPipelineLayout, blend: GPUBlendState | undefined, writeMask: number | undefined) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: vs },
+	const pipeA = (mod: GPUShaderModule, vs: string, fs: string, ds: GPUDepthStencilState, lay: GPUPipelineLayout, blend: GPUBlendState | undefined, writeMask: number | undefined) => device.createRenderPipeline({ label: lbl(), layout: lay, vertex: { module: mod, entryPoint: vs },
 		fragment: { module: mod, entryPoint: fs, targets: [{ format: "rgba8unorm", blend, writeMask }] }, primitive: { topology: "triangle-list" }, depthStencil: ds, multisample: { count: 1 } });
 	const pipesA = new Map<boolean, PipesA>();
 	const pipesAFor = (sb: boolean) => {
@@ -1315,12 +1320,12 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		if (!p) {
 			const [sm, lay] = sb ? [stencilModSB, layoutSB] : [stencilMod, layout];
 			const ne: GPUStencilFaceState = { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" };
-			p = {
-				stencilFan: pipeA(sm, "vsStencil", "fsNull", { ...stA, stencilFront: wind, stencilBack: windB, stencilWriteMask: 0xFF }, lay, undefined, 0),
-				cover: pipeA(sm, "vsFull", "fsFill", { ...stA, stencilFront: ne, stencilBack: ne, stencilReadMask: 0xFF, stencilWriteMask: 0 }, lay, SBLEND, undefined),
-				idResolve: device.createRenderPipeline({ layout: idResolveLayout, vertex: { module: idResolveMod, entryPoint: "vs" },
+			p = pipeSet(`gintAtlas${sb ? "SB" : ""}`, LAZY, {
+				stencilFan: () => pipeA(sm, "vsStencil", "fsNull", { ...stA, stencilFront: wind, stencilBack: windB, stencilWriteMask: 0xFF }, lay, undefined, 0),
+				cover: () => pipeA(sm, "vsFull", "fsFill", { ...stA, stencilFront: ne, stencilBack: ne, stencilReadMask: 0xFF, stencilWriteMask: 0 }, lay, SBLEND, undefined),
+				idResolve: () => device.createRenderPipeline({ label: lbl(), layout: idResolveLayout, vertex: { module: idResolveMod, entryPoint: "vs" },
 					fragment: { module: idResolveMod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: SBLEND }] }, primitive: { topology: "triangle-list" }, depthStencil: stA, multisample: { count: 1 } }),
-			};
+			});
 			pipesA.set(sb, p);
 		}
 		return p;
@@ -1378,7 +1383,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 				device.queue.writeBuffer(L.idRBuf, 0, idRCPU);
 				const idPass = enc.beginRenderPass({ colorAttachments: [{ view: idViewA(sc, size), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
 				if (vp) idPass.setViewport(vp[0], 0, vp[1], size, 0, 1);   // 分割の半分（renderer の composeGround）
-				idPass.setPipeline(L.sbOn ? idAccumPipeSB : idAccumPipe);
+				idPass.setPipeline(L.sbOn ? idAccum.sb : idAccum.t);
 				idPass.setBindGroup(0, L.frameBGA[index * 2]); idPass.setBindGroup(1, L.paramBG[ROLE.stencil]);
 				idPass.setBindGroup(2, texBG(L.sbOn, L.arcTex, L.metaTex)); idPass.setBindGroup(3, aux);
 				idPass.draw(L.polyEdges * 3, 2);   // インスタンス 1＝原点±180° を跨ぐ環の写し（vsId・窓座標モードだけ）

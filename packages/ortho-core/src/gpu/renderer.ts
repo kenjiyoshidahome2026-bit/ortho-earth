@@ -12,6 +12,7 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
+import { pipeSet, lbl } from "./pipeset.ts";
 import { viewRays } from "../camera.ts";
 import { cameraState, lonlatTo3D, ellNormal3D, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
@@ -340,19 +341,6 @@ function skyEnvCompute(sun: number[], oPt: ArrayLike<number>, { k = 4, sunI = 20
 	return { sh, lp: Float32Array.of(Esun[0] / Eref, Esun[1] / Eref, Esun[2] / Eref, 0), Eref };
 }
 
-// パイプラインの束：f＝鍵ごとの工場。lazy＝getter で初回アクセス時に作る（memo）／eager＝その場で全部。どちらも作る間だけ curPipeLabel を立て、
-// 工場の中の device.createRenderPipeline({ label: lbl(), … }) が「セット.鍵」を名乗る（GPU プロセスのトレースで 1 本ずつ読める）
-let curPipeLabel = "";
-const lbl = (): string => curPipeLabel;
-function pipeSet<T extends object>(set: string, lazy: boolean, f: { [K in keyof T]: () => T[K] }): T {
-	const o = {} as T;
-	for (const k of Object.keys(f) as Array<keyof T & string>) {
-		if (!lazy) { curPipeLabel = `${set}.${k}`; try { o[k] = f[k](); } finally { curPipeLabel = ""; } continue; }
-		let v: T[typeof k] | undefined, made = false;
-		Object.defineProperty(o, k, { enumerable: true, get: () => { if (!made) { curPipeLabel = `${set}.${k}`; try { v = f[k](); } finally { curPipeLabel = ""; } made = true; } return v; } });
-	}
-	return o;
-}
 export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCanvas, rOpts: RendererGPUOptions = {}) {
 	setMeshLodScale(rOpts.meshLod || 1); setMeshRange(rOpts.meshRange || 0); setMeshLodZoom(rOpts.meshLodZ0 || 15, rOpts.meshLodZ || 1);
 	if (typeof navigator === "undefined" || !navigator.gpu) throw new Error("WebGPU unavailable");
@@ -1873,7 +1861,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		const bgl = device.createBindGroupLayout({ entries: [
 			{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { hasDynamicOffset: true, minBindingSize: RS_BYTES } },
 			{ binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } } ] });
-		const pipe = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
+		const pipe = device.createRenderPipeline({ label: "elevResample", layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
 			vertex: { module: mod, entryPoint: "vs" }, fragment: { module: mod, entryPoint: "fs", targets: [{ format: "r16float" }] }, primitive: { topology: "triangle-list" } });
 		const ubuf = device.createBuffer({ size: RS_SLOT * RS_RING, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 		const u32 = new Uint32Array(RS_BYTES / 4);
@@ -1999,7 +1987,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 @vertex fn vs(@builtin(vertex_index) i: u32) -> VO { var o: VO; let x = f32((i << 1u) & 2u); let y = f32(i & 2u); o.uv = vec2f(x, 1.0 - y); o.p = vec4f(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0); return o; }
 @fragment fn fs(in: VO) -> @location(0) vec4f { return textureSample(t, s, in.uv); }` });
-			mipPipe = device.createRenderPipeline({ layout: "auto", vertex: { module: mod, entryPoint: "vs" }, fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] }, primitive: { topology: "triangle-list" } });
+			mipPipe = device.createRenderPipeline({ label: "mip", layout: "auto", vertex: { module: mod, entryPoint: "vs" }, fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] }, primitive: { topology: "triangle-list" } });
 			mipSampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
 		}
 		const enc = device.createCommandEncoder();
@@ -2128,17 +2116,17 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!job) return;
 		const { wins, rasterOn, wantFills, seaOff, baseA, cam, hook, userIn, baseSlots } = job;
 		gnd.tiles = 0; gnd.faces = 0;
-		if (!rasAtlasPipe) rasAtlasPipe = device.createRenderPipeline({ layout: rasAtlasLayout,
+		if (!rasAtlasPipe) rasAtlasPipe = device.createRenderPipeline({ label: "rasAtlas", layout: rasAtlasLayout,
 			vertex: { module: rasAtlasMod, entryPoint: "vs", buffers: RASTER_BUFS },
 			fragment: { module: rasAtlasMod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] },
 			primitive: { topology: "triangle-list" } });
-		if (!atlasFillPipe) atlasFillPipe = device.createRenderPipeline({ layout: atlasFillLayout,
+		if (!atlasFillPipe) atlasFillPipe = device.createRenderPipeline({ label: "atlasFill", layout: atlasFillLayout,
 			vertex: { module: atlasFillMod, entryPoint: "vs", buffers: FILL_BUFS },
 			fragment: { module: atlasFillMod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] },
 			primitive: { topology: "triangle-list" } });
 		if (md && !atlasFillPipeMD) {   // md シーンの塗りを地面アトラスへ（GL の ATLAS_FILL_MD_VS と対）
 			const mod = mkMod(mdFillWgsl(ATLAS_FILL_WGSL, "AFOut", "ATLAS_FILL_MD"), "atlasFillMd");
-			atlasFillPipeMD = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglRasP, bglPt] }), vertex: { module: mod, entryPoint: "vs", buffers: MD_FILL_BUFS },
+			atlasFillPipeMD = device.createRenderPipeline({ label: "atlasFillMD", layout: device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglRasP, bglPt] }), vertex: { module: mod, entryPoint: "vs", buffers: MD_FILL_BUFS },
 				fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] }, primitive: { topology: "triangle-list" } });
 		}
 		// per-draw uniform：ラスタタイル（rasBuf）と塗り（atlBuf：窓×スロット×ゲート）を先に全部書く（writeBuffer は submit より先に着地）
@@ -2568,9 +2556,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const ml = mdMod(`line${src.lbl}`, mdLineWgsl(src.line, `LINE_MD${src.lbl}`), `line${src.lbl}`);
 		const mb = mdMod(`bld${src.lbl}`, mdBldWgsl(src.bld, `BUILDING_MD${src.lbl}`), `building${src.lbl}`);
 		const ms = { count: sc };
-		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
+		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target) => device.createRenderPipeline({ label: lbl(), layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
 			fragment: { module: mod, entryPoint: "fs", targets: [tgt] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
-		p = { fillOff: pipe(mf, MD_FILL_BUFS, dsOff, layFill), fillTest: pipe(mf, MD_FILL_BUFS, dsTest, layFill), lineOff: pipe(ml, MD_LINE_BUFS, dsOff, layLine), lineTest: pipe(ml, MD_LINE_BUFS, dsTest, layLine), bld: pipe(mb, MD_BLD_BUFS, dsWriteBld, layBld) };
+		p = pipeSet(`md${sc}x`, LAZY, { fillOff: () => pipe(mf, MD_FILL_BUFS, dsOff, layFill), fillTest: () => pipe(mf, MD_FILL_BUFS, dsTest, layFill), lineOff: () => pipe(ml, MD_LINE_BUFS, dsOff, layLine), lineTest: () => pipe(ml, MD_LINE_BUFS, dsTest, layLine), bld: () => pipe(mb, MD_BLD_BUFS, dsWriteBld, layBld) });
 		mdPipeCache.set(key, p);
 		return p;
 	}
@@ -2578,7 +2566,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	function mdCast(clip: boolean): GPURenderPipeline {
 		const have = clip ? mdCastClipPipe : mdCastPipe; if (have) return have;
 		const mod = mkMod(mdBldWgsl(clip ? BUILDING_CAST_CLIP_WGSL : BUILDING_CAST_WGSL, clip ? "BUILDING_CAST_CLIP_MD" : "BUILDING_CAST_MD"), clip ? "buildingCastClip" : "buildingCast");
-		const pipe = device.createRenderPipeline({ layout: clip ? cl!.layCast.bld : bldLayout, vertex: { module: mod, entryPoint: "vs", buffers: MD_BLD_BUFS },
+		const pipe = device.createRenderPipeline({ label: clip ? "mdCastClip" : "mdCast", layout: clip ? cl!.layCast.bld : bldLayout, vertex: { module: mod, entryPoint: "vs", buffers: MD_BLD_BUFS },
 			fragment: { module: mod, entryPoint: "fs", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "less", depthBiasSlopeScale: 3 } });
 		if (clip) mdCastClipPipe = pipe; else mdCastPipe = pipe;
 		return pipe;
@@ -3979,7 +3967,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	device.popErrorScope().then(e => { if (e) gpuErr("init検証", e.message); }).catch(() => {});
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
-	return { set, draw, flush, readback, dispose, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
+	return { set, draw, flush, readback, dispose, lazyPipes: LAZY, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors,

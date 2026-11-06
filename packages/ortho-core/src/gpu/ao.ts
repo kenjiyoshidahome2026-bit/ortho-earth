@@ -186,7 +186,7 @@ export function createAoGPU(device: GPUDevice, format: GPUTextureFormat): AoGPU 
 	const pipes = new Map<string, GPURenderPipeline>();     // "ms"/"ss" → ao・"blurH"/"blurV"・`comp${sc}`
 	const mk = (code: string, layout: GPUBindGroupLayout, targets: GPUColorTargetState[], sampleCount = 1): GPURenderPipeline => {
 		const module = device.createShaderModule({ code });
-		return device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets }, primitive: { topology: "triangle-list" }, multisample: { count: sampleCount } });
+		return device.createRenderPipeline({ label: "ao", layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets }, primitive: { topology: "triangle-list" }, multisample: { count: sampleCount } });
 	};
 	const pipe = (k: string, make: () => GPURenderPipeline): GPURenderPipeline => { let p = pipes.get(k); if (!p) { p = make(); pipes.set(k, p); } return p; };
 	const R8: GPUColorTargetState[] = [{ format: "rgba8unorm" }];

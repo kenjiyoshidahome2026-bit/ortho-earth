@@ -118,7 +118,7 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 		{ binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
 	const mkPipe = (fmt: GPUTextureFormat, samples = 1, depth: GPUTextureFormat | null = null) => device.createRenderPipeline({
-		layout,
+		label: `text.${fmt}.${samples}x${depth ? "d" : ""}`, layout,
 		vertex: { module: mod, entryPoint: "vs", buffers: [{ arrayStride: STRIDE * 4, stepMode: "instance", attributes: attrs }] },
 		fragment: { module: mod, entryPoint: "fs", targets: [{ format: fmt, blend }] },
 		primitive: { topology: "triangle-strip" },
