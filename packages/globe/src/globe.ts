@@ -932,8 +932,9 @@ const LAZY_PIPES = /[?&]lazypipe=1/.test(location.search) || (LOW_MEM && !/[?&]l
 // （2026-11-06 Galaxy 各 2 回＋トレース：無し＝mesh 系 3 本が 6.5 s に遅れて作られ worker が 0.67 s 停止／1＝停止ゼロ・frame1 +0.1〜0.2 s／2＝停止ゼロだが待ちで frame1 +0.2〜0.3 s。
 //   同じ 10 本が初回描画の最中だと 4.2 s、起動直後なら 0.2〜0.3 s＝作る時機が効く）。lazy でない（デスクトップ）側は起動時に全部作るので無意味＝0
 const WARM_PIPES = qNum(/[?&]warmpipe=(\d)/, LOW_MEM ? 1 : 0);
-// ?meshdrain=MS＝建物メッシュの小片を描画 worker が 1 フレームに MS ms ぶん（＋フレームの合間も）当てる。既定 0＝従来の 1 フレーム 1 個（2026-11-06 Galaxy：134 小片 × 4〜6 fps＝10 秒の正体・device-testing-rule＝まずノブ）
-const MESH_DRAIN = qNum(/[?&]meshdrain=(\d+)/, 0);
+// ?meshdrain=MS＝建物メッシュの小片を描画 worker が 1 フレームに MS ms ぶん（＋フレームの合間も）当てる。0＝従来の 1 フレーム 1 個。
+// LOW_MEM の既定 8（2026-11-06 Galaxy 2v2：134 小片の受け取り 2.2→9.0 s（従来 7.4→13.8 s）・idle 13.9→9.0〜9.5 s・mesh の塞ぎ 7.7→2.8 s）。?meshdrain=0 で戻す
+const MESH_DRAIN = qNum(/[?&]meshdrain=(\d+)/, LOW_MEM ? 8 : 0);
 // ?farterr=0 ＝遠景地形層（深ズーム×チルトの R10 第2アトラス＝ズームインしても遠方の山が消えない一般則）を
 // 無効化する逃げ道。コスト＝GPU 10-16MB＋遠景メッシュ2度描き（チルト深ズーム時のみ）。
 const noFarTerr = /[?&]farterr=0/.test(location.search);
