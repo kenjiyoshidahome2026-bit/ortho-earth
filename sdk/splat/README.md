@@ -42,8 +42,11 @@ pc.setAltitude(alt);                          // move the anchor (m above the el
 const data = await pc.read();                 // { anchor, levels: [{ n, cell, ctr, cov, col, bb, radius }] } — the GPU buffers, for OPFS / IndexedDB
 const again = addSplatCloud(map, data, { id: "pc2" });   // back on the map with no conversion (ms.build = 0)
 
-// export: SPZ per level, or 3D Tiles (KHR_gaussian_splatting + SPZ) with one tile per level (REPLACE refinement)
-import { cloudLevelToSplatData, cloudTileset, cloudLevelGlb, enuToGltfAxes, encodeSpzRaw } from "@ortho-earth/splat";
+// export (cloud-export.ts): one level as .spz (gzipped) with its placement, or 3D Tiles (tileset.json + one glb per level,
+// KHR_gaussian_splatting + KHR_gaussian_splatting_compression_spz_2, REPLACE refinement, root transform ENU → ECEF); zipStore packs the files
+import { cloudToSpz, spzPlacement, cloudTo3DTiles, zipStore } from "@ortho-earth/splat";
+const spz = await cloudToSpz(data, 0);                 // finest level; spzPlacement(data) → { anchor, addData: { origin, upAxis: "z", altitude: "absolute" }, transform }
+const zip = zipStore(await cloudTo3DTiles(data));      // tileset.json, level0.glb, level1.glb, …
 ```
 
 | option | meaning |

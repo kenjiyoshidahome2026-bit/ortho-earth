@@ -1,7 +1,8 @@
 // 点群 → Gaussian splat（cloud.ts・2026-11-06）の node の検定＝計画・ハッシュ・CPU の参照実装（面＝薄い楕円・段ごとの個数・まとめの重み・穴なし）・段の選び・色・共分散 → 尺と向き・SplatData・tileset・glb。
 // WebGPU の変換器（cloud-gpu.ts）は同じ式＝実 GPU の検定は packages/globe の t-pcsplat（verify:webgpu）。node tests/t-cloud.mjs
 import { gunzipSync } from "node:zlib";
-import { cloudPlan, cellHash, levelFor, colorize, buildCloudCpu, covToScaleRot, cloudLevelToSplatData, enuToEcefTransform, enuToGltfAxes, cloudTileset, cloudLevelGlb, CLOUD_DEFAULTS, cloudFormatOf, encodeSpzRaw, decodeSpz, quatMat } from "../src/index.ts";
+import { cloudPlan, cellHash, levelFor, colorize, buildCloudCpu, covToScaleRot, cloudLevelToSplatData, enuToEcefTransform, enuToGltfAxes, cloudTileset, cloudLevelGlb, CLOUD_DEFAULTS, cloudFormatOf, encodeSpzRaw, decodeSpz, quatMat, cloudToSpz, spzPlacement, cloudTo3DTiles, zipStore, crc32 } from "../src/index.ts";
+import { crc32 as zlibCrc32 } from "node:zlib";
 let fails = 0;
 const ok = (name, c, note = "") => { console.log(`${c ? "PASS" : "FAIL"} ${name}${note ? " " + note : ""}`); if (!c) fails++; };
 const near = (a, b, e = 1e-5) => Math.abs(a - b) <= e;
@@ -117,7 +118,21 @@ const bbOf = (pts, n) => { const b = [Infinity, Infinity, Infinity, -Infinity, -
 	const glb = cloudLevelGlb(enuToGltfAxes(d), new Uint8Array([1, 2, 3, 4, 5]));
 	const dv = new DataView(glb.buffer), jl = dv.getUint32(12, true), json = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + jl)));
 	ok("glb", String.fromCharCode(...glb.subarray(0, 4)) === "glTF" && dv.getUint32(8, true) === glb.length && json.meshes[0].primitives[0].extensions.KHR_gaussian_splatting_compression_spz_2.bufferView === 0 && json.accessors[0].count === d.n && json.bufferViews[0].byteLength === 5 && glb[20 + jl + 8] === 1 && glb.length % 4 === 0);
-	void gunzipSync;
+	// 書き出し（cloud-export.ts）＝.spz（gzip）・置き場・3D Tiles の一式・無圧縮 zip
+	const cloud = { anchor, levels: L };
+	const spzGz = await cloudToSpz(cloud, 1);
+	ok("export.spz", spzGz[0] === 0x1f && spzGz[1] === 0x8b && decodeSpz(gunzipSync(spzGz)).n === L[1].n);
+	const pl = spzPlacement(cloud);
+	ok("export.placement", pl.anchor[0] === anchor[0] && pl.addData.upAxis === "z" && pl.addData.origin[2] === 20 && pl.transform.length === 16 && near(pl.transform[12], T[12]));
+	const files = await cloudTo3DTiles(cloud, { prefix: "lv" });
+	const ts2 = JSON.parse(new TextDecoder().decode(files[0].bytes));
+	ok("export.tiles", files.length === L.length + 1 && files[0].name === "tileset.json" && files[1].name === "lv0.glb" && ts2.root.content.uri === `lv${L.length - 1}.glb` && String.fromCharCode(...files[1].bytes.subarray(0, 4)) === "glTF");
+	ok("export.tiles.empty", await cloudTo3DTiles({ anchor, levels: [] }).then(() => false, () => true));
+	ok("export.spz.badLevel", await cloudToSpz(cloud, 99).then(() => false, e => /no level 99/.test(e.message)));
+	const zip = zipStore([{ name: "a.txt", bytes: new TextEncoder().encode("hello") }, { name: "dir/b.bin", bytes: new Uint8Array([0, 1, 2, 255]) }]);
+	const zdv = new DataView(zip.buffer), eocd = zip.length - 22;
+	ok("zip", zdv.getUint32(0, true) === 0x04034B50 && zdv.getUint32(eocd, true) === 0x06054B50 && zdv.getUint16(eocd + 10, true) === 2 && zdv.getUint32(14, true) === crc32(new TextEncoder().encode("hello")) && crc32(new Uint8Array([0, 1, 2, 255])) === zlibCrc32(new Uint8Array([0, 1, 2, 255])));
+	ok("zip.cd", zdv.getUint32(zdv.getUint32(eocd + 16, true), true) === 0x02014B50);
 }
 console.log(fails ? `${fails} FAIL` : "ALL PASS cloud");
 process.exit(fails ? 1 : 0);

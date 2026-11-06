@@ -9,7 +9,7 @@
 //   WebGPU の無い器は頁全体をエラー（pointcloud-page.ts・本人裁定「頁全体をエラーで大丈夫」）。
 // 見せ方＝粗さ（detail）・色・不透明度、高さ＝足し込み（錨の高さ＝読み直さずに効く）と「地形に合わせる」（地面の点と描いている地形の差の中央値）。
 import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";
-import { splatPlugin, type SplatHandle, type SplatOptions, type CloudData, type CloudColor } from "@ortho-earth/splat";
+import { splatPlugin, cloudToSpz, spzPlacement, cloudTo3DTiles, zipStore, type SplatHandle, type SplatOptions, type CloudData, type CloudColor } from "@ortho-earth/splat";
 import { toPlane, toLonLat, sheetBox, sheetAt, sheetRing } from "./pointcloud-sheets.ts";
 import { openPcCache, type PcCache } from "./pc-cache.ts";
 import { pack, unpack, cacheKey } from "./pc-pack.ts";
@@ -133,6 +133,9 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<div class="row"><label for="pc-opacity">${t("Opacity")}</label><input type="range" id="pc-opacity" min="0.1" max="1" step="0.05" value="1"><output id="pc-opacity-v"></output></div>
 		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show map sheets")}</label>
 		<div class="cache"><span id="pc-cache"></span><button class="btn" id="pc-cache-clear">${t("Clear")}</button></div>
+		<h2>${t("Export")}</h2>
+		<div class="row"><button class="btn" id="pc-exp-spz" disabled>${t("SPZ (finest level)")}</button><button class="btn" id="pc-exp-tiles" disabled>${t("3D Tiles (all levels)")}</button></div>
+		<div class="hint" id="pc-exp">${t("The SPZ comes zipped with placement.json (anchor and the ENU → ECEF matrix); the 3D Tiles zip holds tileset.json and one glb per level (KHR_gaussian_splatting + SPZ).")}</div>
 		<h2>${t("Height")}</h2>
 		<div class="row"><label for="pc-lift">${t("Raise / lower")}</label><input type="range" id="pc-lift" min="-30" max="30" step="0.1" value="0"><output id="pc-lift-v"></output></div>
 		<div class="row"><button class="btn" id="pc-fit">${t("Fit to terrain")}</button><button class="btn" id="pc-zero">${t("Reset")}</button></div>
@@ -203,6 +206,24 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	$("#pc-fit").onclick = () => { if (cur) fit(cur).catch(e => console.warn("[pointcloud] fit", e)); };
 	$("#pc-zero").onclick = () => setLift(0);
 
+	// ── 書き出し（SPZ＝最も細かい段＋置き場・3D Tiles＝段ごとの glb と tileset.json・どちらも無圧縮 zip で 1 本） ──
+	const download = (name: string, bytes: Uint8Array) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "application/zip" })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
+	const exportable = (on: boolean) => { for (const id of ["#pc-exp-spz", "#pc-exp-tiles"]) $<HTMLButtonElement>(id).disabled = !on; };
+	const exportAs = async (kind: "spz" | "tiles") => {
+		const h = cur, label = curSrc?.label ?? "pointcloud"; if (!h) return;
+		exportable(false); $("#pc-exp").textContent = t("Exporting…");
+		try {
+			const c = await h.read(), name = label.replace(/[^\w.-]+/g, "_");
+			const files = kind === "spz" ? [{ name: `${name}.spz`, bytes: await cloudToSpz(c, 0) }, { name: "placement.json", bytes: new TextEncoder().encode(JSON.stringify(spzPlacement(c), null, "\t")) }] : await cloudTo3DTiles(c);
+			const zip = zipStore(files);
+			if (h !== cur) return;
+			download(`${name}-${kind === "spz" ? "spz" : "3dtiles"}.zip`, zip);
+			$("#pc-exp").textContent = tf(t("Exported $1 ($2)"), `${name}-${kind === "spz" ? "spz" : "3dtiles"}.zip`, mb(zip.length));
+		} catch (e) { $("#pc-exp").textContent = String((e as Error)?.message || e); }
+		finally { if (cur) exportable(true); }
+	};
+	$("#pc-exp-spz").onclick = () => exportAs("spz"); $("#pc-exp-tiles").onclick = () => exportAs("tiles");
+
 	// ── 読む：保管した段 → 保管した点 → 回線（読んだ点と変換した段はその場で保管） ──
 	const open = async (src: string, key: string, label: string, extra: Partial<SplatOptions> = {}, restyling = false) => {
 		loading?.abort(); const ac = loading = new AbortController();
@@ -211,7 +232,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		curKey = key; curSrc = { src, key, label, extra }; highlight();
 		$("#pc-info").textContent = ""; if (!restyling) $("#pc-gap").textContent = "";
 		if (!restyling && $<HTMLInputElement>("#pc-autofit").checked) $<HTMLInputElement>("#pc-lift").value = "0";
-		status(tf(t("Opening $1…"), label)); bar(0);
+		status(tf(t("Opening $1…"), label)); bar(0); exportable(false);
 		const t0 = performance.now(), st = style(), kCloud = cacheKey("cloud", key, "auto", st), kPts = cacheKey("points", key, "auto");
 		const done = (e: unknown) => { if (ac.signal.aborted) return true; if (e) { bar(null); curKey = null; curSrc = null; highlight(); status(`${label}: ${String((e as Error)?.message || e)}`, true); return true; } return false; };
 		try {
@@ -242,7 +263,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 			}
 			if (ac.signal.aborted) { h.remove(); return; }
 			prev?.remove();
-			cur = h; alt0 = h.anchor![2]; lift(); bar(null);
+			cur = h; alt0 = h.anchor![2]; lift(); bar(null); exportable(true);
 			const i = h.info as { copc?: boolean; crs?: string; vertical?: string; zRange?: number[] } | null;
 			status(`${label} — ${tf(t("$1 points → $2 splats in $3 levels"), fmtN(h.points), fmtN(h.n), String(h.levels?.length ?? 0))} · ${((performance.now() - t0) / 1000).toFixed(1)} s${from ? ` · ${from}` : ""}`);
 			$("#pc-info").textContent = `${i?.copc ? "COPC" : "LAS"} · ${i?.crs ?? ""}${i?.zRange ? `\n${t("Height")}: ${i.zRange.map(v => v.toFixed(1)).join(" – ")} m (${i.vertical})` : ""}${h.ms ? `\n${t("Conversion")}: ${h.ms.build} ms` : ""}`;
