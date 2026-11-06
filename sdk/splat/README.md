@@ -59,6 +59,8 @@ const zip = zipStore(await cloudTo3DTiles(data));      // tileset.json, level0.g
 | `cloud.fill`, `cloud.cap`, `cloud.maxNb`, `cloud.radius` | thickness added to each splat, the size cap, and the neighbour count / radius (× cell) of the covariance |
 | `cloud.pxPerSplat` | switch to the finer level when a splat is wider than this many pixels (default 1.5) |
 
+**CLI** (repo tool, not in the npm package): `node sdk/splat/scripts/las2splat.mjs <in.las|.laz|.copc.laz|.zip> --out <dir> [--gpu|--cpu] [--crs EPSG:6676] [--vertical orthometric] [--max-points 4000000] [--color auto] [--detail 1] [--levels N] [--format tiles|spz|both]`. `--gpu` (default) opens `packages/globe/tests/tool-las2splat.html` in the headless Chrome for Testing with a real GPU (the same stand as `verify:webgpu`) and runs the browser pipeline, writing the files back through a small local HTTP server; `--cpu` runs the same algorithm in node (`buildCloudCpu`, laz-perf, the engine's CRS and ENU helpers) and is slow for millions of points. Output: `tileset.json` + `level<L>.glb`, and/or `<name>.spz` + `placement.json`.
+
 This is **WebGPU only** by design: with the WebGL2 renderer `ready` rejects (`WebGPU is required for point cloud splats`) and nothing is converted on the CPU. `buildCloudCpu` (the same algorithm in plain JS) exists for tests and the CLI, not for the page.
 
 ## Options
