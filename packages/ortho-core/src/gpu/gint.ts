@@ -161,8 +161,8 @@ export function uploadTexArrU32(device: GPUDevice, raw: Uint32Array, w: number, 
 }
 const ROLE = { stencil: 0, fill: 1, line: 2, lineHidden: 3, hilite: 4, maskStencil: 5, maskFill: 6, point: 7, pointHi: 8, pickLine: 9, pickPoint: 10 };
 
-export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = host.quad4 !== false, layerH = 0 }: GintGPUOptions = {}) {
-	const LAZY = !!host.lazyPipes;   // ?lazypipe=1（renderer と同じ）＝パイプラインを初回使用時に作る（2026-11-06 Galaxy 実測：gint の 28 本が起動時の GPU プロセスを数秒ふさいだ）   // layerH＝2D 配列の層の高さの上書き（検定用・?gintlh=）   // quad4＝線・点を index の 4 頂点で描く（perf plan P3・既定 true・?quad4=0 で旧 6 頂点）
+export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = host.quad4 !== false, layerH = 0 }: GintGPUOptions = {}) {   // layerH＝2D 配列の層の高さの上書き（検定用・?gintlh=）   // quad4＝線・点を index の 4 頂点で描く（perf plan P3・既定 true・?quad4=0 で旧 6 頂点）
+	const LAZY = !!host.lazyPipes;   // ?lazypipe=1（renderer と同じ）＝パイプラインを初回使用時に作る（2026-11-06 Galaxy 実測：gint の 28 本が起動時の GPU プロセスを数秒ふさいだ）
 	const { device, format } = host;
 	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
 	const bump = () => { bakeRev++; requestDraw?.(); };
