@@ -2566,7 +2566,7 @@ function hudSnapshot() {
 		backend: (dbgHost.__backend as string | undefined) || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
 		cpu: memCpu, lab: memLab as HudSnapshot["lab"], boot: bootLine || null, main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
-		idleBlock: BOOT.idle == null ? idleBlockers() : null,   // 最初の idle がまだ＝何が塞いでいるか（present の検証が 8 s の予備タイマーに落ちる原因・2026-11-06 Galaxy）
+		idleBlock: BOOT.idle == null ? idleBlockers() : null, idleHist: idleHistLines(), idleAt: BOOT.idle == null ? null : BOOT.idle | 0,   // 最初の idle がまだ＝何が塞いでいるか（present の検証が 8 s の予備タイマーに落ちる原因・2026-11-06 Galaxy）
 		tileLat: tileLatSnap(),   // 基図タイルの計器 e（必要→画面）と main merge の要求→着地＝「タイル 69 枚が揃った後に何秒黙るか」を USB 無しで切り分ける（2026-11-06 Galaxy）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
@@ -2605,7 +2605,7 @@ function frame() {
 	if (followSt) tickFollow();   // 追従（A4）＝描く前に的の今の位置へ
 	if (repaintAlways) requestDraw();   // 連続描画（MapLibre の map.repaint・B6）
 	if (needsDraw) { needsDraw = false; render(); if (dbgState.tileBoundaries || dbgState.padding) drawDebug(); }
-	if (mapOn.idle.length) checkIdle(nowT);
+	if (mapOn.idle.length || BOOT.idle == null) checkIdle(nowT);   // 最初の idle までは聴き手が居なくても見る（旧＝present の 8 s 予備タイマーが聴き手を外すと二度と来なかった・2026-11-06 Galaxy）
 	requestAnimationFrame(frame);
 }
 // idle（MapLibre 同名・公式例の門 段 2・2026-09-27）＝動いていない・飛んでいない・描き直し待ちが無い・基図が覆って載っている・
@@ -2648,7 +2648,16 @@ function idleBlockers(): string[] {
 	if (EXT) { const es = Object.keys(EXT.ms.sources || {}).filter(id => !map.isSourceLoaded(id)); if (es.length) b.push(`extSource ${es.join(",")}`); }
 	return b;
 }
+// 最初の idle までに何が何秒塞いだか（時間加重の帳・HUD の copy 30s log 用）。frame が来ない間（main 停止）は「main stalled」へ別立て＝材料のせいにしない
+const idleHist = new Map<string, number>(); let idleHistT = 0;
+function idleHistLines(): string[] { return [...idleHist].sort((a, b) => b[1] - a[1]).map(([k, ms]) => `${k} ${(ms / 1000).toFixed(1)} s`); }
 function checkIdle(now: number) {
+	if (BOOT.idle == null) {
+		const b = idleBlockers(), dt = idleHistT ? now - idleHistT : 0; idleHistT = now;
+		const stall = Math.max(0, dt - 250), part = dt - stall;   // 1 フレームが 250 ms を超えた分＝main が止まっていた
+		if (stall) idleHist.set("main stalled", (idleHist.get("main stalled") || 0) + stall);
+		for (const k of b) idleHist.set(k.replace(/ .*/, ""), (idleHist.get(k.replace(/ .*/, "")) || 0) + part);
+	}
 	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !(centerElevMode === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !rasterFading && !extExtras.mounting
 		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 	if (!quiet) { idleState = 0; return; }
