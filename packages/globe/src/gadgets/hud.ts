@@ -21,11 +21,14 @@ export interface HudSnapshot {
 	main?: { ms: number; max: number; long?: Array<{ key: string; ms: number; n: number }> } | null;
 	shadow?: { active: boolean; gpuMs?: number; halfM?: number; N?: number; texelM: number; terrTris?: number; bldTris?: number; meshBatches?: number; meshTris?: number; passes?: number; skipped?: number } | null;
 	vt?: { shown: number; bytes: number; rttMs: number; decodeMs: number; buildMs: number; mergeMs: number; pending?: boolean; fsMs?: number | null } | null;
+	/** 基図タイルの計器 e（必要→画面・主層のみ）の分位 [med, p90, max]（ms）と main merge の要求→着地（ms・-1＝未着）＝copy 30s log の行 */
+	tileLat?: { all: TileLatQ; recent: TileLatQ; merges: Array<{ n: number; reqAt: number; ms: number }> } | null;
 	tiles: { bytes: number; budget: number }; terrain: number; mesh?: { bytes: number; regions: number } | null;
 	heap?: number | null; gpuBytes?: number | null; gpu?: { atlas: number; mesh: number; msaa: number; pool?: number } | null; raster?: number | null;
 	transient: { bytes: number; cache: number; live: number };
 	tier?: { active: number; residentGB: number; workers: number } | null;
 }
+export interface TileLatQ { n: number; total: [number, number, number]; ready: [number, number, number]; wait: [number, number, number]; fetch: [number, number, number]; build: [number, number, number] }
 /** HUD の手綱 */
 export interface HudHandle { open(): void; close(): void; toggle(): void; el: HTMLDivElement }
 
@@ -197,7 +200,15 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		const boot = s?.boot ? [`boot (ms since navigation): ${s.boot}`] : [];
 		const hist = bootHistLines();   // 直近の起動の boot 行（globe.ts bootHistSave・?hud 無しの起動も含む）＝1 本のログで決めない
 		const long = s?.main?.long?.length ? ["main long (15s):", ...s.main.long.map(l => `  ${l.ms.toFixed(0)} ms x${l.n} ${l.key}`)] : [];
-		return [...head, ...boot, ...hist, ...log, ...long].join("\n");
+		return [...head, ...boot, ...hist, ...log, ...long, ...tileLatLines(s?.tileLat)].join("\n");
+	}
+	// 基図タイルの計器 e（必要→画面）と main merge（要求→着地）：タイルが揃った後の沈黙が「取得／組み立て／キュー待ち／結合待ち」のどれかを 1 本のログで切り分ける（2026-11-06）
+	function tileLatLines(t: HudSnapshot["tileLat"]): string[] {
+		if (!t || (!t.all.n && !t.merges.length)) return [];
+		const tri = (v: [number, number, number]) => `${v[0].toFixed(0)}/${v[1].toFixed(0)}/${v[2].toFixed(0)}`;
+		const row = (name: string, qv: TileLatQ) => `  ${name}: ${qv.n} tiles · need→screen ${tri(qv.total)} · need→built ${tri(qv.ready)} · wait ${tri(qv.wait)} · fetch ${tri(qv.fetch)} · build ${tri(qv.build)}`;
+		return ["basemap tiles (ms, med/p90/max; wait = queue + transfer outside the worker):", row("since boot", t.all), row("last 15 s", t.recent),
+			`  main merges (req→ack ms, oldest first): ${t.merges.map(m => `${m.n} tiles @${(m.reqAt / 1000).toFixed(1)}s ${m.ms < 0 ? "pending" : m.ms + " ms"}`).join(" · ") || "none"}`];
 	}
 	// 起動の履歴（localStorage oj.boothist）：この起動を含む直近 10 回・古い順。gap＝前の起動からの分（大きい＝冷えた端末）。q＝その起動の URL の ?以降
 	function bootHistLines(): string[] {

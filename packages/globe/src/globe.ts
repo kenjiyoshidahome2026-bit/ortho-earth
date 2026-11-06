@@ -815,6 +815,14 @@ const vtSummary = (sinceMs = 10000) => {
 		merge: { n: M.length, changed: M.length ? M.reduce((s, r) => s + r.add + r.del, 0) / M.length : 0, tiles: M.length ? M.reduce((s, r) => s + r.n, 0) / M.length : 0 } };
 };
 dbgHost.__vtLog = () => ({ lat: vtLat.slice(), merge: vtMerge.slice() });
+// HUD の 30 秒ログ用：計器 e の分位（起動から全部・直近 15 秒）と main merge の要求→着地（直近 6 件）。fetch＝worker 内の取得・build＝組み立て・
+// wait＝ready までのうち worker の外（キュー待ち＋境界の転送）・total＝必要→画面（merge の待ちを含む）。tiles 69 枚の後の沈黙が「取得／組み立て／結合待ち」のどれかが一目で分かる
+const tileLatSnap = (): HudSnapshot["tileLat"] => {
+	const q = (a: number[], f: number) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(f * (s.length - 1)))]; };
+	const agg = (L: VtLatRec[]) => { const f = (k: keyof VtLatRec) => { const a = L.map(r => r[k] as number); return [q(a, 0.5), q(a, 0.9), q(a, 1)] as [number, number, number]; }; return { n: L.length, total: f("total"), ready: f("ready"), wait: f("wait"), fetch: f("fetch"), build: f("build") }; };
+	const t0 = performance.now() - 15000;
+	return { all: agg(vtLat), recent: agg(vtLat.filter(r => r.at >= t0)), merges: mergeLog.slice(-6).map(m => ({ n: m.n, reqAt: m.reqAt, ms: m.ackAt ? m.ackAt - m.reqAt : -1 })) };
+};
 dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow, lab: memLab, vt: vtSummary() });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）。lab＝注記の計器（T-P0）。vt＝計器 e／f の直近 10 秒
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
@@ -2550,6 +2558,7 @@ function hudSnapshot() {
 		backend: (dbgHost.__backend as string | undefined) || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
 		cpu: memCpu, lab: memLab as HudSnapshot["lab"], boot: bootLine || null, main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
+		tileLat: tileLatSnap(),   // 基図タイルの計器 e（必要→画面）と main merge の要求→着地＝「タイル 69 枚が揃った後に何秒黙るか」を USB 無しで切り分ける（2026-11-06 Galaxy）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
 		device: {   // navigator/画面＝どの端末が落ちたかの特定（RAMは4GB級/8GB級の判別、DPR×viewport＝フレームバッファのGPU圧）
