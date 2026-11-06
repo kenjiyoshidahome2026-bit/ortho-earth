@@ -11,7 +11,7 @@
 //   ZIP（.zip の中の LAS/LAZ）は worker が解く＝取る間の進み具合は opts.onProgress(loaded, total)。
 import { cameraState, loadGeoid, geoidHeight } from "@ortho-earth/core";
 import type { CameraPose } from "@ortho-earth/core/camera";
-import type { COPCHandle, COPCOptions, OverlayHandle } from "../../globe.d.ts";
+import type { COPCHandle, COPCOptions, OverlayHandle, PointCloudDump, PointCloudReadOptions } from "../../globe.d.ts";
 import { planesOf } from "../frustum.ts";   // mvp → 視錐台の 6 面（tiles3d と同じ 1 本）
 import type { Requester } from "../request.ts";
 import type { GlobeMap } from "../types/map.ts";
@@ -47,12 +47,12 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "copc" });
 	const pending = new Map<string | number, { res: (d: unknown) => void; rej: (e: Error) => void }>(); let rid = 0;
 	w.onmessage = e => { const d = e.data || {};
-		if (d.type === "progress") { const st = sets.get(d.id); try { st?.opts.onProgress?.(d.loaded, d.total); } catch (err) { console.warn("[copc] onProgress", err); } return; }   // ZIP を取る間の進み具合（rpc の答えでない）
+		if (d.type === "progress") { const st = sets.get(d.id); try { (st?.opts.onProgress ?? readProgress.get(d.id))?.(d.loaded, d.total); } catch (err) { console.warn("[copc] onProgress", err); } return; }   // ZIP を取る間の進み具合（rpc の答えでない）
 		const p = pending.get(d.rid ?? `o${d.id}`); if (!p) return; pending.delete(d.rid ?? `o${d.id}`); d.type === "error" ? p.rej(new Error(d.error)) : p.res(d); };
 	const rpc = <T>(msg: Record<string, unknown>, key: string | number, transfer: Transferable[] = []) => new Promise<T>((res, rej) => { pending.set(key, { res, rej } as { res: (d: unknown) => void; rej: (e: Error) => void }); w.postMessage({ ...msg, ell }, transfer); });
 	const GS_MAX = 1200;   // fitTerrain に使う地面の見本の上限（粗い節から＝全体に散る）
 	const BUDGET = lowMem ? 2e6 : 6e6, MAX_INFLIGHT = lowMem ? 2 : 4;
-	const sets = new Map<string, PcSet>();
+	const sets = new Map<string, PcSet>(), readProgress = new Map<string, (loaded: number, total: number) => void>();
 	let seq = 0, inflight = 0, loadedPts = 0, raf = 0, frameNo = 0;
 	const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; update(); }); };
 
@@ -79,6 +79,22 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 		if (set.opts.fit !== false) map.fitBounds(set.info.bbox, { padding: 40, maxZoom: 18 });
 		schedule();
 		return handle(set);
+	}
+	// 丸ごと読む（map.readPointCloud・2026-11-06）＝描かずに点を返す：錨（[lon, lat, 標高 m]）からの東北上 m（Float32）・標高・RGB・強度・分類。
+	//   点群 → Gaussian splat（@ortho-earth/splat の cloud＝WebGPU の変換器）の材料。COPC は階層を全部読んで浅い節から順に上限まで・普通の LAS/LAZ/ZIP は丸ごと読んで等間隔に間引く
+	async function read(src: string | File | Blob, opts: PointCloudReadOptions = {}): Promise<PointCloudDump> {
+		const id = `read${++seq}`;
+		let url = src, headers: Record<string, string> | undefined;
+		if (typeof src === "string") { const r = requester.resolve(new URL(src, location.href).href, "Source"); url = r.url; headers = r.headers; }
+		if (opts.onProgress) readProgress.set(id, opts.onProgress);
+		try {
+			const opened = await rpc<{ info: COPCInfo }>({ type: "open", id, src: url, headers, crs: opts.crs, vertical: opts.vertical }, `o${id}`);
+			let N = 0;
+			if (opened.info.vertical === "ellipsoidal") { await loadGeoid().catch(() => {}); N = geoidHeight(opened.info.center[0], opened.info.center[1]) || 0; }
+			const q = ++rid;
+			const r = await rpc<Omit<PointCloudDump, "info">>({ type: "dump", id, rid: q, maxPoints: opts.maxPoints ?? (lowMem ? 1.5e6 : 4e6), N }, q);
+			return { ...r, info: opened.info };
+		} finally { readProgress.delete(id); w.postMessage({ type: "close", id }); }
 	}
 	function addNode(set: PcSet, n: NodeMsg) { set.nodes.set(keyStr(n.key), { ...n, state: "none", used: 0, on: false }); }
 	function applyStyle(set: PcSet) {
@@ -194,5 +210,5 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	map.on("move", onMove); map.on("settle", onMove);
 	const destroy = () => { for (const id of [...sets.keys()]) remove(id); w.terminate(); map.off?.("move", onMove); map.off?.("settle", onMove); cancelAnimationFrame(raf); };
 	signal?.addEventListener("abort", destroy, { once: true });
-	return { add, remove, list: () => [...sets.values()].map(handle), destroy };
+	return { add, read, remove, list: () => [...sets.values()].map(handle), destroy };
 }

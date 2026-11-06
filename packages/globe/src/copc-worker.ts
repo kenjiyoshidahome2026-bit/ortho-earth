@@ -3,6 +3,8 @@
 //   開く  { type:"open", id, src: URL | Blob, headers?, crs?, vertical?, ell } → { type:"opened", id, info, root: { nodes, pages } }
 //         ZIP（.zip・"PK\3\4"）＝中の最初の LAS/LAZ を解いてから（pointcloud-zip.js）。取る間は { type:"progress", id, loaded, total } を送る
 //   頁    { type:"page", id, rid, page: { offset, byteSize } } → { type:"page", id, rid, nodes, pages }
+//   丸ごと { type:"dump", id, rid, maxPoints, N } → { type:"dump", id, rid, n, anchor:[lon,lat,elev], pts(Float32・錨からの東北上 m), elev, rgb(Uint8×3|null), intensity, cls, bb, total, ms }（open の後・map.readPointCloud＝点群 → splat の材料・2026-11-06）
+//         COPC は階層を全部読んで浅い節から順に maxPoints まで（＝自然な間引き）・丸ごと読みは等間隔に間引く
 //   節    { type:"node", id, rid, node, N } → { type:"node", id, rid, n, pos(Float32・原点相対), origin, rgb(Uint8×3|null), intensity(Uint16), cls(Uint8), elev(Float32・m), gs, ms: { read, decode, proj } }
 //         gs＝地面の見本（Float64 [経度, 緯度, 標高 m]×最大 GS 点・分類 2＝地面を優先）＝地形に合わせる（手綱の fitTerrain）の材料。heightOffset は描き（copc-gl の lift）で足す＝ここでは足さない
 // 解読＝"#pointcloud-formats" の laz（プラグイン @ortho-earth/tile-formats/pointcloud＝laz-perf 0.0.7 の ChunkDecoder・WASM・Apache-2.0）。
@@ -14,7 +16,7 @@ import { POINTCLOUD_FORMATS } from "#pointcloud-formats";
 import { openSource } from "geopbf/cog/source";
 import { resolveCrs } from "./pointcloud-crs.ts";
 import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.ts";
-import { placeNode } from "./copc-place.ts";
+import { placeNode, dumpEnu, dumpStride } from "./copc-place.ts";
 import { wholeFileLimit, createStore, appendRaw, buildOctree, gatherNode } from "./pointcloud-octree.ts";
 import { isZip, unzipPointCloud } from "./pointcloud-zip.ts";
 import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, readRecordsRaw, rgbMax, nodeBounds, geoKeysEpsg, hasRgb } from "@ortho-earth/tile-formats/las";   // LAS/COPC の形を読む純関数（依存なし・laz-perf は読まない）
@@ -34,7 +36,8 @@ interface PcSet {
 type SphNode = CopcNode & { c?: number[]; r?: number; ll?: ArrayLike<number>; spacingM?: number };
 /** main からの便（type ごとに使う欄が違う） */
 interface CopcMsg {
-	type?: "open" | "page" | "node" | "close"; id: number; rid?: number; ell?: boolean;
+	type?: "open" | "page" | "node" | "dump" | "close"; id: number; rid?: number; ell?: boolean;
+	/** dump＝読む点の上限（等間隔に間引く・0＝全部）。N（節と同じ欄）＝楕円体高なら中心の EGM96 の N（m） */ maxPoints?: number;
 	src?: string | Blob; headers?: Record<string, string>; crs?: string; vertical?: "orthometric" | "ellipsoidal";
 	page?: { offset: number; byteSize: number }; node?: CopcNode; N?: number;
 }
@@ -171,6 +174,79 @@ async function node(m: CopcMsg & { node: CopcNode }) {
 	return { n, pos, origin, affine, rgb, intensity: r.intensity, cls: r.classification, elev, gs, ms: { read: t1 - t0, decode: t2 - t1, proj: performance.now() - t2 } };   // ms＝計測（点群計画 段 0）：取得・解読（LAZ＋記録）・投影と色
 }
 
+// 丸ごと＝全点（上限つき）を錨からの東北上 m に（map.readPointCloud・点群 → Gaussian splat の材料・2026-11-06）。錨＝立方体の中心の経緯度・高さの範囲の中央（標高 m）
+/** 節の記録を等間隔に間引く（stride 1＝そのまま）。k＝残す数 */
+function thin(r: LasRecords, stride: number, k: number): LasRecords {
+	if (stride <= 1) return r;
+	const x = new Float64Array(k), y = new Float64Array(k), z = new Float64Array(k), intensity = new Uint16Array(k), classification = new Uint8Array(k), rgb = r.rgb ? new Uint16Array(k * 3) : null;
+	for (let i = 0, p = 0; i < k; i++, p += stride) { x[i] = r.x[p]; y[i] = r.y[p]; z[i] = r.z[p]; intensity[i] = r.intensity[p]; classification[i] = r.classification[p]; if (rgb) { rgb[i * 3] = r.rgb![p * 3]; rgb[i * 3 + 1] = r.rgb![p * 3 + 1]; rgb[i * 3 + 2] = r.rgb![p * 3 + 2]; } }
+	return { x, y, z, intensity, classification, rgb };
+}
+
+async function dump(m: CopcMsg) {
+	const set = sets.get(m.id); if (!set) throw new Error("copc: not open");
+	const { hdr, ll, info } = set, t0 = performance.now(), max = m.maxPoints || 0, dz = set.orthometric ? 0 : -(m.N || 0);
+	const c = ll([info.center[0], info.center[1]]), vUnit = set.vUnit;
+	let z0: number, z1: number;
+	if (set.mem) { z0 = set.mem.store.min[2]; z1 = set.mem.store.max[2]; } else { z0 = hdr.min[2]; z1 = hdr.max[2]; }
+	const anchor = [c[0], c[1], (z0 + z1) / 2 * vUnit + dz];
+	const bb = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+	let total: number, n: number, out: { pts: Float32Array<ArrayBuffer>; elev: Float32Array<ArrayBuffer>; at: number; bb: number[] }, rgb: Uint8Array<ArrayBuffer> | null, cls: Uint8Array<ArrayBuffer>, intensity: Uint16Array<ArrayBuffer>;
+	let tRead = 0;
+	if (set.mem) {   // 丸ごと読み＝等間隔に間引く
+		const st = set.mem.store; total = st.at;
+		const stride = dumpStride(total, max); n = Math.ceil(total / stride);
+		out = { pts: new Float32Array(n * 3), elev: new Float32Array(n), at: 0, bb };
+		rgb = st.rgb ? new Uint8Array(n * 3) : null; cls = new Uint8Array(n); intensity = new Uint16Array(n);
+		const [sx, sy, sz] = st.scale as number[], [ox, oy, oz] = st.offset as number[], B = 65536;
+		const x = new Float64Array(B), y = new Float64Array(B), z = new Float64Array(B);
+		for (let i = 0, k = 0; i < total; i += stride * B) {   // B 点ずつ原座標に戻して置く
+			let b = 0;
+			for (let p = i; p < total && b < B; p += stride, b++, k++) { x[b] = st.X[p] * sx + ox; y[b] = st.Y[p] * sy + oy; z[b] = st.Z[p] * sz + oz; cls[k] = st.classification[p]; intensity[k] = st.intensity[p]; if (rgb) { rgb[k * 3] = st.rgb![p * 3]; rgb[k * 3 + 1] = st.rgb![p * 3 + 1]; rgb[k * 3 + 2] = st.rgb![p * 3 + 2]; } }
+			dumpEnu({ x, y, z }, b, { ll, vUnit, dz, anchor }, out);
+		}
+	} else {   // COPC＝階層を全部読み、浅い節から順に上限まで（深さの順＝自然な間引き）
+		const nodes: CopcNode[] = [], pages: CopcPage[] = [{ key: [0, 0, 0, 0], offset: (info as CopcInfo).rootHierOffset, byteSize: (info as CopcInfo).rootHierSize }], seen = new Set<string>();
+		while (pages.length) {
+			const pg = pages.pop()!, k = pg.key.join("-"); if (seen.has(k)) continue; seen.add(k);
+			const page = parseHierarchyPage(new Uint8Array(await set.src!.read(pg.offset, pg.byteSize)));
+			for (const nd of page.nodes) if (nd.pointCount > 0) nodes.push(nd);
+			for (const sp of page.pages) pages.push(sp);
+		}
+		nodes.sort((a, b) => a.key[0] - b.key[0] || a.offset - b.offset);
+		total = nodes.reduce((s, nd) => s + nd.pointCount, 0);
+		// 浅い深さは丸ごと・上限に当たる深さは（その深さの節を全部・各節を等間隔に間引いて）残りの枠に収める＝偏らない。より深い節は読まない
+		const take: { nd: CopcNode; stride: number; k: number }[] = []; let want = 0;
+		for (let i = 0; i < nodes.length;) {
+			const d = nodes[i].key[0]; let j = i, sum = 0; while (j < nodes.length && nodes[j].key[0] === d) sum += nodes[j++].pointCount;
+			const room = max ? max - want : Infinity;
+			if (room <= 0) break;
+			const stride = dumpStride(sum, room);
+			for (let q = i; q < j; q++) { const k = Math.ceil(nodes[q].pointCount / stride); take.push({ nd: nodes[q], stride, k }); want += k; }
+			if (stride > 1) break;
+			i = j;
+		}
+		n = want;
+		out = { pts: new Float32Array(n * 3), elev: new Float32Array(n), at: 0, bb };
+		rgb = hasRgb(hdr.format) ? new Uint8Array(n * 3) : null; cls = new Uint8Array(n); intensity = new Uint16Array(n);
+		const decode = await laz();
+		let shift = -1;   // RGB の 16bit／8bit＝最初の節で見分ける
+		for (let i = 0; i < take.length; i += 4) {   // 4 節ずつ取る（読みと解読を重ねる）
+			const batch = take.slice(i, i + 4), t1 = performance.now();
+			const bufs = await Promise.all(batch.map(b => set.src!.read(b.nd.offset, b.nd.byteSize)));
+			tRead += performance.now() - t1;
+			for (let j = 0; j < batch.length; j++) {
+				const { nd, stride, k } = batch[j], rec = await decode(bufs[j], { format: hdr.format, recordLength: hdr.recordLength, count: nd.pointCount }), r = thin(readRecords(rec, nd.pointCount, hdr), stride, k), at = out.at;
+				dumpEnu(r, k, { ll, vUnit, dz, anchor }, out);
+				cls.set(r.classification, at); intensity.set(r.intensity, at);
+				if (rgb && r.rgb) { if (shift < 0) { let mx = 0; for (let q = 0; q < r.rgb.length; q++) if (r.rgb[q] > mx) mx = r.rgb[q]; shift = mx > 255 ? 8 : 0; } for (let q = 0; q < r.rgb.length; q++) rgb[at * 3 + q] = r.rgb[q] >> shift; }
+			}
+		}
+	}
+	if (!n) bb.fill(0);
+	return { n, anchor, pts: out.pts, elev: out.elev, rgb, intensity, cls, bb, total, ms: { read: Math.round(tRead), total: Math.round(performance.now() - t0) } };
+}
+
 self.onmessage = async (e: MessageEvent<CopcMsg | null>) => {
 	const m = (e.data || {}) as CopcMsg;
 	try {
@@ -180,6 +256,10 @@ self.onmessage = async (e: MessageEvent<CopcMsg | null>) => {
 		else if (m.type === "node") {
 			const r = await node(m as CopcMsg & { node: CopcNode });
 			self.postMessage({ type: "node", id: m.id, rid: m.rid, ...r }, [r.pos.buffer, r.elev.buffer, r.intensity.buffer, r.cls.buffer, ...(r.rgb ? [r.rgb.buffer] : [])]);
+		}
+		else if (m.type === "dump") {
+			const r = await dump(m);
+			self.postMessage({ type: "dump", id: m.id, rid: m.rid, ...r }, [r.pts.buffer, r.elev.buffer, r.intensity.buffer, r.cls.buffer, ...(r.rgb ? [r.rgb.buffer] : [])]);
 		}
 		else if (m.type === "close") sets.delete(m.id);
 	} catch (err) {

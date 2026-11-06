@@ -8,7 +8,8 @@ import type { SplatData } from "../globe.d.ts";
 type SplatIn = { [K in keyof SplatData]?: unknown } & { n?: number; positions?: Float32Array; colors?: Uint8Array; sh?: Float32Array; crs?: string; transform?: ArrayLike<number> };
 export const SPLAT_FORMATS: readonly string[] = Object.freeze(["ply", "splat", "spz", "ksplat", "sog"]);
 const SPLAT_CRS: readonly string[] = Object.freeze(["lnglat", "ecef", "local"]);
-export const isSplatUrl = (u: unknown): u is string => typeof u === "string" && /\.(ply|splat|spz|ksplat|sog)(\?|#|$)/i.test(u);
+// 点群（.las／.laz／.copc.laz／.zip の中の LAS）の URL も通す（2026-11-06）＝plugin（@ortho-earth/splat の cloud）が map.readPointCloud で読み、WebGPU で splat に変換する
+export const isSplatUrl = (u: unknown): u is string => typeof u === "string" && /\.(ply|splat|spz|ksplat|sog|las|laz|zip)(\?|#|$)/i.test(u);
 const f32 = (v: unknown, name: string, len: number) => {
 	if (!(v instanceof Float32Array)) throw new TypeError(`splat: ${name} must be a Float32Array`);
 	if (v.length !== len) throw new RangeError(`splat: ${name} length ${v.length} != ${len}`);

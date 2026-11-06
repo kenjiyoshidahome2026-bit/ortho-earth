@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";
-import { crossOriginIsolation, noChunkOptimization, asyncMainCss, engineAliases, bootScreen } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
+import { crossOriginIsolation, noChunkOptimization, asyncMainCss, engineAliases, bootScreen, moduleUrlAsChunk } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // pointcloud＝/japan/pointcloud。2026-10-24 に ortho-japan の頁から 1 つのアプリへ（本人「全アプリが横並びで生成される方が綺麗」→「それでやりますか！」・apps/hex と同じ形）。
 // 自前の Worker は持たない＝出力 dist/site/japan/ を japan-host の build（packages/globe/scripts/lib/gather-apps.mjs＝package.json の servedAt で拾う）が集めて /japan/ の Worker が配る（URL は変わらない）。
@@ -15,5 +15,5 @@ export default defineConfig(() => ({
 	build: { outDir: resolve(import.meta.dirname, "dist/site/japan"), emptyOutDir: true, rollupOptions: { input: { pointcloud: resolve(import.meta.dirname, "pointcloud.html") }, ...noChunkOptimization } },
 	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation(), sharedEngine(), asyncMainCss, bootScreen],
+	plugins: [crossOriginIsolation(), sharedEngine(), moduleUrlAsChunk, asyncMainCss, bootScreen],   // moduleUrlAsChunk＝@ortho-earth/splat の描き手（new URL("./splat-draw.js")）を chunk に（apps/splat と同じ）
 }));

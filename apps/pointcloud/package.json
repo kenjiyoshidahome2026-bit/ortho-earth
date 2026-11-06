@@ -11,10 +11,11 @@
 		"build": "node scripts/verify-i18n.mjs && vite build",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
-		"test": "node tests/t-pointcloud.mjs"
+		"test": "node tests/t-pointcloud.mjs && node tests/t-pc-pack.mjs"
 	},
 	"dependencies": {
 		"@ortho-earth/globe": "*",
-		"@ortho-earth/regions": "*"
+		"@ortho-earth/regions": "*",
+		"@ortho-earth/splat": "*"
 	}
 }

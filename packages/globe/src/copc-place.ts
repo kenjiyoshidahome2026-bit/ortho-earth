@@ -67,3 +67,29 @@ export function placeNode(r: { x: ArrayLike<number>; y: ArrayLike<number>; z: Ar
 	}
 	return { pos, origin, elev, affine: false, errM };
 }
+
+// ---- 丸ごとの点を錨からの東北上 m に置く（点群 → Gaussian splat・2026-11-06）----
+// copc-worker の dump（map.readPointCloud）が使う純関数（node＝tests/t-copc-place.mjs ④）。@ortho-earth/splat の cloud（WebGPU の変換器）へ渡す形＝
+//   錨＝[lon0, lat0, elev0]・点＝錨からの東（m）・北（m）・上（m）＝splat の lnglat の置き方（toEnu）と同じ式＝球 R_SPHERE・丸みの落ち込み (e²+n²)/(2R) を上から引く。
+//   図郭（400 m × 300 m）なら Float32 で 1 mm 以下＝十分。
+export const R_SPHERE = 6371000;
+/** 東北上に置いた点＝dumpEnu の戻り */
+export interface EnuDump { n: number; pts: Float32Array<ArrayBuffer>; elev: Float32Array<ArrayBuffer>; bb: number[] }
+/**
+ * @param r  原座標（scale・offset を掛けた値）
+ * @param n  点の数
+ * @param o  ll＝原座標 → 経緯度・vUnit＝鉛直の単位（m）・dz＝高さに足す m（−N）・anchor＝[lon0, lat0, elev0]
+ * @param out  書き込む先（pts＝n*3・elev＝n）と書き始めの番号（at）＝節ごとに呼んで一つの配列に詰める
+ */
+export function dumpEnu(r: { x: ArrayLike<number>; y: ArrayLike<number>; z: ArrayLike<number> }, n: number, { ll, vUnit, dz, anchor }: { ll: (p: number[]) => ArrayLike<number>; vUnit: number; dz: number; anchor: ArrayLike<number> }, out: { pts: Float32Array; elev: Float32Array; at: number; bb: number[] }): void {
+	const lon0 = anchor[0], lat0 = anchor[1], h0 = anchor[2], ce = Math.cos(lat0 * D2R) * D2R * R_SPHERE, cn = D2R * R_SPHERE, bb = out.bb, p = [0, 0];
+	for (let i = 0, o = out.at * 3; i < n; i++, o += 3) {
+		p[0] = r.x[i]; p[1] = r.y[i];
+		const g = ll(p), e = (g[0] - lon0) * ce, nn = (g[1] - lat0) * cn, h = r.z[i] * vUnit + dz, u = h - h0 - (e * e + nn * nn) / (2 * R_SPHERE);
+		out.pts[o] = e; out.pts[o + 1] = nn; out.pts[o + 2] = u; out.elev[out.at + i] = h;
+		if (e < bb[0]) bb[0] = e; if (nn < bb[1]) bb[1] = nn; if (u < bb[2]) bb[2] = u; if (e > bb[3]) bb[3] = e; if (nn > bb[4]) bb[4] = nn; if (u > bb[5]) bb[5] = u;
+	}
+	out.at += n;
+}
+/** 読む点の間引き＝count 点から最大 max 点を等間隔に（stride＝何点に 1 点か・1＝全部） */
+export const dumpStride = (count: number, max: number): number => max > 0 && count > max ? Math.ceil(count / max) : 1;

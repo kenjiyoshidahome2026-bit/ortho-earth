@@ -3442,6 +3442,7 @@ const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.ts")).crea
 		attrZone = null; requestDraw();
 	} });
 map.addPointCloud = async (src, opts) => (await copcGet()).add(src, opts);   // COPC は節だけ範囲読み・普通の LAS/LAZ は丸ごと読み（点群計画 段 3-3・2,000 万点まで）
+map.readPointCloud = async (src, opts) => (await copcGet()).read(src, opts);   // 描かずに点を丸ごと返す（錨からの東北上 m）＝@ortho-earth/splat の cloud（点群 → Gaussian splat・WebGPU）の材料（2026-11-06）
 map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(h => h.remove()) : copcCtl.remove(id)) : false;
 {
 	const cSpec = new URLSearchParams(location.search).get("copc");

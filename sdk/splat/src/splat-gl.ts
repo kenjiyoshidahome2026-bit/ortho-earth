@@ -24,7 +24,12 @@ export type SplatAltitude = "relative" | "absolute";
 export interface SplatLayerBody { n: number; anchor: [number, number, number]; alt?: SplatAltitude; on?: boolean; ctr: Float32Array; cov: Float32Array; rgba: Uint8Array; radius?: number; depthTest?: boolean; properties?: Record<string, unknown> | null; rot?: Float32Array | null; shq?: Uint32Array | null; shScale?: number; shDeg?: number; shWords?: number;
 	/** LoD の順位（0 が一番重い・importanceRank）。lod＝画面の 1 px² あたり描く個数（0＝全部描く） */
 	rank?: Uint32Array | null; lod?: number }
-export type SplatMessage = ({ type: "layer"; q: string } & SplatLayerBody) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "probe"; id: unknown };
+/** 点群 → splat（cloud・2026-11-06・WebGPU の描き手だけ）：点（錨からの東北上 m・n×3）と色（RGBA）を受けて変換器（cloud-gpu.ts）で段の層を作る。params＝cloud.ts の CloudParams */
+export interface CloudMessage { type: "cloud"; q: string; n: number; anchor: [number, number, number]; alt?: SplatAltitude; pts: Float32Array; rgba: Uint8Array; bb: number[]; depthTest?: boolean; properties?: Record<string, unknown> | null; on?: boolean; params: Record<string, unknown> }
+/** 保存した段（cloudRead の答え）を載せ直す */
+export interface CloudLevelsMessage { type: "cloudLevels"; q: string; anchor: [number, number, number]; alt?: SplatAltitude; depthTest?: boolean; properties?: Record<string, unknown> | null; on?: boolean; pxPerSplat?: number; levels: Array<{ n: number; cell: number; ctr: Float32Array; cov: Float32Array; col: Uint32Array; bb: ArrayLike<number>; radius: number }> }
+export type SplatMessage = ({ type: "layer"; q: string } & SplatLayerBody) | { type: "remove"; q: string } | { type: "vis"; q: string; on: boolean } | { type: "clear" } | { type: "probe"; id: unknown }
+	| CloudMessage | CloudLevelsMessage | { type: "cloudRead"; q: string; id: unknown } | { type: "anchor"; q: string; alt: number };
 /** pick の答え（統一 picking が layer で手綱に配る） */
 export interface SplatPickResult { id: number; q: string; layer: string; index: number; distance: number; lngLat: [number, number]; properties: Record<string, unknown> & { index: number } }
 export interface EnuBasis { E: number[]; N: number[]; U: number[]; u: number[] }
