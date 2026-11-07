@@ -410,13 +410,15 @@ try {
 		ok("amSelect", editor.state.selection === amEid);
 		const ov = document.querySelector("#map .ge-overlay"), octx = ov.getContext("2d"), d = devicePixelRatio || 1;
 		const alphaAt = (lng, lat) => { const s = map.projectLL(lng, lat); return octx.getImageData(Math.round(s[0] * d), Math.round(s[1] * d), 1, 1).data[3]; };
+		for (let i = 0; i < 40 && !(alphaAt(180, 0) > 0); i++) await sleep(100);   // 並行負荷だとオーバレイの再描画（frame フック）が 250 ms に収まらない＝塗りが出るまで待つ（deploy 300・301）
 		ok("amFillInside", alphaAt(180, 0) > 0 && alphaAt(179.995, 0.002) > 0 && alphaAt(-179.995, -0.002) > 0);   // 円の内側（縫い目の両側）＝選択の塗り
 		ok("amNoBand", alphaAt(-179.97, 0) === 0 && alphaAt(179.97, 0) === 0 && alphaAt(179.97, 0.003) === 0);     // 同じ緯度帯の円の外＝裏側回りの帯が無い
 		// ドラッグ中＝gint は消灯・オーバレイが唯一の絵（本人報告「ドラッグ中の表示がおかしい」の再現経路）：東端の頂点を掴んで動かしたまま検分
 		const v0 = map.projectLL(-179.99, 0);   // 東端の頂点（ring[0]）
 		C().dispatchEvent(new PointerEvent("pointerdown", ev(v0[0], v0[1], 13)));
 		M().dispatchEvent(new PointerEvent("pointermove", ev(v0[0] + 12, v0[1] + 5, 13)));
-		await sleep(120);   // frame フック＝オーバレイ再描画
+		for (let i = 0; i < 20 && !editor.state.drag; i++) await sleep(100);   // frame フック＝オーバレイ再描画（並行負荷だと 120 ms では足りない）
+		await sleep(120);
 		ok("amDragState", !!editor.state.drag && !!editor.state.dragEids?.has(amEid));
 		ok("amDragFill", alphaAt(180, 0) > 0 && alphaAt(179.995, 0.002) > 0 && alphaAt(-179.995, -0.002) > 0);
 		ok("amDragNoBand", alphaAt(-179.97, 0) === 0 && alphaAt(179.97, 0) === 0 && alphaAt(179.97, 0.003) === 0);
