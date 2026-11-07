@@ -147,8 +147,8 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 | 1 | この文書 | 本人の修正が入って確定 |
 | 2 | `sdk/ortho-export`（CLI）：地形＋PLATEAU → `anchor.json`・`terrain.glb`・`buildings.glb`・`README.md`。検定＝合成の fetch で錨・DEM・地形・建物の座標の付け替え（`tests/t-export.mjs`）＋丸の内 2 街区の実走 | 済（2026-11-07 実走：geoid 36.76 m・地形 12 枚 7,544 頂点 0.6 MB・建物 31 枚 10.5 MB（千代田 27・中央 4）・4.1 s。建物はタイル単位＝bbox より広い約 1.2×1.1 km が入る） |
 | 2′ | 点群＝`/japan/pointcloud` の「PLY（点・Unity 向け）」ボタン（`apps/pointcloud/pc-ply.ts`・読んだ点をそのまま＝図郭 1 枚か熱海の見本・錨は見出しの comment・2026-11-07） | 熱海の見本が PLY で出て Unity の `PlyImporter` が読む（ブラウザの実機＝未） |
-| 3 | 取り込み口：`decodeModel` が `asset.extras.orthoEarth.anchor` を読む（`opts.at` が無い時・`tests/model-anchor.mjs`）／`glbconv` が錨を `CESIUM_RTC` へ畳む（`glbToScene`）／Unity の `Ortho Earth > Export selection to GLB…` が錨を押す | Unity で出した GLB をドロップすると錨の位置に立つ（エンジン側＝済・2026-11-07。Unity の Export の実機＝未） |
-| 4 | `unity/com.ortho-earth.unity/`（UPM package・Unity 6・URP・glTFast）：`OrthoEarthAnchor`・`Geo`・`PlyLoader`／`PlyImporter`・`Place export folder in scene…`・`Export selection to GLB…`・README。見本のシーンは段 2 の実走の後に `Samples~/` へ | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る（package＝書いた・2026-11-07。Unity 実機＝未） |
+| 3 | 取り込み口：`decodeModel` が `asset.extras.orthoEarth.anchor` を読む（`opts.at` が無い時・`tests/model-anchor.mjs`）／`glbconv` が錨を `CESIUM_RTC` へ畳む（`glbToScene`）／Unity の `Ortho Earth > Export selection to GLB…` が錨を押す | Unity で出した GLB をドロップすると錨の位置に立つ（エンジン側＝済。Unity の Export → `glbToScene` で元の terrain.glb と prims・頂点・RTC が一致＝2026-11-07 実機で済） |
+| 4 | `unity/com.ortho-earth.unity/`（UPM package・Unity 6・URP・glTFast）：`OrthoEarthAnchor`・`Geo`・`PlyLoader`／`PlyImporter`・`Place export folder in scene…`・`Export selection to GLB…`・README。見本のシーンは段 2 の実走の後に `Samples~/` へ | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る（2026-11-07 実機で済：Unity 6000.6.8f1・glTFast 6.14.1・Draco 5.6.0 でエラー 0・丸の内の Place が bbox の四隅と一致・最高の建物が東京ミッドタウン八重洲の位置に戻る。`.meta` 同梱） |
 
 **置き場**：Unity 側は repo の根に `unity/com.ortho-earth.unity/`（UPM package・npm workspace の外＝利用者は自分の URP プロジェクトに Add package from disk。
 プロジェクト丸ごとは置かない＝ProjectSettings の YAML を手で書くより package の方が壊れない）。CLI は `sdk/ortho-export`。

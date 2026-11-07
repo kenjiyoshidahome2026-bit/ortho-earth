@@ -26,9 +26,14 @@ Unity 6 側の受け口。npm の workspace の外（Unity の package＝UPM）�
 
 材質：ortho-earth が描くのは baseColor（係数×テクスチャ×頂点色）だけ＝Lit の **Base Map 1 枚**に寄せる。1 unit＝1 m で作る（錨に scale は無い）。
 
+## 確認済み（2026-11-07・Unity 6000.6.8f1・glTFast 6.14.1・Draco 5.6.0）
+
+- コンパイル：エラー 0・警告 0。PLATEAU は Draco 圧縮＝`com.unity.cloud.draco` が要る（package の依存に入れた）。
+- Place（丸の内）：錨座標で terrain X −339.5…339.5／Z −305.1…305.1＝bbox の四隅と一致。最も高い建物（238 m）は lon 139.76916／lat 35.67951＝東京ミッドタウン八重洲の位置に戻る（X=東・Z=北）。
+- Export → glbconv：書き出した terrain を `glbToScene` で読むと 12 prims／7,544 頂点・範囲・RTC とも元の terrain.glb と一致。`asset.extras.orthoEarth` に錨が入る。
+- `.meta` を同梱（git URL／tarball で入れると package は読み取り専用＝`.meta` の無い資産は無視されるため）。
+
 ## まだ
 
-- Unity 6000.6.8f1・glTFast 6.14.1・Draco 5.6.0 でコンパイル（エラー 0）と丸の内の取り込みを確認（2026-11-07）。PLATEAU は Draco 圧縮＝`com.unity.cloud.draco` が要る（package の依存に入れた）。
-- Place・Export の軸の扱い（上の 180°）は実機でまだ確かめていない（2026-11-07 の確認は 180° の問題を見つけた版）。
-- 見本のシーン（丸の内）は ortho-export の実走（網のある機械）の後に `Samples~/` へ。
-- 点群＝`/japan/pointcloud` の「PLY（点・Unity 向け）」で落とした `.ply` を同じフォルダに置けば Place が錨の差を足して並べる（実機＝未）。
+- 点群：`/japan/pointcloud` の「PLY（点・Unity 向け）」で落とした `.ply` を同じフォルダに置けば Place が錨の差を足して並べる（実機＝未）。
+- 見本のシーン（丸の内）を `Samples~/` へ。
