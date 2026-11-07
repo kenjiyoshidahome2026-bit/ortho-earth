@@ -1195,8 +1195,9 @@ let readyKeys: Set<string> | null = null, readyTail = "";   // readySig 確定�
 const KEEP_FINE = (gpuBackend && !LOW_MEM) ? qNum(/[?&]keepfine=(\d+)/, 0) : 0;
 // bldRange（?bldrange=KM）＝注視点から KM km より遠い基図タイルの建物を立てない（足元の塗りは残る・tilemanager）。2026-11-06 Galaxy/Mali-G615：z17.8・74° で
 // 視野 69 枚の押し出し建物を 1 シーン（+112 MB）で GPU へ上げ、main が 8〜10 秒 GPU 待ちで固まった（PLATEAU 0 区でも）。PLATEAU の meshrange と同じ考えを基図の建物へ。
-// まず A/B ノブ（既定 0＝従来）。実機で見栄えと固まりの消え方を見てから LOW_MEM の既定を決める（device-testing-rule）
-const BLD_RANGE = qNum(/[?&]bldrange=([\d.]+)/, 0);
+// 2026-11-07 Galaxy 2v2（?bldrange=1.5 vs なし）：PLATEAU 片の set() 最長 3.9〜4.4 s → 0.5 s、main stalled 5.5〜6.3 s → 1.3 s、
+// 川口市の復元 9.9〜13.0 s → 6.8〜7.8 s（本人裁定で LOW_MEM の既定 1.5 km）。?bldrange=0 で従来（全枠の建物を立てる）。他の機種は据置 0
+const BLD_RANGE = qNum(/[?&]bldrange=([\d.]+)/, LOW_MEM ? 1.5 : 0);
 // 子孫代打は 3D（チルト）限定：真俯瞰=2D は「素の選抜と同じベクトルタイル」を見せる（本人裁定 2026-08-04）。
 // チルトから回復した平面図に細密パッチが残ると、周囲と線幅・密度の質感が違う継ぎはぎになる（横浜実絵）。
 // 閾値は flat2d/hideBldFill と同じ 0.02rad＝「3Dが立つ瞬間」と同期。
