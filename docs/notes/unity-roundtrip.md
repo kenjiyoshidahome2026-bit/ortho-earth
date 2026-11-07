@@ -148,8 +148,8 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 | 4 | `unity/OrthoEarthSample/`（Unity 6 LTS・URP・glTFast）：`OrthoEarthAnchor.cs`・`OrthoEarthImport.cs`（フォルダを読んで配置）・`PlyPointCloudImporter.cs`・`OrthoEarthExport.cs`・README | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る |
 
 **置き場**：Unity の見本は repo の根に `unity/`（npm workspace の外・`.gitignore` に `Library/`・`Temp/` 等）。CLI は `sdk/ortho-export`。
-**決めていないこと**（本人へ）：①見本の街区は丸の内（東京駅前）でよいか ②Unity のレンダーパイプラインは URP でよいか（HDRP なら材質の見本が変わる）
-③点群の初版はブラウザから落とす方式（§3.3 の (a)）でよいか。
+**裁定（本人・2026-11-07）**：①見本の街区＝丸の内（東京駅前）③点群の初版＝ブラウザから落とす方式（§3.3 の (a)）。
+②レンダーパイプライン＝URP（本人は特に希望なし＝標準の URP を採る。HDRP は後から切り替えられるが材質の見本は作り直し）。
 
 ## 6. やらないこと
 
