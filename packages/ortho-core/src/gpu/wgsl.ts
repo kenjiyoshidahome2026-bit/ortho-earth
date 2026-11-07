@@ -553,6 +553,21 @@ fn jScr(p: vec2f, h: f32) -> vec3f {
 	let c = F.clipT + F.mvp * vec4f(rel + h * liftDir(F.origin + p, F.originPt + rel), 0.0);
 	return vec3f(toScreen(c), select(1.0, 0.0, c.w <= 0.0));
 }
+// 太い線の四隅の深度＝その画素の下の地面（端点の接平面）の深さ（gl LINE_VARY の lineGroundW と同式・2026-11-06「傾けた高速道路の縁がギザギザ」）。
+// 端点の深度のままだと手前側の縁が地形の深度テストに食われて波打つ。手前へ寄せるだけ（奥へは押さない）
+fn lineGroundW(relW: vec3f, ll: vec2f, dAbs: vec3f, c: vec4f, off: vec2f) -> f32 {
+	let up = normalize(liftDir(ll, dAbs));
+	let t1 = normalize(cross(up, select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(up.y) < 0.9)));
+	let t2 = cross(up, t1);
+	let e = 0.01 * wTrue(c.w);
+	let c1 = F.clipT + F.mvp * vec4f(relW + e * t1, 0.0); let c2 = F.clipT + F.mvp * vec4f(relW + e * t2, 0.0);
+	if (c1.w <= 0.0 || c2.w <= 0.0) { return c.w; }
+	let s0 = toScreen(c); let d1 = toScreen(c1) - s0; let d2 = toScreen(c2) - s0;
+	let det = d1.x * d2.y - d1.y * d2.x;
+	if (abs(det) < 1e-3) { return c.w; }
+	let a = (off.x * d2.y - off.y * d2.x) / det; let b = (d1.x * off.y - d1.y * off.x) / det;
+	return max(c.w + min(a * (c1.w - c.w) + b * (c2.w - c.w), 0.0), c.w * 0.5);
+}
 struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };
 // 端 1 つの形（gl LINE_VARY の lineEnd と同式＝MapLibre の LineBucket と同じ選び方）。x→jt→y＝前の点・この端・次の点（start＝始点の端）。
 // link＝0：端（line-cap）・1：隣と継ぐ・2：閉じた環の継ぎ目（隣が並びの前後に無い＝丸に倒す）。
@@ -647,7 +662,14 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	o.color = col0; o.front = min(fa, fb);
 	o.fog = fogOf((wa + wb) * 0.5);
 	// 端点の深度は対数系＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
-	let wz = select(cb.w, ca.w, corner.x < 0.5);
+	// 深度だけの余白（gl LINE_MAIN と同式・2026-11-07）：画素は動かさず、深度テストの点だけ lift＋弦のたるみ（中点の地面−弦）だけ上げる＝市街地（lift>0）限定
+	var relDa = relWa; var relDb = relWb; var cda = ca; var cdb = cb;
+	if (P.p0.y > 0.0) {
+		let ga = elevQ(la1); let gb = elevQ(la2); let sag = max(0.0, elevQ((la1 + la2) * 0.5) - 0.5 * (ga + gb));
+		relDa = relWa + ((P.p0.y + sag) * F.elevP.x * dfa) * liftDir(la1, da); relDb = relWb + ((P.p0.y + sag) * F.elevP.x * dfb) * liftDir(la2, db);
+		cda = F.clipT + F.mvp * vec4f(relDa, 0.0); cdb = F.clipT + F.mvp * vec4f(relDb, 0.0);
+	}
+	let wz = select(lineGroundW(relDb, la2, db, cdb, posS - toScreen(cdb)), lineGroundW(relDa, la1, da, cda, posS - toScreen(cda)), corner.x < 0.5);   // 四隅＝その下の地面の深さ（lineGroundW）
 	let ndc = vec2f(posS.x / F.viewport.x * 2.0 - 1.0, 1.0 - posS.y / F.viewport.y * 2.0);
 	o.pos = vec4f(ndc, log1pS(max(wTrue(wz), 1e-30)) * 1.4426950 * F.params.z * 0.5, 1.0);
 	return o;
