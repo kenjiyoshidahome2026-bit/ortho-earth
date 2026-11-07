@@ -230,13 +230,13 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 	const pipes = new Map<string, GPURenderPipeline>();
 	const pipe = (key: string, code: string): GPURenderPipeline => {
 		let p = pipes.get(key);
-		if (!p) { p = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [XCODE[key] ? bglX : bgl] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } }); pipes.set(key, p); }
+		if (!p) { p = device.createRenderPipeline({ label: `post.${key}`, layout: device.createPipelineLayout({ bindGroupLayouts: [XCODE[key] ? bglX : bgl] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } }); pipes.set(key, p); }
 		return p;
 	};
 	const dPipes = new Map<boolean, { p: GPURenderPipeline; l: GPUBindGroupLayout }>();
 	const dPipe = (ms: boolean) => {
 		let d = dPipes.get(ms);
-		if (!d) { const l = bglD(ms), code = DEPTH_WGSL(ms); d = { l, p: device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "always" } }) }; dPipes.set(ms, d); }
+		if (!d) { const l = bglD(ms), code = DEPTH_WGSL(ms); d = { l, p: device.createRenderPipeline({ label: `postDepth${ms}x`, layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "always" } }) }; dPipes.set(ms, d); }
 		return d;
 	};
 	const smp = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });

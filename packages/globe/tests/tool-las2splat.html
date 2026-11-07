@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- 変換 CLI（sdk/splat/scripts/las2splat.mjs --gpu）の頁＝検定ではない道具。headless の Chrome（実 GPU）で開かれ、?src= の点群を map.readPointCloud → addData({ kind: "splat" })（WebGPU の変換）→ read() → 3D Tiles／SPZ に書いて ?out= へ PUT。
+     表題＝"PASS {json}"／"FAIL 理由"・進みは "[stage]"（CLI が拾って出す）。パラメータ＝crs・vertical・maxPoints・color・detail・levels・opacity・format（tiles|spz|both）・name -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:480px;height:320px}</style><title>tool-las2splat</title></head>
+<body><div id="map"></div>
+<script type="module">
+const P = new URLSearchParams(location.search);
+const num = (k, d) => P.has(k) ? +P.get(k) : d;
+let stage = "boot";
+const beat = setInterval(() => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = `tool-las2splat @${Math.round(performance.now() / 1000)} [${stage}]`; }, 500);
+try {
+	const { createGlobe } = await import("@ortho-earth/globe");
+	const { splatPlugin, cloudTo3DTiles, cloudToSpz, spzPlacement } = await import("@ortho-earth/splat");
+	const src = P.get("src"), out = P.get("out"), name = P.get("name") || "pointcloud", format = P.get("format") || "both";
+	if (!src || !out) throw new Error("?src= and ?out= are required");
+	const map = await createGlobe({ target: "#map", view: "#5/36/138", chips: false, persistView: false });
+	await map.once("load");
+	map.use(splatPlugin({ backend: "webgpu" }));
+	stage = "read";
+	let lastPct = -1;
+	const h = map.addData(src, { kind: "splat", id: "pc", crs: P.get("crs") || undefined, vertical: P.get("vertical") || undefined, maxPoints: num("maxPoints", 4e6), color: P.get("color") || "auto", opacity: num("opacity", 1),
+		cloud: { detail: num("detail", 1), ...(P.has("levels") ? { levels: num("levels", 0) } : {}) },
+		onProgress: (a, b) => { const pct = Math.round(a / b * 100); if (pct !== lastPct) { lastPct = pct; stage = `download ${pct}%`; } } });
+	await h.ready;
+	if (h.backend !== "webgpu") throw new Error(`backend ${h.backend} (WebGPU is required)`);
+	stage = "readback";
+	const data = await h.read();
+	const put = async (fn, bytes) => { stage = `write ${fn}`; const r = await fetch(out + encodeURIComponent(fn), { method: "PUT", body: bytes }); if (!r.ok) throw new Error(`PUT ${fn}: ${r.status}`); };
+	if (format !== "spz") { stage = "tiles"; for (const f of await cloudTo3DTiles(data)) await put(f.name, f.bytes); }
+	if (format !== "tiles") { stage = "spz"; await put(`${name}.spz`, await cloudToSpz(data, 0)); await put("placement.json", new TextEncoder().encode(JSON.stringify(spzPlacement(data), null, "\t"))); }
+	clearInterval(beat);
+	document.title = "PASS " + JSON.stringify({ points: h.points, n: h.n, levels: (h.levels || []).map(l => l.n), ms: h.ms, backend: h.backend, plan: h.plan });
+} catch (e) { clearInterval(beat); document.title = "FAIL " + (e?.message || e); }
+</script></body></html>

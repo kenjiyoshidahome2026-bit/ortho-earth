@@ -8,7 +8,8 @@
 import { createLabelLayer } from "@ortho-earth/core/labels";
 import { setPowerPreference, powerPreference, type GpuPowerPreference } from "@ortho-earth/core/gpupower";
 import { createGpuTextSink, createGpuText } from "@ortho-earth/core/textgpu";   // 注記の字（線に沿う・点）を WebGPU で（テキスト GPU 化 T-P1・T-P2・既定＝?text=2d でない時に据える）
-import { createGlyphStore, SDF_VER, type GlyphStore } from "@ortho-earth/core/glyphstore";   // 焼いた字の保存（IndexedDB GIS/glyph・?glyphdb=1）
+import { createGlyphStore, SDF_VER, type GlyphStore } from "@ortho-earth/core/glyphstore";
+import { warmFonts } from "./fontwarm.ts";   // ?fontwarm=2＝render worker で書体を温める   // 焼いた字の保存（IndexedDB GIS/glyph・?glyphdb=1）
 import { Cache } from "native-bucket";
 import { createLabelReceiver } from "@ortho-earth/core/labelsync";   // main からの注記は差分（持っている物は番号だけ・2026-10-03）
 import { createTerrain } from "@ortho-earth/core/terrain";
@@ -105,10 +106,13 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean;
-	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; gmax?: number;
+	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
+	meshDrain?: number;   // ?meshdrain=MS＝建物メッシュの小片を 1 フレームに時間予算 MS ms ぶん（＋フレームの合間も timer で）当てる。0＝従来の 1 フレーム 1 個
+	warmPipes?: number;   // ?warmpipe=1/2＝lazy の束の最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝Async 並列・renderer.ts）
+	lazyPipes?: boolean;   // ?lazypipe=1＝WebGPU のパイプラインを初回使用時に作る（renderer.ts）
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
 	url?: string; builtin?: string; opts?: RwOpts | null; x?: number; y?: number; r?: number; names?: string[]; seq?: number;
 	port?: MessagePort; width?: number; height?: number; on?: boolean; bbox?: number[]; N?: number; cam?: CameraPose | null;
@@ -398,7 +402,7 @@ async function bootWebGL(m: RwMsg) {
 let terrLazyInit: RwMsg | null = null;
 const makeTerrain = (m: RwMsg, dem: TerrainOptions["dem"] | undefined): RwTerrain => createTerrain({
 	renderer: renderer!, requestDraw: () => { dirty = true; kick(); },
-	exag: m.terrainExag!, earthM: m.earthM!, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr, noNear: !!m.noNearTerr,
+	exag: m.terrainExag!, earthM: m.earthM!, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr, noNear: !!m.noNearTerr, r01Zoom: m.r01Zoom! > 0 ? m.r01Zoom : undefined,
 	gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
 	dem: dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
 	dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.ts から渡す（接地リフトと失効判定の根拠）
@@ -473,6 +477,10 @@ const dispatch = (e: { data: RwMsg }) => {
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}), ...(labelGpuCanvas ? { sinkWrap: b => (textSink = createGpuTextSink(b)) } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
 			labelLayer!.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
 			textSink?.setGlyphBudget(m.glyphMs || 0);
+			if (m.fontWarm === 2) { bootDur.fontWarmMs = warmFonts(); bootMarks.fontwarm = bootEp(); }
+			// fontWarm=1（既定）：注記は main の温めが済む合図（fontsReady）まで描かない＝最初の絵が OS の書体の読み込み（冷えた Android で数秒）を待たない。
+			// 合図が来ない事故（worker を作れない等）は 15 秒で解除＝注記が永久に出ないことはない
+			if (m.fontWarm === 1) { labelsWait = true; setTimeout(() => { if (labelsWait) { console.warn("[render] fontsReady did not arrive in 15 s = drawing labels anyway"); openLabels(); } }, 15000); }   // ?fontwarm=2＝この worker で先に書体を温める（冷えた端末の最初の字焼きの数秒を frame1 の前へ・ms は boot 行へ）
 			if (m.glyphDb && labelGpuCanvas) glyphStore = createGlyphStore(() => Cache("GIS/glyph"), `${SDF_VER}|${navigator.userAgent}`);   // 読み込みは裏で＝来るまでに頼まれた字は従来どおり焼く   // ?glyphms=N＝字を焼く予算（ms/フレーム）＝起動の注記 1 フレーム 1.4 秒（タブレット）を数フレームに分ける計器（0＝従来）
 			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
@@ -499,9 +507,10 @@ const dispatch = (e: { data: RwMsg }) => {
 			// バックエンドの起動は両経路とも非同期（選んだ片方だけを dynamic import）＝その間のメッセージは initQueue へ
 			// 待避し順序ごと再投入。WebGPU（?gpu=1）は adapter/device 取得も非同期・失敗（非対応・adapter無し）は WebGL2 へ
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
+			MESH_DRAIN_MS = m.meshDrain! > 0 ? m.meshDrain! : 0;   // ?meshdrain=MS（建物メッシュの小片の消化予算）
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; bootMarks.renderer = bootEp(); if (r.boot) Object.assign(bootDur, r.boot); hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
@@ -533,6 +542,7 @@ const dispatch = (e: { data: RwMsg }) => {
 						bootStage = "queue released(" + (q ? q.length : 0) + ")";
 					});
 			break;
+		case "fontsReady": openLabels(); break;   // main の書体の温めが済んだ（fontwarm.ts）＝注記を描き始める
 		case "fontFace":   // Web フォント（main の map.addFontFace）＝この worker の canvas（注記・記号・集約）で使えるようにする。self.fonts が無い環境（古い WebKit）は黙って既定の束
 			(async () => { try { if (typeof FontFace !== "function" || !self.fonts) return; const ff = new FontFace(m.family!, m.source!, m.descriptors || {}); await ff.load(); self.fonts.add(ff); glyphStore?.excludeFamily(m.family!); labelLayer?.clearFontCache?.(); dirty = true; armRaf(); } catch (err) { console.warn("[render] fontFace", m.family, (err as Error)?.message || err); } })();
 			break;
@@ -541,7 +551,7 @@ const dispatch = (e: { data: RwMsg }) => {
 		case "overlayPick": overlayPick(m); break;               // 統一 picking（PR-1）＝最後に描いたフレームの cam で当てる
 		case "overlayRemove": { const o = overlays.get(m.name!); if (o) { overlays.delete(m.name!); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
+			m.port!.onmessage = (ev: MessageEvent<MeshItem>) => { if (ev.data.meshData) { meshRx.n++; if (!meshRx.firstRecv) meshRx.firstRecv = absNow(); if (meshRx.emptyT) { const g = performance.now() - meshRx.emptyT; if (g < 3000) meshRx.starveMs += g; meshRx.emptyT = 0; } } meshInbox.push({ ...ev.data, port: m.port }); dirty = true; kick(); meshDrainArm(); };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
 		case "resize": {                                         // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			// 端末上限クランプ＝縦長ウィンドウ×高dpr（ブラウザ拡大率・特殊ディスプレイ）でスワップチェイン/
@@ -706,8 +716,16 @@ self.addEventListener("unhandledrejection", e => { try { postMessage({ type: "dr
 
 // 注記を描く（地図と同じ cam＝完全同期）。skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear() でフェード状態ごと流す（新しい段の merge で戻る時はフェードインから＝可逆な退場）。
 // 層の位置（T-P2）：真俯瞰（傾き 0.02 未満）の間だけ、基図の最後の塗り・線より前の層の注記の字を地図のパスの中へ。傾けた絵は今までどおり全部最前面（建物の陰の道の名を隠さない・2026-10-13 裁定）
+let labelsWait = false;   // 書体の温め待ち（init fontWarm=1 → fontsReady で解除）
+function openLabels(): void {
+	if (!labelsWait) return;
+	labelsWait = false; bootMarks.fontsReady = bootEp();
+	if (sentFrame1) postMessage({ type: "bootMark", k: "fontsReady", t: bootMarks.fontsReady });   // frame1 より後に来た＝boot 行へ遅れて載せる
+	dirty = true; armRaf();   // 注記を乗せた絵を描く
+}
 function drawLabels(): boolean {
 	if (!labelLayer || !cam) return false;
+	if (labelsWait) return false;   // 書体が開くまで注記は描かない（canvas は空のまま）
 	if (textSink) { const sp = textInPass && (cam.pitch || 0) < 0.02 ? renderer?.textSplit?.() ?? -1 : -1; textSink.mid = sp >= 0 ? (li => li < sp) : null; }
 	const animating = opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam);
 	if (!opts?.skipMain) { const ls = labelLayer.stats(); labEma = labEma ? labEma * 0.9 + ls.drawMs * 0.1 : ls.drawMs; labCollide = ls.collideMs; labN = ls.labels; labGlyphs = ls.glyphs; }
@@ -929,6 +947,16 @@ function drainUploads0() {
 		dirty = true; uploadSkip = 2;
 		return;
 	}
+	drainMesh(MESH_DRAIN_MS);
+}
+// 建物メッシュの受け口の消化：budget＝0 なら荷（meshData）1 個で打ち切り（従来）。budget>0 なら時間予算の間 続けて当てる（2026-11-06 Galaxy：
+// LOW_MEM の msplit=100 で 1 区 138 MB が 134 個の小片になり、1 フレーム 1 個 × 4〜6 fps ＝ 10 秒・送る側は credit 待ち 8.7 s。小片は 1 個 1 MB 級＝1 フレームに何個でも上がる）
+let MESH_DRAIN_MS = 0, meshDrainT: ReturnType<typeof setTimeout> | null = null;
+function meshDrainTick() { meshDrainT = null; if (!renderer) return; drainMesh(MESH_DRAIN_MS, true); if (dirty) kick(); }
+function meshDrainArm() { if (MESH_DRAIN_MS > 0 && !meshDrainT && !renderer?.meshUpBusy?.() && meshInbox.some(i => i.meshData)) meshDrainT = setTimeout(meshDrainTick, 0); }   // 小分け転送（?meshchunk）が上がり切るまでは張らない（空回り防止）＝pumpMeshUp の完了が張り直す   // フレームの合間（GPU 待ちで worker が空いている時間）にも消化する＝低 fps でもフレーム数に縛られない
+function drainMesh(budget: number, timer = false) {
+	if (!renderer) return;
+	const t0 = performance.now(); let did = 0;
 	while (meshInbox.length) {
 		const item = meshInbox.shift()!;
 		if ("vis" in item) {   // 表示切替＝フラグだけ＝同フレームで続けて消化
@@ -957,15 +985,21 @@ function drainUploads0() {
 		if (!meshData) hiddenWards.delete(String(name));   // 解放＝renderer も伏せ印を消す
 		if (bakeLift && meshData) bakeMeshLift(meshData);
 		let deferred = false;
+		if (meshData) { meshRx.applied++; did++; if (!meshRx.firstApply) meshRx.firstApply = absNow(); meshRx.applyBytes += (meshData.pos?.byteLength || 0) + (meshData.nrm?.byteLength || 0) + (meshData.idx?.byteLength || 0); }
+		const ta = performance.now();
 		try { renderer.set("meshSet", meshData, name); }
 		finally {
+			if (meshData) { const dt = performance.now() - ta; meshRx.applyMs += dt; if (dt > 100) meshRx.applySlow++; if (dt > meshRx.applyMax) { meshRx.applyMax = dt; meshRx.applyMaxAt = absNow() - dt; meshRx.applyMaxKey = String(name); meshRx.applyMaxBytes = (meshData.pos?.byteLength || 0) + (meshData.nrm?.byteLength || 0) + (meshData.idx?.byteLength || 0); } }
 			// 小分け転送（WebGPU）：まだ上がっていない＝中身の ArrayBuffer を返せない＝ack は上がり切った時（pumpMeshUp）
 			if (item.port && meshData && renderer.meshUpPending?.(String(name))) { meshAcks.set(meshData, item); deferred = true; }
 			else if (item.port) ackMesh(item);
 		}
 		if (!deferred && !unseen) dirty = true;
-		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
+		if (meshData) { uploadSkip = 2; if (!budget || performance.now() - t0 >= budget) break; }   // 重い転送は1件で打ち切り（budget=0）／予算の間は続ける。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}
+	if (did) { if (timer) meshRx.inTimer++; else meshRx.inFrame++; }
+	if (meshRx.n && !meshRx.emptyT && !meshInbox.some(i => i.meshData)) meshRx.emptyT = performance.now();   // 受け口が空＝次の片が届くまでは送り手（credit の往復・読み・分割）待ち
+	meshDrainArm();
 }
 // 接地リフトの焼き込み（?bakelift=1・2026-11-04 実機 Mali：建物の頂点ごとの標高参照（elev/elevQ・elev1 でも 1 標本）が VS の床だった）：
 // 頂点シェーダが毎フレーム引いていた「足元の地面の高さ × 誇張 × 測地法線」を転送時に 1 回だけ CPU で足し、バッチに liftBaked を立てる
@@ -1001,7 +1035,11 @@ function bakeMeshLift(dd: NonNullable<MeshItem["meshData"]>): void {
 // この時点で同期コピー済み＝pos/nrm/idx の ArrayBuffer を transfer で返し、plateau worker が次の復元で再利用
 //（使い捨て根絶＝復元churnのヒープ高水位対策）。共有バッファ等で transfer 不可なら ack だけ（従来動作）。
 const meshAcks = new Map<unknown, MeshItem>();   // 小分け転送中の荷 → その ack（荷の同一性で引く）
+// 建物メッシュの受け口の計器（?hud=1・HUD の mesh timeline）：受けた荷・GPU へ当てた荷・ack した荷の数と最初/最後の時刻（絶対時刻＝main が navigation 起点へ直す）・pump に使った ms
+const meshRx = { n: 0, firstRecv: 0, applied: 0, firstApply: 0, acked: 0, lastAck: 0, pumpMs: 0, applyMs: 0, applyMax: 0, applyMaxAt: 0, applyMaxKey: "", applyMaxBytes: 0, applySlow: 0, applyBytes: 0, inFrame: 0, inTimer: 0, starveMs: 0, emptyT: 0 };   // applyMaxAt/Key/Bytes＝最長の set() がいつ・どの片・何 byte か（絶対時刻＝HUD で navigation 起点へ）・applySlow＝100 ms 超の回数（2026-11-07 実機：1 片だけ 3.6 s）   // applyMs＝renderer.set(meshSet) の中（writeBuffer＝GPU 側の詰まりはここに出る）・inFrame/inTimer＝片を当てた回（フレームの中／合間）・starveMs＝受け口が空で送り手を待った時間
+const absNow = () => performance.timeOrigin + performance.now();
 function ackMesh(item: MeshItem) {
+	meshRx.acked++; meshRx.lastAck = absNow();
 	const meshData = item.meshData;
 	const rec = meshData ? [...new Set([meshData.pos?.buffer, meshData.nrm?.buffer, meshData.idx?.buffer].filter(b => b && b.byteLength))] as ArrayBuffer[] : [];
 	try { item.port!.postMessage({ drained: 1, recycle: rec }, rec); }
@@ -1014,14 +1052,14 @@ let meshUpTimer: ReturnType<typeof setTimeout> | null = null;
 function meshUpTick() { meshUpTimer = null; pumpMeshUp(6); }
 function pumpMeshUp(ms = 4) {
 	if (!renderer?.meshUpPump || !renderer.meshUpBusy?.() && !meshAcks.size) return;
-	const done = renderer.meshUpPump(ms);
+	const tp = performance.now(); const done = renderer.meshUpPump(ms); meshRx.pumpMs += performance.now() - tp;
 	for (const d of done) {
 		const it = meshAcks.get(d);
 		if (it) { meshAcks.delete(d); ackMesh(it); }
 		dirty = true;
 	}
 	if (done.length || renderer.meshUpBusy?.()) { uploadSkip = 2; lastLoadT = performance.now(); }
-	if (done.length) kick();   // 立った区を描く（timer から来た時も次の rAF を張る）
+	if (done.length) { kick(); meshDrainArm(); }   // 立った区を描く（timer から来た時も次の rAF を張る）・待たせていた小片の消化を再開
 	if (renderer.meshUpBusy?.() && !meshUpTimer) meshUpTimer = setTimeout(meshUpTick, 0);
 }
 // キャンバスのリサイズは即適用しない：canvas.width/height 代入はバッファを透明にクリアし、その状態が
@@ -1185,7 +1223,7 @@ function frame() {
 			if (animating || fogAnim || ovMore || clockSpin || accMore) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
-			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive, boot: { marks: { ...bootMarks, frame1: bootEp() }, dur: bootDur, cpu1: { ...cpuAcc, total: performance.now() - lastFrameRun } } }); memOn = memWant; }
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName, pt: ptActive, boot: { marks: { ...bootMarks, frame1: bootEp() }, dur: bootDur, cpu1: { ...cpuAcc, total: performance.now() - lastFrameRun, ...(textSink ? (b => ({ glyphs: b.baked, glyphFirst: b.firstMs, glyphBake: b.bakeMs }))(textSink.bakeStats()) : {}) } } }); memOn = memWant; }
 			if (frameEvents) postMessage({ type: "frame", cam: { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, fovy: cam.fovy, dpr: cam.dpr, centerAlt: cam.centerAlt }, t: performance.now() });   // この絵の cam＝main の custom 層はこれで描く（main の最新 cam で描くと地図と注記より先行してカクつく）   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
 				stayProbe = 2;
@@ -1245,7 +1283,7 @@ function frame() {
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
-			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax } });
+			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length } });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
 	// 描くもの（dirty・未消化の転送・予約）がある時だけ次の rAF を張る。無ければ寝る＝受信の kick() か静止タイマ（armSettle）か

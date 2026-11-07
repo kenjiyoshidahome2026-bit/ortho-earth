@@ -82,7 +82,8 @@ import { modalOpen, registerKeyOwner, isKeyOwner } from "./gadgets/keys.ts";   /
 import { setLang, getLang, isRTL, tr } from "./i18n.ts";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
 // 型（TS 化 段 4・batch 3）＝createGlobe の口と内側の部品の形
 import type { Bbox, Gadgets, GintLayerHandle, GintLayerOptions, GlobeOptions, LonLat, OverlayHandle, QuantizedMeshSource, RasterDemSource, RasterOptions, Tiles3DOptions } from "../globe.d.ts";
-import { qNum } from "./urlknob.ts";   // ?maxact= 等の数値ノブ（mesh/manager と同じ 1 本）
+import { qNum } from "./urlknob.ts";
+import { warmFontsInWorker } from "./fontwarm.ts";   // ?fontwarm=1＝別 worker で書体を温める（起動の最初）   // ?maxact= 等の数値ノブ（mesh/manager と同じ 1 本）
 import type { GlobeMap } from "./types/map.ts";
 import type { GlobeMapBuilding } from "./types/install.ts";
 import type { ExtStyleDoc, GlobeLive, GlobeScope, MlPass, ModelCtl, ParsedView, PatItem, QueryGeometry, T3dCtl, UserLayerRec, UserSource, VtxDesc } from "./types/scope.ts";
@@ -266,6 +267,11 @@ const BOOT: Record<string, number> = { script: performance.now() };
 try { performance.setResourceTimingBufferSize(1000); } catch { /* 無い環境は既定（250）のまま */ }   // js の合計（下）＝タイルが先に枠を埋めても JS の項が残るように
 { const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined; if (nav) BOOT.html = nav.responseEnd; }
 let bootLine = "", bootCpu1: Record<string, number> | null = null;   // bootCpu1＝最初に描いたフレームの部位別 JS 時間（worker）
+// 字の温め（fontwarm.ts）：1＝別 worker で並行（既定・2026-11-06 本人裁定「5 秒なら計器でなく構造で」）・2＝render worker の init で同期・0＝しない（逃げ道）。
+// 既定 1 では、注記は「書体が開いた」合図（fontsReady）が render worker に届くまで描かない＝最初の絵は地形・基図・建物だけで出る。温かい端末では合図が frame1 より先に来る＝見た目は従来どおり。
+const FONTWARM = qNum(/[?&]fontwarm=(\d)/, 1);
+let fontsReadySend: (() => void) | null = null, fontsReadyDue = false;   // 合図の送り手（ctrlPort が出来た後に差す）・出来る前に温めが済んだ時の保留
+if (FONTWARM === 1) warmFontsInWorker().then(ms => { BOOT.fontwarm = performance.now(); BOOT["d:fontWarmMs"] = ms; if (fontsReadySend) fontsReadySend(); else fontsReadyDue = true; });
 const bootReport = (stage: string) => {
 	const ms = (k: string) => (BOOT[k] != null ? `${BOOT[k] | 0}` : "–");
 	const dur = (k: string) => (BOOT[k] != null ? `+${BOOT[k] | 0}` : "–");
@@ -273,9 +279,27 @@ const bootReport = (stage: string) => {
 	for (const e of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) if (/\.js(\?|$)/.test(e.name)) { jsN++; jsBytes += e.transferSize || 0; if (!e.transferSize) jsCached++; }
 	bootLine = `html ${ms("html")} · script ${ms("script")} · worker ${ms("worker")} · init ${ms("init")} · worker-script ${ms("w:script")} · worker-init ${ms("w:init")} · import ${ms("w:import")} · renderer ${ms("w:renderer")}`
 		+ (BOOT["d:initMs"] != null ? ` (adapter ${dur("d:adapterMs")} · device ${dur("d:deviceMs")} · pipelines ${dur("d:initMs")})` : "")
-		+ ` · first-tiles ${ms("w:firstScene")} · draw0 ${ms("w:draw0")} · frame1 ${ms("frame1")} · idle ${ms("idle")} · present ${ms("present")} · js ${(jsBytes / 1048576).toFixed(1)} MB/${jsN} files${jsCached ? ` (${jsCached} cached)` : ""}`
-		+ (bootCpu1 ? ` · frame1 cpu ${bootCpu1.total | 0} (up ${bootCpu1.up | 0} · terr ${bootCpu1.terr | 0} · map ${bootCpu1.map | 0} · gint ${bootCpu1.gint | 0} · lab ${bootCpu1.lab | 0} · ov ${bootCpu1.ov | 0})` : "");
+		+ (BOOT["w:fontwarm"] != null ? ` · fontwarm ${ms("w:fontwarm")}` : "") + (BOOT["w:fontsReady"] != null ? ` · fonts-ready ${ms("w:fontsReady")}` : "") + ` · first-tiles ${ms("w:firstScene")} · draw0 ${ms("w:draw0")} · frame1 ${ms("frame1")} · idle ${ms("idle")} · present ${ms("present")} · js ${(jsBytes / 1048576).toFixed(1)} MB/${jsN} files${jsCached ? ` (${jsCached} cached)` : ""}`
+		+ (bootCpu1 ? ` · frame1 cpu ${bootCpu1.total | 0} (up ${bootCpu1.up | 0} · terr ${bootCpu1.terr | 0} · map ${bootCpu1.map | 0} · gint ${bootCpu1.gint | 0} · lab ${bootCpu1.lab | 0} · ov ${bootCpu1.ov | 0})` : "")
+		+ (bootCpu1 && bootCpu1.glyphs != null ? ` · glyphs ${bootCpu1.glyphs | 0} (first ${bootCpu1.glyphFirst | 0} · bake ${bootCpu1.glyphBake | 0})` : "")   // 最初のフレームで焼いた字：最初の 1 字の ms（書体の読み込み）・焼きの合計
+		+ (BOOT["d:fontWarmMs"] != null ? ` · fontwarm ${FONTWARM} ${BOOT["d:fontWarmMs"] | 0} ms${BOOT.fontwarm != null ? ` @${BOOT.fontwarm | 0}` : ""}` : "");
 	console.log(`[boot] timeline @${stage} (ms since navigation): ${bootLine}`);
+	bootHistSave(stage);
+};
+// 起動の履歴（2026-11-06・本人「1 本の 30s ログを信じないで。タイミングで変わる」）＝boot 行を端末の localStorage に直近 10 回ぶん溜め、
+// ?hud=1 の copy 30s log に「boot history」として載せる。1 回のコピーで温・冷（gap＝前の起動からの分）のばらつきが見える。
+// ?hud 無しの起動も記録する（冷えた起動はたいてい計器無しで開く）。数百 B×10・同一起点（timeOrigin）の行は段（frame1→idle→present）ごとに上書き。
+const BOOT_HIST_KEY = "oj.boothist", BOOT_HIST_N = 10, BOOT_ID = performance.timeOrigin;
+const bootHistSave = (stage: string) => {
+	try {
+		type BootHist = { id: number; at: string; q: string; stage: string; gapMin: number | null; line: string };
+		const a = JSON.parse(localStorage.getItem(BOOT_HIST_KEY) || "[]") as BootHist[];
+		const i = a.findIndex(e => e.id === BOOT_ID), prev = i < 0 ? a[a.length - 1] : a[i - 1];
+		const e: BootHist = { id: BOOT_ID, at: new Date(BOOT_ID).toISOString(), q: location.search, stage, gapMin: prev ? Math.round((BOOT_ID - prev.id) / 60000) : null, line: bootLine };
+		if (i < 0) a.push(e); else a[i] = e;
+		while (a.length > BOOT_HIST_N) a.shift();
+		localStorage.setItem(BOOT_HIST_KEY, JSON.stringify(a));
+	} catch { /* localStorage が無い・満杯＝記録しないだけ */ }
 };
 const urlToken = {};   // この地図の URL の持ち主の札
 const URL_OWN: GlobeScope["URL_OWN"] = opts.urlHash !== false && !URL_OWNER;
@@ -734,7 +758,8 @@ const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボ�
 const drawHud = /[?&]drawhud=1/.test(location.search);
 let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number; pool?: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
-let memCpu: HudSnapshot["cpu"] = null;   // ?hud=1 の worker CPU 内訳（部位別 ms の EMA・窓内の最長）＝実機の画面で「何に食われているか」
+let memCpu: HudSnapshot["cpu"] = null;
+let memMeshRx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number; applyMs?: number; applyMax?: number; applyMaxAt?: number; applyMaxKey?: string; applyMaxBytes?: number; applySlow?: number; applyBytes?: number; inFrame?: number; inTimer?: number; starveMs?: number } | null = null;   // ?hud=1 の render worker の建物メッシュ受け口（絶対時刻＝HUD で navigation 起点へ直す）   // ?hud=1 の worker CPU 内訳（部位別 ms の EMA・窓内の最長）＝実機の画面で「何に食われているか」
 // main スレッドの詰まり：HUD を載せた時だけ rAF 間隔を測る（EMA と窓内の最長）＝カメラを動かす側（デモの動き・飛行）が飢えていないか
 let mainEma = 0, mainMax = 0, mainLast = 0;
 if (hudOn) { const tick = (t: number) => { if (mainLast) { const dt = t - mainLast; if (dt < 2000) { mainEma = mainEma ? mainEma + (dt - mainEma) * 0.15 : dt; mainMax = Math.max(mainMax, dt); } } mainLast = t; requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
@@ -791,11 +816,22 @@ const vtSummary = (sinceMs = 10000) => {
 		merge: { n: M.length, changed: M.length ? M.reduce((s, r) => s + r.add + r.del, 0) / M.length : 0, tiles: M.length ? M.reduce((s, r) => s + r.n, 0) / M.length : 0 } };
 };
 dbgHost.__vtLog = () => ({ lat: vtLat.slice(), merge: vtMerge.slice() });
+// HUD の 30 秒ログ用：計器 e の分位（起動から全部・直近 15 秒）と main merge の要求→着地（直近 6 件）。fetch＝worker 内の取得・build＝組み立て・
+// wait＝ready までのうち worker の外（キュー待ち＋境界の転送）・total＝必要→画面（merge の待ちを含む）。tiles 69 枚の後の沈黙が「取得／組み立て／結合待ち」のどれかが一目で分かる
+const tileLatSnap = (): HudSnapshot["tileLat"] => {
+	const q = (a: number[], f: number) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(f * (s.length - 1)))]; };
+	const agg = (L: VtLatRec[]) => { const f = (k: keyof VtLatRec) => { const a = L.map(r => r[k] as number); return [q(a, 0.5), q(a, 0.9), q(a, 1)] as [number, number, number]; }; return { n: L.length, total: f("total"), ready: f("ready"), wait: f("wait"), fetch: f("fetch"), build: f("build") }; };
+	const t0 = performance.now() - 15000;
+	return { all: agg(vtLat), recent: agg(vtLat.filter(r => r.at >= t0)), merges: mergeLog.slice(-6).map(m => ({ n: m.n, reqAt: m.reqAt, ms: m.ackAt ? m.ackAt - m.reqAt : -1 })) };
+};
 dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow, lab: memLab, vt: vtSummary() });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）。lab＝注記の計器（T-P0）。vt＝計器 e／f の直近 10 秒
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
 const noMixedR01: GlobeScope["noMixedR01"] = /[?&]nor01=1/.test(location.search);
+// ?r01z=N＝R01（1°細密）へ切り替えるズーム（既定 13・混成窓 11.5〜14・近景層 13.5 も同じ幅でずれる）。LOW_MEM の標高の軽量化の A/B ノブ（2026-11-06）：
+// R01 は 1 窓 9 枚・1 枚数十 MB のデコード、R10 は 1 枚。見栄えとの釣り合いをタブレットで見てから既定を決める（device-testing-rule）
+const R01_ZOOM = qNum(/[?&]r01z=([\d.]+)/, 0);
 // ?gpu=1 ＝WebGPU バックエンド（実験・Phase 1: globe+基図 fill/line）。非対応/失敗は worker 内で WebGL2 へ
 // 自動フォールバック＝既定挙動と同一。既定経路には dynamic import すら発生しない（バンドル・実行とも無負担）。
 // ?gpu=1＝WebGPU 実験フラグ。oj.nogpu＝この環境で「初期化は成功するのに絵が出ない」を検出済み（下の present 検証）
@@ -887,7 +923,18 @@ const GNDFAST = !/[?&]gndfast=0/.test(location.search);   // perf plan P6 の逃
 const QUAD4 = !/[?&]quad4=0/.test(location.search);   // perf plan P3 の逃げ道＝0 で線・点を旧 6 頂点の draw に（既定＝index の 4 頂点）
 const CPUELEV = /[?&]cpuelev=1/.test(location.search);   // perf plan P1 step 1 の逃げ道＝1 で標高セルの再標本化を従来の CPU（描画スレッドの JS ループ）に（既定＝GPU・WebGPU のみ）
 const TERRLOD = !/[?&]terrlod=0/.test(location.search);
-const TERRSYNC = /[?&]terrsync=1/.test(location.search);   // 地形メッシュを同期で一気に作る（従来）＝起動の最初のフレームの切り分け用   // perf plan P4 の逃げ道＝0 で地形メッシュのチャンク刈りを止める（全量 1 draw＝従来）
+const TERRSYNC = /[?&]terrsync=1/.test(location.search);
+// ?lazypipe=1＝WebGPU のパイプラインを初回使用時に作る（2026-11-06 Galaxy/Mali 実測：起動時に 59 本を GPU プロセスが 1 本ずつ 9.6 秒＝起動後 10 秒の固まりの正体）。
+// WebGPU のパイプラインを初回使用時に作る（?lazypipe=1／0）。LOW_MEM は既定 ON（2026-11-06 Galaxy/Mali-G615 の adb トレース 3 回ずつ：起動時の生成 59→16 本、
+// GPU プロセスの詰まり 7.3→4.2 s、描画 worker の停止 8.7→6.0 s で解け、frame1 1.6 s 安定〔eager は 2 回に 1 回 4.2 s〕）。デスクトップは従来どおり起動時に全部（ms 単位＝遅延の意味が無い）
+const LAZY_PIPES = /[?&]lazypipe=1/.test(location.search) || (LOW_MEM && !/[?&]lazypipe=0/.test(location.search));
+// ?warmpipe=0／1／2＝lazy の束のうち最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝createRenderPipelineAsync で並列）。LOW_MEM は既定 1
+// （2026-11-06 Galaxy 各 2 回＋トレース：無し＝mesh 系 3 本が 6.5 s に遅れて作られ worker が 0.67 s 停止／1＝停止ゼロ・frame1 +0.1〜0.2 s／2＝停止ゼロだが待ちで frame1 +0.2〜0.3 s。
+//   同じ 10 本が初回描画の最中だと 4.2 s、起動直後なら 0.2〜0.3 s＝作る時機が効く）。lazy でない（デスクトップ）側は起動時に全部作るので無意味＝0
+const WARM_PIPES = qNum(/[?&]warmpipe=(\d)/, LOW_MEM ? 1 : 0);
+// ?meshdrain=MS＝建物メッシュの小片を描画 worker が 1 フレームに MS ms ぶん（＋フレームの合間も）当てる。0＝従来の 1 フレーム 1 個。
+// LOW_MEM の既定 8（2026-11-06 Galaxy 2v2：134 小片の受け取り 2.2→9.0 s（従来 7.4→13.8 s）・idle 13.9→9.0〜9.5 s・mesh の塞ぎ 7.7→2.8 s）。?meshdrain=0 で戻す
+const MESH_DRAIN = qNum(/[?&]meshdrain=(\d+)/, LOW_MEM ? 8 : 0);
 // ?farterr=0 ＝遠景地形層（深ズーム×チルトの R10 第2アトラス＝ズームインしても遠方の山が消えない一般則）を
 // 無効化する逃げ道。コスト＝GPU 10-16MB＋遠景メッシュ2度描き（チルト深ズーム時のみ）。
 const noFarTerr = /[?&]farterr=0/.test(location.search);
@@ -913,7 +960,9 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 // 手前の建物が足元へ細長く伸びた（#954）。WebGPU・GL2 とも既定 20（Galaxy 実機と Mac で確認済み・?clipk=0 で戻す）
 const clipKQ = /[?&]clipk=(\d+)/.exec(location.search);
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
-renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, resFix: Number((/[?&]res=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphMs: Number((/[?&]glyphms=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphDb: /[?&]glyphdb=1/.test(location.search), mem: hudOn, lowMem: LOW_MEM, meshChunk: /[?&]meshchunk=1/.test(location.search), meshLod: qNum(/[?&]meshlod=([\d.]+)/, LOW_MEM ? 2 : 0), meshLodZ: qNum(/[?&]meshlodz=([\d.]+)/, 0), meshLodZ0: qNum(/[?&]paz=([\d.]+)/, 15), meshRange: qNum(/[?&]meshrange=([\d.]+)/, LOW_MEM ? 2 : 0), elevCheap: /[?&]elevcheap=1/.test(location.search) || (LOW_MEM && !/[?&]elevcheap=0/.test(location.search)), bakeLift: /[?&]bakelift=1/.test(location.search), nearClip: Number((/[?&]nearclip=([\d.]+)/.exec(location.search) || [])[1]) || 0, clipK: clipKQ ? +clipKQ[1] : 20, clipKGl: clipKQ ? +clipKQ[1] : 20, noMixed: noMixedR01, noFarTerr, noNearTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, terrSync: TERRSYNC, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, lazyPipes: LAZY_PIPES, warmPipes: WARM_PIPES, meshDrain: MESH_DRAIN, perf: perfLog, resFix: Number((/[?&]res=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphMs: Number((/[?&]glyphms=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphDb: /[?&]glyphdb=1/.test(location.search), mem: hudOn, lowMem: LOW_MEM, meshChunk: /[?&]meshchunk=1/.test(location.search), meshLod: qNum(/[?&]meshlod=([\d.]+)/, LOW_MEM ? 2 : 0), meshLodZ: qNum(/[?&]meshlodz=([\d.]+)/, 0), meshLodZ0: qNum(/[?&]paz=([\d.]+)/, 15), meshRange: qNum(/[?&]meshrange=([\d.]+)/, LOW_MEM ? 2 : 0), elevCheap: /[?&]elevcheap=1/.test(location.search) || (LOW_MEM && !/[?&]elevcheap=0/.test(location.search)), bakeLift: /[?&]bakelift=1/.test(location.search), nearClip: Number((/[?&]nearclip=([\d.]+)/.exec(location.search) || [])[1]) || 0, clipK: clipKQ ? +clipKQ[1] : 20, clipKGl: clipKQ ? +clipKQ[1] : 20, noMixed: noMixedR01, noFarTerr, noNearTerr, r01Zoom: R01_ZOOM, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, terrSync: TERRSYNC, fontWarm: FONTWARM, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+fontsReadySend = () => wPost({ type: "fontsReady" });   // 書体の温めが済んだ合図（init の後＝ctrlPort が生きている）
+if (fontsReadyDue) fontsReadySend();
 BOOT.init = performance.now();
 if (TERR_EXAG !== 1) wPost({ type: "set", cmd: "terrainExag", data: TERR_EXAG });   // opts.terrain の exaggeration＝起動の材料（1）の上に掛ける
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
@@ -966,7 +1015,14 @@ let extActive: string | null = null;        // カーソルを持つ追加層の
 const mapOn: GlobeScope["mapOn"] = { click: [], move: [], load: [], mesh: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／mesh=建物3D の読込合図）
 // map.on("mesh")（1.x の旧名 "plateau" は 2.0 で外した）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
-const emitMesh = (e: unknown) => { for (const cb of [...mapOn.mesh]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
+// 建物メッシュの時間割の main 側（HUD の copy 30s log）：起こした（wake）・manager が来た・登録簿が来た。区ごとの段は manager.timeline()・受け口は render worker の mem 便
+const meshTlMain: Array<[string, number, string]> = [];
+const meshTlSnap = (): HudSnapshot["meshTl"] => {
+	const t = meshMgr.timeline(), rx = memMeshRx, o = performance.timeOrigin;
+	return { main: t.spawn ? [...meshTlMain, ["worker spawn", t.spawn, ""]] : meshTlMain, wards: t.wards,
+		rx: rx ? { ...rx, firstRecv: rx.firstRecv ? rx.firstRecv - o : 0, firstApply: rx.firstApply ? rx.firstApply - o : 0, lastAck: rx.lastAck ? rx.lastAck - o : 0, applyMaxAt: rx.applyMaxAt ? rx.applyMaxAt - o : 0 } : null };
+};
+const emitMesh = (e: unknown) => { const q = e as { phase?: string; count?: number }; if (q?.phase === "catalog") meshTlMain.push(["catalog", performance.now(), `${q.count} sets`]); for (const cb of [...mapOn.mesh]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
 let mapLoaded: GlobeLive["mapLoaded"] = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
 renderWorker.onmessage = e => {
 	const d = e.data;
@@ -1102,7 +1158,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; rasterFading = !!d.fading; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; memMeshRx = d.meshRx ?? memMeshRx; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -1137,6 +1193,10 @@ let readyKeys: Set<string> | null = null, readyTail = "";   // readySig 確定�
 // 2026-11-05 既定 0（本人裁定・Mac 実機「?keepfine=0 はかなりいい絵・すごく動きが軽く見える」）：保持は引いた後も細かいタイルの頂点を描き続ける＝重く、
 // 基図建物は z16 全棟／z14 抜粋なので保持した象限だけ全棟の絨毯が十字型に残っていた。?keepfine=2 で旧保持（そのときも建物は親の密度＝tilemanager の bld 役）
 const KEEP_FINE = (gpuBackend && !LOW_MEM) ? qNum(/[?&]keepfine=(\d+)/, 0) : 0;
+// bldRange（?bldrange=KM）＝注視点から KM km より遠い基図タイルの建物を立てない（足元の塗りは残る・tilemanager）。2026-11-06 Galaxy/Mali-G615：z17.8・74° で
+// 視野 69 枚の押し出し建物を 1 シーン（+112 MB）で GPU へ上げ、main が 8〜10 秒 GPU 待ちで固まった（PLATEAU 0 区でも）。PLATEAU の meshrange と同じ考えを基図の建物へ。
+// まず A/B ノブ（既定 0＝従来）。実機で見栄えと固まりの消え方を見てから LOW_MEM の既定を決める（device-testing-rule）
+const BLD_RANGE = qNum(/[?&]bldrange=([\d.]+)/, 0);
 // 子孫代打は 3D（チルト）限定：真俯瞰=2D は「素の選抜と同じベクトルタイル」を見せる（本人裁定 2026-08-04）。
 // チルトから回復した平面図に細密パッチが残ると、周囲と線幅・密度の質感が違う継ぎはぎになる（横浜実絵）。
 // 閾値は flat2d/hideBldFill と同じ 0.02rad＝「3Dが立つ瞬間」と同期。
@@ -1306,8 +1366,9 @@ const meshEnv = {
 };
 let meshReal: MeshManager | null = null, meshWake: Promise<MeshManager | null> | null = null, meshGone = false, meshTap: MeshProgressTap = null, meshVisible = true;   // meshVisible＝map.setMeshVisible（起こす前に来ても覚えておく）
 const MESH_NO_PROGRESS: MeshManager["progress"] = new Map();
-const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./mesh/manager.ts").then(async ({ createMeshManager }) => {
+const wakeMesh = () => meshWake ??= (meshTlMain.push(["wake", performance.now(), ""]), !meshOn ? Promise.resolve(null) : import("./mesh/manager.ts").then(async ({ createMeshManager }) => {
 	if (meshGone) return null;   // 起こしている間に destroy された
+	meshTlMain.push(["manager", performance.now(), ""]);
 	const catalog = loadMeshCatalog();
 	meshReal = createMeshManager(Object.assign(Object.create(meshEnv), { catalog }));   // スプレッド禁止＝cam/moving 等の getter をその瞬間の値に固めてしまう（原型鎖で生きたまま覗かせる）
 	if (meshTap) meshReal.setProgressTap(meshTap);
@@ -1317,7 +1378,7 @@ const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./
 	await catalog?.catch(() => {});   // 登録簿が manager に入ってから解決（manager の受け取りは先に登録済み＝この後に走る）
 	requestDraw();
 	return meshReal;
-}).catch(e => { console.error("[mesh] manager load failed", e); return null; });
+}).catch(e => { console.error("[mesh] manager load failed", e); return null; }));
 // 代理の窓口の型＝本物（MeshManager）と同じ口。違いは standUp／openDb が本物を起こしてから呼ぶ（非同期・起こせなければ undefined）・
 // firstRevealSets は台本の視点（検めていない列）をそのまま受けて本物へ渡す・ready が増える
 const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "firstRevealSets" | "setVisible" | "visible"> & {
@@ -1341,6 +1402,7 @@ const meshMgr: Omit<MeshManager, "setExcludeMap" | "standUp" | "openDb" | "first
 	isDead: (name: string) => meshReal?.isDead(name) ?? false,
 	visibleLoading: () => meshReal?.visibleLoading() ?? [],
 	memStats: () => meshReal?.memStats() ?? { bytes: 0, regions: 0, transient: { cache: 0, live: 0, bytes: 0 }, tier: null },
+	timeline: () => meshReal?.timeline() ?? { spawn: 0, wards: [] },
 	ready: wakeMesh,
 };
 // --- 地中フェード（クランプの代替・2026-07-28）: カメラが地表(DTM)より下へ潜ったら全画面を暗色で覆う ---
@@ -2399,7 +2461,7 @@ function render() {
 	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-		tu = tiles.update(cam, size.w, size.h, { tilePx: ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		tu = tiles.update(cam, size.w, size.h, { tilePx: ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), bldRange: BLD_RANGE, maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		lastTileOrder = tu.order;   // 描いている基図タイル＝map.queryRenderedFeatures の問い合わせ先
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys!.has(t.key));
@@ -2520,6 +2582,9 @@ function hudSnapshot() {
 		backend: (dbgHost.__backend as string | undefined) || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
 		cpu: memCpu, lab: memLab as HudSnapshot["lab"], boot: bootLine || null, main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
+		idleBlock: BOOT.idle == null ? idleBlockers() : null, idleHist: idleHistLines(), idleAt: BOOT.idle == null ? null : BOOT.idle | 0,   // 最初の idle がまだ＝何が塞いでいるか（present の検証が 8 s の予備タイマーに落ちる原因・2026-11-06 Galaxy）
+		meshTl: meshTlSnap(),   // 建物メッシュの時間割（idle を塞ぐ最大の材料・2026-11-06 Galaxy）
+		tileLat: tileLatSnap(),   // 基図タイルの計器 e（必要→画面）と main merge の要求→着地＝「タイル 69 枚が揃った後に何秒黙るか」を USB 無しで切り分ける（2026-11-06 Galaxy）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
 		device: {   // navigator/画面＝どの端末が落ちたかの特定（RAMは4GB級/8GB級の判別、DPR×viewport＝フレームバッファのGPU圧）
@@ -2557,7 +2622,7 @@ function frame() {
 	if (followSt) tickFollow();   // 追従（A4）＝描く前に的の今の位置へ
 	if (repaintAlways) requestDraw();   // 連続描画（MapLibre の map.repaint・B6）
 	if (needsDraw) { needsDraw = false; render(); if (dbgState.tileBoundaries || dbgState.padding) drawDebug(); }
-	if (mapOn.idle.length) checkIdle(nowT);
+	if (mapOn.idle.length || BOOT.idle == null) checkIdle(nowT);   // 最初の idle までは聴き手が居なくても見る（旧＝present の 8 s 予備タイマーが聴き手を外すと二度と来なかった・2026-11-06 Galaxy）
 	requestAnimationFrame(frame);
 }
 // idle（MapLibre 同名・公式例の門 段 2・2026-09-27）＝動いていない・飛んでいない・描き直し待ちが無い・基図が覆って載っている・
@@ -2588,7 +2653,28 @@ dbgHost.__labelsMain = () => { const by: Record<string, number> = {}; for (const
 // 診断の窓（debugGlobals）＝idle を塞いでいる材料を全部返す（公式例の門で「idle が来ない」を切り分ける）
 dbgHost.__idleWhy = () => ({ rasterFading, mapLoaded, moving, geBusy, groundElevM, noTerr, centerAlt: cam.centerAlt || 0, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
 	sources: [...mlSources.keys(), ...Object.keys(EXT?.ms.sources || {})].map(id => [id, map.isSourceLoaded(id)]), mounting: [...mlLayers].filter(([, v]) => v.mounting).map(([k]) => k), idleState });
+// idle を塞いでいる材料の名前（HUD の copy 30s log 用・__idleWhy の要約）。空＝静か
+function idleBlockers(): string[] {
+	const b: string[] = [];
+	if (!mapLoaded) b.push("load"); if (moving) b.push("moving"); if (flightCtl.active) b.push("flight"); if (needsDraw) b.push("needsDraw");
+	if (!(coverOk || noVecBase())) b.push("cover"); if (elevBusy) b.push(`elev ${elevN}`); if (centerElevMode === "ground" && !noTerr && geBusy) b.push("groundElev");
+	const ml = meshMgr.visibleLoading().length; if (ml) b.push(`mesh ${ml}`);
+	if (rasterPendTotal) b.push(`raster ${rasterPendTotal} (${[...rasterPend].filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(" ")})`); if (rasterFading) b.push("rasterFade");
+	if (extExtras.mounting) b.push("extMount");
+	const src = [...mlSources.keys()].filter(id => !map.isSourceLoaded(id)); if (src.length) b.push(`source ${src.join(",")}`);
+	if (EXT) { const es = Object.keys(EXT.ms.sources || {}).filter(id => !map.isSourceLoaded(id)); if (es.length) b.push(`extSource ${es.join(",")}`); }
+	return b;
+}
+// 最初の idle までに何が何秒塞いだか（時間加重の帳・HUD の copy 30s log 用）。frame が来ない間（main 停止）は「main stalled」へ別立て＝材料のせいにしない
+const idleHist = new Map<string, number>(); let idleHistT = 0;
+function idleHistLines(): string[] { return [...idleHist].sort((a, b) => b[1] - a[1]).map(([k, ms]) => `${k} ${(ms / 1000).toFixed(1)} s`); }
 function checkIdle(now: number) {
+	if (BOOT.idle == null) {
+		const b = idleBlockers(), dt = idleHistT ? now - idleHistT : 0; idleHistT = now;
+		const stall = Math.max(0, dt - 250), part = dt - stall;   // 1 フレームが 250 ms を超えた分＝main が止まっていた
+		if (stall) idleHist.set("main stalled", (idleHist.get("main stalled") || 0) + stall);
+		for (const k of b) idleHist.set(k.replace(/ .*/, ""), (idleHist.get(k.replace(/ .*/, "")) || 0) + part);
+	}
 	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !(centerElevMode === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !rasterFading && !extExtras.mounting
 		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 	if (!quiet) { idleState = 0; return; }
@@ -3357,6 +3443,7 @@ const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.ts")).crea
 		attrZone = null; requestDraw();
 	} });
 map.addPointCloud = async (src, opts) => (await copcGet()).add(src, opts);   // COPC は節だけ範囲読み・普通の LAS/LAZ は丸ごと読み（点群計画 段 3-3・2,000 万点まで）
+map.readPointCloud = async (src, opts) => (await copcGet()).read(src, opts);   // 描かずに点を丸ごと返す（錨からの東北上 m）＝@ortho-earth/splat の cloud（点群 → Gaussian splat・WebGPU）の材料（2026-11-06）
 map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(h => h.remove()) : copcCtl.remove(id)) : false;
 {
 	const cSpec = new URLSearchParams(location.search).get("copc");

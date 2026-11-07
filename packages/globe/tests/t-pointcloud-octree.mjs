@@ -3,7 +3,7 @@
 //  ② 足し算の形＝親の無い節が無い・根の点は全体に散る（粗い見本）
 //  ③ 重なった点（全部同じ所）も止まる・上限の判定
 import assert from "node:assert/strict";
-import { createStore, appendRaw, buildOctree, gatherNode, wholeFileLimit, G, MIN_SPLIT, LIMIT_POINTS } from "../src/pointcloud-octree.ts";
+import { createStore, appendRaw, buildOctree, gatherNode, wholeFileLimit, G, MIN_SPLIT, LIMIT_POINTS, createThinStore, appendThin, classMask, storeInfo } from "../src/pointcloud-octree.ts";
 import { nodeBounds } from "@ortho-earth/tile-formats/las";
 
 let tn = 0;
@@ -78,5 +78,24 @@ t("丸ごと読みの上限", () => {
 	// 総長が分かる時は minBytes を見ない（旧と同じ）
 	assert.equal(wholeFileLimit({ count: 1e6, size: 4e7, local: false, minBytes: 600 * 1048576 }), null);
 	assert.match(wholeFileLimit({ count: 1e6, size: 600 * 1048576, local: false, minBytes: 1 }), /^pointcloud: 600 MB is over/);
+});
+t("読むだけの器＝上限までに間引きながら貯める（満ちたら 1 つ置き）・分類で落とす・範囲は全点から", () => {
+	const n = 100000, r = terrain(n);
+	for (let i = 0; i < n; i++) r.classification[i] = i % 10 === 0 ? 6 : 2;
+	// 総数から初めの幅（詰め直し無し）と、幅 1 から詰め直す物＝同じ点が残る（受けた順の番号が幅の倍数）
+	for (const [cap, stride0] of [[30000, Math.ceil(n / 30000)], [30000, 1], [7, 1], [n, 1]]) {
+		const s = createThinStore(cap, { rgb: false, scale: [0.01, 0.01, 0.01], offset: [0, 0, 0] }, stride0);
+		for (let a = 0; a < n; a += 7777) { const k = Math.min(7777, n - a); appendThin(s, { X: r.X.subarray(a), Y: r.Y.subarray(a), Z: r.Z.subarray(a), intensity: r.intensity.subarray(a), classification: r.classification.subarray(a), rgb: null }, k); }
+		assert.ok(s.at <= cap && s.at > cap / 2 - 1, `cap ${cap}: kept ${s.at}`);
+		for (let j = 0; j < s.at; j++) assert.equal(s.X[j], r.X[j * s.stride], `cap ${cap} #${j}`);
+		assert.equal(s.seen, n);
+	}
+	const m = classMask([6]), s = createThinStore(1000, { rgb: false, scale: [0.01, 0.01, 0.01], offset: [-30000, -120000, 0] });
+	appendThin(s, r, n, m);
+	assert.equal(s.seen, n / 10); assert.ok(s.at <= 1000 && s.at >= 500);
+	for (let j = 0; j < s.at; j++) assert.equal(s.classification[j], 6);
+	assert.equal(classMask([]), null); assert.equal(classMask(null), null);
+	const full = make(r, n), info = storeInfo(s);
+	assert.ok(s.min[0] >= full.min[0] - 1e-9 && s.max[0] <= full.max[0] + 1e-9 && info.halfsize > 0 && info.spacing > 0);
 });
 console.log(`t-pointcloud-octree: ${tn} passed`);

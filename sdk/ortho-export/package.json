@@ -1,0 +1,31 @@
+{
+	"name": "ortho-export",
+	"version": "0.1.0",
+	"private": true,
+	"description": "ortho-earth のデータ（地理院の地形・PLATEAU 建物）を範囲で切って Unity 向けの GLB に焼く CLI。錨（緯度経度・楕円体高）の ENU を glTF の (E, U, −N) で書く。PLATEAU は棟ごとのノード（属性つき）・webp テクスチャは jpeg/png へ。",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"bin": {
+		"ortho-export": "src/cli.mjs"
+	},
+	"main": "src/export.mjs",
+	"exports": {
+		".": "./src/export.mjs",
+		"./geo": "./src/geo.mjs",
+		"./tiles3d": "./src/tiles3d/tiles3d.mjs",
+		"./glbmerge": "./src/tiles3d/glbmerge.mjs"
+	},
+	"engines": {
+		"node": ">=22.18"
+	},
+	"scripts": {
+		"test": "node tests/t-export.mjs && node tests/t-attributes.mjs"
+	},
+	"dependencies": {
+		"draco3d": "^1.5.9",
+		"glbconv": "*"
+	},
+	"optionalDependencies": {
+		"sharp": "^0.35.2"
+	}
+}

@@ -128,7 +128,7 @@ export function terrainMeshSliced(G: number, CH = TERR_CH): { step(budgetMs: num
 			}
 			chunks.push({ first, count: p - first, u0: i0 / Q, u1: i1 / Q, v0: j0 / Q, v1: j1 / Q });
 			c++;
-			if (performance.now() - t0 > budgetMs) return c < CH * CH;
+			if (c < CH * CH && performance.now() - t0 > budgetMs) return true;   // 最後のチャンクの直後は時間切れでも下へ落ちて done を立てる（旧＝false を返して done が立たず result() が投げた・2026-11-06）
 		}
 		done = true;
 		return false;

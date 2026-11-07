@@ -21,11 +21,20 @@ export interface HudSnapshot {
 	main?: { ms: number; max: number; long?: Array<{ key: string; ms: number; n: number }> } | null;
 	shadow?: { active: boolean; gpuMs?: number; halfM?: number; N?: number; texelM: number; terrTris?: number; bldTris?: number; meshBatches?: number; meshTris?: number; passes?: number; skipped?: number } | null;
 	vt?: { shown: number; bytes: number; rttMs: number; decodeMs: number; buildMs: number; mergeMs: number; pending?: boolean; fsMs?: number | null } | null;
+	/** 基図タイルの計器 e（必要→画面・主層のみ）の分位 [med, p90, max]（ms）と main merge の要求→着地（ms・-1＝未着）＝copy 30s log の行 */
+	tileLat?: { all: TileLatQ; recent: TileLatQ; merges: Array<{ n: number; reqAt: number; ms: number }> } | null;
+	/** 最初の idle がまだ来ていないとき、塞いでいる材料の名前（globe.ts idleBlockers）。null＝idle 済み */
+	idleBlock?: string[] | null;
+	/** 最初の idle までに塞いだ材料の時間加重の帳（"cover 3.1 s" …・main が止まっていた分は "main stalled"）と、最初の idle の時刻（ms since navigation・null＝まだ） */
+	idleHist?: string[]; idleAt?: number | null;
+	/** 建物メッシュの時間割（ms since navigation）：main（wake/manager/catalog/spawn）・区ごとの段・render worker の受け口（globe.ts meshTlSnap） */
+	meshTl?: { main: Array<[string, number, string]>; wards: Array<{ name: string; ev: Array<[string, number, string]> }>; rx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number; applyMs?: number; applyMax?: number; applyMaxAt?: number; applyMaxKey?: string; applyMaxBytes?: number; applySlow?: number; applyBytes?: number; inFrame?: number; inTimer?: number; starveMs?: number } | null } | null;
 	tiles: { bytes: number; budget: number }; terrain: number; mesh?: { bytes: number; regions: number } | null;
 	heap?: number | null; gpuBytes?: number | null; gpu?: { atlas: number; mesh: number; msaa: number; pool?: number } | null; raster?: number | null;
 	transient: { bytes: number; cache: number; live: number };
 	tier?: { active: number; residentGB: number; workers: number } | null;
 }
+export interface TileLatQ { n: number; total: [number, number, number]; ready: [number, number, number]; wait: [number, number, number]; fetch: [number, number, number]; build: [number, number, number] }
 /** HUD の手綱 */
 export interface HudHandle { open(): void; close(): void; toggle(): void; el: HTMLDivElement }
 
@@ -195,8 +204,40 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		const head = [`hud log ${new Date().toISOString()} ${location.href}`,
 			`device ${dev.os} / ${dev.browser} / RAM ${d.ram ?? "?"} / cores ${d.cores ?? "?"} / GPU ${gpuLabel(s?.gpuName) || "?"} / ${d.vw}x${d.vh}@${d.dpr ?? 1} / backend ${s?.backend ?? "?"}${s?.tier ? ` / low-mem ${s.tier.active}z` : ""}`];
 		const boot = s?.boot ? [`boot (ms since navigation): ${s.boot}`] : [];
+		const hist = bootHistLines();   // 直近の起動の boot 行（globe.ts bootHistSave・?hud 無しの起動も含む）＝1 本のログで決めない
 		const long = s?.main?.long?.length ? ["main long (15s):", ...s.main.long.map(l => `  ${l.ms.toFixed(0)} ms x${l.n} ${l.key}`)] : [];
-		return [...head, ...boot, ...log, ...long].join("\n");
+		const ih = s?.idleHist?.length ? ` · blocked before that by: ${s.idleHist.join(" · ")}` : "";
+		const idle = s?.idleBlock ? [`idle: not reached yet — blocked by: ${s.idleBlock.join(" · ") || "(nothing — waiting the 100 ms of quiet)"}${ih}`] : s?.idleAt != null ? [`idle: reached at ${(s.idleAt / 1000).toFixed(1)} s${ih}`] : [];   // present の検証が frame1+8 s の予備タイマーに落ちる原因
+		return [...head, ...boot, ...hist, ...log, ...long, ...tileLatLines(s?.tileLat), ...meshTlLines(s?.meshTl), ...idle].join("\n");
+	}
+	// 建物メッシュの時間割：起こす→登録簿→worker→区の段（start/recv/fs/meta/…/done/ack）→render worker の受け口（受けた・当てた・ack・pump）＝idle を塞ぐ 6〜11 s がどの段で消えるか（2026-11-06 Galaxy）
+	function meshTlLines(m: HudSnapshot["meshTl"]): string[] {
+		if (!m || (!m.main.length && !m.wards.length)) return [];
+		const sec = (ms: number) => (ms / 1000).toFixed(1);
+		const ev = (a: Array<[string, number, string]>) => a.map(([e, t, x]) => `${e} ${sec(t)}${x ? ` (${x})` : ""}`).join(" · ");
+		const out = ["mesh timeline (s since navigation):", `  ${ev(m.main) || "(not woken)"}`];
+		for (const w of m.wards) out.push(`  ${w.name}: ${ev(w.ev)}`);
+		const r = m.rx;
+		if (r && r.n) out.push(`  render: ${r.n} pieces received (first ${sec(r.firstRecv)}) · ${r.applied} applied (first ${sec(r.firstApply)}) · ${r.acked} acked (last ${sec(r.lastAck)}) · pump ${sec(r.pumpMs)} s · inbox ${r.inbox}`);
+		if (r && r.applied) out.push(`  render apply: set() ${sec(r.applyMs || 0)} s total · max ${Math.round(r.applyMax || 0)} ms${r.applyMaxAt ? ` @${sec(r.applyMaxAt)} s (${r.applyMaxKey || "?"} · ${((r.applyMaxBytes || 0) / 1048576).toFixed(1)} MB)` : ""} · >100 ms ×${r.applySlow || 0} · ${((r.applyBytes || 0) / 1048576).toFixed(0)} MB · drained in ${r.inFrame || 0} frames + ${r.inTimer || 0} timer ticks · starved (inbox empty, waiting for sender) ${sec(r.starveMs || 0)} s`);
+		return out;
+	}
+	// 基図タイルの計器 e（必要→画面）と main merge（要求→着地）：タイルが揃った後の沈黙が「取得／組み立て／キュー待ち／結合待ち」のどれかを 1 本のログで切り分ける（2026-11-06）
+	function tileLatLines(t: HudSnapshot["tileLat"]): string[] {
+		if (!t || (!t.all.n && !t.merges.length)) return [];
+		const tri = (v: [number, number, number]) => `${v[0].toFixed(0)}/${v[1].toFixed(0)}/${v[2].toFixed(0)}`;
+		const row = (name: string, qv: TileLatQ) => `  ${name}: ${qv.n} tiles · need→screen ${tri(qv.total)} · need→built ${tri(qv.ready)} · wait ${tri(qv.wait)} · fetch ${tri(qv.fetch)} · build ${tri(qv.build)}`;
+		return ["basemap tiles (ms, med/p90/max; wait = queue + transfer outside the worker):", row("since boot", t.all), row("last 15 s", t.recent),
+			`  main merges (req→ack ms, oldest first): ${t.merges.map(m => `${m.n} tiles @${(m.reqAt / 1000).toFixed(1)}s ${m.ms < 0 ? "pending" : m.ms + " ms"}`).join(" · ") || "none"}`];
+	}
+	// 起動の履歴（localStorage oj.boothist）：この起動を含む直近 10 回・古い順。gap＝前の起動からの分（大きい＝冷えた端末）。q＝その起動の URL の ?以降
+	function bootHistLines(): string[] {
+		try {
+			const a = JSON.parse(localStorage.getItem("oj.boothist") || "[]") as Array<{ at: string; q: string; stage: string; gapMin: number | null; line: string }>;
+			if (a.length < 2) return [];
+			const gap = (m: number | null) => m == null ? "first" : m >= 60 ? `${(m / 60).toFixed(1)}h` : `${m}m`;
+			return [`boot history (last ${a.length} loads, oldest first; gap = since previous load):`, ...a.map(e => `  ${e.at.slice(0, 19)}Z gap ${gap(e.gapMin)} ${e.q || "(no query)"} @${e.stage}: ${e.line}`)];
+		} catch { return []; }
 	}
 	async function copyLog(): Promise<void> {
 		const text = logText();

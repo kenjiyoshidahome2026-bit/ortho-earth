@@ -63,7 +63,7 @@ export interface ModelHandle {
 	/** 置き方の取っ手（錨の丸＝移動・輪の丸＝回転・四角＝倍率）を出す／畳む（DOM・mapEl の上）。✓ で畳む。gizmo:"auto" で置いた模型はクリックで出し直せる */
 	gizmo(on?: boolean): ModelHandle;
 	readonly gizmoOn: boolean;
-	readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number]; materials: number; textures: number; blended: number; gltf: GltfMeta; /** KHR_texture_basisu の texture がある時だけ（W5）：数・変換器で素の RGBA になった数・できなかった数（変換器が無い／読めない／壊れている） */ ktx2?: { textures: number; transcoded: number; failed: number } } | null;
+	readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number]; materials: number; textures: number; blended: number; gltf: GltfMeta; /** KHR_texture_basisu の texture がある時だけ（W5）：数・変換器で素の RGBA になった数・できなかった数（変換器が無い／読めない／壊れている） */ ktx2?: { textures: number; transcoded: number; failed: number }; /** glb 自身の錨（asset.extras.orthoEarth＝Unity との往復）で置いた時だけ：その錨と向き（opts.at を渡さなかった時に効く） */ anchor?: { lon: number; lat: number; height: number | null; heading: number; from: "extras" } } | null;
 	readonly bbox: [number, number, number, number] | null; readonly name: string | null;
 	/** 模型のアニメの見出し（無ければ []） */
 	readonly animations: GltfAnimationInfo[];
@@ -501,7 +501,7 @@ export interface Gadgets {
 	 */
 	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
 	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地。マテリアル＝baseColor の factor×頂点色×テクスチャ・マテリアルごとに 1 バッチ）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
-	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean; /** 当たりの写しを持つか（W7・既定 true） */ pickable?: boolean; /** EXT_mesh_features の何組目の番号で当てるか（W7・既定 0） */ featureIdSet?: number; /** 利用者のシェーダ（map.setCustomShader の名） */ customShader?: string | null; /** positionMC（glTF の POSITION）を頂点ごとに持つ（customShader があれば既定で持つ） */ mc?: boolean;
+	model(src: File | string, opts?: { /** 錨 [lon, lat]（度）。省略＝glb 自身の錨（asset.extras.orthoEarth＝sdk/ortho-export・Unity との往復）があればそれ、無ければ画面中心。渡せばそれが勝つ */ at?: [number, number]; /** 北から時計回りの度。省略で glb の錨があればその heading */ heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean; /** 当たりの写しを持つか（W7・既定 true） */ pickable?: boolean; /** EXT_mesh_features の何組目の番号で当てるか（W7・既定 0） */ featureIdSet?: number; /** 利用者のシェーダ（map.setCustomShader の名） */ customShader?: string | null; /** positionMC（glTF の POSITION）を頂点ごとに持つ（customShader があれば既定で持つ） */ mc?: boolean;
 		/** 置き場（既定 "default"）＝同じ slot は置き換え・別の slot は並ぶ（複数の模型） */ slot?: string; /** 地面からの高さ（m） */ altitude?: number; /** 置き方の取っ手を出す（"auto"＝錨で置いた模型だけ＝ドロップの既定） */ gizmo?: boolean | "auto"; /** 真俯瞰（pitch 0）でも描く（既定 false＝建物と同じく傾けた時だけ） */ keep2d?: boolean; /** "globe"＝setMeshLighting があっても globe の固定光で描く。"phong"＝Cesium の czm_phong（目の向きと上からの 2 灯・太陽に依らない＝entity geometry・Primitive の見た目）。"phong-closed"＝閉じた外観の czm_phong（裏も描き、裏は書かれた法線のまま＝半透明の閉じた図形の奥の壁） */ lighting?: "globe" | "phong" | "phong-closed" }): Promise<ModelHandle>;
 	/** 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当）。src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF・File・URL。
 	 *  height＝列名 | 定数 | (props)=>メートル（省略＝height / building:height / measuredHeight / 高さ … を自動・階数だけなら ×3m）。
@@ -1271,6 +1271,12 @@ export interface COPCHandle {
 	/** 地形に合わせる＝読んだ節の地面の点（分類 2）と描いている地形の差の中央値（m）を heightOffset に（apply:false＝測るだけ）。見本が無ければ offset は null */
 	fitTerrain(opts?: { apply?: boolean }): Promise<{ offset: number | null; samples: number }>;
 }
+/** map.readPointCloud の opts（2026-11-06）＝crs・vertical・onProgress は COPCOptions と同じ。maxPoints＝読む点の上限（既定 400 万・LOW_MEM 150 万・0＝全部・手元に持つのもこの数まで＝読みながら間引く）。
+ *  classes＝残す分類（ASPRS の番号・例 [2]＝地面・[6]＝建物・無し／空＝全部）＝上限の枠を残す分類だけに使う（2026-11-07） */
+export interface PointCloudReadOptions { crs?: string; vertical?: "orthometric" | "ellipsoidal"; onProgress?: (loaded: number, total: number) => void; maxPoints?: number; classes?: ArrayLike<number> }
+/** map.readPointCloud の戻り＝錨（[lon, lat, 標高 m]）からの東北上 m の点（Float32・n×3）・標高（m）・RGB（8 bit・n×3・無ければ null）・強度・分類・範囲（東北上の min xyz・max xyz）・
+ *  total＝ファイルの点の総数（n ≤ total＝間引いた）・ms（read＝取得・total＝全体）・info＝addPointCloud と同じ見出し */
+export interface PointCloudDump { n: number; anchor: [number, number, number]; pts: Float32Array; elev: Float32Array; rgb: Uint8Array | null; intensity: Uint16Array; cls: Uint8Array; bb: number[]; total: number; ms: { read: number; total: number }; info: COPCHandle["info"] }
 /** 検査表示のオプション（map.gadget.inspect・名前と既定値は maplibre-gl-inspect と同じ） */
 export interface InspectOptions {
 	/** 起動時から検査表示（既定 false） */ showInspectMap?: boolean;

@@ -2,7 +2,7 @@
 //
 //   scene = {
 //     rtc: [x,y,z] | null,              // CESIUM_RTC＝ECEF の原点（3D Tiles 由来の模型が持つ）。頂点はこの原点からの相対
-//     prims: [{ positions, normals|null, uvs|null, colors|null, indices, material }]
+//     prims: [{ positions, normals|null, uvs|null, colors|null, indices, material, featureIds? }]
 //     bbox: [minx,miny,minz, maxx,maxy,maxz]
 //   }
 //   material = { name, baseColor:[r,g,b,a], doubleSided, image: { mime, bytes } | null }
@@ -18,14 +18,22 @@ export type AttrArray = Int8Array | Uint8Array | Int16Array | Uint16Array | Uint
 type AttrCtor = { new (length: number): AttrArray; readonly BYTES_PER_ELEMENT: number };
 export interface SceneImage { mime: string; bytes: Uint8Array }
 export interface SceneMaterial { name: string; baseColor: number[]; doubleSided: boolean; image: SceneImage | null }
-export interface ScenePrim { positions: Float32Array; normals: Float32Array | null; uvs: Float32Array | null; colors: Uint8Array | null; indices: Uint32Array; material: SceneMaterial }
+/** 書き出しの束ね先（同じ物を持つ prim は 1 つのノード・1 つの mesh の primitives になる）。name＝ノード名・extras＝ノードの extras */
+export interface SceneNode { name?: string; extras?: Record<string, unknown> }
+export interface ScenePrim {
+	positions: Float32Array; normals: Float32Array | null; uvs: Float32Array | null; colors: Uint8Array | null; indices: Uint32Array; material: SceneMaterial;
+	/** 頂点ごとの地物番号（3D Tiles 1.0 の _BATCHID・1.1 の _FEATURE_ID_0）。無ければ省略 */
+	featureIds?: Uint32Array | null;
+	/** 書き出し時のノード（省略＝prim ごとに無名のノード） */
+	node?: SceneNode | null;
+}
 export type SceneBbox = [number, number, number, number, number, number];
 export interface Scene { rtc: number[] | null; prims: ScenePrim[]; bbox: SceneBbox; source?: ParsedGlb }
 /** decodeDraco の戻り（loaders.gl の DracoLoader の形＝attributes の値は { value } か型付き配列そのもの） */
 export interface DracoAttribute { value: AttrArray; size?: number }
 export interface DracoDecoded { attributes?: Record<string, DracoAttribute | AttrArray | undefined>; indices?: { value: ArrayLike<number> } | AttrArray | null }
 export type DecodeDraco = (bytes: Uint8Array | null, attrIds: Record<string, number>) => DracoDecoded | Promise<DracoDecoded>;
-export interface GlbToSceneOptions { decodeDraco?: DecodeDraco | null; images?: boolean }
+export interface GlbToSceneOptions { decodeDraco?: DecodeDraco | null; images?: boolean; /** false＝asset.extras.orthoEarth の錨を ECEF（CESIUM_RTC）へ畳まない（既定 true＝Unity 往復の glb が地球上の場所を持つ） */ anchor?: boolean }
 export interface SceneStats { primitives: number; vertices: number; triangles: number; textures: number; rtc: number[] | null; bbox: SceneBbox }
 
 const COMP: Record<number, AttrCtor | undefined> = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
@@ -103,9 +111,30 @@ function triIndices(mode: number | undefined, idx: ArrayLike<number> | null, ver
 	return Uint32Array.from(out);
 }
 
-export async function glbToScene(bytes: Uint8Array | ArrayBuffer | ArrayLike<number>, { decodeDraco = null, images = true }: GlbToSceneOptions = {}): Promise<Scene> {
+/** asset.extras.orthoEarth の錨を読む（無い・壊れている＝null）。ecef＝錨の ECEF（m）・E/N/U＝錨の ENU 基底（ECEF の単位ベクトル）・heading＝北から時計回りの度 */
+export function anchorOf(json: GltfJson): { lon: number; lat: number; height: number; heading: number; ecef: number[]; E: number[]; N: number[]; U: number[] } | null {
+	const oe = (json as { asset?: { extras?: { orthoEarth?: { anchor?: { lon?: unknown; lat?: unknown; height?: unknown }; frame?: unknown; heading?: unknown } } } }).asset?.extras?.orthoEarth;
+	const a = oe?.anchor; if (!a) return null;
+	const lon = Number(a.lon), lat = Number(a.lat), hIn = Number(a.height), heading = Number(oe!.heading);
+	if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 90 || (oe!.frame != null && oe!.frame !== "enu")) return null;
+	const height = Number.isFinite(hIn) ? hIn : 0, D2R = Math.PI / 180, A = 6378137, E2 = 0.00669437999014;
+	const lo = lon * D2R, la = lat * D2R, sl = Math.sin(lo), cl = Math.cos(lo), sa = Math.sin(la), ca = Math.cos(la), Nn = A / Math.sqrt(1 - E2 * sa * sa);
+	return { lon, lat, height, heading: Number.isFinite(heading) ? heading : 0, ecef: [(Nn + height) * ca * cl, (Nn + height) * ca * sl, (Nn * (1 - E2) + height) * sa], E: [-sl, cl, 0], N: [-sa * cl, -sa * sl, ca], U: [ca * cl, ca * sl, sa] };
+}
+/** 錨の glTF 座標 (E, U, −N)（heading 込み）→ RTC 相対の Y-up ECEF（3D Tiles の glb の約束＝ecef = rtc + (x, −z, y)）の列優先 4x4 */
+export function anchorMatrix(oe: NonNullable<ReturnType<typeof anchorOf>>): number[] {
+	const ps = oe.heading * Math.PI / 180, c = Math.cos(ps), sn = Math.sin(ps), { E, N, U } = oe;
+	const col = (e: number, n: number, u: number): number[] => { const d = [e * E[0] + n * N[0] + u * U[0], e * E[1] + n * N[1] + u * U[1], e * E[2] + n * N[2] + u * U[2]]; return [d[0], d[2], -d[1]]; };
+	const x = col(c, -sn, 0), y = col(0, 0, 1), z = col(-sn, -c, 0);   // +X＝東（heading で回る）・+Y＝上・+Z＝南
+	return [x[0], x[1], x[2], 0, y[0], y[1], y[2], 0, z[0], z[1], z[2], 0, 0, 0, 0, 1];
+}
+export async function glbToScene(bytes: Uint8Array | ArrayBuffer | ArrayLike<number>, { decodeDraco = null, images = true, anchor = true }: GlbToSceneOptions = {}): Promise<Scene> {
 	const { json, bin } = parseGlb(bytes);
-	const rtc = json.extensions?.CESIUM_RTC?.center || null;
+	// 錨（asset.extras.orthoEarth＝sdk/ortho-export が書く・Unity から戻る glb も同じ欄）：頂点は錨の ENU を (E, U, −N) で持つ。CESIUM_RTC が無ければ
+	// 錨の ECEF を RTC にし、頂点を RTC 相対の Y-up ECEF へ回す＝glb／3dtiles の出力が地球上の場所を持つ（docs/notes/unity-roundtrip.md §4）
+	const oe = anchor && !json.extensions?.CESIUM_RTC ? anchorOf(json) : null;
+	const rtc = json.extensions?.CESIUM_RTC?.center || (oe ? oe.ecef : null);
+	const G = oe ? anchorMatrix(oe) : null;
 	const nodes = json.nodes || [];
 	const roots = json.scenes?.[json.scene ?? 0]?.nodes
 		?? (() => { const kids = new Set<number>(); for (const n of nodes) for (const c of n.children || []) kids.add(c); return nodes.map((_, i) => i).filter(i => !kids.has(i)); })();
@@ -116,9 +145,10 @@ export async function glbToScene(bytes: Uint8Array | ArrayBuffer | ArrayLike<num
 		if (nd.mesh != null) jobs.push({ mesh: nd.mesh, W });
 		for (const c of nd.children || []) visit(c, W, depth + 1);
 	};
-	for (const r of roots) visit(r, I4, 0);
+	for (const r of roots) visit(r, G ?? I4, 0);
 
 	const prims: ScenePrim[] = [];
+	const mats = new Map<string, SceneMaterial>();
 	const bbox: SceneBbox = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
 	for (const { mesh, W } of jobs) {
 		// 法線用の余因子（W の 3x3 部分）
@@ -127,14 +157,14 @@ export async function glbToScene(bytes: Uint8Array | ArrayBuffer | ArrayLike<num
 			L[7] * L[2] - L[8] * L[1], L[8] * L[0] - L[6] * L[2], L[6] * L[1] - L[7] * L[0],
 			L[1] * L[5] - L[2] * L[4], L[2] * L[3] - L[0] * L[5], L[0] * L[4] - L[1] * L[3]];
 		for (const [pi, pr] of (json.meshes?.[mesh]?.primitives || []).entries()) {
-			let P: AttrArray | null = null, N: AttrArray | null = null, UV: AttrArray | null = null, C: AttrArray | null = null, IDX: ArrayLike<number> | null = null;
+			let P: AttrArray | null = null, N: AttrArray | null = null, UV: AttrArray | null = null, C: AttrArray | null = null, FID: AttrArray | null = null, IDX: ArrayLike<number> | null = null;
 			const dr = pr.extensions?.KHR_draco_mesh_compression;
 			if (dr) {
 				if (!decodeDraco) throw new Error("this GLB is Draco-compressed: pass decodeDraco");
 				const d = await decodeDraco(viewBytes(json, bin, dr.bufferView), dr.attributes);
 				const at = d.attributes || {};
 				const val = (k: string): AttrArray | null => { const a = at[k]; return a == null ? null : ArrayBuffer.isView(a) ? a : (a.value ?? null); };
-				P = val("POSITION"); N = val("NORMAL"); UV = val("TEXCOORD_0"); C = val("COLOR_0");
+				P = val("POSITION"); N = val("NORMAL"); UV = val("TEXCOORD_0"); C = val("COLOR_0"); FID = val("_BATCHID") ?? val("_FEATURE_ID_0");
 				const di = d.indices; IDX = di == null ? null : ArrayBuffer.isView(di) ? di : (di.value ?? null);
 			} else {
 				if (pr.attributes?.POSITION == null) continue;
@@ -142,6 +172,8 @@ export async function glbToScene(bytes: Uint8Array | ArrayBuffer | ArrayLike<num
 				N = pr.attributes.NORMAL != null ? readAccessor(json, bin, pr.attributes.NORMAL) : null;
 				UV = pr.attributes.TEXCOORD_0 != null ? readAccessor(json, bin, pr.attributes.TEXCOORD_0) : null;
 				C = pr.attributes.COLOR_0 != null ? readAccessor(json, bin, pr.attributes.COLOR_0) : null;
+				const fa = pr.attributes._BATCHID ?? pr.attributes._FEATURE_ID_0;
+				FID = fa != null ? readAccessor(json, bin, fa) : null;
 				IDX = pr.indices != null ? readAccessor(json, bin, pr.indices) : null;
 			}
 			if (!P || !P.length) continue;
@@ -180,8 +212,14 @@ export async function glbToScene(bytes: Uint8Array | ArrayBuffer | ArrayLike<num
 					cols[i * 4 + 3] = k === 4 ? Math.min(255, Math.round((C[i * k + 3] || 0) * f)) : 255;
 				}
 			}
-			prims.push({ positions: pos, normals: nrm, uvs, colors: cols, indices: idx,
-				material: materialOf(json, images ? bin : new Uint8Array(0), pr.material, `${mesh}_${pi}`) });
+			let fids: Uint32Array | null = null;
+			if (FID && FID.length >= n) { fids = new Uint32Array(n); for (let i = 0; i < n; i++) fids[i] = Math.round(FID[i]); }
+			const mkey = `${pr.material ?? -1}`;   // 同じ glTF の材質は同じ物を指す＝書き出しで材質が増えない
+			let mat = mats.get(mkey);
+			if (!mat) { mat = materialOf(json, images ? bin : new Uint8Array(0), pr.material, `${mesh}_${pi}`); mats.set(mkey, mat); }
+			const prim: ScenePrim = { positions: pos, normals: nrm, uvs, colors: cols, indices: idx, material: mat };
+			if (fids) prim.featureIds = fids;
+			prims.push(prim);
 		}
 	}
 	if (!prims.length) throw new Error("no triangles in this GLB");

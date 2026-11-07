@@ -32,6 +32,10 @@ const out = await convertToFile(glbBytes, "usdz", { name: "osaka-castle" });
 落とした先でも地球上の正しい場所に立つ。OBJ・PLY・STL・USDZ にはその欄が無いので、**原点をヘッダやコメントに書き残す**
 （相手が地球へ戻せるように）。
 
+`CESIUM_RTC` が無くても **`asset.extras.orthoEarth`**（錨＝`{ anchor: { lon, lat, height }, frame: "enu", heading }`・[ortho-export](../ortho-export) が書く形で、
+Unity から戻る GLB も同じ欄）があれば、錨の ECEF を `CESIUM_RTC` にして頂点を回す＝`glb` / `3dtiles` の出力が地球上の場所を持つ。
+`glbToScene(bytes, { anchor: false })` で畳まない。
+
 ## 注入口（依存を持たないための口）
 
 外の重い実装は**呼び手が渡す**。渡さなければ、それが要る場面でだけ理由つきで落ちる。

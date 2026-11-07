@@ -2,7 +2,7 @@
 import { buildGlb } from "./glb.ts";
 import type { GltfJson, GltfAccessor, GltfBufferView, GltfImage, GltfMaterial, GltfMesh, GltfNode, GltfScene, GltfTexture, GltfBuffer } from "./glb.ts";
 import { zipStore } from "./zip.ts";
-import type { Scene, SceneImage } from "./scene.ts";
+import type { Scene, SceneImage, SceneMaterial, SceneNode } from "./scene.ts";
 
 /** 書き出した 1 本 */
 export interface OutFile { name: string; bytes: Uint8Array }
@@ -55,20 +55,34 @@ function buildGltf(scene: Scene, { binUri = null, embed = false }: { binUri?: st
 		json.textures.push({ sampler: 0, source: json.images.length - 1 });
 		const t = json.textures.length - 1; imgIndex.set(img.bytes, t); return t;
 	};
-	for (const p of scene.prims) {
-		const tex = texOf(p.material.image);
-		const mat: GltfMaterial = { name: p.material.name, doubleSided: p.material.doubleSided,
-			pbrMetallicRoughness: { baseColorFactor: p.material.baseColor, metallicFactor: 0, roughnessFactor: 1 } };
+	const matIndex = new Map<SceneMaterial, number>();   // 同じ材質（物として同じ）は 1 つに＝prim を地物ごとに割っても材質が増えない
+	const matOf = (m: SceneMaterial): number => {
+		const hit = matIndex.get(m); if (hit != null) return hit;
+		const tex = texOf(m.image);
+		const mat: GltfMaterial = { name: m.name, doubleSided: m.doubleSided,
+			pbrMetallicRoughness: { baseColorFactor: m.baseColor, metallicFactor: 0, roughnessFactor: 1 } };
 		if (tex != null) mat.pbrMetallicRoughness!.baseColorTexture = { index: tex };
 		json.materials.push(mat);
+		matIndex.set(m, json.materials.length - 1); return json.materials.length - 1;
+	};
+	const nodeIndex = new Map<SceneNode, number>();   // prim.node が同じ＝1 ノード・1 mesh の primitives
+	for (const p of scene.prims) {
 		const attributes: Record<string, number> = { POSITION: accessor(p.positions, "VEC3", 5126, 34962, true) };
 		if (p.normals) attributes.NORMAL = accessor(p.normals, "VEC3", 5126, 34962);
 		if (p.uvs) attributes.TEXCOORD_0 = accessor(p.uvs, "VEC2", 5126, 34962);
 		if (p.colors) attributes.COLOR_0 = accessor(p.colors, "VEC4", 5121, 34962);
 		const idx = accessor(p.indices instanceof Uint32Array ? p.indices : Uint32Array.from(p.indices), "SCALAR", 5125, 34963);
-		json.meshes.push({ primitives: [{ attributes, indices: idx, material: json.materials.length - 1, mode: 4 }] });
-		json.nodes.push({ mesh: json.meshes.length - 1 });
+		const prim = { attributes, indices: idx, material: matOf(p.material), mode: 4 };
+		const ni = p.node ? nodeIndex.get(p.node) : undefined;
+		if (ni != null) { json.meshes[json.nodes[ni].mesh!].primitives!.push(prim); continue; }
+		const mesh: GltfMesh = { primitives: [prim] };
+		const node: GltfNode = { mesh: json.meshes.length };
+		if (p.node?.name) { node.name = p.node.name; mesh.name = p.node.name; }
+		if (p.node?.extras) node.extras = p.node.extras;
+		json.meshes.push(mesh);
+		json.nodes.push(node);
 		json.scenes[0].nodes!.push(json.nodes.length - 1);
+		if (p.node) nodeIndex.set(p.node, json.nodes.length - 1);
 	}
 	if (scene.rtc) { json.extensions = { CESIUM_RTC: { center: scene.rtc } }; json.extensionsUsed = ["CESIUM_RTC"]; json.extensionsRequired = ["CESIUM_RTC"]; }
 	const bin = new Uint8Array(len); { let o = 0; for (const c of chunks) { bin.set(c, o); o += c.length; } }

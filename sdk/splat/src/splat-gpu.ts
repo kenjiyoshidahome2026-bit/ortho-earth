@@ -9,8 +9,13 @@
 // LoD＝層が画面で小さい時は重い順（rank＝importanceRank・0 が一番重い）の先頭 N 個だけ描く。N＝層の画面上の足跡（px²）× lod（1 px² あたりの個数）を 1.25 倍の段に丸め、
 //   最低 4096（か n）。並べ替えは順位が N 未満の物だけを数える（keyHist／scatter が飛ばす）＝order の先頭 N 個が描く順。N が変わった時は host.post({ type:"lod", q, drawn }) で main へ。
 // message は splat-gl.ts と同じ（SplatMessage）＋層の rot・shq・shScale・shDeg・shWords・rank・lod。
+// 点群 → splat（cloud・2026-11-06）＝message "cloud"（点を受けて cloud-gpu.ts の変換器で段の層を作る・GPU の外に出さない）・"cloudLevels"（保存した段を載せ直す）・"cloudRead"（読み戻し）・"anchor"（高さの足し込み）。
+//   段＝一つの群（group＝手綱の id）の層 "<id>#<L>"＝frame が画面の画素／m で 1 段だけ描く（levelFor）。cloud の層は CPU に ctr を持たない＝当たりの経緯度は GPU から 16 byte 読む。
 import type { OverlayFrameApi } from "@ortho-earth/globe";
-import type { SplatMessage, SplatLayerBody, SplatPickResult, SplatAltitude, CamState, SplatApi, PickContext, OverlayHost } from "./splat-gl.ts";
+import type { SplatMessage, SplatLayerBody, SplatPickResult, SplatAltitude, CamState, SplatApi, PickContext, OverlayHost, CloudMessage, CloudLevelsMessage } from "./splat-gl.ts";
+import { createCloudBuilder } from "./cloud-gpu.ts";
+import type { CloudBuilder, GpuLevel } from "./cloud-gpu.ts";
+import { cloudPlan, levelFor, dropGhostCells } from "./cloud.ts";
 
 // WebGPU の定数（lib.dom は名前空間の定数を持たない＝数で書く・@webgpu/types と同じ値）
 const BUF = { MAP_READ: 0x01, COPY_SRC: 0x04, COPY_DST: 0x08, UNIFORM: 0x40, STORAGE: 0x80 } as const;
@@ -149,7 +154,8 @@ var<workgroup> part: array<u32, 256>;
 interface Layer {
 	q: string; n: number; anchor: [number, number, number]; alt: SplatAltitude; radius: number; occl: boolean; properties: Record<string, unknown> | null;
 	lod: number; bRank: GPUBuffer | null; drawn: number; sortedN: number;   // LoD＝密度（0＝全部）・順位・今描く個数・並べ替えた時の個数
-	ctr: Float32Array;   // 東北上の中心（m・CPU 側に持つ＝当たりの経緯度はここから。GPU から読み戻さない）
+	ctr: Float32Array | null;   // 東北上の中心（m・CPU 側に持つ＝当たりの経緯度はここから。cloud の層は null＝GPU から 16 byte 読む）
+	group: string | null; level: number; cell: number; pxPerSplat: number;   // cloud の段（group＝手綱の id・level＝0 が一番細かい・cell＝段のセル m）
 	bb: Float32Array;   // 東北上の箱（min xyz・max xyz）＝奥行きの範囲は箱の 8 隅で決まる（線形）
 	bCtr: GPUBuffer; bCov: GPUBuffer; bCol: GPUBuffer; bOrder: GPUBuffer; bKeys: GPUBuffer; bSh: GPUBuffer | null; ub: GPUBuffer; su: GPUBuffer;
 	shDeg: number; shWords: number; shScale: number; rot: Float32Array;
@@ -202,6 +208,8 @@ export function create(): SplatGpuModule {
 	let drawPipe: GPURenderPipeline | null = null, pickPipe: GPURenderPipeline | null = null, drawLayout: GPUBindGroupLayout | null = null, sortLayout: GPUBindGroupLayout | null = null;
 	let pKey: GPUComputePipeline | null = null, pScan: GPUComputePipeline | null = null, pScatter: GPUComputePipeline | null = null;
 	let counts: GPUBuffer | null = null, dummySh: GPUBuffer | null = null, dummyRank: GPUBuffer | null = null, dummyDep: GPUTexture | null = null;
+	let builder: Promise<CloudBuilder> | null = null;   // 点群 → splat の変換器（最初の cloud で起こす）
+	const groups = new Map<string, { anchor: [number, number, number]; levels: GpuLevel[]; active: number }>();   // cloud の群（手綱の id → 段）
 	let pickTex: GPUTexture | null = null, pickW = 0, pickH = 0;
 	const layers = new Map<string, Layer>(), probes: unknown[] = [];
 	const uData = new ArrayBuffer(UB_SIZE), uF = new Float32Array(uData), uU = new Uint32Array(uData), sData = new ArrayBuffer(SU_SIZE), sF = new Float32Array(sData), sU = new Uint32Array(sData);
@@ -274,19 +282,72 @@ export function create(): SplatGpuModule {
 		const lod = d.lod && d.rank && d.rank.length === n ? d.lod : 0, bRank = lod ? mkBuf(d.rank!, BUF.STORAGE, "splat-rank") : null;
 		const ub = device!.createBuffer({ label: "splat-u", size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST }), su = device!.createBuffer({ label: "splat-su", size: SU_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
 		const sortBG = device!.createBindGroup({ layout: sortLayout!, entries: [{ binding: 0, resource: { buffer: su } }, { binding: 1, resource: { buffer: bCtr } }, { binding: 2, resource: { buffer: bKeys } }, { binding: 3, resource: { buffer: counts! } }, { binding: 4, resource: { buffer: bOrder } }, { binding: 5, resource: { buffer: bRank ?? dummyRank! } }] });
-		return { q, n, anchor: d.anchor, alt: d.alt || "relative", radius: d.radius || 0, occl: d.depthTest !== false, properties: d.properties ?? null, ctr: d.ctr, bb, lod, bRank, drawn: n, sortedN: 0,
+		return { q, n, anchor: d.anchor, alt: d.alt || "relative", radius: d.radius || 0, occl: d.depthTest !== false, properties: d.properties ?? null, ctr: d.ctr, bb, lod, bRank, drawn: n, sortedN: 0, group: null, level: 0, cell: 0, pxPerSplat: 0,
 			bCtr, bCov, bCol, bOrder, bKeys, bSh, ub, su, shDeg: sh ? d.shDeg! : 0, shWords: sh ? d.shWords! : 0, shScale: d.shScale ?? 1, rot: d.rot && d.rot.length === 9 ? d.rot : new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
 			sortBG, drawBG: null, drawTex: null, dir: null, on: d.on !== false, base: 0, dist: 0 };
 	}
 	const drop = (L: Layer | undefined): void => { if (!L) return; for (const b of [L.bCtr, L.bCov, L.bCol, L.bOrder, L.bKeys, L.bSh, L.bRank, L.ub, L.su]) b?.destroy(); };
 	function rebase(): void { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
+	// 群（cloud）の層＝"<q>#<L>"・素の層＝q
+	const ofGroup = (q: string): Layer[] => [...layers.values()].filter(L => L.q === q || L.group === q);
+	const removeQ = (q: string): void => { for (const L of ofGroup(q)) { drop(L); layers.delete(L.q); } groups.delete(q); };
+	// cloud の段（GPU の buffer）を層にする＝ctr は CPU に無い・LoD（rank）は無い（段の切り替えが LoD）
+	function buildCloudLayer(q: string, g: GpuLevel, level: number, d: { anchor: [number, number, number]; alt?: SplatAltitude; depthTest?: boolean; properties?: Record<string, unknown> | null; on?: boolean; pxPerSplat: number }): Layer {
+		const n = g.n, ub = device!.createBuffer({ label: "splat-u", size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST }), su = device!.createBuffer({ label: "splat-su", size: SU_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
+		const bKeys = device!.createBuffer({ label: "splat-keys", size: Math.max(16, n * 4), usage: BUF.STORAGE });
+		const sortBG = device!.createBindGroup({ layout: sortLayout!, entries: [{ binding: 0, resource: { buffer: su } }, { binding: 1, resource: { buffer: g.bCtr } }, { binding: 2, resource: { buffer: bKeys } }, { binding: 3, resource: { buffer: counts! } }, { binding: 4, resource: { buffer: g.bOrder } }, { binding: 5, resource: { buffer: dummyRank! } }] });
+		return { q: `${q}#${level}`, n, anchor: d.anchor, alt: d.alt || "absolute", radius: g.radius, occl: d.depthTest !== false, properties: d.properties ?? null, ctr: null, bb: g.bb, lod: 0, bRank: null, drawn: n, sortedN: 0, group: q, level, cell: g.cell, pxPerSplat: d.pxPerSplat,
+			bCtr: g.bCtr, bCov: g.bCov, bCol: g.bCol, bOrder: g.bOrder, bKeys, bSh: null, ub, su, shDeg: 0, shWords: 0, shScale: 1, rot: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
+			sortBG, drawBG: null, drawTex: null, dir: null, on: d.on !== false, base: 0, dist: 0 };
+	}
+	const builderGet = (): Promise<CloudBuilder> => builder ??= createCloudBuilder(device!, compile).catch(e => { builder = null; throw e; });
+	// 点 → 段の層（変換は非同期＝終わったら main へ { type:"cloud", q, levels, ms }・失敗＝{ type:"cloud", q, error }）
+	async function cloud(d: CloudMessage): Promise<void> {
+		const t0 = performance.now(), plan = cloudPlan(d.n, d.bb, d.params);
+		const b = await builderGet();
+		const r = await b.build(d.pts, d.rgba, d.n, plan);
+		if (d.ghost && !dead && device) {   // 借りた点（α 0）だけのセルを捨てる＝読み戻して CPU で詰め、載せ直す（段は 2〜8・図郭 1 枚で数十 ms）
+			for (let i = 0; i < r.levels.length; i++) {
+				const L = r.levels[i], c = await b.read(L), kept = dropGhostCells({ n: L.n, cell: L.cell, ...c, bb: Array.from(L.bb), radius: L.radius }, d.alpha ?? 255);
+				for (const x of [L.bCtr, L.bCov, L.bCol, L.bOrder]) x.destroy();
+				r.levels[i] = b.upload(kept);
+			}
+			while (r.levels.length > 1 && !r.levels[r.levels.length - 1].n) { const L = r.levels.pop()!; for (const x of [L.bCtr, L.bCov, L.bCol, L.bOrder]) x.destroy(); }
+		}
+		if (dead || !device) { for (const L of r.levels) for (const x of [L.bCtr, L.bCov, L.bCol, L.bOrder]) x.destroy(); return; }
+		removeQ(d.q);
+		for (let i = 0; i < r.levels.length; i++) { const L = buildCloudLayer(d.q, r.levels[i], i, { ...d, pxPerSplat: plan.pxPerSplat }); layers.set(L.q, L); }
+		groups.set(d.q, { anchor: d.anchor, levels: r.levels, active: -1 });
+		rebase(); host?.requestDraw?.();
+		host?.post?.({ type: "cloud", q: d.q, levels: r.levels.map(L => ({ n: L.n, cell: L.cell, radius: L.radius, bb: Array.from(L.bb) })), plan, ms: { build: Math.round(r.ms), total: Math.round(performance.now() - t0) } });
+	}
+	async function cloudLevels(d: CloudLevelsMessage): Promise<void> {
+		const b = await builderGet();
+		if (dead || !device) return;
+		removeQ(d.q);
+		const gl = d.levels.map(l => b.upload(l));
+		for (let i = 0; i < gl.length; i++) { const L = buildCloudLayer(d.q, gl[i], i, { ...d, pxPerSplat: d.pxPerSplat ?? 1.5 }); layers.set(L.q, L); }
+		groups.set(d.q, { anchor: d.anchor, levels: gl, active: -1 });
+		rebase(); host?.requestDraw?.();
+		host?.post?.({ type: "cloud", q: d.q, levels: gl.map(L => ({ n: L.n, cell: L.cell, radius: L.radius, bb: Array.from(L.bb) })), ms: { build: 0, total: 0 } });
+	}
+	async function cloudRead(q: string, id: unknown): Promise<void> {
+		const g = groups.get(q); if (!g) throw new Error(`splat: no cloud "${q}"`);
+		const b = await builderGet(), out: Array<{ n: number; cell: number; ctr: Float32Array; cov: Float32Array; col: Uint32Array; bb: number[]; radius: number }> = [], tr: ArrayBuffer[] = [];
+		for (const L of g.levels) { const r = await b.read(L); out.push({ n: L.n, cell: L.cell, ...r, bb: Array.from(L.bb), radius: L.radius }); tr.push(r.ctr.buffer, r.cov.buffer, r.col.buffer); }
+		(host as { post?: (d: unknown, t?: ArrayBuffer[]) => void } | null)?.post?.({ type: "cloudData", id, q, anchor: g.anchor, levels: out }, tr);
+	}
 	function message(d: SplatMessage): void {
 		if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
 		if (!device || !ctx) return;
-		if (d.type === "layer") { drop(layers.get(d.q)); layers.set(d.q, build(d.q, d)); rebase(); host?.requestDraw?.(); }
-		else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); host?.requestDraw?.(); }
-		else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; host?.requestDraw?.(); }
-		else if (d.type === "clear") { layers.forEach(drop); layers.clear(); rebase(); host?.requestDraw?.(); }
+		if (d.type === "layer") { removeQ(d.q); layers.set(d.q, build(d.q, d)); rebase(); host?.requestDraw?.(); }
+		else if (d.type === "remove") { removeQ(d.q); rebase(); host?.requestDraw?.(); }
+		else if (d.type === "vis") { for (const L of ofGroup(d.q)) L.on = !!d.on; host?.requestDraw?.(); }
+		else if (d.type === "clear") { layers.forEach(drop); layers.clear(); groups.clear(); rebase(); host?.requestDraw?.(); }
+		else if (d.type === "cloud") cloud(d).catch(e => { console.warn("[splat] cloud failed", e); host?.post?.({ type: "cloud", q: d.q, error: String((e as { message?: string } | null)?.message || e) }); });
+		else if (d.type === "cloudLevels") cloudLevels(d).catch(e => { console.warn("[splat] cloudLevels failed", e); host?.post?.({ type: "cloud", q: d.q, error: String((e as { message?: string } | null)?.message || e) }); });
+		else if (d.type === "cloudRead") cloudRead(d.q, d.id).catch(e => host?.post?.({ type: "cloudData", id: d.id, q: d.q, error: String((e as { message?: string } | null)?.message || e) }));
+		else if (d.type === "anchor") { for (const L of ofGroup(d.q)) L.anchor = [L.anchor[0], L.anchor[1], d.alt]; const g = groups.get(d.q); if (g) g.anchor = [g.anchor[0], g.anchor[1], d.alt]; host?.requestDraw?.(); }
 	}
 	// 錨の位置（relative＝地形の高さ×持ち上げ＋高さ）と層の mvp（倍精度）・目の位置（錨の東北上 m）。戻り＝見える（地平線の向こうでない）
 	function place(L: Layer, s: CamState, api: SplatApi | null | undefined): boolean {
@@ -314,6 +375,19 @@ export function create(): SplatGpuModule {
 			L.drawBG = device!.createBindGroup({ layout: drawLayout!, entries: [{ binding: 0, resource: { buffer: L.ub } }, { binding: 1, resource: { buffer: L.bCtr } }, { binding: 2, resource: { buffer: L.bCov } }, { binding: 3, resource: { buffer: L.bCol } }, { binding: 4, resource: { buffer: L.bOrder } }, { binding: 5, resource: { buffer: L.bSh ?? dummySh! } }, { binding: 6, resource: tex.createView() }] });
 			L.drawTex = tex;
 		}
+	}
+	// cloud の群ごとに描く段＝画面の画素／m（錨の所）で決める（levelFor）。群の全部の層は同じ錨＝一つ置けば足りる
+	function activeLevels(s: CamState, api: SplatApi | null | undefined, w: number, h: number): Map<string, number> {
+		const out = new Map<string, number>();
+		if (!groups.size) return out;
+		const cells = new Map<string, { cells: number[]; px: number; L: Layer }>();
+		for (const L of layers.values()) if (L.group) { let g = cells.get(L.group); if (!g) cells.set(L.group, (g = { cells: [], px: L.pxPerSplat, L })); g.cells[L.level] = L.cell; }
+		for (const [q, g] of cells) {
+			if (!place(g.L, s, api)) { out.set(q, -1); continue; }
+			const lv = levelFor(pixelsPerMeter(mvpL, w, h), g.cells, g.px); out.set(q, lv);
+			const G = groups.get(q); if (G && G.active !== lv) { G.active = lv; host?.post?.({ type: "level", q, level: lv, n: g.cells.length }); }
+		}
+		return out;
 	}
 	// LoD の個数（place の後＝mvpL が層の物）
 	function lodOf(L: Layer, w: number, h: number): number {
@@ -364,8 +438,9 @@ export function create(): SplatGpuModule {
 		const d = api?.depth, dep = wantDepth && d ? { tex: d.gpuTexture(device), w: d.w, h: d.h, logCoef: d.logCoef } : null;
 		const enc = device.createCommandEncoder({ label: "splat-frame" });
 		const vis: Layer[] = [];
+		const active = activeLevels(s, api, w, h);
 		for (const L of layers.values()) {
-			if (!L.on || !L.n || !place(L, s, api)) continue;
+			if (!L.on || !L.n || (L.group && active.get(L.group) !== L.level) || !place(L, s, api)) continue;
 			const keep = lodOf(L, w, h);
 			if (keep !== L.drawn) { L.drawn = keep; host?.post?.({ type: "lod", q: L.q, drawn: keep, n: L.n }); }
 			sortIfTurned(L, enc, keep);
@@ -387,7 +462,8 @@ export function create(): SplatGpuModule {
 		if (!pickTex || pickW !== w || pickH !== h) { pickTex?.destroy(); pickTex = device.createTexture({ label: "splat-pick", size: [w, h], format: "r32uint", usage: TEX.RENDER_ATTACHMENT | TEX.COPY_SRC }); pickW = w; pickH = h; }
 		const enc = device.createCommandEncoder({ label: "splat-pick" });
 		const vis: Layer[] = [];
-		for (const L of layers.values()) { if (!L.on || !L.n || !place(L, ctx0.s, ctx0.api)) continue; writeU(L, w, h, null, true); vis.push(L); }
+		const active = activeLevels(ctx0.s, ctx0.api, w, h);
+		for (const L of layers.values()) { if (!L.on || !L.n || (L.group && active.get(L.group) !== L.level) || !place(L, ctx0.s, ctx0.api)) continue; writeU(L, w, h, null, true); vis.push(L); }
 		vis.sort((a, b) => b.dist - a.dist);   // 奥から＝手前の層の番号が勝つ
 		const pass = enc.beginRenderPass({ colorAttachments: [{ view: pickTex.createView(), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
 		if (vis.length) { pass.setPipeline(pickPipe); for (const L of vis) { pass.setBindGroup(0, L.drawBG!); pass.draw(6, L.sortedN || L.n); } }
@@ -406,16 +482,25 @@ export function create(): SplatGpuModule {
 		buf.unmap(); buf.destroy();
 		if (!best) return null;
 		for (const [q, L] of layers) if (best.id >= L.base && best.id < L.base + L.n) {
-			const index = best.id - L.base, a = L.anchor, e = L.ctr[index * 3], nn = L.ctr[index * 3 + 1];
+			const index = best.id - L.base, a = L.anchor;
+			let e: number, nn: number;
+			if (L.ctr) { e = L.ctr[index * 3]; nn = L.ctr[index * 3 + 1]; }
+			else {   // cloud の層＝ctr は GPU だけ＝その 1 個（16 byte）を読む
+				const rb = device.createBuffer({ size: 16, usage: BUF.MAP_READ | BUF.COPY_DST }), e2 = device.createCommandEncoder();
+				e2.copyBufferToBuffer(L.bCtr, index * 16, rb, 0, 16); device.queue.submit([e2.finish()]);
+				await rb.mapAsync(BUF.MAP_READ); const v = new Float32Array(rb.getMappedRange().slice(0, 16)); rb.unmap(); rb.destroy();
+				e = v[0]; nn = v[1];
+			}
 			// 中心の経緯度（当たりの答え）＝錨の東北上から（WebGL2 の描き手と同じ式）
 			const lngLat: [number, number] = [a[0] + e / (Math.cos(a[1] * D2R) * D2R * R_SPHERE), a[1] + nn / (D2R * R_SPHERE)];
-			return { id: best.id, q, layer: q, index, distance: best.distance, lngLat, properties: { ...(L.properties || {}), index } };
+			return { id: best.id, q, layer: L.group ?? q, index, distance: best.distance, lngLat, properties: { ...(L.properties || {}), index, ...(L.group ? { level: L.level } : {}) } };
 		}
 		return null;
 	}
 	function destroy(): void {
 		dead = true;
-		layers.forEach(drop); layers.clear();
+		layers.forEach(drop); layers.clear(); groups.clear();
+		builder?.then(b => b.destroy()).catch(() => {}); builder = null;
 		for (const b of [counts, dummySh, dummyRank]) b?.destroy();
 		dummyDep?.destroy(); pickTex?.destroy();
 		try { ctx?.unconfigure(); } catch { /* 古い実装 */ }

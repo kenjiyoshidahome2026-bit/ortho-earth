@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { parseGlb } from "./glbmerge.mjs";
+import { parseGlb } from "ortho-export/glbmerge";   // 2026-11-07 に sdk/ortho-export へ移した（Unity 向けの書き出しと共用）
 const enc = new TextEncoder();
 export function webpToJpeg(glb, { quality = 82 } = {}) {
 	const { json: j, bin } = parseGlb(glb);

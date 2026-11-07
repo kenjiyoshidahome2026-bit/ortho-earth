@@ -1,0 +1,29 @@
+{
+	"name": "com.ortho-earth.unity",
+	"version": "0.1.0",
+	"displayName": "Ortho Earth",
+	"description": "Bring ortho-earth exports (terrain, PLATEAU buildings, point clouds) into a Unity 6 scene, and send Unity models back to the ortho-earth globe. Anchor = lon/lat/ellipsoidal height; Unity X = east, Y = up, Z = north, 1 unit = 1 m.",
+	"unity": "6000.0",
+	"license": "GPL-3.0-or-later",
+	"dependencies": {
+		"com.unity.cloud.gltfast": "6.9.0",
+		"com.unity.cloud.draco": "5.6.0"
+	},
+	"keywords": [
+		"gis",
+		"gltf",
+		"plateau",
+		"ortho-earth"
+	],
+	"author": {
+		"name": "Ortho Earth",
+		"url": "https://www.ortho-earth.com"
+	},
+	"samples": [
+		{
+			"displayName": "Marunouchi (Tokyo Station)",
+			"description": "Anchor, attribution and a 4-point check PLY for a 2–3 block export around Tokyo Station. Run sdk/ortho-export (command in the sample's README) to produce terrain.glb and buildings.glb next to them, then Ortho Earth > Place export folder in scene…",
+			"path": "Samples~/Marunouchi"
+		}
+	]
+}

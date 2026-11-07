@@ -137,7 +137,9 @@ export interface LabelLayer {
 }
 export interface LabelStats extends SinkStats { drawMs: number; collideMs: number; labels: number }
 
-const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
+/** 注記の既定の書体の束。公開＝起動の書体の温め（globe fontwarm.ts）が同じ束で温めるため（2026-11-06） */
+export const LABEL_FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
+const FONT_STACK = LABEL_FONT_STACK;
 const ANCH: Record<string, readonly [number, number]> = { center: [0.5, 0.5], top: [0.5, 0], bottom: [0.5, 1], left: [0, 0.5], right: [1, 0.5], "top-left": [0, 0], "top-right": [1, 0], "bottom-left": [0, 1], "bottom-right": [1, 1] };   // text-anchor＝箱のどの点を錨に置くか（MapLibre）
 const PJ = new Float64Array(3), PE = new Float64Array(3), PS = new Float64Array(3);   // projectInto の作業域（錨・東・南の投影＝衝突判定・毎フレームの描画）
 let prBuf = new Float64Array(3 * 64);   // lineLayout の頂点投影の作業域（[x, y, front] × 頂点）
