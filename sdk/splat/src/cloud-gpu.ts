@@ -12,8 +12,8 @@ const STAGE_C = 0x4, WG = 256, BLOCK = 1024, U_SIZE = 48;
 
 // 共通の uniform（段ごとに書く）
 const U_WGSL = /* wgsl */`
-struct U { n: u32, mask: u32, cell: f32, inv: f32, r2: f32, fill2: f32, cap2: f32, maxNb: u32, hasCov: u32, pad0: u32, pad1: u32, pad2: u32 }
-@group(0) @binding(0) var<uniform> U: U;
+struct Uni { n: u32, mask: u32, cell: f32, inv: f32, r2: f32, fill2: f32, cap2: f32, maxNb: u32, hasCov: u32, pad0: u32, pad1: u32, pad2: u32 }
+@group(0) @binding(0) var<uniform> U: Uni;
 fn cellOf(p: vec3f) -> vec3i { return vec3i(floor(p * U.inv)); }
 fn hashOf(c: vec3i) -> u32 { return ((u32(c.x) * 73856093u) ^ (u32(c.y) * 19349663u) ^ (u32(c.z) * 83492791u)) & U.mask; }
 `;
@@ -32,8 +32,8 @@ const HASH_WGSL = U_WGSL + /* wgsl */`
 }`;
 // ② 累積（exclusive scan・in place）＝1024 個ずつの塊（256 thread × 4）→ 塊の和を 1 workgroup で累積 → 足し戻す。総数は total[0]
 const SCAN_WGSL = /* wgsl */`
-struct S { len: u32, blocks: u32, pad0: u32, pad1: u32 }
-@group(0) @binding(0) var<uniform> S: S;
+struct Scn { len: u32, blocks: u32, pad0: u32, pad1: u32 }
+@group(0) @binding(0) var<uniform> S: Scn;
 @group(0) @binding(1) var<storage, read_write> data: array<u32>;
 @group(0) @binding(2) var<storage, read_write> sums: array<u32>;
 @group(0) @binding(3) var<storage, read_write> total: array<u32>;
@@ -130,8 +130,8 @@ fn nbCov(i: u32, p: vec3f, c: vec3i) -> array<f32, 6> {
 }`;
 // ⑦ 範囲（min xyz・max xyz）と半径²（u32 に写した浮動小数の atomicMin／Max）・order の初期化
 const STATS_WGSL = /* wgsl */`
-struct T { n: u32, pad0: u32, pad1: u32, pad2: u32 }
-@group(0) @binding(0) var<uniform> T: T;
+struct Sta { n: u32, pad0: u32, pad1: u32, pad2: u32 }
+@group(0) @binding(0) var<uniform> T: Sta;
 @group(0) @binding(1) var<storage, read_write> ctr: array<vec4f>;
 @group(0) @binding(2) var<storage, read_write> st: array<atomic<u32>>;
 @group(0) @binding(3) var<storage, read_write> order: array<u32>;
