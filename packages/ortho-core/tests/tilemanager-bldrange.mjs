@@ -1,6 +1,6 @@
 // bldRange（注視点から遠い枠の建物を立てない）の検定（2026-11-06）。
 // node packages/ortho-core/tests/tilemanager-bldrange.mjs
-// 守るもの：①無指定＝bld 無し（従来）②bldRange=KM＝遠い枠は bld:"no"・近い枠は無印 ③タイル集合（鍵）は変わらない（線・塗りは全枠）
+// 守るもの：①無指定＝bld 無し（従来）②bldRange=KM＝遠い枠は bld:"no"・近い枠は無印 ③タイル集合（鍵）は変わらない（線・塗りは全枠）④covered は bld の書き換えに影響されない
 import assert from "node:assert/strict";
 import { createTileManager } from "../src/tilemanager.ts";
 let n = 0;
@@ -31,5 +31,13 @@ await t("無指定＝bld 無し／bldRange=1＝遠い枠だけ bld:no・鍵の�
 	for (const o of near) assert.ok(kmOf(o.key, cam.center) <= 1, `${o.key} は 1 km 以内`);
 	const r2 = tm.update({ ...cam, center: [...cam.center] }, 800, 1200, { bldRange: 1000 });
 	assert.ok(r2.order.every(o => !o.bld), "範囲が十分広い＝全部立つ");
+	// ④ covered＝「全枠 ready」の判定は bldRange の書き換えに影響されない（旧＝遠い枠が混ざると常に false＝idle が来ない・2026-11-07 実機）
+	assert.equal(r0.covered, true, "従来＝全枚 ready なら covered");
+	assert.equal(r1.covered, true, "bldRange=1（遠い枠あり）でも全枚 ready なら covered");
+});
+await t("bldRange 中に未着の枠があれば covered=false のまま（判定の向きは従来どおり）", async () => {
+	const { tm } = mk();
+	const r = tm.update(cam, 800, 1200, { bldRange: 1 });
+	assert.equal(r.covered, false, "何も届いていない＝covered でない");
 });
 console.log(`tilemanager-bldrange: ${n} ok`);
