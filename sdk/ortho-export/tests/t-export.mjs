@@ -105,7 +105,7 @@ ok("出力：anchor.json・terrain.glb・buildings.glb・README.md", () => {
 	assert.ok(fs.readFileSync(path.join(out, "README.md"), "utf8").includes("CC BY 4.0"));
 });
 const terrainGlb = new Uint8Array(fs.readFileSync(path.join(out, "terrain.glb")));
-const tScene = await glbToScene(terrainGlb);
+const tScene = await glbToScene(terrainGlb, { anchor: false });   // glbconv は錨（extras）を RTC へ畳む＝ここは錨の座標のまま検める
 ok("地形：面はタイルごと・頂点の高さ ≈ 0（錨＝地面）・幅 ≈ bbox の実寸・uv は 0..1・画像つき", () => {
 	const { x0, x1, y0, y1 } = tileRange(bbox, 17), nTiles = (x1 - x0 + 1) * (y1 - y0 + 1);
 	assert.equal(tScene.prims.length, nTiles, "tiles");
