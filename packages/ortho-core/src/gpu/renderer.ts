@@ -1714,6 +1714,9 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	let fine: FarState = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };   // 足元層（fine・2026-10-31）＝近景テクスチャの右半分（cx=1）。束縛は近景と同じ view＝作り直し不要
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 	let memAtlas = 0, memStage = 0, memFar = 0, memMesh = 0, memMsaa = 0;
+	// フレームの外で GPU へ送る回数の累計（__perf().terr.sub・2026-11-07）：Galaxy の滑走で地形ありだと 1 フレームあたり約 1.7 回の余分な Queue::Submit が
+	// あった（地形なし≈1）。何が送っているかを数で分ける：地面アトラスの合成（gndBake）・そのミップ（gndMip）・標高セルの GPU 再標本化（cellGpu）・CPU 書き（cellCpu）
+	const subStat = { gndBake: 0, gndMip: 0, cellGpu: 0, cellCpu: 0 };
 	let bg0: Record<string, GPUBindGroup> = null!;   // group(0) の5スロット bind group（elevTex/farTex 差し替えで作り直し）
 	let bg0Atl: Record<string, GPUBindGroup> = null!;   // 地面アトラス合成パス用（アトラス自身を dummy にした bg0）
 	// 地面アトラスの状態（rebuildBG0 が bind group に張る＝先に宣言・TDZ 回避）：w[i]＝{ tex, view, size, levels, win:[W,S,spanLon,spanLat], bytes }
@@ -1789,6 +1792,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const retire = (t: GPUTexture) => { retired.push(t); };
 	const mkAtlasTex = (W: number, H: number) => device.createTexture({ size: [W, H], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });   // 生成時ゼロ初期化＝海。RENDER_ATTACHMENT＝GPU 再標本化の的（P1 step 1）・COPY_SRC＝検定の読み戻し
 	function writeCell(tex: GPUTexture, cx: number, cy: number, data: Float32Array, cellRes: number) {
+		subStat.cellCpu++;
 		castRev++;   // 標高が変わる＝建物の足元（リフト）が変わる＝影の深度を描き直す
 		// 計器 a（perf plan §1）：f16 変換と writeTexture 発行の時間を分けて terrain.js の upload 行へ渡す（?perf=1 の時だけ）
 		const perf = (self as PerfSelf).__perfElev, t0 = perf ? performance.now() : 0;
@@ -1922,6 +1926,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		if (!gpuResample) return false;
 		const r = rsInit(), u = r.u32, f = r.f32;
 		if (!packResampleParams(u, f, src, cx, cy, N)) return false;   // 係数の詰め＝elevcell.ts（gl と同じ正本）
+		subStat.cellGpu++;
 		const e = rawBuf(src.tile || src.atlas!);
 		if (!e) return false;
 		castRev++;   // 標高が変わる＝建物の足元（リフト）が変わる＝影の深度を描き直す（writeCell と同じ）
@@ -2027,7 +2032,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 模型のテクスチャ（glb 直読み）：ミップ＝GPU 生成（レベルごとに全画面三角形でブリット）・三線形＋異方性 8・repeat。無しは白 1x1（頂点色だけ）
 	const texSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "repeat", addressModeV: "repeat" });
 	let mipPipe: GPURenderPipeline | null = null, mipSampler: GPUSampler | null = null;
-	function genMips(tex: GPUTexture, levels: number) {   // rgba8unorm・level0 書き込み済み → 1..levels-1 を順に半分へ（queue 順＝copyExternalImageToTexture の後に走る）
+	function genMips(tex: GPUTexture, levels: number) {
+		subStat.gndMip++;   // rgba8unorm・level0 書き込み済み → 1..levels-1 を順に半分へ（queue 順＝copyExternalImageToTexture の後に走る）
 		if (!mipPipe) {
 			const mod = device.createShaderModule({ code: `@group(0) @binding(0) var s: sampler; @group(0) @binding(1) var t: texture_2d<f32>;
 struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
@@ -2160,6 +2166,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 	function composeGround(job: GroundJob | null, slots: string[]) {
 		if (!job) return;
+		subStat.gndBake++;
 		const { wins, rasterOn, wantFills, seaOff, baseA, cam, hook, userIn, baseSlots } = job;
 		gnd.tiles = 0; gnd.faces = 0;
 		if (!rasAtlasPipe) rasAtlasPipe = device.createRenderPipeline({ label: "rasAtlas", layout: rasAtlasLayout,
@@ -4026,7 +4033,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	return { set, draw, flush, readback, dispose, lazyPipes: LAZY, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		pipeLog,   // 作ったパイプラインの帳（label・ms・performance.now()）＝HUD の「遅いフレーム」行がどの本を頼んだ直後の詰まりかを読む（2026-11-07）
-		terrStats: () => ({ ...terrStat, coarse: terrCoarseOn }),   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数。coarse＝粗い index で描いた（間引き幅・0＝本番）
+		terrStats: () => ({ ...terrStat, coarse: terrCoarseOn, sub: { ...subStat } }),   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数。coarse＝粗い index で描いた（間引き幅・0＝本番）
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors,
 		boot: { adapterMs: tAdapter - tBoot0, deviceMs: tDevice - tAdapter, initMs: performance.now() - tDevice },   // 起動の時間割（ms）：adapter 取得／device 取得／init（シェーダ・パイプライン・資源の生成）
 		meshUpPump, meshUpBusy: () => meshUp.size > 0 || meshSettled.length > 0,   // settled が残る間も pump を回す＝捨てた荷の参照を握り続けない meshUpPending: (key: string) => meshUp.has(key),   // 建物の小分け転送（2026-11-04）：renderworker が毎フレーム pump し、上がり切った（か捨てた）キーの ack を返す get hasTQ() { return !!tq; },
