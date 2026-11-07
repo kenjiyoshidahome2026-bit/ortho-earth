@@ -85,6 +85,7 @@ export interface RendererGPUOptions {
 	/** lazyPipes の束のうち最初のフレームに要る 10 本を起動時に先に作る（?warmpipe=1＝同期・2＝createRenderPipelineAsync で並列）。2026-11-06 Galaxy のトレース：
 	 *  同じ 10 本が eager（起動直後・GPU プロセスが暇）では計 0.2 秒、lazy（初回描画の最中・タイル復号と競合）では 4.2 秒＝作る「時機」で 20 倍違う */
 	warmPipes?: number;
+	warmPar?: number;   // ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に・既定 2）
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
 	/** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N＝画面 N px 未満の建物を描かない・既定 1） */
 	meshLod?: number;
@@ -769,8 +770,11 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		const tw = performance.now();
 		if (rOpts.warmPipes >= 3) {   // 進行描き（2026-11-07 Galaxy）：地球と地形だけ同期で先に、残り 8 本は待たずに Async＝frame1 がコンパイル 10 本ぶんを待たない。できた層から現れる（draw は null の層を飛ばす）
 			const BASE = ["globe", "terrain"] as const; for (const k of BASE) void P[k];
-			const bg = warmPipesBg(P, device, FIRST_FRAME_PIPES.filter(k => !(BASE as readonly string[]).includes(k)), () => rOpts.requestDraw?.());
-			void bg.done.then(w => console.log(`[boot] warm pipes progressive: base ${BASE.length} sync in ${(performance.now() - tw) | 0} ms · ${w.made}/${bg.asked} async done at +${w.ms | 0} ms${w.failed.length ? " failed " + w.failed.join(",") : ""}`));
+			// 優先順：線（いちばん目に入る・コンパイルも最長）→ 塗り → 建物 → メッシュ 3 本。同時 warmPar 本（既定 2）＝タイル復号・メッシュ処理に CPU を残す
+			const ORDER = ["lineOff", "lineTest", "fillOff", "fillTest", "bld", "mesh", "meshTex", "meshTexBlend"] as const;
+			const par = rOpts.warmPar ?? 2;
+			const bg = warmPipesBg(P, device, ORDER, () => rOpts.requestDraw?.(), par);
+			void bg.done.then(w => console.log(`[boot] warm pipes progressive: base ${BASE.length} sync in ${(performance.now() - tw) | 0} ms · ${w.made}/${bg.asked} async (par ${par || "all"}) done at +${w.ms | 0} ms${w.failed.length ? " failed " + w.failed.join(",") : ""}`));
 		}
 		else if (rOpts.warmPipes >= 2) { const w = await warmPipes(P, device, FIRST_FRAME_PIPES); console.log(`[boot] warm pipes async: ${w.made}/${w.asked} in ${w.ms | 0} ms${w.failed.length ? " failed " + w.failed.join(",") : ""}`); }
 		else { for (const k of FIRST_FRAME_PIPES) void P[k]; console.log(`[boot] warm pipes sync: ${FIRST_FRAME_PIPES.length} in ${(performance.now() - tw) | 0} ms`); }
