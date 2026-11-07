@@ -445,6 +445,36 @@ fn elevQ(ll: vec2f) -> f32 {
 	if (gf.x + gf.y < 1.0) { return h00 + gf.x * (h10 - h00) + gf.y * (h01 - h00); }
 	return h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
 }
+// 線・overlay 塗りの標高の軽い版（F.fineP.z＝?lineelev・2026-11-07）：1＝elevQ と同じ格子量子化だが 4 隅を elev1（主アトラス 1 標本）で引く＝標本 16→4、
+// 2＝elev1 そのまま＝標本 1（格子に乗らない＝線が地形の三角形の間で浮き沈みし得る）。0＝elevQ（従来）。
+// 動機：Galaxy の滑走（京都→日本）で、線・塗りの頂点ごとの標高読み（elevQ＝elev×4＝近・遠・近景・足元で最大 16 標本）が地図の描画 125 ms のうち約 50 ms。
+fn elevQ1(ll: vec2f) -> f32 {
+	let G = F.ellP.y;
+	if (G < 1.5) { return elev1(ll); }
+	var win = F.mesh;
+	if (F.nearP.x > 0.5) { let gn = (ll - F.nearBounds.xy) / F.nearBounds.zw; if (gn.x >= 0.0 && gn.x <= 1.0 && gn.y >= 0.0 && gn.y <= 1.0) { win = F.nearBounds; } }
+	if (F.fineP.x > 0.5) { let gf = (ll - F.fineBounds.xy) / F.fineBounds.zw; if (gf.x >= 0.0 && gf.x <= 1.0 && gf.y >= 0.0 && gf.y <= 1.0) { win = F.fineBounds; } }
+	let g = (ll - win.xy) / win.zw;
+	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) { return elev1(ll); }
+	let N = G - 1.0;
+	let gc = min(g * N, vec2f(N - 1e-4));
+	let gi = floor(gc);
+	let gf = gc - gi;
+	let st = win.zw / N;
+	let b0 = win.xy + gi * st;
+	let h00 = elev1(b0);
+	let h10 = elev1(b0 + vec2f(st.x, 0.0));
+	let h01 = elev1(b0 + vec2f(0.0, st.y));
+	let h11 = elev1(b0 + st);
+	if (gf.x + gf.y < 1.0) { return h00 + gf.x * (h10 - h00) + gf.y * (h01 - h00); }
+	return h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
+}
+// 線・overlay 塗りの頂点が引く標高＝F.fineP.z（0 従来 elevQ／1 elevQ1／2 elev1）で選ぶ。uniform＝一様な分岐
+fn elevL(ll: vec2f) -> f32 {
+	if (F.fineP.z > 1.5) { return elev1(ll); }
+	if (F.fineP.z > 0.5) { return elevQ1(ll); }
+	return elevQ(ll);
+}
 `;
 
 // ?gndfast=0 の逃げ道（perf plan P6）＝gndMix0 を旧順序（4 本標本化してから GD0.p.x で捨てる）へ機械変換する。renderer の mkMod が rOpts.gndFast===false の時だけ通す。
@@ -626,8 +656,8 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	// 標高変位は地形と同じ距離フェード＝遠景の平ら化に追随（無いと地平線に「漂う点線の鎖」）
 	let dfa = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, da));
 	let dfb = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, db));
-	let ha = (elevQ(la1) + P.p0.y) * F.elevP.x * dfa;   // 案A
-	let hb = (elevQ(la2) + P.p0.y) * F.elevP.x * dfb;
+	let ha = (elevL(la1) + P.p0.y) * F.elevP.x * dfa;   // 案A（F.fineP.z＝?lineelev で軽い版）
+	let hb = (elevL(la2) + P.p0.y) * F.elevP.x * dfb;
 	let relWa = rela + ha * liftDir(la1, da); let relWb = relb + hb * liftDir(la2, db);   // 楕円体＝測地法線
 	let wa = F.originPt + relWa; let wb = F.originPt + relWb;
 	let ca = F.clipT + F.mvp * vec4f(relWa, 0.0);
@@ -1270,7 +1300,7 @@ struct SOut { @builtin(position) pos: vec4f };
 	let rel = deltaToRel(a_delta);
 	let dir = F.originPt + rel;
 	let df = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, dir));
-	let h = (elevQ(ll) + P.p0.y) * F.elevP.x * df;   // 案A＝overlay 塗りも描画メッシュ面に乗せる
+	let h = (elevL(ll) + P.p0.y) * F.elevP.x * df;   // 案A＝overlay 塗りも描画メッシュ面に乗せる（F.fineP.z＝?lineelev で軽い版）
 	var relW = rel + h * liftDir(ll, dir);
 	// p0.z=1（wdepr＝全球スケールのポリゴン）＝裏半球の頂点を地平円へ射影クランプ＝球体カリング
 	// （gl/glsl.js STENCIL_VS u_sphereClip と対＝裏側は円周に縮退・地平線跨ぎは可視部だけを囲む＝

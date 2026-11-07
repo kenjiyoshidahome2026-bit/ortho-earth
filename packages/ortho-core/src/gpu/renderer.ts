@@ -97,6 +97,10 @@ export interface RendererGPUOptions {
 	elevCheap?: boolean;
 	/** 診断：地形は描いたまま、塗り・線・建物・gint の頂点が読む標高だけ平らにする（?flatvec=1）＝「地形を消すと軽い」のうち地形メッシュ以外（頂点ごとの標高テクスチャ読み）の取り分を測る。絵は壊れる（地形に線が埋まる） */
 	flatVec?: boolean;
+	/** 線・overlay 塗りの頂点が引く標高の軽い版（?lineelev）：0＝elevQ（従来・最大 16 標本）、1＝格子量子化のまま 4 隅を 1 標本（4 標本）、2＝1 標本（格子に乗らない） */
+	lineElev?: number;
+	/** 同じ値を、カメラが動いている間（draw(opts.moving)）だけ使う（?lineelevmove）。静止では lineElev */
+	lineElevMove?: number;
 	/** 深度を FS で書くパイプラインの頂点 z を線形にして、この距離（単位球）の near 面で GPU に切らせる（?nearclip=M・既定 0＝従来＝切らない。wgsl.ts nearClipZ） */
 	nearClip?: number;
 	/** clip 空間の倍率＝2^N（?clipk=N・既定 0＝倍率なし）。packFrame が mvp／clipT／clipMesh を K 倍して渡す＝斉次座標なので絵は不変、近景の極小の w を Mali の固定機能から遠ざける（wgsl.ts wTrue） */
@@ -2351,7 +2355,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// その 1 フレームが 300〜670ms 止まり、デモ（区が次々に入れ替わる）が毎秒カクついた。素の建物バッチ（模型でない）は
 	// 器だけ先に作り、中身は meshUpPump(ms) が時間予算の分だけ 256KB ずつ上げる。全部上がった時点で通常の登録（描画・被覆マスク）をする
 	//＝半分だけ上がった建物は描かない・マスクがメッシュに先行しない。解放・同キーの差し替えは転送待ちも捨てる。
-	const FLAT_VEC = rOpts.flatVec === true;   // ?flatvec=1（診断）＝fill/line/bld/user slot の elevP を 0（地形系 slot＝mesh 引数あり＝そのまま）
+	const FLAT_VEC = rOpts.flatVec === true;
+	const LINE_ELEV = rOpts.lineElev! | 0, LINE_ELEV_MOVE = rOpts.lineElevMove! | 0;   // ?lineelev／?lineelevmove（F.fineP.z・packFrame）
+	let movingNow = false;   // このフレームはカメラが動いている（draw(opts.moving)）＝lineElevMove の物差し   // ?flatvec=1（診断）＝fill/line/bld/user slot の elevP を 0（地形系 slot＝mesh 引数あり＝そのまま）
 	const ELEV_CHEAP = rOpts.elevCheap === true, NEAR_CLIP = rOpts.nearClip! > 0 ? rOpts.nearClip! : 0, CLIP_K = rOpts.clipK! > 0 ? 2 ** Math.round(rOpts.clipK!) : 1;   // NEAR_CLIP＝F.ellP.w（?nearclip）・CLIP_K＝clip 空間の倍率（?clipk=N＝2^N・F.nearP.w＝1/K）   // F.ellP.z（packFrame）＝建物の頂点の標高を 1 標本で（wgsl.ts elev1）
 	const MESH_CHUNK = rOpts.meshChunk === true, UP_PIECE = 1 << 20;   // 既定オフ（2026-11-04 実機：4ms/フレーム×低 FPS では区が何十秒も立たなかった）＝?meshchunk=1 で試す。1 片 1MB
 	interface MeshUp { data: MeshSetData; nrm: Int8Array; pre: { vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer }; jobs: { buf: GPUBuffer; src: ArrayBufferView; off: number }[] }
@@ -2754,7 +2760,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		f[136] = near.has; f[137] = near.edgeFade || 0; f[138] = 0; f[139] = CLIP_K !== 1 ? 1 / CLIP_K : 0;   // nearP.w＝1/K（?clipk）
 		// 足元層（fine・2026-10-31）：近景テクスチャの右半分。足元メッシュパスは farP.z=3（terrainFine slot）
 		f[140] = fine.bounds[0]; f[141] = fine.bounds[1]; f[142] = fine.bounds[2]; f[143] = fine.bounds[3];
-		f[144] = fine.has && near.has ? 1 : 0; f[145] = fine.edgeFade || 0; f[146] = 0; f[147] = 0;
+		f[144] = fine.has && near.has ? 1 : 0; f[145] = fine.edgeFade || 0; f[146] = movingNow && LINE_ELEV_MOVE ? LINE_ELEV_MOVE : LINE_ELEV; f[147] = 0;   // fineP.z＝線・overlay 塗りの標高の軽い版（wgsl.ts elevL）
 		return f;
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
@@ -2947,7 +2953,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const logCoef = logCoefOf(st.camDist);   // framek.ts（gl の u_logCoef と同じ値）
 		const fogFarCap = fogFarCapOf(st.fogDist, pfFog, fogK());   // fill/line/terrain 共通の終端＝線が地形に厳密追随（fog:false＝無限）
 		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);
-		if (terrainActive) pickTerrIx(!!(opts && opts.moving));   // このフレームの地形 index（本番か粗い方）＝影のパスと main パスで同じ方を結ぶ
+		movingNow = !!(opts && opts.moving);
+		if (terrainActive) pickTerrIx(movingNow);   // このフレームの地形 index（本番か粗い方）＝影のパスと main パスで同じ方を結ぶ
 		qMesh = terrainActive ? terrain!.mesh : null; qG = terrainActive ? terrain!.G : 0;   // 案A: fill/line slot の QELEV 配布
 		const terrainDepth = terrainActive;   // 地形の深度書き＝尾根の遮蔽（gl/renderer.js と同じ全ズーム）
 		// z14切替のランプ化：DSM帯⇄都市帯のリフト（川面30⇄10m・接地0⇄5m）を z13.5→14 の0.5幅で連続モーフ＝
