@@ -665,7 +665,12 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	// 深度だけの余白（gl LINE_MAIN と同式・2026-11-07）：画素は動かさず、深度テストの点だけ lift＋弦のたるみ（中点の地面−弦）だけ上げる＝市街地（lift>0）限定
 	var relDa = relWa; var relDb = relWb; var cda = ca; var cdb = cb;
 	if (P.p0.y > 0.0) {
-		let ga = elevQ(la1); let gb = elevQ(la2); let sag = max(0.0, elevQ((la1 + la2) * 0.5) - 0.5 * (ga + gb));
+		// 軽い標高（F.ellP.z＝?elevcheap・LOW_MEM 既定）は 3 点を 1 標本（elev1）で引く＝建物の頂点と同じ扱い。elevQ だと 1 頂点あたり
+		// 標本 12×3 が足され、2026-11-07 Mali 実機で #997 公開後に基図 59 枚の最初の描画が 3.9 秒の GPU 待ちに戻った（bldrange=1.5 でも）。
+		// 深度の余白は数 m 単位の話＝格子量子化（elevQ）でなく 1 標本でも縁の波打ちは抑えられる。?elevcheap=0 で従来（全機種の既定）
+		var ga = 0.0; var gb = 0.0; var gm = 0.0;
+		if (F.ellP.z > 0.5) { ga = elev1(la1); gb = elev1(la2); gm = elev1((la1 + la2) * 0.5); } else { ga = elevQ(la1); gb = elevQ(la2); gm = elevQ((la1 + la2) * 0.5); }
+		let sag = max(0.0, gm - 0.5 * (ga + gb));
 		relDa = relWa + ((P.p0.y + sag) * F.elevP.x * dfa) * liftDir(la1, da); relDb = relWb + ((P.p0.y + sag) * F.elevP.x * dfb) * liftDir(la2, db);
 		cda = F.clipT + F.mvp * vec4f(relDa, 0.0); cdb = F.clipT + F.mvp * vec4f(relDb, 0.0);
 	}
