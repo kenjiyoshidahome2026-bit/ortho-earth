@@ -111,9 +111,9 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 - 元＝COPC（VIRTUAL SHIZUOKA など）。範囲読み（bbox に重なる節）で 2〜3 街区なら数十万〜数百万点。
 - **Node に LAZ の解読が無い**（エンジンは worker で wasm を使う）。初版は (a) ブラウザの `/japan/pointcloud` 頁に「範囲を PLY で落とす」ボタンを付ける、
   (b) CLI は `laszip`/`pdal` が手元にある時だけ呼ぶ、の二択で **(a)** を先に（頁の読み口と `copc-place` がそのまま使える）。
-- 形式＝PLY（binary・xyz float32（錨相対）・RGB u8・classification u8）。Unity には点群の標準読み手が無い＝ステップ 4 で
-  **PLY → Mesh（`MeshTopology.Points`）の小さな importer**を付ける（数百万点までなら 1 Mesh・それ以上は分割）。glTF の `POINTS` でも可だが Unity の
-  glTFast が点を描かない版がある＝PLY が安全。
+- 形式＝PLY（binary little endian・xyz float32＝錨相対で **glTF と同じ (E, U, −N)**・RGB u8・classification u8）。Unity には点群の標準読み手が無い＝
+  package の `PlyImporter`（`.ply` → `MeshTopology.Points` の Mesh・Z を反転して Unity の北＝+Z に・classification は uv0.x）が読む（数百万点までなら 1 Mesh・それ以上は分割）。
+  glTF の `POINTS` でも可だが Unity の glTFast が点を描かない版がある＝PLY が安全。
 
 ### 3.4 他（3D Tiles 一般・I3S・Gaussian splat）
 
@@ -145,10 +145,11 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 | 1 | この文書 | 本人の修正が入って確定 |
 | 2 | `sdk/ortho-export`（CLI）：地形＋PLATEAU → `anchor.json`・`terrain.glb`・`buildings.glb`・`README.md`。検定＝合成の fetch で錨・DEM・地形・建物の座標の付け替え（`tests/t-export.mjs`）＋丸の内 2 街区の実走（網のある機械で） | 丸の内の 2 街区が GLB で出る・extras 入り・Blender/three.js で開く |
 | 2′ | 点群＝`/japan/pointcloud` に「範囲を PLY で落とす」 | 熱海の見本で 1 街区分が PLY で出る |
-| 3 | 取り込み口：`model-worker` が `extras.orthoEarth.anchor` を読む／`glbconv` に錨 → RTC／`OrthoEarthExport.cs` | Unity で出した GLB をドロップすると錨の位置に立つ |
-| 4 | `unity/OrthoEarthSample/`（Unity 6 LTS・URP・glTFast）：`OrthoEarthAnchor.cs`・`OrthoEarthImport.cs`（フォルダを読んで配置）・`PlyPointCloudImporter.cs`・`OrthoEarthExport.cs`・README | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る |
+| 3 | 取り込み口：`decodeModel` が `asset.extras.orthoEarth.anchor` を読む（`opts.at` が無い時・`tests/model-anchor.mjs`）／`glbconv` が錨を `CESIUM_RTC` へ畳む（`glbToScene`）／Unity の `Ortho Earth > Export selection to GLB…` が錨を押す | Unity で出した GLB をドロップすると錨の位置に立つ（エンジン側＝済・2026-11-07。Unity 実機＝未） |
+| 4 | `unity/com.ortho-earth.unity/`（UPM package・Unity 6・URP・glTFast）：`OrthoEarthAnchor`・`Geo`・`PlyLoader`／`PlyImporter`・`Place export folder in scene…`・`Export selection to GLB…`・README。見本のシーンは段 2 の実走の後に `Samples~/` へ | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る（package＝書いた・2026-11-07。Unity 実機＝未） |
 
-**置き場**：Unity の見本は repo の根に `unity/`（npm workspace の外・`.gitignore` に `Library/`・`Temp/` 等）。CLI は `sdk/ortho-export`。
+**置き場**：Unity 側は repo の根に `unity/com.ortho-earth.unity/`（UPM package・npm workspace の外＝利用者は自分の URP プロジェクトに Add package from disk。
+プロジェクト丸ごとは置かない＝ProjectSettings の YAML を手で書くより package の方が壊れない）。CLI は `sdk/ortho-export`。
 **裁定（本人・2026-11-07）**：①見本の街区＝丸の内（東京駅前）③点群の初版＝ブラウザから落とす方式（§3.3 の (a)）。
 ②レンダーパイプライン＝URP（本人は特に希望なし＝標準の URP を採る。HDRP は後から切り替えられるが材質の見本は作り直し）。
 

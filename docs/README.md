@@ -36,6 +36,7 @@
 | 文書 | 置き場 | 動かさない理由 |
 | --- | --- | --- |
 | 入口・何か・始め方 | `README.md` | GitHub の顔 |
+| Unity 6 の受け口（UPM package） | `unity/README.md` | npm の workspace の外＝Unity から Add package from disk で読む場所 |
 | リリースノート | `CHANGELOG.md` | GitHub Releases とサイトの記事はここを引く |
 | 1.x → 2.0 の移行 | `MIGRATION.md` | npm の README・サイトの頁・llms.txt から絶対 URL で張られている |
 | 層の掟 | `LAYERS.md` | コードの注記が「LAYERS.md 掟 3」の形で多数参照 |
