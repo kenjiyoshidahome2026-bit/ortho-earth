@@ -1558,6 +1558,23 @@ vec2 jScr(vec2 o, vec2 p, float h, inout float ok) {
 	if (c.w <= 0.0) ok = 0.0;
 	return toScreen(c);
 }
+// lineGroundW：太い線の四隅の深度＝その画素の下の地面（端点の接平面）の深さ（2026-11-06 本人報告「傾けた高速道路の縁がギザギザ」）。
+// 四角形は画面で幅付けするので、端点の深度を四隅にそのまま使うと手前側の縁は「端点より奥」になる＝地形の深度テストに
+// 食われ、地形メッシュの三角形ごとに食われ方が変わって縁が波打つ。接平面上の 2 方向へ少し動かした点を投影して
+// 画面のずれ off を接平面のずれへ戻し（2×2 の一次近似）、clip w の差を足す。手前へ寄せるだけ（奥へは押さない）＝奥の縁は従来どおり。
+float lineGroundW(vec3 relW, vec2 ll, vec3 dAbs, vec4 c, vec2 off) {
+	vec3 up = normalize(liftDir(ll, dAbs));
+	vec3 t1 = normalize(cross(up, abs(up.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+	vec3 t2 = cross(up, t1);
+	float e = 0.01 * wTrue(c.w);   // 視点からの距離の 1%＝ズームに依らず数〜数十 px のずれ
+	vec4 c1 = u_clipT + u_mvp * vec4(relW + e * t1, 0.0), c2 = u_clipT + u_mvp * vec4(relW + e * t2, 0.0);
+	if (c1.w <= 0.0 || c2.w <= 0.0) return c.w;
+	vec2 s0 = toScreen(c), d1 = toScreen(c1) - s0, d2 = toScreen(c2) - s0;
+	float det = d1.x * d2.y - d1.y * d2.x;
+	if (abs(det) < 1e-3) return c.w;   // 接平面が画面に真横（地平線）＝寄せない
+	float a = (off.x * d2.y - off.y * d2.x) / det, b = (d1.x * off.y - d1.y * off.x) / det;
+	return max(c.w + min(a * (c1.w - c.w) + b * (c2.w - c.w), 0.0), c.w * 0.5);
+}
 // 端 1 つの形（MapLibre の LineBucket と同じ選び方）。x→jt→y＝前の点・この端・次の点（start＝始点の端）。
 // link＝0：端（line-cap）・1：隣と継ぐ・2：閉じた環の継ぎ目（隣が並びの前後に無い＝丸に倒す）。
 // 継ぎは二等分線で切る：j＝切り口（点・線分の側を向く法線）・bev＝bevel の切り線・ext＝四角形を端から伸ばす長さ
@@ -1643,7 +1660,16 @@ const LINE_MAIN = /* glsl */`
 	v_color = col0; v_front = min(fa, fb);
 	v_fog = fogOf((wa + wb) * 0.5);
 	// 端点の深度は対数系（applyLogDepth と同式）＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
-	float wz = (corner.x < 0.5) ? ca.w : cb.w;
+	// 深度だけの余白（2026-11-07 本人報告「傾けた高速道路の縁がギザギザ」＝横浜 z16.2 74°）：画素の位置は動かさず、深度テストに使う点だけ
+	// さらに u_lift ＋ 弦のたるみ（線分の中点の地面が両端を結ぶ弦より高い分＝疎な頂点の区間が凸地形の中へ沈む）だけ持ち上げる。
+	// 地形の深度テストは「線が地面の手前か」しか見ないので、深度の点を上げても絵は浮かない（尾根に隠れにくくなるだけ＝市街地の接地リフト（u_lift>0）の帯に限る）
+	vec3 relDa = relWa, relDb = relWb; vec4 cda = ca, cdb = cb;
+	if (u_lift > 0.0) {
+		float ga = elevQ(la1), gb = elevQ(la2), sag = max(0.0, elevQ((la1 + la2) * 0.5) - 0.5 * (ga + gb));
+		relDa = relWa + ((u_lift + sag) * u_elevScale * dfa) * liftDir(la1, da); relDb = relWb + ((u_lift + sag) * u_elevScale * dfb) * liftDir(la2, db);
+		cda = u_clipT + u_mvp * vec4(relDa, 0.0); cdb = u_clipT + u_mvp * vec4(relDb, 0.0);
+	}
+	float wz = (corner.x < 0.5) ? lineGroundW(relDa, la1, da, cda, pos - toScreen(cda)) : lineGroundW(relDb, la2, db, cdb, pos - toScreen(cdb));   // 四隅＝その下の地面の深さ（lineGroundW）
 	float zc = log2p1(max(wTrue(wz), 1e-30)) * u_logCoef - 1.0;   // 1.0+w の桁落ちを避ける（PROJECT の log2p1）
 	vec2 ndc = vec2(pos.x / u_viewport.x * 2.0 - 1.0, 1.0 - pos.y / u_viewport.y * 2.0);
 	gl_Position = vec4(ndc, zc, 1.0);
