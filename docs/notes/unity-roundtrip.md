@@ -20,7 +20,7 @@ Unity 内でタイルを動的に読む仕組みは Cesium for Unity・PLATEAU S
 
 | 物 | 場所 | 使い方 |
 | --- | --- | --- |
-| 3D Tiles の木を降りて bbox の葉タイルを集め、b3dm → glb を抜く（依存ゼロ・Node） | `apps/uploader/scripts/tiles3d/tiles3d.mjs`（`collectTiles`・`b3dmToGlb`）、`glbmerge.mjs`（`mergeGlb`） | PLATEAU の名所を 1 枚の glb に束ねる `plateau-landmarks.mjs` がこれで動いている＝**街区の書き出しの原型** |
+| 3D Tiles の木を降りて bbox の葉タイルを集め、b3dm → glb を抜く（依存ゼロ・Node） | `sdk/ortho-export/src/tiles3d/tiles3d.mjs`（`collectTiles`・`b3dmToGlb`）、`glbmerge.mjs`（`mergeGlb`）＝2026-11-07 に `apps/uploader/scripts/tiles3d/` から移した（uploader は `ortho-export/tiles3d` で読む） | PLATEAU の名所を 1 枚の glb に束ねる `plateau-landmarks.mjs` がこれで動いている＝**街区の書き出しの原型** |
 | GLB の変換器（Draco 展開・RTC の保存・obj/ply/usdz/3dtiles 出力） | `sdk/glbconv`（`convertToFile`・中立な `scene`） | 出力の最終段＝ここに「錨付き GLB」の出口を足す |
 | 標高タイルの読み（raster-dem／dem_png） | `packages/ortho-core/src/dem-src.ts`（`decodeDEM`）、`packages/globe/src/demtiles.ts`、Node の例＝`apps/japan-map/scripts/bake-dem10b.mjs`（地理院 `dem_png` z12 を PNG から直に復号） | 地形メッシュを焼く元 |
 | COPC 点群の読み（範囲読み・JGD2011 平面直角 → 経緯度） | `packages/globe/src/copc-worker.ts`・`copc-place.ts`・`pointcloud-crs.ts` | 点群の書き出しの元（Node で動くのは `copc-place` だけ＝LAZ の解読はブラウザの worker 前提・§3.3） |
@@ -67,7 +67,8 @@ Unity 内でタイルを動的に読む仕組みは Cesium for Unity・PLATEAU S
   } } }
 ```
 
-- 3D Tiles 由来の glb は `CESIUM_RTC` も残る（`glbconv` の `scene.rtc`）。`extras` と `CESIUM_RTC` が両方あれば **`extras.anchor` が正**。
+- 3D Tiles 由来の glb は `CESIUM_RTC` を**外す**（頂点はもう錨の座標＝残すと ECEF へ二重に動かす読み手がある・`ortho-export` 0.1 で実装）。
+  `extras` と `CESIUM_RTC` が両方ある古い物は **`extras.anchor` が正**。
 - Unity から来る GLB に `extras` が無い時は `?at=lon,lat,heading,scale`（`gadget.model` の既存の口）で置く＝**錨なしでも置ける**。
 
 ## 3. ortho-earth → Unity（ステップ 2・`ortho-export`）
@@ -142,7 +143,7 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 | 段 | 出す物 | 済の条件 |
 | --- | --- | --- |
 | 1 | この文書 | 本人の修正が入って確定 |
-| 2 | `sdk/ortho-export`（CLI）：地形＋PLATEAU → `anchor.json`・`terrain.glb`・`buildings.glb`・`README.md`。検定＝丸の内 2 街区で出し、`glbconv` で読み戻して bbox と錨が合う・Blender/三.js で開く | 丸の内の 2 街区が GLB で出る・テクスチャ jpeg・extras 入り |
+| 2 | `sdk/ortho-export`（CLI）：地形＋PLATEAU → `anchor.json`・`terrain.glb`・`buildings.glb`・`README.md`。検定＝合成の fetch で錨・DEM・地形・建物の座標の付け替え（`tests/t-export.mjs`）＋丸の内 2 街区の実走（網のある機械で） | 丸の内の 2 街区が GLB で出る・extras 入り・Blender/three.js で開く |
 | 2′ | 点群＝`/japan/pointcloud` に「範囲を PLY で落とす」 | 熱海の見本で 1 街区分が PLY で出る |
 | 3 | 取り込み口：`model-worker` が `extras.orthoEarth.anchor` を読む／`glbconv` に錨 → RTC／`OrthoEarthExport.cs` | Unity で出した GLB をドロップすると錨の位置に立つ |
 | 4 | `unity/OrthoEarthSample/`（Unity 6 LTS・URP・glTFast）：`OrthoEarthAnchor.cs`・`OrthoEarthImport.cs`（フォルダを読んで配置）・`PlyPointCloudImporter.cs`・`OrthoEarthExport.cs`・README | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る |

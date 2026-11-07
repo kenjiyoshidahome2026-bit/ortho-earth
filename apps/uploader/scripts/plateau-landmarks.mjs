@@ -12,8 +12,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { collectTiles, b3dmToGlb } from "./tiles3d/tiles3d.mjs";
-import { mergeGlb, parseGlb } from "./tiles3d/glbmerge.mjs";
+import { collectTiles, b3dmToGlb } from "ortho-export/tiles3d";   // 2026-11-07 に sdk/ortho-export へ移した（Unity 向けの書き出しと共用）
+import { mergeGlb, parseGlb } from "ortho-export/glbmerge";
 import { webpToJpeg } from "./tiles3d/webp2jpeg.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
