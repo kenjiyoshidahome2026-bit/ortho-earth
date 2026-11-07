@@ -15,7 +15,7 @@ const U_WGSL = /* wgsl */`
 struct U { n: u32, mask: u32, cell: f32, inv: f32, r2: f32, fill2: f32, cap2: f32, maxNb: u32, hasCov: u32, pad0: u32, pad1: u32, pad2: u32 }
 @group(0) @binding(0) var<uniform> U: U;
 fn cellOf(p: vec3f) -> vec3i { return vec3i(floor(p * U.inv)); }
-fn hashOf(c: vec3i) -> u32 { return (u32(c.x) * 73856093u ^ u32(c.y) * 19349663u ^ u32(c.z) * 83492791u) & U.mask; }
+fn hashOf(c: vec3i) -> u32 { return ((u32(c.x) * 73856093u) ^ (u32(c.y) * 19349663u) ^ (u32(c.z) * 83492791u)) & U.mask; }
 `;
 // ① 鍵の度数・③ 散らし（cursor＝starts の写し）
 const HASH_WGSL = U_WGSL + /* wgsl */`
