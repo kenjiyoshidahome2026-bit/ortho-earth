@@ -182,7 +182,8 @@ export async function createCloudBuilder(device: GPUDevice, compile: (code: stri
 		return b;
 	};
 	const uData = new ArrayBuffer(U_SIZE), uF = new Float32Array(uData), uU = new Uint32Array(uData), sData = new ArrayBuffer(16), sU = new Uint32Array(sData);
-	const dummy = mk(16, BUF.STORAGE, "cloud-dummy"), total = mk(16, BUF.STORAGE | BUF.COPY_SRC | BUF.COPY_DST, "cloud-total"), stBuf = mk(32, BUF.STORAGE | BUF.COPY_SRC | BUF.COPY_DST, "cloud-stats");
+	// 空の buffer＝leader の pass で出力（dstPos／dstCov／dstCol）と cov の代わりに結ぶ。書ける storage は 1 つの buffer を 2 つの binding に結べない（aliasing＝pass ごと無効・2026-11-07 の deploy 門 t-pcsplat）＝binding ごとに別の物
+	const dummies = [0, 1, 2, 3].map(i => mk(16, BUF.STORAGE, `cloud-dummy${i}`)), total = mk(16, BUF.STORAGE | BUF.COPY_SRC | BUF.COPY_DST, "cloud-total"), stBuf = mk(32, BUF.STORAGE | BUF.COPY_SRC | BUF.COPY_DST, "cloud-stats");
 	const readU32 = async (src: GPUBuffer, bytes: number): Promise<Uint32Array> => {
 		const rb = device.createBuffer({ size: align4(bytes), usage: BUF.MAP_READ | BUF.COPY_DST });
 		const enc = device.createCommandEncoder(); enc.copyBufferToBuffer(src, 0, rb, 0, align4(bytes)); device.queue.submit([enc.finish()]);
@@ -225,8 +226,8 @@ export async function createCloudBuilder(device: GPUDevice, compile: (code: stri
 				enc.copyBufferToBuffer(counts, 0, starts, 0, H * 4); enc.copyBufferToBuffer(total, 0, starts, H * 4, 4);   // starts[H]＝総数（最後の run の終わり）
 				p = enc.beginComputePass(); p.setBindGroup(0, hashBG); p.setPipeline(pScatter); p.dispatchWorkgroups(groups); p.end();
 				// ④ 先頭の印 → ⑤ 累積（書く番号・総数）
-				const mergeBG = (dPos: GPUBuffer, dCov: GPUBuffer, dCol: GPUBuffer) => device.createBindGroup({ layout: mergeL, entries: [{ binding: 0, resource: { buffer: ubuf } }, { binding: 1, resource: { buffer: bPos } }, { binding: 2, resource: { buffer: bCov ?? dummy } }, { binding: 3, resource: { buffer: starts } }, { binding: 4, resource: { buffer: order } }, { binding: 5, resource: { buffer: flags } }, { binding: 6, resource: { buffer: dPos } }, { binding: 7, resource: { buffer: dCov } }, { binding: 8, resource: { buffer: dCol } }] });
-				p = enc.beginComputePass(); p.setBindGroup(0, mergeBG(dummy, dummy, dummy)); p.setPipeline(pLeader); p.dispatchWorkgroups(groups); p.end();
+				const mergeBG = (dPos: GPUBuffer, dCov: GPUBuffer, dCol: GPUBuffer) => device.createBindGroup({ layout: mergeL, entries: [{ binding: 0, resource: { buffer: ubuf } }, { binding: 1, resource: { buffer: bPos } }, { binding: 2, resource: { buffer: bCov ?? dummies[0] } }, { binding: 3, resource: { buffer: starts } }, { binding: 4, resource: { buffer: order } }, { binding: 5, resource: { buffer: flags } }, { binding: 6, resource: { buffer: dPos } }, { binding: 7, resource: { buffer: dCov } }, { binding: 8, resource: { buffer: dCol } }] });
+				p = enc.beginComputePass(); p.setBindGroup(0, mergeBG(dummies[1], dummies[2], dummies[3])); p.setPipeline(pLeader); p.dispatchWorkgroups(groups); p.end();
 				scan(enc, flags, cnt, sumsN, suN);
 				device.queue.submit([enc.finish()]);
 				const m = (await readU32(total, 4))[0];
@@ -264,5 +265,5 @@ export async function createCloudBuilder(device: GPUDevice, compile: (code: stri
 		const n = d.n, order = new Uint32Array(n); for (let i = 0; i < n; i++) order[i] = i;
 		return { n, cell: d.cell, bCtr: mkData(d.ctr, BUF.STORAGE | BUF.COPY_SRC, "cloud-ctr"), bCov: mkData(d.cov, BUF.STORAGE | BUF.COPY_SRC, "cloud-cov"), bCol: mkData(d.col, BUF.STORAGE | BUF.COPY_SRC, "cloud-col"), bOrder: mkData(order, BUF.STORAGE, "cloud-order"), bb: Float32Array.from(d.bb), radius: d.radius };
 	}
-	return { build, read, upload, destroy() { for (const b of [dummy, total, stBuf]) b.destroy(); } };
+	return { build, read, upload, destroy() { for (const b of [...dummies, total, stBuf]) b.destroy(); } };
 }
