@@ -13,14 +13,14 @@
 //   decodeDraco(bytes, attrIds) → { attributes: { POSITION: {value,size}, … }, indices: { value } }
 // 位置情報：GLB が CESIUM_RTC（ECEF の原点）を持っていれば、glb / gltf / 3dtiles はそのまま引き継ぐ。
 //   OBJ・PLY・STL・USDZ にはその欄が無い＝先頭のコメントやヘッダに原点を書き残す（相手が地球へ戻せるように）。
-import { glbToScene, sceneStats } from "./scene.ts";
+import { glbToScene, sceneStats, anchorOf, anchorMatrix } from "./scene.ts";
 import type { Scene, SceneImage, DecodeDraco } from "./scene.ts";
 import { parseGlb, buildGlb } from "./glb.ts";
 import { zipStore } from "./zip.ts";
 import { toGlb, toGltf, toObj, toPly, toStl, toUsdz, toTileset } from "./writers.ts";
 import type { OutFile } from "./writers.ts";
 
-export { parseGlb, buildGlb, glbToScene, sceneStats, zipStore };
+export { parseGlb, buildGlb, glbToScene, sceneStats, zipStore, anchorOf, anchorMatrix };
 export { toGlb, toGltf, toObj, toPly, toStl, toUsdz, toTileset };
 export type { GltfJson, ParsedGlb } from "./glb.ts";
 export type { Scene, ScenePrim, SceneMaterial, SceneImage, SceneBbox, SceneStats, DecodeDraco, DracoDecoded, DracoAttribute, AttrArray, GlbToSceneOptions } from "./scene.ts";
