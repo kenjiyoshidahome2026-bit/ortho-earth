@@ -1586,7 +1586,11 @@ function onSceneApplied(slot: string, sig: string) {
 	if (slot === "main") {
 		const ml = mergeLog.find(m => m.ackAt === 0 && sig.startsWith(m.sig)); if (ml) ml.ackAt = Math.round(performance.now());
 		readySig = sig;
-		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean)); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
+		// sig の枠は `z/x/y` か `z/x/y:no`／`:only`（bld の役・swapScene）。照合は鍵（z/x/y）だけで行うので役を落とす。
+		// 旧＝役つきのまま Set に入れていた＝bldRange／keepFine で役の付いた枠は render の `readyKeys.has(t.key)` に一枚も当たらず
+		// merged が永遠に false → coverOk が立たず idle が来ない（2026-11-07 実機 bldrange=1.5：#999 の後も「blocked by: cover」）。
+		// tiles.shown も同じ Set を読む＝計器 e が近い枠（役なし）しか数えていなかった（同ログ「since boot: 13 tiles」＝旧 123）
+		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean).map(k => { const i = k.indexOf(":"); return i < 0 ? k : k.slice(0, i); })); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
 		const lat = tiles.shown(readyKeys), at = performance.now();   // 計器 e＝この ack で初めて画面に載った主層タイルの「必要になった→画面」
 		for (const r of lat) vtPush(vtLat, { at, key: r.key, z: r.z, total: r.total, ready: r.ready, wait: r.wait, fetch: r.t?.fetch ?? 0, build: r.t?.build ?? 0 });
 		if (perfLog && lat.length) { const v = vtSummary(1e9).lat; console.log(`[vt] shown +${lat.length} tiles  need→screen med ${vtSummary().lat.med.toFixed(0)}ms p90 ${vtSummary().lat.p90.toFixed(0)}ms (10s)  all: med ${v.med.toFixed(0)} p90 ${v.p90.toFixed(0)}  wait ${v.wait.toFixed(0)} fetch ${v.fetch.toFixed(0)} build ${v.build.toFixed(1)}`); }
