@@ -16,6 +16,11 @@ Unity 6 側の受け口。npm の workspace の外（Unity の package＝UPM）�
    glTFast は右手系→左手系の変換で **X を反転する**（Z ではない）ので、glb の prefab はそのままだと (西, 上, 南)＝Y まわりに 180° 回った姿になる。
    Place はその間に「glTF frame」ノード（Y 180°）を 1 つ挟んで戻す＝親の直下は ENU そのもの。点群（.ply）は親の直下に置く（`PlyImporter` が Z を反転）。
 
+建物の属性：Place は `buildings.attributes.json` を `buildings.attributes.asset`（`OrthoEarthAttributeTable`）にし、棟の GameObject（名前＝PLATEAU の `gml_id`）に
+`OrthoEarthBuilding` を付ける。Scene で棟を選ぶ（prefab の根の次にもう一度クリック）と Inspector に属性（用途・高さ・住所・浸水…）が並ぶ。
+コードでは `b.Get("bldg:usage")`・`b.MeasuredHeight`・`b.Attributes`。Play でクリックして見るには任意の GameObject に **Ortho Earth/Building Picker** を付ける（棟に MeshCollider を足す）。
+テクスチャ付き：`ortho-export … --textured`（webp を jpeg に焼き直す）。
+
 座標が欲しい時：`anchor.WorldOf(lon, lat, h)`／`anchor.GeoOf(worldPos, out lon, out lat, out h)`（`OrthoEarthAnchor`）。
 
 ## Unity → ortho-earth
@@ -41,4 +46,4 @@ Package Manager の **Samples** から Import。`anchor.json`・出典・点群�
 ## まだ
 
 - Place は 2 つの錨（フォルダと PLY）の差を平行移動だけで足す＝錨が数 km 離れた点群を混ぜる時は回転も要る。
-- `--textured`（PLATEAU の webp → jpeg）は CLI にまだ無い。建物の属性（batch table）も運ばない。
+- 属性は Unity では見える（`OrthoEarthBuilding`）が、Export → ortho-earth の地球儀へ戻した時の棟の当たり（EXT_mesh_features）は付けていない。

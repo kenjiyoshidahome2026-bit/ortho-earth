@@ -103,9 +103,13 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 ### 3.2 PLATEAU 建物
 
 - tileset＝`plateau-sets.json` から bbox を含む市区町村の `bldg` を引く（LOD2 textured → LOD2 → LOD1 の順）。
-- 建物ごとの属性（`gml_id`・用途・階数）は b3dm の batch table にある＝**`EXT_structural_metadata` か頂点の `_FEATURE_ID_0`＋`extras.features[]`** で残す。
-  初版は `extras.features`（glTFast が extras を読める）。Unity 側で建物をクリックして属性を見るのはステップ 4 の範囲。
-- テクスチャ＝PLATEAU は webp が多い。Unity は webp を読まない＝**jpeg へ焼き直す**（`tiles3d/webp2jpeg.mjs` が既にある）。
+- 建物ごとの属性（`gml_id`・用途・階数…）は b3dm 1.0 の batch table（JSON の配列＋binary の数値列・`attributes` に CityGML の属性のネスト）にあり、頂点の `_BATCHID` が行を指す（千代田区 2025 で確認）。
+  **glTFast は `_BATCHID`／`_FEATURE_ID_0`／`EXT_structural_metadata` を Unity に渡さない**＝三角形から棟を引けない。なので CLI が Draco を解いて **1 棟＝1 ノード**に割る
+  （ノード名＝`gml_id`・`extras.plateau`＝行・`src/features.mjs`）。Unity 側は `buildings.attributes.json`（JsonUtility で読める平らな表）を Place が `OrthoEarthAttributeTable` にし、
+  棟の GameObject に `OrthoEarthBuilding`（Inspector で属性・`Get("bldg:usage")`）を付ける。Play では `OrthoEarthBuildingPicker` でクリックすると属性が出る（2026-11-07）。
+  中心（batch table の `_x`/`_y`）が bbox の外の棟は落とす＝地形の範囲と揃う（`--no-clip`）。従来の束ね（Draco のまま）は `--attributes none`。
+- テクスチャ＝PLATEAU のテクスチャ付きは webp（`EXT_texture_webp`・fallback の source なし・タイルごとに 4096×2048 の atlas）。Unity は webp を読まない＝
+  **jpeg へ焼き直し、長辺 2048 に縮める**（`src/textures.mjs`・変換器は sharp → sips → dwebp → ffmpeg → magick の順に探す・`--textured`）。
 - 重複面・両面＝`meshdecode` の dedup は使わない（Unity 側はそのまま描ける）。glTF の `doubleSided` を残す。
 
 ### 3.3 点群
@@ -147,6 +151,7 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 | 1 | この文書 | 本人の修正が入って確定 |
 | 2 | `sdk/ortho-export`（CLI）：地形＋PLATEAU → `anchor.json`・`terrain.glb`・`buildings.glb`・`README.md`。検定＝合成の fetch で錨・DEM・地形・建物の座標の付け替え（`tests/t-export.mjs`）＋丸の内 2 街区の実走 | 済（2026-11-07 実走：geoid 36.76 m・地形 12 枚 7,544 頂点 0.6 MB・建物 31 枚 10.5 MB（千代田 27・中央 4）・4.1 s。建物はタイル単位＝bbox より広い約 1.2×1.1 km が入る） |
 | 2′ | 点群＝`/japan/pointcloud` の「PLY（点・Unity 向け）」ボタン（`apps/pointcloud/pc-ply.ts`・読んだ点をそのまま＝図郭 1 枚か熱海の見本・錨は見出しの comment・2026-11-07） | 熱海の見本が PLY で出て Unity の `PlyImporter` が読む（Unity の `PlyImporter`＋Place の錨合わせ＝2026-11-07 実機で済・4 点の検査用 PLY が `Samples~/Marunouchi`。ブラウザのボタン＝未） |
+| 2″ | PLATEAU のテクスチャ（webp → jpeg）と建物の属性（棟ごとのノード＋`buildings.attributes.json`＋Unity の `OrthoEarthBuilding`） | 済（2026-11-07 実走：丸の内 173 棟×182 キー・`--textured` 15.7 s・36.9 MB・jpeg 47 枚。Unity 6000.6.8f1 で 173 棟すべてに属性・テクスチャ付き材質 59・最も高い棟の頂点が八重洲の位置（前回と 0.4 m 以内）） |
 | 3 | 取り込み口：`decodeModel` が `asset.extras.orthoEarth.anchor` を読む（`opts.at` が無い時・`tests/model-anchor.mjs`）／`glbconv` が錨を `CESIUM_RTC` へ畳む（`glbToScene`）／Unity の `Ortho Earth > Export selection to GLB…` が錨を押す | Unity で出した GLB をドロップすると錨の位置に立つ（エンジン側＝済。Unity の Export → `glbToScene` で元の terrain.glb と prims・頂点・RTC が一致＝2026-11-07 実機で済） |
 | 4 | `unity/com.ortho-earth.unity/`（UPM package・Unity 6・URP・glTFast）：`OrthoEarthAnchor`・`Geo`・`PlyLoader`／`PlyImporter`・`Place export folder in scene…`・`Export selection to GLB…`・README。見本のシーンは段 2 の実走の後に `Samples~/` へ | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る（2026-11-07 実機で済：Unity 6000.6.8f1・glTFast 6.14.1・Draco 5.6.0 でエラー 0・丸の内の Place が bbox の四隅と一致・最高の建物が東京ミッドタウン八重洲の位置に戻る。`.meta` 同梱。見本＝`Samples~/Marunouchi`・錨と検査用 PLY・GLB は再生成） |
 

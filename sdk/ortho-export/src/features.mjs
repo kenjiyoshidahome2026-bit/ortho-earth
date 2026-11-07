@@ -146,7 +146,8 @@ export function splitPrims(prims, M, nodeOf) {
  */
 export function attributeTable(features) {
 	const keys = new Map(), rows = [];
-	for (const { id, row } of features) {
+	// 棟は id（gml_id）の順＝同じ範囲を出し直しても表が同じ並びになる（keys も初出の順＝棟の順で決まる）
+	for (const { id, row } of [...features].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) {
 		const flat = {};
 		flatten(row, "", flat);
 		for (const k of Object.keys(flat)) if (!keys.has(k)) keys.set(k, keys.size);

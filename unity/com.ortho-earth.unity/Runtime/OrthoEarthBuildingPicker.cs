@@ -28,7 +28,10 @@ namespace OrthoEarth
 
 		void Start()
 		{
-			foreach (var b in FindObjectsByType<OrthoEarthBuilding>(FindObjectsSortMode.None))
+#pragma warning disable CS0618   // 6000.6 deprecates FindObjectsSortMode, but the no-argument overload does not exist in 6000.0 (the package's minimum)
+			var all = FindObjectsByType<OrthoEarthBuilding>(FindObjectsSortMode.None);
+#pragma warning restore CS0618
+			foreach (var b in all)
 				foreach (var mf in b.GetComponentsInChildren<MeshFilter>())
 					if (mf.sharedMesh != null && !mf.GetComponent<Collider>()) mf.gameObject.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh;
 		}
