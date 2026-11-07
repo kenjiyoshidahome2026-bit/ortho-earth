@@ -619,14 +619,16 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 				ab = await src.arrayBuffer();
 				name ??= src.name || "model.glb";
 			}
-			const anchor = at || center?.() || null;
-			const r = await rpc<LoadReply>({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask, featureIdSet, mc: mc || !!customShader, transcoders: transcodersOf(map) }, [ab]).catch(err => {
+			const anchor = at || center?.() || null;   // 画面中心の補い＝glb 自身の錨（asset.extras.orthoEarth・Unity 往復）があれば worker がそちらで置く（atGiven=false）
+			const r = await rpc<LoadReply>({ ab, at: anchor, atGiven: !!at, heading, scale, baseUri, ell, textures, ground, mask, featureIdSet, mc: mc || !!customShader, transcoders: transcodersOf(map) }, [ab]).catch(err => {
 				if (err.message === "no-triangles") throw new Error(t("3D model has no triangles"));
 				throw err;
 			});
 			clear(slot);
 			const key = `model/${++seq}`;
-			const bb = r.stats.bbox, at0: LonLat = r.stats.mode === "anchor" && anchor ? [anchor[0], anchor[1]] : [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];   // 錨で置いた＝錨・埋め込み（rtc/ecef）＝外接矩形の中心を錨に見立てる
+			const oe = r.stats.anchor;   // glb 自身の錨で置いた（Unity 往復）＝base.at と heading はそれに揃える
+			if (oe) heading = oe.heading;
+			const bb = r.stats.bbox, at0: LonLat = oe ? [oe.lon, oe.lat] : r.stats.mode === "anchor" && anchor ? [anchor[0], anchor[1]] : [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];   // 錨で置いた＝錨・埋め込み（rtc/ecef）＝外接矩形の中心を錨に見立てる
 			const it: ModelItem = { slot, name: key, stats: r.stats, src: name, animation: null, rig: r.rig || null, place: r.place || null, batches: r.batches.map(b => ({ node: b.node ?? -1, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], skin: b.skin || null, nV: b.mesh.pos.length / 3, xfOn: false, xf: null, xfA: null,
 				...(pickable ? { pos: b.mesh.pos.slice(), idx: b.mesh.idx.slice(), features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : {}) })), pickable, states: new Map(),   // 当たりの写し（W7）＝setMesh が transfer する前に取る   // rig/place/batches＝rigid アニメ（W4）
 				base: { at: at0, heading: r.stats.mode === "anchor" ? heading : 0, scale: r.stats.mode === "anchor" ? scale : 1, bbox: [bb[0], bb[1], bb[2], bb[3]] },
@@ -635,7 +637,7 @@ export function createModel(map: GlobeMap, { setMesh, setMeshXf = null, setMeshC
 			it.handle = makeHandle(it);
 			models.set(slot, it); cur = it;
 			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, ...(keep2d && { keep2d: true }), ...(lift === false && { noLift: true }), tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, wind: !!b.wind, ...((lighting === "phong" || lighting === "phong-closed" || lighting === "globe") && { colSrgb: true }), /* the @ortho-earth/cesium geometry writes its style colours (sRGB) into COLOR_0 = WebGPU decodes them like an extrusion */ csLit: lighting === "phong" ? "phong" : lighting === "phong-closed" ? "phongc" : lighting === "globe" ? "off" : (b.pbr as { unlit?: boolean } | null)?.unlit ? "unlit" : "pbr", alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0, mcJ: b.mcJ ?? null, meta: b.meta ?? null, custom: customShader ?? null }));   // pbr＋材質 4 枚＝#46 段 2・csLit＝Cesium の照明の掛け方（pbr／unlit＝素の色／off＝固定光）   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
-			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
+			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}${oe ? " (glb anchor " + oe.lon + "," + oe.lat + " heading " + oe.heading + ")" : ""}`, r.stats.bbox);
 			if (altitude || (rot && r.stats.mode === "anchor")) setTransform(it, { altitude, ...(rot && r.stats.mode === "anchor" ? { rot } : {}) });   // rot＝姿勢を丸ごと（pitch・roll も）
 			if (gizmo === true || (gizmo === "auto" && r.stats.mode === "anchor")) gizmoOf(it, true);
 			if (it.gizmoAuto) bindClick();

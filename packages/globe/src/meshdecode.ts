@@ -99,6 +99,8 @@ export interface VoxelTileOpts { property?: string | null; declared?: { dimensio
 export interface ModelStats {
 	vertices: number; triangles: number; instances: number; mode: string; points?: number; splats?: number; splatPoints?: number; voxels?: number; voxelsSkipped?: number; bbox?: number[]; materials?: number; textures?: number; blended?: number; gltf?: GltfMeta;   // splats＝splat の個数・splatPoints＝splat を点として描いた個数・voxels＝voxel の格子の数・voxelsSkipped＝plugin が無い／形が読めず飛ばした格子（plugin が無い時）
 	ktx2?: { textures: number; transcoded: number; failed: number }; features?: { primitives: number; texture: number; tables: number };
+	/** glb 自身の錨（asset.extras.orthoEarth・Unity 往復＝docs/notes/unity-roundtrip.md §2.3）で置いた時＝main が base.at／heading をこれに揃える */
+	anchor?: { lon: number; lat: number; height: number | null; heading: number; from: "extras" };
 }
 /** decodeModel の戻り */
 export interface ModelOut {
@@ -108,7 +110,7 @@ export interface ModelOut {
 /** 3D Tiles のタイルとして置く時（#41）＝places（タイル変換×インスタンス・ECEF）・rtc・baseH・points・batchTable・splats（KHR_gaussian_splatting を splat として返す＝false なら点として描く）・voxels（EXT_primitive_voxels を voxel として返す＝false なら飛ばす） */
 export interface ModelTileOpts { places: Array<{ L: ArrayLike<number>; t: ArrayLike<number> }>; rtc?: number[] | null; baseH?: number | null; points?: boolean; splats?: boolean; voxels?: boolean | VoxelTileOpts; batchTable?: { json: Record<string, unknown>; bin: Uint8Array | null; count: number } | null }
 /** decodeModel の opts */
-export interface DecodeModelOpts { /** 3D Tiles 1.0 asset.gltfUpAxis: "Z" = no Y-up → Z-up turn for a tile */ upAxis?: string | null; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number; /** EXT_mesh_primitive_edge_visibility: Cesium's EdgeDisplayMode (0 surfaces only, 1 surfaces and edges, 2 edges only) */ edges?: number; /** 利用者のシェーダ（Cesium の CustomShader）＝頂点ごとの positionMC（glTF の POSITION そのまま）と束の J を返す */ mc?: boolean; /** タイル本体を取った時の headers／credentials（transformRequest・ion の Bearer）＝同じ origin の外部画像・buffer・i3dm の glTF にも付ける（無いと ion の CDB のテクスチャが 401） */ fetchOpts?: FetchOpts | null }
+export interface DecodeModelOpts { /** 3D Tiles 1.0 asset.gltfUpAxis: "Z" = no Y-up → Z-up turn for a tile */ upAxis?: string | null; at?: ArrayLike<number> | null; /** false＝at は呼び手の補い（画面中心）＝glb の asset.extras.orthoEarth の錨があればそちらで置く（既定 true＝at が勝つ） */ atGiven?: boolean; heading?: number; scale?: number; baseUri?: string | null; textures?: boolean; ground?: string; mask?: boolean; tile?: ModelTileOpts | null; featureIdSet?: number; /** EXT_mesh_primitive_edge_visibility: Cesium's EdgeDisplayMode (0 surfaces only, 1 surfaces and edges, 2 edges only) */ edges?: number; /** 利用者のシェーダ（Cesium の CustomShader）＝頂点ごとの positionMC（glTF の POSITION そのまま）と束の J を返す */ mc?: boolean; /** タイル本体を取った時の headers／credentials（transformRequest・ion の Bearer）＝同じ origin の外部画像・buffer・i3dm の glTF にも付ける（無いと ion の CDB のテクスチャが 401） */ fetchOpts?: FetchOpts | null }
 export interface FetchOpts { headers?: Record<string, string> | null; credentials?: RequestCredentials | null }
 /** fetch の代わり＝baseUri と同じ origin の URL にだけ headers／credentials を付ける（別ホストへ委譲された画像に token を漏らさない） */
 export const fetchFor = (baseUri: string | null | undefined, o: FetchOpts | null | undefined): typeof fetch => {
@@ -755,6 +757,15 @@ export function finishMesh(geo: Float64Array, outNrm: Int8Array, rawIdx: Uint32A
 const D2R = Math.PI / 180;
 const I3 = Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1);
 const SWAP = Float64Array.of(1, 0, 0, 0, 0, 1, 0, -1, 0);   // (x,y,z)→(x,−z,y)＝glTF Y-up → ECEF/ENU の Z-up（decodeBatch の軸入替と同じ）
+/** asset.extras.orthoEarth（Unity との往復の錨・sdk/ortho-export が書く）：{ anchor: { lon, lat, height }, frame: "enu", heading } を読む。無い・壊れている＝null */
+export function orthoEarthAnchorOf(raw: unknown): { lon: number; lat: number; height: number | null; heading: number } | null {
+	const oe = (raw as { asset?: { extras?: { orthoEarth?: { anchor?: { lon?: unknown; lat?: unknown; height?: unknown }; frame?: unknown; heading?: unknown } } } } | null)?.asset?.extras?.orthoEarth;
+	const a = oe?.anchor; if (!a) return null;
+	const lon = Number(a.lon), lat = Number(a.lat); if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 90) return null;
+	if (oe!.frame != null && oe!.frame !== "enu") return null;   // 他の frame は知らない＝従来の置き方
+	const h = Number(a.height), hd = Number(oe!.heading);
+	return { lon, lat, height: Number.isFinite(h) ? h : null, heading: Number.isFinite(hd) ? hd : 0 };
+}
 // ── マテリアル（2026-09-20 テクスチャ/マテリアル対応）──
 // baseColor（factor＋texture＋COLOR_0）に加え、#46 段 2（2026-09-26）から PBR の材質も読む：metallicRoughness（factor＋texture＝G=粗さ・B=金属）・
 // normalTexture（scale）・occlusionTexture（strength）・emissive（factor×texture×KHR_materials_emissive_strength）。描くのは WebGPU の模型パイプライン（GL2 は baseColor だけ）。
@@ -1156,11 +1167,17 @@ function linePrimAsRibbons(pr: GltfPrimitive, mode: number): LinePrim | null {
 	}
 	return { ...pr, mode: 4, attributes, indices: { value: idx } as GltfAccessor, lineSide: side };
 }
-export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false, upAxis = null, edges = 0 }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
+export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, atGiven = true, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false, upAxis = null, edges = 0 }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
 	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
 	const f = fetchFor(baseUri, fetchOpts);   // 外部画像・buffer＝タイルと同じ headers で（ion の Bearer）
 	const raw = rawGltfJson(ab);   // 生の json（見出し＝F4・KHR_texture_basisu の texture→image＝W5）
+	// glb 自身の錨（asset.extras.orthoEarth＝Unity との往復・docs/notes/unity-roundtrip.md §2.3）：頂点は錨の ENU を (E, U, −N) で持つ＝③の置き方そのもの。
+	// 呼び手が at を自分で決めていない時（atGiven=false＝画面中心の補い）だけ使う＝?at= で落とした地点は利用者の指定として勝つ。heading も同じ。
+	// 高さ（楕円体高）は ground="absolute" の時だけ錨に乗せる＝既定（batch）は従来どおり接地（Unity の y=0 は書き出しの地面＝接地と一致する）
+	const oe = orthoEarthAnchorOf(raw);
+	const useOe = !!oe && !atGiven;
+	if (useOe) { at = [oe!.lon, oe!.lat]; heading = oe!.heading; }
 	let gltf: GltfDoc;
 	try { gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(textures))) as GltfDoc; }
 	catch (e) {   // 画像のデコードで倒れた（壊れた画像・worker で解けない形式）＝画像なしで読み直す（形は出す）
@@ -1214,8 +1231,8 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	else {
 		if (!at) throw new Error("no anchor");   // 呼び手（gadgets/model.js）が画面中心を補うので通常は来ない
 		const lon = at[0] * D2R, lat = at[1] * D2R, sl = Math.sin(lon), cl = Math.cos(lon), sp = Math.sin(lat), cp = Math.cos(lat);
-		const a = 6378137, e2 = 0.00669437999014, N = a / Math.sqrt(1 - e2 * sp * sp);
-		T = [N * cp * cl, N * cp * sl, N * (1 - e2) * sp];   // 錨＝楕円体面（h=0）。高さは接地が決める
+		const a = 6378137, e2 = 0.00669437999014, N = a / Math.sqrt(1 - e2 * sp * sp), hA = useOe && ground === "absolute" && oe!.height != null ? oe!.height : 0;
+		T = [(N + hA) * cp * cl, (N + hA) * cp * sl, (N * (1 - e2) + hA) * sp];   // 錨＝楕円体面（h=0）。高さは接地が決める（glb の錨＋absolute の時だけ楕円体高 hA）
 		const Renu = Float64Array.of(-sl, cl, 0, -sp * cl, -sp * sl, cp, cp * cl, cp * sl, sp);   // 列＝東・北・上（ECEF）
 		const ps = heading * D2R, c = Math.cos(ps), s = Math.sin(ps);
 		const Rh = Float64Array.of(c, -s, 0, s, c, 0, 0, 0, 1);   // ENU 内で上軸まわりに時計回り heading（北向きが東へ倒れる）
@@ -1382,7 +1399,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 	if (tile && tile.baseH != null) minH = tile.baseH;   // 3D Tiles＝接地しない（絶対高さ − baseH）
 	else if (ground === "origin" && mode === "anchor") minH = 0;
 	else if (ground === "absolute") minH = 0;   // the heights as they are (ellipsoid): a shape deep inside the Earth (Cesium's globe-interior core at the centre) measured from its lowest point and lifted back by one altitude along one normal came out a shell 2500 km thick   // 錨（模型の原点）を高さの基準に＝最低点で接地しない（Cesium の Model＝原点が position。坑道の模型は原点の 94 m 上から始まる・2026-10-29）
-	if (!nTri) return pts?.geo.length || splats.length || voxels.length || nVoxSkip ? { batches: [], mask: null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts ? pts.geo.length / 3 : 0, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), gltf: gltfMeta(raw ?? gltf.json ?? gltf) } } : null;
+	if (!nTri) return pts?.geo.length || splats.length || voxels.length || nVoxSkip ? { batches: [], mask: null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, ...(useOe ? { anchor: { lon: oe!.lon, lat: oe!.lat, height: oe!.height, heading: oe!.heading, from: "extras" as const } } : {}), points: pts ? pts.geo.length / 3 : 0, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), gltf: gltfMeta(raw ?? gltf.json ?? gltf) } } : null;
 	// マテリアル束ごとに後段（接地＝模型全体の最低点 minH で揃える＝束が違っても一体で沈む/浮く）。テクスチャは同じ画像を 1 回だけ
 	const imgCache = new Map<GltfImage, TexOut | null>();
 	const batches: ModelBatchOut[] = [];
@@ -1434,7 +1451,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, hea
 		return { G: { A: [...A], T: [...T] }, F: { L: [...L], t: [w0[0] - (L[0]*c[0] + L[3]*c[1] + L[6]*c[2]), w0[1] - (L[1]*c[0] + L[4]*c[1] + L[7]*c[2]), w0[2] - (L[2]*c[0] + L[5]*c[1] + L[8]*c[2])] } };
 	})() : null;
 	const features = nFid ? { tables, primitives: nFid, texture: nFidTex, warnings: fWarn } : null;
-	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
+	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, ...(useOe ? { anchor: { lon: oe!.lon, lat: oe!.lat, height: oe!.height, heading: oe!.heading, from: "extras" as const } } : {}), bbox, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
 }
 
 // ── skin（2026-10-28）：primitive を静止姿勢でスキンする ──────────────────────────────────
