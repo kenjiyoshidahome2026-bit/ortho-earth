@@ -930,12 +930,13 @@ const TERRSYNC = /[?&]terrsync=1/.test(location.search);
 // WebGPU のパイプラインを初回使用時に作る（?lazypipe=1／0）。LOW_MEM は既定 ON（2026-11-06 Galaxy/Mali-G615 の adb トレース 3 回ずつ：起動時の生成 59→16 本、
 // GPU プロセスの詰まり 7.3→4.2 s、描画 worker の停止 8.7→6.0 s で解け、frame1 1.6 s 安定〔eager は 2 回に 1 回 4.2 s〕）。デスクトップは従来どおり起動時に全部（ms 単位＝遅延の意味が無い）
 const LAZY_PIPES = /[?&]lazypipe=1/.test(location.search) || (LOW_MEM && !/[?&]lazypipe=0/.test(location.search));
-// ?warmpipe=0／1／2／3＝lazy の束のうち最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝createRenderPipelineAsync で並列・3＝進行描き：地球と地形だけ待ち、残りはできた順に現れる・2026-11-07）。LOW_MEM は既定 1
+// ?warmpipe=0／1／2／3＝lazy の束のうち最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝createRenderPipelineAsync で並列・3＝進行描き：地球と地形だけ待ち、残りはできた順に現れる・2026-11-07）。
+// LOW_MEM は既定 3（2026-11-07 Galaxy 冷えたキャッシュ 3v3：frame1 後の固まり 5.7〜7.0 s → 1.6〜2.2 s・暖機は差なし。?warmpipe=1 で戻せる）
 // （2026-11-06 Galaxy 各 2 回＋トレース：無し＝mesh 系 3 本が 6.5 s に遅れて作られ worker が 0.67 s 停止／1＝停止ゼロ・frame1 +0.1〜0.2 s／2＝停止ゼロだが待ちで frame1 +0.2〜0.3 s。
 //   同じ 10 本が初回描画の最中だと 4.2 s、起動直後なら 0.2〜0.3 s＝作る時機が効く）。lazy でない（デスクトップ）側は起動時に全部作るので無意味＝0
-const WARM_PIPES = qNum(/[?&]warmpipe=(\d)/, LOW_MEM ? 1 : 0);
-// ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に）。2026-11-07 Galaxy：8 本一度に出すと 1 本ずつ 2〜3 倍遅く idle が 3〜4 s 遅れた → 既定 2
-const WARM_PAR = qNum(/[?&]warmpar=(\d)/, 2);
+const WARM_PIPES = qNum(/[?&]warmpipe=(\d)/, LOW_MEM ? 3 : 0);
+// ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に）。2026-11-07 Galaxy 3v3：2 本ずつは線が 2 s 早い代わりに塗り・建物・メッシュが 2〜3 s 遅れ、暖機でもメッシュ 2.4 → 4.0〜4.7 s（1 組ごとの往復待ち）→ 既定 0
+const WARM_PAR = qNum(/[?&]warmpar=(\d)/, 0);
 // ?meshdrain=MS＝建物メッシュの小片を描画 worker が 1 フレームに MS ms ぶん（＋フレームの合間も）当てる。0＝従来の 1 フレーム 1 個。
 // LOW_MEM の既定 8（2026-11-06 Galaxy 2v2：134 小片の受け取り 2.2→9.0 s（従来 7.4→13.8 s）・idle 13.9→9.0〜9.5 s・mesh の塞ぎ 7.7→2.8 s）。?meshdrain=0 で戻す
 const MESH_DRAIN = qNum(/[?&]meshdrain=(\d+)/, LOW_MEM ? 8 : 0);
