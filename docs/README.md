@@ -27,6 +27,7 @@
 - [text-gpu-plan.md](notes/text-gpu-plan.md) — テキスト描画の WebGPU 化
 - [geojson-vt-plan.md](notes/geojson-vt-plan.md) — geojson の層を vector の描き方へ
 - [raster-tiles.md](notes/raster-tiles.md) — メルカトル・ラスタタイルの v2 移植
+- [unity-roundtrip.md](notes/unity-roundtrip.md) — ortho-earth ⇄ Unity 6 のデータ往復（錨・GLB・ortho-export・見本プロジェクト）
 
 ## ここ以外に置く文書（置き場が決まっている物）
 
