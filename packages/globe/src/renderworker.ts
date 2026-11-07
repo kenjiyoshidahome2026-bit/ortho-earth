@@ -112,6 +112,8 @@ interface RwMsg {
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
 	meshDrain?: number;   // ?meshdrain=MS＝建物メッシュの小片を 1 フレームに時間予算 MS ms ぶん（＋フレームの合間も timer で）当てる。0＝従来の 1 フレーム 1 個
 	warmPar?: number;   // ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に・既定 0・renderer.ts）
+	terrCoarse?: number;   // ?terrcoarse=S＝動いている間は地形メッシュを S 頂点おきの粗い index で描く（0＝しない・renderer.ts）
+	terrCoarseAlways?: boolean;   // ?terrcoarsealways=1＝粗い index を常に（A/B）
 	warmPipes?: number;   // ?warmpipe=1/2/3＝lazy の束の最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝Async 並列で待つ・3＝進行描き：地球と地形だけ待ち残りは待たず・既定・renderer.ts）
 	lazyPipes?: boolean;   // ?lazypipe=1／0＝WebGPU のパイプラインを初回使用時に作る（既定 ON・renderer.ts）
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
@@ -154,6 +156,7 @@ let glyphStore: GlyphStore | null = null;   // ?glyphdb=1＝焼いた字を Inde
 //   GLSL（host.depthGLSL＝api.depth.glsl＝@ortho-earth/core/depthout の DEPTH_GLSL）を FS に貼り、sceneOcclusion(gl_FragCoord.xy/描画面, gl_Position.w) で比べる。
 //   海面の球は深度を書かない＝地平線の向こうは従来どおり解析で隠す（f<0）。
 const overlays = new Map<string, OverlayRec>();
+let terrCoarse = 0;                         // ?terrcoarse=S（init.terrCoarse）＝動いている間の地形メッシュの間引き（0＝しない）。draw の opts.moving を立てる物差し
 let depthOk = true;                         // LOW_MEM（init.lowMem）・作れなかった環境＝false＝深度を作らない（従来の挙動）
 let dOutH: DepthOutH | null = null, depthSeq = 0;
 let postOn = false;   // 後処理（PR-8）が点いている＝GL2 は深度と同じ FBO（depthOut）を開いて end で合成する（WebGPU は renderer の flush が掛ける）   // 本体の深度の書き出し口（renderer.depthOut・非 null＝書き出し中）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
@@ -476,6 +479,7 @@ const dispatch = (e: { data: RwMsg }) => {
 		case "init":
 			bootMarks.init = bootEp();
 			if (m.ctrlPort) m.ctrlPort.onmessage = ev => dispatch(ev);   // iOS轍：直結postMessageはinit以降消える＝制御は全部このポート経由（同じディスパッチャ＝initQueue順序保証も共通）
+			terrCoarse = m.terrCoarse || 0;
 			setPowerPreference(m.power);   // GPU の選び方（既定 high-performance）＝この worker で作る WebGPU／WebGL も main と同じ希望で
 			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
 			canvas = m.canvas!;                                   // GL/GPU 用 OffscreenCanvas
@@ -517,7 +521,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			MESH_DRAIN_MS = m.meshDrain! > 0 ? m.meshDrain! : 0;   // ?meshdrain=MS（建物メッシュの小片の消化予算）
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, warmPar: m.warmPar, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, warmPar: m.warmPar, terrCoarse: m.terrCoarse || 0, terrCoarseAlways: !!m.terrCoarseAlways, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; bootMarks.renderer = bootEp(); if (r.boot) Object.assign(bootDur, r.boot); hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
@@ -1188,6 +1192,7 @@ function frame() {
 			const aaOn = !aaDyn || resPinned || (!animCont && lastFrameRun - lastCamMoveT > RES_SETTLE_MS && lastFrameRun - lastTimeT > RES_SETTLE_MS);   // 時計で動く間も 1x（#125）
 			let dOpts: RwOpts | null | undefined = noBld ? { ...opts, noBld: 1 } : opts;
 			if (aaDyn && !aaOn) dOpts = { ...dOpts, aa: false };
+			if (terrCoarse) dOpts = { ...dOpts, moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS };   // 動いている間（raster.update の moving と同じ物差し）＝地形メッシュを粗い index で（?terrcoarse）
 			// シーンの深度の書き出し（#47）：申し出たオーバーレイがある間だけ。GL2＝begin〜end の間は本体を FBO へ描く／WebGPU＝end が 1 パス足す
 			const ovDepth = overlayWantsDepth();
 			const dWant = depthOk && !!renderer.depthOut && (ovDepth || (postOn && !!glRef));   // 後処理（PR-8）は GL2 だけ FBO を要る（WebGPU は flush で掛ける）

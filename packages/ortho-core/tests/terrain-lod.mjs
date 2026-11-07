@@ -79,5 +79,38 @@ for (const G of [257, 769, 1024]) {
 	ok(got !== null, `予算が常に尽きる（${steps} 回）でも step=false の後の result() は投げない`);
 	ok(got !== null && got.chunks.length === 256, "チャンク 256 個そろう");
 }
+// 粗い index（stride・?terrcoarse・2026-11-07）：同じ頂点配列の上でチャンクの中を stride おきに結ぶ。stride 1＝従来と byte 単位で同一。
+// 隣のチャンクと頂点を共有（各チャンクの列・行は i0 で始まり i1 で終わる）＝隙間なし。三角形はおよそ 1/stride²。全 index は格子の中。
+for (const G of [1024, 1536]) {
+	const base = buildChunkIndex(G);
+	const same = buildChunkIndex(G, undefined, 1);
+	ok(same.idx.length === base.idx.length && same.idx.every((v, k) => v === base.idx[k]) && same.chunks.length === 256, `G=${G}: stride 1 は従来と同一`);
+	for (const s of [2, 4]) {
+		const { idx, chunks } = buildChunkIndex(G, undefined, s);
+		const Q = G - 1;
+		ok(chunks.length === 256 && chunks.reduce((a, c) => a + c.count, 0) === idx.length && chunks.every(c => c.first % 3 === 0 && c.count % 3 === 0), `G=${G} stride ${s}: 256 チャンク・count 和・三角形境界`);
+		const ratio = base.idx.length / idx.length;
+		ok(ratio > s * s * 0.85 && ratio <= s * s, `G=${G} stride ${s}: 三角形 1/${(ratio).toFixed(1)}（≈1/${s * s}）`);
+		ok(idx.every(v => v < G * G), `G=${G} stride ${s}: 全 index が格子の中`);
+		// チャンクの箱と頂点：チャンクの三角形が使う頂点の i は [i0, i1]・j は [j0, j1] の中で、i0・i1・j0・j1 を必ず含む（隣と縁を共有）
+		let box = true, edges = true;
+		for (let k = 0; k < chunks.length; k++) {
+			const c = chunks[k];
+			const i0 = Math.round(c.u0 * Q), i1 = Math.round(c.u1 * Q), j0 = Math.round(c.v0 * Q), j1 = Math.round(c.v1 * Q);
+			let hi0 = false, hi1 = false, hj0 = false, hj1 = false;
+			for (let t = c.first; t < c.first + c.count; t++) {
+				const v = idx[t], i = v % G, j = (v - i) / G;
+				if (i < i0 || i > i1 || j < j0 || j > j1) box = false;
+				if (i === i0) hi0 = true; if (i === i1) hi1 = true; if (j === j0) hj0 = true; if (j === j1) hj1 = true;
+			}
+			if (!(hi0 && hi1 && hj0 && hj1)) edges = false;
+		}
+		ok(box, `G=${G} stride ${s}: 各チャンクの頂点はその箱の中`);
+		ok(edges, `G=${G} stride ${s}: 各チャンクは 4 辺の縁の頂点を使う（隣と隙間なし）`);
+		// 1 チャンクの三角形の巻きが従来と同じ（a-c-b・b-c-d：a 左上・b 右・c 下・d 右下）
+		const a = idx[0], cc = idx[1], b = idx[2];
+		ok(b > a && cc > a && (b - a) <= s && (cc - a) % G === 0 && (cc - a) / G <= s && idx[3] === b && idx[4] === cc && idx[5] === cc + (b - a), `G=${G} stride ${s}: 最初のセルの巻き a-c-b / b-c-d`);
+	}
+}
 console.log(fails ? "FAIL" : "PASS");
 process.exit(fails ? 1 : 0);

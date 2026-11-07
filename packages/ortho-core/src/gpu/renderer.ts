@@ -102,6 +102,10 @@ export interface RendererGPUOptions {
 	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして散らす（実験ノブ・既定オフ・?meshchunk=1。2026-11-04 実機 Mali で 1 バッチの転送が 100〜600ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; requestDraw?: () => void;
+	/** 動いている間の地形メッシュの間引き（頂点おき・2 か 4。0/未指定＝しない）。同じ頂点配列に粗い index を 1 本足し、draw(opts.moving) の間だけそれで描く（?terrcoarse・2026-11-07） */
+	terrCoarse?: number;
+	/** 粗い index を常に使う（A/B＝間引きそのものの費用を測る・?terrcoarsealways=1） */
+	terrCoarseAlways?: boolean;
 	/** 地形メッシュを同期で一気に作る（?terrsync=1＝従来）。既定＝粗い格子で先に描き、本番の格子は時間で切って裏で作る */
 	terrSync?: boolean;
 }
@@ -122,7 +126,7 @@ export interface RenderView {
 	csAtmo?: { ground?: boolean; sky?: boolean } | null;   // Cesium の大気（../csatmo.ts・gl と同じ）
 }
 /** draw の旗 */
-export interface RenderDrawOptions { aa?: boolean; skipMain?: boolean; skipBase?: boolean; noBld?: boolean; noTerrain?: boolean }
+export interface RenderDrawOptions { aa?: boolean; skipMain?: boolean; skipBase?: boolean; noBld?: boolean; noTerrain?: boolean; moving?: boolean }   // moving＝カメラが動いている（入力中・飛行中・静定前）＝地形メッシュを粗い index で描く（rOpts.terrCoarse）
 type Bag = Record<string, unknown>;
 /** フレームのカメラ（cameraState＋フォグ距離の追従値） */
 type FrameState = CameraState & { fogDist: number };
@@ -189,7 +193,9 @@ interface ElevState { bounds: number[]; scale: number; has: number; exag?: numbe
 interface FarState { bounds: number[]; has: number; edgeFade: number; maxElev?: number }   // maxElev＝遠景層の最大標高（m・terrain.ts の elevFarMax）＝地面アトラスの地平線窓を伸ばす
 /** 標高アトラスの寸法と窓（terrain.js の set("elevAtlas")） */
 export interface ElevAtlasMeta { originLng: number; originLat: number; cellsX: number; cellsY: number; cellRes: number; cellSpan?: number; exag?: number; edgeFade?: number; liftBounds?: number[] | null; gMax?: number; negative?: boolean }
-interface TerrainMesh { vbo: GPUBuffer; ibo: GPUBuffer; count: number; G: number; mesh: number[]; chunks: TerrainChunk[] }
+interface TerrainMesh { vbo: GPUBuffer; ibo: GPUBuffer; count: number; G: number; mesh: number[]; chunks: TerrainChunk[]; coarse: TerrainIndex | null }
+/** 地形メッシュの index 1 本（本番か粗い方）＝同じ vbo を結ぶ */
+interface TerrainIndex { ibo: GPUBuffer; count: number; chunks: TerrainChunk[] }
 /** 標高セルの生タイル（GPU 再標本化の素） */
 type RawTile = ElevTileGrid & { data: ArrayBufferView & ArrayLike<number> };
 /** 標高セルの記述子（terrain.js が渡す生タイルの切り方） */
@@ -1974,18 +1980,32 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		setTimeout(run, 0);
 	}
 	function uploadTerrainMesh(uv: Float32Array, { idx, chunks }: { idx: Uint32Array; chunks: TerrainChunk[] }, G: number, mesh: number[]) {
-		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); }
+		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); terrain.coarse?.ibo.destroy(); }
 		const vbo = device.createBuffer({ size: uv.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 		const ibo = device.createBuffer({ size: idx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(vbo, 0, uv);
 		device.queue.writeBuffer(ibo, 0, idx);
 		memMesh = uv.byteLength + idx.byteLength;
-		terrain = { vbo, ibo, count: idx.length, G, mesh, chunks };
+		// 粗い index（?terrcoarse=S）＝同じ頂点を S おきに結ぶ（三角形 1/S²）。本番の格子が出来た時だけ（粗い起動格子 TERR_G0 には要らない）。
+		// G=1024・S=4 で 0.8MB＝JS 数 ms＝本番の 25MB の上げと同じ回で済ます
+		let coarse: TerrainIndex | null = null;
+		const S = rOpts.terrCoarse! | 0;
+		if (S > 1 && G > TERR_G0) {
+			const c = buildChunkIndex(G, undefined, S);
+			const ibo2 = device.createBuffer({ size: c.idx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+			device.queue.writeBuffer(ibo2, 0, c.idx);
+			memMesh += c.idx.byteLength;
+			coarse = { ibo: ibo2, count: c.idx.length, chunks: c.chunks };
+		}
+		terrain = { vbo, ibo, count: idx.length, G, mesh, chunks, coarse };
 	}
 	// 地形チャンクのカリング（perf plan P4 step B）：可視チャンクの区間だけ drawIndexed。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
 	const terrStat: Record<string, Required<ChunkStats>> = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 }, foot: { drawn: 0, of: 0 } };   // fine＝近景層のパス・foot＝足元層のパス   // ?perf=1／HUD の物差し（renderworker が mem テレメトリに載せる）
-	const terrRuns = (mesh: ArrayLike<number>, st: CameraState, which: string): number[][] => TERR_LOD ? visibleChunkRuns(terrain!.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrain!.chunks.length, [[0, terrain!.count]]);
+	// このフレームで結ぶ index＝本番（terrain）か粗い方（terrain.coarse）。draw() の頭で選ぶ（opts.moving＝動いている間・rOpts.terrCoarseAlways＝常に）
+	let terrIx: TerrainIndex = { ibo: null as unknown as GPUBuffer, count: 0, chunks: [] }, terrCoarseOn = 0;   // terrCoarseOn＝粗い方で描いた（HUD／__perf の terr.coarse）
+	const pickTerrIx = (moving: boolean) => { const c = terrain?.coarse; terrCoarseOn = c && (moving || rOpts.terrCoarseAlways) ? rOpts.terrCoarse! | 0 : 0; terrIx = terrCoarseOn ? c! : terrain!; };
+	const terrRuns = (mesh: ArrayLike<number>, st: CameraState, which: string): number[][] => TERR_LOD ? visibleChunkRuns(terrIx.chunks, mesh, st, elev.scale, terrStat[which]) : (terrStat[which].drawn = terrStat[which].of = terrIx.chunks.length, [[0, terrIx.count]]);
 
 	// --- 建物メッシュ（LOD2 等）（gl/renderer.js setMeshSet/setMeshVis/meshBboxVisible の移植）---
 	// meshes: key("区名#i") → { vbo(pos), nbo(normal), ibo, count, origin, bbox, ward, lodH, lodCounts, two }
@@ -2801,13 +2821,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		const cnt = { bldTris: 0, meshBatches: 0, meshTris: 0, terrTris: 0 };
 		if (terrOn) {   // 地形＝影の窓に太陽方向で投げて掛かるチャンクだけ（カメラの視野では刈らない＝画面の外の山も画面の中へ落とす）。z13 の近窓 8° のうち 1〜数チャンク
-			const runs = shadowChunkRuns(terrain!.chunks, terrain!.mesh, win.mvp, 1 + TERR_HMAX_M * (elev.scale || 0));
+			const ti = terrIx.ibo ? terrIx : terrain!;   // draw() の中＝そのフレームの選び（pickTerrIx）・解析のパス（draw の外・959 行付近）＝本番
+			const runs = shadowChunkRuns(ti.chunks, terrain!.mesh, win.mvp, 1 + TERR_HMAX_M * (elev.scale || 0));
 			if (runs.length) {
 				sp.setPipeline(KC ? KC.terr : castPipes().terr);
 				sp.setBindGroup(0, shadowBG0(L, "bg0T"));
 				if (KC) sp.setBindGroup(1, cl!.bg.terrain);
 				sp.setVertexBuffer(0, terrain!.vbo);
-				sp.setIndexBuffer(terrain!.ibo, "uint32");
+				sp.setIndexBuffer(ti.ibo, "uint32");
 				for (const [f0, n] of runs) { sp.drawIndexed(n, 1, f0); cnt.terrTris += n / 3; }
 			}
 		}
@@ -2922,6 +2943,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const logCoef = logCoefOf(st.camDist);   // framek.ts（gl の u_logCoef と同じ値）
 		const fogFarCap = fogFarCapOf(st.fogDist, pfFog, fogK());   // fill/line/terrain 共通の終端＝線が地形に厳密追随（fog:false＝無限）
 		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);
+		if (terrainActive) pickTerrIx(!!(opts && opts.moving));   // このフレームの地形 index（本番か粗い方）＝影のパスと main パスで同じ方を結ぶ
 		qMesh = terrainActive ? terrain!.mesh : null; qG = terrainActive ? terrain!.G : 0;   // 案A: fill/line slot の QELEV 配布
 		const terrainDepth = terrainActive;   // 地形の深度書き＝尾根の遮蔽（gl/renderer.js と同じ全ズーム）
 		// z14切替のランプ化：DSM帯⇄都市帯のリフト（川面30⇄10m・接地0⇄5m）を z13.5→14 の0.5幅で連続モーフ＝
@@ -3181,7 +3203,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setBindGroup(2, climBG);   // 気候場（全球ハイプソ）。未着は dummy（p2.z=0 で不使用）
 			if (grp("terrain")) pass.setBindGroup(3, grp("terrain"));
 			pass.setVertexBuffer(0, terrain!.vbo);
-			pass.setIndexBuffer(terrain!.ibo, "uint32");
+			pass.setIndexBuffer(terrIx.ibo, "uint32");   // 本番か粗い方（pickTerrIx）
 			for (const [f0, n] of nearRuns!) pass.drawIndexed(n, 1, f0);   // 可視チャンクの区間だけ（P4 step B）
 			if (farActive) {
 				// 遠景メッシュ＝同じ単位格子を遠窓へ2度目のドロー（FS が近窓の内側を discard＝二重描画なし）。
@@ -3969,7 +3991,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		meshMasks.clear(); meshHidden.clear();
 		dummyMask.destroy();
 		meshJob = null;   // 裏で作っていた地形メッシュは捨てる
-		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); terrain = null; }
+		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); terrain.coarse?.ibo.destroy(); terrain = null; }
 		if (elevTexObj) { elevTexObj.destroy(); elevTexObj = null; }
 		if (farTexObj) { farTexObj.destroy(); farTexObj = null; }
 		if (elevStage) { elevStage.tex.destroy(); elevStage = null; }
@@ -3993,7 +4015,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	return { set, draw, flush, readback, dispose, lazyPipes: LAZY, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		pipeLog,   // 作ったパイプラインの帳（label・ms・performance.now()）＝HUD の「遅いフレーム」行がどの本を頼んだ直後の詰まりかを読む（2026-11-07）
-		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
+		terrStats: () => ({ ...terrStat, coarse: terrCoarseOn }),   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数。coarse＝粗い index で描いた（間引き幅・0＝本番）
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors,
 		boot: { adapterMs: tAdapter - tBoot0, deviceMs: tDevice - tAdapter, initMs: performance.now() - tDevice },   // 起動の時間割（ms）：adapter 取得／device 取得／init（シェーダ・パイプライン・資源の生成）
 		meshUpPump, meshUpBusy: () => meshUp.size > 0 || meshSettled.length > 0,   // settled が残る間も pump を回す＝捨てた荷の参照を握り続けない meshUpPending: (key: string) => meshUp.has(key),   // 建物の小分け転送（2026-11-04）：renderworker が毎フレーム pump し、上がり切った（か捨てた）キーの ack を返す get hasTQ() { return !!tq; },
