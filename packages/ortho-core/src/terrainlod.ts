@@ -17,15 +17,28 @@ export type DrawRun = [number, number];
 export interface ChunkStats { drawn?: number; of?: number }
 
 // G×G 頂点（uv = i/(G−1)）の index をチャンク主導で。chunks[k]＝{ first, count, u0, u1, v0, v1 }（index の位置と数・uv の箱）
-export function buildChunkIndex(G: number, CH = TERR_CH): { idx: Uint32Array; chunks: TerrainChunk[] } {
-	const Q = G - 1, idx = new Uint32Array(Q * Q * 6), chunks: TerrainChunk[] = [];
+// stride（既定 1）＝粗い格子：同じ G×G の頂点配列の上で、チャンクの中を stride 頂点おきに結ぶ（端はチャンク境界 i1/j1 で止める＝隣のチャンクと
+// 頂点を共有＝隙間なし）。三角形は stride² 分の 1（stride 4＝1/16）・絵は粗いだけ。動いている間の地形（?terrcoarse・2026-11-07）に使う
+export function buildChunkIndex(G: number, CH = TERR_CH, stride = 1): { idx: Uint32Array; chunks: TerrainChunk[] } {
+	const Q = G - 1, s = Math.max(1, stride | 0), chunks: TerrainChunk[] = [];
+	const cells = (a: number, b: number) => Math.ceil((b - a) / s);   // [a,b) を s おきに切った区間の数（最後の区間だけ短い）
+	let total = 0;
+	for (let cy = 0; cy < CH; cy++) for (let cx = 0; cx < CH; cx++) {
+		const i0 = Math.floor(cx * Q / CH), i1 = Math.floor((cx + 1) * Q / CH), j0 = Math.floor(cy * Q / CH), j1 = Math.floor((cy + 1) * Q / CH);
+		total += cells(i0, i1) * cells(j0, j1) * 6;
+	}
+	const idx = new Uint32Array(total);
 	let p = 0;
 	for (let cy = 0; cy < CH; cy++) for (let cx = 0; cx < CH; cx++) {
 		const i0 = Math.floor(cx * Q / CH), i1 = Math.floor((cx + 1) * Q / CH), j0 = Math.floor(cy * Q / CH), j1 = Math.floor((cy + 1) * Q / CH);
 		const first = p;
-		for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) {
-			const a = j * G + i, b = a + 1, c = a + G, d = c + 1;
-			idx[p++] = a; idx[p++] = c; idx[p++] = b; idx[p++] = b; idx[p++] = c; idx[p++] = d;
+		for (let j = j0; j < j1; j += s) {
+			const j2 = Math.min(j + s, j1);
+			for (let i = i0; i < i1; i += s) {
+				const i2 = Math.min(i + s, i1);
+				const a = j * G + i, b = j * G + i2, c = j2 * G + i, d = j2 * G + i2;
+				idx[p++] = a; idx[p++] = c; idx[p++] = b; idx[p++] = b; idx[p++] = c; idx[p++] = d;
+			}
 		}
 		chunks.push({ first, count: p - first, u0: i0 / Q, u1: i1 / Q, v0: j0 / Q, v1: j1 / Q });
 	}
