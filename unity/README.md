@@ -30,10 +30,15 @@ Unity 6 側の受け口。npm の workspace の外（Unity の package＝UPM）�
 
 - コンパイル：エラー 0・警告 0。PLATEAU は Draco 圧縮＝`com.unity.cloud.draco` が要る（package の依存に入れた）。
 - Place（丸の内）：錨座標で terrain X −339.5…339.5／Z −305.1…305.1＝bbox の四隅と一致。最も高い建物（238 m）は lon 139.76916／lat 35.67951＝東京ミッドタウン八重洲の位置に戻る（X=東・Z=北）。
+- 点群：`Samples~/Marunouchi/pointcloud-check.ply`（錨をわざと 158 m 東・139 m 南にずらした 4 点）を Place が置くと、子ノード (158.42, −0.30, −138.69)・4 点とも期待値との差 1 cm 程度。
 - Export → glbconv：書き出した terrain を `glbToScene` で読むと 12 prims／7,544 頂点・範囲・RTC とも元の terrain.glb と一致。`asset.extras.orthoEarth` に錨が入る。
 - `.meta` を同梱（git URL／tarball で入れると package は読み取り専用＝`.meta` の無い資産は無視されるため）。
 
+## 見本（Samples~/Marunouchi）
+
+Package Manager の **Samples** から Import。`anchor.json`・出典・点群の検査用 PLY が入る。GLB はリポジトリに無い＝見本の README のコマンド（`ortho-export --anchor … --geoid 36.76`）で同じ物が出る。
+
 ## まだ
 
-- 点群：`/japan/pointcloud` の「PLY（点・Unity 向け）」で落とした `.ply` を同じフォルダに置けば Place が錨の差を足して並べる（実機＝未）。
-- 見本のシーン（丸の内）を `Samples~/` へ。
+- Place は 2 つの錨（フォルダと PLY）の差を平行移動だけで足す＝錨が数 km 離れた点群を混ぜる時は回転も要る。
+- `--textured`（PLATEAU の webp → jpeg）は CLI にまだ無い。建物の属性（batch table）も運ばない。
