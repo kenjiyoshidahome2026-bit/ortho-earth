@@ -3,7 +3,7 @@
      既定（verify:webgpu＝実 GPU）：map.addData(copcUrl, { kind: "splat" })＝エンジンの map.readPointCloud が点を丸ごと読み（COPC＝浅い節から・maxPoints）、render worker の WebGPU（cloud-gpu.ts）が段の層にする。
        ①手綱＝points・anchor・levels（level 0 が細かい・個数は段ごとに減る）・n＝段の和・ms ②画素＝錨の所に splat が描かれる（RGB の fixture＝色つき）③段の切り替え＝引くと h.level が上がる・寄ると 0
        ④当たり＝pick の layer は手綱の id・properties.level ⑤read()＝段の読み戻し（ctr Float32Array(n×4)…）→ addSplatCloud で載せ直すと同じ絵（変換なし・ms.build＝0）
-       ⑥setAltitude＝画素が上へ動く ⑦color: "classification"・cloud: { detail: 2 }＝splat が約 1/4 ⑧remove＝画素が消える・group の層も消える
+       ⑥setAltitude＝画素が上へ動く ⑦color: "classification"（fixture は分類 2〜5・15〜18＝RGB と違う色）・cloud: { detail: 2 }＝level 0 が既定の level 1 と同じ個数 ⑧remove＝画素が消える・group の層も消える
      ?v=refuse（verify:ui＝gl2=1・SwiftShader＝WebGL2 の描き手）：map.readPointCloud は点を返す（錨・東北上・RGB・範囲）が、addData の ready は "WebGPU is required" で reject＝CPU には落ちない（本人裁定 2026-11-06） -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pcsplat</title></head>
 <body><div id="map"></div>
@@ -45,6 +45,7 @@ try {
 		const probe = h => new Promise(res => { const ov = h.overlay, prev = ov.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { ov.onmessage = prev; res(null); }, 8000);
 			ov.onmessage = x => { if (x?.type === "pixels" && x.id === id) { clearTimeout(tm); ov.onmessage = prev; res(x); } else prev?.(x); }; ov.post({ type: "probe", id }); });
 		const count = p => { if (!p) return { n: -1, cy: 0 }; let n = 0, sy = 0; for (let k = 0; k < p.data.length; k += 4) if (p.data[k + 3] > 20) { n++; sy += Math.floor(k / 4 / p.w); } return { n, cy: n ? sy / n / dpr : 0 }; };
+		const meanRgb = p => { let n = 0, r = 0, g = 0, b = 0; for (let k = 0; k < p.data.length; k += 4) if (p.data[k + 3] > 120) { const a = p.data[k + 3] / 255; r += p.data[k] / a; g += p.data[k + 1] / a; b += p.data[k + 2] / a; n++; } return n ? [r / n, g / n, b / n] : [0, 0, 0]; };
 		const colored = p => { let c = 0; for (let k = 0; k < p.data.length; k += 4) if (p.data[k + 3] > 120) { const a = p.data[k + 3] / 255, r = p.data[k] / a, g = p.data[k + 1] / a, b = p.data[k + 2] / a; if (Math.max(r, g, b) - Math.min(r, g, b) > 40) c++; } return c; };
 		const drawn = async (h, min = 200) => until(async () => { const p = await probe(h); const c = count(p); return c.n >= min ? { p, ...c } : null; }, 40000);
 		// ① 変換
@@ -57,9 +58,10 @@ try {
 		ok("levels", Array.isArray(L) && L.length >= 2 && L.every((l, i) => l.n > 0 && (i === 0 || l.n < L[i - 1].n) && (i === 0 || l.cell === L[i - 1].cell * 2)), JSON.stringify(L?.map(l => [l.n, +l.cell.toFixed(2)])));
 		ok("handle", h.points === d.n && h.n === L.reduce((a, l) => a + l.n, 0) && h.anchor && Math.abs(h.anchor[0] - d.anchor[0]) < 1e-9 && h.plan?.cell0 > 0 && h.ms?.build >= 0, `n=${h.n} points=${h.points} ms=${JSON.stringify(h.ms)} wall=${Math.round(performance.now() - t1)}`);
 		ok("level0.count", L[0].n > d.n * 0.3 && L[0].n <= d.n, `${L[0].n}/${d.n}`);
-		// ② 画素（寄った所＝細かい段）
+		// ② 画素（寄った所＝細かい段）。zoom 19＝錨の所で約 4 px/m＝level 0（cell0 ≈ 1 m・pxPerSplat 1.5）が確実に選ばれる（16.5 は約 0.7 px/m＝level 2 になる・2026-11-07 の門）
+		const NEAR = { center: C, zoom: 19, pitch: 45 };
 		stage = "pixels";
-		map.jumpTo({ center: C, zoom: 16.5, pitch: 45 });
+		map.jumpTo(NEAR);
 		const a = await drawn(h);
 		ok("drawn", !!a, a ? `${a.n} px` : "none");
 		ok("colored", !!a && colored(a.p) > a.n * 0.3, a ? String(colored(a.p)) : "");
@@ -70,7 +72,7 @@ try {
 		ok("level.switch", lvNear != null && lvFar != null && lvFar > lvNear - 1, `near=${lvNear == null ? null : lvNear - 1} far=${lvFar}`);
 		const far = await drawn(h, 20);
 		ok("drawn.far", !!far, far ? `${far.n} px` : "none");
-		map.jumpTo({ center: C, zoom: 16.5, pitch: 45 });
+		map.jumpTo(NEAR);
 		await until(async () => h.level === 0 ? true : null, 20000);
 		ok("level.back", h.level === 0, String(h.level));
 		// ④ 当たり
@@ -101,9 +103,10 @@ try {
 		stage = "opts";
 		const h3 = map.addData(FX, { kind: "splat", id: "pc3", maxPoints: 40000, color: "classification", cloud: { detail: 2, levels: 2 } });
 		await h3.ready;
-		ok("detail", h3.levels.length === 2 && h3.levels[0].n < L[0].n * 0.5 && Math.abs(h3.plan.cell0 - h.plan.cell0 * 2) < 1e-6, `${h3.levels[0].n} vs ${L[0].n}`);
+		ok("detail", h3.levels.length === 2 && Math.abs(h3.levels[0].n - L[1].n) <= 2 && h3.levels[0].n < L[0].n && Math.abs(h3.plan.cell0 - h.plan.cell0 * 2) < 1e-6, `${h3.levels[0].n} vs level1 ${L[1].n} (level0 ${L[0].n})`);   // detail 2 の level 0＝既定の level 1 と同じセル＝同じ個数（点が疎＝1/4 にはならない）
 		const c3 = await drawn(h3);
-		ok("classification", !!c3 && colored(c3.p) < c3.n * 0.2, c3 ? `${colored(c3.p)}/${c3.n}` : "");   // 分類＝fixture は未分類＝灰
+		const m3 = c3 ? meanRgb(c3.p) : null, mb = b ? meanRgb(b.p) : null;
+		ok("classification", !!m3 && !!mb && Math.abs(m3[0] - mb[0]) + Math.abs(m3[1] - mb[1]) + Math.abs(m3[2] - mb[2]) > 20, `cls=${m3?.map(Math.round)} rgb=${mb?.map(Math.round)}`);   // 分類の色（fixture は 2〜5・15〜18＝地面・植生・橋…）＝RGB の絵と平均の色が違う（t-copc の color-mode と同じ見方）
 		h3.remove();
 		// ⑧ 撤去
 		stage = "remove";
