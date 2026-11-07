@@ -18,5 +18,12 @@
 	"author": {
 		"name": "Ortho Earth",
 		"url": "https://www.ortho-earth.com"
-	}
+	},
+	"samples": [
+		{
+			"displayName": "Marunouchi (Tokyo Station)",
+			"description": "Anchor, attribution and a 4-point check PLY for a 2–3 block export around Tokyo Station. Run sdk/ortho-export (command in the sample's README) to produce terrain.glb and buildings.glb next to them, then Ortho Earth > Place export folder in scene…",
+			"path": "Samples~/Marunouchi"
+		}
+	]
 }

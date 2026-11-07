@@ -1,0 +1,68 @@
+{
+	"version": 1,
+	"anchor": {
+		"lon": 139.76625,
+		"lat": 35.68125,
+		"height": 40.0647
+	},
+	"frame": "enu",
+	"heading": 0,
+	"geoid": 36.76,
+	"bbox": [
+		139.7625,
+		35.6785,
+		139.77,
+		35.684
+	],
+	"generator": "ortho-export 0.1.0",
+	"source": [
+		{
+			"kind": "terrain",
+			"name": "地理院標高タイル（DEM10B・dem_png）",
+			"url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png",
+			"license": "国土地理院コンテンツ利用規約（出典の明記）",
+			"attribution": "国土地理院"
+		},
+		{
+			"kind": "imagery",
+			"name": "地理院タイル（全国最新写真（シームレス））",
+			"url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+			"license": "国土地理院コンテンツ利用規約（出典の明記）",
+			"attribution": "国土地理院"
+		},
+		{
+			"kind": "buildings",
+			"name": "Project PLATEAU 3D 都市モデル（建築物）",
+			"url": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13103-bldg-lod2-notexture-latest/tileset.json",
+			"license": "CC BY 4.0",
+			"attribution": "国土交通省 Project PLATEAU"
+		},
+		{
+			"kind": "buildings",
+			"name": "Project PLATEAU 3D 都市モデル（建築物）",
+			"url": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13101-bldg-lod2-notexture-latest/tileset.json",
+			"license": "CC BY 4.0",
+			"attribution": "国土交通省 Project PLATEAU"
+		},
+		{
+			"kind": "buildings",
+			"name": "Project PLATEAU 3D 都市モデル（建築物）",
+			"url": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13102-bldg-lod2-notexture-latest/tileset.json",
+			"license": "CC BY 4.0",
+			"attribution": "国土交通省 Project PLATEAU"
+		}
+	],
+	"unity": {
+		"note": "glTF axes are (east, up, -north). glTFast flips X on import, so the raw prefabs are (west, up, south): rotate their parent 180 deg about Y (the package's Place menu does this) to get X=east, Y=up, Z=north, 1 unit = 1 m.",
+		"gltfAxes": {
+			"x": "east",
+			"y": "up",
+			"z": "south"
+		},
+		"axesAfterPlace": {
+			"x": "east",
+			"y": "up",
+			"z": "north"
+		}
+	}
+}
