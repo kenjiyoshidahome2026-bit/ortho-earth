@@ -208,6 +208,10 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 転送の後でやっと描かれた（下地の線は main に線がある間は伏せる＝紙色の白抜き）。祖先で埋める時は、その祖先の下の枠を
 		// ready な物も含めてまとめて祖先に替える＝兄弟がそろうまで親のまま（重ねて描かない・3D Tiles と同じ「塊で入れ替える」）
 		let fillSel = fillGaps(drawSel);
+		// covered（下の戻り値）＝代打が要らなかった＝fillGaps が drawSel をそのまま返した。bldRange の書き換えは新しい配列を作るので、
+		// 判定はここで取る。旧＝`fillSel === drawSel` を戻り値で取っていた＝bldRange>0 の間は遠い枠が 1 枚でもあれば常に false＝coverOk が
+		// 永遠に立たず idle が来ない（2026-11-07 実機 ?bldrange=1.5：idle blocked by cover 13 s、present は 8 s タイマー頼み）
+		const covered = fillSel === drawSel;
 		// 遠い枠の建物を平らに（bldRange・km）：タイル中心が注視点から範囲外＝bld:"no"（線・塗りはそのまま）。"only"（keepFine の親の建物役）は外す。
 		// 2026-11-06 Galaxy/Mali-G615 実測＝z17.8・74° で視野 69 枚の基図建物を 1 シーン（+112 MB）で上げ、main が 8〜10 秒 GPU 待ちで固まった。
 		// 結合の鍵（sig）に bld が入るので、範囲の出入りで再結合が起きる＝カメラが止まった時の swap と同じ経路（毎フレームではない）。
@@ -291,7 +295,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 構造的に確定。app の render は これと merge 済み集合の一致で下地(base)の要否を厳密に判定する
 		// （「移動中かどうか」という代理指標に頼らない）。sel＝その枠数（診断用）。total は従来どおり素の選抜数。
 		const draw = ready(fillSel);
-		return { order: draw, coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length, sel: drawSel.length, covered: fillSel === drawSel };
+		return { order: draw, coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length, sel: drawSel.length, covered };
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。
