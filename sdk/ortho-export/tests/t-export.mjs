@@ -95,7 +95,7 @@ await (async () => {
 
 // ── 書き出し ──
 const out = fs.mkdtempSync(path.join(os.tmpdir(), "ortho-export-"));
-const r = await exportArea({ bbox, out, geoid: "auto", terrain: { zoom: 17, imagery: "seamlessphoto", segments: 8 }, buildings: { tilesets: ["https://example.test/13101/tileset.json"] }, fetchFn });
+const r = await exportArea({ bbox, out, geoid: "auto", terrain: { zoom: 17, imagery: "seamlessphoto", segments: 8 }, buildings: { tilesets: ["https://example.test/13101/tileset.json"], split: false }, fetchFn });
 ok("出力：anchor.json・terrain.glb・buildings.glb・README.md", () => {
 	for (const f of ["anchor.json", "terrain.glb", "buildings.glb", "README.md"]) assert.ok(fs.existsSync(path.join(out, f)), f);
 	const a = JSON.parse(fs.readFileSync(path.join(out, "anchor.json"), "utf8"));
@@ -125,7 +125,7 @@ ok("地形 glb の asset.extras.orthoEarth に錨", () => {
 	assert.equal(json.asset.extras.orthoEarth.frame, "enu"); near(json.asset.extras.orthoEarth.anchor.lat, (bbox[1] + bbox[3]) / 2, 1e-12);
 });
 const bGlb = new Uint8Array(fs.readFileSync(path.join(out, "buildings.glb")));
-ok("建物：RTC が外れ、親ノードの行列で RTC の点が錨の ENU（30, 20, 5）へ来る", () => {
+ok("建物（--attributes none）：RTC が外れ、親ノードの行列で RTC の点が錨の ENU（30, 20, 5）へ来る", () => {
 	const { json } = parseGlb(bGlb);
 	assert.ok(!json.extensions?.CESIUM_RTC && !(json.extensionsRequired || []).includes("CESIUM_RTC"), "no RTC");
 	const root = json.nodes[json.scenes[json.scene ?? 0].nodes[0]];

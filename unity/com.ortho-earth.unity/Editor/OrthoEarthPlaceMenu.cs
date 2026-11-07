@@ -5,6 +5,8 @@
 //   (glTFast ≥ 4: UpgradeGuides.md), so the prefabs come in as (west, up, south) = the ENU frame turned 180° about Y. One intermediate node
 //   "glTF frame" rotated 180° about Y undoes that, so the anchor GameObject itself is X east, Y up, Z north at identity (what Geo/OrthoEarthAnchor assume).
 //   PLY point clouds are loaded straight into the anchor frame (PlyLoader flips Z), so they sit under the anchor, not under the glTF node.
+//   Building attributes: when <name>.attributes.json sits next to <name>.glb (ortho-export writes buildings.attributes.json), it becomes an
+//   OrthoEarthAttributeTable asset beside it and every GameObject whose name is a row id (gml_id) gets an OrthoEarthBuilding pointing at it.
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -13,6 +15,34 @@ namespace OrthoEarth.Editor
 {
 	public static class OrthoEarthPlaceMenu
 	{
+		/// <summary>buildings.attributes.json → OrthoEarthAttributeTable asset (created or refreshed in place, so references survive a re-export).</summary>
+		public static OrthoEarthAttributeTable LoadTable(string jsonPath, string assetPath)
+		{
+			var table = AssetDatabase.LoadAssetAtPath<OrthoEarthAttributeTable>(assetPath);
+			var fresh = table == null;
+			if (fresh) table = ScriptableObject.CreateInstance<OrthoEarthAttributeTable>();
+			table.LoadJson(File.ReadAllText(jsonPath));
+			if (fresh) AssetDatabase.CreateAsset(table, assetPath); else EditorUtility.SetDirty(table);
+			AssetDatabase.SaveAssets();
+			return table;
+		}
+
+		/// <summary>Give every GameObject under root whose name is a building id an OrthoEarthBuilding. Returns how many.</summary>
+		public static int AttachBuildings(GameObject root, OrthoEarthAttributeTable table)
+		{
+			int n = 0;
+			foreach (var t in root.GetComponentsInChildren<Transform>(true))
+			{
+				if (table.IndexOf(t.name) < 0) continue;
+				if (!t.TryGetComponent<OrthoEarthBuilding>(out var b)) b = Undo.AddComponent<OrthoEarthBuilding>(t.gameObject);
+				b.id = t.name; b.table = table;
+				n++;
+			}
+			return n;
+		}
+
+		static void EditorSceneManagerMarkDirty(GameObject go) => UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(go.scene);
+
 		[MenuItem("Ortho Earth/Place export folder in scene…")]
 		public static void Place()
 		{
@@ -46,6 +76,13 @@ namespace OrthoEarth.Editor
 					var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab, gltfNode.transform);
 					go.transform.localPosition = Vector3.zero; go.transform.localRotation = Quaternion.identity; go.transform.localScale = Vector3.one;
 					n++;
+					var attrJson = Path.Combine(abs, Path.GetFileNameWithoutExtension(f) + ".attributes.json");
+					if (File.Exists(attrJson))
+					{
+						var table = LoadTable(attrJson, rel + "/" + Path.GetFileNameWithoutExtension(f) + ".attributes.asset");
+						var tagged = AttachBuildings(go, table);
+						Debug.Log($"[Ortho Earth] {assetPath}: {tagged} of {table.Count} building(s) carry attributes (select one to see them; add Ortho Earth/Building Picker to click them in Play mode)");
+					}
 				}
 				else if (ext == ".ply")
 				{
@@ -63,6 +100,7 @@ namespace OrthoEarth.Editor
 				}
 			}
 			Selection.activeGameObject = root;
+			EditorSceneManagerMarkDirty(root);
 			Debug.Log($"[Ortho Earth] placed {n} file(s) from {rel} at anchor {anchor.lon}, {anchor.lat}, h {anchor.height} m (X east, Y up, Z north)");
 		}
 	}
