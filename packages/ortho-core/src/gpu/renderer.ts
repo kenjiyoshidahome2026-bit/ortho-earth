@@ -95,6 +95,8 @@ export interface RendererGPUOptions {
 	meshRange?: number;
 	/** 建物（基図の押し出し・PLATEAU）の頂点の標高を主アトラス 1 標本で引く（?elevcheap=1・既定オフ） */
 	elevCheap?: boolean;
+	/** 診断：地形は描いたまま、塗り・線・建物・gint の頂点が読む標高だけ平らにする（?flatvec=1）＝「地形を消すと軽い」のうち地形メッシュ以外（頂点ごとの標高テクスチャ読み）の取り分を測る。絵は壊れる（地形に線が埋まる） */
+	flatVec?: boolean;
 	/** 深度を FS で書くパイプラインの頂点 z を線形にして、この距離（単位球）の near 面で GPU に切らせる（?nearclip=M・既定 0＝従来＝切らない。wgsl.ts nearClipZ） */
 	nearClip?: number;
 	/** clip 空間の倍率＝2^N（?clipk=N・既定 0＝倍率なし）。packFrame が mvp／clipT／clipMesh を K 倍して渡す＝斉次座標なので絵は不変、近景の極小の w を Mali の固定機能から遠ざける（wgsl.ts wTrue） */
@@ -2349,6 +2351,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// その 1 フレームが 300〜670ms 止まり、デモ（区が次々に入れ替わる）が毎秒カクついた。素の建物バッチ（模型でない）は
 	// 器だけ先に作り、中身は meshUpPump(ms) が時間予算の分だけ 256KB ずつ上げる。全部上がった時点で通常の登録（描画・被覆マスク）をする
 	//＝半分だけ上がった建物は描かない・マスクがメッシュに先行しない。解放・同キーの差し替えは転送待ちも捨てる。
+	const FLAT_VEC = rOpts.flatVec === true;   // ?flatvec=1（診断）＝fill/line/bld/user slot の elevP を 0（地形系 slot＝mesh 引数あり＝そのまま）
 	const ELEV_CHEAP = rOpts.elevCheap === true, NEAR_CLIP = rOpts.nearClip! > 0 ? rOpts.nearClip! : 0, CLIP_K = rOpts.clipK! > 0 ? 2 ** Math.round(rOpts.clipK!) : 1;   // NEAR_CLIP＝F.ellP.w（?nearclip）・CLIP_K＝clip 空間の倍率（?clipk=N＝2^N・F.nearP.w＝1/K）   // F.ellP.z（packFrame）＝建物の頂点の標高を 1 標本で（wgsl.ts elev1）
 	const MESH_CHUNK = rOpts.meshChunk === true, UP_PIECE = 1 << 20;   // 既定オフ（2026-11-04 実機：4ms/フレーム×低 FPS では区が何十秒も立たなかった）＝?meshchunk=1 で試す。1 片 1MB
 	interface MeshUp { data: MeshSetData; nrm: Int8Array; pre: { vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer }; jobs: { buf: GPUBuffer; src: ArrayBufferView; off: number }[] }
@@ -2724,6 +2727,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		f[84] = _ell ? 1 : 0; f[85] = 0; f[86] = ELEV_CHEAP ? 1 : 0; f[87] = NEAR_CLIP;   // ellP.z＝軽い標高（建物の頂点＝1 標本・?elevcheap=1）
 		// 案A: terrain系 slot（mesh 引数あり）は自前の窓＝elevQ 不使用（ellP.y=0）。fill/line 系は近窓+G を配る
 		if (!mesh && qMesh) { f[68] = qMesh[0]; f[69] = qMesh[1]; f[70] = qMesh[2]; f[71] = qMesh[3]; f[85] = qG; }
+		if (!mesh && FLAT_VEC) { f[64] = 0; f[65] = 0; f[85] = 0; }   // 診断 ?flatvec=1：地形以外の頂点は標高を読まない（elevP.x=0・has=0・G=0）
 		// ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）：terrain系 slot（mesh 有）＝a_uv 変換・fill系＝dLL 変換
 		if (cogGeo) {
 			const [W, S, sLon, sLat] = cogGeo;
