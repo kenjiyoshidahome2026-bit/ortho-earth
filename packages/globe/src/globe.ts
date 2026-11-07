@@ -1356,6 +1356,12 @@ const poi: PoiProxyHost | null = !REGION_POI ? null : {
 	ready: poiReady,
 };
 let flying: GlobeLive["flying"] = false;                        // フライト中フラグ＝meshMgr.update のゲート（flyTo が立て、着地/中断で下ろす）
+// 飛行が走っている間（flightCtl.active＝着地後の滑り込みも含む）は settle を先送りする（2026-11-07 Galaxy 京都→日本列島の滑走トレース）：
+// 飛行は rAF ごとに onMove＝150 ms の settle タイマーを毎フレーム張り直すが、8〜10 fps・GPU 詰まりでフレーム間が 150 ms を超えると飛行の最中に settle が
+// 発火 → saveView（URL の replaceState）→ Android Chrome のアドレスバー再描画が GPU プロセスを 0.1〜6 s 塞ぐ → さらにフレームが空く、の悪循環（20 s で 102 回・計 11.4 s、
+// 描画 worker の待ち 7.4 s）。URL を書かない比較＝待ち 0.19 s・描けたコマ +36%。?flysettle=1 で従来（飛行中も settle）に戻せる
+const FLY_SETTLE = /[?&]flysettle=1/.test(location.search);
+let flightActive: () => boolean = () => false;   // flightCtl は後で作る＝作った後に差し替え（onMove は起動直後から呼ばれる）
 // 建物メッシュの管理（mesh/manager.js＋データ管理画面）は寄った時（z≥MESH_WAKE_Z）か明示の呼び出し（台本の先読み・区の立ち上げ・
 // データ管理ボタン）で初めて読む＝起動の JS と登録簿（plateau-sets.json）を列島ビューの起動から外す（2026-09-22・約 22KB gz）。
 // 表向きの形（meshMgr.*）は従来と同じ代理の窓口：本物が来るまでの読み取りは空（登録簿 []・進捗は空 Map・HUD は 0）、
@@ -1527,7 +1533,8 @@ function onMove() {
 	renderer.draw(cam, { skipBase: lastSkipBase, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
-	settleT = setTimeout(() => {
+	settleT = setTimeout(function settle() {
+		if (flightActive() && !FLY_SETTLE) { settleT = setTimeout(settle, 150); return; }   // 飛行中＝止まっていない。着地（flight=null）後の最後の onMove が本物の settle を張る
 		for (const cb of mapOn.settle) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0, hash: viewHash() }); } catch (e) { console.error("[map.on settle]", e); } }
 		moving = false; requestDraw(); commitUnderground(); updateUnderground(true); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); meshMgr.update(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
 		calmT = setTimeout(() => { idleCalm = true; requestDraw(); }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
@@ -2102,6 +2109,7 @@ const flightCtl: GlobeScope["flightCtl"] = createFlight({ now: animNow, stepMax:
 	if (f) input.stop();   // 飛行が始まったら慣性・ズームの滑りは止める（A2）
 	if (!f && gint.suppressAdmin0) { gint.suppressAdmin0 = false; gint.updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
 } });
+flightActive = () => flightCtl.active;
 // flyTo をラップ：両端が z≥ADMIN0_Z（coast 表示条件外）なら飛行中の海岸線を抑制＝弧の中間の低ズームで
 // loadAdmin0 を誘発しない（描画も出さない）。片方でも coast 条件内なら従来どおり（端の海岸線をポップさせない）。
 const flyTo: GlobeScope["flyTo"] = (lon, lat, zoom, tiltDeg, bearingDeg) => {
