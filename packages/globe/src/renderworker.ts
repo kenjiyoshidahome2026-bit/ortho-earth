@@ -112,8 +112,8 @@ interface RwMsg {
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
 	meshDrain?: number;   // ?meshdrain=MS＝建物メッシュの小片を 1 フレームに時間予算 MS ms ぶん（＋フレームの合間も timer で）当てる。0＝従来の 1 フレーム 1 個
 	warmPar?: number;   // ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に・既定 0・renderer.ts）
-	warmPipes?: number;   // ?warmpipe=1/2/3＝lazy の束の最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝Async 並列で待つ・3＝進行描き：地球と地形だけ待ち残りは待たず・LOW_MEM 既定・renderer.ts）
-	lazyPipes?: boolean;   // ?lazypipe=1＝WebGPU のパイプラインを初回使用時に作る（renderer.ts）
+	warmPipes?: number;   // ?warmpipe=1/2/3＝lazy の束の最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝Async 並列で待つ・3＝進行描き：地球と地形だけ待ち残りは待たず・既定・renderer.ts）
+	lazyPipes?: boolean;   // ?lazypipe=1／0＝WebGPU のパイプラインを初回使用時に作る（既定 ON・renderer.ts）
 	family?: string; source?: string | BufferSource; descriptors?: FontFaceDescriptors;
 	url?: string; builtin?: string; opts?: RwOpts | null; x?: number; y?: number; r?: number; names?: string[]; seq?: number;
 	port?: MessagePort; width?: number; height?: number; on?: boolean; bbox?: number[]; N?: number; cam?: CameraPose | null;
