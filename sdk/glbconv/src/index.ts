@@ -23,7 +23,7 @@ import type { OutFile } from "./writers.ts";
 export { parseGlb, buildGlb, glbToScene, sceneStats, zipStore, anchorOf, anchorMatrix };
 export { toGlb, toGltf, toObj, toPly, toStl, toUsdz, toTileset };
 export type { GltfJson, ParsedGlb } from "./glb.ts";
-export type { Scene, ScenePrim, SceneMaterial, SceneImage, SceneBbox, SceneStats, DecodeDraco, DracoDecoded, DracoAttribute, AttrArray, GlbToSceneOptions } from "./scene.ts";
+export type { Scene, ScenePrim, SceneNode, SceneMaterial, SceneImage, SceneBbox, SceneStats, DecodeDraco, DracoDecoded, DracoAttribute, AttrArray, GlbToSceneOptions } from "./scene.ts";
 export type { OutFile, WriteOptions } from "./writers.ts";
 export type { ZipInputFile, ZipStoreOptions } from "./zip.ts";
 

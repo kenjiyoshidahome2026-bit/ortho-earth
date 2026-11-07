@@ -6,6 +6,8 @@ import { makeAnchor } from "./geo.mjs";
 import { createDem, GSI_DEM_PNG } from "./dem.mjs";
 import { buildTerrain, GSI_IMAGERY } from "./terrain.mjs";
 import { buildBuildings, pickPlateauSets } from "./buildings.mjs";
+import { attributeTable } from "./features.mjs";
+import { transcodeGlbImages, findImageConverter, foreignImages } from "./textures.mjs";
 import { toGlb, parseGlb, buildGlb } from "glbconv";
 
 export const VERSION = "0.1.0";
@@ -36,10 +38,11 @@ export function stampGlb(glb, extras) {
  * @param {{lon,lat,height?}|null} [o.anchor]  省略＝bbox の中心・高さ＝その地点の地面（楕円体高）
  * @param {number|"auto"} [o.geoid]  既定 "auto"
  * @param {object} [o.terrain]  { zoom=17, imagery="seamlessphoto"|"std"|"pale"|"none", dem=GSI_DEM_PNG, demZoom=14, segments=32 } ／ null＝地形なし
- * @param {object} [o.buildings]  { tilesets: string[] } か { catalog: [...], textured } ／ null＝建物なし
- * @param {(glb)=>glb} [o.fixup]  建物 glb の前処理（webp→jpeg）
+ * @param {object} [o.buildings]  { tilesets: string[] } か { catalog: [...], textured }・共通で { split=true, clip=true, decodeDraco } ／ null＝建物なし
+ * @param {object} [o.textures]  { converter, to="image/jpeg", quality=85, maxSize=2048 }＝webp などを Unity の読める形式へ（converter 省略＝手元の物を探す）
+ * @param {(glb)=>glb} [o.fixup]  建物 glb の前処理（split=false の時だけ）
  */
-export async function exportArea({ bbox, out, anchor: anchorIn = null, geoid = "auto", terrain = {}, buildings = {}, fixup = null, fetchFn = (u, i) => fetch(u, i), log = () => {} }) {
+export async function exportArea({ bbox, out, anchor: anchorIn = null, geoid = "auto", terrain = {}, buildings = {}, textures = {}, fixup = null, fetchFn = (u, i) => fetch(u, i), log = () => {} }) {
 	if (!Array.isArray(bbox) || bbox.length !== 4 || !(bbox[0] < bbox[2] && bbox[1] < bbox[3])) throw new Error("bbox must be [w,s,e,n] in degrees");
 	fs.mkdirSync(out, { recursive: true });
 	const cx = anchorIn?.lon ?? (bbox[0] + bbox[2]) / 2, cy = anchorIn?.lat ?? (bbox[1] + bbox[3]) / 2;
@@ -78,14 +81,29 @@ export async function exportArea({ bbox, out, anchor: anchorIn = null, geoid = "
 			tilesets = sets.map(s => s.base.replace(/\/?$/, "/") + "tileset.json");
 		}
 		if (tilesets.length) {
-			const b = await buildBuildings({ tilesets, bbox, anchor, fetchFn, fixup, log });
+			const split = buildings.split ?? true;
+			const b = await buildBuildings({ tilesets, bbox, anchor, split, clip: buildings.clip ?? true, decodeDraco: buildings.decodeDraco ?? null, fetchFn, fixup, log });
 			if (b.glb) {
 				const src = b.sources.map(u => ({ kind: "buildings", name: "Project PLATEAU 3D 都市モデル（建築物）", url: u, license: "CC BY 4.0", attribution: "国土交通省 Project PLATEAU" }));
-				const glb = stampGlb(b.glb, { ...extrasBase, source: src });
+				let glb = b.glb, tex = null;
+				if (textures && foreignImages(glb)) {   // webp（PLATEAU のテクスチャ付き）→ jpeg/png：glTFast は webp を解かない
+					const converter = textures.converter !== undefined ? textures.converter : await findImageConverter(textures.tool ?? null);
+					tex = await transcodeGlbImages(glb, { converter, to: textures.to ?? "image/jpeg", quality: textures.quality ?? 85, maxSize: textures.maxSize ?? 2048, log });
+					glb = tex.glb;
+					if (tex.converted || tex.failed) log(`textures: ${tex.converted} image(s) → ${textures.to ?? "image/jpeg"} with ${converter?.name}${tex.failed ? `, ${tex.failed} failed (left as is)` : ""} (${(tex.before / 1e6).toFixed(1)} → ${(tex.after / 1e6).toFixed(1)} MB)`);
+				}
+				glb = stampGlb(glb, { ...extrasBase, source: src, ...(b.features ? { features: { count: b.features.length, node: "name = gml_id", extras: "plateau", table: "buildings.attributes.json" } } : {}) });
 				fs.writeFileSync(path.join(out, "buildings.glb"), glb);
-				result.files.push({ name: "buildings.glb", bytes: glb.length, tiles: b.tiles });
+				result.files.push({ name: "buildings.glb", bytes: glb.length, tiles: b.tiles, buildings: b.features?.length, textures: tex?.converted || 0 });
 				sources.push(...src);
-				log(`buildings.glb: ${b.tiles} tiles, ${(glb.length / 1e6).toFixed(1)} MB`);
+				log(`buildings.glb: ${b.tiles} tiles${b.features ? `, ${b.features.length} buildings` : ""}, ${(glb.length / 1e6).toFixed(1)} MB`);
+				if (b.features) {
+					const table = { ...attributeTable(b.features), source: "Project PLATEAU（国土交通省）CC BY 4.0", glb: "buildings.glb" };
+					const f = path.join(out, "buildings.attributes.json");
+					fs.writeFileSync(f, JSON.stringify(table) + "\n");
+					result.files.push({ name: "buildings.attributes.json", bytes: fs.statSync(f).size, buildings: table.buildings.length, keys: table.keys.length });
+					log(`buildings.attributes.json: ${table.buildings.length} buildings × ${table.keys.length} keys`);
+				}
 			}
 		}
 	}
@@ -103,7 +121,7 @@ function bboxOf(prims) {
 	return b;
 }
 function readme(a, r) {
-	const f = r.files.filter(x => x.bytes).map(x => `| \`${x.name}\` | ${(x.bytes / 1e6).toFixed(1)} MB | ${x.tiles ?? ""} tiles${x.vertices ? ` · ${x.vertices} vertices · z${x.zoom}` : ""} |`).join("\n");
+	const f = r.files.filter(x => x.bytes).map(x => `| \`${x.name}\` | ${(x.bytes / 1e6).toFixed(1)} MB | ${x.keys ? `${x.buildings} buildings × ${x.keys} attribute keys` : `${x.tiles ?? ""} tiles${x.buildings ? ` · ${x.buildings} buildings (one node each, name = gml_id)` : ""}${x.textures ? ` · ${x.textures} textures (jpeg/png)` : ""}${x.vertices ? ` · ${x.vertices} vertices · z${x.zoom}` : ""}`} |`).join("\n");
 	const s = a.source.map(x => `- ${x.name} — ${x.attribution} — ${x.license} — ${x.url}`).join("\n");
 	return `# ortho-export: ${a.bbox.map(v => v.toFixed(5)).join(", ")}
 
@@ -116,7 +134,13 @@ Generated by ${a.generator} on ${new Date().toISOString().slice(0, 10)}.
   the Ortho Earth package's "Place export folder in scene…" puts them under a node rotated 180° about Y, giving X = east, Y = up, Z = north, 1 unit = 1 m.
 - All GLBs of this folder share the anchor: keep them on the same parent.
 - The anchor is also inside each GLB as \`asset.extras.orthoEarth\`.
+${r.files.some(x => x.keys) ? `
+## Building attributes
 
+- \`buildings.glb\` has one node per building: node name = PLATEAU \`gml_id\`, node \`extras.plateau\` = its row of the 3D Tiles batch table (CityGML attributes).
+- \`buildings.attributes.json\` is the same as a flat table for Unity (\`keys\` + one \`values\` row per building, nested keys joined with \`/\`).
+  "Place export folder in scene…" adds an \`OrthoEarthBuilding\` component to each building GameObject; select a building to see its attributes.
+` : ""}
 ## Files
 
 | file | size | contents |
