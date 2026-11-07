@@ -989,7 +989,7 @@ function drainMesh(budget: number, timer = false) {
 		const ta = performance.now();
 		try { renderer.set("meshSet", meshData, name); }
 		finally {
-			if (meshData) { const dt = performance.now() - ta; meshRx.applyMs += dt; if (dt > meshRx.applyMax) meshRx.applyMax = dt; }
+			if (meshData) { const dt = performance.now() - ta; meshRx.applyMs += dt; if (dt > 100) meshRx.applySlow++; if (dt > meshRx.applyMax) { meshRx.applyMax = dt; meshRx.applyMaxAt = absNow() - dt; meshRx.applyMaxKey = String(name); meshRx.applyMaxBytes = (meshData.pos?.byteLength || 0) + (meshData.nrm?.byteLength || 0) + (meshData.idx?.byteLength || 0); } }
 			// 小分け転送（WebGPU）：まだ上がっていない＝中身の ArrayBuffer を返せない＝ack は上がり切った時（pumpMeshUp）
 			if (item.port && meshData && renderer.meshUpPending?.(String(name))) { meshAcks.set(meshData, item); deferred = true; }
 			else if (item.port) ackMesh(item);
@@ -1036,7 +1036,7 @@ function bakeMeshLift(dd: NonNullable<MeshItem["meshData"]>): void {
 //（使い捨て根絶＝復元churnのヒープ高水位対策）。共有バッファ等で transfer 不可なら ack だけ（従来動作）。
 const meshAcks = new Map<unknown, MeshItem>();   // 小分け転送中の荷 → その ack（荷の同一性で引く）
 // 建物メッシュの受け口の計器（?hud=1・HUD の mesh timeline）：受けた荷・GPU へ当てた荷・ack した荷の数と最初/最後の時刻（絶対時刻＝main が navigation 起点へ直す）・pump に使った ms
-const meshRx = { n: 0, firstRecv: 0, applied: 0, firstApply: 0, acked: 0, lastAck: 0, pumpMs: 0, applyMs: 0, applyMax: 0, applyBytes: 0, inFrame: 0, inTimer: 0, starveMs: 0, emptyT: 0 };   // applyMs＝renderer.set(meshSet) の中（writeBuffer＝GPU 側の詰まりはここに出る）・inFrame/inTimer＝片を当てた回（フレームの中／合間）・starveMs＝受け口が空で送り手を待った時間
+const meshRx = { n: 0, firstRecv: 0, applied: 0, firstApply: 0, acked: 0, lastAck: 0, pumpMs: 0, applyMs: 0, applyMax: 0, applyMaxAt: 0, applyMaxKey: "", applyMaxBytes: 0, applySlow: 0, applyBytes: 0, inFrame: 0, inTimer: 0, starveMs: 0, emptyT: 0 };   // applyMaxAt/Key/Bytes＝最長の set() がいつ・どの片・何 byte か（絶対時刻＝HUD で navigation 起点へ）・applySlow＝100 ms 超の回数（2026-11-07 実機：1 片だけ 3.6 s）   // applyMs＝renderer.set(meshSet) の中（writeBuffer＝GPU 側の詰まりはここに出る）・inFrame/inTimer＝片を当てた回（フレームの中／合間）・starveMs＝受け口が空で送り手を待った時間
 const absNow = () => performance.timeOrigin + performance.now();
 function ackMesh(item: MeshItem) {
 	meshRx.acked++; meshRx.lastAck = absNow();
