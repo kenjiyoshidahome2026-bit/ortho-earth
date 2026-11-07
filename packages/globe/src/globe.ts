@@ -930,7 +930,7 @@ const TERRSYNC = /[?&]terrsync=1/.test(location.search);
 // WebGPU のパイプラインを初回使用時に作る（?lazypipe=1／0）。LOW_MEM は既定 ON（2026-11-06 Galaxy/Mali-G615 の adb トレース 3 回ずつ：起動時の生成 59→16 本、
 // GPU プロセスの詰まり 7.3→4.2 s、描画 worker の停止 8.7→6.0 s で解け、frame1 1.6 s 安定〔eager は 2 回に 1 回 4.2 s〕）。デスクトップは従来どおり起動時に全部（ms 単位＝遅延の意味が無い）
 const LAZY_PIPES = /[?&]lazypipe=1/.test(location.search) || (LOW_MEM && !/[?&]lazypipe=0/.test(location.search));
-// ?warmpipe=0／1／2＝lazy の束のうち最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝createRenderPipelineAsync で並列）。LOW_MEM は既定 1
+// ?warmpipe=0／1／2／3＝lazy の束のうち最初のフレームの 10 本を起動時に先に作る（1＝同期・2＝createRenderPipelineAsync で並列・3＝進行描き：地球と地形だけ待ち、残りはできた順に現れる・2026-11-07）。LOW_MEM は既定 1
 // （2026-11-06 Galaxy 各 2 回＋トレース：無し＝mesh 系 3 本が 6.5 s に遅れて作られ worker が 0.67 s 停止／1＝停止ゼロ・frame1 +0.1〜0.2 s／2＝停止ゼロだが待ちで frame1 +0.2〜0.3 s。
 //   同じ 10 本が初回描画の最中だと 4.2 s、起動直後なら 0.2〜0.3 s＝作る時機が効く）。lazy でない（デスクトップ）側は起動時に全部作るので無意味＝0
 const WARM_PIPES = qNum(/[?&]warmpipe=(\d)/, LOW_MEM ? 1 : 0);

@@ -12,7 +12,7 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { pipeSet, lbl, warmPipes, pipeLog } from "./pipeset.ts";
+import { pipeSet, lbl, warmPipes, warmPipesBg, pipeLog } from "./pipeset.ts";
 import { viewRays } from "../camera.ts";
 import { cameraState, lonlatTo3D, ellNormal3D, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
@@ -766,7 +766,12 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const FIRST_FRAME_PIPES = ["globe", "fillOff", "lineOff", "terrain", "fillTest", "lineTest", "bld", "mesh", "meshTex", "meshTexBlend"] as const;
 	if (LAZY && rOpts.warmPipes) {
 		const tw = performance.now();
-		if (rOpts.warmPipes >= 2) { const w = await warmPipes(P, device, FIRST_FRAME_PIPES); console.log(`[boot] warm pipes async: ${w.made}/${w.asked} in ${w.ms | 0} ms${w.failed.length ? " failed " + w.failed.join(",") : ""}`); }
+		if (rOpts.warmPipes >= 3) {   // 進行描き（2026-11-07 Galaxy）：地球と地形だけ同期で先に、残り 8 本は待たずに Async＝frame1 がコンパイル 10 本ぶんを待たない。できた層から現れる（draw は null の層を飛ばす）
+			const BASE = ["globe", "terrain"] as const; for (const k of BASE) void P[k];
+			const bg = warmPipesBg(P, device, FIRST_FRAME_PIPES.filter(k => !(BASE as readonly string[]).includes(k)), () => rOpts.requestDraw?.());
+			void bg.done.then(w => console.log(`[boot] warm pipes progressive: base ${BASE.length} sync in ${(performance.now() - tw) | 0} ms · ${w.made}/${bg.asked} async done at +${w.ms | 0} ms${w.failed.length ? " failed " + w.failed.join(",") : ""}`));
+		}
+		else if (rOpts.warmPipes >= 2) { const w = await warmPipes(P, device, FIRST_FRAME_PIPES); console.log(`[boot] warm pipes async: ${w.made}/${w.asked} in ${w.ms | 0} ms${w.failed.length ? " failed " + w.failed.join(",") : ""}`); }
 		else { for (const k of FIRST_FRAME_PIPES) void P[k]; console.log(`[boot] warm pipes sync: ${FIRST_FRAME_PIPES.length} in ${(performance.now() - tw) | 0} ms`); }
 	}
 
@@ -3241,7 +3246,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const pz = pzOver.get(d.li) ?? d.pz, pm = pz ? pzEval(pz) : null;   // ズーム連続の色（V-Ph3＝S-P1-2）
 				const bg1 = d.lxk || pm ? lxFill(role, (d.lxk ?? "f") + pzKey(pm, 0), d.fx, d.pat, scenes[slot].origin, pm) : paramBG[role];
 				if (!bg1) return;   // 模様の画像がまだ無い層＝描かない（MapLibre・GL2 と同じ）
-				pass.setPipeline(roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
+				const fp = roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe; if (!fp) return;   // 進行描き（?warmpipe=3）＝コンパイル中の層は飛ばす
+				pass.setPipeline(fp);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
 				pass.setBindGroup(0, bg0[slot]);
 				pass.setBindGroup(1, bg1);
 				if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
@@ -3256,6 +3262,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const pz = pzOver.get(d.li) ?? d.pz, pm = pz ? pzEval(pz) : null;   // ズーム連続の色・線幅・ずらし（V-Ph3＝S-P1-2）
 				const bgL = d.lxk || pm ? lxLine(role, (d.lxk ?? "l") + pzKey(pm, 0), d.cj, d.dash, d.fx, 0, d.lt, pm) : paramBG[role];
 				if (!bgL) return;   // 線の模様の画像がまだ無い層＝描かない（G-4）
+				if (!linePipe) return;   // 進行描き（?warmpipe=3）＝コンパイル中は飛ばす
 				pass.setPipeline(linePipe);
 				pass.setBindGroup(0, bg0[slot]);
 				pass.setBindGroup(1, bgL);
@@ -3370,7 +3377,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const bldMaskBG = buildMaskBG(activeMasks, scenes.main.origin || [0, 0]);
 		const bld = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;   // noBld=?nobld=1診断ノブ（二重壁の切り分け）
 		const bldPrev = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) && fading ? scenes.main.fadePrev!.bld : null;
-		if (bldPrev) {   // フェード中＝旧建物を通常ロール（α1）で先に（新は fadeBld で重なる＝クロスフェード）
+		if (bldPrev && PX.bld) {   // （PX.bld null＝進行描きでコンパイル中＝飛ばす）フェード中＝旧建物を通常ロール（α1）で先に（新は fadeBld で重なる＝クロスフェード）
 			pass.setPipeline(PX.bld);
 			pass.setBindGroup(0, bg0.bld);
 			pass.setBindGroup(1, paramBG[ROLE.bld]);
@@ -3381,7 +3388,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setVertexBuffer(2, bldPrev.bAnc);
 			pass.draw(bldPrev.count);
 		}
-		if (bld) {
+		if (bld && PX.bld) {   // PX.bld null＝進行描き（?warmpipe=3）でコンパイル中＝この枚は飛ばす
 			pass.setPipeline(PX.bld);
 			pass.setBindGroup(0, bg0.bld);
 			pass.setBindGroup(1, paramBG[fading ? ROLE.fadeBld : ROLE.bld]);
@@ -3498,7 +3505,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (customs.size) csFrame++;
 				const meshPipe = PX.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
-				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]];
+				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
 				const sils = draws.filter(d => d.p.textured && d.p.sil && !d.pre && !blendOf(d.p));   // 半透明の束は殻を出さない
 				if (sils.length) {   // 模型の輪郭線（Model.silhouette）＝模型より先に・深度を書かずに押し出した殻を塗る（模型が内側を塗り直す）。素の束縛（PB だけの group(2)）
 					pass.setPipeline(P.meshSil); pass.setBindGroup(0, bg0.bld); pass.setBindGroup(1, paramBG[ROLE.mesh]);
@@ -3532,6 +3539,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 							continue;
 						}
 						const nc = tx && C && p.noClip, pl = nc ? (pipeline === TX.meshTex ? (R ?? P).meshTex : (R ?? P).meshTexBlend) : pipeline;   // left out of the clip: the receiver without it
+						if (!pl) continue;   // 進行描き（?warmpipe=3）＝コンパイル中
 						if (cur !== pl) { pass.setPipeline(pl); cur = pl; }
 						pass.setBindGroup(2, !tx ? plBatchBG : nc ? (R ? sh!.plShBG : plBatchBG) : CR ? CX!.plBG : C ? cl!.plBG : R ? sh!.plShBG : plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform（影・断面の間の模型は、その束縛と同居の group）
 						pass.setVertexBuffer(0, p.vbo);
