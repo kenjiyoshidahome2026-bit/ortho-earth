@@ -1,5 +1,5 @@
 // 錨（anchor）と座標の算術（docs/notes/unity-roundtrip.md §2）。依存ゼロ。
-//   ENU＝錨を原点に X=東・Y=北・Z=上（m）。glTF へは (E, U, −N)（右手系 Y-up）。Unity（glTFast）は Z を反転して (E, U, N) にする。
+//   ENU＝錨を原点に X=東・Y=北・Z=上（m）。glTF へは (E, U, −N)（右手系 Y-up）。Unity（glTFast）は X を反転する＝素の prefab は (−E, U, −N)＝package の Place が Y 180° で (E, U, N) に戻す。
 //   行列は glTF と同じ列優先 4x4。
 export const A = 6378137, F = 1 / 298.257223563, E2 = F * (2 - F);
 const D2R = Math.PI / 180;

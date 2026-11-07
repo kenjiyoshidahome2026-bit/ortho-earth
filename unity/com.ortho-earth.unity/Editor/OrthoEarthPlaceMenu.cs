@@ -1,6 +1,10 @@
 // Ortho Earth > Place export folder in scene…
 //   Pick a folder written by ortho-export that you copied under Assets/ (e.g. Assets/OrthoEarth/marunouchi/). glTFast's importer has already turned
-//   each .glb into a prefab; this puts them all under one GameObject carrying OrthoEarthAnchor (from anchor.json), at identity, and loads .ply point clouds.
+//   each .glb into a prefab; this puts them all under one GameObject carrying OrthoEarthAnchor (from anchor.json) and loads .ply point clouds.
+//   Frames: the GLBs are in the Cesium/ortho-earth glTF frame (X east, Y up, Z south). glTFast converts right- to left-handed by flipping X
+//   (glTFast ≥ 4: UpgradeGuides.md), so the prefabs come in as (west, up, south) = the ENU frame turned 180° about Y. One intermediate node
+//   "glTF frame" rotated 180° about Y undoes that, so the anchor GameObject itself is X east, Y up, Z north at identity (what Geo/OrthoEarthAnchor assume).
+//   PLY point clouds are loaded straight into the anchor frame (PlyLoader flips Z), so they sit under the anchor, not under the glTF node.
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -26,6 +30,9 @@ namespace OrthoEarth.Editor
 			Undo.RegisterCreatedObjectUndo(root, "Place ortho-export folder");
 			var anchor = root.AddComponent<OrthoEarthAnchor>();
 			anchor.Apply(json);
+			var gltfNode = new GameObject(OrthoEarthFrames.GltfNodeName);
+			gltfNode.transform.SetParent(root.transform, false);
+			gltfNode.transform.localRotation = OrthoEarthFrames.GltfToAnchor;
 
 			int n = 0;
 			foreach (var f in Directory.GetFiles(abs))
@@ -36,7 +43,7 @@ namespace OrthoEarth.Editor
 				{
 					var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
 					if (prefab == null) { Debug.LogWarning($"[Ortho Earth] {assetPath}: not imported yet (is glTFast installed?)"); continue; }
-					var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab, root.transform);
+					var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab, gltfNode.transform);
 					go.transform.localPosition = Vector3.zero; go.transform.localRotation = Quaternion.identity; go.transform.localScale = Vector3.one;
 					n++;
 				}

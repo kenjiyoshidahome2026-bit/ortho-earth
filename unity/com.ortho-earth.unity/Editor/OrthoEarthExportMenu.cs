@@ -26,7 +26,7 @@ namespace OrthoEarth.Editor
 		public static async void Export()
 		{
 			var sel = Selection.gameObjects;
-			var anchor = sel.Select(g => g.GetComponentInParent<OrthoEarthAnchor>()).FirstOrDefault(a => a != null) ?? UnityEngine.Object.FindFirstObjectByType<OrthoEarthAnchor>();
+			var anchor = sel.Select(g => g.GetComponentInParent<OrthoEarthAnchor>()).FirstOrDefault(a => a != null) ?? UnityEngine.Object.FindAnyObjectByType<OrthoEarthAnchor>();
 			if (anchor == null) { EditorUtility.DisplayDialog("Ortho Earth", "No OrthoEarthAnchor in the scene. Add one (Ortho Earth/Anchor) on a parent of the model and set lon/lat/height.", "OK"); return; }
 			var path = EditorUtility.SaveFilePanel("Export GLB for ortho-earth", "", sel[0].name + ".glb", "glb");
 			if (string.IsNullOrEmpty(path)) return;
@@ -36,8 +36,10 @@ namespace OrthoEarth.Editor
 		public static async Task<bool> ExportTo(GameObject[] objects, OrthoEarthAnchor anchor, string path)
 		{
 			var export = new GameObjectExport(new ExportSettings { Format = GltfFormat.Binary, FileConflictResolution = FileConflictResolution.Overwrite }, new GameObjectExportSettings { OnlyActiveInHierarchy = true });
-			// Export in the anchor's space: glTFast writes world transforms, so objects placed under the anchor keep their local metres.
-			export.AddScene(objects, (float4x4)anchor.transform.worldToLocalMatrix, anchor.gameObject.name);
+			// Export in the anchor's space turned 180° about Y: glTFast flips X when writing, so anchor-local (east, up, north) → (−east, up, −north) → glTF (east, up, −north),
+			// the Cesium/ortho-earth glTF frame that ortho-earth, glbconv and ortho-export use (see OrthoEarthFrames).
+			var origin = Matrix4x4.Rotate(OrthoEarthFrames.AnchorToGltf) * anchor.transform.worldToLocalMatrix;
+			export.AddScene(objects, (float4x4)origin, anchor.gameObject.name);
 			var tmp = path + ".tmp";
 			if (!await export.SaveToFileAndDispose(tmp)) { Debug.LogError("[Ortho Earth] glTFast export failed"); return false; }
 			var glb = File.ReadAllBytes(tmp); File.Delete(tmp);

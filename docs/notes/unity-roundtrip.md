@@ -11,7 +11,7 @@ Unity 内でタイルを動的に読む仕組みは Cesium for Unity・PLATEAU S
   ortho-earth 側は `sdk/glbconv`（GLB → glb/gltf/obj/ply/stl/usdz/3dtiles）と `gadget.model`（GLB を地球儀に置く）が既にある。
 - **座標の約束は 1 つ**（§2）。基準点（錨）を緯度経度・楕円体高で決め、その点の ENU（東・北・上・メートル）を Unity の
   ローカル座標にする。Unity は左手系 Y-up なので **ENU → Unity は (E, U, N)**（X=東・Y=上・Z=北）。glTF は右手系 Y-up なので
-  **ENU → glTF は (E, U, −N)**。glTFast がこの glTF→Unity の反転（Z 反転）を自前でやる＝我々は glTF の約束だけ守ればよい。
+  **ENU → glTF は (E, U, −N)**。glTFast は glTF→Unity で **X を反転する**（2026-11-07 実機）＝素の prefab は ENU を Y まわりに 180° 回した姿＝package の Place が 1 ノードで戻す（§2.2）。ファイルの約束は Cesium と同じ 1 つ。
 - 錨の情報は **glTF の `extras`**（`asset.extras.orthoEarth`）に書く（§2.3）。ortho-earth → Unity でも Unity → ortho-earth でも同じ欄。
   3D Tiles 由来の物は `CESIUM_RTC`（ECEF）も残す＝`glbconv` と `gadget.model` がそのまま読む。
 - 4 段で進める（§5）。1＝この文書・2＝`ortho-export` CLI・3＝Unity → ortho-earth の取り込み口・4＝Unity 6 の見本プロジェクト。
@@ -48,8 +48,10 @@ Unity 内でタイルを動的に読む仕組みは Cesium for Unity・PLATEAU S
 | Unity | 左 | Y | +Z | m |
 
 - ENU → glTF：`(x, y, z)_glTF = (E, U, −N)`。
-- glTF → Unity：glTFast が Z を反転する＝`(E, U, N)`（X=東・Y=上・Z=北）。**Unity のシーンでは北＝+Z・東＝+X**。
-- Unity → glTF（glTFast Export）：同じ反転が戻るので、Unity で +Z を北に置いて作れば glTF では −Z＝北＝**ENU に戻る**。
+- glTF → Unity：glTFast は右手系→左手系の変換で **X を反転する**（4.0 以降・Z ではない＝2026-11-07 に実機で確認・glTFast の UpgradeGuides.md）＝素の prefab は `(−E, U, −N)`＝
+  ENU を Y まわりに 180° 回した姿（鏡像ではない）。package の Place が「glTF frame」ノード（Y 180°）を 1 つ挟んで戻す＝**錨の GameObject の直下は X=東・Y=上・Z=北**。
+  ファイルの約束（Cesium と同じ (E, U, −N)）は変えない＝エンジン・glbconv・3D Tiles と同じ 1 つの向きを守る。
+- Unity → glTF（glTFast Export）：Export は錨の空間を Y 180° 回した行列を origin に渡す＝X 反転と合わせて glTF は `(E, U, −N)` に戻る。
 - heading（方位）：北から時計回りの度（`gadget.model` と同じ）。Unity の Y 軸回転（時計回りが正・上から見て）と同じ向き＝**変換不要**。
 - スケールは 1（m）。Unity の prefab で縮めない。3D Tiles の `CESIUM_RTC`（ECEF の原点）は glb に残すが、頂点は錨の ENU で書く＝
   読み手（Unity）は RTC を無視してよい。ortho-earth の読み手は RTC があればそれを錨として使う（`gadget.model` の掟）。
@@ -143,9 +145,9 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 | 段 | 出す物 | 済の条件 |
 | --- | --- | --- |
 | 1 | この文書 | 本人の修正が入って確定 |
-| 2 | `sdk/ortho-export`（CLI）：地形＋PLATEAU → `anchor.json`・`terrain.glb`・`buildings.glb`・`README.md`。検定＝合成の fetch で錨・DEM・地形・建物の座標の付け替え（`tests/t-export.mjs`）＋丸の内 2 街区の実走（網のある機械で） | 丸の内の 2 街区が GLB で出る・extras 入り・Blender/three.js で開く |
+| 2 | `sdk/ortho-export`（CLI）：地形＋PLATEAU → `anchor.json`・`terrain.glb`・`buildings.glb`・`README.md`。検定＝合成の fetch で錨・DEM・地形・建物の座標の付け替え（`tests/t-export.mjs`）＋丸の内 2 街区の実走 | 済（2026-11-07 実走：geoid 36.76 m・地形 12 枚 7,544 頂点 0.6 MB・建物 31 枚 10.5 MB（千代田 27・中央 4）・4.1 s。建物はタイル単位＝bbox より広い約 1.2×1.1 km が入る） |
 | 2′ | 点群＝`/japan/pointcloud` の「PLY（点・Unity 向け）」ボタン（`apps/pointcloud/pc-ply.ts`・読んだ点をそのまま＝図郭 1 枚か熱海の見本・錨は見出しの comment・2026-11-07） | 熱海の見本が PLY で出て Unity の `PlyImporter` が読む（ブラウザの実機＝未） |
-| 3 | 取り込み口：`decodeModel` が `asset.extras.orthoEarth.anchor` を読む（`opts.at` が無い時・`tests/model-anchor.mjs`）／`glbconv` が錨を `CESIUM_RTC` へ畳む（`glbToScene`）／Unity の `Ortho Earth > Export selection to GLB…` が錨を押す | Unity で出した GLB をドロップすると錨の位置に立つ（エンジン側＝済・2026-11-07。Unity 実機＝未） |
+| 3 | 取り込み口：`decodeModel` が `asset.extras.orthoEarth.anchor` を読む（`opts.at` が無い時・`tests/model-anchor.mjs`）／`glbconv` が錨を `CESIUM_RTC` へ畳む（`glbToScene`）／Unity の `Ortho Earth > Export selection to GLB…` が錨を押す | Unity で出した GLB をドロップすると錨の位置に立つ（エンジン側＝済・2026-11-07。Unity の Export の実機＝未） |
 | 4 | `unity/com.ortho-earth.unity/`（UPM package・Unity 6・URP・glTFast）：`OrthoEarthAnchor`・`Geo`・`PlyLoader`／`PlyImporter`・`Place export folder in scene…`・`Export selection to GLB…`・README。見本のシーンは段 2 の実走の後に `Samples~/` へ | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る（package＝書いた・2026-11-07。Unity 実機＝未） |
 
 **置き場**：Unity 側は repo の根に `unity/com.ortho-earth.unity/`（UPM package・npm workspace の外＝利用者は自分の URP プロジェクトに Add package from disk。

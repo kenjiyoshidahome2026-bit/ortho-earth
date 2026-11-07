@@ -1,6 +1,7 @@
 // Geodesy for the ortho-earth anchor (docs/notes/unity-roundtrip.md §2). Double precision: ECEF magnitudes are ~6.4e6 m.
 //   ENU at the anchor = X east, Y north, Z up (metres). Unity = X east, Y up, Z north (left-handed).
-//   glTF (the file) = X east, Y up, Z south; glTFast flips Z on import/export, so this code never sees the glTF frame.
+//   glTF (the file) = X east, Y up, Z south (Cesium's frame). glTFast flips X on import/export (not Z), which turns that into (west, up, south):
+//   the package undoes it with one node rotated 180° about Y (OrthoEarthFrames), so this code only ever sees the anchor frame (east, up, north).
 using System;
 using UnityEngine;
 
@@ -38,6 +39,17 @@ namespace OrthoEarth
 			n = new[] { -sa * cl, -sa * sl, ca };
 			u = new[] { ca * cl, ca * sl, sa };
 		}
+	}
+
+	/// <summary>The two frames and the one rotation between them (see Geo.cs header).</summary>
+	public static class OrthoEarthFrames
+	{
+		/// <summary>Name of the node Place creates under the anchor to hold glTFast prefabs.</summary>
+		public const string GltfNodeName = "glTF frame (X flipped by glTFast)";
+		/// <summary>Local rotation of that node: glTFast's (west, up, south) → anchor (east, up, north).</summary>
+		public static Quaternion GltfToAnchor => Quaternion.Euler(0, 180, 0);
+		/// <summary>Inverse, used by the exporter.</summary>
+		public static Quaternion AnchorToGltf => Quaternion.Euler(0, 180, 0);
 	}
 
 	/// <summary>An anchor: the point of the Earth that is the origin of this Unity scene (or of one export folder).</summary>

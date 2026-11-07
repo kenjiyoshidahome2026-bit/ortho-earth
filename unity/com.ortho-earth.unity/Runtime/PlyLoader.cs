@@ -1,6 +1,7 @@
 // Binary little-endian PLY → Mesh of points (MeshTopology.Points). Reads x y z (float/double), red green blue (uchar) and classification (uchar) if present.
 //   This is what /japan/pointcloud writes ("download the range as PLY", ortho-export design §3.3): positions are metres relative to the anchor,
-//   in the glTF frame (X east, Y up, Z south), so Z is flipped here to Unity's Z north. Classification goes to uv0.x for shaders that want it.
+//   in the glTF frame (X east, Y up, Z south), so Z is flipped here to the anchor frame (X east, Y up, Z north) = put the mesh directly under the
+//   OrthoEarthAnchor, not under the "glTF frame" node (that node is only for glTFast prefabs). Classification goes to uv0.x for shaders that want it.
 using System;
 using System.Collections.Generic;
 using System.IO;

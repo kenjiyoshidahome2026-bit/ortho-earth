@@ -7,7 +7,7 @@ namespace OrthoEarth.Editor
 	[ScriptedImporter(1, "ply")]
 	public class PlyImporter : ScriptedImporter
 	{
-		[Tooltip("Flip Z (glTF frame Z south → Unity Z north). ortho-earth PLYs need this on")] public bool flipZ = true;
+		[Tooltip("Flip Z (glTF frame Z south → anchor frame Z north). ortho-earth PLYs need this on; put the mesh under the OrthoEarthAnchor, not under its glTF node")] public bool flipZ = true;
 
 		public override void OnImportAsset(AssetImportContext ctx)
 		{

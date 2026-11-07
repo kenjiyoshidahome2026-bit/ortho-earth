@@ -1,5 +1,6 @@
 // The anchor of a scene (or of one imported export folder): where Unity's origin is on the Earth.
-//   Put it on the parent GameObject of the imported GLBs (identity transform). Everything under it is in metres, X east, Y up, Z north.
+//   Put it on the parent GameObject of the imported GLBs (identity transform). Everything under it is in metres, X east, Y up, Z north
+//   (glTFast prefabs sit one level down, under the "glTF frame" node that Place rotates 180° about Y: see Geo.cs).
 //   The same component is read by the exporter (Ortho Earth > Export selection to GLB…) to stamp asset.extras.orthoEarth into the GLB,
 //   which ortho-earth (map.gadget.model / drop onto the globe) and glbconv read to place the model on the globe.
 using UnityEngine;

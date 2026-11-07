@@ -19,7 +19,7 @@ node sdk/ortho-export/src/cli.mjs --bbox 139.7625,35.6785,139.7700,35.6840 --out
 ## 座標の約束
 
 - 錨＝`{ lon, lat, height }`（度・度・楕円体高 m）。省略すると bbox の中心・高さはその地点の地面（DEM＋ジオイド）。
-- 頂点は錨の ENU（東・北・上・m）を glTF の **(E, U, −N)** で書く。Unity（glTFast）は Z を反転するので **X=東・Y=上・Z=北**・1 unit＝1 m。
+- 頂点は錨の ENU（東・北・上・m）を glTF の **(E, U, −N)** で書く。Unity（glTFast）は X を反転するので素の prefab は (西, 上, 南)＝package の Place が Y 180° のノードで **X=東・Y=上・Z=北** に戻す・1 unit＝1 m。
 - 錨は各 GLB の `asset.extras.orthoEarth` にもある。`CESIUM_RTC` は外す（頂点はもう錨の座標）。
 - 高さ：地理院の標高（ジオイド上）＋ジオイド高＝楕円体高＝PLATEAU と同じ基準。ジオイド高は既定で地理院の API（`--geoid auto`）・網が無ければ `--geoid 36.7` のように渡す。
 
