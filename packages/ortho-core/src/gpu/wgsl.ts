@@ -457,6 +457,14 @@ export function gndMixSlow(code: string): string {
 	return code.replace(GND_FAST_HEAD, "").replace(GND_SAMPLE_TAIL, GND_SAMPLE_TAIL + "\tif (GD0.p.x < 0.5) { return col; }\n");
 }
 
+// 軽い標高（?elevcheap・LOW_MEM 既定）の特化＝`if (F.ellP.z > 0.5) { A } else { B }` を A だけに書き換える（2026-11-07 Galaxy のトレース：
+// シェーダキャッシュ外れの初回は Mali の直列コンパイルが 6〜14 s で、線の VS（lineOff 2〜4 s・lineTest 1.7〜2.4 s）が最長＝両枝（elevQ×3＝elev 15 展開）を
+// 捨てずに持つ分だけ重い。F.ellP.z は uniform＝実行時は片方しか走らないので絵は変わらない。elevcheap 無しの機械（desktop）は原本のまま＝gate の bit 同一を崩さない）。
+// 書式が変わって 1 つも置き換わらなければ呼び手が気付けるよう件数を返す版（elevCheapWgslN）も出す
+const ELEV_CHEAP_IF = /if \(F\.ellP\.z > 0\.5\) \{([^{}]*)\} else \{([^{}]*)\}/g;
+export function elevCheapWgsl(code: string): string { return code.replace(ELEV_CHEAP_IF, (_m, a: string) => `{${a}}`); }
+export function elevCheapWgslN(code: string): number { return (code.match(ELEV_CHEAP_IF) || []).length; }
+
 // 塗り（earcut 三角形・premultiplied）。FILL_VS/FILL_FS の移植：図郭外フォールバック水域（seaGate＝FS標高ゲート）。
 // 直描きは 2D（地形なし）だけ＝3D の塗りは地面アトラスへ焼く（ATLAS_FILL_WGSL・2026-09-21）。かつての標高ドレープ・
 // 水面リフト・水域の厳密対数深度（fsExact）は塗りには不要となり撤去。
