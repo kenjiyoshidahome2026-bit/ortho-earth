@@ -48,13 +48,15 @@ export function pipePending(o: object, key: string): boolean { const r = REC.get
 /** 進行描き（?warmpipe=3・2026-11-07 Galaxy）：keys を createRenderPipelineAsync で「待たずに」作り始める。できるまで getter は null＝描き手はその層を
  *  飛ばし、1 本できるごとに onReady（＝requestDraw）で次のフレームを頼む。シェーダキャッシュが冷えた初回（deploy 直後）に frame1 が 10 本ぶん（4〜9 s）待たず、
  *  地球と地形だけ先に出て、線・建物・メッシュはコンパイルが済んだ順に現れる。Async は Dawn の worker プールで走る＝GPU プロセスの主スレッドを塞がない＝
- *  描画 worker の writeBuffer も待たない。失敗（検証エラー等）はキャッシュせず pending を外す＝初回アクセス時の同期生成へ落ちる。 */
-export function warmPipesBg(o: object, device: GPUDevice, keys: readonly string[], onReady?: (key: string) => void): { asked: number; done: Promise<WarmResult> } {
+ *  描画 worker の writeBuffer も待たない。失敗（検証エラー等）はキャッシュせず pending を外す＝初回アクセス時の同期生成へ落ちる。
+ *  par＝同時にコンパイルする本数（0＝全部一度に）。keys の順に出す＝先頭が優先。 */
+export function warmPipesBg(o: object, device: GPUDevice, keys: readonly string[], onReady?: (key: string) => void, par = 0): { asked: number; done: Promise<WarmResult> } {
 	const t0 = performance.now(); const r = REC.get(o);
 	const res: WarmResult = { asked: 0, made: 0, failed: [], ms: 0 };
 	if (!r) return { asked: 0, done: Promise.resolve(res) };
 	const SENT = {} as GPURenderPipeline;
-	const jobs: Promise<void>[] = [];
+	// 1) 記述子だけ先に全部採る（同期・安い）＋全部 pending に＝描き手は最初から全層を飛ばす（順番待ちの層も null）
+	const queue: Array<{ k: string; d: GPURenderPipelineDescriptor }> = [];
 	for (const k of keys) {
 		const f = r.f[k]; if (!f || r.cache.has(k) || r.pending.has(k)) continue;
 		const got: GPURenderPipelineDescriptor[] = [];
@@ -63,11 +65,18 @@ export function warmPipesBg(o: object, device: GPUDevice, keys: readonly string[
 		try { ret = named(`${r.set}.${k}`, f); } finally { delete (device as unknown as Record<string, unknown>).createRenderPipeline; }
 		if (ret !== SENT) { r.cache.set(k, ret); continue; }
 		if (got.length !== 1) { res.failed.push(`${k}:${got.length}`); continue; }
-		res.asked++; r.pending.add(k);
-		const tk = performance.now();
-		jobs.push(device.createRenderPipelineAsync(got[0]).then(p => { r.cache.set(k, p); res.made++; if (PIPE_LOG.length < 200) PIPE_LOG.push({ label: `${r.set}.${k}(bg)`, ms: performance.now() - tk, at: tk }); }, (e: unknown) => { res.failed.push(`${k}:${(e as Error)?.message || e}`); }).then(() => { r.pending.delete(k); onReady?.(k); }));
+		res.asked++; r.pending.add(k); queue.push({ k, d: got[0] });
 	}
-	return { asked: res.asked, done: Promise.all(jobs).then(() => { res.ms = performance.now() - t0; return res; }) };
+	// 2) 同時に par 本まで Async に出す（0＝全部一度に）。keys の順＝優先順（2026-11-07 Galaxy：8 本一度に出すと 1 本ずつ 2〜3 倍遅く、線が 9 s に最後・
+	//    タイル復号と CPU を取り合い idle が 3〜4 s 遅れた → 既定は数本ずつ・目に入る線を先に）
+	const lim = par > 0 ? Math.min(par, queue.length) : queue.length;
+	const one = ({ k, d }: { k: string; d: GPURenderPipelineDescriptor }): Promise<void> => {
+		const tk = performance.now();
+		return device.createRenderPipelineAsync(d).then(p => { r.cache.set(k, p); res.made++; if (PIPE_LOG.length < 200) PIPE_LOG.push({ label: `${r.set}.${k}(bg)`, ms: performance.now() - tk, at: tk }); }, (e: unknown) => { res.failed.push(`${k}:${(e as Error)?.message || e}`); }).then(() => { r.pending.delete(k); onReady?.(k); });
+	};
+	const lane = async (): Promise<void> => { for (let j = queue.shift(); j; j = queue.shift()) await one(j); };
+	const lanes: Promise<void>[] = []; for (let i = 0; i < lim; i++) lanes.push(lane());
+	return { asked: res.asked, done: Promise.all(lanes).then(() => { res.ms = performance.now() - t0; return res; }) };
 }
 
 export interface WarmResult { asked: number; made: number; failed: string[]; ms: number; }

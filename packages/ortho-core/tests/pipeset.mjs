@@ -55,3 +55,32 @@ console.log("pipeset OK");
 }
 if (fail) { console.error(`${fail} FAIL`); process.exit(1); }
 console.log("pipeset bg OK");
+
+// 同時本数 par（?warmpar）：keys の順に par 本ずつ Async に出す・順番待ちの鍵も最初から pending（null）・1 本できたら次が出る
+{
+	const { warmPipesBg, pipePending } = await import("../src/gpu/pipeset.ts");
+	const started = []; const resolvers = {};
+	const fakeDevice = { createRenderPipelineAsync: (d) => (started.push(d.label), new Promise((res, rej) => { resolvers[d.label] = { res, rej }; })) };
+	const set = pipeSet("m1p", true, {
+		lineOff: () => fakeDevice.createRenderPipeline({ label: "lineOff" }),
+		fillOff: () => fakeDevice.createRenderPipeline({ label: "fillOff" }),
+		bld: () => fakeDevice.createRenderPipeline({ label: "bld" }),
+	});
+	const ready = [];
+	const bg = warmPipesBg(set, fakeDevice, ["lineOff", "fillOff", "bld"], k => ready.push(k), 1);
+	ok("par: 3 本頼んで Async に出たのは先頭 1 本", bg.asked === 3 && started.join() === "lineOff");
+	ok("par: 順番待ちの鍵も pending＝null", pipePending(set, "bld") && set.bld === null && set.fillOff === null);
+	resolvers.lineOff.res({ real: "lineOff" }); await new Promise(r => setTimeout(r, 0));
+	ok("par: 1 本できたら次（fillOff）が出る・順は keys の順", started.join() === "lineOff,fillOff" && set.lineOff.real === "lineOff" && ready.join() === "lineOff");
+	resolvers.fillOff.rej(new Error("x")); await new Promise(r => setTimeout(r, 0));
+	ok("par: 失敗しても列は止まらず次（bld）が出る", started.join() === "lineOff,fillOff,bld" && !pipePending(set, "fillOff"));
+	resolvers.bld.res({ real: "bld" }); const w = await bg.done;
+	ok("par: 全部終わる＝made 2・failed 1・onReady 3 回", w.made === 2 && w.failed.length === 1 && ready.join() === "lineOff,fillOff,bld" && set.bld.real === "bld");
+	// par=0＝全部一度に（従来）
+	const started2 = []; const dev2 = { createRenderPipelineAsync: (d) => (started2.push(d.label), new Promise(() => {})) };
+	const set2 = pipeSet("m1q", true, { a: () => dev2.createRenderPipeline({ label: "a" }), b: () => dev2.createRenderPipeline({ label: "b" }) });
+	warmPipesBg(set2, dev2, ["a", "b"], undefined, 0);
+	ok("par=0: 全部一度に出す", started2.join() === "a,b");
+}
+if (fail) { console.error(`${fail} FAIL`); process.exit(1); }
+console.log("pipeset par OK");
