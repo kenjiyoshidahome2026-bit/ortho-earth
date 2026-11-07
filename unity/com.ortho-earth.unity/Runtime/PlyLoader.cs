@@ -14,6 +14,27 @@ namespace OrthoEarth
 	{
 		class Prop { public string name, type; }
 
+		/// <summary>Anchor written in the PLY header by ortho-earth: "comment orthoEarth anchor &lt;lon&gt; &lt;lat&gt; &lt;h&gt; orthometric|ellipsoidal". Null if absent.</summary>
+		public class PlyAnchor { public double lon, lat, h; public bool orthometric; }
+
+		/// <summary>Reads only the header. Returns the anchor comment, or null.</summary>
+		public static PlyAnchor ReadAnchor(string path)
+		{
+			using var fs = File.OpenRead(path);
+			var sb = new StringBuilder(); int b;
+			while ((b = fs.ReadByte()) >= 0 && sb.Length < 65536) { sb.Append((char)b); if (b == '\n' && sb.ToString().EndsWith("end_header\n")) break; }
+			foreach (var raw in sb.ToString().Split('\n'))
+			{
+				var w = raw.Trim().Split(' ');
+				if (w.Length >= 6 && w[0] == "comment" && w[1] == "orthoEarth" && w[2] == "anchor"
+					&& double.TryParse(w[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lon)
+					&& double.TryParse(w[4], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lat)
+					&& double.TryParse(w[5], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var h))
+					return new PlyAnchor { lon = lon, lat = lat, h = h, orthometric = w.Length < 7 || w[6] != "ellipsoidal" };
+			}
+			return null;
+		}
+
 		public static Mesh Load(string path, bool flipZ = true)
 		{
 			using var fs = File.OpenRead(path);

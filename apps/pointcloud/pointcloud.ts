@@ -13,6 +13,7 @@ import { splatPlugin, cloudToSpz, spzPlacement, cloudTo3DTiles, zipStore, type S
 import { toPlane, toLonLat, sheetBox, sheetAt, sheetRing } from "./pointcloud-sheets.ts";
 import { openPcCache, type PcCache } from "./pc-cache.ts";
 import { pack, unpack, cacheKey } from "./pc-pack.ts";
+import { dumpToPly } from "./pc-ply.ts";   // Unity 向けの PLY（錨からの m・glTF の向き）
 import { CLASS_GROUPS, classKeep, filterClasses, neighborCodes, edgeMargin, edgePoints, withGhosts, type SheetPoints, type EdgePoints } from "./pc-sheet.ts";
 import type { GlobeMap, PointCloudDump, LayerMouseEvent, GeoJSONFeature, Bbox } from "@ortho-earth/globe";
 
@@ -146,8 +147,8 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show map sheets")}</label>
 		<div class="cache"><span id="pc-cache"></span><button class="btn" id="pc-cache-clear">${t("Clear")}</button></div>
 		<h2>${t("Export")}</h2>
-		<div class="row"><button class="btn" id="pc-exp-spz" disabled>${t("SPZ (finest level)")}</button><button class="btn" id="pc-exp-tiles" disabled>${t("3D Tiles (all levels)")}</button></div>
-		<div class="hint" id="pc-exp">${t("The SPZ comes zipped with placement.json (anchor and the ENU → ECEF matrix); the 3D Tiles zip holds tileset.json and one glb per level (KHR_gaussian_splatting + SPZ).")}</div>
+		<div class="row"><button class="btn" id="pc-exp-spz" disabled>${t("SPZ (finest level)")}</button><button class="btn" id="pc-exp-tiles" disabled>${t("3D Tiles (all levels)")}</button><button class="btn" id="pc-exp-ply" disabled>${t("PLY (points, for Unity)")}</button></div>
+		<div class="hint" id="pc-exp">${t("The SPZ comes zipped with placement.json (anchor and the ENU → ECEF matrix); the 3D Tiles zip holds tileset.json and one glb per level (KHR_gaussian_splatting + SPZ).")} ${t("The PLY holds the read points (metres from the anchor, colour, class) for Unity; the anchor is in its header.")}</div>
 		<h2>${t("Height")}</h2>
 		<div class="row"><label for="pc-lift">${t("Raise / lower")}</label><input type="range" id="pc-lift" min="-30" max="30" step="0.1" value="0"><output id="pc-lift-v"></output></div>
 		<div class="row"><button class="btn" id="pc-fit">${t("Fit to terrain")}</button><button class="btn" id="pc-zero">${t("Reset")}</button></div>
@@ -222,14 +223,23 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	$("#pc-zero").onclick = () => setLift(0);
 
 	// ── 書き出し（SPZ＝最も細かい段＋置き場・3D Tiles＝段ごとの glb と tileset.json・どちらも無圧縮 zip で 1 本）＝最後に開いた図郭 ──
-	const download = (name: string, bytes: Uint8Array) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "application/zip" })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
-	const exportable = () => { const on = !!cur(); for (const id of ["#pc-exp-spz", "#pc-exp-tiles"]) $<HTMLButtonElement>(id).disabled = !on; };
-	const exportAs = async (kind: "spz" | "tiles") => {
+	const download = (name: string, bytes: Uint8Array, type = "application/zip") => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
+	const EXP_BTNS = ["#pc-exp-spz", "#pc-exp-tiles", "#pc-exp-ply"];
+	const exportable = () => { const on = !!cur(); for (const id of EXP_BTNS) $<HTMLButtonElement>(id).disabled = !on; };
+	const exportAs = async (kind: "spz" | "tiles" | "ply") => {
 		const it = active, h = it?.h; if (!it || !h) return;
-		for (const id of ["#pc-exp-spz", "#pc-exp-tiles"]) $<HTMLButtonElement>(id).disabled = true;
+		for (const id of EXP_BTNS) $<HTMLButtonElement>(id).disabled = true;
 		$("#pc-exp").textContent = t("Exporting…");
 		try {
-			const c = await h.read(), name = it.label.replace(/[^\w.-]+/g, "_");
+			const name = it.label.replace(/[^\w.-]+/g, "_");
+			if (kind === "ply") {   // Unity 向け＝読んだ点（保管した物）をそのまま PLY に（docs/notes/unity-roundtrip.md §3.3）
+				const { d } = await pointsOf(it, false);
+				const ply = dumpToPly(d, { source: it.src });
+				download(`${name}.ply`, ply, "application/octet-stream");
+				$("#pc-exp").textContent = tf(t("Exported $1 ($2)"), `${name}.ply`, mb(ply.length));
+				return;
+			}
+			const c = await h.read();
 			const files = kind === "spz" ? [{ name: `${name}.spz`, bytes: await cloudToSpz(c, 0) }, { name: "placement.json", bytes: new TextEncoder().encode(JSON.stringify(spzPlacement(c), null, "\t")) }] : await cloudTo3DTiles(c);
 			const zip = zipStore(files);
 			download(`${name}-${kind === "spz" ? "spz" : "3dtiles"}.zip`, zip);
@@ -237,7 +247,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		} catch (e) { $("#pc-exp").textContent = String((e as Error)?.message || e); }
 		finally { exportable(); }
 	};
-	$("#pc-exp-spz").onclick = () => exportAs("spz"); $("#pc-exp-tiles").onclick = () => exportAs("tiles");
+	$("#pc-exp-spz").onclick = () => exportAs("spz"); $("#pc-exp-tiles").onclick = () => exportAs("tiles"); $("#pc-exp-ply").onclick = () => exportAs("ply");
 
 	// ── 読む：保管した段 → 保管した点 → 回線（読んだ点と変換した段はその場で保管）・変換は 1 枚ずつ（GPU とメモリ） ──
 	const ptsKey = (it: Item) => cacheKey("points", it.key, "auto");

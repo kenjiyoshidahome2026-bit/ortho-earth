@@ -45,6 +45,9 @@ namespace OrthoEarth.Editor
 					var mesh = AssetDatabase.LoadAssetAtPath<Mesh>(assetPath) ?? PlyLoader.Load(f);
 					var go = new GameObject(Path.GetFileNameWithoutExtension(f));
 					go.transform.SetParent(root.transform, false);
+					// a PLY from /japan/pointcloud carries its own anchor (header comment, orthometric height): offset it to this folder's anchor
+					var pa = PlyLoader.ReadAnchor(f);
+					if (pa != null) go.transform.localPosition = anchor.LocalOf(pa.lon, pa.lat, pa.h + (pa.orthometric ? anchor.geoid : 0));
 					go.AddComponent<MeshFilter>().sharedMesh = mesh;
 					var mr = go.AddComponent<MeshRenderer>();
 					var sh = Shader.Find("Ortho Earth/Points");

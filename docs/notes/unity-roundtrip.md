@@ -144,7 +144,7 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 | --- | --- | --- |
 | 1 | この文書 | 本人の修正が入って確定 |
 | 2 | `sdk/ortho-export`（CLI）：地形＋PLATEAU → `anchor.json`・`terrain.glb`・`buildings.glb`・`README.md`。検定＝合成の fetch で錨・DEM・地形・建物の座標の付け替え（`tests/t-export.mjs`）＋丸の内 2 街区の実走（網のある機械で） | 丸の内の 2 街区が GLB で出る・extras 入り・Blender/three.js で開く |
-| 2′ | 点群＝`/japan/pointcloud` に「範囲を PLY で落とす」 | 熱海の見本で 1 街区分が PLY で出る |
+| 2′ | 点群＝`/japan/pointcloud` の「PLY（点・Unity 向け）」ボタン（`apps/pointcloud/pc-ply.ts`・読んだ点をそのまま＝図郭 1 枚か熱海の見本・錨は見出しの comment・2026-11-07） | 熱海の見本が PLY で出て Unity の `PlyImporter` が読む（ブラウザの実機＝未） |
 | 3 | 取り込み口：`decodeModel` が `asset.extras.orthoEarth.anchor` を読む（`opts.at` が無い時・`tests/model-anchor.mjs`）／`glbconv` が錨を `CESIUM_RTC` へ畳む（`glbToScene`）／Unity の `Ortho Earth > Export selection to GLB…` が錨を押す | Unity で出した GLB をドロップすると錨の位置に立つ（エンジン側＝済・2026-11-07。Unity 実機＝未） |
 | 4 | `unity/com.ortho-earth.unity/`（UPM package・Unity 6・URP・glTFast）：`OrthoEarthAnchor`・`Geo`・`PlyLoader`／`PlyImporter`・`Place export folder in scene…`・`Export selection to GLB…`・README。見本のシーンは段 2 の実走の後に `Samples~/` へ | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る（package＝書いた・2026-11-07。Unity 実機＝未） |
 
