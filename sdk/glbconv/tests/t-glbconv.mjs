@@ -133,5 +133,33 @@ try { await glbToScene(buildGlb({ asset: { version: "2.0" }, scene: 0, scenes: [
 } catch (e) { t("Draco：decodeDraco 無しは理由つきで落ちる", /decodeDraco/.test(e.message), e.message); }
 
 fs.rmSync(tmp, { recursive: true, force: true });
+// ── 錨（asset.extras.orthoEarth＝Unity との往復・2026-11-07）：RTC の無い glb の錨を ECEF（CESIUM_RTC）へ畳む ──
+{
+	const { toGlb, anchorOf } = await import("../src/index.ts");
+	const A = { lon: 139.7671, lat: 35.6812, height: 40 };
+	const stamp = (bytes, heading) => { const { json, bin } = parseGlb(bytes); json.asset.extras = { orthoEarth: { anchor: A, frame: "enu", heading } }; return buildGlb(json, bin); };
+	// 頂点＝東 100 m・上 10 m（glTF の (E, U, −N)）
+	const src = toGlb({ rtc: null, bbox: [0, 0, 0, 100, 10, 0], prims: [{ positions: new Float32Array([100, 10, 0, 0, 0, 0, 0, 0, -50]), normals: null, uvs: null, colors: null, indices: new Uint32Array([0, 1, 2]), material: { name: "m", baseColor: [1, 1, 1, 1], doubleSided: true, image: null } }] }, { name: "a" })[0].bytes;
+	const oe = anchorOf(parseGlb(stamp(src, 0)).json);
+	const enuToEcef = (e, n, u) => [0, 1, 2].map(k => oe.ecef[k] + oe.E[k] * e + oe.N[k] * n + oe.U[k] * u);
+	const sc = await glbToScene(stamp(src, 0));
+	t("anchor: rtc＝錨の ECEF", sc.rtc && Math.abs(sc.rtc[0] - oe.ecef[0]) < 1e-6 && Math.abs(Math.hypot(...sc.rtc) - (6378137 + 40) * 0.9995) < 20000, String(sc.rtc));
+	const back = (p, i) => [sc.rtc[0] + p[i], sc.rtc[1] - p[i + 2], sc.rtc[2] + p[i + 1]];   // RTC 相対 Y-up → ECEF（ecef = rtc + (x, −z, y)）
+	const v0 = back(sc.prims[0].positions, 0), w0 = enuToEcef(100, 0, 10);
+	t("anchor: 東 100・上 10 の頂点が ECEF で合う", v0.every((v, k) => Math.abs(v - w0[k]) < 2e-3), `${v0} vs ${w0}`);
+	const v2 = back(sc.prims[0].positions, 6), w2 = enuToEcef(0, 50, 0);   // −Z＝北 50 m
+	t("anchor: −Z＝北", v2.every((v, k) => Math.abs(v - w2[k]) < 2e-3));
+	const sh = await glbToScene(stamp(src, 90));   // heading 90＝模型の北が東を向く＝(0,0,−50) は東 50 m へ
+	const v3 = back(sh.prims[0].positions, 6), w3 = enuToEcef(50, 0, 0);
+	t("anchor: heading 90 で北が東へ", v3.every((v, k) => Math.abs(v - w3[k]) < 2e-3), `${v3} vs ${w3}`);
+	const off = await glbToScene(stamp(src, 0), { anchor: false });
+	t("anchor: anchor=false で畳まない", off.rtc === null && off.prims[0].positions[0] === 100);
+	const plain = await glbToScene(src);
+	t("anchor: extras が無ければ従来どおり", plain.rtc === null);
+	const tiles = await convert(stamp(src, 0), "3dtiles", { name: "a" });
+	const ts = JSON.parse(new TextDecoder().decode(tiles.find(f => f.name.endsWith("tileset.json")).bytes));
+	const g = parseGlb(tiles.find(f => f.name.endsWith(".glb")).bytes).json;
+	t("anchor: 3dtiles の glb が CESIUM_RTC を持つ", g.extensions?.CESIUM_RTC?.center?.length === 3 && !!ts.root);
+}
 console.log(ng ? `\nFAIL  ${ng} / ${ok + ng}` : `\nPASS  ${ok}`);
 process.exit(ng ? 1 : 0);

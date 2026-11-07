@@ -16,7 +16,7 @@ import type { MeshOut, TexOut, VoxelTileOpts } from "./meshdecode.ts";
 /** main からの仕事（kind 省略＝模型の glTF/GLB） */
 interface ModelJob {
 	id: number; kind?: "extrude" | "viewshed" | "sunshadow" | "i3sOpen" | "i3sNodes" | "i3sContent" | "tile3d";
-	ab?: ArrayBuffer; at?: ArrayLike<number> | null; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number; edges?: number; mc?: boolean;
+	ab?: ArrayBuffer; at?: ArrayLike<number> | null; atGiven?: boolean; heading?: number; scale?: number; baseUri?: string | null; ell?: boolean; textures?: boolean; ground?: string; mask?: boolean; featureIdSet?: number; edges?: number; mc?: boolean;
 	polys?: ExtrudeInPoly[]; refine?: number; transcoders?: unknown; opts?: Record<string, unknown>;
 	url?: string; token?: string; ids?: Array<number | string>; nodeId?: number | string; baseH?: number; groundMode?: string;
 	transform?: ArrayLike<number> | null; headers?: Record<string, string>; credentials?: RequestCredentials; maxInstances?: number; splats?: boolean; voxels?: boolean | VoxelTileOpts; upAxis?: string | null;
@@ -92,7 +92,7 @@ async function work(e: MessageEvent<ModelJob>) {
 			self.postMessage({ id, batches: r.batches, points: r.points, splats: r.splats, voxels: r.voxels, volumes: r.volumes, stats: r.stats }, tr);
 			return;
 		}
-		const r = await decodeModel(ab!, { at, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0, edges: e.data.edges ?? 0, mc: !!e.data.mc });
+		const r = await decodeModel(ab!, { at, atGiven: e.data.atGiven !== false, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0, edges: e.data.edges ?? 0, mc: !!e.data.mc });
 		if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
 		self.postMessage({ id, batches: r.batches, mask: r.mask, stats: r.stats, rig: r.rig || null, place: r.place || null }, transferOf(r.batches));   // rig/place＝rigid アニメ（W4）
 	} catch (err) { self.postMessage({ id, error: (err as Error)?.message || String(err) }); }
