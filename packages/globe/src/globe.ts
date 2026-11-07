@@ -942,7 +942,8 @@ const WARM_PAR = qNum(/[?&]warmpar=(\d)/, 0);
 // ?terrcoarse=S（2 か 4）＝カメラが動いている間（入力中・飛行中・静定前）は地形メッシュを S 頂点おきの粗い index で描く＝頂点 1/S²。着地で本番の格子へ戻る。
 // デモの滑走（京都 z18→日本 z7・傾き 67°）の最初の 8 秒が 8〜10 fps だったのは地形メッシュ（?noterr=1 で 60 fps・建物・遠景・MSAA は無関係・
 // タブレット 2026-11-07）。律速は GPU の頂点（描画 worker の CPU 15 ms・地図の描画 100〜140 ms）。?terrcoarsealways=1＝常に粗い（間引きそのものの費用の A/B）
-const TERR_COARSE = qNum(/[?&]terrcoarse=(\d)/, 0);
+// 既定（2026-11-07 Kenji 決定・Galaxy 各 2 回）：LOW_MEM＝動いている間 4（lineelev=1 と組で最初の 8 秒のコマ数 118→194・静止画は見分けがつかない）。?terrcoarse=0 で従来
+const TERR_COARSE = qNum(/[?&]terrcoarse=(\d)/, LOW_MEM ? 4 : 0);
 const TERR_COARSE_ALWAYS = /[?&]terrcoarsealways=1/.test(location.search);
 // ?flatvec=1（診断）＝地形は描いたまま、塗り・線・建物・gint の頂点が読む標高だけ平らにする（絵は壊れる）。?noterr=1 で消える重さのうち、
 // 地形メッシュ（4 パス・頂点）以外＝頂点ごとの標高テクスチャ読みの取り分を測る（タブレット 2026-11-07：間引き＋遠景切り＋解像度半分でも 66〜93 ms・地形なし 40 ms）
@@ -950,7 +951,8 @@ const FLAT_VEC = /[?&]flatvec=1/.test(location.search);
 // ?lineelev=N＝線・overlay 塗りの頂点が引く標高の軽い版：0＝従来（elevQ＝格子量子化・近/遠/近景/足元で最大 16 標本）、1＝格子量子化のまま 4 隅を主アトラス
 // 1 標本（4 標本）、2＝1 標本（格子に乗らない＝三角形の間で線が浮き沈みし得る）。?lineelevmove=N＝同じ値を動いている間だけ（静止は lineelev）。
 // タブレット 2026-11-07（?flatvec=1 の切り分け）：線・塗りの頂点の標高読みを止めると最初の 8 秒のコマ数 2.5 倍・地図の描画 125→78 ms
-const LINE_ELEV = qNum(/[?&]lineelev=(\d)/, 0);
+// 既定（2026-11-07 Kenji 決定）：LOW_MEM＝1（格子量子化のまま 4 標本・Galaxy 京都 z15／比叡山 z13 の静止画で従来と見分けがつかない）。?lineelev=0 で従来
+const LINE_ELEV = qNum(/[?&]lineelev=(\d)/, LOW_MEM ? 1 : 0);
 const LINE_ELEV_MOVE = qNum(/[?&]lineelevmove=(\d)/, 0);
 // ?meshdrain=MS＝建物メッシュの小片を描画 worker が 1 フレームに MS ms ぶん（＋フレームの合間も）当てる。0＝従来の 1 フレーム 1 個。
 // LOW_MEM の既定 8（2026-11-06 Galaxy 2v2：134 小片の受け取り 2.2→9.0 s（従来 7.4→13.8 s）・idle 13.9→9.0〜9.5 s・mesh の塞ぎ 7.7→2.8 s）。?meshdrain=0 で戻す
