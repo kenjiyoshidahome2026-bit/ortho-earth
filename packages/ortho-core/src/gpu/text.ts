@@ -11,6 +11,7 @@ import { pointGlyphs, pxNumOf } from "../textsink.ts";
 import type { Color, LabelShield, LineGlyph, LineIcon, Mat2, IconRect, TextLayout } from "../labels2d.ts";
 import type { PointGlyph, PointImg, SinkStats, TextPaint, TextSink } from "../textsink.ts";
 import type { GlyphStore } from "./glyphstore.ts";
+import { named } from "./pipeset.ts";
 
 /** 版の中の字 1 つ（版の px）。ox, oy＝字の錨（中央・middle）から箱の左上（基準の大きさの px） */
 export interface SdfGlyph { x: number; y: number; w: number; h: number; ox: number; oy: number }
@@ -117,14 +118,14 @@ export function createGpuText(device: GPUDevice, canvas: OffscreenCanvas | HTMLC
 		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
 		{ binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
-	const mkPipe = (fmt: GPUTextureFormat, samples = 1, depth: GPUTextureFormat | null = null) => device.createRenderPipeline({
+	const mkPipe = (fmt: GPUTextureFormat, samples = 1, depth: GPUTextureFormat | null = null) => named(`text.${fmt}.${samples}x${depth ? "d" : ""}`, () => device.createRenderPipeline({
 		label: `text.${fmt}.${samples}x${depth ? "d" : ""}`, layout,
 		vertex: { module: mod, entryPoint: "vs", buffers: [{ arrayStride: STRIDE * 4, stepMode: "instance", attributes: attrs }] },
 		fragment: { module: mod, entryPoint: "fs", targets: [{ format: fmt, blend }] },
 		primitive: { topology: "triangle-strip" },
 		...(samples > 1 ? { multisample: { count: samples } } : {}),
 		...(depth ? { depthStencil: { format: depth, depthWriteEnabled: false, depthCompare: "always" as const } } : {}),   // 深度は読まない（2026-10-13 裁定：建物の陰の道の名も隠さない）・書かない
-	});
+	}));
 	const pipe = mkPipe(format);
 	const ubuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const mubuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 地図のパスの中＝地図の canvas の大きさ（動的解像度で縮む）

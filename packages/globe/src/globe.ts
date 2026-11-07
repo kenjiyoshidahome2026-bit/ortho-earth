@@ -759,6 +759,8 @@ const drawHud = /[?&]drawhud=1/.test(location.search);
 let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number; pool?: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
 let memCpu: HudSnapshot["cpu"] = null;
+let memSlow: Array<{ at: number; ms: number; up: number; terr: number; map: number; gint: number; lab: number; ov: number; pipes: string[] }> | null = null;   // ?hud=1 の render worker の遅いフレーム（絶対時刻）＝HUD で navigation 起点へ
+let memPipes: Array<{ label: string; ms: number; at: number }> | null = null;   // frame1 の後に作ったパイプライン（絶対時刻）
 let memMeshRx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number; applyMs?: number; applyMax?: number; applyMaxAt?: number; applyMaxKey?: string; applyMaxBytes?: number; applySlow?: number; applyBytes?: number; inFrame?: number; inTimer?: number; starveMs?: number } | null = null;   // ?hud=1 の render worker の建物メッシュ受け口（絶対時刻＝HUD で navigation 起点へ直す）   // ?hud=1 の worker CPU 内訳（部位別 ms の EMA・窓内の最長）＝実機の画面で「何に食われているか」
 // main スレッドの詰まり：HUD を載せた時だけ rAF 間隔を測る（EMA と窓内の最長）＝カメラを動かす側（デモの動き・飛行）が飢えていないか
 let mainEma = 0, mainMax = 0, mainLast = 0;
@@ -1158,7 +1160,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; rasterFading = !!d.fading; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; memMeshRx = d.meshRx ?? memMeshRx; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; memMeshRx = d.meshRx ?? memMeshRx; memSlow = d.slow ?? memSlow; memPipes = d.pipes ?? memPipes; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -2588,6 +2590,7 @@ function hudSnapshot() {
 		cpu: memCpu, lab: memLab as HudSnapshot["lab"], boot: bootLine || null, main: (() => { const r = { ms: mainEma, max: mainMax, long: mainLongTop() }; mainMax = 0; return r; })(),
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
 		idleBlock: BOOT.idle == null ? idleBlockers() : null, idleHist: idleHistLines(), idleAt: BOOT.idle == null ? null : BOOT.idle | 0,   // 最初の idle がまだ＝何が塞いでいるか（present の検証が 8 s の予備タイマーに落ちる原因・2026-11-06 Galaxy）
+		wslow: memSlow || memPipes ? (o => ({ frames: (memSlow || []).map(f => ({ ...f, at: f.at - o })), pipes: (memPipes || []).map(e => ({ ...e, at: e.at - o })) }))(performance.timeOrigin) : null,   // worker の遅いフレーム（部位別＋そのフレームで作ったパイプライン）と frame1 後のパイプライン（2026-11-07 Galaxy：frame1 後の 4〜5 s）
 		meshTl: meshTlSnap(),   // 建物メッシュの時間割（idle を塞ぐ最大の材料・2026-11-06 Galaxy）
 		tileLat: tileLatSnap(),   // 基図タイルの計器 e（必要→画面）と main merge の要求→着地＝「タイル 69 枚が揃った後に何秒黙るか」を USB 無しで切り分ける（2026-11-06 Galaxy）
 		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
