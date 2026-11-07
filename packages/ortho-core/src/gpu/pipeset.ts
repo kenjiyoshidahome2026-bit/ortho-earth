@@ -9,7 +9,15 @@
 //     一時的に差し替える）、Async の結果を束のキャッシュへ入れる。失敗（検証エラー等）はキャッシュせず、初回アクセス時に従来の同期生成へ落ちる。
 let curPipeLabel = "";
 export const lbl = (): string => curPipeLabel;
-export function named<T>(label: string, fn: () => T): T { curPipeLabel = label; try { return fn(); } finally { curPipeLabel = ""; } }
+/** 作ったパイプラインの帳（label・JS 側の所要 ms・performance.now()）。createRenderPipeline（同期）は内容側では即返り、GPU プロセスのコンパイルは
+ *  後の submit で待たされる＝ms は小さくても「どのフレームで何本頼んだか」が詰まりの前後関係を語る（2026-11-07 Galaxy：frame1 後の 4〜5 s の GPU 待ち）。上限 200 本 */
+export interface PipeLogEntry { label: string; ms: number; at: number; }
+const PIPE_LOG: PipeLogEntry[] = [];
+export const pipeLog = (): readonly PipeLogEntry[] => PIPE_LOG;
+export function named<T>(label: string, fn: () => T): T {
+	curPipeLabel = label; const t0 = performance.now();
+	try { return fn(); } finally { curPipeLabel = ""; if (PIPE_LOG.length < 200) PIPE_LOG.push({ label, ms: performance.now() - t0, at: t0 }); }
+}
 
 interface Rec { set: string; f: Record<string, () => unknown>; cache: Map<string, unknown>; }
 const REC = new WeakMap<object, Rec>();
@@ -52,7 +60,7 @@ export async function warmPipes(o: object, device: GPUDevice, keys: readonly str
 		try { ret = named(`${r.set}.${k}`, f); } finally { delete (device as unknown as Record<string, unknown>).createRenderPipeline; }
 		if (ret !== SENT) { r.cache.set(k, ret); continue; }   // 工場が createRenderPipeline を通らなかった（null! 等）＝その値がそのまま答え
 		if (got.length !== 1) { res.failed.push(`${k}:${got.length}`); continue; }   // 1 鍵＝1 本の前提が崩れた＝初回アクセス時の同期生成に任せる
-		jobs.push(device.createRenderPipelineAsync(got[0]).then(p => { r.cache.set(k, p); res.made++; }, (e: unknown) => { res.failed.push(`${k}:${(e as Error)?.message || e}`); }));
+		jobs.push(device.createRenderPipelineAsync(got[0]).then(p => { r.cache.set(k, p); res.made++; if (PIPE_LOG.length < 200) PIPE_LOG.push({ label: `${r.set}.${k}(async)`, ms: performance.now() - t0, at: t0 }); }, (e: unknown) => { res.failed.push(`${k}:${(e as Error)?.message || e}`); }));
 	}
 	await Promise.all(jobs);
 	res.ms = performance.now() - t0;

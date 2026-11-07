@@ -27,6 +27,8 @@ export interface HudSnapshot {
 	idleBlock?: string[] | null;
 	/** 最初の idle までに塞いだ材料の時間加重の帳（"cover 3.1 s" …・main が止まっていた分は "main stalled"）と、最初の idle の時刻（ms since navigation・null＝まだ） */
 	idleHist?: string[]; idleAt?: number | null;
+	/** render worker の遅いフレーム（>300 ms・最初の 12 枚・ms since navigation・部位別 ms・そのフレームで頼んだパイプライン）と frame1 の後に作ったパイプライン（globe.ts wslow） */
+	wslow?: { frames: Array<{ at: number; ms: number; up: number; terr: number; map: number; gint: number; lab: number; ov: number; pipes: string[] }>; pipes: Array<{ label: string; ms: number; at: number }> } | null;
 	/** 建物メッシュの時間割（ms since navigation）：main（wake/manager/catalog/spawn）・区ごとの段・render worker の受け口（globe.ts meshTlSnap） */
 	meshTl?: { main: Array<[string, number, string]>; wards: Array<{ name: string; ev: Array<[string, number, string]> }>; rx: { n: number; firstRecv: number; applied: number; firstApply: number; acked: number; lastAck: number; pumpMs: number; inbox: number; applyMs?: number; applyMax?: number; applyMaxAt?: number; applyMaxKey?: string; applyMaxBytes?: number; applySlow?: number; applyBytes?: number; inFrame?: number; inTimer?: number; starveMs?: number } | null } | null;
 	tiles: { bytes: number; budget: number }; terrain: number; mesh?: { bytes: number; regions: number } | null;
@@ -208,7 +210,20 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		const long = s?.main?.long?.length ? ["main long (15s):", ...s.main.long.map(l => `  ${l.ms.toFixed(0)} ms x${l.n} ${l.key}`)] : [];
 		const ih = s?.idleHist?.length ? ` · blocked before that by: ${s.idleHist.join(" · ")}` : "";
 		const idle = s?.idleBlock ? [`idle: not reached yet — blocked by: ${s.idleBlock.join(" · ") || "(nothing — waiting the 100 ms of quiet)"}${ih}`] : s?.idleAt != null ? [`idle: reached at ${(s.idleAt / 1000).toFixed(1)} s${ih}`] : [];   // present の検証が frame1+8 s の予備タイマーに落ちる原因
-		return [...head, ...boot, ...hist, ...log, ...long, ...tileLatLines(s?.tileLat), ...meshTlLines(s?.meshTl), ...idle].join("\n");
+		return [...head, ...boot, ...hist, ...log, ...long, ...slowLines(s?.wslow), ...tileLatLines(s?.tileLat), ...meshTlLines(s?.meshTl), ...idle].join("\n");
+	}
+	// render worker の遅いフレーム：部位別（up/terr/map/gint/lab/ov・残り＝other＝部位の外＝submit 等の GPU 待ち）と、そのフレームで頼んだパイプライン＝
+	// 「frame1 の後に 4〜5 s 止まる」が lab の中（字のパイプライン・字の焼き）か、GPU プロセスのコンパイル待ちかを 1 本のログで切り分ける（2026-11-07 Galaxy）
+	function slowLines(w: HudSnapshot["wslow"]): string[] {
+		if (!w || (!w.frames.length && !w.pipes.length)) return [];
+		const sec = (ms: number) => (ms / 1000).toFixed(1);
+		const out: string[] = [];
+		if (w.frames.length) {
+			out.push("worker slow frames (>300 ms, first 12; part ms · other = outside the parts = GPU wait):");
+			for (const f of w.frames) { const other = f.ms - (f.up + f.terr + f.map + f.gint + f.lab + f.ov); out.push(`  @${sec(f.at)} s ${f.ms.toFixed(0)} ms (up ${f.up.toFixed(0)} · terr ${f.terr.toFixed(0)} · map ${f.map.toFixed(0)} · gint ${f.gint.toFixed(0)} · lab ${f.lab.toFixed(0)} · ov ${f.ov.toFixed(0)} · other ${other.toFixed(0)})${f.pipes.length ? ` · pipelines made in this frame: ${f.pipes.join(", ")}` : ""}`); }
+		}
+		out.push(`pipelines made after frame1: ${w.pipes.length}${w.pipes.length ? " · " + w.pipes.map(e => `${e.label} @${sec(e.at)} s${e.ms >= 1 ? ` ${e.ms.toFixed(0)} ms` : ""}`).join(" · ") : ""}`);
+		return out;
 	}
 	// 建物メッシュの時間割：起こす→登録簿→worker→区の段（start/recv/fs/meta/…/done/ack）→render worker の受け口（受けた・当てた・ack・pump）＝idle を塞ぐ 6〜11 s がどの段で消えるか（2026-11-06 Galaxy）
 	function meshTlLines(m: HudSnapshot["meshTl"]): string[] {

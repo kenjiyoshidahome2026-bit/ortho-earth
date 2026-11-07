@@ -12,7 +12,7 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { pipeSet, lbl, warmPipes } from "./pipeset.ts";
+import { pipeSet, lbl, warmPipes, pipeLog } from "./pipeset.ts";
 import { viewRays } from "../camera.ts";
 import { cameraState, lonlatTo3D, ellNormal3D, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
@@ -3979,6 +3979,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
 	return { set, draw, flush, readback, dispose, lazyPipes: LAZY, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
+		pipeLog,   // 作ったパイプラインの帳（label・ms・performance.now()）＝HUD の「遅いフレーム」行がどの本を頼んだ直後の詰まりかを読む（2026-11-07）
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors,
 		boot: { adapterMs: tAdapter - tBoot0, deviceMs: tDevice - tAdapter, initMs: performance.now() - tDevice },   // 起動の時間割（ms）：adapter 取得／device 取得／init（シェーダ・パイプライン・資源の生成）

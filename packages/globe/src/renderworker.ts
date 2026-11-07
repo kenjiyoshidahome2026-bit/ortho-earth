@@ -62,7 +62,7 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	readback?(): Promise<{ base: ArrayBuffer; w: number; h: number } | null>;
 	setGroundHook?(bake: (cam: CameraPose, t: unknown) => number, sig: () => string): void;
 	lost?: Promise<{ message?: string } | null | undefined>;
-	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; shadowStats?(): unknown; accumulating?(): boolean;
+	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; shadowStats?(): unknown; accumulating?(): boolean; pipeLog?(): ReadonlyArray<{ label: string; ms: number; at: number }>;
 	/** 日影時間・可視域の GPU 版（WebGPU だけ・2026-10-24） */
 	analysis?: RendererAnalysis;
 	/** 層の位置に描く注記の境（T-P2・WebGPU）＝この層の添字より前の注記は地図のパスの中 */
@@ -312,7 +312,13 @@ let memOn = false, memWant = false, memLast = 0, hudFrames = 0, hudGpuName = "";
 // 描いたフレームごとに worker の JS 時間を部位別に測り EMA で HUD へ＝実機の画面だけで「何に食われているか」が分かる計器
 const cpuEma = { up: 0, terr: 0, map: 0, gint: 0, lab: 0, ov: 0, total: 0 };
 const cpuAcc = { up: 0, terr: 0, map: 0, gint: 0, lab: 0, ov: 0 };
-let cpuMax = 0;   // 窓（HUD 送信間隔）内の最長フレーム（worker CPU）
+let cpuMax = 0;
+// ?hud=1 の「遅いフレーム」の帳（2026-11-07 Galaxy：frame1 の後に 4〜5 s 止まる＝lab の中か GPU 待ちか、どのパイプラインを頼んだ直後か、を USB 無しで読む）：
+//   slowFrames＝worker の 1 フレームが 300 ms を超えた最初の 12 枚（絶対時刻・部位別 ms・そのフレームで作ったパイプライン）／pipesLate＝frame1 の後に作ったパイプライン（label・ms・絶対時刻）
+const SLOW_FRAME_MS = 300, SLOW_FRAMES_MAX = 12, PIPES_LATE_MAX = 40;
+const slowFrames: Array<{ at: number; ms: number; up: number; terr: number; map: number; gint: number; lab: number; ov: number; pipes: string[] }> = [];
+const pipesLate: Array<{ label: string; ms: number; at: number }> = [];
+let pipeSeen = 0, framesDrawn = 0;   // 窓（HUD 送信間隔）内の最長フレーム（worker CPU）
 const cpuNow = () => (memOn ? performance.now() : 0);   // hudFrames＝FPS用の窓内実描画枚数・hudGpuName＝GPU名（backend確定時に一度採取）
 // ?nobld=1（init.noBld）＝基図建物の3D押し出しだけを伏せる診断ノブ：壁面ちらつきが「基図×PLATEAUの二重壁」か
 // 「PLATEAU内部/地形」かを一発で二分する（消えれば前者＝マスクの穴を追う・残れば後者）。
@@ -1256,6 +1262,11 @@ function frame() {
 	if (memOn && drew) {
 		const tot = nowT - lastFrameRun;
 		cpuMax = Math.max(cpuMax, tot);
+		framesDrawn++;
+		const plog = renderer?.pipeLog?.(); const made = plog ? plog.slice(pipeSeen) : []; if (plog) pipeSeen = plog.length;   // このフレームで頼んだパイプライン
+		const toAbs = performance.timeOrigin;
+		if (framesDrawn > 1) for (const e of made) if (pipesLate.length < PIPES_LATE_MAX) pipesLate.push({ label: e.label, ms: e.ms, at: toAbs + e.at });
+		if (tot > SLOW_FRAME_MS && slowFrames.length < SLOW_FRAMES_MAX) slowFrames.push({ at: toAbs + lastFrameRun, ms: tot, ...cpuAcc, pipes: made.map(e => e.label) });
 		const k = cpuEma.total ? 0.15 : 1;
 		cpuEma.total += (tot - cpuEma.total) * k;
 		for (const key of ["up", "terr", "map", "gint", "lab", "ov"] as const) cpuEma[key] += (cpuAcc[key] - cpuEma[key]) * k;
@@ -1283,7 +1294,7 @@ function frame() {
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
-			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length } });
+			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length }, slow: slowFrames, pipes: pipesLate });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
 	// 描くもの（dirty・未消化の転送・予約）がある時だけ次の rAF を張る。無ければ寝る＝受信の kick() か静止タイマ（armSettle）か
