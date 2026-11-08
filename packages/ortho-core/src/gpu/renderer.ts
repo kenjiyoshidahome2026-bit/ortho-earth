@@ -230,7 +230,7 @@ interface MeshPbr { metallic: number; roughness: number; normalScale: number; oc
 export interface MeshSetData {
 	pos?: Float32Array; nrm?: Int8Array | ArrayLike<number> | null; idx?: Uint32Array; uv?: Float32Array | null; col?: Uint8Array | null;
 	tex?: MeshTexSrc | null; texMR?: MeshTexSrc | null; texN?: MeshTexSrc | null; texOcc?: MeshTexSrc | null; texEm?: MeshTexSrc | null;
-	pbr?: MeshPbr | null; csLit?: string; wind?: boolean; alphaMode?: string; alphaCutoff?: number; origin?: number[]; bbox?: number[]; ward?: string; lodH?: number[] | null; lodCounts?: number[] | null; liteCounts?: number[] | null;
+	pbr?: MeshPbr | null; csLit?: string; wind?: boolean; alphaMode?: string; alphaCutoff?: number; origin?: number[]; bbox?: number[]; ward?: string; lodH?: number[] | null; lodCounts?: number[] | null; liteCounts?: number[] | null; /** mesh worker が巻き順を法線に揃えた束（meshwind.ts）＝裏面をラスタライザで捨ててよい */ wound?: boolean;
 	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	liftBaked?: boolean;   // 接地リフトを頂点へ焼き済み（render worker の bakeMeshLift・?bakelift=1）＝VS は標高を引かない（noLift と同じ PB.alpha.z）・可視判定の bbox は持ち上げたまま
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
@@ -250,7 +250,7 @@ interface MeshBatch {
 	vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer; textured: boolean; blend: boolean; cut: number; uvbo: GPUBuffer | null; cbo: GPUBuffer | null;
 	pre: boolean;   // preOpaque: drawn twice, its alpha-1 texels first in the opaque pass (depth written, a slot of its own), then the whole batch blended
 	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; csLit: string; wind: boolean; count: number; origin: number[]; bbox: number[]; ward: string;
-	lodH: number[] | null; lodCounts: number[] | null; liteCounts: number[] | null; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; baked: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
+	lodH: number[] | null; lodCounts: number[] | null; liteCounts: number[] | null; wound: boolean; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; baked: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
 	paint?: MeshTex | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
@@ -2475,7 +2475,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, pre: blend && !!data.preOpaque, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", wind: !!data.wind, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
-				lodH: data.lodH || null, lodCounts: data.lodCounts || null, liteCounts: data.liteCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, baked: !!data.liftBaked, drape: !!data.drape, keep2d: !!data.keep2d,
+				lodH: data.lodH || null, lodCounts: data.lodCounts || null, liteCounts: data.liteCounts || null, wound: !!data.wound, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, baked: !!data.liftBaked, drape: !!data.drape, keep2d: !!data.keep2d,
 				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
@@ -3598,7 +3598,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const cullPipe = MESH_CULL !== "none" ? PX.meshCull : null;   // ?meshcull＝巻き順を揃えた素の束は裏面をラスタライザで捨てる（橋梁 two・両面配信 noCull は従来の mesh）
 				const litePipe = liteNow && MESH_LITE_FS > 0 && PX === P && cityLights <= 0 ? P.meshLite : null;   // ?meshlitefs（既定 1）＝間引きが点いている間は軽いピクセルシェーダ。影・断面の派生の間と、街明かり（夜の上映）が点いている間は従来＝滑走中に窓の灯りが消えない
 				meshStat.fs = litePipe ? 1 : 0;
-				const cullOf = (d: typeof draws[number]) => (!!cullPipe || !!litePipe) && !d.p.textured && !d.p.two && !d.p.noCull;
+				const cullOf = (d: typeof draws[number]) => (!!cullPipe || !!litePipe) && d.p.wound && !d.p.textured && !d.p.two && !d.p.noCull;   // 巻き順を揃えた束（wound）だけ＝揃えていない束（古い焼き・ノブの食い違い）は従来の fs（2026-11-08 既定化で worker 側の既定が 0 のままだった反省）
 				const plainDraws = draws.filter(d => !d.p.textured);
 				if (MESH_SORT && plainDraws.length > 1) {   // ?meshsort=1＝手前→奥（片は束の origin を共有するので bbox の中心と目の経緯度の距離で）
 					const er = Math.hypot(ex[0], ex[1], ex[2]) || 1, eLat = Math.asin(Math.max(-1, Math.min(1, ex[1] / er))) * 180 / Math.PI, eLon = Math.atan2(ex[2], ex[0]) * 180 / Math.PI, cosE = Math.cos(eLat * Math.PI / 180);
