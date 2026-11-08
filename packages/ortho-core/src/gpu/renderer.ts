@@ -40,7 +40,7 @@ import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標�
 import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gl と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gl と同式の正本）
-import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
+import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, meshShed, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
 import { terrainGridUV, terrainMeshSliced } from "../terrainlod.ts";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
@@ -2020,6 +2020,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	}
 	// 地形チャンクのカリング（perf plan P4 step B）：可視チャンクの区間だけ drawIndexed。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
+	// 建物メッシュの描画の計器（?hud=1 の 30 秒ログ・__perf().meshDraw・2026-11-08）：直近フレームの束の総数／描いた／視野外／LOD で 0／伏せた区・三角形数・前パス・輪郭
+	const meshStat = { of: 0, drawn: 0, cull: 0, lod0: 0, hidden: 0, tris: 0, pre: 0, sil: 0, shed: 0 };
 	const terrStat: Record<string, Required<ChunkStats>> = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 }, foot: { drawn: 0, of: 0 } };   // fine＝近景層のパス・foot＝足元層のパス   // ?perf=1／HUD の物差し（renderworker が mem テレメトリに載せる）
 	// このフレームで結ぶ index＝本番（terrain）か粗い方（terrain.coarse）。draw() の頭で選ぶ（opts.moving＝動いている間・rOpts.terrCoarseAlways＝常に）
 	let terrIx: TerrainIndex = { ibo: null as unknown as GPUBuffer, count: 0, chunks: [] }, terrCoarseOn = 0;   // terrCoarseOn＝粗い方で描いた（HUD／__perf の terr.coarse）
@@ -3510,13 +3512,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
 			const draws: { p: MeshBatch; count: number; slot: number; pre?: boolean }[] = [];
 			const liftGroundR = liftGroundROf(cam.centerAlt);   // 注視点の地面の高さ（持ち上げる束の間引きの第 2 候補・camera.ts liftedBboxVisible）
+			meshStat.of = meshes.size; meshStat.cull = meshStat.lod0 = meshStat.hidden = meshStat.tris = meshStat.pre = 0; meshStat.shed = meshShed();
 			for (const p of meshes.values()) {
 				if (draws.length >= plCap && !growPlBatch(draws.length + 1)) { if (!warnedPL) { warnedPL = true; console.warn(`[gpu] mesh visible batches exceed ${PL_BATCH_CEIL} = truncated`); } break; }   // 受け皿は倍々に広げる・天井を越えた分だけ打ち切り（警告は 1 回）
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
-				if (meshHidden.has(p.ward)) continue;
-				if (!liftedBboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2], p.noLift ? 0 : liftGroundR)) continue;   // 重心の高さで射影（camera.ts bboxVisible）・持ち上げる束は注視点の地面の高さでも（liftedBboxVisible・2026-10-31）
+				if (meshHidden.has(p.ward)) { meshStat.hidden++; continue; }
+				if (!liftedBboxVisible(st, movedBbox(p.bbox, p.origin, p.xf), cam.center, foot, pad, betaGeo(p.xf ? [p.origin[0] + p.xf[9], p.origin[1] + p.xf[10], p.origin[2] + p.xf[11]] : p.origin)[2], p.noLift ? 0 : liftGroundR)) { meshStat.cull++; continue; }   // 重心の高さで射影（camera.ts bboxVisible）・持ち上げる束は注視点の地面の高さでも（liftedBboxVisible・2026-10-31）
 				const count = meshLodCount(p, cam.center, cosLat, mppx);   // LOD 打ち切り（建物だけ・meshcull.ts＝gl と同式）
-				if (!count) continue;
+				if (!count) { meshStat.lod0++; continue; }
+				meshStat.tris += count / 3;
 				const slot = draws.length, o = slot * (PL_BATCH_SLOT / 4);
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で
 				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.wind && (meshLight || p.csLit === "phong") && p.csLit !== "off" ? 2 : p.two || p.noCull ? 0 : 1;   // meshOrigin.xyz + cullBack（noCull＝面の向きが揃っていない建物＝両面・間引きは残す）
@@ -3555,9 +3559,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (p.pre && p.textured && (draws.length < plCap || growPlBatch(draws.length + 1))) {
 					const s2 = draws.length, o2 = s2 * (PL_BATCH_SLOT / 4);
 					plBatchCPU.copyWithin(o2, o, o + PL_BATCH_SLOT / 4); plBatchCPU[o2 + 8] = PRE_OPAQUE_CUT; plBatchCPU[o2 + 9] = 0;
-					draws.push({ p, count, slot: s2, pre: true });
+					draws.push({ p, count, slot: s2, pre: true }); meshStat.pre++;
 				}
 			}
+			meshStat.drawn = draws.length - meshStat.pre;
 			dbg.pl = draws.length;   // ?drawhud=1：メッシュの可視バッチ数（「建物は出ているのに紙が無い」の裏取り）
 			if (draws.length) {
 				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
@@ -3569,6 +3574,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
 				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
 				const sils = draws.filter(d => d.p.textured && d.p.sil && !d.pre && !blendOf(d.p));   // 半透明の束は殻を出さない
+				meshStat.sil = sils.length;
 				if (sils.length) {   // 模型の輪郭線（Model.silhouette）＝模型より先に・深度を書かずに押し出した殻を塗る（模型が内側を塗り直す）。素の束縛（PB だけの group(2)）
 					pass.setPipeline(P.meshSil); pass.setBindGroup(0, bg0.bld); pass.setBindGroup(1, paramBG[ROLE.mesh]);
 					for (const { p, count, slot } of sils) {
@@ -4052,7 +4058,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	return { set, draw, flush, readback, dispose, lazyPipes: LAZY, gintWarm: rOpts.gintWarm! > 0 ? rOpts.gintWarm! : 0, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		pipeLog,   // 作ったパイプラインの帳（label・ms・performance.now()）＝HUD の「遅いフレーム」行がどの本を頼んだ直後の詰まりかを読む（2026-11-07）
-		terrStats: () => ({ ...terrStat, coarse: terrCoarseOn, sub: { ...subStat } }),   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数。coarse＝粗い index で描いた（間引き幅・0＝本番）
+		terrStats: () => ({ ...terrStat, coarse: terrCoarseOn, sub: { ...subStat } }),
+		meshStats: () => ({ ...meshStat }),   // 建物メッシュの束の描画の計器（直近フレーム）   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数。coarse＝粗い index で描いた（間引き幅・0＝本番）
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors,
 		boot: { adapterMs: tAdapter - tBoot0, deviceMs: tDevice - tAdapter, initMs: performance.now() - tDevice },   // 起動の時間割（ms）：adapter 取得／device 取得／init（シェーダ・パイプライン・資源の生成）
 		meshUpPump, meshUpBusy: () => meshUp.size > 0 || meshSettled.length > 0,   // settled が残る間も pump を回す＝捨てた荷の参照を握り続けない meshUpPending: (key: string) => meshUp.has(key),   // 建物の小分け転送（2026-11-04）：renderworker が毎フレーム pump し、上がり切った（か捨てた）キーの ack を返す get hasTQ() { return !!tq; },

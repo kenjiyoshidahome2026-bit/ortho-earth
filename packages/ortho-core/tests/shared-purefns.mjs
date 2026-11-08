@@ -5,7 +5,7 @@
 // node tests/shared-purefns.mjs
 import { readFileSync } from "node:fs";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../src/framek.ts";
-import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes, setMeshLodZoom, meshLodMppx } from "../src/meshcull.ts";
+import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes, setMeshLodZoom, meshLodMppx, setMeshShed, meshShed } from "../src/meshcull.ts";
 import { dashU, userAnchorPlan, hiFillOf, worldFanRuns } from "../src/drawshared.ts";
 import { packResampleParams, cpuResampleCell } from "../src/elevcell.ts";
 import { evalPaintZoomMemo, evalPaintZoom } from "../src/paintzoom.ts";
@@ -78,6 +78,21 @@ const zooms = [-1, 0, 0.3, 1, 1.9, 2.2, 3.7, 4.9, 5, 6.4, 6.5, 8, 12, 13.5, 13.7
 	same(meshLodMppx(5, 14), 40, "meshLodMppx：1 段引く＝K 倍"); ok(Math.abs(meshLodMppx(5, 14.5) - 5 * Math.sqrt(8)) < 1e-9, "meshLodMppx：半段＝√K 倍");
 	setMeshLodZoom(15, 0);
 	same(meshLodMppx(5, 14), 5, "meshLodMppx：K≤1＝坂なしへ戻る");
+	// 動的な間引き（?meshshed）：高さ H m 未満を描かない＝近い束でも打ち切りが強まる（px の物差しより大きい方）・橋梁（two）と keep2d は不変・0 で元に戻る
+	{
+		const base = meshLodCount(P[0], center, cosLat, mppx);
+		setMeshShed(8);
+		same(meshShed(), 8, "setMeshShed：下限の高さを保持");
+		same(meshLodCount(P[0], center, cosLat, mppx), 400, `meshShed 8 m：下限以下で最大の段（lodH 3）へ＝8 m より高い建物は落とさない（${base}→400）`);
+		setMeshShed(10);
+		same(meshLodCount(P[0], center, cosLat, mppx), 100, "meshShed 10 m：段と一致＝10 m 未満を描かない");
+		setMeshShed(0.001);
+		same(meshLodCount(P[0], center, cosLat, mppx), base, "meshShed が px の物差しより小さい＝px の方が勝つ（不変）");
+		setMeshShed(8);
+		same(meshLodCount(P[2], center, cosLat, mppx), 900, "meshShed：橋梁（two）は全描画のまま"); same(meshLodCount(P[3], center, cosLat, mppx), 900, "meshShed：keep2d は間引かない");
+		setMeshShed(0);
+		same(meshLodCount(P[0], center, cosLat, mppx), base, "setMeshShed(0)：元の打ち切りへ戻る");
+	}
 	same(liftGroundROf(100), 1 + 100 / worldRadiusM(), "liftGroundROf：注視点の高さ 100 m"); same(liftGroundROf(-5), 1, "liftGroundROf：負は 0"); same(liftGroundROf(undefined), 1, "liftGroundROf：未指定は 1");
 	const masks = new Map([["far", { bbox: [140, 36, 141, 37] }], ["near", { bbox: [139.6, 35.6, 139.8, 35.8] }], ["hidden", { bbox: [139.7, 35.68, 139.71, 35.69] }], ["mid", { bbox: [139.9, 35.9, 140, 36] }]]);
 	const picked = pickMeshMasks(masks, new Set(["hidden"]), center, 2);
