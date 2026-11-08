@@ -322,8 +322,10 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 		if (bi === 0 || r.dropped) console.log(`[mesh] lite <${LITE_AREA} m2 ${ward}#${bi}: tris ${r.tris} -> ${r.tris - r.dropped} (-${(100 * r.dropped / Math.max(1, r.tris)).toFixed(0)}%, ward -${(100 * st.dropped / Math.max(1, st.tris)).toFixed(0)}%)`);
 		if (!own) { own = true; mesh = { ...mesh, pos: mesh.pos!.slice(), nrm: mesh.nrm!.slice() }; }   // idx は新品＝pos/nrm も写して丸ごと渡す（下の own 経路と同じ扱い）
 	}
-	if (WIND_FIX && !mesh.twoSided && !doubleSidedWards.has(ward) && mesh.pos && mesh.nrm && mesh.idx) {   // 巻き順を法線に揃える（?meshcull）＝idx はその場で書き換える（焼き・写しの器を共有していない時は写す）
+	let wound = false;   // この束は巻き順を法線に揃えた（renderer は揃えた束だけ裏面をラスタライザで捨てる＝meshcull／meshlitefs の派生）
+	if (WIND_FIX && !mesh.twoSided && !doubleSidedWards.has(ward) && mesh.pos && mesh.nrm && mesh.idx) {   // 巻き順を法線に揃える（?meshcull・meshlitefs）＝idx はその場で書き換える（焼き・写しの器を共有していない時は写す）
 		if (!own) { own = true; mesh = { ...mesh, pos: mesh.pos.slice(), nrm: mesh.nrm.slice(), idx: mesh.idx.slice() }; }
+		wound = true;
 		const f = windToNormals(mesh.pos!, mesh.nrm!, mesh.idx!);
 		if (bi === 0) console.log(`[mesh] wind ${ward}#${bi}: flipped ${f} / ${mesh.idx!.length / 3 | 0} tris`);
 	}
@@ -335,7 +337,7 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 			const q = pieces[j], mc = j ? null : maskCells;   // マスクは束で 1 回（片 0 に添える）
 			const lr = LITE_MOVE > 0 && !mesh.twoSided ? liteReorder(q.pos, q.idx, q.lodCounts, LITE_MOVE, EARTH_W) : null;   // 段ごとに残す三角形を先頭へ（片ごと）
 			if (lr && bi === 0 && j === 0) console.log(`[mesh] litemove <${LITE_MOVE} m2 ${ward}#${bi}.0: ${lr.tris - lr.dropped} / ${lr.tris} tris kept while moving`);
-			await postBatch(ward, bi, { name: j ? `${ward}#${bi}.${j}` : `${ward}#${bi}`, meshData: { pos: q.pos, nrm: q.nrm, idx: q.idx, origin: mesh.origin, bbox: q.bbox, lodH: mesh.lodH, lodCounts: q.lodCounts, liteCounts: lr ? lr.liteCounts : null, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells: mc, maskN: MASK_N, maskBbox: wardBbox } },
+			await postBatch(ward, bi, { name: j ? `${ward}#${bi}.${j}` : `${ward}#${bi}`, meshData: { pos: q.pos, nrm: q.nrm, idx: q.idx, origin: mesh.origin, bbox: q.bbox, lodH: mesh.lodH, lodCounts: q.lodCounts, liteCounts: lr ? lr.liteCounts : null, wound, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells: mc, maskN: MASK_N, maskBbox: wardBbox } },
 				[q.pos.buffer, q.nrm.buffer, q.idx.buffer, mc?.buffer]);
 		}
 		return;
@@ -343,7 +345,7 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 	const pos = own ? mesh.pos! : mesh.pos!.slice(), nrm = own ? mesh.nrm! : mesh.nrm!.slice(), idx = own ? mesh.idx! : mesh.idx!.slice();
 	const lr = LITE_MOVE > 0 && !mesh.twoSided ? liteReorder(pos, idx, mesh.lodCounts, LITE_MOVE, EARTH_W) : null;   // 段ごとに残す三角形を先頭へ（idx は写し＝元の器は触らない）
 	if (lr && bi === 0) console.log(`[mesh] litemove <${LITE_MOVE} m2 ${ward}#${bi}: ${lr.tris - lr.dropped} / ${lr.tris} tris kept while moving`);
-	await postBatch(ward, bi, { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, liteCounts: lr ? lr.liteCounts : null, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } },
+	await postBatch(ward, bi, { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, liteCounts: lr ? lr.liteCounts : null, wound, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } },
 		[pos.buffer, nrm.buffer, idx.buffer, maskCells?.buffer]);
 }
 // クレジットは「送れた時だけ」消費する：取得後に例外（マスク導出・DataCloneError＝重複/切離しバッファ等）で送れないと
