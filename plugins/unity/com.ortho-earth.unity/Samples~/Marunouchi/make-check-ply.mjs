@@ -1,11 +1,11 @@
 // 点群の配置を確かめる 4 点の PLY（pointcloud-check.ply）を作る＝/japan/pointcloud の「PLY（点・Unity 向け）」と同じ dumpToPly で書く。
 //   PLY の錨はフォルダの錨（anchor.json）からわざとずらす＝Place が錨の差を足して置く所を試す。
-//   実行：node unity/com.ortho-earth.unity/Samples~/Marunouchi/make-check-ply.mjs（Node 22.18 以上＝.ts の型を剥がして読む）
+//   実行：node plugins/unity/com.ortho-earth.unity/Samples~/Marunouchi/make-check-ply.mjs（Node 22.18 以上＝.ts の型を剥がして読む）
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dumpToPly } from "../../../../apps/pointcloud/pc-ply.ts";
-import { makeAnchor, lonLatToEcef } from "../../../../sdk/ortho-export/src/geo.mjs";
+import { dumpToPly } from "../../../../../apps/pointcloud/pc-ply.ts";
+import { makeAnchor, lonLatToEcef } from "../../../../../sdk/ortho-export/src/geo.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const folder = JSON.parse(fs.readFileSync(path.join(here, "anchor.json"), "utf8"));

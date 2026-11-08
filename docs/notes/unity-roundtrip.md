@@ -153,12 +153,14 @@ npx ortho-export --bbox 139.765,35.679,139.770,35.684 --out out/marunouchi \
 | 2′ | 点群＝`/japan/pointcloud` の「PLY（点・Unity 向け）」ボタン（`apps/pointcloud/pc-ply.ts`・読んだ点をそのまま＝図郭 1 枚か熱海の見本・錨は見出しの comment・2026-11-07） | 熱海の見本が PLY で出て Unity の `PlyImporter` が読む（Unity の `PlyImporter`＋Place の錨合わせ＝2026-11-07 実機で済・4 点の検査用 PLY が `Samples~/Marunouchi`。ブラウザのボタン＝未） |
 | 2″ | PLATEAU のテクスチャ（webp → jpeg）と建物の属性（棟ごとのノード＋`buildings.attributes.json`＋Unity の `OrthoEarthBuilding`） | 済（2026-11-07 実走：丸の内 173 棟×182 キー・`--textured` 15.7 s・36.9 MB・jpeg 47 枚。Unity 6000.6.8f1 で 173 棟すべてに属性・テクスチャ付き材質 59・最も高い棟の頂点が八重洲の位置（前回と 0.4 m 以内）） |
 | 3 | 取り込み口：`decodeModel` が `asset.extras.orthoEarth.anchor` を読む（`opts.at` が無い時・`tests/model-anchor.mjs`）／`glbconv` が錨を `CESIUM_RTC` へ畳む（`glbToScene`）／Unity の `Ortho Earth > Export selection to GLB…` が錨を押す | Unity で出した GLB をドロップすると錨の位置に立つ（エンジン側＝済。Unity の Export → `glbToScene` で元の terrain.glb と prims・頂点・RTC が一致＝2026-11-07 実機で済） |
-| 4 | `unity/com.ortho-earth.unity/`（UPM package・Unity 6・URP・glTFast）：`OrthoEarthAnchor`・`Geo`・`PlyLoader`／`PlyImporter`・`Place export folder in scene…`・`Export selection to GLB…`・README。見本のシーンは段 2 の実走の後に `Samples~/` へ | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る（2026-11-07 実機で済：Unity 6000.6.8f1・glTFast 6.14.1・Draco 5.6.0 でエラー 0・丸の内の Place が bbox の四隅と一致・最高の建物が東京ミッドタウン八重洲の位置に戻る。`.meta` 同梱。見本＝`Samples~/Marunouchi`・錨と検査用 PLY・GLB は再生成） |
+| 4 | `plugins/unity/com.ortho-earth.unity/`（UPM package・Unity 6・URP・glTFast）：`OrthoEarthAnchor`・`Geo`・`PlyLoader`／`PlyImporter`・`Place export folder in scene…`・`Export selection to GLB…`・README。見本のシーンは段 2 の実走の後に `Samples~/` へ | 段 2 の出力を開いて地形の上に建物が立つ・段 3 の往復が通る（2026-11-07 実機で済：Unity 6000.6.8f1・glTFast 6.14.1・Draco 5.6.0 でエラー 0・丸の内の Place が bbox の四隅と一致・最高の建物が東京ミッドタウン八重洲の位置に戻る。`.meta` 同梱。見本＝`Samples~/Marunouchi`・錨と検査用 PLY・GLB は再生成） |
 
-**置き場**：Unity 側は repo の根に `unity/com.ortho-earth.unity/`（UPM package・npm workspace の外＝利用者は自分の URP プロジェクトに Add package from disk。
+**置き場**：Unity 側は repo の根に `plugins/unity/com.ortho-earth.unity/`（UPM package・npm workspace の外＝利用者は自分の URP プロジェクトに Add package from disk。
 プロジェクト丸ごとは置かない＝ProjectSettings の YAML を手で書くより package の方が壊れない）。CLI は `sdk/ortho-export`。
 **裁定（本人・2026-11-07）**：①見本の街区＝丸の内（東京駅前）③点群の初版＝ブラウザから落とす方式（§3.3 の (a)）。
 ②レンダーパイプライン＝URP（本人は特に希望なし＝標準の URP を採る。HDRP は後から切り替えられるが材質の見本は作り直し）。
+
+**Unreal（2026-11-08）**：同じ往復を Unreal Engine 5.6 にも＝[unreal-roundtrip.md](unreal-roundtrip.md)。置き場は `plugins/`（Unity も `plugins/unity/` に移した）。
 
 ## 6. やらないこと
 
