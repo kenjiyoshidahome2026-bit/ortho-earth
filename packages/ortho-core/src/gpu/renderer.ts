@@ -101,6 +101,10 @@ export interface RendererGPUOptions {
 	lineElev?: number;
 	/** 同じ値を、カメラが動いている間（draw(opts.moving)）だけ使う（?lineelevmove）。静止では lineElev */
 	lineElevMove?: number;
+	/** 地面アトラスの焼き直しを、カメラが動いている間はこの ms 以上空ける（?gndhold・0＝従来＝鍵が変わるたび）。Galaxy の滑走で 1 秒に 7〜9 回焼いていた（2026-11-07） */
+	gndHold?: number;
+	/** 地面アトラスのミップ生成を合成と別の submit にする（?gndmipsep=1＝従来）。既定＝合成と同じエンコーダ（submit 5 → 1） */
+	gndMipSep?: boolean;
 	/** 深度を FS で書くパイプラインの頂点 z を線形にして、この距離（単位球）の near 面で GPU に切らせる（?nearclip=M・既定 0＝従来＝切らない。wgsl.ts nearClipZ） */
 	nearClip?: number;
 	/** clip 空間の倍率＝2^N（?clipk=N・既定 0＝倍率なし）。packFrame が mvp／clipT／clipMesh を K 倍して渡す＝斉次座標なので絵は不変、近景の極小の w を Mali の固定機能から遠ざける（wgsl.ts wTrue） */
@@ -2032,7 +2036,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 模型のテクスチャ（glb 直読み）：ミップ＝GPU 生成（レベルごとに全画面三角形でブリット）・三線形＋異方性 8・repeat。無しは白 1x1（頂点色だけ）
 	const texSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "repeat", addressModeV: "repeat" });
 	let mipPipe: GPURenderPipeline | null = null, mipSampler: GPUSampler | null = null;
-	function genMips(tex: GPUTexture, levels: number) {
+	function genMips(tex: GPUTexture, levels: number, into?: GPUCommandEncoder) {   // into＝呼び手のエンコーダへ足す（submit しない・地面アトラスの合成と同じ 1 回に）
 		subStat.gndMip++;   // rgba8unorm・level0 書き込み済み → 1..levels-1 を順に半分へ（queue 順＝copyExternalImageToTexture の後に走る）
 		if (!mipPipe) {
 			const mod = device.createShaderModule({ code: `@group(0) @binding(0) var s: sampler; @group(0) @binding(1) var t: texture_2d<f32>;
@@ -2042,13 +2046,13 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			mipPipe = device.createRenderPipeline({ label: "mip", layout: "auto", vertex: { module: mod, entryPoint: "vs" }, fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] }, primitive: { topology: "triangle-list" } });
 			mipSampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
 		}
-		const enc = device.createCommandEncoder();
+		const enc = into ?? device.createCommandEncoder();
 		for (let i = 1; i < levels; i++) {
 			const bg = device.createBindGroup({ layout: mipPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: mipSampler! }, { binding: 1, resource: tex.createView({ baseMipLevel: i - 1, mipLevelCount: 1 }) }] });
 			const pass = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView({ baseMipLevel: i, mipLevelCount: 1 }), loadOp: "clear", storeOp: "store" }] });
 			pass.setPipeline(mipPipe); pass.setBindGroup(0, bg); pass.draw(3); pass.end();
 		}
-		device.queue.submit([enc.finish()]);
+		if (!into) device.queue.submit([enc.finish()]);
 	}
 	// 模型のテクスチャは rgba8unorm で持ち（mips の生成は今までどおり表示空間）、標本化は rgba8unorm-srgb ビュー＝FS が受けるのはリニア（#46 段 0・出口で srgbEncode）
 	const SRGB_VIEW: GPUTextureViewDescriptor = { format: "rgba8unorm-srgb" };
@@ -2151,6 +2155,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
 		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws!.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) { if (gnd.split) writeGndP(); return null; }   // 分割の位置（scene.splitPosition）・画面の幅は鍵に入らない＝分割中は毎フレーム書く（80 B）
+		// 動いている間の焼き直しの間引き（?gndhold=MS）：窓の鍵（zoom 1/4 段・中心の snap）が変わっても、前の焼きから MS 未満なら今のアトラスで描き続ける
+		// ＝窓が少し古い（縮尺が 1/4 段ずれる）だけ＝FS は画素を含む一番細かい窓を選ぶので絵は粗くなるだけ。静定（moving=false）の品質フレームで必ず焼く
+		if (GND_HOLD > 0 && movingNow && gnd.n && performance.now() - gndBakeT < GND_HOLD) { if (gnd.split) writeGndP(); return null; }
 		let rebuilt = false;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = groundSizes(wins, N);   // 前景・近は N（ground.ts）
 		for (let i = 0; i < wins.length; i++) {
@@ -2292,8 +2299,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}
 			pass.end();
 		}
+		// ミップ（斜め視のちらつき防止）＝合成と同じエンコーダへ（同じ submit の中で合成の後に走る＝順は同じ）。Galaxy の滑走（2026-11-07）：焼き直し 1 回＝submit 1＋ミップ 4 で
+		// 1 秒に 35〜45 回の submit＝余分な送信の正体（__perf().terr.sub）。?gndmipsep=1＝従来（別 submit）
+		if (!rOpts.gndMipSep) for (const { a } of jobs) if (a.levels > 1) genMips(a.tex, a.levels, enc);
 		device.queue.submit([enc.finish()]);
-		for (const { a } of jobs) if (a.levels > 1) genMips(a.tex, a.levels);   // 斜め視のちらつき防止（queue 順＝合成の後）
+		if (rOpts.gndMipSep) for (const { a } of jobs) if (a.levels > 1) genMips(a.tex, a.levels);
+		gndBakeT = performance.now();
 	}
 	const dummyMask = device.createTexture({ size: [1, 1], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyMaskView = dummyMask.createView();
@@ -2363,7 +2374,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// 器だけ先に作り、中身は meshUpPump(ms) が時間予算の分だけ 256KB ずつ上げる。全部上がった時点で通常の登録（描画・被覆マスク）をする
 	//＝半分だけ上がった建物は描かない・マスクがメッシュに先行しない。解放・同キーの差し替えは転送待ちも捨てる。
 	const FLAT_VEC = rOpts.flatVec === true;
-	const LINE_ELEV = rOpts.lineElev! | 0, LINE_ELEV_MOVE = rOpts.lineElevMove! | 0;   // ?lineelev／?lineelevmove（F.fineP.z・packFrame）
+	const LINE_ELEV = rOpts.lineElev! | 0, LINE_ELEV_MOVE = rOpts.lineElevMove! | 0;
+	const GND_HOLD = rOpts.gndHold! > 0 ? rOpts.gndHold! : 0;   // ?gndhold=MS（prepareGround）
+	let gndBakeT = -1e9;   // 最後に地面アトラスを焼いた時刻（composeGround）   // ?lineelev／?lineelevmove（F.fineP.z・packFrame）
 	let movingNow = false;   // このフレームはカメラが動いている（draw(opts.moving)）＝lineElevMove の物差し   // ?flatvec=1（診断）＝fill/line/bld/user slot の elevP を 0（地形系 slot＝mesh 引数あり＝そのまま）
 	const ELEV_CHEAP = rOpts.elevCheap === true, NEAR_CLIP = rOpts.nearClip! > 0 ? rOpts.nearClip! : 0, CLIP_K = rOpts.clipK! > 0 ? 2 ** Math.round(rOpts.clipK!) : 1;   // NEAR_CLIP＝F.ellP.w（?nearclip）・CLIP_K＝clip 空間の倍率（?clipk=N＝2^N・F.nearP.w＝1/K）   // F.ellP.z（packFrame）＝建物の頂点の標高を 1 標本で（wgsl.ts elev1）
 	const MESH_CHUNK = rOpts.meshChunk === true, UP_PIECE = 1 << 20;   // 既定オフ（2026-11-04 実機：4ms/フレーム×低 FPS では区が何十秒も立たなかった）＝?meshchunk=1 で試す。1 片 1MB
