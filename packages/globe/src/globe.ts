@@ -940,8 +940,9 @@ const WARM_PIPES = qNum(/[?&]warmpipe=(\d)/, LAZY_PIPES ? 3 : 0);
 // ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に）。2026-11-07 Galaxy 3v3：2 本ずつは線が 2 s 早い代わりに塗り・建物・メッシュが 2〜3 s 遅れ、暖機でもメッシュ 2.4 → 4.0〜4.7 s（1 組ごとの往復待ち）→ 既定 0
 const WARM_PAR = qNum(/[?&]warmpar=(\d)/, 0);
 // ?gintwarm=MS＝gint（国境線・海岸線など）の線パイプライン 3 本を起動の MS 後に先行コンパイル（既定 0＝しない）。2026-11-08 Galaxy 京都→日本の滑走：z9 より引いて国境線が
-// 初めて描かれる時に lineTest 768 ms＋lineHidden 638 ms のその場コンパイル＝合計 1.3 秒の止まり。まず試験用ノブ（device-testing-rule）
-const GINT_WARM = qNum(/[?&]gintwarm=(\d+)/, 0);
+// 初めて描かれる時に lineTest 768 ms＋lineHidden 638 ms のその場コンパイル＝合計 1.3 秒の止まり。4GB 機（LOW_MEM）は既定 3000（本人裁定 2026-11-08：計測で止まりが消え、描画・起動に影響なし）。
+// ?gintwarm=0 で切る。デスクトップは既定 0（lazy でもキャッシュが温かく、その場コンパイルは数十 ms）
+const GINT_WARM = qNum(/[?&]gintwarm=(\d+)/, LOW_MEM ? 3000 : 0);
 // ?terrcoarse=S（2 か 4）＝カメラが動いている間（入力中・飛行中・静定前）は地形メッシュを S 頂点おきの粗い index で描く＝頂点 1/S²。着地で本番の格子へ戻る。
 // デモの滑走（京都 z18→日本 z7・傾き 67°）の最初の 8 秒が 8〜10 fps だったのは地形メッシュ（?noterr=1 で 60 fps・建物・遠景・MSAA は無関係・
 // タブレット 2026-11-07）。律速は GPU の頂点（描画 worker の CPU 15 ms・地図の描画 100〜140 ms）。?terrcoarsealways=1＝常に粗い（間引きそのものの費用の A/B）
