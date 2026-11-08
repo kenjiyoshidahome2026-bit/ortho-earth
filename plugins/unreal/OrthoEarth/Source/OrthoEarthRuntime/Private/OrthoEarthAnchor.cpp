@@ -8,6 +8,7 @@
 AOrthoEarthAnchor::AOrthoEarthAnchor()
 {
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	RootComponent->SetMobility(EComponentMobility::Static);   // Interchange spawns Static scene roots, and a Static child cannot attach to a Movable parent
 	PrimaryActorTick.bCanEverTick = false;
 }
 

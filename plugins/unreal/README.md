@@ -1,4 +1,4 @@
-# unreal — ortho-earth ⇄ Unreal Engine 5.6
+# unreal — ortho-earth ⇄ Unreal Engine 5.6 以降（5.8.4 で確認）
 
 Unreal 側の受け口。C++ のプラグイン `OrthoEarth`（npm の workspace の外）。設計は [docs/notes/unreal-roundtrip.md](../../docs/notes/unreal-roundtrip.md)。
 
@@ -7,7 +7,7 @@ Unreal 側の受け口。C++ のプラグイン `OrthoEarth`（npm の workspace
 | [`OrthoEarth/`](OrthoEarth/) | プラグイン本体。`OrthoEarthRuntime`（`AOrthoEarthAnchor`＝錨の Actor・`UOrthoEarthGeoLibrary`＝経緯度 ⇄ ローカル座標・`UOrthoEarthAttributeTable`・`UOrthoEarthBuildingComponent`）と `OrthoEarthEditor`（メニュー **Tools > Ortho Earth > Place export folder…**・**Export selection to GLB…**） |
 | [`Samples/Marunouchi/`](Samples/Marunouchi/) | 丸の内の見本：`anchor.json`（Unity の見本と同じ）・点群の検査用 `pointcloud-check.las`・期待値の表 |
 
-## 入れ方（UE 5.6・macOS は Xcode が要る）
+## 入れ方（UE 5.6 以降（5.8.4 で確認）・macOS は Xcode が要る）
 
 1. Unreal のプロジェクト（C++ でも Blueprint でもよい）の `Plugins/` に `OrthoEarth/` を丸ごとコピーする（Release の zip を展開してもよい）。
 2. プロジェクトを開くと「モジュールをビルドしますか」と聞かれる＝**はい**（Xcode／Visual Studio が裏でビルドする）。Blueprint だけのプロジェクトで聞かれない時は、

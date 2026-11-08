@@ -1,6 +1,6 @@
-# ortho-earth ⇄ Unreal Engine 5.6 ── データの往復の設計（2026-11-08 起案）
+# ortho-earth ⇄ Unreal Engine 5.6 以降（5.8.4 で確認） ── データの往復の設計（2026-11-08 起案）
 
-**目的**：Unity と同じ往復（[unity-roundtrip.md](unity-roundtrip.md)）を Unreal Engine 5.6 でもできるようにする。
+**目的**：Unity と同じ往復（[unity-roundtrip.md](unity-roundtrip.md)）を Unreal Engine 5.6 以降（5.8.4 で確認）でもできるようにする。
 ortho-earth のデータ（地形・PLATEAU 建物と属性・点群）を Unreal のレベルに持ち込み、Unreal で作った模型を地球儀に置く。
 **本人の裁定（2026-11-08）**：Unreal は 5.6。Unity も Unreal も**プラグインの形**にする（`plugins/unity`・`plugins/unreal`）。点群は LAS も出す（重くてもよい）。
 
@@ -33,7 +33,7 @@ ortho-earth のデータ（地形・PLATEAU 建物と属性・点群）を Unrea
 | **Unreal（錨の Actor の下）** | 左 | Z | **−Y** | **cm** |
 
 - ENU → Unreal：`(X, Y, Z) = (E, −N, U) × 100`。glTF → Unreal（Interchange）：`(x, y, z) → (x, z, y) × 100`＝`(E, U, −N) → (E, −N, U)`＝上と同じ。
-- **確かめること（5.6 の実機）**：Interchange の glTF の軸の写しが (x, z, y) か。違えば Place が 1 つの回転を挟む（Unity と同じやり方）。見本の四隅と点群の 4 点（§6）で分かる。
+- **確かめること（UE 5.6 以降の実機・5.8.4 で確認）**：Interchange の glTF の軸の写しが (x, z, y) か。違えば Place が 1 つの回転を挟む（Unity と同じやり方）。見本の四隅と点群の 4 点（§6）で分かる。
 - heading（北から時計回り）＝Unreal の Yaw（上から見て時計回りが正）と同じ向き＝変換不要。
 - 錨どうしの差：Place は 2 つ目の錨を 1 つ目の錨の Actor の子にし、差を**平行移動だけ**で足す（Unity と同じ・数百 m なら mm）。
 - 大座標：Unreal 5 は LWC（double）なので数 km の街区でも精度の問題は無い。錨は Actor の原点。
@@ -73,7 +73,7 @@ Exporter は世界座標で書くので、書く間だけ錨の Actor を原点�
 | --- | --- | --- |
 | 1 | この文書・`plugins/` への並べ替え（`unity/` → `plugins/unity/`）・`plugins/spec/` | 本人の確認 |
 | 2 | 点群の LAS（`pc-las.ts`・ボタン・25 言語） | 検定と laspy で読める（2026-11-08 済）・Unreal で 4 点が期待値に来る |
-| 3 | `plugins/unreal/OrthoEarth`（Anchor・Geo・属性・Place・Export） | Mac（UE 5.6・Xcode）でコンパイルが通る |
+| 3 | `plugins/unreal/OrthoEarth`（Anchor・Geo・属性・Place・Export） | Mac（UE 5.6 以降（5.8.4 で確認）・Xcode）でコンパイルが通る |
 | 4 | 見本 `plugins/unreal/Samples/Marunouchi`（anchor.json・`pointcloud-check.las`・README） | Place で四隅・最も高い建物・4 点が期待値（README の表）に来る。Export → `glbToScene` で元と一致 |
 | 5 | 配布（GitHub Release：Unity は tgz＋git タグ、Unreal はソースの zip）＝`plugins/pack.mjs` | Release に 2 つが載る |
 

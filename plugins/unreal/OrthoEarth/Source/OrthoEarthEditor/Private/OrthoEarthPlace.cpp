@@ -4,6 +4,7 @@
 #include "OrthoEarthBuildingComponent.h"
 #include "OrthoEarthLas.h"
 
+#include "ActorFactories/ActorFactory.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetSelection.h"
 #include "AssetToolsModule.h"
@@ -13,6 +14,7 @@
 #include "HAL/FileManager.h"
 #include "InterchangeManager.h"
 #include "InterchangeSourceData.h"
+#include "Misc/EngineVersionComparison.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "ScopedTransaction.h"
@@ -30,17 +32,26 @@ namespace OrthoEarth
 	}
 
 	/** Import one GLB into the level (Interchange scene import) and return the actors it spawned. */
-	static TArray<AActor*> ImportGlb(const FString& File, const FString& ContentPath, FString& Log)
+	static TArray<AActor*> ImportGlb(UWorld* World, const FString& File, const FString& ContentPath, FString& Log)
 	{
 		TArray<AActor*> Actors;
 		UInterchangeManager& Manager = UInterchangeManager::GetInterchangeManager();
 		UInterchangeSourceData* Source = UInterchangeManager::CreateSourceData(File);
 		FImportAssetParameters Params;
 		Params.bIsAutomated = true;   // no import dialog: the glTF pipeline's defaults (m → cm, glTF (x, y, z) → Unreal (x, z, y))
+#if UE_VERSION_OLDER_THAN(5, 7, 0)
 		auto Results = Manager.ImportScene(ContentPath, Source, Params);
 		UE::Interchange::FSceneImportResultRef Scene = Results.Get<1>();
 		Scene->WaitUntilDone();
 		for (UObject* O : Scene->GetImportedObjects()) if (AActor* A = Cast<AActor>(O)) Actors.Add(A);
+#else
+		// 5.7+: ImportScene runs synchronously but returns only a bool (ImportSceneAsync's result pair is not filled until later ticks),
+		// so the spawned actors are the ones that were not in the level before.
+		TSet<AActor*> Before;
+		for (TActorIterator<AActor> It(World); It; ++It) Before.Add(*It);
+		Manager.ImportScene(ContentPath, Source, Params);
+		for (TActorIterator<AActor> It(World); It; ++It) if (!Before.Contains(*It)) Actors.Add(*It);
+#endif
 		Log += FString::Printf(TEXT("  %s → %d actors (%s)\n"), *FPaths::GetCleanFilename(File), Actors.Num(), *ContentPath);
 		return Actors;
 	}
@@ -95,14 +106,23 @@ namespace OrthoEarth
 	{
 		UAssetImportTask* Task = NewObject<UAssetImportTask>();
 		Task->Filename = File; Task->DestinationPath = ContentPath; Task->bAutomated = true; Task->bReplaceExisting = true; Task->bSave = false;
+		// The LiDAR importer runs in the background and, when it finishes, centres the cloud (bAutoCenterOnImport), which would undo
+		// RestoreOriginalCoordinates below. Turn auto-centre off for this import only (the importer reads it when the import starts).
+		UClass* SettingsClass = FindObject<UClass>(nullptr, TEXT("/Script/LidarPointCloudRuntime.LidarPointCloudSettings"));
+		FBoolProperty* AutoCenter = SettingsClass ? FindFProperty<FBoolProperty>(SettingsClass, TEXT("bAutoCenterOnImport")) : nullptr;
+		UObject* Settings = AutoCenter ? SettingsClass->GetDefaultObject() : nullptr;
+		const bool bAutoCenter = Settings && AutoCenter->GetPropertyValue_InContainer(Settings);
+		if (Settings) AutoCenter->SetPropertyValue_InContainer(Settings, false);
 		FAssetToolsModule::GetModule().Get().ImportAssetTasks({ Task });
+		if (Settings) AutoCenter->SetPropertyValue_InContainer(Settings, bAutoCenter);
 		const TArray<UObject*>& Objects = Task->GetObjects();
 		if (Objects.Num() == 0) { Log += FString::Printf(TEXT("  %s: not imported (enable the LiDAR Point Cloud plugin)\n"), *FPaths::GetCleanFilename(File)); return nullptr; }
 		UObject* Cloud = Objects[0];
 		// The LiDAR importer may centre the cloud; put the points back at their file coordinates (metres from the LAS anchor).
 		if (UFunction* Restore = Cloud->FindFunction(TEXT("RestoreOriginalCoordinates"))) Cloud->ProcessEvent(Restore, nullptr);
-		AActor* A = FActorFactoryAssetProxy::AddActorForAsset(Cloud, false);
-		if (A) A->SetActorLocation(FVector::ZeroVector);
+		// Spawn through the asset's actor factory into this world (AddActorForAsset goes through the level editor's current level and viewport).
+		UActorFactory* Factory = FActorFactoryAssetProxy::GetFactoryForAssetObject(Cloud);
+		AActor* A = Factory ? Factory->CreateActor(Cloud, World->GetCurrentLevel(), FTransform::Identity) : nullptr;
 		Log += FString::Printf(TEXT("  %s → %s\n"), *FPaths::GetCleanFilename(File), *Cloud->GetPathName());
 		return A;
 	}
@@ -141,7 +161,7 @@ namespace OrthoEarth
 			const FString Ext = FPaths::GetExtension(F).ToLower(), Path = Folder / F, Sub = ContentPath / Sanitize(FPaths::GetBaseFilename(F));
 			if (Ext == TEXT("glb") || Ext == TEXT("gltf"))
 			{
-				const TArray<AActor*> Actors = ImportGlb(Path, Sub, Log);
+				const TArray<AActor*> Actors = ImportGlb(World, Path, Sub, Log);
 				for (AActor* A : Actors)
 				{
 					if (!A->GetAttachParentActor()) A->AttachToActor(Anchor, FAttachmentTransformRules::KeepRelativeTransform);

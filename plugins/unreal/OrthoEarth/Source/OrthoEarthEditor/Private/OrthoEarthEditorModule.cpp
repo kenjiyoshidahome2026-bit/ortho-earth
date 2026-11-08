@@ -58,7 +58,7 @@ private:
 			for (AActor* P = A; P && !Anchor; P = P->GetAttachParentActor()) Anchor = Cast<AOrthoEarthAnchor>(P);
 			if (Anchor) break;
 		}
-		if (!Anchor) for (TActorIterator<AOrthoEarthAnchor> It(GEditor->GetEditorWorldContext().World()); It; ++It) { Anchor = *It; break; }
+		if (!Anchor) { TActorIterator<AOrthoEarthAnchor> It(GEditor->GetEditorWorldContext().World()); if (It) Anchor = *It; }
 		if (!Anchor) { Report(TEXT("No Ortho Earth Anchor in the level. Add one (Place Actors: Ortho Earth Anchor), set lon/lat/height and attach the model under it."), false); return; }
 		IDesktopPlatform* DP = FDesktopPlatformModule::Get();
 		TArray<FString> Files;

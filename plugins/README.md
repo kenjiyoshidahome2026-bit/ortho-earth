@@ -6,7 +6,7 @@ ortho-earth のデータ（地形・PLATEAU 建物と属性・点群）をゲー
 | 場所 | エンジン | 形 | 設計 |
 | --- | --- | --- | --- |
 | [`unity/`](unity/) | Unity 6（URP・glTFast） | UPM package `com.ortho-earth.unity` | [unity-roundtrip.md](../docs/notes/unity-roundtrip.md) |
-| [`unreal/`](unreal/) | Unreal Engine 5.6（Interchange・glTF Exporter・LiDAR Point Cloud） | C++ プラグイン `OrthoEarth`（.uplugin） | [unreal-roundtrip.md](../docs/notes/unreal-roundtrip.md) |
+| [`unreal/`](unreal/) | Unreal Engine 5.6 以降（5.8.4 で確認・Interchange・glTF Exporter・LiDAR Point Cloud） | C++ プラグイン `OrthoEarth`（.uplugin） | [unreal-roundtrip.md](../docs/notes/unreal-roundtrip.md) |
 | [`spec/`](spec/) | 共通 | `anchor.json`・`buildings.attributes.json` の JSON Schema と検定 | 両方 |
 
 ## 共通の約束
