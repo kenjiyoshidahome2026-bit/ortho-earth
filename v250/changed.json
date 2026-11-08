@@ -1,0 +1,49 @@
+{
+ "at": "2026-11-08T22:03:19.278Z",
+ "cesium": "1.146.0",
+ "run": "v250",
+ "examples": [
+  {
+   "name": "3d-tiles-1.1-photogrammetry",
+   "level": 3,
+   "colour": 0.9749318801089918,
+   "edges": 0.9831062670299727,
+   "blob": 12
+  },
+  {
+   "name": "resolution-scaling",
+   "level": 3,
+   "colour": 0.9850438370293966,
+   "edges": 0.8375451263537906,
+   "blob": 2
+  },
+  {
+   "name": "3d-tiles-formats",
+   "level": 3,
+   "colour": 0.9870197300103842,
+   "edges": 0.9989615784008308,
+   "blob": 4
+  },
+  {
+   "name": "lensflare",
+   "level": 3,
+   "colour": 0.9883659439450027,
+   "edges": 0.9762030671602326,
+   "blob": 2
+  },
+  {
+   "name": "multi-part-czml",
+   "level": 3,
+   "colour": 0.9790904338734971,
+   "edges": 0.9843178254051228,
+   "blob": 12
+  },
+  {
+   "name": "bing-maps-labels-only",
+   "level": 2,
+   "colour": 0.8942917547568711,
+   "edges": 0.8789640591966174,
+   "blob": 25
+  }
+ ]
+}
