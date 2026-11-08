@@ -1,0 +1,320 @@
+{
+ "at": "2026-11-08T23:43:30.867Z",
+ "run": "v254",
+ "commit": "e089eb4",
+ "base": "v250",
+ "examples": [
+  {
+   "name": "3d-models-dev",
+   "level": 2,
+   "colour": 0.9054699946893255,
+   "edges": 0.9171534784917684,
+   "blob": 42,
+   "v250": {
+    "level": 2,
+    "colour": 0.9474243228890069,
+    "edges": 0.9607010090281466,
+    "blob": 44
+   }
+  },
+  {
+   "name": "3d-tiles-compare",
+   "level": 2,
+   "colour": 0.95702559150169,
+   "edges": 0.9579913085465959,
+   "blob": 33,
+   "v250": {
+    "level": 2,
+    "colour": 0.9352969579913085,
+    "edges": 0.9256397875422501,
+    "blob": 37
+   }
+  },
+  {
+   "name": "3d-tiles-nga-gpm-visualization",
+   "level": 2,
+   "colour": 0.9377564979480164,
+   "edges": 0.9678522571819426,
+   "blob": 29,
+   "v250": {
+    "level": 2,
+    "colour": 0.9076607387140903,
+    "edges": 0.9534883720930233,
+    "blob": 74
+   }
+  },
+  {
+   "name": "arcticdem",
+   "level": 2,
+   "colour": 0.5372567631703844,
+   "edges": 0.7384907451352634,
+   "blob": 501,
+   "v250": {
+    "level": 3,
+    "colour": 0.9169435215946844,
+    "edges": 0.8229710488846701,
+    "blob": 19
+   }
+  },
+  {
+   "name": "bing-maps-labels-only",
+   "level": 3,
+   "colour": 0.9741014799154334,
+   "edges": 0.992600422832981,
+   "blob": 16,
+   "v250": {
+    "level": 2,
+    "colour": 0.8942917547568711,
+    "edges": 0.8789640591966174,
+    "blob": 25
+   }
+  },
+  {
+   "name": "cartographic-limit-rectangle",
+   "level": 2,
+   "colour": 0.9489990467111534,
+   "edges": 0.938512869399428,
+   "blob": 32,
+   "v250": {
+    "level": 2,
+    "colour": 0.9180171591992373,
+    "edges": 0.9318398474737846,
+    "blob": 32
+   }
+  },
+  {
+   "name": "constant-lod-dev",
+   "level": 2,
+   "colour": 0.7435377597567157,
+   "edges": 0.8900152052711606,
+   "blob": 24,
+   "v250": {
+    "level": 2,
+    "colour": 0.9148504815002534,
+    "edges": 0.9675620881905728,
+    "blob": 28
+   }
+  },
+  {
+   "name": "czml-model",
+   "level": 3,
+   "colour": 0.999066728884741,
+   "edges": 0.9132057862809146,
+   "blob": 1,
+   "v250": {
+    "level": 3,
+    "colour": 0.8646756882874475,
+    "edges": 0.8259449370041997,
+    "blob": 13
+   }
+  },
+  {
+   "name": "czml-model-articulations",
+   "level": 2,
+   "colour": 0.94493700419972,
+   "edges": 0.8810079328044798,
+   "blob": 21,
+   "v250": {
+    "level": 2,
+    "colour": 0.8096126924871675,
+    "edges": 0.7951469902006533,
+    "blob": 27
+   }
+  },
+  {
+   "name": "czml-model-data-url",
+   "level": 3,
+   "colour": 0.9995333644423705,
+   "edges": 0.9136724218385441,
+   "blob": 1,
+   "v250": {
+    "level": 3,
+    "colour": 0.948670088660756,
+    "edges": 0.8796080261315913,
+    "blob": 9
+   }
+  },
+  {
+   "name": "drawing-on-terrain",
+   "level": 2,
+   "colour": 0.6440177252584933,
+   "edges": 0.8380108321024126,
+   "blob": 362,
+   "v250": {
+    "level": 2,
+    "colour": 0.8345642540620384,
+    "edges": 0.844903988183161,
+    "blob": 23
+   }
+  },
+  {
+   "name": "elevation-band-material",
+   "level": 3,
+   "colour": 0.8772334293948126,
+   "edges": 0.9279538904899135,
+   "blob": 15,
+   "v250": {
+    "level": 3,
+    "colour": 0.90835734870317,
+    "edges": 0.9360230547550432,
+    "blob": 15
+   }
+  },
+  {
+   "name": "fog",
+   "level": 2,
+   "colour": 0.9144173798551679,
+   "edges": 0.4358130348913759,
+   "blob": 7,
+   "v250": {
+    "level": 2,
+    "colour": 0.9506254114549045,
+    "edges": 0.4878209348255431,
+    "blob": 7
+   }
+  },
+  {
+   "name": "geometry-and-appearances",
+   "level": 3,
+   "colour": 0.9864675688287448,
+   "edges": 0.9692020531964536,
+   "blob": 6,
+   "v250": {
+    "level": 2,
+    "colour": 0.9393373775081661,
+    "edges": 0.9640690620625292,
+    "blob": 23
+   }
+  },
+  {
+   "name": "gpx",
+   "level": 2,
+   "colour": 0.7473633748801534,
+   "edges": 0.7948226270373921,
+   "blob": 64,
+   "v250": {
+    "level": 3,
+    "colour": 0.9712368168744008,
+    "edges": 0.9405560882070949,
+    "blob": 11
+   }
+  },
+  {
+   "name": "ground-polyline-material-dev",
+   "level": 2,
+   "colour": 0.6616892207186188,
+   "edges": 0.8236117592160522,
+   "blob": 340,
+   "v250": {
+    "level": 2,
+    "colour": 0.811012599160056,
+    "edges": 0.8212785814279048,
+    "blob": 23
+   }
+  },
+  {
+   "name": "ground-primitive-dev",
+   "level": 2,
+   "colour": 0.5346534653465347,
+   "edges": 0.745049504950495,
+   "blob": 336,
+   "v250": {
+    "level": 2,
+    "colour": 0.6915841584158415,
+    "edges": 0.8371287128712871,
+    "blob": 301
+   }
+  },
+  {
+   "name": "headingpitchroll",
+   "level": 3,
+   "colour": 0.9522351500306185,
+   "edges": 0.9510104102878139,
+   "blob": 14,
+   "v250": {
+    "level": 2,
+    "colour": 0.8150642988364972,
+    "edges": 0.9234537660747091,
+    "blob": 107
+   }
+  },
+  {
+   "name": "labels",
+   "level": 3,
+   "colour": 0.989423076923077,
+   "edges": 0.9947115384615385,
+   "blob": 2,
+   "v250": {
+    "level": 2,
+    "colour": 0.9735576923076923,
+    "edges": 0.9802884615384615,
+    "blob": 27
+   }
+  },
+  {
+   "name": "localtofixedframe",
+   "level": 3,
+   "colour": 0.975883342680875,
+   "edges": 0.9040942232192933,
+   "blob": 19,
+   "v250": {
+    "level": 3,
+    "colour": 0.9371845204711161,
+    "edges": 0.8463264161525519,
+    "blob": 19
+   }
+  },
+  {
+   "name": "material-with-custom-glsl",
+   "level": 2,
+   "colour": 0.8884741017265516,
+   "edges": 0.9514699020065329,
+   "blob": 118,
+   "v250": {
+    "level": 2,
+    "colour": 0.9286047596826879,
+    "edges": 0.9472701819878675,
+    "blob": 114
+   }
+  },
+  {
+   "name": "physically-based-materials",
+   "level": 2,
+   "colour": 0.8012664393570385,
+   "edges": 0.27471992206527035,
+   "blob": 78,
+   "v250": {
+    "level": 2,
+    "colour": 0.873356064296152,
+    "edges": 0.37213833414515346,
+    "blob": 36
+   }
+  },
+  {
+   "name": "terrain-entity-batching-dev",
+   "level": 2,
+   "colour": 0.9850676621558563,
+   "edges": 0.6094260382641157,
+   "blob": 5,
+   "v250": {
+    "level": 3,
+    "colour": 0.9841343910405973,
+    "edges": 0.9206719552029865,
+    "blob": 5
+   }
+  },
+  {
+   "name": "web-map-tile-service-picking",
+   "level": 3,
+   "colour": 0.9898941289701636,
+   "edges": 0.9942252165543792,
+   "blob": 1,
+   "v250": {
+    "level": 3,
+    "colour": 0.9634263715110684,
+    "edges": 0.9947064485081809,
+    "blob": 9
+   }
+  }
+ ]
+}
