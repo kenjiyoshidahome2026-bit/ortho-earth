@@ -1,0 +1,47 @@
+{
+ "at": "2026-11-08T22:41:00.768Z",
+ "run": "v253",
+ "commit": "e089eb4",
+ "base": "v250",
+ "examples": [
+  {
+   "name": "3d-tiles-nga-gpm-visualization",
+   "level": 2,
+   "colour": 0.9377564979480164,
+   "edges": 0.9678522571819426,
+   "blob": 29,
+   "v250": {
+    "level": 2,
+    "colour": 0.9076607387140903,
+    "edges": 0.9534883720930233,
+    "blob": 74
+   }
+  },
+  {
+   "name": "cartographic-limit-rectangle",
+   "level": 2,
+   "colour": 0.9489990467111534,
+   "edges": 0.938512869399428,
+   "blob": 32,
+   "v250": {
+    "level": 2,
+    "colour": 0.9180171591992373,
+    "edges": 0.9318398474737846,
+    "blob": 32
+   }
+  },
+  {
+   "name": "geometry-and-appearances",
+   "level": 3,
+   "colour": 0.9864675688287448,
+   "edges": 0.9692020531964536,
+   "blob": 6,
+   "v250": {
+    "level": 2,
+    "colour": 0.9393373775081661,
+    "edges": 0.9640690620625292,
+    "blob": 23
+   }
+  }
+ ]
+}
