@@ -64,5 +64,14 @@
 			"y": "up",
 			"z": "north"
 		}
+	},
+	"unreal": {
+		"note": "Unreal's glTF importer (Interchange) maps glTF (x, y, z) to Unreal (x, z, y) and metres to centimetres, so the levels come in as X=east, Y=south, Z=up (the Cesium for Unreal frame): the plugin's Place puts them under one OrthoEarthAnchor actor at the origin.",
+		"axes": {
+			"x": "east",
+			"y": "south",
+			"z": "up"
+		},
+		"units": "cm"
 	}
 }

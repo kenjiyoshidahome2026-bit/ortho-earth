@@ -1,0 +1,105 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://www.ortho-earth.com/schema/anchor.schema.json",
+	"title": "ortho-earth anchor",
+	"description": "anchor.json of an ortho-export folder, and asset.extras.orthoEarth of a GLB going either way (docs/notes/unity-roundtrip.md §2.3). Vertices are anchor ENU metres written as glTF (east, up, -north).",
+	"type": "object",
+	"required": [
+		"anchor"
+	],
+	"properties": {
+		"version": {
+			"const": 1
+		},
+		"anchor": {
+			"type": "object",
+			"required": [
+				"lon",
+				"lat",
+				"height"
+			],
+			"properties": {
+				"lon": {
+					"type": "number",
+					"minimum": -180,
+					"maximum": 180,
+					"description": "degrees"
+				},
+				"lat": {
+					"type": "number",
+					"minimum": -90,
+					"maximum": 90,
+					"description": "degrees"
+				},
+				"height": {
+					"type": "number",
+					"description": "ellipsoidal height, metres (orthometric + geoid)"
+				}
+			}
+		},
+		"frame": {
+			"const": "enu"
+		},
+		"heading": {
+			"type": "number",
+			"default": 0,
+			"description": "degrees clockwise from north: where the model's north points"
+		},
+		"geoid": {
+			"type": "number",
+			"description": "geoid height at the anchor, metres (informational)"
+		},
+		"bbox": {
+			"type": "array",
+			"items": {
+				"type": "number"
+			},
+			"minItems": 4,
+			"maxItems": 4,
+			"description": "[west, south, east, north] degrees"
+		},
+		"generator": {
+			"type": "string"
+		},
+		"source": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": [
+					"kind",
+					"name",
+					"license"
+				],
+				"properties": {
+					"kind": {
+						"type": "string"
+					},
+					"name": {
+						"type": "string"
+					},
+					"url": {
+						"type": "string"
+					},
+					"license": {
+						"type": "string"
+					},
+					"attribution": {
+						"type": "string"
+					}
+				}
+			}
+		},
+		"unity": {
+			"type": "object",
+			"description": "notes for the Unity package (informational)"
+		},
+		"unreal": {
+			"type": "object",
+			"description": "notes for the Unreal plugin (informational)"
+		},
+		"features": {
+			"type": "object",
+			"description": "in a buildings GLB's extras: count, node naming, attribute table file (informational)"
+		}
+	}
+}

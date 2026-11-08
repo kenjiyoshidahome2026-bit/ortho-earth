@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Ortho Earth",
+	"Description": "Bring ortho-earth exports (terrain, PLATEAU buildings with attributes, LAS point clouds) into an Unreal Engine 5 level, and send Unreal models back to the ortho-earth globe as GLB. Anchor = lon/lat/ellipsoidal height; Unreal X = east, Y = south, Z = up, 1 unit = 1 cm.",
+	"Category": "Geospatial",
+	"CreatedBy": "Ortho Earth",
+	"CreatedByURL": "https://www.ortho-earth.com",
+	"DocsURL": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth/tree/main/plugins/unreal",
+	"EngineVersion": "5.6.0",
+	"CanContainContent": true,
+	"Installed": false,
+	"Modules": [
+		{ "Name": "OrthoEarthRuntime", "Type": "Runtime", "LoadingPhase": "Default" },
+		{ "Name": "OrthoEarthEditor", "Type": "Editor", "LoadingPhase": "PostEngineInit" }
+	],
+	"Plugins": [
+		{ "Name": "Interchange", "Enabled": true },
+		{ "Name": "GLTFExporter", "Enabled": true },
+		{ "Name": "LidarPointCloud", "Enabled": true, "Optional": true }
+	]
+}

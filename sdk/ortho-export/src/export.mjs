@@ -108,7 +108,7 @@ export async function exportArea({ bbox, out, anchor: anchorIn = null, geoid = "
 		}
 	}
 
-	const anchorJson = { ...extrasBase, source: sources, unity: { note: "glTF axes are (east, up, -north). glTFast flips X on import, so the raw prefabs are (west, up, south): rotate their parent 180 deg about Y (the package's Place menu does this) to get X=east, Y=up, Z=north, 1 unit = 1 m.", gltfAxes: { x: "east", y: "up", z: "south" }, axesAfterPlace: { x: "east", y: "up", z: "north" } } };
+	const anchorJson = { ...extrasBase, source: sources, unity: { note: "glTF axes are (east, up, -north). glTFast flips X on import, so the raw prefabs are (west, up, south): rotate their parent 180 deg about Y (the package's Place menu does this) to get X=east, Y=up, Z=north, 1 unit = 1 m.", gltfAxes: { x: "east", y: "up", z: "south" }, axesAfterPlace: { x: "east", y: "up", z: "north" } }, unreal: { note: "Unreal's glTF importer (Interchange) maps glTF (x, y, z) to Unreal (x, z, y) and metres to centimetres, so the levels come in as X=east, Y=south, Z=up (the Cesium for Unreal frame): the plugin's Place puts them under one OrthoEarthAnchor actor at the origin.", axes: { x: "east", y: "south", z: "up" }, units: "cm" } };
 	fs.writeFileSync(path.join(out, "anchor.json"), JSON.stringify(anchorJson, null, "\t") + "\n");
 	fs.writeFileSync(path.join(out, "README.md"), readme(anchorJson, result));
 	result.files.push({ name: "anchor.json" }, { name: "README.md" });

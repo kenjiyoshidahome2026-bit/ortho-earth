@@ -1,6 +1,6 @@
 # unity — ortho-earth ⇄ Unity 6
 
-Unity 6 側の受け口。npm の workspace の外（Unity の package＝UPM）。設計は [docs/notes/unity-roundtrip.md](../docs/notes/unity-roundtrip.md)。
+Unity 6 側の受け口。npm の workspace の外（Unity の package＝UPM）。設計は [docs/notes/unity-roundtrip.md](../../docs/notes/unity-roundtrip.md)。
 
 | 場所 | 中身 |
 | --- | --- |
@@ -10,7 +10,7 @@ Unity 6 側の受け口。npm の workspace の外（Unity の package＝UPM）�
 
 1. Unity Hub で **Universal 3D**（URP）のプロジェクトを作る（Unity 6000.x）。
 2. **Window > Package Manager > + > Add package by name** で `com.unity.cloud.gltfast` を入れる（glTF の読み書き・Unity 公式）。
-3. 同じく **Add package from disk** でこのリポジトリの `unity/com.ortho-earth.unity/package.json` を選ぶ（Unity が `.meta` を足す＝そのまま commit してよい）。
+3. 同じく **Add package from disk** でこのリポジトリの `plugins/unity/com.ortho-earth.unity/package.json` を選ぶ（Unity が `.meta` を足す＝そのまま commit してよい）。
 4. ortho-export の出力フォルダ（`anchor.json`・`terrain.glb`・`buildings.glb`・`pointcloud.ply`…）を **`Assets/OrthoEarth/<名前>/`** に丸ごとコピーする。glTFast が `.glb` を prefab に、この package が `.ply` を Mesh にする。
 5. **Ortho Earth > Place export folder in scene…** でそのフォルダを選ぶ。`OrthoEarthAnchor` 付きの親（X=東・Y=上・Z=北・1 unit＝1 m）の下に全部が並ぶ。
    glTFast は右手系→左手系の変換で **X を反転する**（Z ではない）ので、glb の prefab はそのままだと (西, 上, 南)＝Y まわりに 180° 回った姿になる。

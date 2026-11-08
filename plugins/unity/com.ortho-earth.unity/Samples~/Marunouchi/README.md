@@ -10,7 +10,7 @@ node sdk/ortho-export/src/cli.mjs --bbox 139.7625,35.6785,139.7700,35.6840 --anc
 
 ## 手順
 
-1. Unity Hub で Universal 3D（URP）のプロジェクトを作り、`com.unity.cloud.gltfast` と `com.unity.cloud.draco`（PLATEAU は Draco 圧縮）を入れ、**Add package from disk** で `unity/com.ortho-earth.unity/package.json` を選ぶ。
+1. Unity Hub で Universal 3D（URP）のプロジェクトを作り、`com.unity.cloud.gltfast` と `com.unity.cloud.draco`（PLATEAU は Draco 圧縮）を入れ、**Add package from disk** で `plugins/unity/com.ortho-earth.unity/package.json` を選ぶ。
 2. Package Manager の **Samples** から Marunouchi を Import（`Assets/Samples/Ortho Earth/<version>/Marunouchi/` に写る）。
 3. 上のコマンドで `terrain.glb`・`buildings.glb` を同じフォルダに出す（glTFast が prefab にする）。
 4. **Ortho Earth > Place export folder in scene…** でそのフォルダを選ぶ。`OrthoEarthAnchor` 付きの親の下に、地形（Y≈0）の上に建物が立つ。X=東・Y=上・Z=北・1 unit＝1 m。

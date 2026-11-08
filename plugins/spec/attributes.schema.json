@@ -1,0 +1,52 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://www.ortho-earth.com/schema/attributes.schema.json",
+	"title": "ortho-earth building attributes",
+	"description": "buildings.attributes.json of an ortho-export folder (sdk/ortho-export/src/features.mjs): keys shared by all buildings, one values row per building in key order (\"\" = none). id = PLATEAU gml_id = the glTF node name of the building.",
+	"type": "object",
+	"required": [
+		"version",
+		"keys",
+		"buildings"
+	],
+	"properties": {
+		"version": {
+			"const": 1
+		},
+		"keys": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			},
+			"uniqueItems": true
+		},
+		"buildings": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": [
+					"id",
+					"values"
+				],
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"values": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				}
+			}
+		},
+		"source": {
+			"type": "string"
+		},
+		"glb": {
+			"type": "string",
+			"description": "the GLB whose node names are the ids"
+		}
+	}
+}

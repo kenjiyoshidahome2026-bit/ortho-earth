@@ -11,7 +11,7 @@
 		"build": "node scripts/verify-i18n.mjs && vite build",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
-		"test": "node tests/t-pointcloud.mjs && node tests/t-pc-pack.mjs && node tests/t-pc-sheet.mjs && node tests/t-pc-ply.mjs"
+		"test": "node tests/t-pointcloud.mjs && node tests/t-pc-pack.mjs && node tests/t-pc-sheet.mjs && node tests/t-pc-ply.mjs && node tests/t-pc-las.mjs"
 	},
 	"dependencies": {
 		"@ortho-earth/globe": "*",

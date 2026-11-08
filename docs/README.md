@@ -28,6 +28,7 @@
 - [geojson-vt-plan.md](notes/geojson-vt-plan.md) — geojson の層を vector の描き方へ
 - [raster-tiles.md](notes/raster-tiles.md) — メルカトル・ラスタタイルの v2 移植
 - [unity-roundtrip.md](notes/unity-roundtrip.md) — ortho-earth ⇄ Unity 6 のデータ往復（錨・GLB・ortho-export・見本プロジェクト）
+- [unreal-roundtrip.md](notes/unreal-roundtrip.md) — ortho-earth ⇄ Unreal Engine 5.6 のデータ往復（軸と cm・Interchange・LAS・プラグイン）
 
 ## ここ以外に置く文書（置き場が決まっている物）
 
@@ -36,7 +37,7 @@
 | 文書 | 置き場 | 動かさない理由 |
 | --- | --- | --- |
 | 入口・何か・始め方 | `README.md` | GitHub の顔 |
-| Unity 6 の受け口（UPM package） | `unity/README.md` | npm の workspace の外＝Unity から Add package from disk で読む場所 |
+| ゲームエンジンのプラグイン（Unity・Unreal・共通の約束） | `plugins/README.md`・`plugins/unity/README.md`・`plugins/unreal/README.md` | npm の workspace の外＝エンジンが読む場所（Unity の Add package from disk・Unreal の `Plugins/`） |
 | リリースノート | `CHANGELOG.md` | GitHub Releases とサイトの記事はここを引く |
 | 1.x → 2.0 の移行 | `MIGRATION.md` | npm の README・サイトの頁・llms.txt から絶対 URL で張られている |
 | 層の掟 | `LAYERS.md` | コードの注記が「LAYERS.md 掟 3」の形で多数参照 |
