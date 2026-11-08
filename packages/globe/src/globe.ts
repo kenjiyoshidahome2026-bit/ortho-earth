@@ -939,6 +939,9 @@ const LAZY_PIPES = !/[?&]lazypipe=0/.test(location.search);
 const WARM_PIPES = qNum(/[?&]warmpipe=(\d)/, LAZY_PIPES ? 3 : 0);
 // ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に）。2026-11-07 Galaxy 3v3：2 本ずつは線が 2 s 早い代わりに塗り・建物・メッシュが 2〜3 s 遅れ、暖機でもメッシュ 2.4 → 4.0〜4.7 s（1 組ごとの往復待ち）→ 既定 0
 const WARM_PAR = qNum(/[?&]warmpar=(\d)/, 0);
+// ?minithrottle=MS＝右下のミニ地球儀（gadgets/globe.ts・z≤8）の描き直しの最短間隔（既定 0＝視点が変わるたび）。2026-11-08 Galaxy 京都→日本の滑走：
+// z7 付近で GPU プロセスの 187×187 の画像作成 620 ms の止まり＝毎フレームの 2D canvas 全描き直しの疑い。まず試験用ノブ（device-testing-rule）
+const MINI_THROTTLE = qNum(/[?&]minithrottle=(\d+)/, 0);
 // ?gintwarm=MS＝gint（国境線・海岸線など）の線パイプライン 3 本を起動の MS 後に先行コンパイル（既定 0＝しない）。2026-11-08 Galaxy 京都→日本の滑走：z9 より引いて国境線が
 // 初めて描かれる時に lineTest 768 ms＋lineHidden 638 ms のその場コンパイル＝合計 1.3 秒の止まり。4GB 機（LOW_MEM）は既定 3000（本人裁定 2026-11-08：計測で止まりが消え、描画・起動に影響なし）。
 // ?gintwarm=0 で切る。デスクトップは既定 0（lazy でもキャッシュが温かく、その場コンパイルは数十 ms）
@@ -3393,7 +3396,7 @@ registerGadget("outline", async (m, src, { color = null, width = 1.6 } = {}) => 
 	return { clear: () => overlay.setHoverOutline(null) };
 });
 registerGadget("globe", (m, o) => {   // ミニ地球儀（右下・視野の枠・z≤8）… 追従は render のフック（戻り値 update を掴む）
-	const u = globeGadget.call(m, { signal: ac.signal, ...o });
+	const u = globeGadget.call(m, { signal: ac.signal, throttle: MINI_THROTTLE, ...o });   // throttle＝?minithrottle（利用者の o が勝つ）
 	if (u) { frameHooks.add(u); u(); }
 	return u;
 });
