@@ -63,7 +63,7 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	readback?(): Promise<{ base: ArrayBuffer; w: number; h: number } | null>;
 	setGroundHook?(bake: (cam: CameraPose, t: unknown) => number, sig: () => string): void;
 	lost?: Promise<{ message?: string } | null | undefined>;
-	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; shadowStats?(): unknown; accumulating?(): boolean; pipeLog?(): ReadonlyArray<{ label: string; ms: number; at: number }>;
+	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; meshStats?(): unknown; shadowStats?(): unknown; accumulating?(): boolean; pipeLog?(): ReadonlyArray<{ label: string; ms: number; at: number }>;
 	/** 日影時間・可視域の GPU 版（WebGPU だけ・2026-10-24） */
 	analysis?: RendererAnalysis;
 	/** 層の位置に描く注記の境（T-P2・WebGPU）＝この層の添字より前の注記は地図のパスの中 */
@@ -884,11 +884,11 @@ let shadowEmaRaw = 0;   // 影の深度パス（#112 段 0）の GPU 時間 EMA�
 // （正規化しない＝「今の絵の実コスト」。gint を足すのが肝＝球ビューのデモ飛行は gint海岸線 ≫ map で、
 //   map単独だと総GPUが予算超過でも降段せず「スムーズな動きがなくなった」＝実機フルスクリーンで顕在化）
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
-// 動的な間引き（?meshshed=1・2026-11-08）＝解像度が床（0.55）でも busyMs > 24 の時、動いている間だけ PLATEAU 建物の LOD の物差しを
-// SHED_STEPS 倍（小さく見える建物から描かない）。復帰は解像度と同じ時計（静止 RES_SETTLE_MS で一気に 1・軽い連続描画で一段ずつ）。
+// 動的な間引き（?meshshed=1・2026-11-08）＝解像度が床（0.55）でも busyMs > 24 の時、動いている間だけ PLATEAU 建物を
+// 「高さ SHED_STEPS[i] m 未満は描かない」と段階的に強める（LOD_H の段 6/12/24 m・高い建物から残る）。復帰は解像度と同じ時計（静止 RES_SETTLE_MS で一気に 0・軽い連続描画で一段ずつ）。
 // 塗りの量でなく頂点・描画量が床の端末（Mali-G615：PLATEAU 3 区 257 MB で 1 フレーム 86〜105 ms・解像度を落としても不変）向け。
 // 速い端末では解像度が床に着かない＝決して発動しない。既定オフ（A/B）＝?meshshed=1 で有効
-const SHED_STEPS = [1, 2.5, 5, 8];
+const SHED_STEPS = [0, 6, 12, 24];
 let shedOn = false, shedIdx = 0;
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHoldUntil = 0, upStreak = 0, upDelay = 300;   // resHoldは時間制＝重いフレームでは「30枚」が数秒に化けて降段が間に合わない（ズームでガクつく）
 let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
@@ -1134,7 +1134,7 @@ function tuneRes(drew: boolean) {
 	} else if (shedOn && !resPinned && busyMs > 24 && shedIdx < SHED_STEPS.length - 1 && now - lastCamMoveT < RES_SETTLE_MS) {   // 録画中（resPinned）は間引かない＝映像に欠けた街を混ぜない
 		// 解像度は床（か固定）なのにまだ重い＝塗りでなく頂点・描画量が床＝動いている間だけ建物の間引きを一段強める（次のフレームから効く）
 		pendingUp = false; shedIdx++; setMeshShed(SHED_STEPS[shedIdx]); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800);
-		console.log(`[render] mesh shed ↓ ×${SHED_STEPS[shedIdx]}`);
+		console.log(`[render] mesh shed ↓ ≥${SHED_STEPS[shedIdx]} m`);
 	} else if (!resFixed && (resIdx > 0 || shedIdx > 0) && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
 		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
@@ -1299,13 +1299,13 @@ function frame() {
 	if (!drew && (resIdx > 0 || shedIdx > 0) && nowT - lastDrewT > RES_SETTLE_MS && (!resFixed || shedIdx > 0)) {
 		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。間引きも同時に全部戻す
 		pendingUp = false; if (!resFixed) resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
-		if (shedIdx > 0) { shedIdx = 0; setMeshShed(1); console.log(`[render] mesh shed ↑ ×1 (idle restore)`); }
+		if (shedIdx > 0) { shedIdx = 0; setMeshShed(0); console.log(`[render] mesh shed ↑ all (idle restore)`); }
 		if (!resFixed) console.log(`[render] dynamic res ↑ ×1 (idle restore)`);
 	} else if (!resFixed && !drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
 		pendingUp = false;
 		if (shedIdx > 0) {   // 間引きを先に戻す（解像度より目に付く）
 			shedIdx--; setMeshShed(SHED_STEPS[shedIdx]); dirty = true; resHoldUntil = nowT + 700;
-			console.log(`[render] mesh shed ↑ ×${SHED_STEPS[shedIdx]} (applied at idle)`);
+			console.log(`[render] mesh shed ↑ ≥${SHED_STEPS[shedIdx]} m (applied at idle)`);
 		} else if (resIdx > 0) {
 			resIdx--; scheduleRes(); resHoldUntil = nowT + 700;
 			console.log(`[render] dynamic res ↑ ×${RES_STEPS[resIdx]} (applied at idle)`);
@@ -1321,7 +1321,7 @@ function frame() {
 		hudFrames = 0; memLast = nowT;
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], shed: SHED_STEPS[shedIdx], backend: backendName, gpuName: hudGpuName,
-			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
+			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null, meshDraw: renderer?.meshStats ? renderer.meshStats() : null,
 			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length }, slow: slowFrames, pipes: pipesLate });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}

@@ -11,13 +11,14 @@ let lodScale = 1;   // 「描かない建物」の物差しの倍率（1＝画�
 /** LOD 打ち切りの倍率（renderer の起動で 1 回。0 以下＝1） */
 export function setMeshLodScale(s: number): void { lodScale = s > 0 ? s : 1; }
 // 動的な間引き（?meshshed=1・2026-11-08）：動的解像度が床（×0.55）でも GPU が間に合わない時、render worker が動いている間だけ
-// 物差しを K 倍（小さく見える建物から描かない）。止まると 1 へ戻す＝静止の絵は不変。Mali-G615 実測：丸の内→レインボーブリッジの滑走は
-// PLATEAU メッシュの描画が 1 フレーム 86〜105 ms で解像度を落としても下がらない（塗りでなく頂点・描画量）＝解像度の次の段がこれ
-let shedK = 1;
-/** 動的な間引きの倍率（1＝無し。0 以下＝1） */
-export function setMeshShed(k: number): void { shedK = k > 0 ? k : 1; }
-/** 今の動的な間引きの倍率 */
-export function meshShed(): number { return shedK; }
+// 「高さ H m 未満の建物を描かない」を段階的に強める（m 単位＝LOD_H の段 3/6/12/24/48 に合わせる）。止まると 0 へ戻す＝静止の絵は不変。
+// px の物差し（?meshlod）は z17.7 では ×10 でも 2〜3 m＝何も削れない（Mali-G615 実測 2026-11-08：meshlod=10 でコマ数不変）ので m で切る。
+// Mali-G615 実測：丸の内→レインボーブリッジの滑走は PLATEAU メッシュの描画が 1 フレーム 86〜105 ms で解像度を落としても下がらない（塗りでなく頂点・描画量）
+let shedMinH = 0;
+/** 動的な間引きの下限の高さ（m・0＝無し） */
+export function setMeshShed(minHm: number): void { shedMinH = minHm > 0 ? minHm : 0; }
+/** 今の動的な間引きの下限の高さ（m） */
+export function meshShed(): number { return shedMinH; }
 let rangeM = Infinity;   // 注視点からこの距離（m）より遠い束は描かない（Infinity＝切らない・既定）。?meshrange=KM＝傾けた時の遠景の頂点代を切る（非力 GPU の実験ノブ・2026-11-04）
 /** 遠景の切り（km・0 以下＝切らない） */
 export function setMeshRange(km: number): void { rangeM = km > 0 ? km * 1000 : Infinity; }
@@ -37,7 +38,7 @@ export function meshLodCount(p: LodBatch, center: ArrayLike<number>, cosLat: num
 	}
 	if (!p.lodH || p.two) return p.count;
 	const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - center[1]) * 111320);
-	const minH = mppx * lodScale * shedK * (1 + dm / 4000);
+	const minH = Math.max(mppx * lodScale * (1 + dm / 4000), shedMinH);
 	let li = 0;
 	for (let i = p.lodH.length - 1; i > 0; i--) if (p.lodH[i] <= minH) { li = i; break; }
 	return p.lodCounts![li];
