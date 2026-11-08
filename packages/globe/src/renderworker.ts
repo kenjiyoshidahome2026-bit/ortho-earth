@@ -107,7 +107,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -503,6 +503,8 @@ const dispatch = (e: { data: RwMsg }) => {
 			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
 			shedOn = !!m.meshShed;
+			if (m.meshShedMax! > 0) { let bi = 1; SHED_STEPS.forEach((v, i) => { if (i && Math.abs(v - m.meshShedMax!) < Math.abs(SHED_STEPS[bi] - m.meshShedMax!)) bi = i; }); shedMax = bi; }   // ?meshshedmax=12＝12 m の段で止める
+			if (m.meshShedMs! > 0) SHED_MS = m.meshShedMs!;
 			if (typeof m.resFix === "number" && m.resFix > 0) {   // ?res=0.7 等＝動的解像度をその段に固定（実機で「解像度を下げれば滑らかか」を切り分ける計器）
 				let bi = 0; RES_STEPS.forEach((v, i) => { if (Math.abs(v - m.resFix!) < Math.abs(RES_STEPS[bi] - m.resFix!)) bi = i; });
 				resIdx = bi; resFixed = true; scheduleRes();
@@ -884,12 +886,13 @@ let shadowEmaRaw = 0;   // 影の深度パス（#112 段 0）の GPU 時間 EMA�
 // （正規化しない＝「今の絵の実コスト」。gint を足すのが肝＝球ビューのデモ飛行は gint海岸線 ≫ map で、
 //   map単独だと総GPUが予算超過でも降段せず「スムーズな動きがなくなった」＝実機フルスクリーンで顕在化）
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
-// 動的な間引き（?meshshed=1・2026-11-08）＝解像度が床（0.55）でも busyMs > 24 の時、動いている間だけ PLATEAU 建物を
+// 動的な間引き（?meshshed=1・2026-11-08）＝動いている間に busyMs > SHED_MS（40 ms）の時、解像度の梯子と並行して PLATEAU 建物を
 // 「高さ SHED_STEPS[i] m 未満は描かない」と段階的に強める（LOD_H の段 6/12/24 m・高い建物から残る）。復帰は解像度と同じ時計（静止 RES_SETTLE_MS で一気に 0・軽い連続描画で一段ずつ）。
 // 塗りの量でなく頂点・描画量が床の端末（Mali-G615：PLATEAU 3 区 257 MB で 1 フレーム 86〜105 ms・解像度を落としても不変）向け。
-// 速い端末では解像度が床に着かない＝決して発動しない。既定オフ（A/B）＝?meshshed=1 で有効
+// 速い端末では 40 ms に届かない＝決して発動しない（MacBook 実測 8〜14 ms）。既定オフ（A/B）＝?meshshed=1 で有効・?meshshedmax=12（段の上限 m）・?meshshedms=N
 const SHED_STEPS = [0, 6, 12, 24];
-let shedOn = false, shedIdx = 0;
+let shedOn = false, shedIdx = 0, shedMax = SHED_STEPS.length - 1, shedHoldUntil = 0;
+let SHED_MS = 40;   // この busyMs（ms）を超えたら一段（?meshshedms=N）。解像度の 24 ms より高く＝解像度で間に合う端末では間引かない
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHoldUntil = 0, upStreak = 0, upDelay = 300;   // resHoldは時間制＝重いフレームでは「30枚」が数秒に化けて降段が間に合わない（ズームでガクつく）
 let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
 // 静止復帰：重いエピソード（デモ飛行など）は busyMs が終始高く upStreak を稼げない＝pendingUp が立たないまま静止に入り 0.55 に張り付く
@@ -1112,6 +1115,15 @@ function tuneRes(drew: boolean) {
 	prevDrew = drew;
 	if (!measured) return;
 	emaMs = emaMs ? emaMs + (dt - emaMs) * 0.1 : dt;
+	const gpuMs = (tqExt || (renderer && renderer.hasTQ)) ? gpuEmaRaw + gintEmaRaw : emaMs;   // GPU実測が有る方（GL=tqExt／WebGPU=timestamp-query）を物差しに（下の注）
+	const busyMs = emaMs > 50 ? Math.max(gpuMs, emaMs) : gpuMs;
+	// 動的な間引き（?meshshed=1）＝解像度の梯子とは独立の時計：動いている間に busyMs > SHED_MS（既定 40 ms＝25 fps 未満）なら即一段
+	// （保持 250 ms）。解像度の床を待つと最初の 5 秒（1→0.85→0.7→0.55）が素通り＝実測で効かなかった（2026-11-08 Mali-G615：
+	// 発動 5.6 秒・最重の 0〜5 秒は無間引き）。重い 1 フレーム目から 2〜3 フレームで入る。録画中（resPinned）は間引かない
+	if (shedOn && !resPinned && now >= shedHoldUntil && busyMs > SHED_MS && shedIdx < shedMax && now - lastCamMoveT < RES_SETTLE_MS) {
+		pendingUp = false; shedIdx++; setMeshShed(SHED_STEPS[shedIdx]); shedHoldUntil = now + 250; upStreak = 0;
+		console.log(`[render] mesh shed ↓ ≥${SHED_STEPS[shedIdx]} m (busy ${busyMs.toFixed(0)} ms)`);
+	}
 	if (now < resHoldUntil) return;
 	// 物差し：timer query があれば素のGPU時間の合計（map+gint）＝壁時計dtはvsync量子化で、30Hzモニタ
 	//（実機のデュアル外部ディスプレイで実測）では常に33ms＝速いGPUでも移動中必ず0.55まで縮む恒常誤判定だった。
@@ -1120,8 +1132,6 @@ function tuneRes(drew: boolean) {
 	// 非対応環境（Safari等）は従来の壁時計へフォールバック＝挙動不変。閾値は従来のまま（24/17.5）。
 	// ただし壁時計が 50ms 超（＝30Hz のvsync量子 33ms でも説明できない遅さ）なら壁時計も採る：タイル型GPU（Mali 等）は
 	// timestamp-query がタイル処理を取りこぼして過小に出る＝実機 Mali-G615 で 1 フレーム ~120ms でも ×1.0 に張り付いた（2026-11-03）。
-	const gpuMs = (tqExt || (renderer && renderer.hasTQ)) ? gpuEmaRaw + gintEmaRaw : emaMs;   // GPU実測が有る方（GL=tqExt／WebGPU=timestamp-query）を物差しに
-	const busyMs = emaMs > 50 ? Math.max(gpuMs, emaMs) : gpuMs;
 	if (!resPinned && !resFixed && busyMs > 24 && resIdx < RES_STEPS.length - 1) {
 		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
 		const sOld = RES_STEPS[resIdx];
@@ -1131,10 +1141,6 @@ function tuneRes(drew: boolean) {
 		const k = (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
 		gpuEmaRaw *= k; gintEmaRaw *= k;
 		console.log(`[render] dynamic res ↓ ×${RES_STEPS[resIdx]}`);
-	} else if (shedOn && !resPinned && busyMs > 24 && shedIdx < SHED_STEPS.length - 1 && now - lastCamMoveT < RES_SETTLE_MS) {   // 録画中（resPinned）は間引かない＝映像に欠けた街を混ぜない
-		// 解像度は床（か固定）なのにまだ重い＝塗りでなく頂点・描画量が床＝動いている間だけ建物の間引きを一段強める（次のフレームから効く）
-		pendingUp = false; shedIdx++; setMeshShed(SHED_STEPS[shedIdx]); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800);
-		console.log(`[render] mesh shed ↓ ≥${SHED_STEPS[shedIdx]} m`);
 	} else if (!resFixed && (resIdx > 0 || shedIdx > 0) && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
 		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
