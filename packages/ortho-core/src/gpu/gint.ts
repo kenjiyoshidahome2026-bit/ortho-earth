@@ -1265,7 +1265,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 			style: L.drawStyle ? { oz: L.drawStyle.outlineZoom, mb: L.drawStyle.moveBudget, nd: L.drawStyle.noDepth, lw: L.drawStyle.lineWidth } : null,
 			tiers: L.lodTiers?.length ?? 0, tiersDone: !!L.tiersDone, total: L.totalEdges,
 			expr: L._exprJob ? 1 : 0, layers: Math.max(L.arcTex?.depthOrArrayLayers ?? 0, L.metaTex?.depthOrArrayLayers ?? 0, L.ptTex?.depthOrArrayLayers ?? 0), layerH: LH, sbLimit: SB_LIMIT,   // 2D 配列の層数（分割送りの検札）
-			runs: L._pfRuns ?? -1, chunks: L._pfChunks ?? -1, vb: V.lastViewBbox };
+			runs: L._pfRuns ?? -1, chunks: L._pfChunks ?? -1, subs: L._pfSubs ?? 0, vb: V.lastViewBbox };   // subs＝直前フレームの細分区間数（subPlan.total）
 	}
 	// 層ハンドル（§4 addGint の土台＝データ・スタイル面の動詞を層に束ねる。カーソルはエンジン＝activate で移す）
 	function layerHandle(L: GintLayer) {

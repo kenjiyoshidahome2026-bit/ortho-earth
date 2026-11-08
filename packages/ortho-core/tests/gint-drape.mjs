@@ -138,6 +138,15 @@ console.log('■ subPlan：バケット別 N・skip 下限・予算');
 	const pb = subPlan(dep, big);
 	ok(pb.N[3] === 1 && pb.skipE7 > SUB_S0 * 8 && pb.total <= SUB_BUDGET, `予算超過＝半減して skip 上昇（N[3]=${pb.N[3]} skip=${pb.skipE7} total=${pb.total}）`);
 	ok(subPlan(dep, null).skipE7 === SUB_S0 * 8, 'subRuns 無し（区間ゼロ）でも skip 下限は決まる');
+	// 運動中の段下げ（?submove）：既定 1＝半分・2＝1/4・-1＝細分しない（従来経路）。静止（moving=false）は submove に依らず同じ
+	const mv1 = subPlan(dep, runs(), true), mv2 = subPlan({ ...dep, subMove: 2 }, runs(), true), mvOff = subPlan({ ...dep, subMove: -1 }, runs(), true);
+	ok(mv1.N[13] === SUB_MAX / 2 && mv2.N[13] === SUB_MAX / 4, `運動中の段下げ：既定 ${mv1.N[13]}・submove=2 ${mv2.N[13]}`);
+	ok(mvOff.skipE7 === 0 && mvOff.N.every(n => n === 1) && mvOff.total === 0, 'submove=-1＝運動中は N 全1・skip 0');
+	ok(subPlan({ ...dep, subMove: -1 }, runs(), false).skipE7 === pl.skipE7, 'submove=-1 でも静止は従来どおり');
+	// 予算の絞り（?subbudget）：既定 SUB_BUDGET と同じ結果・小さい予算＝半減が進んで total が収まる
+	ok(subPlan({ ...dep, subBudget: 0 }, big).total === pb.total, 'subbudget=0＝既定予算');
+	const pbs = subPlan({ ...dep, subBudget: 100_000 }, big);
+	ok(pbs.total <= 100_000 && pbs.skipE7 >= pb.skipE7, `subbudget=100000＝total ${pbs.total}・skip ${pbs.skipE7}`);
 }
 console.log('■ drapeSubs：ハイライト用の一様 N');
 {
