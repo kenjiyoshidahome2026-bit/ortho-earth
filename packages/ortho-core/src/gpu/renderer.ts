@@ -94,6 +94,8 @@ export interface RendererGPUOptions {
 	meshLodZ?: number; meshLodZ0?: number;
 	/** 注視点からこの距離（km）より遠い建物メッシュの束は描かない（?meshrange=KM・既定＝切らない） */
 	meshRange?: number;
+	/** 建物メッシュの裏面をラスタライザで捨てる（?meshcull=1＝back・2＝front・既定 0＝FS の判定だけ）。mesh worker が巻き順を法線に揃えて送る前提（meshwind.ts） */
+	meshCull?: number;
 	/** 建物（基図の押し出し・PLATEAU）の頂点の標高を主アトラス 1 標本で引く（?elevcheap=1・既定オフ） */
 	elevCheap?: boolean;
 	/** 診断：地形は描いたまま、塗り・線・建物・gint の頂点が読む標高だけ平らにする（?flatvec=1）＝「地形を消すと軽い」のうち地形メッシュ以外（頂点ごとの標高テクスチャ読み）の取り分を測る。絵は壊れる（地形に線が埋まる） */
@@ -151,7 +153,7 @@ interface ShadowLayouts { terr: GPUPipelineLayout; fill: GPUPipelineLayout; bld:
 interface ShadowMods { terr: GPUShaderModule; fill: GPUShaderModule; line: GPUShaderModule; lineX: GPUShaderModule; bld: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; globe: GPUShaderModule;
 	bldCast: GPUShaderModule; meshCast: GPUShaderModule; meshTexCast: GPUShaderModule; terrCast: GPUShaderModule }
 interface ShadowPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; terrain: GPURenderPipeline;
-	bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; globe: GPURenderPipeline }
+	bld: GPURenderPipeline; mesh: GPURenderPipeline; meshCull: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; globe: GPURenderPipeline }
 interface CastPipes { bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; terr: GPURenderPipeline }
 interface ShBG0Key { v: GPUTextureView; fv: GPUTextureView; cv: GPUTextureView; nv: GPUTextureView; ev: GPUTextureView }
 /** 落とす側の深度パスが描いた物の数（影の計器・解析の統計） */
@@ -170,7 +172,7 @@ interface ShadowRes {
 interface ClipModsBase { terr: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; fill: GPUShaderModule; line: GPUShaderModule; lineX: GPUShaderModule; bld: GPUShaderModule; globe: GPUShaderModule; cap?: GPUShaderModule }
 interface ClipMods extends ClipModsBase { cap: GPUShaderModule; ov?: GPUShaderModule; sh?: ClipModsBase; cast?: { terr: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; bld: GPUShaderModule } }
 interface ClipLayouts { terr: GPUPipelineLayout; mesh: GPUPipelineLayout; meshTex: GPUPipelineLayout; fill: GPUPipelineLayout; bld: GPUPipelineLayout; globe: GPUPipelineLayout; cap?: GPUPipelineLayout }
-interface ClipPipeSet { terrain: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; fillOff: GPURenderPipeline; fillTest: GPURenderPipeline;
+interface ClipPipeSet { terrain: GPURenderPipeline; mesh: GPURenderPipeline; meshCull: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; fillOff: GPURenderPipeline; fillTest: GPURenderPipeline;
 	lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; bld: GPURenderPipeline; globe: GPURenderPipeline; cap: GPURenderPipeline | null }
 interface ClipOvPipes { ovCover: GPURenderPipeline; ovMaskCover: GPURenderPipeline; ovLine: GPURenderPipeline }
 interface ClipShX { sh: ShadowRes | null; bg: Record<string, GPUBindGroup>; plBG: GPUBindGroup; castPlBG: GPUBindGroup[] }
@@ -484,6 +486,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// キャッシュ不発）、描画 worker は命令バッファ満杯で 7 秒止まった。lazy＝鍵に初めて触れた時に作る＝そのフレームで描かない段（覆い・模型・レチクル・星…）は作らない。
 	// 既定は従来（全部先に作る・ゲート頁の決定性）。label＝セット名.鍵＝トレースでどれが重いか読める（従来は全部 "None"）
 	const LAZY = !!rOpts.lazyPipes;
+	const MESH_CULL: GPUCullMode = rOpts.meshCull === 1 ? "back" : rOpts.meshCull === 2 ? "front" : "none";   // ?meshcull＝素の建物メッシュの裏面をラスタライザで捨てる（1＝back・2＝front＝向きの保険）。mesh worker が巻き順を法線に揃える（meshwind.ts）
 	// 描画の質の旗（#46・2026-09-26）＝globe の opts.render と ?fx= を boot/tier.js renderFx が裁いた結果（LOW_MEM・GL2 は全部 false）。
 	// 段 0 は旗を運ぶだけ＝段 1（atmosphere）・段 2（pbr）・段 3（ao）が順に読む。無指定＝全部 false＝従来の絵。
 	const FX: RenderFx = { atmosphere: false, pbr: false, ao: false, ...(rOpts.fx || {}) };
@@ -687,6 +690,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos（重心相対 delta）
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },     // a_normal（xyz+pad・FS で normalize）
 			], dsWriteBld, "fs", plLayout, "none", targetA),   // stencil bit7=建物マスク（bld と同じ）・targetA＝街明かりの窓の印（α）
+			meshCull: () => pipe(plMod, [   // 同じ束で裏面をラスタライザで捨てる版（?meshcull・巻き順を揃えた束だけ＝橋梁・両面配信の区は mesh）
+				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
+			], dsWriteBld, "fs", plLayout, MESH_CULL, targetA),
 			meshTex: () => pipe(plTexMod, [   // 模型（glb 直読み）＝メッシュ派生＋uv/頂点色＋テクスチャ group(3)
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
@@ -901,14 +908,15 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	function shadowPipes(sc: number): ShadowPipes {   // 受け手の派生パイプライン（sampleCount 毎・遅延）＝本体 buildPipes と同じ頂点/深度/ブレンド
 		let p = sh!.pipes.get(sc); if (p) return p;
 		const ms = { count: sc }, m = sh0mods!, L = sh!.lay;
-		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target) => device.createRenderPipeline({ label: lbl(), layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
-			fragment: { module: mod, entryPoint: "fs", targets: [tgt] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
+		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target, cull: GPUCullMode = "none") => device.createRenderPipeline({ label: lbl(), layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
+			fragment: { module: mod, entryPoint: "fs", targets: [tgt] }, primitive: { topology: "triangle-list", cullMode: cull }, depthStencil: ds, multisample: ms });
 		p = pipeSet(`shadow${sc}x`, LAZY, {
 			fillOff: () => pipe(m.fill, FILL_BUFS, dsOff, L.fill), fillTest: () => pipe(m.fill, FILL_BUFS, dsTest, L.fill),
 			lineOff: () => pipe(m.lineX, LINE_X_BUFS, dsOff, L.fill), lineTest: () => pipe(m.lineX, LINE_X_BUFS, dsTest, L.fill),
 			terrain: () => pipe(m.terr, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, L.terr),
 			bld: () => pipe(m.bld, SH_BLD_BUFS, dsWriteBld, L.bld),
 			mesh: () => pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh, targetA),   // 街明かりの窓の印（α）
+			meshCull: () => pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh, targetA, MESH_CULL),   // 裏面をラスタライザで捨てる版（?meshcull）
 			meshTex: () => pipe(m.meshTex, SH_TEX_BUFS, dsWriteBld, L.meshTex),          // 模型・3D Tiles・I3S・押し出し（#112 段 1）
 			meshTexBlend: () => pipe(m.meshTex, SH_TEX_BUFS, dsWriteBldNoZ, L.meshTex),  // その半透明（BLEND）＝同じ派生・深度書き込み無し
 			globe: () => device.createRenderPipeline({ label: lbl(), layout: L.globe, vertex: { module: m.globe, entryPoint: "vs" },
@@ -1134,11 +1142,12 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 派生パイプライン（sampleCount 毎・遅延）＝本体 buildPipes と同じ頂点・深度・ブレンド。mods＝切るだけ／影＋面・L＝その束縛
 	function clipPipeSet(sc: number, m: ClipModsBase, L: ClipLayouts, name: string): ClipPipeSet {
 		const ms = { count: sc };
-		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target) => device.createRenderPipeline({ label: lbl(), layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
-			fragment: { module: mod, entryPoint: "fs", targets: [tgt] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
+		const pipe = (mod: GPUShaderModule, bufs: GPUVertexBufferLayout[], ds: GPUDepthStencilState, lay: GPUPipelineLayout, tgt = target, cull: GPUCullMode = "none") => device.createRenderPipeline({ label: lbl(), layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
+			fragment: { module: mod, entryPoint: "fs", targets: [tgt] }, primitive: { topology: "triangle-list", cullMode: cull }, depthStencil: ds, multisample: ms });
 		return pipeSet(`${name}${sc}x`, LAZY, {
 			terrain: () => pipe(m.terr, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, L.terr),
 			mesh: () => pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh, targetA),   // 街明かりの窓の印（α）
+			meshCull: () => pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh, targetA, MESH_CULL),   // 裏面をラスタライザで捨てる版（?meshcull）
 			meshTex: () => pipe(m.meshTex, SH_TEX_BUFS, dsWriteBld, L.meshTex),
 			meshTexBlend: () => pipe(m.meshTex, SH_TEX_BUFS, dsWriteBldNoZ, L.meshTex),
 			fillOff: () => pipe(m.fill, FILL_BUFS, dsOff, L.fill), fillTest: () => pipe(m.fill, FILL_BUFS, dsTest, L.fill),
@@ -3572,7 +3581,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (customs.size) csFrame++;
 				const meshPipe = PX.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
-				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured)], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
+				const cullPipe = MESH_CULL !== "none" ? PX.meshCull : null;   // ?meshcull＝巻き順を揃えた素の束は裏面をラスタライザで捨てる（橋梁 two・両面配信 noCull は従来の mesh）
+				const cullOf = (d: typeof draws[number]) => !!cullPipe && !d.p.textured && !d.p.two && !d.p.noCull;
+				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, draws.filter(d => !d.p.textured && !cullOf(d))], [cullPipe!, cullPipe ? draws.filter(cullOf) : []], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
 				const sils = draws.filter(d => d.p.textured && d.p.sil && !d.pre && !blendOf(d.p));   // 半透明の束は殻を出さない
 				meshStat.sil = sils.length;
 				if (sils.length) {   // 模型の輪郭線（Model.silhouette）＝模型より先に・深度を書かずに押し出した殻を塗る（模型が内側を塗り直す）。素の束縛（PB だけの group(2)）
@@ -3584,7 +3595,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					}
 				}
 				for (const [pipeline, list] of lists) {
-					const tx = pipeline !== meshPipe;
+					const tx = pipeline !== meshPipe && pipeline !== cullPipe;
 					if (!list.length) continue;
 					pass.setPipeline(pipeline);
 					pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
