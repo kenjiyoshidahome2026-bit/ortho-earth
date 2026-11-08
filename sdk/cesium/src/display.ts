@@ -72,6 +72,8 @@ const movingShape = (e: Any, name: string, t: JulianDate): string | null => {
 const nfOf = (v: Any): number[] | null => v && Number.isFinite(v.near) ? [v.near, v.nearValue, v.far, v.farValue] : null;
 const isConst = (p: Any) => p == null || Property.isConstant(p);
 const css = (c: Color | undefined, d = Color.WHITE) => (c ?? d).toCssColorString();
+/** an entity outline's width on screen: Cesium's outlineWidth only reaches gl.lineWidth, which ANGLE clamps to 1 (maximumAliasedLineWidth) */
+const OUTLINE_PX = 1;
 const rgbAlpha = (c: Color | undefined, d = Color.WHITE): [string, number] => { const k = c ?? d; return [Color.fromAlpha(k, 1).toCssColorString(), k.alpha]; };
 /** the colour a material shows (ColorMaterialProperty, the polyline materials, stripe/grid/checker): its uniforms' color */
 function materialColor(m: Any, t: JulianDate, d = Color.WHITE): Color {
@@ -536,7 +538,7 @@ export class EntityDisplay {
 					g.fill.push(inst);
 					g.closed = (g.closed ?? true) && !!u.isClosed;   // Cesium's fill appearance is closed when the updater's geometry is (back faces culled: a translucent cylinder shows one wall)
 				}
-				if (u.outlineEnabled) { g.outline.push(u.createOutlineGeometryInstance(t)); g.width = Math.max(g.width, u.outlineWidth ?? 1); }
+				if (u.outlineEnabled) g.outline.push(u.createOutlineGeometryInstance(t));   // width stays 1: Cesium draws entity outlines as gl.LINES and outlineWidth is clamped to maximumAliasedLineWidth = 1 on ANGLE (Chrome everywhere, the Mac gate); 4 px outlines framed every shape in geometry-and-appearances (2026-11-08)
 			} catch (err) { done.delete(name); console.warn("[csshim] entity", name, err); }
 			finally { u.destroy?.(); }
 		}
@@ -652,11 +654,11 @@ export class EntityDisplay {
 			if (o.outline) {
 				const [lc, lo] = rgbAlpha(o.outlineColor, Color.BLACK);
 				if (!ext || !o.top) {
-					for (const p of polys) for (const ring of p) d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: ring }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: Math.max(1, o.outlineWidth) } });
+					for (const p of polys) for (const ring of p) d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: ring }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: OUTLINE_PX } });
 				} else {
 					for (const p of polys) for (const ring of p) {
-						for (const hh of [o.base ?? 0, o.top]) d.lines.push({ p: ring.flatMap(([x, y]) => { const q = ecef(x, y, hh); return [q.x, q.y, q.z]; }), color: css(o.outlineColor, Color.BLACK), width: Math.max(1, o.outlineWidth) });
-						for (const [x, y] of ring.slice(0, -1)) { const a = ecef(x, y, o.base ?? 0), b = ecef(x, y, o.top); d.lines.push({ p: [a.x, a.y, a.z, b.x, b.y, b.z], color: css(o.outlineColor, Color.BLACK), width: Math.max(1, o.outlineWidth) }); }
+						for (const hh of [o.base ?? 0, o.top]) d.lines.push({ p: ring.flatMap(([x, y]) => { const q = ecef(x, y, hh); return [q.x, q.y, q.z]; }), color: css(o.outlineColor, Color.BLACK), width: OUTLINE_PX });
+						for (const [x, y] of ring.slice(0, -1)) { const a = ecef(x, y, o.base ?? 0), b = ecef(x, y, o.top); d.lines.push({ p: [a.x, a.y, a.z, b.x, b.y, b.z], color: css(o.outlineColor, Color.BLACK), width: OUTLINE_PX }); }
 					}
 				}
 			}
