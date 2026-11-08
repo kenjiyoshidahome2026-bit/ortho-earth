@@ -15,7 +15,7 @@ const D2R = Math.PI / 180;
 type Ring = number[][];
 
 /** ミニ地球儀。戻り値＝描画ごとの update（el＝canvas）・二重搭載は undefined */
-export function globe(this: GlobeMap, { size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea = "rgb(200,240,255)", line = "rgb(150,0,0)", signal }: NonNullable<Parameters<Gadgets["globe"]>[0]> & { signal?: AbortSignal } = {}): ((() => void) & { el: HTMLCanvasElement }) | undefined {
+export function globe(this: GlobeMap, { size = 125, maxZoom = 8, land = "rgb(160,200,160)", sea = "rgb(200,240,255)", line = "rgb(150,0,0)", throttle = 0, signal }: NonNullable<Parameters<Gadgets["globe"]>[0]> & { signal?: AbortSignal } = {}): ((() => void) & { el: HTMLCanvasElement }) | undefined {
 	const map = this, mapEl = this.mapEl, cam = this.cam as GlobeCam;   // cam の公開の型は CameraPose＝実体は globe の cam
 	if (mapEl.querySelector("#globe-mini")) return;   // 二重搭載は無害
 	const cv = document.createElement("canvas");
@@ -27,6 +27,9 @@ export function globe(this: GlobeMap, { size = 125, maxZoom = 8, land = "rgb(160
 	const ctx = cv.getContext("2d")!;
 	let landPolys: Ring[] | null = null;   // [[ [lon,lat]… ]…]（外環＋穴も同じ扱い＝小さな地球儀では穴は見えない）
 	let last = "";   // 描いた視点の鍵（陸が着いたら空にして描き直す＝下の非同期は await の後で触る）
+	// 描き直しの間引き（throttle ms・?minithrottle）：滑走中（z≤maxZoom）は視点が毎フレーム変わる＝毎フレーム 2D canvas を全部描き直していた。
+	// Galaxy 4GB（2026-11-08 京都→日本の滑走）：GPU プロセスの 187×187 の画像作成 620 ms の止まり。前の描きから throttle 未満なら後追いの 1 回だけ予約する
+	let lastDrawT = -1e9, trail: ReturnType<typeof setTimeout> | null = null;
 	// 陸＝Natural Earth 110m land（bucket の GeoPBF。無ければ NE の zip へフォールバック＝geopbf が shp を食い IDB キャッシュ）
 	(async () => {
 		let pbf = await geopbf("ne_110m_land", { gint: false }).catch(() => null);
@@ -96,13 +99,18 @@ export function globe(this: GlobeMap, { size = 125, maxZoom = 8, land = "rgb(160
 		const lon = lon0 + (rho ? Math.atan2(x * sc, rho * cosP0 * cc - y * sinP0 * sc) / D2R : 0);
 		map.flyTo(((lon + 540) % 360) - 180, lat, cam.zoom, 0);
 	}, { signal });
-	signal?.addEventListener("abort", () => cv.remove(), { once: true });
+	signal?.addEventListener("abort", () => { if (trail) clearTimeout(trail); cv.remove(); }, { once: true });
 
 	function update() {   // 本体 render のフック＝視点が変わった時だけ描く。z>maxZoom・狭画面・全球が収まる時は隠す
 		const narrow = mapEl.clientWidth < 480;
 		if (cam.zoom > maxZoom || narrow) { cv.style.display = "none"; last = ""; return; }
 		const key = `${cam.center[0].toFixed(3)}/${cam.center[1].toFixed(3)}/${cam.zoom.toFixed(2)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${mapEl.clientWidth}x${mapEl.clientHeight}`;
 		if (key === last) return;
+		if (throttle > 0) {
+			const now = performance.now();
+			if (now - lastDrawT < throttle) { if (!trail) trail = setTimeout(() => { trail = null; update(); }, throttle - (now - lastDrawT)); return; }   // 後追い＝止まった後の最終形は必ず描く
+			lastDrawT = now;
+		}
 		last = key;
 		// 全球が画面に収まる＝四辺がどこも球に当たらず、画面中央は球上（中央も外＝空だけの画は隠さない）
 		const pts = viewEdge();

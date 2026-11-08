@@ -580,7 +580,7 @@ export interface Gadgets {
 	 *  persist＝自動保存（既定 true）・onClose＝ツールバー右端の ×（持ち主が editor.result() で結果を受け取る）。搭載中はドロップをエディタが所有（dropFile は譲る）。戻り値＝Promise<editor>（geoedit の initEditor の戻り） */
 	geoedit(opts?: { data?: ArrayBuffer | null; adopt?: boolean; persist?: boolean; onClose?: () => void; [k: string]: unknown }): Promise<unknown>;
 	/** ミニ地球儀（右下・視野の枠）＝z ≤ maxZoom（既定 8）で出る（全球が画面に収まる時は隠す）。size＝px（既定 125）・land／sea／line＝色（CSS）。追従は render のフック。二重搭載は undefined */
-	globe(opts?: { size?: number; maxZoom?: number; land?: string; sea?: string; line?: string }): unknown;
+	globe(opts?: { size?: number; maxZoom?: number; land?: string; sea?: string; line?: string; throttle?: number }): unknown;   // throttle＝描き直しの最短間隔 ms（0＝視点が変わるたび）
 	/** 計測器 HUD（メモリ・タイル・GPU・階層の状態表＝右下）。URL の ?hud=1|0 で起動した地図にだけ登録される（本体は遅延 chunk・起動時に自動で搭載＝1 は開いて・0 は畳んで）。それ以外の地図では undefined */
 	hud?(opts?: { open?: boolean }): void;
 	/** UI 言語の切替（34px 規格・透明な select・26 言語）。onChange(code)＝既定の「?lang= を書いて読み直す」を差し替える口。二重搭載は undefined */
