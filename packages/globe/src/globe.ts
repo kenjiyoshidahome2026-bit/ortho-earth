@@ -940,8 +940,9 @@ const WARM_PIPES = qNum(/[?&]warmpipe=(\d)/, LAZY_PIPES ? 3 : 0);
 // ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に）。2026-11-07 Galaxy 3v3：2 本ずつは線が 2 s 早い代わりに塗り・建物・メッシュが 2〜3 s 遅れ、暖機でもメッシュ 2.4 → 4.0〜4.7 s（1 組ごとの往復待ち）→ 既定 0
 const WARM_PAR = qNum(/[?&]warmpar=(\d)/, 0);
 // ?gintwarm=MS＝gint（国境線・海岸線など）の線パイプライン 3 本を起動の MS 後に先行コンパイル（既定 0＝しない）。2026-11-08 Galaxy 京都→日本の滑走：z9 より引いて国境線が
-// 初めて描かれる時に lineTest 768 ms＋lineHidden 638 ms のその場コンパイル＝合計 1.3 秒の止まり。まず試験用ノブ（device-testing-rule）
-const GINT_WARM = qNum(/[?&]gintwarm=(\d+)/, 0);
+// 初めて描かれる時に lineTest 768 ms＋lineHidden 638 ms のその場コンパイル＝合計 1.3 秒の止まり。4GB 機（LOW_MEM）は既定 3000（本人裁定 2026-11-08：計測で止まりが消え、描画・起動に影響なし）。
+// ?gintwarm=0 で切る。デスクトップは既定 0（lazy でもキャッシュが温かく、その場コンパイルは数十 ms）
+const GINT_WARM = qNum(/[?&]gintwarm=(\d+)/, LOW_MEM ? 3000 : 0);
 // ?terrcoarse=S（2 か 4）＝カメラが動いている間（入力中・飛行中・静定前）は地形メッシュを S 頂点おきの粗い index で描く＝頂点 1/S²。着地で本番の格子へ戻る。
 // デモの滑走（京都 z18→日本 z7・傾き 67°）の最初の 8 秒が 8〜10 fps だったのは地形メッシュ（?noterr=1 で 60 fps・建物・遠景・MSAA は無関係・
 // タブレット 2026-11-07）。律速は GPU の頂点（描画 worker の CPU 15 ms・地図の描画 100〜140 ms）。?terrcoarsealways=1＝常に粗い（間引きそのものの費用の A/B）
@@ -1789,6 +1790,7 @@ renderer.set("view", { clear, clearAlpha, land, atmo, bldColor, showRail: false,
 	// ?subbudget=N＝1 層 1 フレームの区間予算（既定 150 万）・?submove=K＝運動中は N を 1/2^K（既定 1）・-1＝運動中は細分しない。まず試験用ノブ（device-testing-rule）
 	gintSubBudget: qNum(/[?&]subbudget=(\d+)/, 0),
 	gintSubMove: qNum(/[?&]submove=(-?\d)/, 1),
+	gintSubBudgetMove: qNum(/[?&]subbudgetmove=(\d+)/, 0),   // 運動中だけの予算（0＝subbudget と同じ）。2026-11-08 Galaxy：subbudget=200000 で国境線 100→13 ms・8〜12 秒のコマ数 2.6 倍
 	dashDz: STYLE_DZ,   // 破線（core S-P1-3）の段＝外来 style の floor(z)（MapLibre の tileZoom）
 	gintFarPivot: !/[?&]nofarpivot=1/.test(location.search),   // ?nofarpivot=1＝塗り扇の遠方の要（画面カリング）を切る＝旧挙動との見比べ用   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),

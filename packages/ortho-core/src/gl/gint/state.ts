@@ -21,7 +21,7 @@ export interface PointerData { x: number; y: number }
 export interface GintDepthCtx {
 	terrainDepth: boolean; logCoef: number; fogFar: number; elevTex: WebGLTexture | null; elevBounds: number[];
 	elevScale: number; hasElev: number; edgeFade: number; meshQ: number[] | null; meshG: number; noSub: boolean; facesInAtlas: boolean;
-	subBudget?: number; subMove?: number;   // ?subbudget / ?submove（gint/drawdata.ts subPlan・GPU 側と同じ鍵）
+	subBudget?: number; subMove?: number; subBudgetMove?: number; moving?: boolean;   // ?subbudget / ?submove / ?subbudgetmove・運動判定（gint/drawdata.ts subPlan・GPU 側と同じ鍵）
 }
 /** 窓座標モード（地面アトラスへの焼き込み）＝off：原点−窓南西隅・inv：1/窓幅・size：窓の画素 */
 export interface AtlasWin { off: number[] | null; inv: number[]; size: number }
