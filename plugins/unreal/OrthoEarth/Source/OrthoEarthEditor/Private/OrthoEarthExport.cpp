@@ -60,6 +60,9 @@ namespace OrthoEarth
 
 		UGLTFExportOptions* Options = NewObject<UGLTFExportOptions>();
 		Options->ResetToDefault();
+		// Interchange builds Nanite meshes, whose render data is the coarse fallback: export the source model (the imported vertices) instead.
+		// Looked up by name so that an engine without the option still compiles.
+		if (FBoolProperty* SourceModel = FindFProperty<FBoolProperty>(UGLTFExportOptions::StaticClass(), TEXT("bExportSourceModel"))) SourceModel->SetPropertyValue_InContainer(Options, true);
 		FGLTFExportMessages Messages;
 		const FString Tmp = FPaths::ChangeExtension(Path, TEXT("tmp.glb"));
 

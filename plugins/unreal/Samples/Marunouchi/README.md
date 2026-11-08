@@ -25,6 +25,9 @@ cp plugins/unreal/Samples/Marunouchi/pointcloud-check.las out/marunouchi/   # �
 | 最も高い建物の頂点 | (26345, 19306, 23813)＝錨の Actor の `Geo Of` で lon 139.76916／lat 35.67951（東京ミッドタウン八重洲） |
 | 建物の属性 | 173 棟に Ortho Earth Building・タグ `PLATEAU` |
 
+**実測（UE 5.8.4・2026-11-08・Mac）**：terrain X −33948…33948／Y −30513…30512／Z −72…223、buildings X −37834…35688／Y −33832…35888／Z −624…23812（173 棟に Ortho Earth Building と `PLATEAU`）、
+最も高い頂点 Z 23812（同じ屋上の別の頂点 (26341, 19269)・`Geo Of` で lon 139.76916／lat 35.67951）＝表どおり。Interchange の glTF の軸の写しは (x, z, y)＝X 東・Y 南・Z 上で、回転は要らない。
+
 **向きが違った時**：terrain の X と Y が入れ替わる・符号が逆＝Interchange の glTF の軸の写しが (x, z, y) でない。Place に回転を 1 つ足して直す（`docs/notes/unreal-roundtrip.md` §2）。
 
 ## 点群の検査用 LAS
@@ -39,8 +42,10 @@ cp plugins/unreal/Samples/Marunouchi/pointcloud-check.las out/marunouchi/   # �
 | bbox 北東角（地面） | 青 | (33946, −30513, −32) |
 | LAS の錨 | 黄 | (15842, 13869, −31) |
 
+**実測（UE 5.8.4）**：点群の Actor (15842, 13869, −31)、赤 (26344, 19306, 23813)・緑 (−33949, 30511, −33)・青 (33947, −30513, −33)・黄 (15842, 13869, −31)＝表どおり（±2 cm）。LiDAR プラグインは LAS の Y を反転している＝尺度 −1 は要らない。
+
 **Y の符号が逆の時**：LiDAR プラグインが LAS の Y を反転していない＝Place で点群の Actor の Y の尺度を −1 にする（§4）。
 
 ## Export の確かめ
 
-terrain の Actor を選んで **Export selection to GLB…** → 出た GLB を `node -e` で `sdk/glbconv` の `glbToScene` に通すと、元の terrain.glb と prims（12）・頂点（7,544）・範囲・錨が一致すれば往復が通っている。
+terrain の Actor を選んで **Export selection to GLB…** → 出た GLB を `node -e` で `sdk/glbconv` の `glbToScene` に通すと、元の terrain.glb と prims（12）・頂点（7,544）・範囲・錨が一致すれば往復が通っている。UE 5.8.4 で prims 12・頂点 7,544・範囲・錨の一致を確認（Interchange が Nanite で作るので、Export は glTF Exporter の `bExportSourceModel` で元の頂点を書く）。
