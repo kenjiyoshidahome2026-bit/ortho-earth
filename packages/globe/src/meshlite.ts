@@ -23,3 +23,37 @@ export function liteIndex(pos: ArrayLike<number>, idx: Uint32Array, lodCounts: A
 	const lc = lodCounts ? Array.from(lodCounts, c => keptAt[Math.min(nTri, c / 3 | 0)] * 3) : null;
 	return { idx: out.slice(0, k * 3), lodCounts: lc, dropped: nTri - k, tris: nTri };
 }
+
+// 動いている間だけの軽量化（?meshlitemove=A・2026-11-08）＝index を「高さ段（lodCounts の区間）ごとに、残す三角形を先頭・落とす三角形を後ろ」に
+// 並べ替えるだけ（GPU メモリは増えない・元の高さ段の prefix 意味は保つ）。renderer は止まっている時は従来どおり先頭 count を 1 回で描き、
+// 動いている間は段ごとに liteCounts[k] だけを drawIndexed（段の数 ≤ 6 回）＝細部を落とした絵。止まると元の形に戻る。
+// 実機（Mali-G615・2026-11-08）：静止の形で meshlite=4 は屋上の輪・小さな円筒が壊れるが、滑走中なら目立たず、解像度の床 0.4 と足し算で −19 ms。
+export interface LiteReorder { liteCounts: number[]; dropped: number; tris: number }
+/** idx をその場で並べ替え、段ごとの「残す index 数」を返す。lodCounts＝高さ段の先頭 index 数（降順）・null＝全体を 1 段。minArea ≤ 0＝何もしない（null） */
+export function liteReorder(pos: ArrayLike<number>, idx: Uint32Array, lodCounts: ArrayLike<number> | null | undefined, minArea: number, scale: number): LiteReorder | null {
+	const nIdx = idx.length, nTri = nIdx / 3 | 0;
+	if (!(minArea > 0) || !nTri) return null;
+	const thr2 = (2 * minArea / (scale * scale)) ** 2;
+	const big = new Uint8Array(nTri);
+	for (let t = 0; t < nTri; t++) {
+		const a = idx[t * 3] * 3, b = idx[t * 3 + 1] * 3, c = idx[t * 3 + 2] * 3;
+		const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2];
+		const vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
+		const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+		if (cx * cx + cy * cy + cz * cz >= thr2) big[t] = 1;
+	}
+	const lc = lodCounts && lodCounts.length ? Array.from(lodCounts, c => Math.min(nIdx, Math.max(0, c - c % 3))) : [nIdx];
+	const n = lc.length, liteCounts = new Array<number>(n).fill(0);
+	const tmp = new Uint32Array(nIdx);
+	let dropped = 0;
+	for (let k = 0; k < n; k++) {   // 段 k＝[lc[k+1], lc[k])（最後の段は [0, lc[n−1])）：残す三角形を先頭へ（安定）
+		const s = k === n - 1 ? 0 : lc[k + 1], e = lc[k];
+		if (e <= s) continue;
+		let w = s;
+		for (let i = s; i < e; i += 3) if (big[i / 3 | 0]) { tmp[w++] = idx[i]; tmp[w++] = idx[i + 1]; tmp[w++] = idx[i + 2]; }
+		liteCounts[k] = w - s;
+		for (let i = s; i < e; i += 3) if (!big[i / 3 | 0]) { tmp[w++] = idx[i]; tmp[w++] = idx[i + 1]; tmp[w++] = idx[i + 2]; dropped++; }
+		idx.set(tmp.subarray(s, e), s);
+	}
+	return { liteCounts, dropped, tris: nTri };
+}

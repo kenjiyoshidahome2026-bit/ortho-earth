@@ -35,3 +35,20 @@ const lodCounts = [12, 9, 6, 3];   // ≥h0 全部・≥h1 A,B,C・≥h2 A,B・�
 	console.log("  ✓ liteIndex：閾値の等号・単位");
 }
 console.log("✓ t-meshlite PASS");
+{   // liteReorder：段ごとに残す三角形を先頭へ・落とす三角形は後ろ・段の境界と prefix は不変
+	const { liteReorder } = await import("../src/meshlite.ts");
+	const idx2 = new Uint32Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);   // A B C D（高さ降順）
+	const lc2 = [12, 9, 6, 3];   // 段 3＝[0,3)=A・段 2＝[3,6)=B・段 1＝[6,9)=C・段 0＝[9,12)=D
+	const r = liteReorder(pos, idx2, lc2, 0.25, S);
+	assert.deepEqual(r.liteCounts, [0, 3, 0, 3], "段ごとの残す index 数：A と C だけ残る（B・D は 0.25 m² 未満）");
+	assert.equal(r.dropped, 2);
+	assert.deepEqual(Array.from(idx2), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "1 段 1 枚なので並びは不変");
+	// 1 段に 2 枚：小さい B を A の前に置いた段では、A が先頭へ来る
+	const idx3 = new Uint32Array([3, 4, 5, 0, 1, 2, 6, 7, 8, 9, 10, 11]);
+	const r3 = liteReorder(pos, idx3, [12, 6], 0.25, S);   // 段 1＝[0,6)={B,A}・段 0＝[6,12)={C,D}
+	assert.deepEqual(Array.from(idx3), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "段の中で残す A を先頭に、落とす B を後ろに（段の境界は動かない）");
+	assert.deepEqual(r3.liteCounts, [3, 3]);
+	assert.equal(liteReorder(pos, idx3, null, 0.25, S).liteCounts[0], 6, "lodCounts 無し＝全体 1 段");
+	assert.equal(liteReorder(pos, idx3, lc2, 0, S), null, "minArea 0＝何もしない");
+	console.log("  ✓ liteReorder：段ごとの並べ替えと liteCounts");
+}

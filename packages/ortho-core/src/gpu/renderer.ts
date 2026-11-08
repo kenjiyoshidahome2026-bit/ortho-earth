@@ -40,7 +40,7 @@ import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標�
 import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gl と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gl と同式の正本）
-import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, meshShed, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
+import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, meshShed, meshLite, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
 import { terrainGridUV, terrainMeshSliced } from "../terrainlod.ts";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
@@ -228,7 +228,7 @@ interface MeshPbr { metallic: number; roughness: number; normalScale: number; oc
 export interface MeshSetData {
 	pos?: Float32Array; nrm?: Int8Array | ArrayLike<number> | null; idx?: Uint32Array; uv?: Float32Array | null; col?: Uint8Array | null;
 	tex?: MeshTexSrc | null; texMR?: MeshTexSrc | null; texN?: MeshTexSrc | null; texOcc?: MeshTexSrc | null; texEm?: MeshTexSrc | null;
-	pbr?: MeshPbr | null; csLit?: string; wind?: boolean; alphaMode?: string; alphaCutoff?: number; origin?: number[]; bbox?: number[]; ward?: string; lodH?: number[] | null; lodCounts?: number[] | null;
+	pbr?: MeshPbr | null; csLit?: string; wind?: boolean; alphaMode?: string; alphaCutoff?: number; origin?: number[]; bbox?: number[]; ward?: string; lodH?: number[] | null; lodCounts?: number[] | null; liteCounts?: number[] | null;
 	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
 	liftBaked?: boolean;   // 接地リフトを頂点へ焼き済み（render worker の bakeMeshLift・?bakelift=1）＝VS は標高を引かない（noLift と同じ PB.alpha.z）・可視判定の bbox は持ち上げたまま
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
@@ -248,7 +248,7 @@ interface MeshBatch {
 	vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer; textured: boolean; blend: boolean; cut: number; uvbo: GPUBuffer | null; cbo: GPUBuffer | null;
 	pre: boolean;   // preOpaque: drawn twice, its alpha-1 texels first in the opaque pass (depth written, a slot of its own), then the whole batch blended
 	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; csLit: string; wind: boolean; count: number; origin: number[]; bbox: number[]; ward: string;
-	lodH: number[] | null; lodCounts: number[] | null; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; baked: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
+	lodH: number[] | null; lodCounts: number[] | null; liteCounts: number[] | null; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; baked: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
 	paint?: MeshTex | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
@@ -2465,7 +2465,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, pre: blend && !!data.preOpaque, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", wind: !!data.wind, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
-				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, baked: !!data.liftBaked, drape: !!data.drape, keep2d: !!data.keep2d,
+				lodH: data.lodH || null, lodCounts: data.lodCounts || null, liteCounts: data.liteCounts || null, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, baked: !!data.liftBaked, drape: !!data.drape, keep2d: !!data.keep2d,
 				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
@@ -3584,6 +3584,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (customs.size) csFrame++;
 				const meshPipe = PX.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
+				const liteNow = meshLite();   // 動いている間だけの軽量 index（meshcull.ts・render worker が shed と同時に切り替える）
 				const cullPipe = MESH_CULL !== "none" ? PX.meshCull : null;   // ?meshcull＝巻き順を揃えた素の束は裏面をラスタライザで捨てる（橋梁 two・両面配信 noCull は従来の mesh）
 				const cullOf = (d: typeof draws[number]) => !!cullPipe && !d.p.textured && !d.p.two && !d.p.noCull;
 				const plainDraws = draws.filter(d => !d.p.textured);
@@ -3634,7 +3635,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						pass.setVertexBuffer(1, p.nbo);
 						if (tx) { pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setBindGroup(3, texBGOf(p)); }
 						pass.setIndexBuffer(p.ibo, "uint32");
-						pass.drawIndexed(count);
+						if (!tx && liteNow && p.liteCounts && p.lodCounts) {   // 動いている間だけの軽量 index（?meshlitemove）＝段ごとの先頭（残す三角形）だけ描く（段 ≤ 6 回）
+							const lc = p.lodCounts, lt = p.liteCounts, n = lc.length; let drawn = 0;
+							for (let k = n - 1; k >= 0; k--) { const s0 = k === n - 1 ? 0 : lc[k + 1]; if (s0 >= count) break; if (lt[k] > 0) { pass.drawIndexed(lt[k], 1, s0); drawn += lt[k]; } }
+							meshStat.tris -= (count - drawn) / 3;
+						} else pass.drawIndexed(count);
 					}
 				}
 			}
