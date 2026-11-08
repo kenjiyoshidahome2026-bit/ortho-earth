@@ -1720,6 +1720,49 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 /** 置き換えの対：[錨（ちょうど 1 度だけ出る）, 置換]。 */
 type WgslPair = readonly [string, string];
 const deriveWgsl = (src: string, pairs: readonly WgslPair[], label: string): string => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
+// 動いている間だけの軽いピクセルシェーダ（?meshlitefs・2026-11-08）＝素の建物メッシュを、間引き（meshshed）が点いている間だけこの派生で描く。
+// 落としたもの：discard（裏面は巻き順を揃えた束をラスタライザが捨てる＝cullMode front・meshwind.ts）・画面微分・街明かり・PBR／Cesium／style の光・局所の光源・輪郭線・Cesium の霧・
+// varying 7 本→2 本。残したもの：接地リフト（頂点）・固定光の陰影・霧。1＝深度は画素で書く（fragDepthWgsl＝他の層と同じ）・2＝深度は頂点だけ（early-Z が戻る代わりに地形との境に帯が出うる）
+export const MESH_LITE_WGSL = /* wgsl */`
+${FRAME}
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f, csL: vec4f, csC: vec4f, csI: vec4f, eyeRel: vec4f, tint: vec4f, tintB: vec4f, sil: vec4f, cc: vec4f, dr0: vec4f, dr1: vec4f, dr2: vec4f };   // dr0/dr1＝重ねる絵の uv の平面写像（原点相対の位置 → u・v＝float 256〜263）・dr2.x＝重ねる絵あり（set "meshDrape"）   // tint/tintB＝Cesium の Model.color（float 240〜245）：tint＝色 rgba・tintB.x＝混ぜ方（−1 無し・0 HIGHLIGHT・1 REPLACE・間 MIX の量）・tintB.y＝輪郭線の太さ（device px）・sil＝輪郭線の色 rgba（float 248〜251・Model.silhouetteColor）   // eyeRel＝F.eye − meshOrigin（CPU double・float 236〜238）＝toEye を原点相対で組む（近接の裏面判定）   // csL/csC/csI＝Cesium の模型の照明（setMeshLighting・float 224〜235）：csL＝(光へ向く世界系の単位ベクトル, on)・csC＝(光の色×強さ HDR, 一様な環境で L00 が 1 になる倍率)・csI＝(拡散の係数, 鏡面の係数, 鏡面の環境の立方体図あり, その最大 mip)・sh[9] の xyz には Cesium の並びの SH9   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）・cs.y＝街明かりの強さ（float 221）・cs.z＝1 で窓の明かりを canvas の α に印す（夜の色 grade の間・float 222）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+@group(2) @binding(0) var<uniform> B: PB;
+struct PlLiteOut {
+	@builtin(position) pos: vec4f,
+	@location(0) n: vec3f,
+	@location(3) fog: f32,
+};
+@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlLiteOut {
+	var o: PlLiteOut;
+	let ap = select(a_pos, B.xf * a_pos + B.xt.xyz, B.xt.w > 0.5);
+	let wp = B.meshOrigin.xyz + ap;
+	let dir = normalize(wp);
+	o.n = select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5);
+	o.fog = fogOf(wp);
+	let lat = geoLat(degrees(asin(clamp(dir.y, -1.0, 1.0))));
+	let lon = degrees(atan2(dir.z, dir.x));
+	let lb = P.p0;
+	let inX = smoothstep(0.0, 0.05, min(lon - lb.x, lb.x + lb.z - lon));
+	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
+	var hE = 0.0;
+	if (B.alpha.z < 0.5) { if (F.ellP.z > 0.5) { hE = elev1(vec2f(lon, lat)); } else { hE = elev(vec2f(lon, lat)); } }
+	let h = hE * F.elevP.x * select(inX * inY, 1.0, B.alpha.w > 0.5) * (1.0 - B.alpha.z);
+	var p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);
+	p.z = logDepthZ(p.w);
+	o.pos = p;
+	return o;
+}
+@fragment fn fs(in: PlLiteOut) -> @location(0) vec4f {
+	let n = normalize(in.n);
+	let up = normalize(B.meshOrigin.xyz);   // 束の原点の動径＝束の中では一定（画素の動径との差は数 km で 0.05° 以下）
+	let e0 = cross(vec3f(0.0, 1.0, 0.0), up);
+	let east = select(normalize(e0), vec3f(1.0, 0.0, 0.0), dot(e0, e0) < 1e-12);
+	let north = cross(up, east);
+	let L = normalize(north * 0.44 + up * 0.90);
+	let d = clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0);   // MESH_WGSL の固定光と同じ式
+	return vec4f(mix(P.p1.rgb * d, F.fogColor, in.fog), 1.0);
+}
+`;
 export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\nfn tintW(c: vec3f) -> vec3f { if (B.tintB.x < -0.5) { return c; } let m = mix(c, B.tint.rgb, B.tintB.x); return m * mix(B.tint.rgb, vec3f(1.0), ceil(B.tintB.x)); }   // Cesium の ModelColorStage（diffuse はリニア）\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n@group(3) @binding(2) var texMR: texture_2d<f32>;\n@group(3) @binding(3) var texN: texture_2d<f32>;\n@group(3) @binding(4) var texOcc: texture_2d<f32>;\n@group(3) @binding(5) var texEm: texture_2d<f32>;\n@group(3) @binding(99) var texP: texture_2d<f32>;\n// imagery draped on the mesh (set \"meshDrape\": Cesium3DTileset.imageryLayers): uv = the window's plane map of the origin-relative point, over the base colour by its alpha in display space. Level 0 = no derivatives.\n// The picture sits in texP's slot (a batch with a paint picture has no drape: one more texture would pass the 16 sampled textures per stage)\nfn drapeW(c: vec4f, p: vec3f) -> vec4f { if (B.dr2.x < 0.5) { return c; } let uv = vec2f(dot(B.dr0.xyz, p) + B.dr0.w, dot(B.dr1.xyz, p) + B.dr1.w); if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) { return c; } let d = textureSampleLevel(texP, texS, uv, 0.0); return vec4f(srgbDecode(mix(srgbEncode(c.rgb), d.rgb, d.a)), c.a); }\n// the style colour of the feature under this texel (feature ID texture, nearest texel; alpha 0 = no colour), blended like tintW in display space (Cesium colorBlendMode)\nfn paintW(c: vec4f, uv: vec2f) -> vec4f { if (B.tintB.z < -0.5) { return c; } let sz = vec2i(textureDimensions(texP)); let p = textureLoad(texP, clamp(vec2i(floor(uv * vec2f(sz))), vec2i(0), sz - 1), 0); if (p.a < 0.5) { return c; } let m = mix(srgbEncode(c.rgb), p.rgb, B.tintB.z) * mix(p.rgb, vec3f(1.0), ceil(B.tintB.z)); return vec4f(srgbDecode(m), c.a); }\n"],
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
