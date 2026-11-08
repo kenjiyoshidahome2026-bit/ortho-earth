@@ -19,6 +19,13 @@ let shedMinH = 0;
 export function setMeshShed(minHm: number): void { shedMinH = minHm > 0 ? minHm : 0; }
 /** 今の動的な間引きの下限の高さ（m） */
 export function meshShed(): number { return shedMinH; }
+// 動いている間だけの軽量 index（?meshlitemove=A・2026-11-08）：mesh worker が段ごとに「残す三角形を先頭」に並べ替えた束（liteCounts）を、
+// オンの間は段ごとの先頭だけ描く（renderer）。間引き（shed）と同じ時計で点き、止まると消える＝静止の形は不変
+let liteOn = false;
+/** 動いている間だけの軽量 index のオン/オフ（render worker が shed と同時に切り替える） */
+export function setMeshLite(on: boolean): void { liteOn = !!on; }
+/** 今、軽量 index で描いているか */
+export function meshLite(): boolean { return liteOn; }
 let rangeM = Infinity;   // 注視点からこの距離（m）より遠い束は描かない（Infinity＝切らない・既定）。?meshrange=KM＝傾けた時の遠景の頂点代を切る（非力 GPU の実験ノブ・2026-11-04）
 /** 遠景の切り（km・0 以下＝切らない） */
 export function setMeshRange(km: number): void { rangeM = km > 0 ? km * 1000 : Infinity; }

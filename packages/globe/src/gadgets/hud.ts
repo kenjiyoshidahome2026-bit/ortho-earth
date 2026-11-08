@@ -10,7 +10,7 @@ import type { GlobeMap } from "../types/map.ts";
 export interface HudSnapshot {
 	device?: { dpr?: number; ua?: string; ram?: number; cores?: number; vw?: number; vh?: number; net?: string; down?: number };
 	budget: number; peak: number; total: number; backend?: string | null; gpuName?: string | null;
-	fps?: number | null; frameMs?: number; res?: number; shed?: number;
+	fps?: number | null; frameMs?: number; res?: number; shed?: number; lite?: boolean;
 	/** 建物メッシュの束の描画（直近フレーム・render worker）：総数／描いた／視野外／LOD 0／伏せた区・三角形・前パス・輪郭・間引きの下限高さ m */
 	meshDraw?: { of: number; drawn: number; cull: number; lod0: number; hidden: number; tris: number; pre: number; sil: number; shed: number } | null;
 	/** render worker の JS 時間（描いたフレームの部位別 EMA・ms）と窓内の最長 */
@@ -170,7 +170,7 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 			sec("Render") +
 			row("backend", beName(s.backend) + beNote, "val") +
 			row("FPS", s.fps ?? "–") +
-			row("frame", `${(s.frameMs || 0).toFixed(1)} ms` + note(`(×${(s.res ?? 1).toFixed(2)}${(s.shed ?? 0) > 0 ? ` shed ≥${s.shed}m` : ""})`)) +   // フレーム時間と動的解像度を1行に
+			row("frame", `${(s.frameMs || 0).toFixed(1)} ms` + note(`(×${(s.res ?? 1).toFixed(2)}${(s.shed ?? 0) > 0 ? ` shed ≥${s.shed}m` : ""}${s.lite ? " lite" : ""})`)) +   // フレーム時間と動的解像度を1行に
 			(s.cpu ? row("worker CPU", `${s.cpu.total.toFixed(1)} ms` + note(`max ${s.cpu.max.toFixed(0)}`)) +   // 描画 worker の JS 時間（frame との差＝描画以外の仕事・メッセージ処理など）
 				det(`upload ${s.cpu.up.toFixed(1)} · terrain ${s.cpu.terr.toFixed(1)} · map ${s.cpu.map.toFixed(1)} · lines ${s.cpu.gint.toFixed(1)} · labels ${s.cpu.lab.toFixed(1)} · overlays ${s.cpu.ov.toFixed(1)}`) : "") +
 			(s.lab ? row("labels", `${(s.lab.ms || 0).toFixed(1)} ms` + note(`collide ${(s.lab.collideMs || 0).toFixed(1)} · ${s.lab.labels || 0} labels · ${s.lab.glyphs || 0} glyphs` + (s.lab.baked != null ? ` · baked ${s.lab.baked} · kept ${s.lab.restored || 0}` : ""))) : "") +   // 注記の描画＝字を焼く時間が入る（起動時・?glyphms= で分ける）
