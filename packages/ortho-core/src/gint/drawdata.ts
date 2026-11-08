@@ -28,6 +28,11 @@ export interface SubDep {
 	subBudget?: number;
 	/** カメラ運動中の N の段下げ（2 の冪で 1/2^k・未指定＝1＝従来の半分）。-1＝運動中は細分しない（N 全 1＝従来経路）。?submove=K */
 	subMove?: number;
+	/** 運動中だけの区間予算（0/未指定＝subBudget と同じ）。?subbudgetmove=N＝止まった絵の品質は落とさず滑走だけ軽く（2026-11-08 Galaxy：予算 20 万で国境線の描画 100→13 ms） */
+	subBudgetMove?: number;
+	/** レンダラの運動判定（renderer の draw(opts.moving)＝最後のカメラ移動から 500 ms 以内）。gint 内の「前フレームとカメラが違う」判定は、同じカメラで
+	 *  描き直すフレーム（タイル到着など）で偽になる＝滑走中に全密度の細分＋隠線パスが混ざる（2026-11-08 ?submove が効かなかった原因の疑い）。OR で読む */
+	moving?: boolean;
 }
 export interface SubPlan { N: Int32Array; skipE7: number; total: number }
 
@@ -188,7 +193,7 @@ export function subPlan(dep: SubDep | null | undefined, subRuns: readonly (reado
 	// 細分（予算いっぱい 150 万区間×頂点ごと 4 タップの標高）が主因の疑い。-1＝運動中は細分しない（静止の品質フレームで元に戻る）
 	const mv = dep.subMove ?? 1;
 	if (moving && mv < 0) return plan;
-	const budget = dep.subBudget! > 0 ? dep.subBudget! : SUB_BUDGET;
+	const budget = moving && dep.subBudgetMove! > 0 ? dep.subBudgetMove! : dep.subBudget! > 0 ? dep.subBudget! : SUB_BUDGET;
 	const cell = Math.min(dep.meshQ[2], dep.meshQ[3]) / (dep.meshG! - 1);   // 地形メッシュ 1 セル (deg・小さい側)
 	if (!(cell > 0)) return plan;
 	const cnt = new Float64Array(SUB_NB);

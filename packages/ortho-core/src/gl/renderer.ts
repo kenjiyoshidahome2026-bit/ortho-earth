@@ -74,7 +74,7 @@ interface GLView {
 	worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
 	clock?: ClockAnchor | null; showConst?: boolean; skySolar?: boolean; showRail?: boolean; showContour?: boolean; graticule?: boolean; night?: boolean;
 	contourAlpha?: number; contourColor?: number[]; distColor?: number[]; hypso?: { color: number[]; max?: number; amount?: number } | null;
-	gintFarPivot?: boolean; gintSub?: boolean; gintSubBudget?: number; gintSubMove?: number;   // ?subbudget / ?submove（gint/drawdata.ts subPlan）
+	gintFarPivot?: boolean; gintSub?: boolean; gintSubBudget?: number; gintSubMove?: number; gintSubBudgetMove?: number;   // ?subbudget / ?submove / ?subbudgetmove（gint/drawdata.ts subPlan）
 	dashDz?: number;   // 破線（S-P1-3）の段の目盛り＝外来 style の z とエンジンの z の差（globe の STYLE_DZ・既定 1）
 	csAtmo?: { ground?: boolean; sky?: boolean } | null;   // Cesium の大気（../csatmo.ts）＝点けると球の霞・リム光・sky の代わり
 }
@@ -2209,6 +2209,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				meshQ: mq, meshG: mq ? terrain!.G : 0,   // 案A: gint も描画メッシュ面へ量子化
 				noSub: view.gintSub === false,          // 地形適応細分の逃げ道（view.gintSub=false＝?nosub=1）
 				subBudget: view.gintSubBudget! > 0 ? view.gintSubBudget! : 0, subMove: view.gintSubMove ?? 1,   // ?subbudget / ?submove（GPU 側と同じ鍵）
+				subBudgetMove: view.gintSubBudgetMove! > 0 ? view.gintSubBudgetMove! : 0,   // GL 側はレンダラの運動判定を持たない＝moving は gint 内の判定だけ
 				facesInAtlas: gnd.fillsIn };            // gint の面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 		} else gintCtx = null;
 		// 下地の線は「本命(main)の線と同時に出る時だけ」伏せる＝ズーム中に太さ・形状のズレた「LODの荒い線」が

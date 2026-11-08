@@ -1038,7 +1038,8 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 			// N=ii>>16・s=ii&0xFFFF と復元＝UBO をバケットごとに書き換えない）。2D/地形なし＝plan は N 全1・skip 0＝従来のまま。
 			const runsL = lnSel.runs ?? [[0, lnSel.count]];
 			const subRuns = lnSel.runs ? lnSel.runs.sub : lnSel.sub;
-			const plan = subPlan(dep, subRuns, isDrawing);   // 移動中は細分を半分（静止で全密度）
+			const mv = isDrawing || !!(dep && dep.moving);   // 運動＝gint の「前フレームとカメラが違う」OR レンダラの運動判定（同じカメラの描き直しフレームで偽にならない・2026-11-08）
+			const plan = subPlan(dep, subRuns, mv);   // 移動中は細分を半分（静止で全密度）
 			if (plan.skipE7 > 0) {   // skip 下限を GF（線スロット）へ＝plan 確定後に線スロットだけ書き直す（writeBuffer は submit 前に順序どおり）
 				packGF(L, GF_LINE * GF_SLOT, data, data.lodRank ?? 0, false, plan.skipE7);
 				packGF(L, GF_LINE_B * GF_SLOT, data, data.lodRank ?? 0, true, plan.skipE7);
@@ -1056,7 +1057,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 			for (const r of runsL) pfEdges += r[1];
 			drawRuns();
 			L._pfLineEdges = pfEdges; L._pfSubs = plan.total; L._pfTierW = lnSel.minW ?? -1;
-			if (dep && !isDrawing && pfEdges < 100_000) {
+			if (dep && !mv && pfEdges < 100_000) {   // 隠線パス＝静止の品質フレームだけ（運動中の描き直しフレームで全密度の 2 度描きをしない）
 				pass.setPipeline(P.lineHidden);
 				pass.setBindGroup(1, L.paramBG[ROLE.lineHidden]);
 				drawRuns();   // 同じ細分＝実線と隠線が同じ折れ線

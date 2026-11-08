@@ -133,6 +133,7 @@ export interface RenderView {
 	contourColor?: number[] | null; contourAlpha?: number; gintSub?: boolean; gintFarPivot?: boolean;
 	gintSubBudget?: number;   // ?subbudget=N＝gint 線の地形適応細分の 1 層 1 フレーム予算（0＝既定 SUB_BUDGET）
 	gintSubMove?: number;     // ?submove=K＝運動中の細分の段下げ（1＝従来の半分・-1＝運動中は細分しない）
+	gintSubBudgetMove?: number;   // ?subbudgetmove=N＝運動中だけの細分予算（0＝subBudget と同じ）
 	atmSun?: number; atmScale?: number; atmGround?: number; atmExposure?: number; pbrFill?: number;
 	aoStrength?: number; aoRadius?: number; aoBias?: number; aoPhase?: number;
 	dashDz?: number;   // 破線・模様（S-P1-3/4）の段の目盛り＝外来 style の z とエンジンの z の差（globe の STYLE_DZ・既定 1・gl/renderer.ts と同じ）
@@ -3669,6 +3670,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			meshQ: qMesh, meshG: qG,   // 案A: gint も描画メッシュ面へ量子化
 			noSub: view.gintSub === false,   // 地形適応細分の逃げ道（view.gintSub=false＝?nosub=1）
 			subBudget: view.gintSubBudget! > 0 ? view.gintSubBudget! : 0, subMove: view.gintSubMove ?? 1,   // ?subbudget / ?submove（gint/drawdata.ts subPlan）
+			subBudgetMove: view.gintSubBudgetMove! > 0 ? view.gintSubBudgetMove! : 0, moving: movingNow,   // ?subbudgetmove・レンダラの運動判定（draw(opts.moving)）を gint の細分へ
 			facesInAtlas: gnd.fillsIn,       // gint の面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 		} : null;
 		return fogAnimating || fading || csPending > 0 || !!(sceneOpt && sceneOpt.rain && !flat2d);   // 雨＝筋と波紋が動く間は連続フレーム   // fading＝クロスフェード進行中も連続フレーム・csPending＝CustomShader のパイプラインを組み中（出来たら描き直す）

@@ -1789,6 +1789,7 @@ renderer.set("view", { clear, clearAlpha, land, atmo, bldColor, showRail: false,
 	// ?subbudget=N＝1 層 1 フレームの区間予算（既定 150 万）・?submove=K＝運動中は N を 1/2^K（既定 1）・-1＝運動中は細分しない。まず試験用ノブ（device-testing-rule）
 	gintSubBudget: qNum(/[?&]subbudget=(\d+)/, 0),
 	gintSubMove: qNum(/[?&]submove=(-?\d)/, 1),
+	gintSubBudgetMove: qNum(/[?&]subbudgetmove=(\d+)/, 0),   // 運動中だけの予算（0＝subbudget と同じ）。2026-11-08 Galaxy：subbudget=200000 で国境線 100→13 ms・8〜12 秒のコマ数 2.6 倍
 	dashDz: STYLE_DZ,   // 破線（core S-P1-3）の段＝外来 style の floor(z)（MapLibre の tileZoom）
 	gintFarPivot: !/[?&]nofarpivot=1/.test(location.search),   // ?nofarpivot=1＝塗り扇の遠方の要（画面カリング）を切る＝旧挙動との見比べ用   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),

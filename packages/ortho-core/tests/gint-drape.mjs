@@ -147,6 +147,10 @@ console.log('■ subPlan：バケット別 N・skip 下限・予算');
 	ok(subPlan({ ...dep, subBudget: 0 }, big).total === pb.total, 'subbudget=0＝既定予算');
 	const pbs = subPlan({ ...dep, subBudget: 100_000 }, big);
 	ok(pbs.total <= 100_000 && pbs.skipE7 >= pb.skipE7, `subbudget=100000＝total ${pbs.total}・skip ${pbs.skipE7}`);
+	// 運動中だけの予算（?subbudgetmove）：静止＝既定予算・運動中＝小さい予算
+	const dm = { ...dep, subBudgetMove: 100_000 };
+	ok(subPlan(dm, big, false).total === pb.total, 'subbudgetmove は静止に効かない');
+	ok(subPlan(dm, big, true).total <= 100_000, `subbudgetmove=100000＝運動中 total ${subPlan(dm, big, true).total}`);
 }
 console.log('■ drapeSubs：ハイライト用の一様 N');
 {
