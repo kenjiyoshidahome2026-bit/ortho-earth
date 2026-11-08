@@ -1792,7 +1792,9 @@ renderer.set("view", { clear, clearAlpha, land, atmo, bldColor, showRail: false,
 	// gint 線（NE 国境線・海岸線など）の地形適応細分の絞り（2026-11-08・Galaxy 4GB の京都→日本の滑走で z15→z7.6 が 2〜14 fps＝国境線×地形の組み合わせが主因）。
 	// ?subbudget=N＝1 層 1 フレームの区間予算（既定 150 万）・?submove=K＝運動中は N を 1/2^K（既定 1）・-1＝運動中は細分しない。まず試験用ノブ（device-testing-rule）
 	gintSubBudget: qNum(/[?&]subbudget=(\d+)/, 0),
-	gintSubMove: qNum(/[?&]submove=(-?\d)/, 1),
+	// 運動中の細分の段下げ。4GB 機（LOW_MEM）は既定 -1＝動く間は細分しない（本人裁定 2026-11-08：国境線の描画 65〜72→5〜6 ms・z15→z7.6 の区間のコマ数 3.6 倍。
+	// 国境線（admin0）は z9 より引いた時だけ出るので動く間の見た目の差は小さい。止まると従来の全密度）。?submove=1 で従来（半分）。デスクトップは既定 1
+	gintSubMove: qNum(/[?&]submove=(-?\d)/, LOW_MEM ? -1 : 1),
 	// 運動中だけの予算（0＝subbudget と同じ）。4GB 機（LOW_MEM）は既定 200000（本人裁定 2026-11-08：国境線の描画 65〜72→11 ms・z15→z7.6 の区間のコマ数 2.7 倍・
 	// 止まった絵は従来の予算に戻る＝静止画は同じ）。?subbudgetmove=0 で切る。デスクトップは既定 0
 	gintSubBudgetMove: qNum(/[?&]subbudgetmove=(\d+)/, LOW_MEM ? 200000 : 0),
