@@ -31,7 +31,7 @@ export interface CzmlStyle {
 	point: { size: number; color: string; outline: string | null; outlineWidth: number; show: unknown } | null;
 	image: { src: string; scale: number; offset: [number, number]; show: unknown; sbd?: number[] | null; tbd?: number[] | null } | null;   // sbd／tbd＝Cesium の scaleByDistance／translucencyByDistance（NearFarScalar の [near, nearValue, far, farValue]）
 	label: { text: string | null; color: string; outline?: string; px: number; offset: [number, number]; align: string; show: unknown; sbd?: number[] | null; tbd?: number[] | null; bg?: string | null; bgPad?: [number, number] } | null;   // bg／bgPad＝Cesium の showBackground の色と余白（px）
-	path: { show: unknown; width: number; color: string; lead: unknown; trail: unknown; resolution: unknown; relativeTo?: string | null; frame?: "fixed" | "inertial" | null } | null;
+	path: { show: unknown; width: number; color: string; lead: unknown; trail: unknown; resolution: unknown; relativeTo?: string | null; frame?: "fixed" | "inertial" | null; /** polylineOutline: a line of the full width in this colour under a core of width − outline.width (Cesium PolylineOutline: interior = width − outlineWidth) */ outline?: { color: string; width: number } | null } | null;
 }
 /** CZML の色（rgba 0..255・rgbaf 0..1・入れ子の material） */
 interface CzColor { color?: unknown; solidColor?: unknown; polylineOutline?: unknown; polylineGlow?: unknown; polylineArrow?: unknown; polylineDash?: unknown; rgba?: number[]; rgbaf?: number[] }
@@ -208,6 +208,13 @@ export function colorOf<D = null>(c: unknown, dflt: D = null as D): string | D {
 	const q = Array.isArray((c as CzColor).rgba) ? ((c as CzColor).rgba!.length > 4 ? (c as CzColor).rgba!.slice(1, 5) : (c as CzColor).rgba!).map((v, i) => i < 3 ? v : v / 255) : Array.isArray((c as CzColor).rgbaf) ? ((c as CzColor).rgbaf!.length > 4 ? (c as CzColor).rgbaf!.slice(1, 5) : (c as CzColor).rgbaf!).map((v, i) => i < 3 ? v * 255 : v) : null;
 	return q ? `rgba(${Math.round(q[0])},${Math.round(q[1])},${Math.round(q[2])},${+(q[3] ?? 1).toFixed(3)})` : dflt;
 }
+// polylineOutline の縁（outlineColor・outlineWidth＝既定 黒・1 px）｜null（縁の無い模様）
+const outlineOf = (m: unknown): { color: string; width: number } | null => {
+	const po = (Array.isArray(m) ? m[0] : m as { polylineOutline?: { outlineColor?: unknown; outlineWidth?: unknown } } | null)?.polylineOutline;
+	if (!po) return null;
+	const w = Number(po.outlineWidth ?? 1);
+	return w > 0 ? { color: colorOf(po.outlineColor, "rgba(0,0,0,1)"), width: w } : null;
+};
 const offsetOf = (v: unknown): [number, number] => Array.isArray((v as { cartesian2?: unknown })?.cartesian2) ? [+(v as { cartesian2: number[] }).cartesian2[0] || 0, +(v as { cartesian2: number[] }).cartesian2[1] || 0] : [0, 0];
 // 文字の大きさ（CSS の font の最初の「数 pt|px」）。正規表現 /(\d+(?:\.\d+)?)\s*(pt|px)/ と同じ答えを一度の走査で（数字の長い列で二乗にならない）
 const isDigit = (s: string, i: number): boolean => { const c = s.charCodeAt(i); return c >= 48 && c <= 57; };
@@ -240,6 +247,6 @@ export function styleOf(f: CzmlFeature | null | undefined): CzmlStyle {
 		image: bb && imageOf(bb.image) ? { src: imageOf(bb.image)!, scale: +bb.scale! || 1, offset: offsetOf(bb.pixelOffset), show: bb.show ?? true } : null,
 		label: lb && textOf(lb.text) != null ? { text: textOf(lb.text), color: colorOf(lb.fillColor, "rgba(255,255,255,1)"), outline: colorOf(lb.outlineColor, "rgba(0,0,0,1)"), px: fontPx(lb.font) * (+lb.scale! || 1),
 			offset: offsetOf(lb.pixelOffset), align: String(lb.horizontalOrigin || "CENTER").toLowerCase(), show: lb.show ?? true } : null,
-		path: ph ? { show: ph.show ?? true, width: +ph.width! || 1, color: colorOf(ph.material, "rgba(255,255,255,1)"), lead: ph.leadTime ?? null, trail: ph.trailTime ?? null, resolution: ph.resolution ?? 60, relativeTo: typeof ph.relativeTo === "string" ? ph.relativeTo : null } : null,
+		path: ph ? { show: ph.show ?? true, width: +ph.width! || 1, color: colorOf(ph.material, "rgba(255,255,255,1)"), lead: ph.leadTime ?? null, trail: ph.trailTime ?? null, resolution: ph.resolution ?? 60, relativeTo: typeof ph.relativeTo === "string" ? ph.relativeTo : null, outline: outlineOf(ph.material) } : null,
 	};
 }

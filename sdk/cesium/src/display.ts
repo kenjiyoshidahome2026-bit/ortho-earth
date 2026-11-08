@@ -193,6 +193,13 @@ function corridorRing(ps: Cartesian3[], width: number): number[][] {
 	return ring;
 }
 
+/** a path's PolylineOutline (czml-path): the czml overlay draws the full width in outlineColor under a core of width − outlineWidth, as styledLines does for polylines */
+function pathOutline(m: Any, t: JulianDate): { color: string; width: number } | null {
+	if (m?.getType?.(t) !== "PolylineOutline") return null;
+	const u = m.getValue(t, {}) ?? {}, w = u.outlineWidth ?? 1;
+	return w > 0 ? { color: css(u.outlineColor, Color.BLACK), width: w } : null;
+}
+
 /** a polyline's material as the overlay draws it: outline = a wider line under, glow = fading wider lines, dash and arrow = the overlay's own */
 function styledLines(p: number[], m: Any, t: JulianDate, col: Color, width: number): Desc["lines"] {
 	const type = m?.getType?.(t), u = type ? m.getValue(t, {}) ?? {} : {};
@@ -575,8 +582,11 @@ export class EntityDisplay {
 			if (text != null && text !== "") {
 				const px = fontPx(val(lb.font, t, "30px sans-serif")) * val(lb.scale, t, 1);
 				const st = val(lb.style, t, LabelStyle.FILL), off: Cartesian2 = val(lb.pixelOffset, t, Cartesian2.ZERO);
-				const ho = val(lb.horizontalOrigin, t, HorizontalOrigin.CENTER), vo = val(lb.verticalOrigin, t, VerticalOrigin.BASELINE);
-				const oy = off.y + (vo === VerticalOrigin.BOTTOM || vo === VerticalOrigin.BASELINE ? -px / 2 : vo === VerticalOrigin.TOP ? px / 2 : 0);
+				// an entity label's origin defaults to CENTER/CENTER (Cesium LabelVisualizer; a LabelCollection Label's BASELINE comes in set by collections.ts).
+				// Before 2026-11-08 the default was BASELINE = the text sat px/2 above its point (labels: "Philadelphia" 15 px high). BASELINE = the baseline
+				// on the point: the box centre is px/2 − the descent (≈0.2 em) above it
+				const ho = val(lb.horizontalOrigin, t, HorizontalOrigin.CENTER), vo = val(lb.verticalOrigin, t, VerticalOrigin.CENTER);
+				const oy = off.y + (vo === VerticalOrigin.BOTTOM ? -px / 2 : vo === VerticalOrigin.BASELINE ? -px * 0.3 : vo === VerticalOrigin.TOP ? px / 2 : 0);
 				style.label = {
 					sbd: nfOf(val(lb.scaleByDistance, t)), tbd: nfOf(val(lb.translucencyByDistance, t)),
 					text: String(text), px, offset: [off.x, oy], align: ho === HorizontalOrigin.LEFT ? "left" : ho === HorizontalOrigin.RIGHT ? "right" : "center", show: true,
@@ -592,7 +602,7 @@ export class EntityDisplay {
 			dyn(ph.width, ph.material, ph.leadTime, ph.trailTime, ph.relativeTo);
 			// the frame the path is drawn in (Cesium's PathVisualizer): relativeTo "FIXED" / "INERTIAL" / an entity id (the VVLH frame of that entity), else the position's own frame (inertial = the orbit's ellipse)
 			const rel = val(ph.relativeTo, t, null), own = e.position?.referenceFrame === ReferenceFrame.INERTIAL ? "inertial" : "fixed";
-			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60), relativeTo: rel == null || rel === "FIXED" || rel === "INERTIAL" ? null : String(rel), frame: rel === "FIXED" ? "fixed" : rel === "INERTIAL" ? "inertial" : own };
+			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), outline: pathOutline(ph.material, t), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60), relativeTo: rel == null || rel === "FIXED" || rel === "INERTIAL" ? null : String(rel), frame: rel === "FIXED" ? "fixed" : rel === "INERTIAL" ? "inertial" : own };
 		}
 		if (e.position && (style.point || style.image || style.label || style.path)) {
 			const s = this.#clampMarks(e, t, r, this.#samples(e, t, r));
