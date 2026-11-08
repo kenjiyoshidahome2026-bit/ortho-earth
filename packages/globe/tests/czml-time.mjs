@@ -100,6 +100,8 @@ console.log("― 見た目（styleOf・段 3）―");
 	ok(st.path && st.path.color === "rgba(255,0,255,1)" && st.path.resolution === 120 && Array.isArray(st.path.lead) && boolAt(st.path.show, Date.parse("2012-03-15T12:00:00Z")) && !boolAt(st.path.show, Date.parse("2012-03-17T00:00:00Z")), "path（material の色・resolution・時刻付きの leadTime・show の区間）");
 	const g = styleOf({ type: "Feature", geometry: { type: "LineString", coordinates: [] }, properties: { name: "walk", time: [] } });
 	ok(g.point && g.path?.lead === 0 && g.path.trail === null && g.label?.text === "walk", "見た目の指定が無い（GPX）＝点＋今までの軌跡＋名前の札");
+	{ const po = styleOf({ type: "Feature", geometry: { type: "LineString", coordinates: [] }, properties: { czml: { path: { width: 8, material: { polylineOutline: { color: { rgba: [255, 0, 255, 255] }, outlineColor: { rgba: [0, 255, 255, 255] }, outlineWidth: 5 } } } } } }).path;
+	  ok(po?.color === "rgba(255,0,255,1)" && po.outline?.color === "rgba(0,255,255,1)" && po.outline.width === 5 && po.width === 8, "path の polylineOutline＝芯の色＋縁（色・幅）（czml-path）"); }
 	ok(colorOf({ rgbaf: [1, 0.5, 0, 0.5] }) === "rgba(255,128,0,0.5)" && colorOf({ solidColor: { color: { rgba: [0, 255, 0, 255] } } }) === "rgba(0,255,0,1)", "色（rgbaf・material の solidColor）");
 }
 

@@ -72,6 +72,8 @@ const movingShape = (e: Any, name: string, t: JulianDate): string | null => {
 const nfOf = (v: Any): number[] | null => v && Number.isFinite(v.near) ? [v.near, v.nearValue, v.far, v.farValue] : null;
 const isConst = (p: Any) => p == null || Property.isConstant(p);
 const css = (c: Color | undefined, d = Color.WHITE) => (c ?? d).toCssColorString();
+/** an entity outline's width on screen: Cesium's outlineWidth only reaches gl.lineWidth, which ANGLE clamps to 1 (maximumAliasedLineWidth) */
+const OUTLINE_PX = 1;
 const rgbAlpha = (c: Color | undefined, d = Color.WHITE): [string, number] => { const k = c ?? d; return [Color.fromAlpha(k, 1).toCssColorString(), k.alpha]; };
 /** the colour a material shows (ColorMaterialProperty, the polyline materials, stripe/grid/checker): its uniforms' color */
 function materialColor(m: Any, t: JulianDate, d = Color.WHITE): Color {
@@ -191,6 +193,13 @@ function corridorRing(ps: Cartesian3[], width: number): number[][] {
 	}
 	const ring = [...left, ...right.reverse()]; ring.push(ring[0]);
 	return ring;
+}
+
+/** a path's PolylineOutline (czml-path): the czml overlay draws the full width in outlineColor under a core of width − outlineWidth, as styledLines does for polylines */
+function pathOutline(m: Any, t: JulianDate): { color: string; width: number } | null {
+	if (m?.getType?.(t) !== "PolylineOutline") return null;
+	const u = m.getValue(t, {}) ?? {}, w = u.outlineWidth ?? 1;
+	return w > 0 ? { color: css(u.outlineColor, Color.BLACK), width: w } : null;
 }
 
 /** a polyline's material as the overlay draws it: outline = a wider line under, glow = fading wider lines, dash and arrow = the overlay's own */
@@ -529,7 +538,7 @@ export class EntityDisplay {
 					g.fill.push(inst);
 					g.closed = (g.closed ?? true) && !!u.isClosed;   // Cesium's fill appearance is closed when the updater's geometry is (back faces culled: a translucent cylinder shows one wall)
 				}
-				if (u.outlineEnabled) { g.outline.push(u.createOutlineGeometryInstance(t)); g.width = Math.max(g.width, u.outlineWidth ?? 1); }
+				if (u.outlineEnabled) g.outline.push(u.createOutlineGeometryInstance(t));   // width stays 1: Cesium draws entity outlines as gl.LINES and outlineWidth is clamped to maximumAliasedLineWidth = 1 on ANGLE (Chrome everywhere, the Mac gate); 4 px outlines framed every shape in geometry-and-appearances (2026-11-08)
 			} catch (err) { done.delete(name); console.warn("[csshim] entity", name, err); }
 			finally { u.destroy?.(); }
 		}
@@ -575,8 +584,11 @@ export class EntityDisplay {
 			if (text != null && text !== "") {
 				const px = fontPx(val(lb.font, t, "30px sans-serif")) * val(lb.scale, t, 1);
 				const st = val(lb.style, t, LabelStyle.FILL), off: Cartesian2 = val(lb.pixelOffset, t, Cartesian2.ZERO);
-				const ho = val(lb.horizontalOrigin, t, HorizontalOrigin.CENTER), vo = val(lb.verticalOrigin, t, VerticalOrigin.BASELINE);
-				const oy = off.y + (vo === VerticalOrigin.BOTTOM || vo === VerticalOrigin.BASELINE ? -px / 2 : vo === VerticalOrigin.TOP ? px / 2 : 0);
+				// an entity label's origin defaults to CENTER/CENTER (Cesium LabelVisualizer; a LabelCollection Label's BASELINE comes in set by collections.ts).
+				// Before 2026-11-08 the default was BASELINE = the text sat px/2 above its point (labels: "Philadelphia" 15 px high). BASELINE = the baseline
+				// on the point: the box centre is px/2 − the descent (≈0.2 em) above it
+				const ho = val(lb.horizontalOrigin, t, HorizontalOrigin.CENTER), vo = val(lb.verticalOrigin, t, VerticalOrigin.CENTER);
+				const oy = off.y + (vo === VerticalOrigin.BOTTOM ? -px / 2 : vo === VerticalOrigin.BASELINE ? -px * 0.3 : vo === VerticalOrigin.TOP ? px / 2 : 0);
 				style.label = {
 					sbd: nfOf(val(lb.scaleByDistance, t)), tbd: nfOf(val(lb.translucencyByDistance, t)),
 					text: String(text), px, offset: [off.x, oy], align: ho === HorizontalOrigin.LEFT ? "left" : ho === HorizontalOrigin.RIGHT ? "right" : "center", show: true,
@@ -592,7 +604,7 @@ export class EntityDisplay {
 			dyn(ph.width, ph.material, ph.leadTime, ph.trailTime, ph.relativeTo);
 			// the frame the path is drawn in (Cesium's PathVisualizer): relativeTo "FIXED" / "INERTIAL" / an entity id (the VVLH frame of that entity), else the position's own frame (inertial = the orbit's ellipse)
 			const rel = val(ph.relativeTo, t, null), own = e.position?.referenceFrame === ReferenceFrame.INERTIAL ? "inertial" : "fixed";
-			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60), relativeTo: rel == null || rel === "FIXED" || rel === "INERTIAL" ? null : String(rel), frame: rel === "FIXED" ? "fixed" : rel === "INERTIAL" ? "inertial" : own };
+			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), outline: pathOutline(ph.material, t), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60), relativeTo: rel == null || rel === "FIXED" || rel === "INERTIAL" ? null : String(rel), frame: rel === "FIXED" ? "fixed" : rel === "INERTIAL" ? "inertial" : own };
 		}
 		if (e.position && (style.point || style.image || style.label || style.path)) {
 			const s = this.#clampMarks(e, t, r, this.#samples(e, t, r));
@@ -642,11 +654,11 @@ export class EntityDisplay {
 			if (o.outline) {
 				const [lc, lo] = rgbAlpha(o.outlineColor, Color.BLACK);
 				if (!ext || !o.top) {
-					for (const p of polys) for (const ring of p) d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: ring }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: Math.max(1, o.outlineWidth) } });
+					for (const p of polys) for (const ring of p) d.shapes.push({ type: "Feature", geometry: { type: "LineString", coordinates: ring }, properties: { _id: id, _k: "line", _lc: lc, _lo: lo, _lw: OUTLINE_PX } });
 				} else {
 					for (const p of polys) for (const ring of p) {
-						for (const hh of [o.base ?? 0, o.top]) d.lines.push({ p: ring.flatMap(([x, y]) => { const q = ecef(x, y, hh); return [q.x, q.y, q.z]; }), color: css(o.outlineColor, Color.BLACK), width: Math.max(1, o.outlineWidth) });
-						for (const [x, y] of ring.slice(0, -1)) { const a = ecef(x, y, o.base ?? 0), b = ecef(x, y, o.top); d.lines.push({ p: [a.x, a.y, a.z, b.x, b.y, b.z], color: css(o.outlineColor, Color.BLACK), width: Math.max(1, o.outlineWidth) }); }
+						for (const hh of [o.base ?? 0, o.top]) d.lines.push({ p: ring.flatMap(([x, y]) => { const q = ecef(x, y, hh); return [q.x, q.y, q.z]; }), color: css(o.outlineColor, Color.BLACK), width: OUTLINE_PX });
+						for (const [x, y] of ring.slice(0, -1)) { const a = ecef(x, y, o.base ?? 0), b = ecef(x, y, o.top); d.lines.push({ p: [a.x, a.y, a.z, b.x, b.y, b.z], color: css(o.outlineColor, Color.BLACK), width: OUTLINE_PX }); }
 					}
 				}
 			}

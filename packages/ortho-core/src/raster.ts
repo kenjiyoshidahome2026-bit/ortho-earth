@@ -63,10 +63,13 @@ interface Layer {
  *  the terrain tile level L is the coarsest whose geometric error E0/2^L (E0 = R·2π/512: a 64-sample heightmap, 2 tiles at level 0) is ≤ sse metres-per-pixel,
  *  then the imagery level is round(log2(T0/E_L)) with T0 = R·2π·cosφ/tileSize (Web Mercator, φ the latitude) = L + round(log2(512·cosφ/tileSize)).
  *  A Web Mercator tile is R·2π·cosφ/(2^z·m) px on screen (m metres per px), so "z ≥ that level" ⇔ the tile is ≤ 512·sse·cosφ/2^k px (k = that round).
- *  For 256-px tiles at 40°N this is 392 px (the globe's own rule splits at 282): labels come out at Cesium's size, not half of it (google-2d-tiles, 2026-10-31) */
+ *  For 256-px tiles at 40°N this is 392 px on screen (the globe's own rule splits at 282): labels come out at Cesium's size, not half of it (google-2d-tiles, 2026-10-31).
+ *  selectLOD measures a tile as its equator width 2π/2^z (tilecover.ts tileMetrics, no cosφ), i.e. 1/cosφ larger than on screen, so the threshold it gets is
+ *  512·sse/2^k (the cosφ cancels; k keeps it). Before 2026-11-08 cosφ was applied twice and the facade took one z finer than Cesium wherever Cesium's level
+ *  sat within log2(1/cosφ) of its rounding point (bing-maps-labels-only at 38.9°N: z12 vs Cesium's z11, labels half size) */
 export function cesiumTilePx(sse: number, latDeg: number, tileSize = 256): number {
 	const c = Math.max(1e-3, Math.cos(Math.min(89.9, Math.abs(latDeg || 0)) * Math.PI / 180)), k = Math.round(Math.log2(512 * c / (tileSize || 256)));
-	return 512 * sse * c / 2 ** k;
+	return 512 * sse / 2 ** k;
 }
 
 const keyOf = (z: number, x: number, y: number): string => `${z}/${x}/${y}`;

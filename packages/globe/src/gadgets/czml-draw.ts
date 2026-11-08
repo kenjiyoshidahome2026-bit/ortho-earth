@@ -327,12 +327,14 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		const rel = ph?.relativeTo ? tracks.find(x => x.id === ph.relativeTo) ?? null : null;   // path.relativeTo＝その軌跡から見た相対の尾（無い id は尾を描かない＝Cesium と同じ）
 		if (ph && boolAt(ph.show, ms, true) && (!ph.relativeTo || rel)) {
 			const times = pathTimes(tr, ms, { lead: numberAt(ph.lead, ms, null), trail: numberAt(ph.trail, ms, null), resolution: numberAt(ph.resolution, ms, 60) });
-			const lw = ph.width * dpr, out: number[] = [];
+			// polylineOutline（czml-path）＝全幅を縁の色で描き、その上に width − outlineWidth の芯（Cesium の PolylineOutline の interior と同じ）
+			const ol = ph.outline && ph.outline.width > 0 ? ph.outline : null, lw = ph.width * dpr, cw = ol ? Math.max(1, ph.width - ol.width) * dpr : lw, out: number[] = [], under: number[] = [];
 			let run: RunPt[] = [];
-			const flush = () => { for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0, run[i][2] ?? 0, run[i + 1][2] ?? 0); run = []; };   // 継ぎは丸・尾の端は butt
+			const flush = () => { for (let i = 0; i + 1 < run.length; i++) { const a = run[i], b = run[i + 1], j0 = i > 0 ? 1 : 0, j1 = i + 2 < run.length ? 1 : 0; out.push(a[0], a[1], b[0], b[1], cw, j0, j1, a[2] ?? 0, b[2] ?? 0); if (ol) under.push(a[0], a[1], b[0], b[1], lw, j0, j1, a[2] ?? 0, b[2] ?? 0); } run = []; };   // 継ぎは丸・尾の端は butt
 			for (const t of times) { const q = pathPositionAt(tr, t, ms, rel, ph.frame ?? null), P = q && toScreen(q); if (!P) { flush(); continue; } run.push(P); }
 			flush();
-			stroke(out, rgbaOf(ph.color), lw);
+			if (ol) stroke(under, rgbaOf(ol.color), lw);
+			stroke(out, rgbaOf(ph.color), cw);
 		}
 		const q = positionAt(tr, ms), P = q && toScreen(q);
 		if (P) marks.push([P, st, tr, q!]);
