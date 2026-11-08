@@ -28,7 +28,7 @@ import { csViewMat, csPackUniforms, CS_CU_HEAD } from "../csshader.ts";   // Ces
 import type { CsSpec, CsMeta } from "../csshader.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
-import { elevCheapWgsl, FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, MESH_SIL_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
+import { elevCheapWgsl, FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_LITE_WGSL, MESH_TEX_WGSL, MESH_SIL_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
 	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL,
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
@@ -96,6 +96,8 @@ export interface RendererGPUOptions {
 	meshRange?: number;
 	/** 建物メッシュの裏面をラスタライザで捨てる（?meshcull=1＝back・2＝front・既定 0＝FS の判定だけ）。mesh worker が巻き順を法線に揃えて送る前提（meshwind.ts） */
 	meshCull?: number;
+	/** 動いている間だけの軽いピクセルシェーダ（?meshlitefs・1＝深度は画素で書く・2＝頂点だけ） */
+	meshLiteFs?: number;
 	/** 素の建物メッシュの束を目に近い順（手前→奥）に描く（?meshsort=1）＝奥の束の画素を早期深度で捨てる（塗りが床の端末の実験ノブ・2026-11-08） */
 	meshSort?: boolean;
 	/** 建物（基図の押し出し・PLATEAU）の頂点の標高を主アトラス 1 標本で引く（?elevcheap=1・既定オフ） */
@@ -489,6 +491,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 既定は従来（全部先に作る・ゲート頁の決定性）。label＝セット名.鍵＝トレースでどれが重いか読める（従来は全部 "None"）
 	const LAZY = !!rOpts.lazyPipes;
 	const MESH_CULL: GPUCullMode = rOpts.meshCull === 1 ? "front" : rOpts.meshCull === 2 ? "back" : "none";   // 1＝本当の裏面を捨てる。WebGPU の frontFace ccw はフレームバッファ座標（y 下向き）で数えるので、NDC で反時計回り＝外向きに揃えた三角形は "front" 側が裏面（2026-11-08 実機：back では建物が消えた）
+	const MESH_LITE_FS = rOpts.meshLiteFs || 0;   // ?meshlitefs＝間引き（meshshed）が点いている間だけ素の建物メッシュを軽いピクセルシェーダ（MESH_LITE_WGSL・cullMode front）で描く（2026-11-08）
+	if (MESH_LITE_FS > 0) console.log(`[gpu] meshlitefs=${MESH_LITE_FS}: lite fragment shader while moving (${MESH_LITE_FS >= 2 ? "vertex depth" : "frag_depth"})`);
 	const MESH_SORT = !!rOpts.meshSort;   // ?meshcull＝素の建物メッシュの裏面をラスタライザで捨てる（1＝back・2＝front＝向きの保険）。mesh worker が巻き順を法線に揃える（meshwind.ts）
 	// 描画の質の旗（#46・2026-09-26）＝globe の opts.render と ?fx= を boot/tier.js renderFx が裁いた結果（LOW_MEM・GL2 は全部 false）。
 	// 段 0 は旗を運ぶだけ＝段 1（atmosphere）・段 2（pbr）・段 3（ao）が順に読む。無指定＝全部 false＝従来の絵。
@@ -551,6 +555,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const bldMod = mkMod(BUILDING_WGSL, "building");
 	const contMod = mkMod(CONTOUR_WGSL, "contour");
 	const plMod = mkMod(MESH_WGSL, "mesh");
+	const plLiteMod = MESH_LITE_FS > 0 ? mkMod(MESH_LITE_WGSL, MESH_LITE_FS >= 2 ? "meshLite" : "mesh") : null;   // ?meshlitefs（1＝label mesh＝fragDepthWgsl が掛かる・2＝掛からない）
 	const plTexMod = mkMod(MESH_TEX_WGSL, "meshTex");
 	const plSilMod = mkMod(MESH_SIL_WGSL, "meshSil");
 	// 画像タイル層（raster.js・2026-09-21・RTT ドレープ）：アトラス合成パイプライン＝group(0)=per-tile UBO（dynamic offset）・group(1)=サンプラ＋テクスチャ（bglPlTex 流用）
@@ -697,6 +702,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
 			], dsWriteBld, "fs", plLayout, MESH_CULL, targetA),
+			meshLite: () => plLiteMod ? pipe(plLiteMod, [   // 動いている間だけの軽いピクセルシェーダ（?meshlitefs）＝巻き順を揃えた素の束だけ・裏面はラスタライザ（front＝meshcull=1 と同じ向き）
+				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
+			], dsWriteBld, "fs", plLayout, "front", targetA) : (null as unknown as GPURenderPipeline),
 			meshTex: () => pipe(plTexMod, [   // 模型（glb 直読み）＝メッシュ派生＋uv/頂点色＋テクスチャ group(3)
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
@@ -3586,14 +3595,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
 				const liteNow = meshLite();   // 動いている間だけの軽量 index（meshcull.ts・render worker が shed と同時に切り替える）
 				const cullPipe = MESH_CULL !== "none" ? PX.meshCull : null;   // ?meshcull＝巻き順を揃えた素の束は裏面をラスタライザで捨てる（橋梁 two・両面配信 noCull は従来の mesh）
-				const cullOf = (d: typeof draws[number]) => !!cullPipe && !d.p.textured && !d.p.two && !d.p.noCull;
+				const litePipe = liteNow && MESH_LITE_FS > 0 && PX === P ? P.meshLite : null;   // ?meshlitefs＝間引きが点いている間は軽いピクセルシェーダ（影・断面の派生の間は従来）
+				const cullOf = (d: typeof draws[number]) => (!!cullPipe || !!litePipe) && !d.p.textured && !d.p.two && !d.p.noCull;
 				const plainDraws = draws.filter(d => !d.p.textured);
 				if (MESH_SORT && plainDraws.length > 1) {   // ?meshsort=1＝手前→奥（片は束の origin を共有するので bbox の中心と目の経緯度の距離で）
 					const er = Math.hypot(ex[0], ex[1], ex[2]) || 1, eLat = Math.asin(Math.max(-1, Math.min(1, ex[1] / er))) * 180 / Math.PI, eLon = Math.atan2(ex[2], ex[0]) * 180 / Math.PI, cosE = Math.cos(eLat * Math.PI / 180);
 					const dE = (p: MeshBatch) => { const dx = ((p.bbox[0] + p.bbox[2]) / 2 - eLon) * cosE, dy = (p.bbox[1] + p.bbox[3]) / 2 - eLat; return dx * dx + dy * dy; };
 					plainDraws.sort((x, y) => dE(x.p) - dE(y.p));
 				}
-				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, plainDraws.filter(d => !cullOf(d))], [cullPipe!, cullPipe ? plainDraws.filter(cullOf) : []], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
+				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, plainDraws.filter(d => !cullOf(d))], [(litePipe || cullPipe)!, litePipe || cullPipe ? plainDraws.filter(cullOf) : []], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
 				const sils = draws.filter(d => d.p.textured && d.p.sil && !d.pre && !blendOf(d.p));   // 半透明の束は殻を出さない
 				meshStat.sil = sils.length;
 				if (sils.length) {   // 模型の輪郭線（Model.silhouette）＝模型より先に・深度を書かずに押し出した殻を塗る（模型が内側を塗り直す）。素の束縛（PB だけの group(2)）
@@ -3605,7 +3615,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					}
 				}
 				for (const [pipeline, list] of lists) {
-					const tx = pipeline !== meshPipe && pipeline !== cullPipe;
+					const tx = pipeline !== meshPipe && pipeline !== cullPipe && pipeline !== litePipe;
 					if (!list.length) continue;
 					pass.setPipeline(pipeline);
 					pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
