@@ -19,7 +19,7 @@
 //    blend/stencil はパイプライン焼き込み＝GL の「状態切替と退避復元」の踊りが構造ごと消える。
 //  ・stencil はパス先頭 stencilLoadOp:"clear"＋中間クリアは「フルスクリーン replace(0) 描き」（mid-pass clear が無いため）。
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
-import { pipeSet, lbl, named } from "./pipeset.ts";
+import { pipeSet, lbl, named, warmPipes } from "./pipeset.ts";
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.ts";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
 import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns } from "../gint/utility.ts";
@@ -56,6 +56,9 @@ export interface GintHost {
 	device: GPUDevice; format: GPUTextureFormat; samples?: number; quad4?: boolean; gpuErrors?: string[];
 	/** パイプラインを初回使用時に作る（renderer の lazyPipes＝?lazypipe=1） */
 	lazyPipes?: boolean;
+	/** 線のパイプライン（line/lineTest/lineHidden）を起動の MS 後に createRenderPipelineAsync で先に作る（?gintwarm=MS・0＝しない）。
+	 *  2026-11-08 Galaxy 京都→日本の滑走：z9 より引いて国境線（admin0）が初めて描かれる時に gintSB1x.lineTest 768 ms＋lineHidden 638 ms をその場で同期コンパイル＝合計 1.3 秒の止まり */
+	gintWarm?: number;
 	frameInfo(): GintFrame | null;
 	passTS?: (tag: string) => GPURenderPassTimestampWrites | undefined;
 	clipInfo?: () => GintClipInfo | null;
@@ -323,6 +326,15 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	const pipesFor = (sc: number, sb: boolean, clip = false) => { const k = `${sb ? "b" : "t"}#${sc}${clip ? "#c" : ""}`; let p = pipeSets.get(k); if (!p) { p = buildPipes(sc, sb, clip); pipeSets.set(k, p); } return p; };   // #c＝断面の派生
 	pipesFor(host.samples || 4, false);
 	if (SB) pipesFor(host.samples || 4, true);   // 品質段は生成時に先行コンパイル（renderworker の gint init検証スコープで検札）。1x は初の遷移フレームで遅延生成
+	// 線 3 本の先行コンパイル（?gintwarm=MS・lazy の時だけ意味がある）：起動の山（タイル復号・本体 10 本の暖機）を避けて MS 後に Async で。間に合わなければ従来どおり初回使用時の同期生成。
+	// 的＝品質段のセット＋遷移の 1x セット（4GB 機は msaa なし＝同じ 1 組）。storage 経路が使えるなら SB 側（層は sbReady で SB を選ぶ）
+	if (LAZY && host.gintWarm! > 0) {
+		setTimeout(() => {
+			const q = host.samples || 4, KEYS = ["lineTest", "lineHidden", "line"] as const, t0 = performance.now();
+			const sets = q > 1 ? [pipesFor(q, SB), pipesFor(1, SB)] : [pipesFor(1, SB)];
+			void Promise.all(sets.map(P => warmPipes(P, device, KEYS))).then(ws => { const made = ws.reduce((a, w) => a + w.made, 0), asked = ws.reduce((a, w) => a + w.asked, 0); console.log(`[gint/gpu] warm lines: ${made}/${asked} in ${(performance.now() - t0) | 0} ms`); }).catch(() => {});
+		}, host.gintWarm);
+	}
 
 	// ── ビュー状態 V（§10.1 第3ブロック＝据え置き。drawdata.js が第一引数で読む/書く）──
 	const V: ViewState = { width: 0, height: 0, dpr: 1, cam: null, lastViewBbox: null };

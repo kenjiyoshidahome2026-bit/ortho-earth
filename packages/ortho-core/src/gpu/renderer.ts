@@ -86,6 +86,7 @@ export interface RendererGPUOptions {
 	 *  同じ 10 本が eager（起動直後・GPU プロセスが暇）では計 0.2 秒、lazy（初回描画の最中・タイル復号と競合）では 4.2 秒＝作る「時機」で 20 倍違う */
 	warmPipes?: number;
 	warmPar?: number;   // ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に・既定 0）
+	gintWarm?: number;   // ?gintwarm=MS＝gint の線パイプライン 3 本を起動 MS 後に先行コンパイル（gint.ts・0＝しない）
 	noMD?: boolean;   // タイル GPU 常駐プールを切る（?nomd=1・LOW_MEM＝scene worker は CPU merge フォールバック）
 	/** 建物メッシュの LOD 打ち切りの倍率（?meshlod=N＝画面 N px 未満の建物を描かない・既定 1） */
 	meshLod?: number;
@@ -4046,7 +4047,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	device.popErrorScope().then(e => { if (e) gpuErr("init検証", e.message); }).catch(() => {});
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
-	return { set, draw, flush, readback, dispose, lazyPipes: LAZY, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
+	return { set, draw, flush, readback, dispose, lazyPipes: LAZY, gintWarm: rOpts.gintWarm! > 0 ? rOpts.gintWarm! : 0, md: !!md, mdMax: md ? MD_MAX_DRAWS : 0, mdDash: !NO_LX, pt: !!md, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		pipeLog,   // 作ったパイプラインの帳（label・ms・performance.now()）＝HUD の「遅いフレーム」行がどの本を頼んだ直後の詰まりかを読む（2026-11-07）
 		terrStats: () => ({ ...terrStat, coarse: terrCoarseOn, sub: { ...subStat } }),   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数。coarse＝粗い index で描いた（間引き幅・0＝本番）
