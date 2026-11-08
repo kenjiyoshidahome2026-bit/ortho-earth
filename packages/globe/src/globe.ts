@@ -1782,6 +1782,10 @@ function switchTheme(name: string) {
 renderer.set("view", { clear, clearAlpha, land, atmo, bldColor, showRail: false, sea: seaOf(bg), ...(opts.fog === false ? { fog: false } : {}),   // opts.fog:false＝霧を焚かない（MapLibre の口の既定）
 	...(opts.night === false && { night: false }),   // opts.night＝false：低ズームの夜面を描かない（MapLibre の口・公式例の門 段 2）
 	gintSub: !/[?&]nosub=1/.test(location.search),
+	// gint 線（NE 国境線・海岸線など）の地形適応細分の絞り（2026-11-08・Galaxy 4GB の京都→日本の滑走で z15→z7.6 が 2〜14 fps＝国境線×地形の組み合わせが主因）。
+	// ?subbudget=N＝1 層 1 フレームの区間予算（既定 150 万）・?submove=K＝運動中は N を 1/2^K（既定 1）・-1＝運動中は細分しない。まず試験用ノブ（device-testing-rule）
+	gintSubBudget: qNum(/[?&]subbudget=(\d+)/, 0),
+	gintSubMove: qNum(/[?&]submove=(-?\d)/, 1),
 	dashDz: STYLE_DZ,   // 破線（core S-P1-3）の段＝外来 style の floor(z)（MapLibre の tileZoom）
 	gintFarPivot: !/[?&]nofarpivot=1/.test(location.search),   // ?nofarpivot=1＝塗り扇の遠方の要（画面カリング）を切る＝旧挙動との見比べ用   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),

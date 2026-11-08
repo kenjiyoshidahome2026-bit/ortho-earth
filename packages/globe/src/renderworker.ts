@@ -77,7 +77,7 @@ interface RenderBackendGPU extends RenderBackend {
 	boot?: { adapterMs: number; deviceMs: number; initMs: number };
 }
 /** gint.stats() の計器 */
-interface GintStats { drawn: number; fbo: number; pickMs: number; rank: number; tierW: number; edges: number; tiers: number; tiersDone: boolean; total: number; runs?: number; chunks?: number; vb?: number[] | null }
+interface GintStats { drawn: number; fbo: number; pickMs: number; rank: number; tierW: number; edges: number; tiers: number; tiersDone: boolean; total: number; runs?: number; chunks?: number; subs?: number; vb?: number[] | null }
 /** gint の層の口（既定層と addLayer の層に共通＝set の cmd が層を指名して呼ぶ） */
 interface GintLayerOps {
 	set(data: unknown, prop?: unknown): void; setSlot(slot: unknown): void; setBaked(data: unknown, prop?: unknown): void;

@@ -22,7 +22,13 @@ export interface DrawData {
 	farAxes?: number[]; farScale?: number[]; lodRank?: number; near?: number[];
 }
 /** 地形の依存（細分の計画が読む分） */
-export interface SubDep { noSub?: boolean; elevScale?: number; hasElev?: boolean | number; meshG?: number; meshQ?: ArrayLike<number> | null }
+export interface SubDep {
+	noSub?: boolean; elevScale?: number; hasElev?: boolean | number; meshG?: number; meshQ?: ArrayLike<number> | null;
+	/** 1 層 1 フレームのサブ区間予算（0/未指定＝SUB_BUDGET）。?subbudget=N（4GB 機の滑走で絞る候補・2026-11-08） */
+	subBudget?: number;
+	/** カメラ運動中の N の段下げ（2 の冪で 1/2^k・未指定＝1＝従来の半分）。-1＝運動中は細分しない（N 全 1＝従来経路）。?submove=K */
+	subMove?: number;
+}
 export interface SubPlan { N: Int32Array; skipE7: number; total: number }
 
 // Morton 整数（1e-7°）へ。antimeridian は下流の dlonE7 が畳むのでここは素直に。
@@ -178,20 +184,25 @@ export function subPlan(dep: SubDep | null | undefined, subRuns: readonly (reado
 	const N = new Int32Array(SUB_NB).fill(1);
 	const plan: SubPlan = { N, skipE7: 0, total: 0 };
 	if (!dep || dep.noSub || !(dep.elevScale! > 0) || !dep.hasElev || !(dep.meshG! > 1) || !dep.meshQ) return plan;
+	// 運動中の段下げ（?submove）：Galaxy 4GB の京都→日本の滑走（2026-11-08）で z15→z7.6 の間 2〜14 fps＝admin0（NE 50m・約 10 万辺）の
+	// 細分（予算いっぱい 150 万区間×頂点ごと 4 タップの標高）が主因の疑い。-1＝運動中は細分しない（静止の品質フレームで元に戻る）
+	const mv = dep.subMove ?? 1;
+	if (moving && mv < 0) return plan;
+	const budget = dep.subBudget! > 0 ? dep.subBudget! : SUB_BUDGET;
 	const cell = Math.min(dep.meshQ[2], dep.meshQ[3]) / (dep.meshG! - 1);   // 地形メッシュ 1 セル (deg・小さい側)
 	if (!(cell > 0)) return plan;
 	const cnt = new Float64Array(SUB_NB);
 	for (let b = 0; b < SUB_NB; b++) {
 		const cells = SUB_S0 * Math.pow(2, b + 1) * 1e-7 / cell;   // バケット上限スパンのセル数＝どの辺も区間 ≤ 1 セル
 		let n = 1; if (cells > 1) { n = 2; while (n < cells && n < SUB_MAX) n <<= 1; }
-		if (moving) n >>= 1;
+		if (moving) n >>= mv;
 		N[b] = Math.max(n, 1);
 		for (const r of (subRuns?.[b] ?? [])) cnt[b] += r[1];
 	}
 	// 予算＝細分パスの実費（N≥2 のバケットだけ。N=1 に落ちたバケットはメイン描画へ戻る＝費用は従来どおり）
 	const cost = (): number => { let t = 0; for (let b = 0; b < SUB_NB; b++) if (N[b] > 1) t += cnt[b] * N[b]; return t; };
 	let total = cost();
-	while (total > SUB_BUDGET) {
+	while (total > budget) {
 		let any = false;
 		for (let b = 0; b < SUB_NB; b++) if (N[b] > 1) { N[b] >>= 1; any = true; }
 		if (!any) break;
