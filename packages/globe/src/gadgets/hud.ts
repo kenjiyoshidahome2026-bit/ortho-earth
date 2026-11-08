@@ -10,7 +10,7 @@ import type { GlobeMap } from "../types/map.ts";
 export interface HudSnapshot {
 	device?: { dpr?: number; ua?: string; ram?: number; cores?: number; vw?: number; vh?: number; net?: string; down?: number };
 	budget: number; peak: number; total: number; backend?: string | null; gpuName?: string | null;
-	fps?: number | null; frameMs?: number; res?: number;
+	fps?: number | null; frameMs?: number; res?: number; shed?: number;
 	/** render worker の JS 時間（描いたフレームの部位別 EMA・ms）と窓内の最長 */
 	cpu?: { up: number; terr: number; map: number; gint: number; lab: number; ov: number; total: number; max: number } | null;
 	/** 注記（labels2d）の直近の描画：draw 全体の EMA・衝突判定・描いた注記と字の数 */
@@ -168,7 +168,7 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 			sec("Render") +
 			row("backend", beName(s.backend) + beNote, "val") +
 			row("FPS", s.fps ?? "–") +
-			row("frame", `${(s.frameMs || 0).toFixed(1)} ms` + note(`(×${(s.res ?? 1).toFixed(2)})`)) +   // フレーム時間と動的解像度を1行に
+			row("frame", `${(s.frameMs || 0).toFixed(1)} ms` + note(`(×${(s.res ?? 1).toFixed(2)}${(s.shed ?? 1) > 1 ? ` shed ×${s.shed}` : ""})`)) +   // フレーム時間と動的解像度を1行に
 			(s.cpu ? row("worker CPU", `${s.cpu.total.toFixed(1)} ms` + note(`max ${s.cpu.max.toFixed(0)}`)) +   // 描画 worker の JS 時間（frame との差＝描画以外の仕事・メッセージ処理など）
 				det(`upload ${s.cpu.up.toFixed(1)} · terrain ${s.cpu.terr.toFixed(1)} · map ${s.cpu.map.toFixed(1)} · lines ${s.cpu.gint.toFixed(1)} · labels ${s.cpu.lab.toFixed(1)} · overlays ${s.cpu.ov.toFixed(1)}`) : "") +
 			(s.lab ? row("labels", `${(s.lab.ms || 0).toFixed(1)} ms` + note(`collide ${(s.lab.collideMs || 0).toFixed(1)} · ${s.lab.labels || 0} labels · ${s.lab.glyphs || 0} glyphs` + (s.lab.baked != null ? ` · baked ${s.lab.baked} · kept ${s.lab.restored || 0}` : ""))) : "") +   // 注記の描画＝字を焼く時間が入る（起動時・?glyphms= で分ける）
@@ -198,7 +198,7 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 		lastSnap = s;
 		const now = performance.now(); if (now - lastRec < 950) return; lastRec = now;
 		const c = s.cpu, m = s.main;
-		log.push(`${new Date().toISOString().slice(11, 19)} fps ${s.fps ?? "-"} frame ${(s.frameMs || 0).toFixed(0)} res ${(s.res ?? 1).toFixed(2)} wcpu ${c ? c.total.toFixed(1) : "-"} (up ${c ? c.up.toFixed(1) : "-"} terr ${c ? c.terr.toFixed(1) : "-"} map ${c ? c.map.toFixed(1) : "-"} gint ${c ? c.gint.toFixed(1) : "-"} lab ${c ? c.lab.toFixed(1) : "-"} ov ${c ? c.ov.toFixed(1) : "-"}) main ${m ? m.ms.toFixed(0) + "/" + m.max.toFixed(0) : "-"} tiles ${mb(s.tiles.bytes)}/${mb(s.tiles.budget)} city ${s.mesh ? mb(s.mesh.bytes) + "/" + s.mesh.regions + "z" : "-"} gpu ${s.gpuBytes ? mb(s.gpuBytes) : "-"} total ${mb(s.total)}`);
+		log.push(`${new Date().toISOString().slice(11, 19)} fps ${s.fps ?? "-"} frame ${(s.frameMs || 0).toFixed(0)} res ${(s.res ?? 1).toFixed(2)} shed ${s.shed ?? 1} wcpu ${c ? c.total.toFixed(1) : "-"} (up ${c ? c.up.toFixed(1) : "-"} terr ${c ? c.terr.toFixed(1) : "-"} map ${c ? c.map.toFixed(1) : "-"} gint ${c ? c.gint.toFixed(1) : "-"} lab ${c ? c.lab.toFixed(1) : "-"} ov ${c ? c.ov.toFixed(1) : "-"}) main ${m ? m.ms.toFixed(0) + "/" + m.max.toFixed(0) : "-"} tiles ${mb(s.tiles.bytes)}/${mb(s.tiles.budget)} city ${s.mesh ? mb(s.mesh.bytes) + "/" + s.mesh.regions + "z" : "-"} gpu ${s.gpuBytes ? mb(s.gpuBytes) : "-"} total ${mb(s.total)}`);
 		if (log.length > LOG_S) log.shift();
 	}
 	function logText(): string {

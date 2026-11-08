@@ -7,6 +7,7 @@
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "@ortho-earth/core/labels";
 import { setPowerPreference, powerPreference, type GpuPowerPreference } from "@ortho-earth/core/gpupower";
+import { setMeshShed } from "@ortho-earth/core/meshcull";   // 動的な間引き（?meshshed=1）＝動的解像度の次の段（両 renderer が同じ module を読む）
 import { createGpuTextSink, createGpuText } from "@ortho-earth/core/textgpu";   // 注記の字（線に沿う・点）を WebGPU で（テキスト GPU 化 T-P1・T-P2・既定＝?text=2d でない時に据える）
 import { createGlyphStore, SDF_VER, type GlyphStore } from "@ortho-earth/core/glyphstore";
 import { warmFonts } from "./fontwarm.ts";   // ?fontwarm=2＝render worker で書体を温める   // 焼いた字の保存（IndexedDB GIS/glyph・?glyphdb=1）
@@ -106,7 +107,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
@@ -501,6 +502,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			if (m.glyphDb && labelGpuCanvas) glyphStore = createGlyphStore(() => Cache("GIS/glyph"), `${SDF_VER}|${navigator.userAgent}`);   // 読み込みは裏で＝来るまでに頼まれた字は従来どおり焼く   // ?glyphms=N＝字を焼く予算（ms/フレーム）＝起動の注記 1 フレーム 1.4 秒（タブレット）を数フレームに分ける計器（0＝従来）
 			elevBase = m.elevBase || 0; elevEarthM = m.earthM || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
+			shedOn = !!m.meshShed;
 			if (typeof m.resFix === "number" && m.resFix > 0) {   // ?res=0.7 等＝動的解像度をその段に固定（実機で「解像度を下げれば滑らかか」を切り分ける計器）
 				let bi = 0; RES_STEPS.forEach((v, i) => { if (Math.abs(v - m.resFix!) < Math.abs(RES_STEPS[bi] - m.resFix!)) bi = i; });
 				resIdx = bi; resFixed = true; scheduleRes();
@@ -882,6 +884,12 @@ let shadowEmaRaw = 0;   // 影の深度パス（#112 段 0）の GPU 時間 EMA�
 // （正規化しない＝「今の絵の実コスト」。gint を足すのが肝＝球ビューのデモ飛行は gint海岸線 ≫ map で、
 //   map単独だと総GPUが予算超過でも降段せず「スムーズな動きがなくなった」＝実機フルスクリーンで顕在化）
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
+// 動的な間引き（?meshshed=1・2026-11-08）＝解像度が床（0.55）でも busyMs > 24 の時、動いている間だけ PLATEAU 建物の LOD の物差しを
+// SHED_STEPS 倍（小さく見える建物から描かない）。復帰は解像度と同じ時計（静止 RES_SETTLE_MS で一気に 1・軽い連続描画で一段ずつ）。
+// 塗りの量でなく頂点・描画量が床の端末（Mali-G615：PLATEAU 3 区 257 MB で 1 フレーム 86〜105 ms・解像度を落としても不変）向け。
+// 速い端末では解像度が床に着かない＝決して発動しない。既定オフ（A/B）＝?meshshed=1 で有効
+const SHED_STEPS = [1, 2.5, 5, 8];
+let shedOn = false, shedIdx = 0;
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHoldUntil = 0, upStreak = 0, upDelay = 300;   // resHoldは時間制＝重いフレームでは「30枚」が数秒に化けて降段が間に合わない（ズームでガクつく）
 let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
 // 静止復帰：重いエピソード（デモ飛行など）は busyMs が終始高く upStreak を稼げない＝pendingUp が立たないまま静止に入り 0.55 に張り付く
@@ -1123,7 +1131,11 @@ function tuneRes(drew: boolean) {
 		const k = (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
 		gpuEmaRaw *= k; gintEmaRaw *= k;
 		console.log(`[render] dynamic res ↓ ×${RES_STEPS[resIdx]}`);
-	} else if (!resFixed && resIdx > 0 && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
+	} else if (shedOn && !resPinned && busyMs > 24 && shedIdx < SHED_STEPS.length - 1 && now - lastCamMoveT < RES_SETTLE_MS) {   // 録画中（resPinned）は間引かない＝映像に欠けた街を混ぜない
+		// 解像度は床（か固定）なのにまだ重い＝塗りでなく頂点・描画量が床＝動いている間だけ建物の間引きを一段強める（次のフレームから効く）
+		pendingUp = false; shedIdx++; setMeshShed(SHED_STEPS[shedIdx]); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800);
+		console.log(`[render] mesh shed ↓ ×${SHED_STEPS[shedIdx]}`);
+	} else if (!resFixed && (resIdx > 0 || shedIdx > 0) && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
 		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
 }
@@ -1284,13 +1296,17 @@ function frame() {
 		for (const key of ["up", "terr", "map", "gint", "lab", "ov"] as const) cpuEma[key] += (cpuAcc[key] - cpuEma[key]) * k;
 	}
 	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
-	if (!resFixed && !drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
-		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。
-		pendingUp = false; resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
-		console.log(`[render] dynamic res ↑ ×1 (idle restore)`);
+	if (!drew && (resIdx > 0 || shedIdx > 0) && nowT - lastDrewT > RES_SETTLE_MS && (!resFixed || shedIdx > 0)) {
+		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。間引きも同時に全部戻す
+		pendingUp = false; if (!resFixed) resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
+		if (shedIdx > 0) { shedIdx = 0; setMeshShed(1); console.log(`[render] mesh shed ↑ ×1 (idle restore)`); }
+		if (!resFixed) console.log(`[render] dynamic res ↑ ×1 (idle restore)`);
 	} else if (!resFixed && !drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
 		pendingUp = false;
-		if (resIdx > 0) {
+		if (shedIdx > 0) {   // 間引きを先に戻す（解像度より目に付く）
+			shedIdx--; setMeshShed(SHED_STEPS[shedIdx]); dirty = true; resHoldUntil = nowT + 700;
+			console.log(`[render] mesh shed ↑ ×${SHED_STEPS[shedIdx]} (applied at idle)`);
+		} else if (resIdx > 0) {
 			resIdx--; scheduleRes(); resHoldUntil = nowT + 700;
 			console.log(`[render] dynamic res ↑ ×${RES_STEPS[resIdx]} (applied at idle)`);
 		}
@@ -1304,7 +1320,7 @@ function frame() {
 		const fps = nowT > memLast ? Math.round(hudFrames * 1000 / (nowT - memLast)) : 0;
 		hudFrames = 0; memLast = nowT;
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
-			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
+			fps, frameMs: emaMs, res: RES_STEPS[resIdx], shed: SHED_STEPS[shedIdx], backend: backendName, gpuName: hudGpuName,
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
 			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length }, slow: slowFrames, pipes: pipesLate });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む

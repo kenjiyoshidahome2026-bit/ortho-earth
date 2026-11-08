@@ -24,6 +24,7 @@
 		"./f16": "./src/gpu/f16.ts",
 		"./gl": "./src/gl/backend.ts",
 		"./gpupower": "./src/gpupower.ts",
+		"./meshcull": "./src/meshcull.ts",
 		"./glyphstore": "./src/gpu/glyphstore.ts",
 		"./labels": "./src/labels2d.ts",
 		"./textgpu": {
