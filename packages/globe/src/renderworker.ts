@@ -889,7 +889,8 @@ const RES_STEPS = [1, 0.85, 0.7, 0.55];
 // 動的な間引き（?meshshed=1・2026-11-08）＝動いている間に busyMs > SHED_MS（40 ms）の時、解像度の梯子と並行して PLATEAU 建物を
 // 「高さ SHED_STEPS[i] m 未満は描かない」と段階的に強める（LOD_H の段 6/12/24 m・高い建物から残る）。復帰は解像度と同じ時計（静止 RES_SETTLE_MS で一気に 0・軽い連続描画で一段ずつ）。
 // 塗りの量でなく頂点・描画量が床の端末（Mali-G615：PLATEAU 3 区 257 MB で 1 フレーム 86〜105 ms・解像度を落としても不変）向け。
-// 速い端末では 40 ms に届かない＝決して発動しない（MacBook 実測 8〜14 ms）。既定オフ（A/B）＝?meshshed=1 で有効・?meshshedmax=12（段の上限 m）・?meshshedms=N
+// 速い端末では 40 ms に届かない＝決して発動しない（MacBook 実測 8〜14 ms・511 万三角形 46 fps）。既定オン・全機種（本人裁定 2026-11-08：タブレット実測で動いている区間のコマ数 +28%・
+// 12 m 止めは差なし・止まると全部戻る）＝?meshshed=0 で切る・?meshshedmax=12（段の上限 m）・?meshshedms=N
 const SHED_STEPS = [0, 6, 12, 24];
 let shedOn = false, shedIdx = 0, shedMax = SHED_STEPS.length - 1, shedHoldUntil = 0;
 let SHED_MS = 40;   // この busyMs（ms）を超えたら一段（?meshshedms=N）。解像度の 24 ms より高く＝解像度で間に合う端末では間引かない
