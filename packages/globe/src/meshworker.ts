@@ -4,7 +4,8 @@
 // 区全体を待たず「目の前のビルが数秒で立ち始める」。被覆マスクは区単位で累積（シェーダのマスクスロットを消費しない）。
 // main.js 側は複数のこの worker をプールし、base URL のハッシュで固定ルーティング（同じ地区は常に同じ worker＝内部cacheが効く）。
 import { decodeBatch, setDecodeEnv, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./meshdecode.ts";
-import { liteIndex } from "./meshlite.ts";   // 軽量 index（?meshlite=A＝面積 A m² 未満の三角形を落とす）＝焼き・写し・生経路の全部が通る sendBatch で 1 回   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
+import { liteIndex } from "./meshlite.ts";
+import { windToNormals } from "./meshwind.ts";   // 軽量 index（?meshlite=A＝面積 A m² 未満の三角形を落とす）＝焼き・写し・生経路の全部が通る sendBatch で 1 回   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
 import { PLQ_VER, bakeDir, unpackPLQ } from "./meshq.ts";
 import { Cache } from "native-bucket";
 import { opfsStore } from "./meshfs.ts";
@@ -28,7 +29,7 @@ type FaceCorner = [ll: number[], h: number];
 /** main からの便（type ごとに使う欄が違う・type 無し＝区のロード） */
 interface MeshMsg {
 	type?: "init" | "exclude" | "cancel" | "demote" | "promote" | "cam" | "far" | "farBake" | "purge" | "idbList" | "idbDelete";
-	meshPort?: MessagePort; ell?: boolean; lowMem?: boolean; mid?: boolean; hi?: boolean; noOpfs?: boolean; farH?: number; noBake?: boolean; bakeUrl?: string; mem?: boolean; decPorts?: MessagePort[]; dec?: number; /** 送る束を建物の高さ順に小分けする上限（千三角形・0＝切らない・?msplit=N） */ split?: number; lite?: number;
+	meshPort?: MessagePort; ell?: boolean; lowMem?: boolean; mid?: boolean; hi?: boolean; noOpfs?: boolean; farH?: number; noBake?: boolean; bakeUrl?: string; mem?: boolean; decPorts?: MessagePort[]; dec?: number; /** 送る束を建物の高さ順に小分けする上限（千三角形・0＝切らない・?msplit=N） */ split?: number; lite?: number; cull?: number;
 	map?: Record<string, string[]> | null; center?: number[] | null; ward: string;
 	id: number; base: string; tiles?: string[] | null; name: string; wardBbox: number[] | null; camCenter?: number[] | null; preload?: boolean; brid?: boolean;
 	clip?: ArrayLike<number> | null; tilesetUrl?: string | null; bakeBase?: string | null; doubleSided?: boolean;
@@ -321,6 +322,11 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 		if (bi === 0 || r.dropped) console.log(`[mesh] lite <${LITE_AREA} m2 ${ward}#${bi}: tris ${r.tris} -> ${r.tris - r.dropped} (-${(100 * r.dropped / Math.max(1, r.tris)).toFixed(0)}%, ward -${(100 * st.dropped / Math.max(1, st.tris)).toFixed(0)}%)`);
 		if (!own) { own = true; mesh = { ...mesh, pos: mesh.pos!.slice(), nrm: mesh.nrm!.slice() }; }   // idx は新品＝pos/nrm も写して丸ごと渡す（下の own 経路と同じ扱い）
 	}
+	if (WIND_FIX && !mesh.twoSided && !doubleSidedWards.has(ward) && mesh.pos && mesh.nrm && mesh.idx) {   // 巻き順を法線に揃える（?meshcull）＝idx はその場で書き換える（焼き・写しの器を共有していない時は写す）
+		if (!own) { own = true; mesh = { ...mesh, pos: mesh.pos.slice(), nrm: mesh.nrm.slice(), idx: mesh.idx.slice() }; }
+		const f = windToNormals(mesh.pos!, mesh.nrm!, mesh.idx!);
+		if (bi === 0) console.log(`[mesh] wind ${ward}#${bi}: flipped ${f} / ${mesh.idx!.length / 3 | 0} tris`);
+	}
 	const maskCells = maskCellsOf(mesh, wardBbox);
 	const pieces = SPLIT_TRIS > 0 ? splitByHeight(mesh, SPLIT_TRIS * 3) : null;
 	if (pieces) {   // 高さ順の小片（高い建物の片から順に送る＝先に大きい建物が立ち、小さい建物は後から・転送の山も小さく）
@@ -352,6 +358,7 @@ async function postBatch(ward: string, bi: number, payload: { name: string; mesh
 // LOD の距離係数が升の粗さで効く（旧＝束の bbox を引き継ぎ、数 km 四方の束は「2km より遠い」に掛からなかった・実機 5 区で frame 133ms）。
 // 送る順＝高い片（12m 以上）を全升ぶん先に、次に低い片＝大きい建物が先に立つ。頂点は片ごとに詰め直す（位置の原点は束のまま）。
 let SPLIT_TRIS = 0;   // 0＝切らない（既定）。init split（千三角形）
+let WIND_FIX = false;   // ?meshcull=N＝巻き順を頂点法線に揃えて送る（renderer が cullMode で裏面を捨てる・meshwind.ts）。橋梁・両面配信の区は対象外
 let LITE_AREA = 0;   // ?meshlite=A（m²）＝この面積未満の三角形を index から落とす（0＝落とさない・既定）。橋梁（twoSided）は対象外
 const liteStat = new Map<string, { tris: number; dropped: number }>();   // 区ごとの集計（ログ）
 const SPLIT_CELL_M = 800, SPLIT_GRID_MAX = 4, SPLIT_TALL_LOD = 3;   // 升の一辺の目安（m）・格子の上限（4×4）・高い／低いの境＝LOD_H[3]＝12m
@@ -1009,7 +1016,8 @@ self.onmessage = async (e: MessageEvent<MeshMsg>) => {
 		if (e.data.lowMem || e.data.mid) POOL_MAX = 16 << 20;
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
 		if (e.data.split! > 0) SPLIT_TRIS = e.data.split! * 1000;   // ?msplit=N＝束を高さ順の小片（N 千三角形まで）にして送る
-		if (e.data.lite! > 0) LITE_AREA = e.data.lite!;   // ?meshlite=A＝面積 A m² 未満の三角形を落とす軽量 index
+		if (e.data.lite! > 0) LITE_AREA = e.data.lite!;
+		if (e.data.cull! > 0) WIND_FIX = true;   // ?meshcull=N＝巻き順を法線に揃える（renderer 側は同じ N で cullMode）   // ?meshlite=A＝面積 A m² 未満の三角形を落とす軽量 index
 		if (e.data.farH! > 0) FAR_MIN_H = e.data.farH!;   // 遠景far-DBの高さ閾値（?farh=N・既定200m）
 		if (e.data.noBake) bakeOff = true;                     // ?nobake=1＝R2 焼きを引かない（生経路のみ・A/B と切り分け用）
 		else if (e.data.bakeUrl) bakeOverride = e.data.bakeUrl;   // ?bake=URL＝置き場差し替え（ローカル焼きの検証・地域の申告より優先）
