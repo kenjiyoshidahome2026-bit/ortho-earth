@@ -804,13 +804,14 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const pipesFor = (sc: number) => { let p = pipeSets.get(sc); if (!p) { p = buildPipes(sc); pipeSets.set(sc, p); } return p; };
 	let P = pipesFor(SAMPLES);   // 品質段（既定4x）は起動時に先行コンパイル＝初回フレーム検証スコープで検札。1x は初の遷移フレームで遅延生成
 	// 最初のフレームに要る本体 10 本（2026-11-06 Galaxy の lazy トレース＝初回描画で作られた main1x.* の全部）。lazy のときだけ意味がある（eager は上で全部作った）
-	const FIRST_FRAME_PIPES = ["globe", "fillOff", "lineOff", "terrain", "fillTest", "lineTest", "bld", "mesh", "meshTex", "meshTexBlend"] as const;
+	const LITE_KEYS = MESH_LITE_FS > 0 ? (["meshLite"] as const) : ([] as const);   // 軽いピクセルシェーダ（既定 1）＝最初の間引きで同期コンパイルの引っ掛かりを出さないよう先に作る
+	const FIRST_FRAME_PIPES = ["globe", "fillOff", "lineOff", "terrain", "fillTest", "lineTest", "bld", "mesh", "meshTex", "meshTexBlend", ...LITE_KEYS] as const;
 	if (LAZY && rOpts.warmPipes) {
 		const tw = performance.now();
 		if (rOpts.warmPipes >= 3) {   // 進行描き（2026-11-07 Galaxy）：地球と地形だけ同期で先に、残り 8 本は待たずに Async＝frame1 がコンパイル 10 本ぶんを待たない。できた層から現れる（draw は null の層を飛ばす）
 			const BASE = ["globe", "terrain"] as const; for (const k of BASE) void P[k];
 			// 出す順：線（いちばん目に入る・コンパイルも最長）→ 塗り → 建物 → メッシュ 3 本。同時 warmPar 本（既定 0＝全部一度に。2 本ずつは暖機の再訪で 1 組ごとの往復待ちが積もりメッシュが 2 s 遅れた）
-			const ORDER = ["lineOff", "lineTest", "fillOff", "fillTest", "bld", "mesh", "meshTex", "meshTexBlend"] as const;
+			const ORDER = ["lineOff", "lineTest", "fillOff", "fillTest", "bld", "mesh", "meshTex", "meshTexBlend", ...LITE_KEYS] as const;
 			const par = rOpts.warmPar ?? 0;
 			const bg = warmPipesBg(P, device, ORDER, () => rOpts.requestDraw?.(), par);
 			void bg.done.then(w => console.log(`[boot] warm pipes progressive: base ${BASE.length} sync in ${(performance.now() - tw) | 0} ms · ${w.made}/${bg.asked} async (par ${par || "all"}) done at +${w.ms | 0} ms${w.failed.length ? " failed " + w.failed.join(",") : ""}`));
@@ -2042,7 +2043,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 地形チャンクのカリング（perf plan P4 step B）：可視チャンクの区間だけ drawIndexed。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
 	// 建物メッシュの描画の計器（?hud=1 の 30 秒ログ・__perf().meshDraw・2026-11-08）：直近フレームの束の総数／描いた／視野外／LOD で 0／伏せた区・三角形数・前パス・輪郭
-	const meshStat = { of: 0, drawn: 0, cull: 0, lod0: 0, hidden: 0, tris: 0, pre: 0, sil: 0, shed: 0 };
+	const meshStat = { of: 0, drawn: 0, cull: 0, lod0: 0, hidden: 0, tris: 0, pre: 0, sil: 0, shed: 0, fs: 0 };   // fs＝このフレームは軽いピクセルシェーダ（?meshlitefs）で描いた
 	const terrStat: Record<string, Required<ChunkStats>> = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 }, foot: { drawn: 0, of: 0 } };   // fine＝近景層のパス・foot＝足元層のパス   // ?perf=1／HUD の物差し（renderworker が mem テレメトリに載せる）
 	// このフレームで結ぶ index＝本番（terrain）か粗い方（terrain.coarse）。draw() の頭で選ぶ（opts.moving＝動いている間・rOpts.terrCoarseAlways＝常に）
 	let terrIx: TerrainIndex = { ibo: null as unknown as GPUBuffer, count: 0, chunks: [] }, terrCoarseOn = 0;   // terrCoarseOn＝粗い方で描いた（HUD／__perf の terr.coarse）
@@ -3595,7 +3596,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
 				const liteNow = meshLite();   // 動いている間だけの軽量 index（meshcull.ts・render worker が shed と同時に切り替える）
 				const cullPipe = MESH_CULL !== "none" ? PX.meshCull : null;   // ?meshcull＝巻き順を揃えた素の束は裏面をラスタライザで捨てる（橋梁 two・両面配信 noCull は従来の mesh）
-				const litePipe = liteNow && MESH_LITE_FS > 0 && PX === P ? P.meshLite : null;   // ?meshlitefs＝間引きが点いている間は軽いピクセルシェーダ（影・断面の派生の間は従来）
+				const litePipe = liteNow && MESH_LITE_FS > 0 && PX === P && cityLights <= 0 ? P.meshLite : null;   // ?meshlitefs（既定 1）＝間引きが点いている間は軽いピクセルシェーダ。影・断面の派生の間と、街明かり（夜の上映）が点いている間は従来＝滑走中に窓の灯りが消えない
+				meshStat.fs = litePipe ? 1 : 0;
 				const cullOf = (d: typeof draws[number]) => (!!cullPipe || !!litePipe) && !d.p.textured && !d.p.two && !d.p.noCull;
 				const plainDraws = draws.filter(d => !d.p.textured);
 				if (MESH_SORT && plainDraws.length > 1) {   // ?meshsort=1＝手前→奥（片は束の origin を共有するので bbox の中心と目の経緯度の距離で）
