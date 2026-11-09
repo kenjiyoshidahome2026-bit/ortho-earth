@@ -433,7 +433,8 @@ export interface TerrainApi {
 	 *  positions＝[lng,lat][]・{lng|lon,lat}[]・GeoJSON（Point/MultiPoint/LineString…の座標）。負の標高はそのまま返す（描く側は 0 に切る） */
 	sampleTerrain(positions: LonLat[] | { lng?: number; lon?: number; lat: number }[] | object, opts?: { concurrency?: number }): Promise<{ lng: number; lat: number; height: number }[]>;   // api/terrain.ts:52
 	/** 面の貼り付け（Cesium の ClassificationPrimitive／GroundPrimitive の classificationType・2026-10-25〜）。GeoJSON の面・線（width m の帯）を上下に伸ばした柱にして、
-	 *  描いた地形・3D Tiles・模型・建物のうち柱の内側の面だけを塗る（斜めの屋根・壁にも貼り付く）。type＝"both"（既定）・"terrain"・"tiles3d"。WebGL2・WebGPU の両方 */
+	 *  描いた地形・3D Tiles・模型・建物のうち柱の内側の面だけを塗る（斜めの屋根・壁にも貼り付く）。type＝"both"（既定）・"terrain"・"tiles3d"。WebGL2・WebGPU の両方。
+	 *  2026-11-09〜 data に { type: "Mesh", positions（ECEF m の x,y,z の列）, indices（外から見て反時計回りの三角形）} の閉じた立体も渡せる（ClassificationPrimitive の箱・楕円体。minHeight／maxHeight は読まない） */
 	addClassification(data: unknown, opts?: ClassificationOptions): ClassificationHandle;
 	/** CZML を読む（Cesium の CzmlDataSource.load・P0 #5・2026-10-25〜）。src＝URL・packet の配列・JSON の文字列・File／Blob。ドロップと同じ一本道（読んだ物は前の読み込みと入れ替わる）。
 	 *  時刻つきの点（point・billboard・label・path）・model（静止と動く物・orientation の unitQuaternion か velocityReference＝heading だけ）・polyline（地面に沿う／高さのある線）・

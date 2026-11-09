@@ -19,7 +19,7 @@ import type { Host } from "./scene.ts";
 type Any = any;
 import { customShaderId } from "./custom-shader.ts";
 const { Primitive, GroundPrimitive, GroundPolylinePrimitive, ClassificationPrimitive, Model, ModelAnimationLoop } = engine as Any;
-const TRIANGLES = 4, LINES = 1;
+const TRIANGLES = 4, LINES = 1, CLS_TYPE: Record<number, string> = { 0: "terrain", 1: "tiles3d", 2: "both" };
 
 export interface PrimLine { p: number[]; color: string; width: number; ground?: boolean; material?: { type: string; uniforms: Any } | null }   // material: a ground line's appearance material (Glow, Dash, Outline), drawn by the display   // ground: a GroundPolylinePrimitive's line, draped on the terrain (p = its input positions)
 /** a GroundPrimitive instance draped on the terrain: its outline (GeoJSON polygons, lon/lat) in its colour, or painted with its material */
@@ -68,6 +68,8 @@ interface Item {
 	lines: PrimLine[]; ids: Any[]; colors: Uint8Array[]; shows: boolean[];
 	/** a GroundPrimitive's instances as ground fills (draped on the terrain by the entity display's fill / pattern layers) */
 	fills: GroundFill[];
+	/** a ClassificationPrimitive's volumes on the globe (map.addClassification handles) */
+	cls: Any[];
 	/** each instance's world bounding sphere (getGeometryInstanceAttributes(id).boundingSphere, as Primitive gives once built → camera.viewBoundingSphere) */
 	spheres: Array<BoundingSphere | undefined>;
 	/** a Model's activeAnimations (addAll / add): what to play, at what multiplier; null = stopped */
@@ -228,14 +230,14 @@ export class PrimitiveDrawer {
 	get orthoModels() { return new Map([...this.#items].map(([p, it]) => [p, it.h])); }
 	add(p: Any) {
 		if (this.#items.has(p)) return;
-		const it: Item = { p, key: `cesium-prim:${++SEQ}`, built: false, h: null, loading: false, dead: false, lines: [], fills: [], ids: [], colors: [], shows: [], spheres: [] };
+		const it: Item = { p, key: `cesium-prim:${++SEQ}`, built: false, h: null, loading: false, dead: false, lines: [], fills: [], cls: [], ids: [], colors: [], shows: [], spheres: [] };
 		this.#items.set(p, it);
 		this.#instrument(it);
 	}
 	remove(p: Any) {
 		const it = this.#items.get(p);
 		if (!it) return;
-		it.dead = true; it.h?.clear?.(); this.#items.delete(p); this.#collectLines();
+		it.dead = true; it.h?.clear?.(); for (const h of it.cls) h?.remove?.(); it.cls = []; this.#items.delete(p); this.#collectLines();
 	}
 	/** per frame: build what is new, follow show / modelMatrix */
 	update() {
@@ -247,7 +249,7 @@ export class PrimitiveDrawer {
 			if (p.isDestroyed?.()) { this.remove(p); continue; }
 			const show = p.show !== false;
 			if ((it as Any).shown !== show) { (it as Any).shown = show; linesChanged = true; }
-			if (!show) { if (it.h) { it.h.clear(); it.h = null; it.built = false; } continue; }   // hidden: off the globe, built again when shown
+			if (!show) { if (it.h) { it.h.clear(); it.h = null; it.built = false; } if (it.cls.length) { for (const h of it.cls) h?.remove?.(); it.cls = []; it.built = false; } continue; }   // hidden: off the globe, built again when shown
 			const isModel = Model && p instanceof Model, pl = isModel ? this.#placeOf(p) : null;
 			const mk = Matrix4.toArray(p.modelMatrix ?? Matrix4.IDENTITY).join(",") + (pl ? `|${pl.scale.toPrecision(3)}` : "");
 			if (isModel && it.h) { this.#syncAnim(it); const tk = JSON.stringify(modelTintOf(p.color, p.colorBlendMode, p.colorBlendAmount)); if ((it as Any).tk !== tk) { (it as Any).tk = tk; it.h.setColor?.(JSON.parse(tk)); }   // Model.color / colorBlendMode / colorBlendAmount
@@ -270,7 +272,7 @@ export class PrimitiveDrawer {
 		}
 		return best ?? undefined;
 	}
-	destroy() { for (const it of this.#items.values()) { it.dead = true; it.h?.clear?.(); } this.#items.clear(); this.lines = []; this.fills = []; }
+	destroy() { for (const it of this.#items.values()) { it.dead = true; it.h?.clear?.(); for (const h of it.cls) h?.remove?.(); } this.#items.clear(); this.lines = []; this.fills = []; }
 
 	#collectLines() {
 		const out: PrimLine[] = [], fills: GroundFill[] = [];
@@ -284,7 +286,7 @@ export class PrimitiveDrawer {
 			if (i < 0) return undefined;
 			return {
 				get color() { return it.colors[i]; },
-				set color(v: Any) { it.colors[i] = Uint8Array.from(v); if (it.fills.length) it.built = false; else it.h?.setFeatureState?.(i, { color: css(it.colors[i]) }); },   // a ground fill is drawn again in the new colour
+				set color(v: Any) { it.colors[i] = Uint8Array.from(v); if (it.fills.length || it.cls.length) it.built = false; else it.h?.setFeatureState?.(i, { color: css(it.colors[i]) }); },   // a ground fill is drawn again in the new colour
 				get show() { return Uint8Array.of(it.shows[i] ? 1 : 0); },
 				set show(v: Any) { it.shows[i] = !!v?.[0]; it.built = false; },   // rebuilt without it
 				get depthFailColor() { return undefined; }, set depthFailColor(_v: Any) { /* none */ },
@@ -303,6 +305,9 @@ export class PrimitiveDrawer {
 		// GroundPrimitive: Cesium drapes it on the terrain (and 3D Tiles). Its geometry sits on the ellipsoid, so as a model it was under the
 		// ground (ground-primitive-dev: the polygons on Mount St. Helens at 0 m were hidden by the 2.5 km mountain); now its outline is a ground fill
 		const ground = !!GroundPrimitive && p instanceof GroundPrimitive;
+		// ClassificationPrimitive: Cesium paints only the terrain / 3D Tiles surfaces inside its closed volume (classification: the trees inside the
+		// ellipsoids); as a model the ellipsoids were drawn as solid balls. Now each instance's triangles go to map.addClassification as a closed mesh
+		const clsPrim = !!ClassificationPrimitive && p instanceof ClassificationPrimitive, clsVols: Array<{ positions: number[]; indices: number[]; color: string }> = [];
 		insts.forEach((inst, i) => {
 			if (firstBuild) { it.ids[i] = inst.id; it.colors[i] = colorOf(inst, p.appearance); it.shows[i] = shownOf(inst); }
 			if (!it.shows[i]) return;
@@ -337,6 +342,7 @@ export class PrimitiveDrawer {
 				world[k * 3] = v3.x; world[k * 3 + 1] = v3.y; world[k * 3 + 2] = v3.z;
 			}
 			it.spheres[i] = BoundingSphere.fromVertices(world);
+			if (clsPrim && mode === TRIANGLES) { clsVols.push({ positions: world, indices: Array.from(idx), color: css(col) }); return; }
 			if (ground && mode === TRIANGLES) {
 				const xy: number[] = new Array(nVert * 2);
 				for (let k = 0; k < nVert; k++) { const c = Ellipsoid.WGS84.cartesianToCartographic(Cartesian3.fromElements(world[k * 3], world[k * 3 + 1], world[k * 3 + 2], v3)); xy[k * 2] = c ? c.longitude * 180 / Math.PI : 0; xy[k * 2 + 1] = c ? c.latitude * 180 / Math.PI : 0; }
@@ -365,6 +371,14 @@ export class PrimitiveDrawer {
 			for (let k = 0; k < idx.length; k++) into.push(base + idx[k]);
 		});
 		it.lines = mergeLines(lines); it.fills = fills;
+		for (const h of it.cls) h?.remove?.();
+		it.cls = [];
+		if (clsPrim) {
+			const type = CLS_TYPE[p.classificationType ?? 2] ?? "both";   // Cesium's ClassificationType: TERRAIN 0, CESIUM_3D_TILE 1, BOTH 2 (the default)
+			for (const v of clsVols) { try { it.cls.push(map.addClassification?.({ type: "Mesh", positions: v.positions, indices: v.indices }, { color: v.color, type })); } catch (e) { console.warn("[csshim] classification", e); } }
+			this.#markReady(p);
+			return;
+		}
 		const old = it.h; it.h = null;
 		it.video = [...painted.values()].map(g => videoOf(g.mat)).find(v => v) ?? null; it.videoAt = performance.now();
 		if (!tris.idx.length && !painted.size) { old?.clear?.(); this.#markReady(p); return; }

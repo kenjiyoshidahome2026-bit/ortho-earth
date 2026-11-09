@@ -67,5 +67,20 @@ console.log("classifyGeometry");
 	for (const pf of [0, 0.25, 0.5, 1]) { const sh = (1 - pf) * 430; ok(150 - sh <= pf * 300 && pf * 300 <= 711 - sh, `pf ${pf}：地面 ${pf * 300} m が柱 [${150 - sh}, ${711 - sh}] の中`); }
 }
 
+// { type: "Mesh" }（ClassificationPrimitive の箱・楕円体）＝ECEF の閉じた三角形（外から反時計回り）→ 柱と同じ向き・同じ世界
+{
+	const A = 6378137, E2 = 6.69437999014e-3, lng = 139.7 * Math.PI / 180, lat = 35.6 * Math.PI / 180, h = 100;
+	const N = A / Math.sqrt(1 - E2 * Math.sin(lat) ** 2), c0 = [(N + h) * Math.cos(lat) * Math.cos(lng), (N + h) * Math.cos(lat) * Math.sin(lng), (N * (1 - E2) + h) * Math.sin(lat)];
+	const east = [-Math.sin(lng), Math.cos(lng), 0], north = [-Math.sin(lat) * Math.cos(lng), -Math.sin(lat) * Math.sin(lng), Math.cos(lat)], up = [Math.cos(lat) * Math.cos(lng), Math.cos(lat) * Math.sin(lng), Math.sin(lat)];
+	const pos = [];
+	for (const [x, y, z] of [[-5, -5, -5], [5, -5, -5], [5, 5, -5], [-5, 5, -5], [-5, -5, 5], [5, -5, 5], [5, 5, 5], [-5, 5, 5]]) for (let k = 0; k < 3; k++) pos.push(c0[k] + east[k] * x + north[k] * y + up[k] * z);
+	const idx = [0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7];   // 外から反時計回り（ENU の右手系）
+	const g = geom({ type: "Mesh", positions: pos, indices: idx }), col = geom({ type: "Polygon", coordinates: [sq(139.7, 35.6, 0.001)] });
+	ok(g && closed(g) && g.volumes === 1, "Mesh：閉じた箱がそのまま柱になる");
+	ok(g && Math.sign(vol(g)) === Math.sign(vol(col)), "Mesh：外から反時計回りの箱＝面の柱と同じ向き（符号付き体積の符号が同じ）");
+	const hgt = g && Math.hypot(g.origin[0] + g.pos[18], g.origin[1] + g.pos[19], g.origin[2] + g.pos[20]);   // 頂点 6（上の角）の半径
+	ok(g && Math.abs((hgt - 1) * EARTH_M - 105) < 2, `Mesh：上の角の高さ ≈ 105 m（${g && ((hgt - 1) * EARTH_M).toFixed(1)}）`);
+}
+
 if (fails) { console.error(`classify: ${fails} 件 NG`); process.exit(1); }
 console.log("classify: 全部 OK");

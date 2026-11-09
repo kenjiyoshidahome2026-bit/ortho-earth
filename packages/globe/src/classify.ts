@@ -16,6 +16,36 @@ export interface ClassifyGeomOptions {
 export interface ClassifyGeom { pos: Float32Array; idx: Uint32Array; origin: number[]; bbox: number[]; volumes: number }
 
 const D2R = Math.PI / 180;
+/** a closed volume given as triangles (addClassification's { type: "Mesh" }): positions = ECEF metres (x, y, z per vertex), indices =
+ *  triangles counter-clockwise seen from outside (Cesium's BoxGeometry / EllipsoidGeometry / CylinderGeometry: ClassificationPrimitive) */
+export interface ClassifyMesh { type: "Mesh"; positions: ArrayLike<number>; indices: ArrayLike<number> }
+
+const WGS_A = 6378137, WGS_E2 = 6.69437999014e-3;
+function llhOf(x: number, y: number, z: number): [number, number, number] {
+	const lon = Math.atan2(y, x), p = Math.hypot(x, y);
+	let lat = Math.atan2(z, p * (1 - WGS_E2)), h = 0;
+	for (let i = 0; i < 5; i++) { const sn = Math.sin(lat), N = WGS_A / Math.sqrt(1 - WGS_E2 * sn * sn); h = p / Math.cos(lat) - N; lat = Math.atan2(z, p * (1 - WGS_E2 * N / (N + h))); }
+	return [lon / D2R, lat / D2R, h];
+}
+/** a { type: "Mesh" } volume → the classify column format (the same world as the polygon columns: lon/lat on the unit sphere + height) */
+function meshVolume(m: ClassifyMesh, o: ClassifyGeomOptions): ClassifyGeom | null {
+	const P = m.positions, I = m.indices, n = Math.floor(P.length / 3);
+	if (n < 4 || I.length < 12) return null;
+	const llh: Array<[number, number, number]> = [];
+	for (let k = 0; k < n; k++) llh.push(llhOf(+P[k * 3], +P[k * 3 + 1], +P[k * 3 + 2]));
+	const l0 = llh[0][0];
+	for (const q of llh) { while (q[0] - l0 > 180) q[0] -= 360; while (q[0] - l0 < -180) q[0] += 360; }
+	let w = Infinity, s = Infinity, e = -Infinity, nn = -Infinity;
+	for (const q of llh) { w = Math.min(w, q[0]); e = Math.max(e, q[0]); s = Math.min(s, q[1]); nn = Math.max(nn, q[1]); }
+	const origin = lonlatTo3D((w + e) / 2, (s + nn) / 2), pos = new Float32Array(n * 3);
+	llh.forEach(([lng, lat, h], k) => {
+		const u = lonlatTo3D(lng, lat), nr = o.ell ? ellNormal3D(lng, lat) : u, kk = h / o.earthM;
+		pos[k * 3] = u[0] + nr[0] * kk - origin[0]; pos[k * 3 + 1] = u[1] + nr[1] * kk - origin[1]; pos[k * 3 + 2] = u[2] + nr[2] * kk - origin[2];
+	});
+	const idx = new Uint32Array(I.length - (I.length % 3));
+	for (let i = 0; i < idx.length; i++) idx[i] = I[i];
+	return { pos, idx, origin, bbox: [w, s, e, nn], volumes: 1 };
+}
 type GeoIn = { type?: string; geometry?: GeoIn; features?: GeoIn[]; geometries?: GeoIn[]; coordinates?: unknown };
 
 /** GeoJSON（Feature・FeatureCollection・Geometry・GeometryCollection）→ 面（輪の列）と線（点の列）。点は持たない */
@@ -86,6 +116,8 @@ function lineRings(line: Ring, width: number): Ring[] {
 
 /** 面・線 → 柱の三角形（原点相対の β 座標）。何も無ければ null */
 export function classifyGeometry(data: unknown, o: ClassifyGeomOptions): ClassifyGeom | null {
+	const mesh = data as ClassifyMesh | null;
+	if (mesh && typeof mesh === "object" && mesh.type === "Mesh") return meshVolume(mesh, o);
 	const { polys, lines } = classifyShapes(data);
 	const width = o.width ?? 4, h0 = o.minHeight ?? -1000, h1 = o.maxHeight ?? 10000, seg = o.maxSegM ?? 2000;
 	const vols: Ring[][] = [];
