@@ -1,0 +1,73 @@
+{
+ "0-as-loaded": [
+  [
+   101,
+   101,
+   2
+  ],
+  [
+   99,
+   99,
+   0
+  ]
+ ],
+ "state": {
+  "backgroundColor": "(0, 0, 0, 1)",
+  "backFaceCulling": true,
+  "undergroundColor": "(0, 0, 0, 1)",
+  "translucency": false,
+  "showGroundAtmosphere": true,
+  "skyAtmosphere": true,
+  "fog": true,
+  "hdr": false,
+  "alpha": false
+ },
+ "1-shapes-hidden": [
+  [
+   3,
+   3,
+   3
+  ],
+  [
+   0,
+   0,
+   0
+  ]
+ ],
+ "2-bg-red": [
+  [
+   3,
+   3,
+   3
+  ],
+  [
+   0,
+   0,
+   0
+  ]
+ ],
+ "3-underground-lime": [
+  [
+   3,
+   3,
+   3
+  ],
+  [
+   0,
+   0,
+   0
+  ]
+ ],
+ "4-backface-off": [
+  [
+   0,
+   255,
+   0
+  ],
+  [
+   0,
+   255,
+   0
+  ]
+ ]
+}
