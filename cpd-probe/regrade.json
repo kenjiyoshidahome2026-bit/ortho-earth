@@ -1,0 +1,46 @@
+{
+ "run": "v254",
+ "regradedAt": "2026-11-09T00:19:28.351Z",
+ "ref": "cpdtest reshot (Mac GPU, 2026-11-09)",
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 71,
+  "3": 227,
+  "null": 11
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 60,
+  "3": 166,
+  "null": 8
+ },
+ "example": {
+  "name": "clipping-performance-dev",
+  "level": 3,
+  "reasons": [],
+  "blockers": [],
+  "unsupported": [],
+  "checks": {
+   "unsupported": true,
+   "renderErrors": true,
+   "entities": true,
+   "dataSources": true,
+   "primitives": true,
+   "imageryLayers": true,
+   "camera": true,
+   "drawnCamera": true
+  },
+  "picture": {
+   "ok": 1819,
+   "n": 1890,
+   "colour": 0.9941798941798942,
+   "edge": 0.9671957671957672,
+   "blob": 0,
+   "masked": 1182
+  },
+  "dev": true,
+  "ion": true
+ }
+}
