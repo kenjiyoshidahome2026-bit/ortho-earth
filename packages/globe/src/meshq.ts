@@ -22,13 +22,13 @@ export const PLQ_VER = 2;
 /** GPU に上げるだけのメッシュ（decodeBatch の出力・unpackPLQ の戻り）＝pos は origin 相対 f32×3・nrm は i8×4・idx は u32 */
 export interface PlqMesh {
 	pos: Float32Array; nrm: Int8Array; idx: Uint32Array;
-	origin?: number[]; bbox?: number[]; lodH?: number[] | null; lodCounts?: number[]; twoSided?: number; maskCells?: Uint32Array | null;
+	origin?: number[]; bbox?: number[]; lodH?: number[] | null; lodCounts?: number[]; twoSided?: number; maskCells?: Uint32Array | null; /** maskCells の格子（無い＝MASK_N 256） */ maskN?: number;
 }
 /** 角柱（底面＋高さ）＝rings の頂点は [e, n, du?]（PRISM_Q 単位）・top＝天面の三角形（リング頂点の通し添字）・tier＝LOD 段 */
 export interface Prism { tier: number; base: number; h: number; rings: number[][][]; top: number[]; bottom: boolean; notop?: boolean }
 /** PLQ のヘッダ（json） */
 export interface PlqHead {
-	origin: number[]; bbox: number[]; lodH: number[] | null; lodCounts: number[]; twoSided: number; cells: number[] | null;
+	origin: number[]; bbox: number[]; lodH: number[] | null; lodCounts: number[]; twoSided: number; cells: number[] | null; cn?: number;
 	nv: number; nt: number; qmin: number[]; qscale: number[]; idx: "explicit" | "iota"; prisms: { n: number; tiers: number[]; bytes: number } | null;
 }
 const MAGIC1 = 0x31514c50;   // "PLQ1"
@@ -504,6 +504,7 @@ export function packPLQ(mesh: PlqMesh, opts: { weld?: boolean; prism?: boolean; 
 	const head: PlqHead = {
 		origin: mesh.origin!, bbox: mesh.bbox!, lodH, lodCounts, twoSided: mesh.twoSided || 0,
 		cells: mesh.maskCells ? Array.from(mesh.maskCells) : null,
+		cn: mesh.maskCells && mesh.maskN ? mesh.maskN : undefined,   // 断片の格子（無い＝旧 256）
 		nv, nt, qmin: mn, qscale: scale, idx: idxOut ? "explicit" : "iota",
 		prisms: prisms.length ? { n: prisms.length, tiers, bytes: prismBytes.length } : null,
 	};
@@ -566,7 +567,7 @@ export function unpackPLQ(u8: Uint8Array | ArrayBuffer, opts: { throw?: boolean 
 			if (h.idx === "explicit") { let prev = 0; for (let k = 0; k < idx.length; k++) { prev += rd.zig(); idx[k] = prev; } }
 			else for (let k = 0; k < idx.length; k++) idx[k] = k;
 		}
-		const base = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, twoSided: h.twoSided || 0, maskCells: h.cells ? Uint32Array.from(h.cells) : null };
+		const base = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, twoSided: h.twoSided || 0, maskCells: h.cells ? Uint32Array.from(h.cells) : null, maskN: h.cn };
 		if (!h.prisms) return { pos, nrm, idx, lodCounts: h.lodCounts, ...base };
 		// ── 角柱部 → 押し出し → 段ごとに合流（高い段から：メッシュ→角柱）→ lodCounts 再計算 ──
 		const tiers = h.prisms.tiers, nTier = tiers.length;

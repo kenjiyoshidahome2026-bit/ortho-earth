@@ -59,7 +59,7 @@ yes("出典の 1 行目は地理院の正式名称", jp.attr[0].lines[0][0].key.
 
 // ── ②' /nl/ ＝独立の入口（この地域だけ） ────────────────────────────────
 const only = compose(pick("only"));
-eq("取得する台帳は無い（日本の 336 件を持ち込まない）", only.catalog, []);
+eq("取得する台帳は無い（日本の台帳を持ち込まない）", only.catalog, []);
 eq("建物はオランダの 8 件だけ", only.sets.length, 8);
 eq("裸地標高の申告は無い＝接地リフトしない", only.dtm, null);
 eq("基図を宣言しない＝タイルを要求しない（図郭外と同じ全面水域）", only.basemap, null);
@@ -76,11 +76,13 @@ yes("style が取れなかった時の出典にも標高の出所", JSON.stringi
 yes("?nl=1 は日本の基図を使う", both.basemap && both.basemap.kind === "gsi");
 eq("?nl=1 は出典を両方出す", both.attr.length, 2);
 
-// ── ③ 台帳 1 件の形（日本の 336 件とオランダの 3 件に同じ物差しを当てる） ──
+// ── ③ 台帳 1 件の形（日本の 483 件とオランダの 3 件に同じ物差しを当てる） ──
 const jpSets = JSON.parse(fs.readFileSync(path.join(APP, "public/plateau-sets.json"), "utf8"));
 const shapeBad = sets => sets.filter(s => !s.name || !s.base || !Array.isArray(s.bbox) || s.bbox.length !== 4
 	|| !(s.bbox[0] < s.bbox[2]) || !(s.bbox[1] < s.bbox[3]));
-eq("日本の台帳は 336 件", jpSets.length, 336);
+eq("日本の台帳は 483 件（LOD2 336＋LOD1 のみの地区 147・2026-11-09）", jpSets.length, 483);
+eq("日本の台帳の名前は一意（名前＝区キー）", jpSets.length, new Set(jpSets.map(s => s.name)).size);
+yes("LOD1 の地区に駿河区が入っている（静岡駅南の空白）", jpSets.some(s => s.name === "静岡駿河区" && s.lod === 1));
 eq("日本の台帳に形の崩れは無い", shapeBad(jpSets).map(s => s.name || s.base), []);
 eq("オランダの 3 件も同じ形", shapeBad(NL_REGION.buildings.sets).map(s => s.name || s.base), []);
 yes("オランダは外部 tileset と切り抜きを持つ", NL_REGION.buildings.sets.every(s => s.tilesetUrl && s.clip));

@@ -62,7 +62,7 @@ interface TilesetTile { boundingVolume?: BoundingVolume; children?: TilesetTile[
 /** 後段（finishMesh）の出力＝GPU に上げるメッシュ（uv・col は模型・押し出し・colSrgb は押し出しが足す） */
 export interface MeshOut {
 	pos: Float32Array; nrm: Int8Array; idx: Uint32Array; uv?: Float32Array; col?: Uint8Array; /** 利用者のシェーダ（CustomShader）の positionMC と地物の番号（opts.mc の時だけ） */ mc?: Float32Array; /** property texture の texCoord（opts.mc で property texture のある束だけ） */ uvm?: Float32Array;
-	origin: number[]; bbox: number[]; lodH: number[]; lodCounts: number[]; twoSided: number; maskCells: Uint32Array | null; colSrgb?: boolean;
+	origin: number[]; bbox: number[]; lodH: number[]; lodCounts: number[]; twoSided: number; maskCells: Uint32Array | null; /** maskCells の格子（maskNOf）＝無い＝MASK_N */ maskN?: number; colSrgb?: boolean;
 }
 /** テクスチャ（ImageBitmap か素の RGBA） */
 export interface TexOut { bitmap?: ImageBitmap; rgba?: Uint8Array; w?: number; h?: number }
@@ -191,7 +191,19 @@ const R2D = 180 / Math.PI;
 // デコードパイプライン（接地・dedup・LOD・軸変換）の版＝焼きの互換単位。変えたら上げる＝ブラウザの IDB/OPFS 焼き（meshworker の
 // IDB_FMT_VER）も R2 の焼き（scripts/bake-plateau.mjs の置き場 v{n}/）も同じ番号で世代分離される。
 export const DECODE_VER = 5;   // v5: 空中部材の借り接地（詳細は meshworker.js IDB_FMT_VER の注記）
-export const MASK_N = 256;           // 区単位の被覆マスク解像度（基図建物を伏せるセル）
+export const MASK_N = 256;           // 被覆マスクの既定解像度（模型・押し出し・旧キャッシュの断片はこの格子）
+// 区単位の被覆マスク解像度＝セルが MASK_CELL_M 以下になる 2 の冪（MASK_N〜MASK_N_MAX）。固定 256 だと山間部まで抱える大きな区
+//（静岡市葵区＝南北 77km）はセルが 126m×302m になり、区境の建物が触れたセルが隣の区の基図建物まで伏せて「何も立たない帯」を
+// 作った（2026-11-09・静岡駅南＝駿河区側が線路から ~300m 空白）。小さな区（≤10km）は従来どおり 256＝キャッシュ・焼きもそのまま使える。
+export const MASK_CELL_M = 40, MASK_N_MAX = 2048;
+export function maskNOf(bbox: ArrayLike<number> | null | undefined): number {
+	if (!bbox) return MASK_N;
+	const la = (bbox[3] - bbox[1]) * 111320, lo = (bbox[2] - bbox[0]) * 111320 * Math.cos((bbox[1] + bbox[3]) / 2 * Math.PI / 180);
+	const span = Math.max(la, lo);
+	let n = MASK_N;
+	while (n < MASK_N_MAX && span / n > MASK_CELL_M) n *= 2;
+	return n;
+}
 const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer が「画面上1px未満の建物」を先頭countの打ち切りで捨てる
 let TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
 let ELL = false, EARTH_W = 6371000;   // 楕円体モード（?ell=1）＝β単位球×a（meshworker と同じ分解）。既定は球
@@ -720,27 +732,30 @@ export function finishMesh(geo: Float64Array, outNrm: Int8Array, rawIdx: Uint32A
 	// renderer は届いたバッチの断片だけをOR合成する（マスクがメッシュに先行して「基図は伏せたのに
 	// PLATEAUが無い」矩形の隙間を作る非対称の根治。demote/cancel/復元中断で顕在化していた）。
 	let maskCells: Uint32Array | null = null;
+	const MN = maskNOf(wardBbox);   // この区の格子（wardMask もこの大きさで確保される）
 	if (wardBbox) {   // wardMask=null（デコーダプール経路）でも断片は導出＝累積ORは発注元が maskCells で行う
 		const wLo = wardBbox[0] / R2D, wLa = wardBbox[1] / R2D;   // マスク座標系は rad で統一（geo が rad のため）
 		const spanLo = (wardBbox[2] - wardBbox[0]) / R2D || 1e-12, spanLa = (wardBbox[3] - wardBbox[1]) / R2D || 1e-12;
-		const bm = new Uint8Array(MASK_N * MASK_N);   // このバッチ分だけの塗り
+		const bm = new Uint8Array(MN * MN);   // このバッチ分だけの塗り
+		let bx0 = MN, by0 = MN, bx1 = -1, by1 = -1;   // 塗った範囲（セル）＝取り出しはこの矩形だけ走査
 		for (let t = 0; t < outIdx.length; t += 3) {
 			const a = outIdx[t], b = outIdx[t+1], c = outIdx[t+2];
 			const lo0 = geo[a*3], lo1 = geo[b*3], lo2 = geo[c*3], la0 = geo[a*3+1], la1 = geo[b*3+1], la2 = geo[c*3+1];
-			let cx0 = (Math.min(lo0,lo1,lo2) - wLo) / spanLo * MASK_N | 0, cx1 = (Math.max(lo0,lo1,lo2) - wLo) / spanLo * MASK_N | 0;
-			let cy0 = (Math.min(la0,la1,la2) - wLa) / spanLa * MASK_N | 0, cy1 = (Math.max(la0,la1,la2) - wLa) / spanLa * MASK_N | 0;
-			if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > MASK_N-1) cx1 = MASK_N-1; if (cy1 > MASK_N-1) cy1 = MASK_N-1;
-			for (let y = cy0; y <= cy1; y++) { const row = y*MASK_N; for (let x = cx0; x <= cx1; x++) { if (wardMask) wardMask[row+x] = 255; bm[row+x] = 1; } }
+			let cx0 = (Math.min(lo0,lo1,lo2) - wLo) / spanLo * MN | 0, cx1 = (Math.max(lo0,lo1,lo2) - wLo) / spanLo * MN | 0;
+			let cy0 = (Math.min(la0,la1,la2) - wLa) / spanLa * MN | 0, cy1 = (Math.max(la0,la1,la2) - wLa) / spanLa * MN | 0;
+			if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > MN-1) cx1 = MN-1; if (cy1 > MN-1) cy1 = MN-1;
+			for (let y = cy0; y <= cy1; y++) { const row = y*MN; for (let x = cx0; x <= cx1; x++) { if (wardMask) wardMask[row+x] = 255; bm[row+x] = 1; } }
+			if (cx0 < bx0) bx0 = cx0; if (cx1 > bx1) bx1 = cx1; if (cy0 < by0) by0 = cy0; if (cy1 > by1) by1 = cy1;
 		}
 		const cells: number[] = [];
-		for (let i = 0; i < bm.length; i++) if (bm[i]) cells.push(i);
+		for (let y = by0; y <= by1; y++) for (let x = bx0, row = y*MN; x <= bx1; x++) if (bm[row+x]) cells.push(row+x);
 		maskCells = Uint32Array.from(cells);   // バッチは空間的に密＝典型数十〜数百セル（数百B）。永続化にも同乗する
 	}
 	// 頂点溶接（2026-09-07）：位置（1mm 格子）＋法線が一致する頂点を束ねる＝Draco 出力の三角形ごと非共有（nv≈3·nt）を
 	// 4〜5 割減へ（GPU バイト・IDB/OPFS・頂点シェーダ回数）。三角形の並びは不変＝lodCounts はそのまま。maskCells は上で導出済み。
-	if (extra) return { pos: outPos, nrm: outNrm, idx: outIdx, ...extra, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells };   // 模型（uv/頂点色つき）＝溶接しない（位置＋法線一致でも uv が違う頂点を束ねてしまう）
+	if (extra) return { pos: outPos, nrm: outNrm, idx: outIdx, ...extra, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells, maskN: MN };   // 模型（uv/頂点色つき）＝溶接しない（位置＋法線一致でも uv が違う頂点を束ねてしまう）
 	const welded = weldMesh({ pos: outPos, nrm: outNrm, idx: outIdx }, 0.001 / EARTH_W);
-	return { pos: welded.pos, nrm: welded.nrm, idx: welded.idx, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells };
+	return { pos: welded.pos, nrm: welded.nrm, idx: welded.idx, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells, maskN: MN };
 }
 
 // ── glTF/GLB 直読み（2026-09-20・本人裁定＝落とした地点＋埋め込みがあれば優先／PLATEAU 建物経路／loaders.gl）──
@@ -1451,7 +1466,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, atG
 		return { G: { A: [...A], T: [...T] }, F: { L: [...L], t: [w0[0] - (L[0]*c[0] + L[3]*c[1] + L[6]*c[2]), w0[1] - (L[1]*c[0] + L[4]*c[1] + L[7]*c[2]), w0[2] - (L[2]*c[0] + L[5]*c[1] + L[8]*c[2])] } };
 	})() : null;
 	const features = nFid ? { tables, primitives: nFid, texture: nFidTex, warnings: fWarn } : null;
-	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, ...(useOe ? { anchor: { lon: oe!.lon, lat: oe!.lat, height: oe!.height, heading: oe!.heading, from: "extras" as const } } : {}), bbox, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
+	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: maskNOf(maskBbox) } : null, points: pts?.geo.length ? pts : null, splats: splats.length ? splats : null, voxels: voxels.length ? voxels : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, ...(useOe ? { anchor: { lon: oe!.lon, lat: oe!.lat, height: oe!.height, heading: oe!.heading, from: "extras" as const } } : {}), bbox, ...(splats.length ? { splats: nSplat } : {}), ...(nSplatPts ? { splatPoints: nSplatPts } : {}), ...(voxels.length ? { voxels: voxels.length } : {}), ...(nVoxSkip ? { voxelsSkipped: nVoxSkip } : {}), materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
 }
 
 // ── skin（2026-10-28）：primitive を静止姿勢でスキンする ──────────────────────────────────
