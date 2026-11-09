@@ -64,32 +64,37 @@
 <p class="note-small">注：どれもタブレット（Mali-G615）の実測。順に入れていったので、行ごとの起点は同じではない。三つとも、今は全機種の既定である。発動するのは 1 コマ 40 ms を超えてカメラが動いている時だけなので、速い機械では何も変わらない。</p>
 
 <h2>ゲームへ、そして地球儀へ</h2>
-<p>もう一つの大きな新顔が、ゲームとのつながりである。Unity と Unreal Engine のプラグイン（どちらも 0.1.0）、そして Minecraft。地球儀の上の街を、そのままゲームの中へ持っていける。ゲームで作った物は、また地球儀へ戻せる。</p>
-<p>持っていけるのは、地形、PLATEAU の建物とその属性、点群。範囲は 2〜3 街区くらいを想定している。エンジンの中でタイルを次々に読む仕組みは Cesium for Unity や PLATEAU SDK for Unity がすでにあるので、こちらは「切り出して、ファイルで渡す」に絞った。</p>
+<p>もう一つの大きな新顔が、ゲームとのつながりである。行き先は三つ。Unity、Unreal Engine、そして Minecraft。地球儀の上の街をゲームの中へ持っていき、ゲームで作った物をまた地球儀へ戻せる。</p>
+<p>持っていけるのは、地形と PLATEAU の建物（Unity と Unreal には建物の属性と点群も）。範囲は 2〜3 街区くらいを想定している。ゲームの中でタイルを次々に読む仕組みは Cesium for Unity や PLATEAU SDK for Unity がすでにあるので、こちらは「切り出して、ファイルで渡す」に絞った。</p>
 
 <h3>約束は一つだけ</h3>
-<p>受け渡しは GLB 1 本。その中に錨（経度・緯度・楕円体高、と向き）を一つ書いておく（<code>asset.extras.orthoEarth</code>）。頂点は錨から見た東・北・上のメートルで持つ。Unity でも Unreal でも、地球儀でも、この同じ一つの約束で読む。</p>
-<div class="table-wrap"><table><thead><tr><th></th><th>軸</th><th>単位</th><th>点群</th></tr></thead><tbody>
-<tr><td>Unity 6（URP・glTFast）</td><td>X 東・Y 上・Z 北</td><td>m</td><td>PLY</td></tr>
-<tr><td>Unreal Engine 5.6 以降</td><td>X 東・Y 南・Z 上</td><td>cm</td><td>LAS</td></tr>
+<p>三つとも、同じ一つの約束でつながっている。地面の上の一点を錨（経度・緯度・楕円体高、と向き）に決め、すべてをそこから見た東・北・上のメートルで表す。受け渡しは錨入りの GLB（<code>asset.extras.orthoEarth</code>）。Minecraft では 1 ブロックを 1 m にして、錨をブロック (0, 0, 0) に置く。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>Unity 6</th><th>Unreal Engine 5.6 以降</th><th>Minecraft</th></tr></thead><tbody>
+<tr><td>入れ方</td><td>プラグイン（Package Manager）</td><td>プラグイン（<code>Plugins/</code> に zip）</td><td>要らない（ワールドのファイルを直接書く）</td></tr>
+<tr><td>地球儀から</td><td>メニューの <strong>Place export folder…</strong></td><td>同じメニュー</td><td><code>ortho-minecraft</code> がワールドに焼く</td></tr>
+<tr><td>地球儀へ</td><td><strong>Export selection to GLB…</strong></td><td>同じメニュー</td><td>範囲か差分を GLB に取り出す</td></tr>
+<tr><td>軸と単位</td><td>X 東・Y 上・Z 北・m</td><td>X 東・Y 南・Z 上・cm</td><td>X 東・Y 上・Z 南・1 ブロック＝1 m</td></tr>
+<tr><td>建物の属性</td><td>Inspector に出る</td><td>Details に出る</td><td>—</td></tr>
+<tr><td>点群</td><td>PLY</td><td>LAS</td><td>—</td></tr>
 </tbody></table></div>
 
-<h3>地球儀からエンジンへ</h3>
-<p><code>ortho-export</code> で範囲を書き出すと、<code>anchor.json</code>・<code>terrain.glb</code>・<code>buildings.glb</code>・建物の属性表が一つのフォルダにそろう。点群は <a href="https://www.ortho-earth.com/japan/pointcloud" target="_top">/japan/pointcloud</a> で読んで、PLY か LAS で落とす。エンジンでメニューの <strong>Place export folder…</strong> を選べば、錨を親にして全部が正しい位置に並ぶ。</p>
-<p>建物は PLATEAU の <code>gml_id</code> ごとに 1 棟ずつのノードになっていて、選ぶと用途・高さ・住所・浸水などの属性が Inspector に出る。コードからも <code>b.Get("bldg:usage")</code> や <code>b.MeasuredHeight</code> で読める。PLATEAU の webp のテクスチャは、エンジンが読める jpeg に焼き直して渡す。</p>
+<h3>地球儀からゲームへ</h3>
+<p>出発点は三つとも同じ <code>ortho-export</code> である。範囲を書き出すと、錨・地形・建物・建物の属性表が一つのフォルダにそろう。点群は <a href="https://www.ortho-earth.com/japan/pointcloud" target="_top">/japan/pointcloud</a> で読んで、PLY か LAS で落とす。</p>
+<p>Unity と Unreal では、メニューの <strong>Place export folder…</strong> を選ぶだけで、錨を親にして全部が正しい位置に並ぶ。建物は PLATEAU の <code>gml_id</code> ごとに 1 棟ずつ選べて、用途・高さ・住所・浸水などの属性が出る。コードからも <code>b.Get("bldg:usage")</code> や <code>b.MeasuredHeight</code> で読める。PLATEAU の webp のテクスチャは、エンジンが読める jpeg に焼き直して渡す。</p>
+<p>Minecraft では、同じフォルダを <code>ortho-minecraft</code> に渡す。地形と建物がブロックに焼かれ、地面と屋根は航空写真にいちばん近い色のブロックで塗られ、建物には床も入る。出てくるのは Java 版のワールド、WorldEdit の <code>.schem</code>、統合版の <code>.mcworld</code> の 3 つ。統合版ならダブルクリックで開ける。錨は出現点で、F3 で出る座標がそのまま錨からのメートルになる。クリエイティブで、昼のまま止まる。</p>
 
-<h3>エンジンから地球儀へ</h3>
-<p>帰り道も同じである。模型を錨の子に置いて <strong>Export selection to GLB…</strong> を選ぶと、錨入りの GLB ができる。それを <a href="https://www.ortho-earth.com/japan/" target="_top">/japan/</a> にドロップするだけで、元の場所に立つ。<code>map.model()</code> も、位置を渡さなければ GLB の錨で置くようになった。大きな物は <code>glbconv</code> で 3D Tiles にできる。</p>
+<h3>ゲームから地球儀へ</h3>
+<p>帰り道も三つとも同じ口に着く。Unity と Unreal では、模型を錨の子に置いて <strong>Export selection to GLB…</strong>。Minecraft では、建てた家を範囲で指定するか、書き出した時のワールドとの差分で取り出す。どれも錨入りの GLB になる。</p>
+<p>その GLB を <a href="https://www.ortho-earth.com/japan/" target="_top">/japan/</a> にドロップするだけで、元の場所に立つ。Unity で作った模型も、Minecraft で建てた家も、丸の内に並ぶ。<code>map.model()</code> も、位置を渡さなければ GLB の錨で置くようになった。大きな物は <code>glbconv</code> で 3D Tiles にできる。</p>
 
 <h3>丸の内で確かめた</h3>
-<p>見本は丸の内。Unity 6 では、並べた地形の四隅が書き出した範囲とぴったり重なり、いちばん高い 238 m の建物は東京ミッドタウン八重洲の位置に立った。わざと錨を 158 m 東・139 m 南にずらした検査用の点群も、4 点とも 1 cm ほどの差で戻った。書き出し直した地形を読み戻すと、頂点数も範囲も元と一致した。Unreal Engine 5.8.4 でも同じ見本で、軸の向きと点群の位置を確かめた。Nanite のメッシュもそのまま書き出せる。</p>
-<p>Unity は Package Manager に tarball か git の URL で、Unreal はプロジェクトの <code>Plugins/</code> に zip を展開して入れる。どちらも GitHub Release に載せる。</p>
-
-<h3>Minecraft にも</h3>
-<p>丸の内を、1 ブロック 1 m の Minecraft のワールドにもできる。<code>ortho-minecraft</code> が地形と PLATEAU の建物をブロックに焼き、地面と屋根は航空写真にいちばん近い色のブロックで塗る。建物には床も入る。出てくるのは Java 版のワールド、WorldEdit の <code>.schem</code>、統合版の <code>.mcworld</code> の 3 つ。統合版ならダブルクリックで開ける。</p>
-<p>錨はブロック (0, 0, 0) で、そこが出現点になる。F3 で出る座標が、そのまま錨からのメートルである。クリエイティブで、昼のまま止まる。</p>
-<p>そして帰り道もある。ワールドの中で建てた家を、範囲を指定するか、書き出した時との差分で取り出すと、錨つきの GLB になる。それを地球儀に置けば、丸の内に自分の家が建つ。Unity や Unreal から戻すのと同じ口である。</p>
-<p>ゲームに入れるプラグインは要らない。ワールドのファイルを、Node だけで直接読み書きしている。別の読み手（Amulet）で Java 版と統合版の両方を開き、全部のブロックが一致することを確かめた。</p>
+<p>見本は三つとも丸の内である。</p>
+<ul>
+<li><strong>Unity 6</strong>：並べた地形の四隅が書き出した範囲とぴったり重なり、いちばん高い 238 m の建物は東京ミッドタウン八重洲の位置に立った。わざと錨を 158 m 東・139 m 南にずらした検査用の点群も、4 点とも 1 cm ほどの差で戻った。書き出し直した地形を読み戻すと、頂点数も範囲も元と一致した。</li>
+<li><strong>Unreal Engine 5.8.4</strong>：同じ見本で、軸の向きと点群の位置を確かめた。Nanite のメッシュもそのまま書き出せる。</li>
+<li><strong>Minecraft</strong>：ワールドのファイルは Node だけで読み書きしている。別の読み手（Amulet）で Java 版と統合版の両方を開き、全部のブロックが一致することを確かめた。</li>
+</ul>
+<p>Unity と Unreal のプラグイン（どちらも 0.1.0）は GitHub Release に載せる。Minecraft は <code>ortho-export</code> に入っている。</p>
 
 <h2>ほかに入ったもの</h2>
 <ul>
