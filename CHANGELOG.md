@@ -6,7 +6,7 @@ ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshid
 ## 2.4.0 — 2026-11-09
 
 **@ortho-earth/globe 2.4.0 · @ortho-earth/core 2.4.0** (also @ortho-earth/cesium 0.3.0, @ortho-earth/voxel 0.6.2 and
-@ortho-earth/glbconv 0.3.0). New: Unity and Unreal Engine plugins 0.1.0 (`plugins/`) and Minecraft worlds from `sdk/ortho-export`.
+glbconv 0.3.0). New: Unity and Unreal Engine plugins 0.1.0 (`plugins/`) and Minecraft worlds from `sdk/ortho-export`.
 
 ```
 npm i @ortho-earth/globe@2.4
