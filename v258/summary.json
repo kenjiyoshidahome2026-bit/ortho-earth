@@ -1,0 +1,149 @@
+{
+ "at": "2026-11-09T01:54:47.545Z",
+ "cesium": "1.146.0",
+ "n": 4,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 2,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 2,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 2,
+   "examples": [
+    "3d-tiles-photogrammetry-classification",
+    "classification"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-photogrammetry-classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 94% · edges 96% of the cells match · a patch of 34 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1919,
+    "n": 2110,
+    "colour": 0.9393364928909953,
+    "edge": 0.9639810426540284,
+    "blob": 34,
+    "masked": 962
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 96% · edges 96% of the cells match · a patch of 37 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1703,
+    "n": 1795,
+    "colour": 0.9559888579387187,
+    "edge": 0.9593314763231198,
+    "blob": 37,
+    "masked": 1277
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "classification-types",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1946,
+    "n": 2078,
+    "colour": 0.9966313763233878,
+    "edge": 0.936958614051973,
+    "blob": 1,
+    "masked": 994
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "google-photorealistic-3d-tiles-with-building-insert",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2256,
+    "n": 2340,
+    "colour": 0.9884615384615385,
+    "edge": 0.9743589743589743,
+    "blob": 3,
+    "masked": 732
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
