@@ -40,7 +40,7 @@ import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標�
 import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gl と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gl と同式の正本）
-import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, meshShed, meshLite, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
+import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, meshShed, meshLite, liftGroundROf, pickMeshMasks, orMaskBytes, maskRows } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
 import { terrainGridUV, terrainMeshSliced } from "../terrainlod.ts";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
@@ -2487,16 +2487,19 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 育たず、解放は区単位（freeMeshWard＝メッシュとマスクを同時破棄）で対称＝隙間は構造的に出ない。
 		if (data.ward && (data.maskCells || data.mask) && (data.maskN! | 0) > 0 && data.maskBbox) {
 			const N = data.maskN! | 0;
-			let m = meshMasks.get(data.ward);
+			let m = meshMasks.get(data.ward), fresh = false;
 			if (!m || m.n !== N) {
 				if (m) m.tex.destroy();
 				const tex = device.createTexture({ size: [N, N], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 				m = { ward: data.ward, rev: 0, tex, view: tex.createView(), bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
 				meshMasks.set(data.ward, m);
+				fresh = true;
 			}
 			m.bbox = data.maskBbox;
 			orMaskBytes(m.bytes, data.maskCells, data.mask);   // 旧 worker 互換の全量 OR も（meshcull.ts）
-			device.queue.writeTexture({ texture: m.tex }, m.bytes, { bytesPerRow: N, rowsPerImage: N }, [N, N]);
+			// 上げるのは断片が触れた行だけ（大きな区は格子 2048²＝4MB＝バッチ毎の全量上げは重い）。新規・全量 mask は全面
+			const [r0, r1] = fresh || data.mask || !data.maskCells ? [0, N - 1] : maskRows(data.maskCells, N);
+			if (r1 >= r0) device.queue.writeTexture({ texture: m.tex, origin: [0, r0] }, m.bytes, { offset: r0 * N, bytesPerRow: N, rowsPerImage: r1 - r0 + 1 }, [N, r1 - r0 + 1]);
 			m.rev = ++maskRevSeq;
 			maskSig = "\0";   // 次フレーム再構築
 		}

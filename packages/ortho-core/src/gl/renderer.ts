@@ -21,7 +21,7 @@ import { packResampleParams, cpuResampleCell, RESAMPLE_U32 } from "../elevcell.t
 import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gpu と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gpu と同式の正本）
-import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, liftGroundROf, pickMeshMasks, orMaskBytes } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gpu と共通）
+import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, liftGroundROf, pickMeshMasks, orMaskBytes, maskRows } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gpu と共通）
 import { terrainGridUV, terrainMeshSliced } from "../terrainlod.ts";
 import { evalPaintZoomMemo } from "../paintzoom.ts";   // ズーム連続（V-Ph3＝S-P1-2）＝層の色・線幅を今の z で
 import { createPtStore } from "../painttable-store.ts";   // paint 表の (b) 類＝行の評価（後の式・feature-state）は WebGPU と共有の純関数
@@ -1598,17 +1598,20 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
 		if (data.ward && (data.maskCells || data.mask) && (data.maskN! | 0) > 0 && data.maskBbox) {
 			const N = data.maskN! | 0;
-			let m = meshMasks.get(data.ward);
+			let m = meshMasks.get(data.ward), fresh = false;
 			if (!m || m.n !== N) {
 				if (m) gl.deleteTexture(m.tex);
 				m = { tex: gl.createTexture()!, bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
 				meshMasks.set(data.ward, m);
+				fresh = true;
 			}
 			m.bbox = data.maskBbox;
 			orMaskBytes(m.bytes, data.maskCells, data.mask);   // 旧 worker 互換の全量 OR も（meshcull.ts）
 			gl.bindTexture(gl.TEXTURE_2D, m.tex);
 			gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, N, N, 0, gl.RED, gl.UNSIGNED_BYTE, m.bytes);
+			// 上げるのは断片が触れた行だけ（大きな区は格子 2048²＝4MB）。新規・全量 mask は全面
+			if (fresh || data.mask || !data.maskCells) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, N, N, 0, gl.RED, gl.UNSIGNED_BYTE, m.bytes);
+			else { const [r0, r1] = maskRows(data.maskCells, N); if (r1 >= r0) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r0, N, r1 - r0 + 1, gl.RED, gl.UNSIGNED_BYTE, m.bytes.subarray(r0 * N, (r1 + 1) * N)); }
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);

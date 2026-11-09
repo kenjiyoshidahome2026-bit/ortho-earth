@@ -6,7 +6,7 @@
 // base>0（min_height）はそのまま宙に浮く（MapLibre の fill-extrusion-base と同じ意味）。
 // 法線は ortho の世界軸（ECEF(x,y,z) → (x, z, y)）で Int8×4。
 import earcut from "earcut";
-import { finishMesh, MASK_N } from "./meshdecode.ts";
+import { finishMesh, maskNOf } from "./meshdecode.ts";
 import { roundRing, verticalShade } from "./vtmesh.ts";   // 角の丸めと壁の縦の陰影（C6）＝vector の押し出しと同じ純関数
 import type { MeshOut } from "./meshdecode.ts";
 
@@ -136,5 +136,5 @@ export function extrudeMesh(polys: ExtrudeInPoly[], { mask = true, refine = ROOF
 	const maskBbox = mask && lo0 < lo1 ? [lo0, la0, lo1, la1] : null;
 	const mesh = finishMesh(G.slice(), N.slice(), I.slice(), 0, null, maskBbox, true, { uv: uv.slice(0, v * 2), col: col.slice(0, v * 4) }, true);
 	mesh.colSrgb = true;   // 頂点色＝style の色そのまま（sRGB）＝WebGPU の模型シェーダにリニアと読ませない
-	return { mesh, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, stats: { polygons: nPoly, vertices: v, triangles: nTri, bbox: [lo0, la0, lo1, la1] } };
+	return { mesh, mask: maskBbox ? { bbox: maskBbox, n: maskNOf(maskBbox) } : null, stats: { polygons: nPoly, vertices: v, triangles: nTri, bbox: [lo0, la0, lo1, la1] } };
 }

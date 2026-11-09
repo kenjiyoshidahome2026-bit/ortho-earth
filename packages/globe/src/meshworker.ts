@@ -3,7 +3,7 @@
 // 重複面dedup→RTE delta を行い、完成したバッチから順に render worker へ直結ポートで transfer 送信＝逐次表示。
 // 区全体を待たず「目の前のビルが数秒で立ち始める」。被覆マスクは区単位で累積（シェーダのマスクスロットを消費しない）。
 // main.js 側は複数のこの worker をプールし、base URL のハッシュで固定ルーティング（同じ地区は常に同じ worker＝内部cacheが効く）。
-import { decodeBatch, setDecodeEnv, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./meshdecode.ts";
+import { decodeBatch, setDecodeEnv, resolveUrl, collectLeafTiles, MASK_N, maskNOf, DECODE_VER } from "./meshdecode.ts";
 import { liteIndex, liteReorder } from "./meshlite.ts";
 import { windToNormals } from "./meshwind.ts";   // 軽量 index（?meshlite=A＝面積 A m² 未満の三角形を落とす）＝焼き・写し・生経路の全部が通る sendBatch で 1 回   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
 import { PLQ_VER, bakeDir, unpackPLQ } from "./meshq.ts";
@@ -106,7 +106,9 @@ const onDrained = () => { const w = creditWaiters.shift(); if (w) w(); else if (
 // 区bbox外に完全に出た三角形は捨てる＝失敗は常に「伏せない」側（空白でなく二重立ち）に倒れる。
 function maskCellsOf(mesh: Batch, wardBbox: number[] | null) {
 	if (!wardBbox) return null;
-	if (mesh.maskCells?.length) return Uint32Array.from(mesh.maskCells);   // 常にコピー＝cache原本をtransferで壊さない
+	const N = maskNOf(wardBbox);   // 区の格子（大きな区ほど細かい）
+	// 持参の断片は同じ格子の時だけ使う＝旧キャッシュ／旧焼き（格子 256 固定時代・cn 無し）を大きな区で読んだ時は形から導き直す
+	if (mesh.maskCells?.length && (mesh.maskN || MASK_N) === N) return Uint32Array.from(mesh.maskCells);   // 常にコピー＝cache原本をtransferで壊さない
 	const pos = mesh.pos, o = mesh.origin, idx = mesh.idx;
 	if (!pos || !o) return null;
 	const n = pos.length / 3;
@@ -119,26 +121,28 @@ function maskCellsOf(mesh: Batch, wardBbox: number[] | null) {
 		lats[i] = (ELL ? geoLatOf(bl) : bl) * R2Dg;   // ELL＝asin が返すのは β＝測地へ復元（マスクの台帳は測地経緯度）
 		lons[i] = Math.atan2(z, x) * R2Dg;
 	}
-	const bm = new Uint8Array(MASK_N * MASK_N);
+	const bm = new Uint8Array(N * N);
+	let bx0 = N, by0 = N, bx1 = -1, by1 = -1;   // 塗った範囲（セル）
 	const wLo = wardBbox[0], wLa = wardBbox[1];
 	const sx = (wardBbox[2] - wardBbox[0]) || 1e-12, sy = (wardBbox[3] - wardBbox[1]) || 1e-12;
 	if (idx?.length) {
 		for (let t = 0; t < idx.length; t += 3) {
 			const a = idx[t], b = idx[t + 1], c = idx[t + 2];
-			let cx0 = (Math.min(lons[a], lons[b], lons[c]) - wLo) / sx * MASK_N | 0, cx1 = (Math.max(lons[a], lons[b], lons[c]) - wLo) / sx * MASK_N | 0;
-			let cy0 = (Math.min(lats[a], lats[b], lats[c]) - wLa) / sy * MASK_N | 0, cy1 = (Math.max(lats[a], lats[b], lats[c]) - wLa) / sy * MASK_N | 0;
-			if (cx1 < 0 || cy1 < 0 || cx0 > MASK_N - 1 || cy0 > MASK_N - 1) continue;   // 区bbox外＝捨てる（伏せない側）
-			if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > MASK_N - 1) cx1 = MASK_N - 1; if (cy1 > MASK_N - 1) cy1 = MASK_N - 1;
-			for (let y2 = cy0; y2 <= cy1; y2++) { const row = y2 * MASK_N; for (let x2 = cx0; x2 <= cx1; x2++) bm[row + x2] = 1; }
+			let cx0 = (Math.min(lons[a], lons[b], lons[c]) - wLo) / sx * N | 0, cx1 = (Math.max(lons[a], lons[b], lons[c]) - wLo) / sx * N | 0;
+			let cy0 = (Math.min(lats[a], lats[b], lats[c]) - wLa) / sy * N | 0, cy1 = (Math.max(lats[a], lats[b], lats[c]) - wLa) / sy * N | 0;
+			if (cx1 < 0 || cy1 < 0 || cx0 > N - 1 || cy0 > N - 1) continue;   // 区bbox外＝捨てる（伏せない側）
+			if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > N - 1) cx1 = N - 1; if (cy1 > N - 1) cy1 = N - 1;
+			for (let y2 = cy0; y2 <= cy1; y2++) { const row = y2 * N; for (let x2 = cx0; x2 <= cx1; x2++) bm[row + x2] = 1; }
+			if (cx0 < bx0) bx0 = cx0; if (cx1 > bx1) bx1 = cx1; if (cy0 < by0) by0 = cy0; if (cy1 > by1) by1 = cy1;
 		}
 	} else {   // idx無しの保険＝従来の頂点打ち（現行データは全て idx 持ち）
 		for (let i = 0; i < n; i++) {
-			const cx = (lons[i] - wLo) / sx * MASK_N | 0, cy = (lats[i] - wLa) / sy * MASK_N | 0;
-			if (cx >= 0 && cy >= 0 && cx < MASK_N && cy < MASK_N) bm[cy * MASK_N + cx] = 1;
+			const cx = (lons[i] - wLo) / sx * N | 0, cy = (lats[i] - wLa) / sy * N | 0;
+			if (cx >= 0 && cy >= 0 && cx < N && cy < N) { bm[cy * N + cx] = 1; if (cx < bx0) bx0 = cx; if (cx > bx1) bx1 = cx; if (cy < by0) by0 = cy; if (cy > by1) by1 = cy; }
 		}
 	}
 	const cells: number[] = [];
-	for (let i = 0; i < bm.length; i++) if (bm[i]) cells.push(i);
+	for (let y2 = by0; y2 <= by1; y2++) for (let x2 = bx0, row = y2 * N; x2 <= bx1; x2++) if (bm[row + x2]) cells.push(row + x2);   // 塗った矩形だけ走査（格子 2048²＝4M を毎バッチ舐めない）
 	return cells.length ? Uint32Array.from(cells) : null;
 }
 // ── 遠景far-DB＝「いつも描くDB」の一般化（z15帯の建物の崖をPLATEAU抽出で埋める・本人裁定2026-08-04）──
@@ -337,7 +341,7 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 			const q = pieces[j], mc = j ? null : maskCells;   // マスクは束で 1 回（片 0 に添える）
 			const lr = LITE_MOVE > 0 && !mesh.twoSided ? liteReorder(q.pos, q.idx, q.lodCounts, LITE_MOVE, EARTH_W) : null;   // 段ごとに残す三角形を先頭へ（片ごと）
 			if (lr && bi === 0 && j === 0) console.log(`[mesh] litemove <${LITE_MOVE} m2 ${ward}#${bi}.0: ${lr.tris - lr.dropped} / ${lr.tris} tris kept while moving`);
-			await postBatch(ward, bi, { name: j ? `${ward}#${bi}.${j}` : `${ward}#${bi}`, meshData: { pos: q.pos, nrm: q.nrm, idx: q.idx, origin: mesh.origin, bbox: q.bbox, lodH: mesh.lodH, lodCounts: q.lodCounts, liteCounts: lr ? lr.liteCounts : null, wound, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells: mc, maskN: MASK_N, maskBbox: wardBbox } },
+			await postBatch(ward, bi, { name: j ? `${ward}#${bi}.${j}` : `${ward}#${bi}`, meshData: { pos: q.pos, nrm: q.nrm, idx: q.idx, origin: mesh.origin, bbox: q.bbox, lodH: mesh.lodH, lodCounts: q.lodCounts, liteCounts: lr ? lr.liteCounts : null, wound, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells: mc, maskN: maskNOf(wardBbox), maskBbox: wardBbox } },
 				[q.pos.buffer, q.nrm.buffer, q.idx.buffer, mc?.buffer]);
 		}
 		return;
@@ -345,7 +349,7 @@ async function sendBatch(ward: string, bi: number, mesh: Batch, wardMask: Uint8A
 	const pos = own ? mesh.pos! : mesh.pos!.slice(), nrm = own ? mesh.nrm! : mesh.nrm!.slice(), idx = own ? mesh.idx! : mesh.idx!.slice();
 	const lr = LITE_MOVE > 0 && !mesh.twoSided ? liteReorder(pos, idx, mesh.lodCounts, LITE_MOVE, EARTH_W) : null;   // 段ごとに残す三角形を先頭へ（idx は写し＝元の器は触らない）
 	if (lr && bi === 0) console.log(`[mesh] litemove <${LITE_MOVE} m2 ${ward}#${bi}: ${lr.tris - lr.dropped} / ${lr.tris} tris kept while moving`);
-	await postBatch(ward, bi, { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, liteCounts: lr ? lr.liteCounts : null, wound, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } },
+	await postBatch(ward, bi, { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, liteCounts: lr ? lr.liteCounts : null, wound, twoSided: mesh.twoSided || 0, noCull: doubleSidedWards.has(ward), ward, maskCells, maskN: maskNOf(wardBbox), maskBbox: wardBbox } },
 		[pos.buffer, nrm.buffer, idx.buffer, maskCells?.buffer]);
 }
 // クレジットは「送れた時だけ」消費する：取得後に例外（マスク導出・DataCloneError＝重複/切離しバッファ等）で送れないと
@@ -758,7 +762,7 @@ async function loadMesh(base: string, tiles: string[] | null | undefined, ward: 
 	const part = await loadMeta(sk, brid);
 	const wardFs = part ? part.fs : (ofs ? "opfs" : undefined);   // 焼き途中の区は置き場を変えない（混在させない）。新規区はOPFS
 	const wardMask = wardBbox
-		? (part?.mask?.length === MASK_N * MASK_N ? part.mask : new Uint8Array(MASK_N * MASK_N))
+		? (part?.mask?.length === maskNOf(wardBbox) ** 2 ? part.mask : new Uint8Array(maskNOf(wardBbox) ** 2))
 		: null;   // 区単位で累積（wardBbox 無し=デバッグ直指定時はマスク無し）。再開時は保存済みマスクの上へ
 	const keep = CACHE_MAX ? [] as Batch[] : null;   // desktop＝完走後の worker内cache 用に全量保持／低メモリ＝保持しない（保存が再送を受ける）
 	const pending = new Map<number, Batch>();   // 保存失敗(idbFail)時だけの未送信RAM退避＝「書けない環境でも表示は完走する」旧・全量RAM保持の代替

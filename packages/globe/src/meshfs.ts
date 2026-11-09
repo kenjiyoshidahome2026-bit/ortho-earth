@@ -13,7 +13,7 @@ import type { PlqMesh } from "./meshq.ts";
 /** 保存するバッチ（tiles＝部分再開の差分計算用の葉 URI） */
 export type StoredBatch = PlqMesh & { tiles?: string[] | null };
 /** unpackBatch の戻り（headerOnly の時は pos/nrm/idx が無い・bytes＝OPFS のファイルサイズ） */
-export interface BatchHead { origin?: number[]; bbox?: number[]; lodH?: number[] | null; lodCounts?: number[]; twoSided?: number; tiles?: string[]; maskCells?: Uint32Array | null; bytes?: number }
+export interface BatchHead { origin?: number[]; bbox?: number[]; lodH?: number[] | null; lodCounts?: number[]; twoSided?: number; tiles?: string[]; maskCells?: Uint32Array | null; maskN?: number; bytes?: number }
 export type LoadedBatch = BatchHead & Partial<Pick<PlqMesh, "pos" | "nrm" | "idx">>;
 /** 読みのコールバック（view へ at から流し込み、読めたバイト数を返す） */
 export type ReadAt = (view: ArrayBufferView, at: number) => number;
@@ -43,6 +43,7 @@ export function packBatch(mesh: StoredBatch): Uint8Array {
 		origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts,
 		twoSided: mesh.twoSided || 0, tiles: mesh.tiles ?? null,
 		cells: mesh.maskCells ? Array.from(mesh.maskCells) : null,   // 被覆マスクのバッチ断片（セル添字・典型数十個）＝復元時もメッシュと同時にしか伏せない
+		cn: mesh.maskCells && mesh.maskN ? mesh.maskN : undefined,   // 断片の格子（maskNOf）＝無い＝旧 256。区の格子と違えば読む側が形から導き直す
 		pos: mesh.pos.length, nrm: mesh.nrm.length, idx: mesh.idx.length,
 	};
 	const json = new TextEncoder().encode(JSON.stringify(head));
@@ -72,9 +73,9 @@ export function unpackBatch(readAt: ReadAt, headerOnly = false, take: TakeBuf | 
 	const jl = dv.getUint32(4, true);
 	const jb = new Uint8Array(jl);
 	if (readAt(jb, 8) < jl) return null;
-	let h: { origin?: number[]; bbox?: number[]; lodH?: number[] | null; lodCounts?: number[]; twoSided?: number; tiles?: string[] | null; cells?: number[] | null; pos: number; nrm: number; idx: number };
+	let h: { origin?: number[]; bbox?: number[]; lodH?: number[] | null; lodCounts?: number[]; twoSided?: number; tiles?: string[] | null; cells?: number[] | null; cn?: number; pos: number; nrm: number; idx: number };
 	try { h = JSON.parse(new TextDecoder().decode(jb)); } catch { return null; }
-	const base: BatchHead = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, lodCounts: h.lodCounts, twoSided: h.twoSided, tiles: h.tiles ?? undefined, maskCells: h.cells ? Uint32Array.from(h.cells) : undefined };
+	const base: BatchHead = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, lodCounts: h.lodCounts, twoSided: h.twoSided, tiles: h.tiles ?? undefined, maskCells: h.cells ? Uint32Array.from(h.cells) : undefined, maskN: h.cn };
 	if (headerOnly) return base;
 	const start = dataStart(jl);
 	const mk = <T extends Float32Array | Int8Array | Uint32Array>(Ctor: { new (b: ArrayBuffer, o: number, n: number): T; new (n: number): T; BYTES_PER_ELEMENT: number }, elems: number): T => { const need = elems * Ctor.BYTES_PER_ELEMENT; const buf = take && take(need); return buf ? new Ctor(buf, 0, elems) : new Ctor(elems); };

@@ -1,5 +1,16 @@
 [
 	{
+		"name": "あきる野市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13228-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.136095447,
+			35.688245505,
+			139.331230078,
+			35.77892202699999
+		],
+		"lod": 1
+	},
+	{
 		"name": "いの町",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/39386-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -50,6 +61,28 @@
 		]
 	},
 	{
+		"name": "さいたま見沼区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11104-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.625700389,
+			35.892908441,
+			139.700871025,
+			35.964828441
+		],
+		"lod": 1
+	},
+	{
+		"name": "さいたま桜区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11106-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.568879974,
+			35.831713946,
+			139.637676161,
+			35.88834391900001
+		],
+		"lod": 1
+	},
+	{
 		"name": "さいたま市（橋梁）",
 		"base": "https://assets.cms.plateau.reearth.io/assets/55/babf04-f2a8-4f85-9440-27e56b473f4f/11100_saitama-shi_city_2025_citygml_1_op_brid_3dtiles_lod2/",
 		"bbox": [
@@ -59,6 +92,17 @@
 			35.91192252
 		],
 		"noMask": true
+	},
+	{
+		"name": "さいたま西区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11101-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.54059061,
+			35.871459973,
+			139.603677471,
+			35.945776441
+		],
+		"lod": 1
 	},
 	{
 		"name": "さいたま大宮区",
@@ -89,6 +133,17 @@
 			139.698057198,
 			35.866936973
 		]
+	},
+	{
+		"name": "さいたま北区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11102-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.58829144,
+			35.915666027,
+			139.643606615,
+			35.966024225
+		],
+		"lod": 1
 	},
 	{
 		"name": "さいたま緑区",
@@ -162,6 +217,17 @@
 		]
 	},
 	{
+		"name": "むつ市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/02208-bldg-lod1-texture-latest/",
+		"bbox": [
+			140.764189053,
+			41.119111694,
+			141.338970415,
+			41.455783973
+		],
+		"lod": 1
+	},
+	{
 		"name": "安芸市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/39203-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -200,6 +266,39 @@
 			136.81762069999996,
 			34.56630427899999
 		]
+	},
+	{
+		"name": "伊東市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22208-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.03457722399997,
+			34.851600559000005,
+			139.148621401,
+			35.036845838
+		],
+		"lod": 1
+	},
+	{
+		"name": "伊豆の国市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22225-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.902681673,
+			34.989428613,
+			139.05125917,
+			35.082715838
+		],
+		"lod": 1
+	},
+	{
+		"name": "伊豆市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22222-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.750945279,
+			34.826383613,
+			139.068830558,
+			35.016128613
+		],
+		"lod": 1
 	},
 	{
 		"name": "伊奈町",
@@ -293,6 +392,17 @@
 		]
 	},
 	{
+		"name": "羽村市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13227-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.292132633,
+			35.747124171,
+			139.343067756,
+			35.781165775
+		],
+		"lod": 1
+	},
+	{
 		"name": "臼杵市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/44206-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -333,6 +443,28 @@
 		]
 	},
 	{
+		"name": "延岡市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/45203-bldg-lod1-texture-latest/",
+		"bbox": [
+			131.428778612,
+			32.489837775,
+			131.885707224,
+			32.83897972100001
+		],
+		"lod": 1
+	},
+	{
+		"name": "奥多摩町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13308-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.943020078,
+			35.738669054,
+			139.177394773,
+			35.898384
+		],
+		"lod": 1
+	},
+	{
 		"name": "横須賀市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14201-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -341,6 +473,83 @@
 			139.747256057,
 			35.330373468
 		]
+	},
+	{
+		"name": "横浜旭区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14112-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.48724725,
+			35.443140135,
+			139.568314578,
+			35.509066865
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜磯子区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14107-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.587957808,
+			35.354734946,
+			139.645481582,
+			35.427942225
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜栄区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14115-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.516308638,
+			35.33651853199999,
+			139.592605331,
+			35.38490236
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜金沢区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14108-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.588709883,
+			35.312501748,
+			139.658413307,
+			35.390539225
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜戸塚区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14110-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.484038664,
+			35.357711505,
+			139.576285305,
+			35.448464586
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜港南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14111-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.55312780800003,
+			35.36284530599999,
+			139.608931634,
+			35.422405505
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜港北区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14109-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.58285761300002,
+			35.489502,
+			139.658420726,
+			35.562653333
+		],
+		"lod": 1
 	},
 	{
 		"name": "横浜市（橋梁）",
@@ -384,6 +593,28 @@
 		]
 	},
 	{
+		"name": "横浜青葉区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14117-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.468291777,
+			35.527451108,
+			139.56786061,
+			35.592504387
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜泉区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14116-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.472806446,
+			35.387366973,
+			139.530895279,
+			35.44893764
+		],
+		"lod": 1
+	},
+	{
 		"name": "横浜中区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14104-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -404,6 +635,50 @@
 		]
 	},
 	{
+		"name": "横浜都筑区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14118-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.541318664,
+			35.510754748,
+			139.61352061,
+			35.57144064
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14105-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.569946978,
+			35.408071838,
+			139.639785888,
+			35.444326225
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜保土ケ谷区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14106-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.545171556,
+			35.431023667,
+			139.608012361,
+			35.497991694
+		],
+		"lod": 1
+	},
+	{
+		"name": "横浜緑区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14113-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.476972892,
+			35.49210422499999,
+			139.586973969,
+			35.53841219800001
+		],
+		"lod": 1
+	},
+	{
 		"name": "岡崎市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23202-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -412,6 +687,39 @@
 			137.420759728,
 			35.041513613
 		]
+	},
+	{
+		"name": "岡山中区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/33102-bldg-lod1-texture-latest/",
+		"bbox": [
+			133.930464942,
+			34.599285,
+			134.006837951,
+			34.714541387
+		],
+		"lod": 1
+	},
+	{
+		"name": "岡山東区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/33103-bldg-lod1-texture-latest/",
+		"bbox": [
+			133.983891971,
+			34.557020468,
+			134.122674721,
+			34.782985559
+		],
+		"lod": 1
+	},
+	{
+		"name": "岡山南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/33104-bldg-lod1-texture-latest/",
+		"bbox": [
+			133.816231115,
+			34.51852055900001,
+			134.047230117,
+			34.643837305999995
+		],
+		"lod": 1
 	},
 	{
 		"name": "岡山北区",
@@ -442,6 +750,17 @@
 			139.595617108,
 			36.04053130599999
 		]
+	},
+	{
+		"name": "下田市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22219-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.846132503,
+			34.572154441,
+			138.992975811,
+			34.773822775
+		],
+		"lod": 1
 	},
 	{
 		"name": "加賀市",
@@ -482,6 +801,17 @@
 			139.234331245,
 			37.710612694
 		]
+	},
+	{
+		"name": "河津町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22302-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.875702503,
+			34.716524441,
+			139.025755486,
+			34.841736667
+		],
+		"lod": 1
 	},
 	{
 		"name": "河内長野市",
@@ -575,6 +905,17 @@
 		]
 	},
 	{
+		"name": "岸和田市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27202-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.345551219,
+			34.347377495,
+			135.463621673,
+			34.500399586
+		],
+		"lod": 1
+	},
+	{
 		"name": "寄居町",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11408-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -634,6 +975,17 @@
 			139.899209274,
 			35.939607892
 		]
+	},
+	{
+		"name": "吉田町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22424-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.223621115,
+			34.740436198,
+			138.294263113,
+			34.802929441
+		],
+		"lod": 1
 	},
 	{
 		"name": "久喜市",
@@ -706,6 +1058,17 @@
 		]
 	},
 	{
+		"name": "京都山科区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/26110-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.786608885,
+			34.95034889200001,
+			135.863410558,
+			35.016584171
+		],
+		"lod": 1
+	},
+	{
 		"name": "京都市（橋梁）",
 		"base": "https://assets.cms.plateau.reearth.io/assets/9c/8616a4-ec1c-4970-9456-1c36e2d8ec85/26100_kyoto-shi_city_2025_citygml_1_op_brid_3dtiles_lod3/",
 		"bbox": [
@@ -725,6 +1088,17 @@
 			135.771628054,
 			35.039200838
 		]
+	},
+	{
+		"name": "京都西京区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/26111-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.599452218,
+			34.927624721,
+			135.722029442,
+			35.030596667
+		],
+		"lod": 1
 	},
 	{
 		"name": "京都中京区",
@@ -879,6 +1253,17 @@
 		"noMask": true
 	},
 	{
+		"name": "熊本西区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/43103-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.567793126,
+			32.752910964,
+			130.710396005,
+			32.863592198
+		],
+		"lod": 1
+	},
+	{
 		"name": "熊本中央区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/43101-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -887,6 +1272,39 @@
 			130.763751556,
 			32.830404703
 		]
+	},
+	{
+		"name": "熊本東区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/43102-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.728213658,
+			32.750209955,
+			130.829053658,
+			32.854803676
+		],
+		"lod": 1
+	},
+	{
+		"name": "熊本南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/43104-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.602818353,
+			32.660637577,
+			130.777831816,
+			32.780237252
+		],
+		"lod": 1
+	},
+	{
+		"name": "熊本北区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/43105-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.6347738,
+			32.819200207,
+			130.790514034,
+			32.97985891
+		],
+		"lod": 1
 	},
 	{
 		"name": "熊野市",
@@ -919,6 +1337,28 @@
 		]
 	},
 	{
+		"name": "戸田市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11224-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.618703385,
+			35.79748036,
+			139.699518392,
+			35.835252837999995
+		],
+		"lod": 1
+	},
+	{
+		"name": "湖西市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22221-bldg-lod1-texture-latest/",
+		"bbox": [
+			137.474106939,
+			34.673551495,
+			137.598578716,
+			34.78686610799999
+		],
+		"lod": 1
+	},
+	{
 		"name": "呉市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/34202-bldg-lod2-texture-latest/",
 		"bbox": [
@@ -927,6 +1367,39 @@
 			132.869375966,
 			34.33320222500001
 		]
+	},
+	{
+		"name": "御前崎市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22223-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.078252698,
+			34.594985162,
+			138.23413083,
+			34.70059722500001
+		],
+		"lod": 1
+	},
+	{
+		"name": "御蔵島村",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13382-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.298261336,
+			33.651104532000005,
+			139.631908898,
+			33.90137418900001
+		],
+		"lod": 1
+	},
+	{
+		"name": "御殿場市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22215-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.731686693,
+			35.214816667,
+			138.993186031,
+			35.361966387
+		],
+		"lod": 1
 	},
 	{
 		"name": "厚木市",
@@ -949,6 +1422,50 @@
 		]
 	},
 	{
+		"name": "広島安芸区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/34107-bldg-lod1-texture-latest/",
+		"bbox": [
+			132.510313891,
+			34.313398333,
+			132.667093061,
+			34.457282775
+		],
+		"lod": 1
+	},
+	{
+		"name": "広島安佐南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/34105-bldg-lod1-texture-latest/",
+		"bbox": [
+			132.307749728,
+			34.422818892,
+			132.511423891,
+			34.519605559
+		],
+		"lod": 1
+	},
+	{
+		"name": "広島安佐北区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/34106-bldg-lod1-texture-latest/",
+		"bbox": [
+			132.342542503,
+			34.43635305400001,
+			132.696097782,
+			34.61384
+		],
+		"lod": 1
+	},
+	{
+		"name": "広島佐伯区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/34108-bldg-lod1-texture-latest/",
+		"bbox": [
+			132.178549728,
+			34.337003054,
+			132.414483891,
+			34.559059162000004
+		],
+		"lod": 1
+	},
+	{
 		"name": "広島市（橋梁）",
 		"base": "https://assets.cms.plateau.reearth.io/assets/a8/08e37d-8c97-4767-a357-cf202b60f371/34100_hiroshima-shi_city_2024_citygml_1_op_brid_3dtiles_lod3/",
 		"bbox": [
@@ -958,6 +1475,17 @@
 			34.399641075846255
 		],
 		"noMask": true
+	},
+	{
+		"name": "広島西区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/34104-bldg-lod1-texture-latest/",
+		"bbox": [
+			132.37147138799997,
+			34.355825748,
+			132.463769728,
+			34.429593054
+		],
+		"lod": 1
 	},
 	{
 		"name": "広島中区",
@@ -988,6 +1516,17 @@
 			132.51816,
 			34.40387082899999
 		]
+	},
+	{
+		"name": "更別村",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01639-bldg-lod1-texture-latest/",
+		"bbox": [
+			143.04053722399996,
+			42.570092387,
+			143.304193891,
+			42.725561107999994
+		],
+		"lod": 1
 	},
 	{
 		"name": "江戸川区",
@@ -1254,6 +1793,94 @@
 		]
 	},
 	{
+		"name": "堺中区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27142-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.467907782,
+			34.501539946,
+			135.535482114,
+			34.550136414
+		],
+		"lod": 1
+	},
+	{
+		"name": "堺東区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27143-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.508154306,
+			34.510012225,
+			135.555019728,
+			34.559062468
+		],
+		"lod": 1
+	},
+	{
+		"name": "堺南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27145-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.465025551,
+			34.430214162000006,
+			135.545313061,
+			34.514136081
+		],
+		"lod": 1
+	},
+	{
+		"name": "堺美原区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27147-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.53876435799998,
+			34.510554162,
+			135.587615551,
+			34.560029441
+		],
+		"lod": 1
+	},
+	{
+		"name": "堺北区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27146-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.482898054,
+			34.541966441,
+			135.549565837,
+			34.59433527899999
+		],
+		"lod": 1
+	},
+	{
+		"name": "札幌厚別区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01108-bldg-lod1-texture-latest/",
+		"bbox": [
+			141.443867497,
+			43.007057775,
+			141.504765551,
+			43.09611889200001
+		],
+		"lod": 1
+	},
+	{
+		"name": "札幌手稲区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01109-bldg-lod1-texture-latest/",
+		"bbox": [
+			141.15196138800002,
+			43.076392505,
+			141.285994163,
+			43.160206667
+		],
+		"lod": 1
+	},
+	{
+		"name": "札幌清田区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01110-bldg-lod1-texture-latest/",
+		"bbox": [
+			141.386525551,
+			42.888653054,
+			141.482422218,
+			43.026090838
+		],
+		"lod": 1
+	},
+	{
 		"name": "札幌西区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01107-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1282,6 +1909,39 @@
 			141.457257497,
 			43.16672389200001
 		]
+	},
+	{
+		"name": "札幌南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01106-bldg-lod1-texture-latest/",
+		"bbox": [
+			140.99050277599997,
+			42.780729441,
+			141.397323891,
+			43.120480279000006
+		],
+		"lod": 1
+	},
+	{
+		"name": "札幌白石区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01104-bldg-lod1-texture-latest/",
+		"bbox": [
+			141.366445551,
+			43.022273892,
+			141.473462218,
+			43.100099721
+		],
+		"lod": 1
+	},
+	{
+		"name": "札幌豊平区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01105-bldg-lod1-texture-latest/",
+		"bbox": [
+			141.352427782,
+			42.92714722499999,
+			141.434068612,
+			43.05796861299999
+		],
+		"lod": 1
 	},
 	{
 		"name": "札幌北区",
@@ -1344,6 +2004,28 @@
 		]
 	},
 	{
+		"name": "三宅村",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13381-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.377992503,
+			34.044016387,
+			139.569751479,
+			34.125560108
+		],
+		"lod": 1
+	},
+	{
+		"name": "三島市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22206-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.90440834,
+			35.076401667,
+			139.013829442,
+			35.189805333
+		],
+		"lod": 1
+	},
+	{
 		"name": "三芳町",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11324-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1382,6 +2064,39 @@
 			139.607399222,
 			35.860168333
 		]
+	},
+	{
+		"name": "室蘭市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01205-bldg-lod1-texture-latest/",
+		"bbox": [
+			140.908317302,
+			42.299241946,
+			141.054295914,
+			42.43726250500001
+		],
+		"lod": 1
+	},
+	{
+		"name": "射水市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/16211-bldg-lod1-texture-latest/",
+		"bbox": [
+			137.011029079,
+			36.646053135,
+			137.18013022,
+			36.79391057699999
+		],
+		"lod": 1
+	},
+	{
+		"name": "守口市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27209-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.553400558,
+			34.708887775,
+			135.60692834,
+			34.767522225
+		],
+		"lod": 1
 	},
 	{
 		"name": "周南市",
@@ -1475,6 +2190,17 @@
 		]
 	},
 	{
+		"name": "小山町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22344-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.730781414,
+			35.285545279,
+			139.01901099899996,
+			35.405176054
+		],
+		"lod": 1
+	},
+	{
 		"name": "小城市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/41208-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1546,6 +2272,17 @@
 		"noMask": true
 	},
 	{
+		"name": "松崎町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22305-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.739090973,
+			34.699720081,
+			138.89636138799997,
+			34.800293613
+		],
+		"lod": 1
+	},
+	{
 		"name": "松山市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/38201-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1597,6 +2334,17 @@
 		"noMask": true
 	},
 	{
+		"name": "焼津市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22212-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.236778054,
+			34.767374414,
+			138.348597224,
+			34.922627495
+		],
+		"lod": 1
+	},
+	{
 		"name": "上越市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15222-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1627,6 +2375,50 @@
 		]
 	},
 	{
+		"name": "新潟江南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15104-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.020580195,
+			37.820860802000006,
+			139.178315525,
+			37.913843586
+		],
+		"lod": 1
+	},
+	{
+		"name": "新潟秋葉区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15105-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.058044423,
+			37.72049186499999,
+			139.19028494199998,
+			37.841769748
+		],
+		"lod": 1
+	},
+	{
+		"name": "新潟西蒲区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15108-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.784373476,
+			37.682048306,
+			138.994841193,
+			37.831849135
+		],
+		"lod": 1
+	},
+	{
+		"name": "新潟西区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15107-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.856161284,
+			37.803315225,
+			139.02482608300002,
+			37.90949917099999
+		],
+		"lod": 1
+	},
+	{
 		"name": "新潟中央区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15103-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1635,6 +2427,39 @@
 			139.101569922,
 			37.975122838
 		]
+	},
+	{
+		"name": "新潟東区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15102-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.064722802,
+			37.889999946,
+			139.14773591399998,
+			37.96214423399999
+		],
+		"lod": 1
+	},
+	{
+		"name": "新潟南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15106-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.968215837,
+			37.679772748,
+			139.071636835,
+			37.854667387
+		],
+		"lod": 1
+	},
+	{
+		"name": "新潟北区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15101-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.127589105,
+			37.862136468,
+			139.266824578,
+			38.019862234
+		],
+		"lod": 1
 	},
 	{
 		"name": "新座市",
@@ -1668,6 +2493,17 @@
 		"noMask": true
 	},
 	{
+		"name": "新島村",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13363-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.193930726,
+			34.315070387,
+			139.302404449,
+			34.479192775
+		],
+		"lod": 1
+	},
+	{
 		"name": "新発田市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/15206-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1676,6 +2512,17 @@
 			139.681852802,
 			38.049467739
 		]
+	},
+	{
+		"name": "森町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22461-bldg-lod1-texture-latest/",
+		"bbox": [
+			137.871604721,
+			34.784274162,
+			138.043780272,
+			34.97561722500001
+		],
+		"lod": 1
 	},
 	{
 		"name": "深谷市",
@@ -1688,6 +2535,17 @@
 		]
 	},
 	{
+		"name": "神津島村",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13364-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.81529194599997,
+			33.942512225,
+			139.19393,
+			34.245895667
+		],
+		"lod": 1
+	},
+	{
 		"name": "諏訪市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/20206-bldg-lod2-texture-latest/",
 		"bbox": [
@@ -1696,6 +2554,17 @@
 			138.200402944,
 			36.123953838
 		]
+	},
+	{
+		"name": "瑞穂町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13303-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.318008275,
+			35.741240279,
+			139.381514034,
+			35.796413252
+		],
+		"lod": 1
 	},
 	{
 		"name": "杉戸町",
@@ -1729,6 +2598,17 @@
 		"noMask": true
 	},
 	{
+		"name": "裾野市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22220-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.749470558,
+			35.148983054,
+			139.001594137,
+			35.331
+		],
+		"lod": 1
+	},
+	{
 		"name": "世田谷区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13112-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1748,6 +2628,17 @@
 			35.682680667
 		],
 		"noMask": true
+	},
+	{
+		"name": "清水町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22341-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.883929728,
+			35.077018054,
+			138.915593606,
+			35.11984000000001
+		],
+		"lod": 1
 	},
 	{
 		"name": "清瀬市",
@@ -1770,6 +2661,17 @@
 		]
 	},
 	{
+		"name": "西伊豆町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22306-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.742811427,
+			34.76250472099999,
+			138.892673891,
+			34.882286667
+		],
+		"lod": 1
+	},
+	{
 		"name": "西東京市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13229-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1778,6 +2680,17 @@
 			139.569423722,
 			35.761396613
 		]
+	},
+	{
+		"name": "青ケ島村",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13402-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.75362917,
+			32.442955279,
+			139.782,
+			32.473764441
+		],
+		"lod": 1
 	},
 	{
 		"name": "青梅市",
@@ -1809,6 +2722,17 @@
 			35.044890722309255
 		],
 		"noMask": true
+	},
+	{
+		"name": "静岡駿河区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22102-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.292032361,
+			34.898583333,
+			138.474162555,
+			35.006354171
+		],
+		"lod": 1
 	},
 	{
 		"name": "静岡清水区",
@@ -1852,6 +2776,17 @@
 		"noMask": true
 	},
 	{
+		"name": "仙台若林区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/04103-bldg-lod1-texture-latest/",
+		"bbox": [
+			140.880068612,
+			38.174417288,
+			140.99531917,
+			38.261278171
+		],
+		"lod": 1
+	},
+	{
 		"name": "仙台青葉区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/04101-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1860,6 +2795,28 @@
 			140.899677419,
 			38.454691973
 		]
+	},
+	{
+		"name": "仙台泉区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/04105-bldg-lod1-texture-latest/",
+		"bbox": [
+			140.687940467,
+			38.28731461299999,
+			140.932400169,
+			38.432938865
+		],
+		"lod": 1
+	},
+	{
+		"name": "仙台太白区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/04104-bldg-lod1-texture-latest/",
+		"bbox": [
+			140.469498171,
+			38.174356721,
+			140.935310506,
+			38.377769306
+		],
+		"lod": 1
 	},
 	{
 		"name": "千代田区",
@@ -1914,6 +2871,17 @@
 		]
 	},
 	{
+		"name": "川根本町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22429-bldg-lod1-texture-latest/",
+		"bbox": [
+			137.998412503,
+			34.972298054,
+			138.239830558,
+			35.34741864
+		],
+		"lod": 1
+	},
+	{
 		"name": "川崎宮前区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14136-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1934,6 +2902,17 @@
 		]
 	},
 	{
+		"name": "川崎高津区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14134-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.58665603100002,
+			35.561209440999995,
+			139.643243917,
+			35.618498838
+		],
+		"lod": 1
+	},
+	{
 		"name": "川崎川崎区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14131-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1944,6 +2923,17 @@
 		]
 	},
 	{
+		"name": "川崎多摩区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14135-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.514580272,
+			35.595849919,
+			139.600763307,
+			35.641958441
+		],
+		"lod": 1
+	},
+	{
 		"name": "川崎中原区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14133-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1952,6 +2942,17 @@
 			139.684704423,
 			35.59815636
 		]
+	},
+	{
+		"name": "川崎麻生区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14137-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.449280584,
+			35.567258838,
+			139.532156252,
+			35.624915251999994
+		],
+		"lod": 1
 	},
 	{
 		"name": "川島町",
@@ -2025,6 +3026,17 @@
 		]
 	},
 	{
+		"name": "相模原南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14153-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.355124086,
+			35.49090964,
+			139.458316978,
+			35.561765802
+		],
+		"lod": 1
+	},
+	{
 		"name": "相模原緑区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14151-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2086,6 +3098,28 @@
 		"noMask": true
 	},
 	{
+		"name": "太地町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/30422-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.921522503,
+			33.575233468,
+			135.965133061,
+			33.618717225
+		],
+		"lod": 1
+	},
+	{
+		"name": "袋井市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22216-bldg-lod1-texture-latest/",
+		"bbox": [
+			137.850309637,
+			34.666184441,
+			138.009665551,
+			34.822358613000006
+		],
+		"lod": 1
+	},
+	{
 		"name": "台東区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13106-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2127,6 +3161,39 @@
 		]
 	},
 	{
+		"name": "大阪阿倍野区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27119-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.497127497,
+			34.616126946,
+			135.52947749699996,
+			34.648457775
+		],
+		"lod": 1
+	},
+	{
+		"name": "大阪旭区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27117-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.525857224,
+			34.711419721,
+			135.56762583700004,
+			34.746080829
+		],
+		"lod": 1
+	},
+	{
+		"name": "大阪港区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27107-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.426116719,
+			34.644460135,
+			135.47418083,
+			34.677464721
+		],
+		"lod": 1
+	},
+	{
 		"name": "大阪此花区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27104-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2148,6 +3215,28 @@
 		"noMask": true
 	},
 	{
+		"name": "大阪住吉区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27120-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.486961946,
+			34.586765829,
+			135.523639442,
+			34.624912495
+		],
+		"lod": 1
+	},
+	{
+		"name": "大阪住之江区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27125-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.389658664,
+			34.596014162,
+			135.49284,
+			34.644815279
+		],
+		"lod": 1
+	},
+	{
 		"name": "大阪城東区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27118-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2156,6 +3245,17 @@
 			135.565637782,
 			34.714956108
 		]
+	},
+	{
+		"name": "大阪生野区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27116-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.524533891,
+			34.633296386999994,
+			135.563898612,
+			34.665469162
+		],
+		"lod": 1
 	},
 	{
 		"name": "大阪西区",
@@ -2168,6 +3268,39 @@
 		]
 	},
 	{
+		"name": "大阪西成区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27122-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.473683061,
+			34.62164,
+			135.508360558,
+			34.657030279
+		],
+		"lod": 1
+	},
+	{
+		"name": "大阪西淀川区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27113-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.407294021,
+			34.682847234,
+			135.47392888500002,
+			34.729081946
+		],
+		"lod": 1
+	},
+	{
+		"name": "大阪大正区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27108-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.447095966,
+			34.625291387,
+			135.481920272,
+			34.668137495
+		],
+		"lod": 1
+	},
+	{
 		"name": "大阪中央区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27128-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2178,6 +3311,28 @@
 		]
 	},
 	{
+		"name": "大阪鶴見区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27124-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.558857497,
+			34.687693333000006,
+			135.59935,
+			34.723337775
+		],
+		"lod": 1
+	},
+	{
+		"name": "大阪天王寺区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27109-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.506550272,
+			34.645958892,
+			135.53354500600003,
+			34.676075
+		],
+		"lod": 1
+	},
+	{
 		"name": "大阪都島区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27102-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2186,6 +3341,17 @@
 			135.54085138800002,
 			34.733413892
 		]
+	},
+	{
+		"name": "大阪東住吉区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27121-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.51399,
+			34.59091833299999,
+			135.547681115,
+			34.644459162
+		],
+		"lod": 1
 	},
 	{
 		"name": "大阪東成区",
@@ -2216,6 +3382,17 @@
 			135.491003333,
 			34.706972225
 		]
+	},
+	{
+		"name": "大阪平野区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27126-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.540738885,
+			34.58692249500001,
+			135.587319442,
+			34.644045
+		],
+		"lod": 1
 	},
 	{
 		"name": "大阪北区",
@@ -2277,6 +3454,17 @@
 			35.613091559
 		],
 		"noMask": true
+	},
+	{
+		"name": "大島町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13361-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.348596641,
+			34.677530108,
+			139.450004086,
+			34.799245252
+		],
+		"lod": 1
 	},
 	{
 		"name": "大牟田市",
@@ -2431,6 +3619,17 @@
 		"noMask": true
 	},
 	{
+		"name": "長泉町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22342-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.81184,
+			35.113740838,
+			138.911422218,
+			35.221141108
+		],
+		"lod": 1
+	},
+	{
 		"name": "長浜市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/25203-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2439,6 +3638,17 @@
 			136.362946109,
 			35.703414559
 		]
+	},
+	{
+		"name": "長野市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/20201-bldg-lod1-texture-latest/",
+		"bbox": [
+			137.910105837,
+			36.460701532,
+			138.318159001,
+			36.835733225
+		],
+		"lod": 1
 	},
 	{
 		"name": "鳥取市",
@@ -2489,6 +3699,28 @@
 			139.428820661,
 			35.958724612999994
 		]
+	},
+	{
+		"name": "島田市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22209-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.009948054,
+			34.785693054,
+			138.25080306099997,
+			35.064157775
+		],
+		"lod": 1
+	},
+	{
+		"name": "東伊豆町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22301-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.962773333,
+			34.764224658,
+			139.083261764,
+			34.883509162
+		],
+		"lod": 1
 	},
 	{
 		"name": "東温市",
@@ -2542,6 +3774,28 @@
 		]
 	},
 	{
+		"name": "東大和市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13220-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.391684553,
+			35.730058667,
+			139.451539857,
+			35.769529694
+		],
+		"lod": 1
+	},
+	{
+		"name": "藤枝市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22214-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.151693891,
+			34.815806108,
+			138.327486109,
+			35.015682504999994
+		],
+		"lod": 1
+	},
+	{
 		"name": "藤沢市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14205-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2593,6 +3847,17 @@
 		]
 	},
 	{
+		"name": "南伊豆町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22304-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.737986304,
+			34.599108054,
+			138.93334167300003,
+			34.715982495
+		],
+		"lod": 1
+	},
+	{
 		"name": "南相馬市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/07212-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2612,6 +3877,17 @@
 			37.746952306
 		],
 		"noMask": true
+	},
+	{
+		"name": "日の出町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13305-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.163044163,
+			35.731356387,
+			139.284654112,
+			35.789190414
+		],
+		"lod": 1
 	},
 	{
 		"name": "日吉津村",
@@ -2662,6 +3938,17 @@
 			139.419463359,
 			35.860717027
 		]
+	},
+	{
+		"name": "熱海市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22205-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.027850558,
+			35.024856387,
+			139.176556667,
+			35.149752802
+		],
+		"lod": 1
 	},
 	{
 		"name": "波佐見町",
@@ -2724,6 +4011,17 @@
 		]
 	},
 	{
+		"name": "函南町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22325-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.912944449,
+			35.061188333000004,
+			139.044778106,
+			35.182367838
+		],
+		"lod": 1
+	},
+	{
 		"name": "箱根町",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/14382-bldg-lod2-texture-latest/",
 		"bbox": [
@@ -2753,6 +4051,17 @@
 			35.719113054
 		],
 		"noMask": true
+	},
+	{
+		"name": "八丈町",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13401-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.675034163,
+			33.04523244100001,
+			139.859452944,
+			33.160378054000006
+		],
+		"lod": 1
 	},
 	{
 		"name": "八千代市",
@@ -2824,6 +4133,17 @@
 			130.775375551,
 			33.707014721
 		]
+	},
+	{
+		"name": "磐田市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22211-bldg-lod1-texture-latest/",
+		"bbox": [
+			137.78719888499998,
+			34.646246658,
+			137.912339728,
+			34.891061387
+		],
+		"lod": 1
 	},
 	{
 		"name": "備前市",
@@ -2898,6 +4218,17 @@
 		"noMask": true
 	},
 	{
+		"name": "富士宮市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22207-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.512123476,
+			35.151682505,
+			138.742210272,
+			35.445728333
+		],
+		"lod": 1
+	},
+	{
 		"name": "富士見市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11235-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -2926,6 +4257,28 @@
 			139.526457302,
 			35.699865108
 		]
+	},
+	{
+		"name": "府中市（広島県）",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/34208-bldg-lod1-texture-latest/",
+		"bbox": [
+			133.083504449,
+			34.527316387,
+			133.26992861200003,
+			34.757507775
+		],
+		"lod": 1
+	},
+	{
+		"name": "武蔵村山市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13223-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.354910467,
+			35.733028081,
+			139.414416109,
+			35.774407198000006
+		],
+		"lod": 1
 	},
 	{
 		"name": "武蔵野市",
@@ -2958,6 +4311,39 @@
 		]
 	},
 	{
+		"name": "福岡城南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40136-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.34847917,
+			33.516568613,
+			130.391357497,
+			33.58164
+		],
+		"lod": 1
+	},
+	{
+		"name": "福岡西区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40135-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.032279831,
+			33.507019441,
+			130.34315834,
+			33.87436874800001
+		],
+		"lod": 1
+	},
+	{
+		"name": "福岡早良区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40137-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.271839442,
+			33.424959162,
+			130.404567782,
+			33.59662036
+		],
+		"lod": 1
+	},
+	{
 		"name": "福岡中央区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40133-bldg-lod2-texture-latest/",
 		"bbox": [
@@ -2976,6 +4362,17 @@
 			130.494903891,
 			33.712736532
 		]
+	},
+	{
+		"name": "福岡南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40134-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.365113891,
+			33.504775,
+			130.452167782,
+			33.576820559
+		],
+		"lod": 1
 	},
 	{
 		"name": "福岡博多区",
@@ -3120,6 +4517,39 @@
 		]
 	},
 	{
+		"name": "北九州戸畑区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40105-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.805802724,
+			33.869634441,
+			130.869341556,
+			33.929009721
+		],
+		"lod": 1
+	},
+	{
+		"name": "北九州若松区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40103-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.673197847,
+			33.87817572099999,
+			130.850686109,
+			34.021941108
+		],
+		"lod": 1
+	},
+	{
+		"name": "北九州小倉南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40107-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.799233891,
+			33.720997495,
+			131.03898538300004,
+			33.869361667
+		],
+		"lod": 1
+	},
+	{
 		"name": "北九州小倉北区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40106-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -3130,6 +4560,17 @@
 		]
 	},
 	{
+		"name": "北九州八幡西区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40109-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.682343333,
+			33.769600559,
+			130.80207722400002,
+			33.898944721
+		],
+		"lod": 1
+	},
+	{
 		"name": "北九州八幡東区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40108-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -3138,6 +4579,17 @@
 			130.849172776,
 			33.891452468
 		]
+	},
+	{
+		"name": "北九州門司区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/40101-bldg-lod1-texture-latest/",
+		"bbox": [
+			130.91506677,
+			33.841000189,
+			131.024036498,
+			33.969884414
+		],
+		"lod": 1
 	},
 	{
 		"name": "北区",
@@ -3192,6 +4644,17 @@
 		"noMask": true
 	},
 	{
+		"name": "牧之原市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22226-bldg-lod1-texture-latest/",
+		"bbox": [
+			138.131916667,
+			34.61992889199999,
+			138.251552503,
+			34.801590559
+		],
+		"lod": 1
+	},
+	{
 		"name": "本庄市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11211-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -3212,6 +4675,39 @@
 		]
 	},
 	{
+		"name": "名古屋守山区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23113-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.92578917,
+			35.190073333,
+			137.060869728,
+			35.260228892
+		],
+		"lod": 1
+	},
+	{
+		"name": "名古屋昭和区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23107-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.910226109,
+			35.135609720999994,
+			136.972533061,
+			35.159662748
+		],
+		"lod": 1
+	},
+	{
+		"name": "名古屋瑞穂区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23108-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.911439728,
+			35.108492225000006,
+			136.962189442,
+			35.140558892
+		],
+		"lod": 1
+	},
+	{
 		"name": "名古屋西区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23104-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -3220,6 +4716,17 @@
 			136.907453606,
 			35.234786387
 		]
+	},
+	{
+		"name": "名古屋千種区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23101-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.920649728,
+			35.147824441,
+			136.99199805400002,
+			35.19190880200001
+		],
+		"lod": 1
 	},
 	{
 		"name": "名古屋中区",
@@ -3252,6 +4759,17 @@
 		]
 	},
 	{
+		"name": "名古屋天白区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23116-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.948225279,
+			35.099418054,
+			137.01996972799998,
+			35.152747505
+		],
+		"lod": 1
+	},
+	{
 		"name": "名古屋東区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23102-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -3260,6 +4778,61 @@
 			136.96580308700004,
 			35.199436946
 		]
+	},
+	{
+		"name": "名古屋南区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23112-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.90045693900004,
+			35.068399721,
+			136.948806667,
+			35.118015279
+		],
+		"lod": 1
+	},
+	{
+		"name": "名古屋熱田区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23109-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.882557834,
+			35.111955,
+			136.917050558,
+			35.143290838
+		],
+		"lod": 1
+	},
+	{
+		"name": "名古屋北区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23103-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.891093606,
+			35.18536305399999,
+			136.943850558,
+			35.243668333
+		],
+		"lod": 1
+	},
+	{
+		"name": "名古屋名東区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23115-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.97789841800002,
+			35.136379721,
+			137.027482218,
+			35.197516108
+		],
+		"lod": 1
+	},
+	{
+		"name": "名古屋緑区",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/23114-bldg-lod1-texture-latest/",
+		"bbox": [
+			136.905790558,
+			35.039195,
+			137.023480558,
+			35.109801108
+		],
+		"lod": 1
 	},
 	{
 		"name": "茂原市",
@@ -3313,6 +4886,17 @@
 		]
 	},
 	{
+		"name": "門真市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27223-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.57161583699997,
+			34.710754441,
+			135.623922776,
+			34.75038944100001
+		],
+		"lod": 1
+	},
+	{
 		"name": "与謝野町",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/26465-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -3331,6 +4915,17 @@
 			139.34587949399997,
 			36.110496225
 		]
+	},
+	{
+		"name": "利島村",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13362-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.267548262,
+			34.510835694,
+			139.29297716,
+			34.535280441
+		],
+		"lod": 1
 	},
 	{
 		"name": "立川市",
@@ -3383,6 +4978,17 @@
 		]
 	},
 	{
+		"name": "和泉市",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/27219-bldg-lod1-texture-latest/",
+		"bbox": [
+			135.415081115,
+			34.347334721,
+			135.526956939,
+			34.515401387
+		],
+		"lod": 1
+	},
+	{
 		"name": "蕨市",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/11223-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -3391,6 +4997,17 @@
 			139.709848755,
 			35.835677026999996
 		]
+	},
+	{
+		"name": "檜原村",
+		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13307-bldg-lod1-texture-latest/",
+		"bbox": [
+			139.012395084,
+			35.666593802,
+			139.172345772,
+			35.779122748
+		],
+		"lod": 1
 	},
 	{
 		"name": "鰺ヶ沢町",

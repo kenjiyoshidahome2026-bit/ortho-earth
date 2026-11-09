@@ -59,6 +59,12 @@ export function pickMeshMasks<M extends { bbox: ArrayLike<number> }>(masks: Map<
 	const mdist = (m: M): number => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
 	return [...masks.entries()].filter(([w]) => !hidden.has(w)).map(([, m]) => m).sort((a, b) => mdist(a) - mdist(b)).slice(0, max);
 }
+/** 断片（maskCells）が触れた行の範囲 [r0, r1]（N×N 格子）＝テクスチャの部分上げ用。空＝[N, -1] */
+export function maskRows(maskCells: ArrayLike<number>, N: number): [number, number] {
+	let r0 = N, r1 = -1;
+	for (let i = 0; i < maskCells.length; i++) { const c = maskCells[i]; if (c >= N * N) continue; const r = (c / N) | 0; if (r < r0) r0 = r; if (r > r1) r1 = r; }
+	return [r0, r1];
+}
 /** マスクの OR（単調＝破壊しない）：maskCells＝立てる格子の番号（新 worker）・mask＝全量（旧 worker 互換） */
 export function orMaskBytes(bytes: Uint8Array, maskCells: ArrayLike<number> | null | undefined, mask: ArrayLike<number> | null | undefined): void {
 	if (maskCells) { for (let i = 0; i < maskCells.length; i++) { const c = maskCells[i]; if (c < bytes.length) bytes[c] = 255; } }
