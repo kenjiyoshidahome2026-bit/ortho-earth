@@ -1,0 +1,184 @@
+{
+ "at": "2026-11-09T00:53:27.560Z",
+ "cesium": "1.146.0",
+ "n": 5,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 4,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 0,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 4,
+   "examples": [
+    "ground-primitive-dev",
+    "ground-primitive-materials-dev",
+    "picking-dev",
+    "polygon-texture-coordinates-dev"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "ground-primitive-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 74% · edges 85% of the cells match · a patch of 301 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1323,
+    "n": 2020,
+    "colour": 0.7396039603960396,
+    "edge": 0.8544554455445544,
+    "blob": 301,
+    "masked": 1052
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "ground-primitive-materials-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 87% · edges 94% of the cells match · a patch of 41 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1619,
+    "n": 1963,
+    "colour": 0.869077941925624,
+    "edge": 0.9368313805399898,
+    "blob": 41,
+    "masked": 1109
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "picking-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 66% · edges 85% of the cells match · a patch of 695 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1378,
+    "n": 2101,
+    "colour": 0.6563541170871013,
+    "edge": 0.851975249881009,
+    "blob": 695,
+    "masked": 971
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "polygon-texture-coordinates-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 66% · edges 85% of the cells match · a patch of 705 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1418,
+    "n": 2143,
+    "colour": 0.6626224918338778,
+    "edge": 0.8511432571161922,
+    "blob": 705,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polylines-on-terrain-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1735,
+    "n": 1827,
+    "colour": 0.9649698960043788,
+    "edge": 0.9819376026272578,
+    "blob": 5,
+    "masked": 1245
+   },
+   "dev": true,
+   "ion": true
+  }
+ ]
+}
