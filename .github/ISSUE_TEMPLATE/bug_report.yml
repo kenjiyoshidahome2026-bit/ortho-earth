@@ -13,7 +13,7 @@ body:
     id: where
     attributes:
       label: Page URL or package
-      description: For example https://www.ortho-earth.com/tokyo/ or @ortho-earth/globe 2.3.0
+      description: For example https://www.ortho-earth.com/tokyo/ or @ortho-earth/globe 2.4.0
     validations:
       required: true
   - type: textarea
