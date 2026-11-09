@@ -55,6 +55,7 @@ Browser suites drive a pinned headless Chrome for Testing (about 150 MB, cached 
 - An option copies the mirrored packages (`geopbf`, `altpbf`, `geoedit`, `native-bucket`, `ortho-world`, `himekuri`) to their standalone repositories afterwards (workflow `mirror`).
 - A post-publish check then runs on the Mac. A red check there does not mean the package was not published; look at npm first.
 - Bump the version in the package's `package.json` in a pull request before publishing.
+- The `/sandcastle/` and `/maplibre/` galleries print the globe version (`v2.4.x`) from `packages/globe/package.json` at the moment they are generated (`packages/globe/tests/csexamples/publish.mjs`, `tests/mlexamples/report.mjs`). Pictures shot just before a release still say the old series, so in the release pull request change `vX.Y.x` / `@ortho-earth/globe X.Y.x` in `apps/www/public/sandcastle/index.html` and `apps/www/public/maplibre/index.html` too (or regenerate after the bump). Also check the version named in `apps/docs/from-maplibre*.html` and the README's MapLibre grading line.
 
 ## Deploy: data
 
