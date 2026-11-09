@@ -151,6 +151,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 	(scene as Any).__voxels = voxels;
 	display.extra.sources.push(colls.source);
 	display.extra.lines = () => prims.lines.length && colls.lines.length ? [...prims.lines, ...colls.lines] : prims.lines.length ? prims.lines : colls.lines;
+	display.extra.fills = () => prims.fills;
 	display.extra.pickers.push((x, y) => prims.pick(x, y));
 	const particles = new ParticleDrawer(host);
 	this._orthoParticles = particles;

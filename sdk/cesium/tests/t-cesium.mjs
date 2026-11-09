@@ -13,7 +13,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { extentOfLayerJson, unionExtents } from "../src/i3s.ts";
 import { rasterSourceOf, mercatorRows, adjustPaint } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
-import { glbOf } from "../src/primitives.ts";
+import { glbOf, meshOutline } from "../src/primitives.ts";
+import { PolygonGeometry, PolygonHierarchy } from "@cesium/engine";
 import { gridOf, placementOf } from "../src/voxels.ts";
 import { parseKtx2Cube } from "../src/specular-env.ts";
 import { cesiumSphereOf } from "../src/spheres.ts";
@@ -637,6 +638,19 @@ for (const g of [
 	clock.tick();
 	const t = rasterSourceOf(p)?.tiles?.[0] ?? "";
 	ok("time-dynamic WMTS: the interval's Time in the template", /\/2015-08-01T00%3A00%3A00Z\/GM9\/\{TileMatrix\}/.test(t), t);
+}
+
+// ── GroundPrimitive → ground fill: the outline of Cesium's own polygon triangles (ground-primitive-dev) ──
+{
+	const outer = Cartesian3.fromDegreesArray([-122.2, 46.18, -122.17, 46.18, -122.17, 46.21, -122.2, 46.21]), hole = Cartesian3.fromDegreesArray([-122.19, 46.19, -122.18, 46.19, -122.18, 46.2, -122.19, 46.2]);
+	const g = PolygonGeometry.createGeometry(new PolygonGeometry({ polygonHierarchy: new PolygonHierarchy(outer, [new PolygonHierarchy(hole)]) }));
+	const pv = g.attributes.position.values, xy = [];
+	for (let k = 0; k < pv.length; k += 3) { const c = Ellipsoid.WGS84.cartesianToCartographic(new Cartesian3(pv[k], pv[k + 1], pv[k + 2])); xy.push(c.longitude * 180 / Math.PI, c.latitude * 180 / Math.PI); }
+	const polys = meshOutline(xy, g.indices), box = r => [Math.min(...r.map(q => q[0])), Math.min(...r.map(q => q[1])), Math.max(...r.map(q => q[0])), Math.max(...r.map(q => q[1]))];
+	const bo = polys[0] && box(polys[0][0]), bh = polys[0]?.[1] && box(polys[0][1]);
+	ok("meshOutline: a polygon with a hole → one polygon, outer ring + hole", polys.length === 1 && polys[0].length === 2 && near(bo[0], -122.2, 1e-6) && near(bo[3], 46.21, 1e-6) && near(bh[0], -122.19, 1e-6) && near(bh[2], -122.18, 1e-6), JSON.stringify(polys.map(p => p.map(r => r.length))));
+	const two = meshOutline([0, 0, 1, 0, 0, 1, 5, 5, 6, 5, 5, 6], [0, 1, 2, 3, 4, 5]);
+	ok("meshOutline: two separate triangles → two polygons", two.length === 2 && two.every(p => p.length === 1 && p[0].length === 4));
 }
 
 console.log(fails ? `${fails} FAILED` : "t-cesium: OK");
