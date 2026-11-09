@@ -25,7 +25,7 @@
 <body>
 <!-- Stories の記事（下書き・2026-11-09）。v2.4.0 の記録＝11/3 に Android タブレット（Galaxy・Mali-G615）を買ってからの 6 日間。
      数字は各 PR の本文にあるタブレット実測から。公開日・絵・stories.json のカードはリリースの時に入れる -->
-<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v240.html" lang="en">English</a></nav>
+<nav class="story-nav"><a href="https://www.ortho-earth.com/#stories" target="_top">Stories</a><a href="https://www.ortho-earth.com/docs/story-v240" lang="en">English</a></nav>
 <header class="masthead"><h1>Ortho Earth 2.4 を公開しました</h1><p class="byline">2026-11-09 · Kenji Yoshida</p></header>
 <article class="reading essay">
 <p>11 月 3 日、Android のタブレットを買った。Galaxy の一台で、GPU は Mali-G615、メモリは 4GB。自分のお金で買った、人生初の Android である。</p>
@@ -34,7 +34,7 @@
 
 <h2>11 月 3 日、WebGPU が動いた</h2>
 <p>これまで Android は、念のため WebGL2 で動かしていた。8 月に、ある Android の機種で移動中に地図が黒くなる報告があり、大事を取ったのである。</p>
-<p>タブレットが届いた日に、まず GPU の診断ページ（<a href="/check/" target="_top">/check/</a>）を作った。WebGPU か WebGL2 か、アダプタ、機能、上限、試しの描画を一枚で見られる。何も外へ送らない。</p>
+<p>タブレットが届いた日に、まず GPU の診断ページ（<a href="https://www.ortho-earth.com/check/" target="_top">/check/</a>）を作った。WebGPU か WebGL2 か、アダプタ、機能、上限、試しの描画を一枚で見られる。何も外へ送らない。</p>
 <p>/japan/ を WebGPU で開くと、ちゃんと動いた。しかも PLATEAU の建物は WebGL2 より速い。その日のうちに、Android も WebGPU で始めるようにした。2.3 で入れた映り込みや霧などの効果も、これで Android で見られる。万一のときは <code>?gl2=1</code> で WebGL2 に戻せる。</p>
 <p>ついでに、ノート PC では内蔵と外付けのうち速い方の GPU を使うようにした（<code>powerPreference</code> の既定が <code>"high-performance"</code>）。Windows の実機でも確かめた。</p>
 
@@ -78,11 +78,11 @@
 </tbody></table></div>
 
 <h3>地球儀からエンジンへ</h3>
-<p><code>ortho-export</code> で範囲を書き出すと、<code>anchor.json</code>・<code>terrain.glb</code>・<code>buildings.glb</code>・建物の属性表が一つのフォルダにそろう。点群は <a href="/japan/pointcloud" target="_top">/japan/pointcloud</a> で読んで、PLY か LAS で落とす。エンジンでメニューの <strong>Place export folder…</strong> を選べば、錨を親にして全部が正しい位置に並ぶ。</p>
+<p><code>ortho-export</code> で範囲を書き出すと、<code>anchor.json</code>・<code>terrain.glb</code>・<code>buildings.glb</code>・建物の属性表が一つのフォルダにそろう。点群は <a href="https://www.ortho-earth.com/japan/pointcloud" target="_top">/japan/pointcloud</a> で読んで、PLY か LAS で落とす。エンジンでメニューの <strong>Place export folder…</strong> を選べば、錨を親にして全部が正しい位置に並ぶ。</p>
 <p>建物は PLATEAU の <code>gml_id</code> ごとに 1 棟ずつのノードになっていて、選ぶと用途・高さ・住所・浸水などの属性が Inspector に出る。コードからも <code>b.Get("bldg:usage")</code> や <code>b.MeasuredHeight</code> で読める。PLATEAU の webp のテクスチャは、エンジンが読める jpeg に焼き直して渡す。</p>
 
 <h3>エンジンから地球儀へ</h3>
-<p>帰り道も同じである。模型を錨の子に置いて <strong>Export selection to GLB…</strong> を選ぶと、錨入りの GLB ができる。それを <a href="/japan/" target="_top">/japan/</a> にドロップするだけで、元の場所に立つ。<code>map.model()</code> も、位置を渡さなければ GLB の錨で置くようになった。大きな物は <code>glbconv</code> で 3D Tiles にできる。</p>
+<p>帰り道も同じである。模型を錨の子に置いて <strong>Export selection to GLB…</strong> を選ぶと、錨入りの GLB ができる。それを <a href="https://www.ortho-earth.com/japan/" target="_top">/japan/</a> にドロップするだけで、元の場所に立つ。<code>map.model()</code> も、位置を渡さなければ GLB の錨で置くようになった。大きな物は <code>glbconv</code> で 3D Tiles にできる。</p>
 
 <h3>丸の内で確かめた</h3>
 <p>見本は丸の内。Unity 6 では、並べた地形の四隅が書き出した範囲とぴったり重なり、いちばん高い 238 m の建物は東京ミッドタウン八重洲の位置に立った。わざと錨を 158 m 東・139 m 南にずらした検査用の点群も、4 点とも 1 cm ほどの差で戻った。書き出し直した地形を読み戻すと、頂点数も範囲も元と一致した。Unreal Engine 5.8.4 でも同じ見本で、軸の向きと点群の位置を確かめた。Nanite のメッシュもそのまま書き出せる。</p>
@@ -96,7 +96,7 @@
 
 <h2>一台で、みんな速く</h2>
 <p>6 日間で入った変更は 130 を超える。タブレットのために入れた工夫の多くは、そのまま全機種の既定になった。速い機械では何も変わらず、普及機ほどよく効く。普及機を選んだのは正解だった。一台の Android が、みんなの地球儀を軽くしてくれた。</p>
-<p>お手元の Android や Windows でも、ぜひ試してみてほしい。気になることがあれば、<a href="/check/" target="_top">/check/</a> の結果を添えて教えてもらえると、とても助かる。</p>
+<p>お手元の Android や Windows でも、ぜひ試してみてほしい。気になることがあれば、<a href="https://www.ortho-earth.com/check/" target="_top">/check/</a> の結果を添えて教えてもらえると、とても助かる。</p>
 
 <p><!-- TODO: 改良が終わったら書く。今の main に入っているのは下の 4 つ --> Android に追われた 6 日間も、Sandcastle の撮り直しは止めなかった。エンティティの縁の太さを Cesium と同じ 1 px にし、path の縁（polylineOutline）と光（PolylineGlow の細い芯と淡いにじみ）を描き、点の縁取りを pixelSize の外側に付けた。画像の細かさの選び方で cos φ を二重に掛けていたのも直した。</p>
 <div class="table-wrap"><table><thead><tr><th>撮影</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
