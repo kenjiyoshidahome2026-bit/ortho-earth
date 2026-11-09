@@ -1,5 +1,5 @@
 {
- "at": "2026-11-09T04:02:08.351Z",
+ "at": "2026-11-09T04:04:46.265Z",
  "cesium": "1.146.0",
  "n": 6,
  "levels": {
@@ -121,7 +121,7 @@
    "name": "fog",
    "level": 2,
    "reasons": [
-    "picture: colour 14% · edges 17% of the cells match · a patch of 1297 cells differs"
+    "picture: colour 95% · edges 49% of the cells match"
    ],
    "blockers": [
     "picture differs"
@@ -138,11 +138,11 @@
     "drawnCamera": true
    },
    "picture": {
-    "ok": 214,
+    "ok": 738,
     "n": 1519,
-    "colour": 0.14088215931533904,
-    "edge": 0.1652402896642528,
-    "blob": 1297,
+    "colour": 0.9499670836076366,
+    "edge": 0.49440421329822254,
+    "blob": 7,
     "masked": 1553
    },
    "dev": false,

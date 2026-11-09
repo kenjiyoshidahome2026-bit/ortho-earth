@@ -9,7 +9,7 @@
 | 3d-tiles-point-cloud | 2 | **2** | 92.0 / 91.3 / 38 | 91.7 / 91.4 / 38 |
 | 3d-tiles-point-cloud-shading | 3 | **2** | 91.9 / 94.7 / 12 | 84.1 / 96.1 / 131 |
 | arcticdem | 3 | **3** | 91.7 / 82.3 / 19 | 91.7 / 82.3 / 19 |
-| fog | 2 | **2** | 95.1 / 48.8 / 7 | 14.1 / 16.5 / 1297 |
+| fog | 2 | **2** | 95.1 / 48.8 / 7 | 95.0 / 49.4 / 7 |
 | geometry-height-reference | 2 | **3** | 99.4 / 37.0 / 2 | 99.3 / 91.7 / 4 |
 | gpx | 3 | **3** | 97.1 / 94.1 / 11 | 97.1 / 94.1 / 11 |
 
@@ -20,6 +20,8 @@
 | 3d-tiles-point-cloud | 2 | 2 | 92.0 / 91.3 / 38 | 91.7 / 91.4 / 38 |
 | 3d-tiles-point-cloud-shading | 3 | 2 | 91.9 / 94.7 / 12 | 84.1 / 96.1 / 131 |
 | arcticdem | 3 | 3 | 91.7 / 82.3 / 19 | 91.7 / 82.3 / 19 |
-| fog | 2 | 2 | 95.1 / 48.8 / 7 | 14.1 / 16.5 / 1297 |
+| fog | 2 | 2 | 95.1 / 48.8 / 7 | 95.0 / 49.4 / 7 |
 | geometry-height-reference | 2 | 3 | 99.4 / 37.0 / 2 | 99.3 / 91.7 / 4 |
 | gpx | 3 | 3 | 97.1 / 94.1 / 11 | 97.1 / 94.1 / 11 |
+
+- fog: the first shot had the example's camera race (distance 13.8 km instead of 3.0 km); re-shot alone (v260b) and copied in.
