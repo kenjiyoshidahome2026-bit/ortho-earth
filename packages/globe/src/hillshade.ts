@@ -35,7 +35,7 @@ export function cssColor(c: unknown, d: RGBA = [0, 0, 0, 1]): RGBA {
 		cctx.clearRect(0, 0, 1, 1); cctx.fillStyle = "#000"; cctx.fillStyle = c; cctx.fillRect(0, 0, 1, 1);
 		const p = cctx.getImageData(0, 0, 1, 1).data;
 		if (p[3] === 0) return [0, 0, 0, 0];
-		return [p[0] / p[3], p[1] / p[3], p[2] / p[3], p[3] / 255];   // 事前乗算を戻す
+		return [p[0] / 255, p[1] / 255, p[2] / 255, p[3] / 255];   // getImageData は事前乗算されていない値（ImageData の仕様）＝そのまま。旧＝p[3] で割っていた＝半透明の色が rgb÷α（0.5 で 2 倍）になり、Cesium の classification の木が白飛びするほど濃かった（2026-11-09）
 	} catch { return d; }
 }
 
