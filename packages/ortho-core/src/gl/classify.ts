@@ -17,14 +17,15 @@ uniform mat4 u_mvp;
 uniform vec4 u_clip;
 uniform float u_logCoef;
 uniform vec3 u_rel0;   // 原点−目（CPU の double で引く）
+uniform float u_invK;   // 1/K（renderer の CLIP_K＝?clipk の clip 空間の倍率・u_mvp も u_clip も K 倍）＝深度は本当の w で（glsl.ts wTrue と同じ）
 out float v_w;
 out vec3 v_rel;
 float log2p1(float w) { if (w < 0.1) return (w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715))))))) * 1.4426950; return log2(1.0 + w); }   // 1.0+w の桁落ちを避ける（glsl.ts PROJECT と同じ）
 void main() {
 	gl_Position = u_clip + u_mvp * vec4(a_pos, 0.0);
-	v_w = gl_Position.w;
+	v_w = gl_Position.w * u_invK;
 	v_rel = u_rel0 + a_pos;
-	gl_Position.z = (log2p1(max(gl_Position.w, 1e-30)) * u_logCoef - 1.0) * gl_Position.w;
+	gl_Position.z = (log2p1(max(v_w, 1e-30)) * u_logCoef - 1.0) * gl_Position.w;
 }`;
 const FS = `#version 300 es
 precision highp float;
@@ -58,7 +59,7 @@ export function createClassifyGL(gl: WebGL2RenderingContext) {
 		gl.attachShader(p, v); gl.attachShader(p, f); gl.bindAttribLocation(p, 0, "a_pos"); gl.linkProgram(p);
 		gl.deleteShader(v); gl.deleteShader(f);
 		if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("[classify] " + gl.getProgramInfoLog(p));
-		U = Object.fromEntries(["u_mvp", "u_clip", "u_logCoef", "u_color", "u_rel0", "u_eye", "u_ground"].map(n => [n, gl.getUniformLocation(p, n)]));
+		U = Object.fromEntries(["u_mvp", "u_clip", "u_logCoef", "u_color", "u_rel0", "u_eye", "u_ground", "u_invK"].map(n => [n, gl.getUniformLocation(p, n)]));
 		return p;
 	};
 	const free = (v: Vol) => { gl.deleteVertexArray(v.vao); for (const b of v.bufs) gl.deleteBuffer(b); };
@@ -82,12 +83,15 @@ export function createClassifyGL(gl: WebGL2RenderingContext) {
 	}
 	// 描き終えた深度の上で（建物・メッシュの後・深度テストの状態は問わない）。戻すのは既定の状態（深度テスト有・書込み有・stencil 無効・色全部）
 	// flat＝1−pf（真俯瞰の平ら化・../classify.ts flatOrigin）。ground＝地面が深度を書いていない（真俯瞰の平らな地図・地形なし）＝①b で単位球を地面として数える
-	function draw(st: { mvp: ArrayLike<number>; mvp32: Float32Array; eye: ArrayLike<number> }, logCoef: number, flat = 0, ground = false): void {
+	// clipK＝renderer の CLIP_K（st.mvp32 は st.mvp の K 倍）：柱の原点の clip（u_clip）も K 倍にして足し、深度は w/K で＝メッシュ・地形と同じ深度。
+	// 旧＝u_clip は倍率なし・u_mvp は K 倍＝柱の位置と深度が崩れ、GL2（既定 K＝2^20）では 3D Tiles の画素で z-fail の巻き数が 0＝3D Tiles に色が乗らなかった（classification・2026-11-09）
+	function draw(st: { mvp: ArrayLike<number>; mvp32: Float32Array; eye: ArrayLike<number> }, logCoef: number, flat = 0, ground = false, clipK = 1): void {
 		if (!vols.size) return;
 		prog ??= compile();
 		gl.useProgram(prog);
 		gl.uniformMatrix4fv(U.u_mvp, false, st.mvp32);
 		gl.uniform1f(U.u_logCoef, logCoef);
+		gl.uniform1f(U.u_invK, 1 / clipK);
 		const E = st.eye, eL = Math.hypot(E[0], E[1], E[2]);
 		gl.uniform4f(U.u_eye, E[0], E[1], E[2], (eL - 1) * (eL + 1));
 		gl.uniform1i(U.u_ground, 0);
@@ -96,7 +100,7 @@ export function createClassifyGL(gl: WebGL2RenderingContext) {
 		for (const v of vols.values()) {
 			if (!(v.color[3] > 0)) continue;
 			const o = flatOrigin(v.origin, flat), c = mat.transform(st.mvp as number[], [o[0], o[1], o[2], 1]);
-			gl.uniform4f(U.u_clip, c[0], c[1], c[2], c[3]);
+			gl.uniform4f(U.u_clip, c[0] * clipK, c[1] * clipK, c[2] * clipK, c[3] * clipK);
 			gl.uniform3f(U.u_rel0, o[0] - E[0], o[1] - E[1], o[2] - E[2]);
 			gl.uniform4f(U.u_color, v.color[0], v.color[1], v.color[2], v.color[3]);
 			gl.bindVertexArray(v.vao);

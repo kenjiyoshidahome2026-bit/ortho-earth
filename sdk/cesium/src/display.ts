@@ -232,6 +232,42 @@ function styledLines(p: number[], m: Any, t: JulianDate, col: Color, width: numb
 	return [{ p, color: css(col), width }];
 }
 
+/** overlapping ground fills → levels (properties._fl = 1, 2, …; level 0 = no _fl): a fill goes one level above every earlier fill it overlaps, so
+ *  each level is its own fill layer and a later translucent fill blends over the earlier one, as Cesium draws GroundPrimitives and entity polygons
+ *  one by one. One fill layer paints one feature per pixel (gint's fill resolves the overlap to a single feature): ground-primitive-dev's red / blue / green
+ *  rectangles showed blue over red instead of purple (2026-11-09). "Overlap" = a vertex of one strictly inside the other (neighbours sharing an edge
+ *  stay on one level). Only for ≤ 500 fills, at most 8 levels. Returns the highest level */
+function fillLevels(shapes: Any[]): number {
+	const fills = shapes.filter(f => f.properties?._k === "fill");
+	for (const f of fills) delete f.properties._fl;
+	if (fills.length < 2 || fills.length > 500) return 0;
+	const rings = (g: Any): number[][][] => g?.type === "Polygon" ? [g.coordinates[0]] : g?.type === "MultiPolygon" ? g.coordinates.map((p: number[][][]) => p[0]) : [];
+	const inside = (pt: number[], r: number[][]): boolean => {
+		let c = false;
+		for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+			const [xi, yi] = r[i], [xj, yj] = r[j];
+			if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c;
+		}
+		return c;
+	};
+	const info = fills.map(f => { const rs = rings(f.geometry); let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity; for (const r of rs) for (const [x, y] of r) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); } return { rs, b: [w, s, e, n], lv: 0 }; });
+	const hit = (a: typeof info[number], b: typeof info[number]): boolean => {
+		if (a.b[2] <= b.b[0] || b.b[2] <= a.b[0] || a.b[3] <= b.b[1] || b.b[3] <= a.b[1]) return false;
+		const inAny = (pt: number[], o: typeof info[number]) => o.rs.some(r => inside(pt, r));
+		for (const r of a.rs) for (const pt of r) if (inAny(pt, b)) return true;
+		for (const r of b.rs) for (const pt of r) if (inAny(pt, a)) return true;
+		return false;
+	};
+	let top = 0;
+	for (let i = 1; i < info.length; i++) {
+		let lv = 0;
+		for (let j = 0; j < i; j++) if (info[j].lv >= lv && hit(info[i], info[j])) lv = Math.min(8, info[j].lv + 1);
+		info[i].lv = lv;
+		if (lv) { fills[i].properties._fl = lv; top = Math.max(top, lv); }
+	}
+	return top;
+}
+
 /** a ground polyline with its material → line features of the ground line layers: styledLines' lines (outline under, glow's fading widths, the
  *  core), dashes in a layer of their own per pattern (line-dasharray is in line widths and the same for a whole layer) */
 function groundLineFeatures(id: string, coords: number[][], m: Any, t: JulianDate, col: Color, width: number): Any[] {
@@ -870,10 +906,12 @@ export class EntityDisplay {
 	}
 
 	#setShapes(map: Any, shapes: Any[]) {
+		const lv = fillLevels(shapes);   // 重なる塗りは別の層へ（_fl）＝後の塗りが前の塗りの上に半透明で重なる
 		const fc = { type: "FeatureCollection", features: shapes };
 		const src = map.getSource?.(SRC);
 		if (src) src.setData(fc); else map.addSource(SRC, { type: "geojson", data: fc });
 		const want = new Set<string>(["__cs-fill", "__cs-line"]);
+		for (let k = 1; k <= lv; k++) want.add(`__cs-fill-${k}`);
 		const ops = new Set<number>();
 		for (const s of shapes) if (s.properties._k === "ext") ops.add(Math.round(s.properties._fo * 10) / 10);
 		for (const o of ops) want.add(`__cs-ext-${o}`);
@@ -883,7 +921,8 @@ export class EntityDisplay {
 		for (const s of shapes) if (s.properties._k === "dash") want.add(`__cs-dash-${s.properties._dk}`);
 		for (const id of want) {
 			if (this.#layers.has(id)) continue;
-			if (id === "__cs-fill") map.addLayer({ id, type: "fill", source: SRC, filter: ["==", ["get", "_k"], "fill"], paint: { "fill-color": ["get", "_fc"], "fill-opacity": ["get", "_fo"] } });
+			if (id === "__cs-fill") map.addLayer({ id, type: "fill", source: SRC, filter: ["all", ["==", ["get", "_k"], "fill"], ["!", ["has", "_fl"]]], paint: { "fill-color": ["get", "_fc"], "fill-opacity": ["get", "_fo"] } });
+			else if (id.startsWith("__cs-fill-")) map.addLayer({ id, type: "fill", source: SRC, filter: ["all", ["==", ["get", "_k"], "fill"], ["==", ["get", "_fl"], +id.slice(10)]], paint: { "fill-color": ["get", "_fc"], "fill-opacity": ["get", "_fo"] } }, this.#layers.has("__cs-line") ? "__cs-line" : undefined);
 			else if (id.startsWith("__cs-dash-")) { const k = id.slice(10); map.addLayer({ id, type: "line", source: SRC, filter: ["all", ["==", ["get", "_k"], "dash"], ["==", ["get", "_dk"], k]], paint: { "line-color": ["get", "_lc"], "line-opacity": ["get", "_lo"], "line-width": ["get", "_lw"], "line-dasharray": dashArrayOf(k) } }); }
 			else if (id === "__cs-line") map.addLayer({ id, type: "line", source: SRC, filter: ["==", ["get", "_k"], "line"], paint: { "line-color": ["get", "_lc"], "line-opacity": ["get", "_lo"], "line-width": ["get", "_lw"] } });
 			else if (id.startsWith("__cs-exta-")) { const o = +id.slice(10); map.addLayer({ id, type: "fill-extrusion", source: SRC, bottom: 0, lighting: "phong", filter: ["all", ["==", ["get", "_k"], "exta"], [">=", ["get", "_fo"], o - 0.05], ["<", ["get", "_fo"], o + 0.05]], paint: { "fill-extrusion-color": ["get", "_fc"], "fill-extrusion-opacity": Math.max(0.05, o), "fill-extrusion-height": ["get", "_h"], "fill-extrusion-base": ["get", "_b"] } }); }   // absolute heights (bottom 0 = a plane at sea level, not lifted onto the terrain)
