@@ -2,6 +2,15 @@
 	"_note": "Stories タブ（Technologies の後）の記事一覧（日付・題のリンク・一文）。新しい記事は先頭に 1 件足す。ja / en の片方だけでも可（無い言語ではある方を出す）。href は同じオリジンのパス＝押すとナビの下の iframe で開く",
 	"stories": [
 		{
+			"id": "story-v240",
+			"date": "2026-11-09",
+			"ja": {
+				"title": "Ortho Earth 2.4 を公開しました",
+				"desc": "初めての Android タブレットがやって来た。その日のうちに Android も WebGPU で動くようになり、6 日間で京都の滑走は 36%、丸の内の建物は 25〜30% 速くなった。Unity・Unreal・Minecraft とも行き来でき、Cesium の同じ絵は 226 → 234 本に。",
+				"href": "/docs/story-v240-jp"
+			}
+		},
+		{
 			"id": "story-v230",
 			"date": "2026-11-02",
 			"ja": {

@@ -49,6 +49,7 @@ What the facade does not do yet is reported once in the console as `[csshim] uns
 
 ## Release notes
 
+- 0.3.0 (2026-11-09): part of Ortho Earth 2.4 (needs @ortho-earth/globe 2.4). Sandcastle same picture 226 → 234 of 303: GroundPrimitive draped on terrain, ClassificationPrimitive volumes classify 3D Tiles, Cesium's nearest-point tile distance for imagery, 1 px entity outlines, path outline and glow, point outlines. [Release article](https://www.ortho-earth.com/docs/story-v240-jp) (日本語) · [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md)
 - 0.2.0 (2026-11-02): part of Ortho Earth 2.3 (needs @ortho-earth/globe 2.3). Sandcastle same picture 190 → 226 of 303: imagery split, 3D Tiles edges, entity phong lighting, globe clipping planes, time-dynamic WMTS. [Release article](https://www.ortho-earth.com/docs/story-v230) ([日本語](https://www.ortho-earth.com/docs/story-v230-jp)) · [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md)
 - 0.1.0 (2026-10-31): first release, part of Ortho Earth 2.2. [Release article](https://www.ortho-earth.com/docs/release-2-2) ([日本語](https://www.ortho-earth.com/docs/release-2-2-jp)) · [Sandcastle side by side](https://www.ortho-earth.com/sandcastle/). All releases: [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md) · [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases)
 
