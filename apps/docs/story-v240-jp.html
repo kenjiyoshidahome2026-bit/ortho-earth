@@ -106,12 +106,20 @@
 <p>6 日間で入った変更は 130 を超える。タブレットのために入れた工夫の多くは、そのまま全機種の既定になった。速い機械では何も変わらず、普及機ほどよく効く。普及機を選んだのは正解だった。一台の Android が、みんなの地球儀を軽くしてくれた。</p>
 <p>お手元の Android や Windows でも、ぜひ試してみてほしい。気になることがあれば、<a href="https://www.ortho-earth.com/check/" target="_top">/check/</a> の結果を添えて教えてもらえると、とても助かる。</p>
 
-<p><!-- TODO: 改良が終わったら書く。今の main に入っているのは下の 4 つ --> Android に追われた 6 日間も、Sandcastle の撮り直しは止めなかった。エンティティの縁の太さを Cesium と同じ 1 px にし、path の縁（polylineOutline）と光（PolylineGlow の細い芯と淡いにじみ）を描き、点の縁取りを pixelSize の外側に付けた。画像の細かさの選び方で cos φ を二重に掛けていたのも直した。</p>
+<p>速さだけではない。Android に夢中だった 6 日間も、Cesium へのフォローは止めなかった。最後に Sandcastle の 309 本を撮り直すと（v259・v260）、同じ絵は 226 本から <strong>234 本</strong>に増えた。動かない例は 0 本のままである。</p>
 <div class="table-wrap"><table><thead><tr><th>撮影</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
-<tr><td>v2.3.0</td><td>226</td><td>77</td><td>0</td><td>0</td><td>前回の最終の数（目で確かめた例を含む 303 本）</td></tr>
-<tr><td>v2.4.0</td><td><strong>TODO</strong></td><td>TODO</td><td>TODO</td><td>TODO</td><td>TODO</td></tr>
+<tr><td>v2.3.0</td><td>226</td><td>77</td><td>0</td><td>0</td><td>前回の最終の数</td></tr>
+<tr><td>v2.4.0</td><td><strong>234</strong></td><td>69</td><td><strong>0</strong></td><td><strong>0</strong></td><td>地形に載せる図形、3D Tiles の塗り分け、Cesium と同じタイルの選び方、線と点の縁取り</td></tr>
 </tbody></table></div>
-<p><!-- TODO: 締めの一文。例：速くなった地球儀の上で、Cesium のコードがまた一歩、同じ絵に近づいた。 --></p>
+<p class="note-small">注：目で確かめた例を含む 303 本（Mac の実 GPU）。全部の絵は <a href="https://www.ortho-earth.com/sandcastle/" target="_top">Sandcastle</a> のギャラリーで、本物と並べて見られる。MapLibre の公式例も同じ日に撮り直し、91 / 43 / 3 / 0 を保った。</p>
+<ul>
+<li><strong>地形に載せる図形。</strong>GroundPrimitive の多角形が、標高 0 m に置かれて 2.5 km のセント・ヘレンズ山の中に埋もれていた。三角形から輪郭を起こし、地形に沿って塗るようにした。地形の上の塗りが、Cesium の画像の下に隠れていたのも直した。</li>
+<li><strong>3D Tiles の塗り分け。</strong>ClassificationPrimitive の木や建物の箱が、半透明の立体として描かれていた。今は箱の中にある 3D Tiles の面だけが色づく。</li>
+<li><strong>Cesium と同じタイルの選び方。</strong>Cesium の画像の層だけ、タイルまでの距離を目にいちばん近い点で測るようにした。尾根の手前の小さなタイルも残すと、霧の例（fog）は 56.6% から 95.0%、点群の例は 58.2% から 91.7% まで本物に近づいた。</li>
+<li><strong>線と点。</strong>エンティティの縁の太さを Cesium と同じ 1 px にし、path の縁（polylineOutline）と光（PolylineGlow の細い芯と淡いにじみ）を描き、点の縁取りを pixelSize の外側に付けた。画像の細かさの選び方で cos φ を二重に掛けていたのも直した。</li>
+</ul>
+<p>普及機で軽く動く地球儀の上で、Cesium のコードがまた一歩、本物と同じ絵に近づいた。</p>
+
 <h2>そして v3 の仕様へ</h2>
 <p>これで v2 の開発は、ほぼやり切った。次は v3 の仕様を考え始めている。WebGPU は、パソコンの Chrome と Edge、Android の Chrome、iPhone・iPad・Mac の Safari（26 から）と、もうほとんどのブラウザで使える。Firefox も対応が進んでいる。そしてこの 6 日間で、普及機の上でも十分に走ることが分かった。これまでは WebGL2 でも同じように動くことを守ってきたが、その分、できることを抑えてきた面もある。v3 では、思い切って WebGL2 をやめ、WebGPU 一本にすることも考えている。それでも API の仕様は変えないつもりなので、今のコードはそのまま動く。時期は年末を予定している。どうぞお楽しみに。</p>
 <p class="note-small">公開：<code>@ortho-earth/globe</code>・<code>@ortho-earth/core</code> 2.4.0。使い方は 2.3 のまま（<code>npm i @ortho-earth/globe@2.4</code>）。動いている間の描き方を前に戻すノブ（<code>?meshshed=0</code> など）と、Android で WebGL2 に戻す <code>?gl2=1</code> は残してある。</p>
