@@ -93,7 +93,28 @@ export async function paint(d: MatDesc, W: number, H: number, stOf: (x: number, 
 		// an image that did not load: Cesium's Image material keeps its default texture (white) times the color, so the shape still shows
 		// (terrain-entity-batching-dev's ellipse when ../images/Cesium_Logo_Color.jpg is missing). A video not playing yet draws nothing
 		if (!im) { if (v || !src) return null; ctx.fillStyle = `rgba(${tint[0]},${tint[1]},${tint[2]},${tint[3] / 255})`; ctx.fillRect(0, 0, W, H); return cv; }
-		const tile = document.createElement("canvas"); tile.width = v ? v.videoWidth : (im as HTMLImageElement).naturalWidth; tile.height = v ? v.videoHeight : (im as HTMLImageElement).naturalHeight;
+		// affine st (a rectangle turned by rotation / stRotation: display.ts rectStOf), no repeat, no tint: the canvas draws the image through the
+		// inverse map in one drawImage. The pixel loop below took ~50 ms for a 1024² picture; a turning rectangle repaints 4 times a second, so the
+		// main thread lost a frame each time (rectangle: 51.8 frames a second against 60, measured 2026-11-09)
+		const iw = v ? v.videoWidth : (im as HTMLImageElement).naturalWidth, ih = v ? v.videoHeight : (im as HTMLImageElement).naturalHeight;
+		if (rx === 1 && ry === 1 && tint[0] === 255 && tint[1] === 255 && tint[2] === 255 && tint[3] === 255 && W > 1 && H > 1) {
+			const p0 = stOf(0.5, 0.5), px = stOf(W - 0.5, 0.5), py = stOf(0.5, H - 0.5), pc = stOf(W - 0.5, H - 0.5);
+			if (p0 && px && py && pc) {
+				const as = (px[0] - p0[0]) / (W - 1), at = (px[1] - p0[1]) / (W - 1), bs = (py[0] - p0[0]) / (H - 1), bt = (py[1] - p0[1]) / (H - 1);
+				const affine = Math.abs(p0[0] + as * (W - 1) + bs * (H - 1) - pc[0]) < 1e-6 && Math.abs(p0[1] + at * (W - 1) + bt * (H - 1) - pc[1]) < 1e-6;
+				// canvas (x, y) → image (u, v) = A·(x, y) + c, with u = s·iw and v = (1 − t)·ih (row 0 = t 1)
+				const A00 = iw * as, A01 = iw * bs, A10 = -ih * at, A11 = -ih * bt;
+				const c0 = iw * (p0[0] - (as + bs) * 0.5), c1 = ih * (1 - p0[1] + (at + bt) * 0.5), det = A00 * A11 - A01 * A10;
+				if (affine && Math.abs(det) > 1e-12) {
+					const i00 = A11 / det, i01 = -A01 / det, i10 = -A10 / det, i11 = A00 / det;
+					ctx.setTransform(i00, i10, i01, i11, -(i00 * c0 + i01 * c1), -(i10 * c0 + i11 * c1));
+					ctx.drawImage(im, 0, 0, iw, ih);
+					ctx.setTransform(1, 0, 0, 1, 0, 0);
+					return cv;
+				}
+			}
+		}
+		const tile = document.createElement("canvas"); tile.width = iw; tile.height = ih;
 		const tc = tile.getContext("2d")!; tc.drawImage(im, 0, 0);
 		let src4: Uint8ClampedArray;
 		try { src4 = tc.getImageData(0, 0, tile.width, tile.height).data; } catch { return null; }   // a cross-origin video without CORS cannot be read
