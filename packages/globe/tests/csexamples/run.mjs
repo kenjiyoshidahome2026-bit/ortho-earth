@@ -41,6 +41,25 @@ let examples = corpus.examples;
 if (arg("only")) { const s = new Set(arg("only").split(",")); examples = examples.filter(e => s.has(e.name)); }
 if (flag("skip-dev")) examples = examples.filter(e => !e.flags.dev);
 
+// per-example steps run in the page on both sides right before the shot (same code on the ref and the ortho page): examples whose picture depends on
+// how many frames were drawn, not on the clock. rectangle: the logo's rotation and stRotation are one CallbackProperty that adds 0.005 rad per call,
+// called twice a frame on both sides (measured 2026-11-09: Cesium 120 calls/s at 60 fps, ortho 105 at 52.6) = the angle is the frame count since load,
+// and three Cesium shots alone gave 25°, 5° and 15°. Both sides are set to the same fixed angle (30° + 1200 steps, about 10 s at 60 fps)
+const PRE_SHOT = {
+	rectangle: () => {
+		const v = window.__csx?.viewers?.[0], C = window.__csx?.Cesium;
+		if (!v || !C) return false;
+		let n = 0;
+		for (const e of v.entities.values) {
+			const r = e.rectangle;
+			if (!r || !(r.rotation instanceof C.CallbackProperty)) continue;
+			const a = C.Math.toRadians(30) + 0.005 * 1200;
+			r.rotation = a; r.stRotation = a; n++;
+		}
+		return n > 0;
+	},
+};
+
 // what the page says about itself after the wait (both sides keep their viewers and widgets on window.__csx)
 const STATE = () => {
 	const X = window.__csx || {}, v = X.viewers?.[0], D = 180 / Math.PI;
@@ -183,6 +202,7 @@ async function runOne(browser, side, ex) {
 			let last = "", still = 0;
 			for (let i = 0; i < 12 && still < 2; i++) { await page.waitForTimeout(500); const now = await page.evaluate(CAM).catch(() => ""); still = now === last ? still + 1 : 0; last = now; }
 		}
+		if (PRE_SHOT[ex.name]) { rec.preShot = await page.evaluate(PRE_SHOT[ex.name]).catch(e => String(e?.message || e)); await page.waitForTimeout(1500); }   // the redraw (ortho repaints a painted ground shape at most 4 times a second)
 		// an animated example is shot with its clock paused, so the record's clock (and a tracked camera) is the shot's: the shot itself takes seconds = minutes at 300×
 		rec.paused = await page.evaluate(() => { const v = window.__csx?.viewers?.[0]; if (!v?.clock?.shouldAnimate) return false; v.clock.shouldAnimate = false; return true; }).catch(() => false);
 		if (rec.paused) await page.waitForTimeout(1000);   // the frame at the paused time
