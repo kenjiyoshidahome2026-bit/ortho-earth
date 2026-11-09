@@ -51,9 +51,20 @@ node sdk/ortho-export/src/cli.mjs --bbox 139.7625,35.6785,139.7700,35.6840 --out
 - 棟ごとの道は Draco を解くので大きい（丸の内・2026-11-07：173 棟・テクスチャなし 7.8 MB／`--textured` 36.9 MB＝jpeg 47 枚 2048 px。Draco の束は 10.5 MB）。
 - 点群は別の道（`/japan/pointcloud` の頁から PLY で落とす＝設計書 §3.3）。
 
+## Minecraft（`ortho-minecraft`）
+
+出力フォルダを Minecraft のワールド（Java 版のフォルダ・WorldEdit の .schem・統合版の .mcworld）に焼く／Minecraft のブロックを錨つき GLB に戻す。
+使い方は [plugins/minecraft](../../plugins/minecraft/README.md)、設計は [docs/notes/minecraft.md](../../docs/notes/minecraft.md)。
+
+```
+node sdk/ortho-export/src/minecraft-cli.mjs out/marunouchi --out out/marunouchi-mc
+node sdk/ortho-export/src/minecraft-cli.mjs import <world|.mcworld|.schem> --out house.glb [--box x0,y0,z0,x1,y1,z1] [--diff <original world>]
+```
+
 ## 検定
 
 ```
 npm test -w ortho-export   # tests/t-export.mjs：合成の fetch（網を使わない）で錨の算術・DEM・地形・建物の座標の付け替え・出力
                            # tests/t-attributes.mjs：Draco＋webp＋batch table の合成 b3dm で棟ごとのノード・属性表・webp → jpeg・clip
+                           # tests/t-minecraft.mjs：合成の地形と箱 → 格子・Java の region・.schem・統合版の LevelDB を読み戻す・取り込み（GLB）
 ```

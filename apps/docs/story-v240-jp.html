@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.4 を公開しました</title>
+<meta name="description" content="初めての Android タブレットがやって来た。その日のうちに Android も WebGPU で動くようになり、6 日間で京都の滑走は 36%、丸の内の建物は 25〜30% 速くなった。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v240-jp">
+<meta property="og:title" content="Ortho Earth 2.4 を公開しました">
+<meta property="og:description" content="初めての Android タブレットがやって来た。その日のうちに Android も WebGPU で動くようになり、6 日間で京都の滑走は 36%、丸の内の建物は 25〜30% 速くなった。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v240-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-11-09">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Ortho Earth 2.4 を公開しました","description":"初めての Android タブレットがやって来た。その日のうちに Android も WebGPU で動くようになり、6 日間で京都の滑走は 36%、丸の内の建物は 25〜30% 速くなった。","url":"https://www.ortho-earth.com/docs/story-v240-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v240-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-09","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+<!-- Stories の記事（下書き・2026-11-09）。v2.4.0 の記録＝11/3 に Android タブレット（Galaxy・Mali-G615）を買ってからの 6 日間。
+     数字は各 PR の本文にあるタブレット実測から。公開日・絵・stories.json のカードはリリースの時に入れる -->
+<nav class="story-nav"><a href="https://www.ortho-earth.com/#stories" target="_top">Stories</a></nav>
+<header class="masthead"><h1>Ortho Earth 2.4 を公開しました</h1><p class="byline">2026-11-09 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>11 月 3 日、Android のタブレットを買った。Galaxy の一台で、GPU は Mali-G615、メモリは 4GB。自分のお金で買った、人生初の Android である。</p>
+<p>高級機ではなく、あえて 4GB の普及機を選んだ。多くの人が手にしているのは、こういう機械だからだ。普及機でどれだけ動くのかを、自分の目で確かめたかった。</p>
+<p>身の回りは Mac と iPhone と iPad ばかり。個人で作っていると、手元に無い機械のことは、どうしても想像で補うしかない。そこへ一台やって来たら、もう触らずにはいられなかった。2.4 は、その一台と過ごした 6 日間の記録である。</p>
+
+<h2>11 月 3 日、WebGPU が動いた</h2>
+<p>これまで Android は、念のため WebGL2 で動かしていた。8 月に、ある Android の機種で移動中に地図が黒くなる報告があり、大事を取ったのである。</p>
+<p>タブレットが届いた日に、まず GPU の診断ページ（<a href="https://www.ortho-earth.com/check/" target="_top">/check/</a>）を作った。WebGPU か WebGL2 か、アダプタ、機能、上限、試しの描画を一枚で見られる。何も外へ送らない。</p>
+<p>/japan/ を WebGPU で開くと、ちゃんと動いた。しかも PLATEAU の建物は WebGL2 より速い。その日のうちに、Android も WebGPU で始めるようにした。2.3 で入れた映り込みや霧などの効果も、これで Android で見られる。万一のときは <code>?gl2=1</code> で WebGL2 に戻せる。</p>
+<p>ついでに、ノート PC では内蔵と外付けのうち速い方の GPU を使うようにした（<code>powerPreference</code> の既定が <code>"high-performance"</code>）。Windows の実機でも確かめた。</p>
+
+<h2>実機でしか見えなかったもの</h2>
+<p>動いたら、次は気持ちよく動かしたい。タブレットで触ると、Mac では見えなかった伸びしろが次々に見つかった。HUD（<code>?hud=1</code>）にフレームの時間の使い道を部位ごとに出し、宝探しのように一つずつ当たった。</p>
+<ul>
+<li><strong>解像度が下がらない。</strong>PLATEAU の上を飛ぶと 1 フレーム約 120 ms かかるのに、動的解像度は等倍のままだった。タイル型の GPU は、GPU の時間計測を少なめに報告することがある。実時間で 50 ms を超えたら、そちらも見るようにした。</li>
+<li><strong>メインスレッドが 800 ms 止まる。</strong>標高を引く関数が、IndexedDB から読んだタイルを手元に残していなかった。動くたびに数十 MB のタイルを読み直していた。最後の 3 枚を残すようにした。</li>
+<li><strong>近くの建物がにじむ。</strong>地球を半径 1 の球として計算しているので、近くの頂点の w が 1e-6 ほどになり、Mali はそれを 0 とみなしていた。クリップ空間を 2<sup>20</sup> 倍してから渡すと、にじみは消えた。Mac の絵は変わらない。</li>
+<li><strong>タイルがメインスレッドを経由していた。</strong>タイルの形を、タイルの worker から描画側の worker へ直接送るようにした。メインは目次だけを受け取る。</li>
+</ul>
+
+<h2>起動が軽くなった</h2>
+<p>タブレットでは、最初の絵が出たあと、しばらく画面が待ってしまうことがあった。起動の時間割（<code>[boot] timeline</code>）を出して見ると、GPU のプロセスがシェーダを 1 本ずつコンパイルしていて、合わせて 6〜14 秒かかっていた。その間、描画側は待たされる。</p>
+<p>そこで、地球と地形だけを待って先に描き、残りの層はできた順に現れるようにした（進行描き）。要るパイプラインだけを先に作り、残りは後に回す。固まる時間は 6.5〜6.9 秒から 1.0〜2.1 秒になった。Mali ではシェーダの使わない枝を生成時に落とし、コンパイルを短くした。焼いた文字を IndexedDB に残して、次の起動で焼き直さない仕組みも入れた（<code>?glyphdb=1</code>）。</p>
+
+<h2>京都から日本列島へ</h2>
+<p>デモの一つに、京都の街から日本列島の全体まで一気に引く滑走がある。タブレットでは最初の 8 秒が 8〜10 fps だった。</p>
+<p>犯人の一人は、意外なところにいた。フレームが空くと、飛行中でも「着地した」とみなして URL を書き換えていた。すると Android の Chrome がアドレスバーを描き直し、それが GPU のプロセスを 0.1〜6 秒ふさぐ。20 秒の間に 102 回、合わせて 11.4 秒である。飛行中は URL を書かず、着地まで待つようにすると、コマ数は 167 から 227 に増えた（約 36% 増）。</p>
+<p>もう一つは地形である。地形を消すと約 60 fps 出た。動いている間だけ、地形を粗いメッシュで描くようにした。4GB 機では、線が引く標高も軽くした。</p>
+
+<h2>丸の内からレインボーブリッジへ</h2>
+<p>最後に残ったのは PLATEAU の建物だった。丸の内からレインボーブリッジへの滑走は、最初の 6〜8 秒が 12〜18 fps。東京の真ん中は、それだけ描くものが多い。</p>
+<p>そこで、動いている間だけ少し手を抜くことにした。止まればすぐ元の絵に戻るので、見た目は変わらない。</p>
+<div class="table-wrap"><table><thead><tr><th>動いている間だけ</th><th>滑走 4〜12 秒のコマ数</th></tr></thead><tbody>
+<tr><td>低い建物から描かない（6 → 12 → 24 m）</td><td>182・240 → 280・262（約 3 割増）</td></tr>
+<tr><td>細かい三角形を落とす（並べ替えだけで GPU メモリは増えない）</td><td>208 → 295</td></tr>
+<tr><td>建物を軽いピクセルシェーダで描く</td><td>平均 236 → 294（約 25% 増、交互に 3 組とも勝ち）</td></tr>
+</tbody></table></div>
+<p class="note-small">注：どれもタブレット（Mali-G615）の実測。順に入れていったので、行ごとの起点は同じではない。三つとも、今は全機種の既定である。発動するのは 1 コマ 40 ms を超えてカメラが動いている時だけなので、速い機械では何も変わらない。</p>
+
+<h2>ゲームへ、そして地球儀へ</h2>
+<p>もう一つの大きな新顔が、ゲームとのつながりである。行き先は三つ。Unity、Unreal Engine、そして Minecraft。地球儀の上の街をゲームの中へ持っていき、ゲームで作った物をまた地球儀へ戻せる。</p>
+<p>持っていけるのは、地形と PLATEAU の建物（Unity と Unreal には建物の属性と点群も）。範囲は 2〜3 街区くらいを想定している。ゲームの中でタイルを次々に読む仕組みは Cesium for Unity や PLATEAU SDK for Unity がすでにあるので、こちらは「切り出して、ファイルで渡す」に絞った。</p>
+
+<h3>約束は一つだけ</h3>
+<p>三つとも、同じ一つの約束でつながっている。地面の上の一点を錨（経度・緯度・楕円体高、と向き）に決め、すべてをそこから見た東・北・上のメートルで表す。受け渡しは錨入りの GLB（<code>asset.extras.orthoEarth</code>）。Minecraft では 1 ブロックを 1 m にして、錨をブロック (0, 0, 0) に置く。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>Unity 6</th><th>Unreal Engine 5.6 以降</th><th>Minecraft</th></tr></thead><tbody>
+<tr><td>入れ方</td><td>プラグイン（Package Manager）</td><td>プラグイン（<code>Plugins/</code> に zip）</td><td>要らない（ワールドのファイルを直接書く）</td></tr>
+<tr><td>地球儀から</td><td>メニューの <strong>Place export folder…</strong></td><td>同じメニュー</td><td><code>ortho-minecraft</code> がワールドに焼く</td></tr>
+<tr><td>地球儀へ</td><td><strong>Export selection to GLB…</strong></td><td>同じメニュー</td><td>範囲か差分を GLB に取り出す</td></tr>
+<tr><td>軸と単位</td><td>X 東・Y 上・Z 北・m</td><td>X 東・Y 南・Z 上・cm</td><td>X 東・Y 上・Z 南・1 ブロック＝1 m</td></tr>
+<tr><td>建物の属性</td><td>Inspector に出る</td><td>Details に出る</td><td>—</td></tr>
+<tr><td>点群</td><td>PLY</td><td>LAS</td><td>—</td></tr>
+</tbody></table></div>
+
+<h3>地球儀からゲームへ</h3>
+<p>出発点は三つとも同じ <code>ortho-export</code> である。範囲を書き出すと、錨・地形・建物・建物の属性表が一つのフォルダにそろう。点群は <a href="https://www.ortho-earth.com/japan/pointcloud" target="_top">/japan/pointcloud</a> で読んで、PLY か LAS で落とす。</p>
+<p>Unity と Unreal では、メニューの <strong>Place export folder…</strong> を選ぶだけで、錨を親にして全部が正しい位置に並ぶ。建物は PLATEAU の <code>gml_id</code> ごとに 1 棟ずつ選べて、用途・高さ・住所・浸水などの属性が出る。コードからも <code>b.Get("bldg:usage")</code> や <code>b.MeasuredHeight</code> で読める。PLATEAU の webp のテクスチャは、エンジンが読める jpeg に焼き直して渡す。</p>
+<p>Minecraft では、同じフォルダを <code>ortho-minecraft</code> に渡す。地形と建物がブロックに焼かれ、地面と屋根は航空写真にいちばん近い色のブロックで塗られ、建物には床も入る。出てくるのは Java 版のワールド、WorldEdit の <code>.schem</code>、統合版の <code>.mcworld</code> の 3 つ。統合版ならダブルクリックで開ける。錨は出現点で、F3 で出る座標がそのまま錨からのメートルになる。クリエイティブで、昼のまま止まる。</p>
+
+<h3>ゲームから地球儀へ</h3>
+<p>帰り道も三つとも同じ口に着く。Unity と Unreal では、模型を錨の子に置いて <strong>Export selection to GLB…</strong>。Minecraft では、建てた家を範囲で指定するか、書き出した時のワールドとの差分で取り出す。どれも錨入りの GLB になる。</p>
+<p>その GLB を <a href="https://www.ortho-earth.com/japan/" target="_top">/japan/</a> にドロップするだけで、元の場所に立つ。Unity で作った模型も、Minecraft で建てた家も、丸の内に並ぶ。<code>map.model()</code> も、位置を渡さなければ GLB の錨で置くようになった。大きな物は <code>glbconv</code> で 3D Tiles にできる。</p>
+
+<h3>丸の内で確かめた</h3>
+<p>見本は三つとも丸の内である。</p>
+<ul>
+<li><strong>Unity 6</strong>：並べた地形の四隅が書き出した範囲とぴったり重なり、いちばん高い 238 m の建物は東京ミッドタウン八重洲の位置に立った。わざと錨を 158 m 東・139 m 南にずらした検査用の点群も、4 点とも 1 cm ほどの差で戻った。書き出し直した地形を読み戻すと、頂点数も範囲も元と一致した。</li>
+<li><strong>Unreal Engine 5.8.4</strong>：同じ見本で、軸の向きと点群の位置を確かめた。Nanite のメッシュもそのまま書き出せる。</li>
+<li><strong>Minecraft</strong>：ワールドのファイルは Node だけで読み書きしている。別の読み手（Amulet）で Java 版と統合版の両方を開き、全部のブロックが一致することを確かめた。</li>
+</ul>
+<p>Unity と Unreal のプラグイン（どちらも 0.1.0）は GitHub Release に載せる。Minecraft は <code>ortho-export</code> に入っている。</p>
+
+<h2>ほかに入ったもの</h2>
+<ul>
+<li><strong>点群。</strong>図郭を並べて継ぎ目なく表示し、読むメモリに上限を設け、分類で絞れる（<code>map.readPointCloud</code>）。Unity 向けの PLY 書き出し。</li>
+<li><strong>線と地形。</strong>傾けた 3D で太い道路の縁が地形に食われてギザギザになるのと、近くの線が半透明の数珠になるのを直した。</li>
+</ul>
+
+<h2>一台で、みんな速く</h2>
+<p>6 日間で入った変更は 130 を超える。タブレットのために入れた工夫の多くは、そのまま全機種の既定になった。速い機械では何も変わらず、普及機ほどよく効く。普及機を選んだのは正解だった。一台の Android が、みんなの地球儀を軽くしてくれた。</p>
+<p>お手元の Android や Windows でも、ぜひ試してみてほしい。気になることがあれば、<a href="https://www.ortho-earth.com/check/" target="_top">/check/</a> の結果を添えて教えてもらえると、とても助かる。</p>
+
+<p>速さだけではない。Android に夢中だった 6 日間も、Cesium へのフォローは止めなかった。最後に Sandcastle の 309 本を撮り直すと（v259・v260）、同じ絵は 226 本から <strong>234 本</strong>に増えた。動かない例は 0 本のままである。</p>
+<div class="table-wrap"><table><thead><tr><th>撮影</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
+<tr><td>v2.3.0</td><td>226</td><td>77</td><td>0</td><td>0</td><td>前回の最終の数</td></tr>
+<tr><td>v2.4.0</td><td><strong>234</strong></td><td>69</td><td><strong>0</strong></td><td><strong>0</strong></td><td>地形に載せる図形、3D Tiles の塗り分け、Cesium と同じタイルの選び方、線と点の縁取り</td></tr>
+</tbody></table></div>
+<p class="note-small">注：目で確かめた例を含む 303 本（Mac の実 GPU）。全部の絵は <a href="https://www.ortho-earth.com/sandcastle/" target="_top">Sandcastle</a> のギャラリーで、本物と並べて見られる。MapLibre の公式例も同じ日に撮り直し、91 / 43 / 3 / 0 を保った。</p>
+<ul>
+<li><strong>地形に載せる図形。</strong>GroundPrimitive の多角形が、標高 0 m に置かれて 2.5 km のセント・ヘレンズ山の中に埋もれていた。三角形から輪郭を起こし、地形に沿って塗るようにした。地形の上の塗りが、Cesium の画像の下に隠れていたのも直した。</li>
+<li><strong>3D Tiles の塗り分け。</strong>ClassificationPrimitive の木や建物の箱が、半透明の立体として描かれていた。今は箱の中にある 3D Tiles の面だけが色づく。</li>
+<li><strong>Cesium と同じタイルの選び方。</strong>Cesium の画像の層だけ、タイルまでの距離を目にいちばん近い点で測るようにした。尾根の手前の小さなタイルも残すと、霧の例（fog）は 56.6% から 95.0%、点群の例は 58.2% から 91.7% まで本物に近づいた。</li>
+<li><strong>線と点。</strong>エンティティの縁の太さを Cesium と同じ 1 px にし、path の縁（polylineOutline）と光（PolylineGlow の細い芯と淡いにじみ）を描き、点の縁取りを pixelSize の外側に付けた。画像の細かさの選び方で cos φ を二重に掛けていたのも直した。</li>
+</ul>
+<p>普及機で軽く動く地球儀の上で、Cesium のコードがまた一歩、本物と同じ絵に近づいた。</p>
+
+<h2>そして v3 の仕様へ</h2>
+<p>これで v2 の開発は、ほぼやり切った。次は v3 の仕様を考え始めている。WebGPU は、パソコンの Chrome と Edge、Android の Chrome、iPhone・iPad・Mac の Safari（26 から）と、もうほとんどのブラウザで使える。Firefox も対応が進んでいる。そしてこの 6 日間で、普及機の上でも十分に走ることが分かった。これまでは WebGL2 でも同じように動くことを守ってきたが、その分、できることを抑えてきた面もある。v3 では、思い切って WebGL2 をやめ、WebGPU 一本にすることも考えている。それでも API の仕様は変えないつもりなので、今のコードはそのまま動く。時期は年末を予定している。どうぞお楽しみに。</p>
+<p class="note-small">公開：<code>@ortho-earth/globe</code>・<code>@ortho-earth/core</code> 2.4.0、<code>@ortho-earth/cesium</code> 0.3.0（globe 2.4 以上）、<code>@ortho-earth/voxel</code> 0.6.2、<code>glbconv</code> 0.3.0、Unity・Unreal のプラグイン 0.1.0。使い方は 2.3 のまま（<code>npm i @ortho-earth/globe@2.4</code>）。動いている間の描き方を前に戻すノブ（<code>?meshshed=0</code> など）と、Android で WebGL2 に戻す <code>?gl2=1</code> は残してある。</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>

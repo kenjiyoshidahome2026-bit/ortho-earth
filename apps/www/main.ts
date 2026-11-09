@@ -61,7 +61,8 @@ d3.selectAll<HTMLElement, unknown>('.tab').on('click', function () {
 	history.replaceState(null, '', location.search + (HASH[name!] ?? '') || location.pathname);
 });
 { const n = Object.keys(HASH).find(k => HASH[k] === location.hash); if (n) selectTab(n); }
-d3.select(".logo").html(`${await (await fetch("/favicon.svg")).text() }Ortho Earth`);
+declare const __SITE_VERSION__: string;   // vite.config.js が @ortho-earth/core の版（例 2.4.0）を焼く＝見出しは major.minor・全桁は title に
+d3.select(".logo").html(`${await (await fetch("/favicon.svg")).text() }Ortho Earth <span class="ver" title="v${__SITE_VERSION__}">${__SITE_VERSION__.split(".").slice(0, 2).join(".")}</span>`);
 //------------------------------------------------------
 // Ambient auto-rotating globe behind the overlay (background only — no interactive demo mode).
 // 背景＝軽い地球（88KB の webp を正射投影の球に貼って回すだけ・globe-lite.js）。エンジン（ortho-japan SDK＋世界データ約 8MB）は

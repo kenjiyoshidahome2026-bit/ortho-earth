@@ -19,6 +19,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			border-bottom: 1px solid var(--glass-border);
 			.logo { font-size: 1.5em; font-weight: 800;
 				svg { vertical-align: top; display: inline-block; height: 1.2em; padding-right: 0.2em; stroke:var(--text-secondary); fill:none; stroke-width:6px;}
+				.ver { margin-inline-start: .15em; font-size: .62em; font-weight: 600; opacity: .7; letter-spacing: .02em; }   // 版（2.4）＝名前より控えめに
 			}
 			.links a { color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center;
 				margin-inline-start: 1rem; font-size: 1.2rem; font-weight: 500; transition: color 0.2s;
@@ -224,6 +225,14 @@ body #demoOverlay nav .links .popout { display: inline-flex; margin-inline-start
 	svg { width: 15px; height: 15px; margin-top: 0; fill: none; stroke: currentColor; path { fill: none; stroke: currentColor; stroke-width: 2.2; } }   // .links a の塗りつぶしアイコン規則を打ち消す（線の矢印）
 }
 body #demoOverlay nav .logo { white-space: nowrap; }
+// とても狭い画面（〜380px・iPhone SE 等）＝版（2.4）を足しても言語の欄と重ならないよう、ロゴ・言語の欄・アイコンの間を少し詰める（2026-11-09）
+@media (max-width: 380px) {
+	body #demoOverlay nav { gap: .5rem; }
+	body #demoOverlay nav .logo { font-size: 1em; }
+	body #demoOverlay nav .links { flex-shrink: 0; }
+	body #demoOverlay nav .links select.lang { max-width: 5.4rem; margin-inline-start: 0; padding-inline: .5rem .3rem; font-size: .8rem; }
+	body #demoOverlay nav .links a { margin-inline-start: .55rem; }
+}
 // デモの間のナビの右＝Story・言語・X・GitHub は伏せて「別ウィンドウで開く」だけ（本人 2026-09-24）
 body.in-demo #demoOverlay nav .links > :not(.popout) { display: none; }
 @media (max-width: 640px) {   // 狭い画面では「別ウィンドウで開く」は矢印の絵だけ（名前は title と読み上げに残る）

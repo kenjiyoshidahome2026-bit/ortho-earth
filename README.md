@@ -90,8 +90,8 @@ Design notes and plans for contributors (the fallback ladder, the Gint draw spec
 
 | Package | Version | License | What it is |
 |---|---|---|---|
-| [`@ortho-earth/core`](packages/ortho-core) | 2.3.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
-| [`@ortho-earth/globe`](packages/globe) | 2.3.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
+| [`@ortho-earth/core`](packages/ortho-core) | 2.4.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
+| [`@ortho-earth/globe`](packages/globe) | 2.4.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 (private) | GPL-3.0-or-later | Japan region pack |
 | [`@ortho-earth/nl`](packages/nl) | 0.0.1 (private) | GPL-3.0-or-later | Netherlands region pack (3D Basisvoorziening buildings, basemap, elevation) |
 | [`@ortho-earth/regions`](packages/regions) | 0.0.1 (private) | GPL-3.0-or-later | Region switch (`orthoJapan`): the globe plus the region chosen by URL (Japan or the Netherlands) |
@@ -123,9 +123,9 @@ Published for outside users from [`sdk/*`](sdk).
 | [`@ortho-earth/ktx2`](sdk/ktx2) | 0.1.0 | GPL-3.0-or-later | KTX2 / Basis Universal texture transcoder for glb models and 3D Tiles |
 | [`@ortho-earth/scene`](sdk/scene) | 0.2.0 | GPL-3.0-or-later | Instanced meshes, billboards and 3D text as `map.addData` kinds |
 | [`@ortho-earth/splat`](sdk/splat) | 0.6.0 | GPL-3.0-or-later | Gaussian splats (`.ply` / `.splat` / `.spz` / `.ksplat` / `.sog`, and 3D Tiles with `KHR_gaussian_splatting`) as a `map.addData` kind: WebGPU renderer with spherical harmonics, GPU sort and LoD, files read in a worker, WebGL2 fallback |
-| [`@ortho-earth/voxel`](sdk/voxel) | 0.6.1 | GPL-3.0-or-later | Voxel grids (box or longitude × latitude × height region, scalar or RGBA, and 3D Tiles with `EXT_primitive_voxels`) as a `map.addData` kind: ray-marched as a volume, blocks or isosurface, with slicing, scene depth and picking; WebGPU (shared device and depth) or WebGL2 |
-| [`@ortho-earth/cesium`](sdk/cesium) | 0.2.0 | GPL-3.0-or-later | CesiumJS API on ortho-earth: a `Cesium` namespace (Viewer, Camera, entities, data sources, clock, 3D Tiles, picking) drawn by `@ortho-earth/globe`; math, time, Entity/Property and CZML parsing come from `@cesium/engine` unchanged |
-| [`glbconv`](sdk/glbconv) | 0.2.0 | MIT | GLB to other 3D formats, browser and Node |
+| [`@ortho-earth/voxel`](sdk/voxel) | 0.6.2 | GPL-3.0-or-later | Voxel grids (box or longitude × latitude × height region, scalar or RGBA, and 3D Tiles with `EXT_primitive_voxels`) as a `map.addData` kind: ray-marched as a volume, blocks or isosurface, with slicing, scene depth and picking; WebGPU (shared device and depth) or WebGL2 |
+| [`@ortho-earth/cesium`](sdk/cesium) | 0.3.0 | GPL-3.0-or-later | CesiumJS API on ortho-earth: a `Cesium` namespace (Viewer, Camera, entities, data sources, clock, 3D Tiles, picking) drawn by `@ortho-earth/globe`; math, time, Entity/Property and CZML parsing come from `@cesium/engine` unchanged |
+| [`glbconv`](sdk/glbconv) | 0.3.0 | MIT | GLB to other 3D formats, browser and Node |
 
 ### Apps
 

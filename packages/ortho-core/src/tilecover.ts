@@ -48,11 +48,11 @@ interface LODNode extends TileXYZ { s?: number[] | null; pd?: number }   // pd�
 // zOf＝(z, x, y) → そのタイルで望む z（MapLibre の選び方＝mlcover.mlTileZoomOf）。渡すと画面の大きさの閾（tilePx・sticky・floorZ）は使わず「z が望む z に届くまで割る」＝MapLibre の coveringTiles と同じ規則。可視判定はこのまま
 export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, farR = groundR, zOf = null, nearEye = false }: SelectLODOptions = {}): TileXYZ[] {
 	const st = cameraState(cam, W, H);
-	const eyeR = Math.hypot(st.eye[0], st.eye[1], st.eye[2]), ref: [number, number, number] | null = nearEye && eyeR > 1 ? [Math.atan2(st.eye[2], st.eye[0]) * 180 / Math.PI, geodeticOf(Math.asin(Math.max(-1, Math.min(1, st.eye[1] / eyeR))) * 180 / Math.PI), Math.max(1, groundR)] : null;   // the eye's nadir + the ground radius (nearEye)
+	const eyeR = Math.hypot(st.eye[0], st.eye[1], st.eye[2]), ref: [number, number, number] | null = nearEye && eyeR > 1 ? [Math.atan2(st.eye[2], st.eye[0]) * 180 / Math.PI, geodeticOf(Math.asin(Math.max(-1, Math.min(1, st.eye[1] / eyeR))) * 180 / Math.PI), Math.max(1, Math.min(groundR, 1 + (eyeR - 1) * 0.9))] : null;   // 地面の球は目より下に（目の高さの 9 割まで）：groundR は注視点の地面＝低い目（25 m・地面の起伏の中）では目より上に来て、足元のタイルまでの距離がほぼ 0＝配信の最大 z まで割れた（3d-tiles-point-cloud・2026-11-09）   // the eye's nadir + the ground radius (nearEye)
 	const samples: [number, number][] = [];
 	// nearEye の手前の救い（下の cull）の届く範囲＝目の真下 → 画面の下端（左・中・右）の地面（地面の球 groundR）の角距離（度）。無い（下端が空）＝0＝救わない
 	let nearR = 0;
-	if (ref) for (const sx of [0, W / 2, W]) { const pb = unproject(st, sx, H, Math.max(1, groundR)); if (pb) nearR = Math.max(nearR, Math.hypot(pb[0] - ref[0], pb[1] - ref[1])); }   // 下端の左・中・右（隅の手前も）
+	if (ref) for (const sx of [0, W / 2, W]) { const pb = unproject(st, sx, H, ref[2]); if (pb) nearR = Math.max(nearR, Math.hypot(pb[0] - ref[0], pb[1] - ref[1])); }   // 下端の左・中・右（隅の手前も）
 	const eyeInFar = farR > groundR && mat.dot(st.eye, st.eye) < farR * farR;   // a low camera among ground higher than the target's (a canyon): that ground can be anywhere along each ray
 	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
 		const ll = unproject(st, ix / grid * W, iy / grid * H); if (ll) samples.push(ll);
@@ -106,14 +106,8 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 	while (stack.length && guard++ < 30000) {
 		const t = stack.pop()!;
 		const b = tileBoundsInto(t.x, t.y, t.z, B);
-		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, Math.max(groundR, farR), ref);
-		if (size < 0) {                             // 画面外＆中心外＆サンプル無し → cull
-			// nearEye：見えている親を割った子が「目の側」で落ちた＝目と注視点の間の尾根（海面球にもリフト球にも乗らない高い地面）＝四隅の射影も
-			// 標本も届かない。親は見えていた＝その子の地面は写っている＝この z で描く（それ以上は割らない）。旧＝落としていた＝目の手前の山肌に
-			// 画像が無く下地の色（Cesium の baseColor の紺）が出た（fog・3d-tiles-point-cloud・2026-11-09・nearEye の #1036 から）
-			if (nearR > 0 && t.pd != null) { const [w, s0, e, n] = tileBoundsInto(t.x, t.y, t.z, B), dx = Math.max(w - ref![0], 0, ref![0] - e), dy = Math.max(s0 - ref![1], 0, ref![1] - n); if (Math.hypot((w + e) / 2 - ref![0], (s0 + n) / 2 - ref![1]) < t.pd && Math.hypot(dx, dy) < nearR) out.push({ z: t.z, x: t.x, y: t.y }); }   // nearR＝目の真下から画面の下端の地面まで（それより手前＝本来は画面の下＝尾根が持ち上げた時だけ写る）
-			continue;
-		}
+		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, Math.max(groundR, farR), ref, nearR);
+		if (size < 0) continue;                     // 画面外＆中心外＆サンプル無し → cull
 		const th = t.z < floorZ ? tilePx * floorRatio
 			: sticky && sticky.has(tileId(t.z, t.x, t.y)) ? tilePx * stickyRatio : tilePx;
 		if (t.z < maxZ && (zOf ? t.z < zOf(t.z, t.x, t.y) : size > th)) {
@@ -129,7 +123,7 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 // 4隅の投影は海面と groundR（地形リフト球）の**両方**で行い bbox を合併：海面bboxだけだと、リフトで
 // 画面内へ持ち上がる手前タイルが「画面外」でculされ、疎な画面サンプル（grid=10）の網に掛かった数枚しか
 // 残らない（63°チルトで実測）。リフトbboxだけだと逆に、中心標高より低い遠景（山上→谷）が欠ける。
-function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: ArrayLike<number>, W: number, H: number, sLo: Float64Array, sLa: Float64Array, sIn: number[] | null | undefined, groundR = 1, near: [number, number, number] | null = null): number {
+function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: ArrayLike<number>, W: number, H: number, sLo: Float64Array, sLa: Float64Array, sIn: number[] | null | undefined, groundR = 1, near: [number, number, number] | null = null, nearR = 0): number {
 	const w = b[0], s = b[1], e = b[2], n = b[3];
 	// 四隅に加えて辺の途中も見る（粗いタイル＝z≤4）：球の縁では四隅が全部裏側でも辺の一部が表に出る（極を見下ろす時の赤道帯＝南半球の z1 タイル）。旧＝四隅だけ＝縁の帯が「見えない」と切られて紙色のまま（2026-09-30）
 	const K = t.z <= 4 ? 6 : 1;
@@ -157,6 +151,10 @@ function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: Array
 		else if (sIn) { for (let k = 0; k < sIn.length; k++) { const i = sIn[k], lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) { visible = true; break; } } }
 		else for (let i = 0; i < sLo.length; i++) { const lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) { visible = true; break; } }
 	}
+	// nearEye：目の真下から画面の下端の地面まで（nearR）の内側＝見えるものとする。四隅の射影も標本も海面球・リフト球の上で取る＝目と注視点の間の尾根や、
+	// 近景層の細かい地形が持ち上げた足元の地面は、どちらの球にも乗らず「見えない」と落ちた＝そこに画像のタイルが無く下地の色（Cesium の紺）が出た
+	// （fog・2026-11-09）。#1040 の「目の側の子を救う」を一般化
+	if (!visible && near && nearR > 0) { const dx = Math.max(w - near[0], 0, near[0] - e), dy = Math.max(s - near[1], 0, near[1] - n); if (Math.hypot(dx, dy) < nearR) visible = true; }
 	if (!visible) return -1;
 	// サイズ：距離ベースのスクリーン誤差。タイル内で視点直下に最も近い点までの距離で、
 	// (タイル角度サイズ / 距離) × focal ≈ 画面上のタイルpx。近いほど大きい＝分割。

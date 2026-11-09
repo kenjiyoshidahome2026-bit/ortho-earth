@@ -49,5 +49,6 @@ your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.
 
 ## Release notes
 
+- 2.4.0 (2026-11-09): Android starts on WebGPU; faster start-up (progressive pipelines, glyph store) and lighter drawing while the camera moves; `powerPreference`. [Release article](https://www.ortho-earth.com/docs/story-v240-jp) (日本語) · [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md)
 - 2.3.0 (2026-11-02): screen-space reflections, contact shadows, height fog, light shafts, rain and toon on WebGPU. [Release article](https://www.ortho-earth.com/docs/story-v230) ([日本語](https://www.ortho-earth.com/docs/story-v230-jp)) · [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md)
 - 2.2.0 (2026-10-31): [release article](https://www.ortho-earth.com/docs/release-2-2) ([日本語](https://www.ortho-earth.com/docs/release-2-2-jp)). All releases: [CHANGELOG](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md) · [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases)

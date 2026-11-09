@@ -3,6 +3,37 @@
 Release notes for the Ortho Earth npm packages. Each release also has a longer article on
 ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases).
 
+## 2.4.0 — 2026-11-09
+
+**@ortho-earth/globe 2.4.0 · @ortho-earth/core 2.4.0** (also @ortho-earth/cesium 0.3.0, @ortho-earth/voxel 0.6.2 and
+glbconv 0.3.0). New: Unity and Unreal Engine plugins 0.1.0 (`plugins/`) and Minecraft worlds from `sdk/ortho-export`.
+
+```
+npm i @ortho-earth/globe@2.4
+```
+
+Release article: [日本語](https://www.ortho-earth.com/docs/story-v240-jp)
+
+- **Android on WebGPU.** Android starts on WebGPU like every other platform (checked on a 4 GB Mali-G615 tablet, where
+  PLATEAU is faster than on WebGL2); `?gl2=1` stays the way back. A GPU check page: https://www.ortho-earth.com/check/
+- **Faster on everyday devices.** Start-up draws the globe and terrain first and the other layers as their pipelines
+  are ready (the freeze after the first frame 6.5–6.9 s → 1.0–2.1 s on the tablet). While the camera moves, low
+  PLATEAU buildings (under 24 m) are skipped, buildings use a lighter index and pixel shader, and the terrain a coarser
+  mesh, only when a frame takes over 40 ms; the full picture comes back when it stops. No URL writes during flights.
+  On the tablet: Kyoto → Japan glide +36 %, Marunouchi → Rainbow Bridge +25–30 % per step.
+- **Games.** Unity 6 and Unreal Engine 5.6+ plugins place an `ortho-export` folder (terrain, PLATEAU buildings with
+  attributes, point clouds) and export back to a GLB whose anchor (`asset.extras.orthoEarth`) puts it in place on the
+  globe; `map.model()` uses that anchor when no position is given. `ortho-minecraft` writes the same area as a Java
+  world, a WorldEdit `.schem` or a Bedrock `.mcworld`, and reads builds back to an anchored GLB.
+- **Closer to CesiumJS.** Sandcastle same picture 226 → 234 of 303, does-not-run 0: GroundPrimitive draped on the
+  terrain, ClassificationPrimitive volumes classify 3D Tiles, Cesium's nearest-point tile distance for imagery
+  (fog 56.6 → 95.0 %), 1 px entity outlines, path outline and glow, point outlines. MapLibre examples stay at
+  91 / 43 / 3 / 0.
+- **New options:** `powerPreference` (default `"high-performance"`), `map.readPointCloud` (sheets side by side, a
+  point budget, class filter), `globe({ throttle })` for the mini globe.
+- **Same API as 2.3.** Everything is additive. Visible changes: Android draws the WebGPU-only effects; buildings and
+  terrain are lighter while the camera moves on slow frames (`?meshshed=0` and the other knobs restore the old way).
+
 ## geopbf 2.1.1 — 2026-11-03
 
 Documentation only, no code change. npm cut the README at 64 KB, so its last lines (Upgrading from 1.x and the

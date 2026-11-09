@@ -6,20 +6,23 @@
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"bin": {
-		"ortho-export": "src/cli.mjs"
+		"ortho-export": "src/cli.mjs",
+		"ortho-minecraft": "src/minecraft-cli.mjs"
 	},
 	"main": "src/export.mjs",
 	"exports": {
 		".": "./src/export.mjs",
 		"./geo": "./src/geo.mjs",
 		"./tiles3d": "./src/tiles3d/tiles3d.mjs",
-		"./glbmerge": "./src/tiles3d/glbmerge.mjs"
+		"./glbmerge": "./src/tiles3d/glbmerge.mjs",
+		"./minecraft": "./src/minecraft/export.mjs",
+		"./minecraft/import": "./src/minecraft/import.mjs"
 	},
 	"engines": {
 		"node": ">=22.18"
 	},
 	"scripts": {
-		"test": "node tests/t-export.mjs && node tests/t-attributes.mjs"
+		"test": "node tests/t-export.mjs && node tests/t-attributes.mjs && node tests/t-minecraft.mjs"
 	},
 	"dependencies": {
 		"draco3d": "^1.5.9",
