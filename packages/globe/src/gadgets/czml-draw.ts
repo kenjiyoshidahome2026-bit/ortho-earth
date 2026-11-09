@@ -11,7 +11,7 @@
 // 契約（map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
 // 当たり判定（統一 picking・deck.gl 差分 PR-1・2026-10-11）：pick(x, y, r, ctx)＝最後に描いたフレームの点・画像・札の位置（device px）から半径 r の中で一番近い軌跡
 //   ＝{ id, distance, lngLat, properties:{ id, name, description } }｜null。描いた物だけ当たる（出ていない区間・地球の陰は描いていない＝当たらない）。
-import { positionAt, pathPositionAt, availableAt, pathTimes, numberAt, boolAt, ecefToLlh } from "../czml-time.ts";
+import { positionAt, pathPositionAt, availableAt, pathTimes, numberAt, boolAt, ecefToLlh, glowBands } from "../czml-time.ts";
 import { ellipsoidOn, worldRadiusM } from "@ortho-earth/core/camera";
 import type { CameraPose, CameraState } from "@ortho-earth/core/camera";
 import type { LonLat, OverlayFrameApi } from "../../globe.d.ts";
@@ -328,13 +328,22 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		if (ph && boolAt(ph.show, ms, true) && (!ph.relativeTo || rel)) {
 			const times = pathTimes(tr, ms, { lead: numberAt(ph.lead, ms, null), trail: numberAt(ph.trail, ms, null), resolution: numberAt(ph.resolution, ms, 60) });
 			// polylineOutline（czml-path）＝全幅を縁の色で描き、その上に width − outlineWidth の芯（Cesium の PolylineOutline の interior と同じ）
-			const ol = ph.outline && ph.outline.width > 0 ? ph.outline : null, lw = ph.width * dpr, cw = ol ? Math.max(1, ph.width - ol.width) * dpr : lw, out: number[] = [], under: number[] = [];
+			// polylineGlow（interpolation）＝glowBands の帯を外から内へ重ねる（細い芯＋薄い光彩。全幅をべた塗りにしない）
+			const ol = ph.outline && ph.outline.width > 0 ? ph.outline : null, lw = ph.width * dpr, cw = ol ? Math.max(1, ph.width - ol.width) * dpr : lw, segs: number[] = [];
 			let run: RunPt[] = [];
-			const flush = () => { for (let i = 0; i + 1 < run.length; i++) { const a = run[i], b = run[i + 1], j0 = i > 0 ? 1 : 0, j1 = i + 2 < run.length ? 1 : 0; out.push(a[0], a[1], b[0], b[1], cw, j0, j1, a[2] ?? 0, b[2] ?? 0); if (ol) under.push(a[0], a[1], b[0], b[1], lw, j0, j1, a[2] ?? 0, b[2] ?? 0); } run = []; };   // 継ぎは丸・尾の端は butt
+			const flush = () => { for (let i = 0; i + 1 < run.length; i++) { const a = run[i], b = run[i + 1]; segs.push(a[0], a[1], b[0], b[1], i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0, a[2] ?? 0, b[2] ?? 0); } run = []; };   // 継ぎは丸・尾の端は butt
 			for (const t of times) { const q = pathPositionAt(tr, t, ms, rel, ph.frame ?? null), P = q && toScreen(q); if (!P) { flush(); continue; } run.push(P); }
 			flush();
-			if (ol) stroke(under, rgbaOf(ol.color), lw);
-			stroke(out, rgbaOf(ph.color), cw);
+			const withWidth = (wd: number) => { const out: number[] = []; for (let i = 0; i < segs.length; i += 8) out.push(segs[i], segs[i + 1], segs[i + 2], segs[i + 3], wd, segs[i + 4], segs[i + 5], segs[i + 6], segs[i + 7]); return out; };
+			const col = rgbaOf(ph.color);
+			if (segs.length && ph.glow != null) for (const b of glowBands(ph.glow)) {
+				const wd = Math.max(1, b.w * ph.width) * dpr;
+				stroke(withWidth(wd), [col[0] + (1 - col[0]) * b.white, col[1] + (1 - col[1]) * b.white, col[2] + (1 - col[2]) * b.white, col[3] * b.a], wd);
+			}
+			else if (segs.length) {
+				if (ol) stroke(withWidth(lw), rgbaOf(ol.color), lw);
+				stroke(withWidth(cw), col, cw);
+			}
 		}
 		const q = positionAt(tr, ms), P = q && toScreen(q);
 		if (P) marks.push([P, st, tr, q!]);
@@ -362,7 +371,7 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 			hitR = Math.max(hitR, Math.min(sw, sh) / 2);
 		} else if ((st.point && boolAt(st.point.show, ms, true)) || st.image) {   // 画像が取れない（取れる前も）＝点
 			const pt = st.point || { size: 8, color: "rgba(255,255,255,1)", outline: "rgba(0,0,0,0.8)", outlineWidth: 1 };
-			const r = Math.max(1, pt.size) * dpr / 2, lw = pt.outline && pt.outlineWidth ? pt.outlineWidth * dpr : 0, e = r + lw / 2 + 1;
+			const lw = pt.outline && pt.outlineWidth ? pt.outlineWidth * dpr : 0, r = Math.max(1, pt.size) * dpr / 2 + lw / 2, e = r + lw / 2 + 1;   // Cesium's outline rings the pixelSize disc from outside (diameter pixelSize + 2·outlineWidth: PointPrimitiveCollectionVS); the mark shader centres the ring on r
 			push(P[0], P[1], e, e, rgbaOf(pt.color), lw ? rgbaOf(pt.outline) : Z4, [r, lw, 0, 0], Z4);
 			hitR = Math.max(hitR, r);
 		}
