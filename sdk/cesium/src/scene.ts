@@ -454,8 +454,10 @@ function makeGlobe(scene: OrthoScene): any {
 	try { g = new Globe(Ellipsoid.WGS84); }
 	catch (e) { console.warn("[csshim] Globe", e); g = { show: true, imageryLayers: null, terrainProvider: null, tileLoadProgressEvent: new Event(), ellipsoid: Ellipsoid.WGS84 }; }
 	g.getHeight = (c: Cartographic) => {
+		// as Cesium's Globe.getHeight: the height of the terrain loaded there, undefined while nothing is (the globe's height memo fills on the first ask:
+		// the next call answers). Was 0 when the map existed = a caller took sea level for the ground (interpolation's points: 0 against Cesium's 723 m)
 		const t = scene.host.map?.queryTerrainElevation?.(c.longitude * R2D, c.latitude * R2D);
-		return Number.isFinite(t) ? t : (scene.host.map ? 0 : undefined);
+		return Number.isFinite(t) ? t : undefined;
 	};
 	g.pick = (ray: Ray, _scene: unknown, result?: Cartesian3) => {
 		const hit = IntersectionTests.rayEllipsoid(ray, Ellipsoid.WGS84);
