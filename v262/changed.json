@@ -1,0 +1,73 @@
+{
+ "at": "2026-11-09T08:19:20.886Z",
+ "run": "v262m",
+ "commit": "7908c78f8",
+ "base": "v250",
+ "examples": [
+  {
+   "name": "classification",
+   "level": 2,
+   "colour": 0.9554317548746518,
+   "edges": 0.9543175487465181,
+   "blob": 37,
+   "v250": {
+    "level": 2,
+    "colour": 0.9225626740947075,
+    "edges": 0.9342618384401115,
+    "blob": 37
+   }
+  },
+  {
+   "name": "classification-types",
+   "level": 3,
+   "colour": 0.9966313763233878,
+   "edges": 0.936958614051973,
+   "blob": 1,
+   "v250": {
+    "level": 2,
+    "colour": 0.9552454282964389,
+    "edges": 0.936958614051973,
+    "blob": 77
+   }
+  },
+  {
+   "name": "ground-primitive-dev",
+   "level": 2,
+   "colour": 0.8955445544554456,
+   "edges": 0.8797029702970297,
+   "blob": 47,
+   "v250": {
+    "level": 2,
+    "colour": 0.6915841584158415,
+    "edges": 0.8371287128712871,
+    "blob": 301
+   }
+  },
+  {
+   "name": "rectangle",
+   "level": 3,
+   "colour": 0.9902006532897807,
+   "edges": 0.9640690620625292,
+   "blob": 3,
+   "v250": {
+    "level": 2,
+    "colour": 0.9533364442370509,
+    "edges": 0.9510032664489034,
+    "blob": 85
+   }
+  },
+  {
+   "name": "web-map-tile-service-picking",
+   "level": 3,
+   "colour": 0.9990375360923965,
+   "edges": 0.9942252165543792,
+   "blob": 0,
+   "v250": {
+    "level": 3,
+    "colour": 0.9634263715110684,
+    "edges": 0.9947064485081809,
+    "blob": 9
+   }
+  }
+ ]
+}

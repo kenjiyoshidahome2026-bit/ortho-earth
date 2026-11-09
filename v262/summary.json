@@ -1,0 +1,176 @@
+{
+ "at": "2026-11-09T08:19:20.886Z",
+ "cesium": "1.146.0",
+ "n": 5,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 2,
+  "3": 3,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 1,
+  "3": 3,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 2,
+   "examples": [
+    "classification",
+    "ground-primitive-dev"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 96% · edges 95% of the cells match · a patch of 37 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1699,
+    "n": 1795,
+    "colour": 0.9554317548746518,
+    "edge": 0.9543175487465181,
+    "blob": 37,
+    "masked": 1277
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "classification-types",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1946,
+    "n": 2078,
+    "colour": 0.9966313763233878,
+    "edge": 0.936958614051973,
+    "blob": 1,
+    "masked": 994
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ground-primitive-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 90% · edges 88% of the cells match · a patch of 47 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1638,
+    "n": 2020,
+    "colour": 0.8955445544554456,
+    "edge": 0.8797029702970297,
+    "blob": 47,
+    "masked": 1052
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "rectangle",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2046,
+    "n": 2143,
+    "colour": 0.9902006532897807,
+    "edge": 0.9640690620625292,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "web-map-tile-service-picking",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2066,
+    "n": 2078,
+    "colour": 0.9990375360923965,
+    "edge": 0.9942252165543792,
+    "blob": 0,
+    "masked": 994
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}
