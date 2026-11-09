@@ -1,0 +1,307 @@
+{
+ "at": "2026-11-09T03:27:04.504Z",
+ "run": "v259",
+ "commit": "27a7f4b99",
+ "base": "v250",
+ "examples": [
+  {
+   "name": "3d-tiles-1.1-cdb-yemen",
+   "level": 2,
+   "colour": 0.8885572139303483,
+   "edges": 0.5044776119402985,
+   "blob": 22,
+   "v250": {
+    "level": 3,
+    "colour": 0.9895522388059701,
+    "edges": 0.9796019900497512,
+    "blob": 5
+   }
+  },
+  {
+   "name": "3d-tiles-point-cloud",
+   "level": 2,
+   "colour": 0.5818945403639757,
+   "edges": 0.7671488567428838,
+   "blob": 728,
+   "v250": {
+    "level": 2,
+    "colour": 0.9197386840877275,
+    "edges": 0.9127391507232852,
+    "blob": 38
+   }
+  },
+  {
+   "name": "3d-tiles-point-cloud-shading",
+   "level": 2,
+   "colour": 0.8410185822436339,
+   "edges": 0.961459050240881,
+   "blob": 131,
+   "v250": {
+    "level": 3,
+    "colour": 0.9187887130075706,
+    "edges": 0.9470061940812113,
+    "blob": 12
+   }
+  },
+  {
+   "name": "arcticdem",
+   "level": 3,
+   "colour": 0.9169435215946844,
+   "edges": 0.8229710488846701,
+   "blob": 19,
+   "v250": {
+    "level": 3,
+    "colour": 0.9169435215946844,
+    "edges": 0.8229710488846701,
+    "blob": 19
+   }
+  },
+  {
+   "name": "classification",
+   "level": 2,
+   "colour": 0.9554317548746518,
+   "edges": 0.9543175487465181,
+   "blob": 37,
+   "v250": {
+    "level": 2,
+    "colour": 0.9225626740947075,
+    "edges": 0.9342618384401115,
+    "blob": 37
+   }
+  },
+  {
+   "name": "classification-types",
+   "level": 3,
+   "colour": 0.9966313763233878,
+   "edges": 0.936958614051973,
+   "blob": 1,
+   "v250": {
+    "level": 2,
+    "colour": 0.9552454282964389,
+    "edges": 0.936958614051973,
+    "blob": 77
+   }
+  },
+  {
+   "name": "constant-lod-dev",
+   "level": 3,
+   "colour": 0.9908768373035985,
+   "edges": 0.9706031424227065,
+   "blob": 9,
+   "v250": {
+    "level": 2,
+    "colour": 0.9148504815002534,
+    "edges": 0.9675620881905728,
+    "blob": 28
+   }
+  },
+  {
+   "name": "drawing-on-terrain",
+   "level": 2,
+   "colour": 0.8626292466765141,
+   "edges": 0.8931560807483998,
+   "blob": 29,
+   "v250": {
+    "level": 2,
+    "colour": 0.8345642540620384,
+    "edges": 0.844903988183161,
+    "blob": 23
+   }
+  },
+  {
+   "name": "elevation-band-material",
+   "level": 3,
+   "colour": 0.9072046109510087,
+   "edges": 0.9423631123919308,
+   "blob": 15,
+   "v250": {
+    "level": 3,
+    "colour": 0.90835734870317,
+    "edges": 0.9360230547550432,
+    "blob": 15
+   }
+  },
+  {
+   "name": "fog",
+   "level": 2,
+   "colour": 0.5661619486504279,
+   "edges": 0.510862409479921,
+   "blob": 637,
+   "v250": {
+    "level": 2,
+    "colour": 0.9506254114549045,
+    "edges": 0.4878209348255431,
+    "blob": 7
+   }
+  },
+  {
+   "name": "geometry-height-reference",
+   "level": 3,
+   "colour": 0.9927078269324259,
+   "edges": 0.9168692270296548,
+   "blob": 4,
+   "v250": {
+    "level": 2,
+    "colour": 0.9936801166747691,
+    "edges": 0.36995624696159457,
+    "blob": 2
+   }
+  },
+  {
+   "name": "gpx",
+   "level": 3,
+   "colour": 0.9712368168744008,
+   "edges": 0.9405560882070949,
+   "blob": 11,
+   "v250": {
+    "level": 3,
+    "colour": 0.9712368168744008,
+    "edges": 0.9405560882070949,
+    "blob": 11
+   }
+  },
+  {
+   "name": "ground-polyline-material-dev",
+   "level": 2,
+   "colour": 0.8394773681754549,
+   "edges": 0.8646756882874475,
+   "blob": 31,
+   "v250": {
+    "level": 2,
+    "colour": 0.811012599160056,
+    "edges": 0.8212785814279048,
+    "blob": 23
+   }
+  },
+  {
+   "name": "ground-primitive-dev",
+   "level": 2,
+   "colour": 0.8663366336633663,
+   "edges": 0.8797029702970297,
+   "blob": 47,
+   "v250": {
+    "level": 2,
+    "colour": 0.6915841584158415,
+    "edges": 0.8371287128712871,
+    "blob": 301
+   }
+  },
+  {
+   "name": "ground-primitive-materials-dev",
+   "level": 2,
+   "colour": 0.8731533367294957,
+   "edges": 0.9373408048904738,
+   "blob": 21,
+   "v250": {
+    "level": 2,
+    "colour": 0.9057564951604686,
+    "edges": 0.9327559857361182,
+    "blob": 58
+   }
+  },
+  {
+   "name": "interpolation",
+   "level": 2,
+   "colour": 0.637904468412943,
+   "edges": 0.7426810477657936,
+   "blob": 36,
+   "v250": {
+    "level": 2,
+    "colour": 0.6024653312788906,
+    "edges": 0.7591165896250642,
+    "blob": 58
+   }
+  },
+  {
+   "name": "itwin-gaussian-splats",
+   "level": 3,
+   "colour": 0.9234949832775919,
+   "edges": 0.9498327759197325,
+   "blob": 18,
+   "v250": {
+    "level": 2,
+    "colour": 0.8979933110367893,
+    "edges": 0.9255852842809364,
+    "blob": 26
+   }
+  },
+  {
+   "name": "japan-buildings",
+   "level": 3,
+   "colour": 0.9330204778156996,
+   "edges": 0.9530716723549488,
+   "blob": 9,
+   "v250": {
+    "level": 2,
+    "colour": 0.8950511945392492,
+    "edges": 0.9466723549488054,
+    "blob": 24
+   }
+  },
+  {
+   "name": "material-with-custom-glsl",
+   "level": 2,
+   "colour": 0.9286047596826879,
+   "edges": 0.9472701819878675,
+   "blob": 114,
+   "v250": {
+    "level": 2,
+    "colour": 0.9286047596826879,
+    "edges": 0.9472701819878675,
+    "blob": 114
+   }
+  },
+  {
+   "name": "physically-based-materials",
+   "level": 2,
+   "colour": 0.855820750121773,
+   "edges": 0.6556259132976132,
+   "blob": 40,
+   "v250": {
+    "level": 2,
+    "colour": 0.873356064296152,
+    "edges": 0.37213833414515346,
+    "blob": 36
+   }
+  },
+  {
+   "name": "terrain-entity-batching-dev",
+   "level": 3,
+   "colour": 0.9841343910405973,
+   "edges": 0.9006066262249184,
+   "blob": 5,
+   "v250": {
+    "level": 3,
+    "colour": 0.9841343910405973,
+    "edges": 0.9206719552029865,
+    "blob": 5
+   }
+  },
+  {
+   "name": "video",
+   "level": 2,
+   "colour": 0.2515687393040502,
+   "edges": 0.5139760410724472,
+   "blob": 920,
+   "v250": {
+    "level": 3,
+    "colour": 0.9720479178551056,
+    "edges": 0.9720479178551056,
+    "blob": 14
+   }
+  },
+  {
+   "name": "web-map-tile-service-picking",
+   "level": 2,
+   "colour": 0.9436958614051973,
+   "edges": 0.9937439846005774,
+   "blob": 31,
+   "v250": {
+    "level": 3,
+    "colour": 0.9634263715110684,
+    "edges": 0.9947064485081809,
+    "blob": 9
+   }
+  }
+ ]
+}
