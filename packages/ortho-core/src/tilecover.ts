@@ -25,7 +25,11 @@ export interface SelectLODOptions {
 	nearEye?: boolean;
 }
 /** 選抜の節（s＝そのノードに入るサンプルの添字・根＝undefined＝全部） */
-interface LODNode extends TileXYZ { s?: number[] | null }
+// nearEye（Cesium の距離）が従来の測り方より細かくできる段数の上限（2026-11-09）：低い目（3d-tiles-point-cloud・目の高さ 25 m）では足元が配信の最大 z（Bing z20）まで
+// 割れ、z20 のタイルの所だけ近景層の地面が下地の紺になった（z19 で止めると消える・?nearterr=0 でも消える）。1 段＝#1036 の利得（arcticdem・gpx・
+// terrain-entity-batching-dev・constant-lod-dev・geometry-height-reference）を保つ幅
+const NEAR_UP = 1;
+interface LODNode extends TileXYZ { s?: number[] | null; pd?: number }   // pd＝親の中心から目の真下までの角距離（nearEye で割った時だけ）
 
 // 距離別LOD（quadtree）：画面サンプルを含む root から、画面上のタイルサイズが閾値超なら4分割。
 // 近景=高z・遠景=低z を重なりなく敷く。可視判定はサンプル包含で（大タイルの4隅誤カリングを回避）。
@@ -46,6 +50,9 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 	const st = cameraState(cam, W, H);
 	const eyeR = Math.hypot(st.eye[0], st.eye[1], st.eye[2]), ref: [number, number, number] | null = nearEye && eyeR > 1 ? [Math.atan2(st.eye[2], st.eye[0]) * 180 / Math.PI, geodeticOf(Math.asin(Math.max(-1, Math.min(1, st.eye[1] / eyeR))) * 180 / Math.PI), Math.max(1, groundR)] : null;   // the eye's nadir + the ground radius (nearEye)
 	const samples: [number, number][] = [];
+	// nearEye の手前の救い（下の cull）の届く範囲＝目の真下 → 画面の下端（左・中・右）の地面（地面の球 groundR）の角距離（度）。無い（下端が空）＝0＝救わない
+	let nearR = 0;
+	if (ref) for (const sx of [0, W / 2, W]) { const pb = unproject(st, sx, H, Math.max(1, groundR)); if (pb) nearR = Math.max(nearR, Math.hypot(pb[0] - ref[0], pb[1] - ref[1])); }   // 下端の左・中・右（隅の手前も）
 	const eyeInFar = farR > groundR && mat.dot(st.eye, st.eye) < farR * farR;   // a low camera among ground higher than the target's (a canyon): that ground can be anywhere along each ray
 	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
 		const ll = unproject(st, ix / grid * W, iy / grid * H); if (ll) samples.push(ll);
@@ -100,12 +107,18 @@ export function selectLOD(cam: CameraPose, W: number, H: number, { minZ = 4, max
 		const t = stack.pop()!;
 		const b = tileBoundsInto(t.x, t.y, t.z, B);
 		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, Math.max(groundR, farR), ref);
-		if (size < 0) continue;                     // 画面外＆中心外＆サンプル無し → cull
+		if (size < 0) {                             // 画面外＆中心外＆サンプル無し → cull
+			// nearEye：見えている親を割った子が「目の側」で落ちた＝目と注視点の間の尾根（海面球にもリフト球にも乗らない高い地面）＝四隅の射影も
+			// 標本も届かない。親は見えていた＝その子の地面は写っている＝この z で描く（それ以上は割らない）。旧＝落としていた＝目の手前の山肌に
+			// 画像が無く下地の色（Cesium の baseColor の紺）が出た（fog・3d-tiles-point-cloud・2026-11-09・nearEye の #1036 から）
+			if (nearR > 0 && t.pd != null) { const [w, s0, e, n] = tileBoundsInto(t.x, t.y, t.z, B), dx = Math.max(w - ref![0], 0, ref![0] - e), dy = Math.max(s0 - ref![1], 0, ref![1] - n); if (Math.hypot((w + e) / 2 - ref![0], (s0 + n) / 2 - ref![1]) < t.pd && Math.hypot(dx, dy) < nearR) out.push({ z: t.z, x: t.x, y: t.y }); }   // nearR＝目の真下から画面の下端の地面まで（それより手前＝本来は画面の下＝尾根が持ち上げた時だけ写る）
+			continue;
+		}
 		const th = t.z < floorZ ? tilePx * floorRatio
 			: sticky && sticky.has(tileId(t.z, t.x, t.y)) ? tilePx * stickyRatio : tilePx;
 		if (t.z < maxZ && (zOf ? t.z < zOf(t.z, t.x, t.y) : size > th)) {
-			const z = t.z + 1, x = t.x * 2, y = t.y * 2, s = samplesIn(b, sLo, sLa, t.s);
-			stack.push({ z, x, y, s }, { z, x: x + 1, y, s }, { z, x, y: y + 1, s }, { z, x: x + 1, y: y + 1, s });
+			const z = t.z + 1, x = t.x * 2, y = t.y * 2, pd = ref ? Math.hypot((b[0] + b[2]) / 2 - ref[0], (b[1] + b[3]) / 2 - ref[1]) : undefined, s = samplesIn(b, sLo, sLa, t.s);
+			stack.push({ z, x, y, s, pd }, { z, x: x + 1, y, s, pd }, { z, x, y: y + 1, s, pd }, { z, x: x + 1, y: y + 1, s, pd });
 		} else out.push({ z: t.z, x: t.x, y: t.y });
 	}
 	return out;
@@ -150,7 +163,11 @@ function tileMetrics(st: CameraState, t: TileXYZ, b: Float64Array, center: Array
 	const c0 = near ?? center, refLon = Math.min(e, Math.max(w, c0[0])), refLat = Math.min(n, Math.max(s, c0[1]));
 	const p = lonlatTo3D(refLon, refLat);
 	if (near) { p[0] *= near[2]; p[1] *= near[2]; p[2] *= near[2]; }   // Cesium: from the eye to the tile's closest point, on the ground
-	const dist = Math.hypot(p[0] - st.eye[0], p[1] - st.eye[1], p[2] - st.eye[2]);
+	let dist = Math.hypot(p[0] - st.eye[0], p[1] - st.eye[1], p[2] - st.eye[2]);
+	if (near) {   // nearEye は従来の測り方（注視点側の最寄り点）より NEAR_UP 段まで細かく＝距離は 1/2^NEAR_UP まで（目の足元で z が最細まで振り切れない）
+		const q = lonlatTo3D(Math.min(e, Math.max(w, center[0])), Math.min(n, Math.max(s, center[1])));
+		dist = Math.max(dist, Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]) / (1 << NEAR_UP));
+	}
 	const worldSize = 2 * Math.PI / (1 << t.z);
 	return worldSize / Math.max(dist, 1e-9) * st.focal;   // 画面上のタイル px（≥0）。見えない＝-1
 }
