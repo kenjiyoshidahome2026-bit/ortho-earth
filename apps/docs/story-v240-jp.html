@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.4 を公開しました</title>
+<meta name="description" content="初めての Android タブレットを自費で買った日から 6 日。8 月から WebGL2 に封じていた Android を WebGPU に戻し、実機でしか見えない遅さを一つずつ削った。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v240-jp">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/story-v240">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/story-v240-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/story-v240">
+<meta property="og:title" content="Ortho Earth 2.4 を公開しました">
+<meta property="og:description" content="初めての Android タブレットを自費で買った日から 6 日。8 月から WebGL2 に封じていた Android を WebGPU に戻し、実機でしか見えない遅さを一つずつ削った。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v240-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-11-09">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Ortho Earth 2.4 を公開しました","description":"初めての Android タブレットを自費で買った日から 6 日。8 月から WebGL2 に封じていた Android を WebGPU に戻し、実機でしか見えない遅さを一つずつ削った。","url":"https://www.ortho-earth.com/docs/story-v240-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v240-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-09","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+<!-- Stories の記事（下書き・2026-11-09）。v2.4.0 の記録＝11/3 に Android タブレット（Galaxy・Mali-G615）を買ってからの 6 日間。
+     数字は各 PR の本文にあるタブレット実測から。公開日・絵・stories.json のカードはリリースの時に入れる -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v240.html" lang="en">English</a></nav>
+<header class="masthead"><h1>Ortho Earth 2.4 を公開しました</h1><p class="byline">2026-11-09 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>11 月 3 日、Android のタブレットを買った。Galaxy の一台で、GPU は Mali-G615 である。自分のお金で買った、初めての Android だ。</p>
+<p>個人で作っていると、いちばん足りないのは時間でもお金でもなく、手元の機械である。身の回りは Mac と iPhone と iPad ばかりで、Android で何が起きているかは、人から聞くか、想像するしかなかった。2.4 は、その一台が来てからの 6 日間の記録である。</p>
+
+<h2>8 月の封印</h2>
+<p>8 月 3 日、Android は機種を問わず WebGL2 で動かすと決めた。Android の入門機で「移動中に基図だけが黒くなる」不具合があり、WebGL2 にすると直った。エラーは出ず、Mac では再現しない。調べると、Adreno や Mali の Vulkan には黒画面の報告がいくつもあり、高級機なら安全とも言えなかった。</p>
+<p>そのときの判断の支えは「Android で WebGL2 に落としても、失うものは計測上ない」という一行だった。ただし、その計測をした Android は手元に無かった。</p>
+
+<h2>11 月 3 日</h2>
+<p>タブレットが届いた日に、まず GPU の診断ページ（<a href="/check/" target="_top">/check/</a>）を作った。WebGPU か WebGL2 か、アダプタ、機能、上限、試しの描画を一枚で見る。何も外へ送らない。</p>
+<p>/japan/ を WebGPU で開くと、黒くならなかった。PLATEAU の建物も WebGL2 より速く描けた。8 月の一行が、この一台で崩れた。その日のうちに、Android も WebGPU で始めるように既定を戻した。逃げ道は <code>?gl2=1</code> である。黒くなる機種が残るかもしれないことは承知の上で決めた。</p>
+<p>同じ日に、ノート PC では内蔵と外付けのうち速い方の GPU を頼むようにした（<code>powerPreference</code> の既定が <code>"high-performance"</code>）。Windows の実機でも確かめた。</p>
+
+<h2>実機でしか見えなかったもの</h2>
+<p>WebGPU で動くことと、気持ちよく動くことは別である。タブレットで触ると、Mac では一度も見なかった遅さが次々に出てきた。HUD（<code>?hud=1</code>）に、フレームの時間がどこで消えているかを部位ごとに出すようにして、一つずつ当たった。</p>
+<ul>
+<li><strong>解像度が下がらない。</strong>PLATEAU の上を飛ぶと 1 フレーム約 120 ms かかるのに、動的解像度は等倍のままだった。タイル型の GPU は、GPU の時間計測を少なめに報告することがある。実時間で 50 ms を超えたら、そちらも見るようにした。</li>
+<li><strong>メインスレッドが 800 ms 止まる。</strong>標高を引く関数が、IndexedDB から読んだタイルを手元に残していなかった。動くたびに数十 MB のタイルを読み直していた。最後の 3 枚を残すようにした。</li>
+<li><strong>近くの建物がにじむ。</strong>地球を半径 1 の球として計算しているので、近くの頂点の w が 1e-6 ほどになり、Mali はそれを 0 とみなしていた。クリップ空間を 2<sup>20</sup> 倍してから渡すと、にじみは消えた。Mac の絵は変わらない。</li>
+<li><strong>タイルがメインスレッドを経由していた。</strong>タイルの形を、タイルの worker から描画側の worker へ直接送るようにした。メインは目次だけを受け取る。</li>
+</ul>
+
+<h2>起動の 6 秒</h2>
+<p>タブレットでは、最初の絵が出たあと数秒間、画面が固まった。起動の時間割（<code>[boot] timeline</code>）を出して見ると、GPU のプロセスがシェーダを 1 本ずつコンパイルしていて、合わせて 6〜14 秒かかっていた。その間、描画側は待たされる。</p>
+<p>そこで、地球と地形だけを待って先に描き、残りの層はできた順に現れるようにした（進行描き）。要るパイプラインだけを先に作り、残りは後に回す。固まる時間は 6.5〜6.9 秒から 1.0〜2.1 秒になった。Mali ではシェーダの使わない枝を生成時に落とし、コンパイルを短くした。焼いた文字を IndexedDB に残して、次の起動で焼き直さない仕組みも入れた（<code>?glyphdb=1</code>）。</p>
+
+<h2>京都から日本列島へ</h2>
+<p>デモの一つに、京都の街から日本列島の全体まで一気に引く滑走がある。タブレットでは最初の 8 秒が 8〜10 fps だった。</p>
+<p>原因の一つは意外なところにあった。フレームが空くと、飛行中でも「着地した」とみなして URL を書き換えていた。すると Android の Chrome がアドレスバーを描き直し、それが GPU のプロセスを 0.1〜6 秒ふさぐ。20 秒の間に 102 回、合わせて 11.4 秒である。飛行中は URL を書かず、着地まで待つようにすると、コマ数は 167 から 227 に増えた（約 36% 増）。</p>
+<p>もう一つは地形である。地形を消すと約 60 fps 出た。動いている間だけ、地形を粗いメッシュで描くようにした。4GB 機では、線が引く標高も軽くした。</p>
+
+<h2>丸の内からレインボーブリッジへ</h2>
+<p>最後に残ったのは PLATEAU の建物だった。丸の内からレインボーブリッジへの滑走は、最初の 6〜8 秒が 12〜18 fps。止まったままでも 10〜16 fps しか出ない。動きではなく、描く量が多すぎる。</p>
+<p>動いている間だけ、描く量を減らすことにした。どれも止まれば元の絵に戻る。</p>
+<div class="table-wrap"><table><thead><tr><th>動いている間だけ</th><th>滑走 4〜12 秒のコマ数</th></tr></thead><tbody>
+<tr><td>低い建物から描かない（6 → 12 → 24 m）</td><td>182・240 → 280・262（約 3 割増）</td></tr>
+<tr><td>細かい三角形を落とす（並べ替えだけで GPU メモリは増えない）</td><td>208 → 295</td></tr>
+<tr><td>建物を軽いピクセルシェーダで描く</td><td>平均 236 → 294（約 25% 増、交互に 3 組とも勝ち）</td></tr>
+</tbody></table></div>
+<p class="note-small">注：どれもタブレット（Mali-G615）の実測。順に入れていったので、行ごとの起点は同じではない。三つとも、今は全機種の既定である。発動するのは 1 コマ 40 ms を超えてカメラが動いている時だけなので、速い機械では何も変わらない。</p>
+
+<h2>ほかに入ったもの</h2>
+<ul>
+<li><strong>Unity と Unreal のプラグイン（0.1.0）。</strong>地球儀の上の街を glb で書き出し、Unity 6 や Unreal Engine 5.6〜5.8 に置き、また地球儀へ戻す。glb には錨（経緯度と向き）が入るので、<code>map.model()</code> は位置を渡さなくても元の場所に置ける。丸の内の見本つき。</li>
+<li><strong>点群。</strong>図郭を並べて継ぎ目なく表示し、読むメモリに上限を設け、分類で絞れる（<code>map.readPointCloud</code>）。Unity 向けの PLY 書き出し。</li>
+<li><strong>線と地形。</strong>傾けた 3D で太い道路の縁が地形に食われてギザギザになるのと、近くの線が半透明の数珠になるのを直した。</li>
+</ul>
+
+<h2>一台の重さ</h2>
+<p>6 日間で入った変更は 130 を超える。そのほとんどは、Mac の上では何も変えない。それでも、一台のタブレットが来ただけで、Android の既定がひっくり返り、全機種の既定もいくつか変わった。</p>
+<p>8 月の判断は、手元に無い機械について、聞いた話と調べた話で決めたものだった。間違いだったとは思わない。ただ、実機があれば数時間で確かめられたことを、3 か月そのままにしていた。個人開発の弱さは、こういう所に出る。</p>
+<p>だから、もしお手元の Android や Windows で黒くなる、遅い、といったことがあれば、<a href="/check/" target="_top">/check/</a> の結果と一緒に教えてほしい。いまの Ortho Earth にとって、それがいちばん効く助けである。</p>
+<h2>そして Cesium</h2>
+<p><!-- TODO: 改良が終わったら書く。今の main に入っているのは下の 4 つ --> Android に追われた 6 日間も、Sandcastle の撮り直しは止めなかった。エンティティの縁の太さを Cesium と同じ 1 px にし、path の縁（polylineOutline）と光（PolylineGlow の細い芯と淡いにじみ）を描き、点の縁取りを pixelSize の外側に付けた。画像の細かさの選び方で cos φ を二重に掛けていたのも直した。</p>
+<div class="table-wrap"><table><thead><tr><th>撮影</th><th>3</th><th>2</th><th>1</th><th>0</th><th>何が入ったか</th></tr></thead><tbody>
+<tr><td>v2.3.0</td><td>226</td><td>77</td><td>0</td><td>0</td><td>前回の最終の数（目で確かめた例を含む 303 本）</td></tr>
+<tr><td>v2.4.0</td><td><strong>TODO</strong></td><td>TODO</td><td>TODO</td><td>TODO</td><td>TODO</td></tr>
+</tbody></table></div>
+<p><!-- TODO: 締めの一文。例：速くなった地球儀の上で、Cesium のコードがまた一歩、同じ絵に近づいた。 --></p>
+<p class="note-small">公開：<code>@ortho-earth/globe</code>・<code>@ortho-earth/core</code> 2.4.0。使い方は 2.3 のまま（<code>npm i @ortho-earth/globe@2.4</code>）。動いている間の描き方を前に戻すノブ（<code>?meshshed=0</code> など）と、Android で WebGL2 に戻す <code>?gl2=1</code> は残してある。</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>
