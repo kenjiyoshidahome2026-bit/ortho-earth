@@ -371,7 +371,7 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 			hitR = Math.max(hitR, Math.min(sw, sh) / 2);
 		} else if ((st.point && boolAt(st.point.show, ms, true)) || st.image) {   // 画像が取れない（取れる前も）＝点
 			const pt = st.point || { size: 8, color: "rgba(255,255,255,1)", outline: "rgba(0,0,0,0.8)", outlineWidth: 1 };
-			const r = Math.max(1, pt.size) * dpr / 2, lw = pt.outline && pt.outlineWidth ? pt.outlineWidth * dpr : 0, e = r + lw / 2 + 1;
+			const lw = pt.outline && pt.outlineWidth ? pt.outlineWidth * dpr : 0, r = Math.max(1, pt.size) * dpr / 2 + lw / 2, e = r + lw / 2 + 1;   // Cesium's outline rings the pixelSize disc from outside (diameter pixelSize + 2·outlineWidth: PointPrimitiveCollectionVS); the mark shader centres the ring on r
 			push(P[0], P[1], e, e, rgbaOf(pt.color), lw ? rgbaOf(pt.outline) : Z4, [r, lw, 0, 0], Z4);
 			hitR = Math.max(hitR, r);
 		}
