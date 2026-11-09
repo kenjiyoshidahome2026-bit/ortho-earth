@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { czmlToFeatures } from "geopbf/czml";
 import { GeoPBFBase } from "geopbf/pbf-base";
-import { trackOf, positionAt, pathPositionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf } from "../src/czml-time.ts";
+import { trackOf, positionAt, pathPositionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf, glowBands } from "../src/czml-time.ts";
 globalThis.ImageData ??= class ImageData {};
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/czml");
@@ -102,6 +102,9 @@ console.log("― 見た目（styleOf・段 3）―");
 	ok(g.point && g.path?.lead === 0 && g.path.trail === null && g.label?.text === "walk", "見た目の指定が無い（GPX）＝点＋今までの軌跡＋名前の札");
 	{ const po = styleOf({ type: "Feature", geometry: { type: "LineString", coordinates: [] }, properties: { czml: { path: { width: 8, material: { polylineOutline: { color: { rgba: [255, 0, 255, 255] }, outlineColor: { rgba: [0, 255, 255, 255] }, outlineWidth: 5 } } } } } }).path;
 	  ok(po?.color === "rgba(255,0,255,1)" && po.outline?.color === "rgba(0,255,255,1)" && po.outline.width === 5 && po.width === 8, "path の polylineOutline＝芯の色＋縁（色・幅）（czml-path）"); }
+	{ const pg = styleOf({ type: "Feature", geometry: { type: "LineString", coordinates: [] }, properties: { czml: { path: { width: 10, material: { polylineGlow: { color: { rgba: [255, 255, 0, 255] }, glowPower: 0.1 } } } } } }).path;
+	  const b = glowBands(0.1), core = b[b.length - 1];
+	  ok(pg?.glow === 0.1 && pg.color === "rgba(255,255,0,1)" && b[0].w === 1 && b[0].a < 0.1 && Math.abs(core.w - 2 * 0.1 / 1.2) < 1e-9 && core.a === 1 && b.every((x, i) => i === 0 || x.w < b[i - 1].w), "path の polylineGlow＝glowPower・帯は外の薄い全幅から芯（幅 2·gp/(1+2gp)）へ（interpolation）"); }
 	ok(colorOf({ rgbaf: [1, 0.5, 0, 0.5] }) === "rgba(255,128,0,0.5)" && colorOf({ solidColor: { color: { rgba: [0, 255, 0, 255] } } }) === "rgba(0,255,0,1)", "色（rgbaf・material の solidColor）");
 }
 

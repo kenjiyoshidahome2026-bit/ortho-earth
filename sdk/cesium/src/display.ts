@@ -202,6 +202,13 @@ function pathOutline(m: Any, t: JulianDate): { color: string; width: number } | 
 	return w > 0 ? { color: css(u.outlineColor, Color.BLACK), width: w } : null;
 }
 
+/** a path's PolylineGlow material → its glowPower (the overlay draws glowBands: a thin core and a faint fade), null for any other material */
+function pathGlow(m: Any, t: JulianDate): number | null {
+	if (m?.getType?.(t) !== "PolylineGlow") return null;
+	const gp = (m.getValue(t, {}) ?? {}).glowPower;
+	return typeof gp === "number" && Number.isFinite(gp) ? gp : 0.25;
+}
+
 /** a polyline's material as the overlay draws it: outline = a wider line under, glow = fading wider lines, dash and arrow = the overlay's own */
 function styledLines(p: number[], m: Any, t: JulianDate, col: Color, width: number): Desc["lines"] {
 	const type = m?.getType?.(t), u = type ? m.getValue(t, {}) ?? {} : {};
@@ -604,7 +611,7 @@ export class EntityDisplay {
 			dyn(ph.width, ph.material, ph.leadTime, ph.trailTime, ph.relativeTo);
 			// the frame the path is drawn in (Cesium's PathVisualizer): relativeTo "FIXED" / "INERTIAL" / an entity id (the VVLH frame of that entity), else the position's own frame (inertial = the orbit's ellipse)
 			const rel = val(ph.relativeTo, t, null), own = e.position?.referenceFrame === ReferenceFrame.INERTIAL ? "inertial" : "fixed";
-			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), outline: pathOutline(ph.material, t), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60), relativeTo: rel == null || rel === "FIXED" || rel === "INERTIAL" ? null : String(rel), frame: rel === "FIXED" ? "fixed" : rel === "INERTIAL" ? "inertial" : own };
+			style.path = { show: true, width: val(ph.width, t, 1), color: css(materialColor(ph.material, t)), outline: pathOutline(ph.material, t), glow: pathGlow(ph.material, t), lead: val(ph.leadTime, t, null), trail: val(ph.trailTime, t, null), resolution: val(ph.resolution, t, 60), relativeTo: rel == null || rel === "FIXED" || rel === "INERTIAL" ? null : String(rel), frame: rel === "FIXED" ? "fixed" : rel === "INERTIAL" ? "inertial" : own };
 		}
 		if (e.position && (style.point || style.image || style.label || style.path)) {
 			const s = this.#clampMarks(e, t, r, this.#samples(e, t, r));

@@ -31,7 +31,7 @@ export interface CzmlStyle {
 	point: { size: number; color: string; outline: string | null; outlineWidth: number; show: unknown } | null;
 	image: { src: string; scale: number; offset: [number, number]; show: unknown; sbd?: number[] | null; tbd?: number[] | null } | null;   // sbd／tbd＝Cesium の scaleByDistance／translucencyByDistance（NearFarScalar の [near, nearValue, far, farValue]）
 	label: { text: string | null; color: string; outline?: string; px: number; offset: [number, number]; align: string; show: unknown; sbd?: number[] | null; tbd?: number[] | null; bg?: string | null; bgPad?: [number, number] } | null;   // bg／bgPad＝Cesium の showBackground の色と余白（px）
-	path: { show: unknown; width: number; color: string; lead: unknown; trail: unknown; resolution: unknown; relativeTo?: string | null; frame?: "fixed" | "inertial" | null; /** polylineOutline: a line of the full width in this colour under a core of width − outline.width (Cesium PolylineOutline: interior = width − outlineWidth) */ outline?: { color: string; width: number } | null } | null;
+	path: { show: unknown; width: number; color: string; lead: unknown; trail: unknown; resolution: unknown; relativeTo?: string | null; frame?: "fixed" | "inertial" | null; /** polylineOutline: a line of the full width in this colour under a core of width − outline.width (Cesium PolylineOutline: interior = width − outlineWidth) */ outline?: { color: string; width: number } | null; /** polylineGlow: its glowPower (Cesium PolylineGlow: a thin core fading out to the full width, see glowBands) */ glow?: number | null } | null;
 }
 /** CZML の色（rgba 0..255・rgbaf 0..1・入れ子の material） */
 interface CzColor { color?: unknown; solidColor?: unknown; polylineOutline?: unknown; polylineGlow?: unknown; polylineArrow?: unknown; polylineDash?: unknown; rgba?: number[]; rgbaf?: number[] }
@@ -215,6 +215,30 @@ const outlineOf = (m: unknown): { color: string; width: number } | null => {
 	const w = Number(po.outlineWidth ?? 1);
 	return w > 0 ? { color: colorOf(po.outlineColor, "rgba(0,0,0,1)"), width: w } : null;
 };
+const glowOf = (m: unknown): number | null => {
+	const pg = (Array.isArray(m) ? m[0] : m as { polylineGlow?: { glowPower?: unknown } } | null)?.polylineGlow;
+	if (!pg) return null;
+	const v = typeof pg.glowPower === "object" && pg.glowPower ? (pg.glowPower as { number?: unknown }).number : pg.glowPower, n = Number(v ?? 0.25);
+	return Number.isFinite(n) ? n : 0.25;
+};
+/** Cesium's PolylineGlow as stacked bands, outer → inner. Its shader: alpha = clamp(gp / d − 2·gp) at d = |st.t − ½| (the distance from the
+ *  line's centre in line widths), so the opaque core is d ≤ gp / (1 + 2·gp) and the rest is a faint fade (glowPower 0.1 at width 10: a 1.7 px
+ *  core, 0.2 alpha halfway out). Each band: w = its width as a fraction of the line's width, a = its own alpha, chosen so the bands stacked
+ *  so far match the shader's alpha at the band's middle; white = how far its colour runs to white (the shader's max(glow − 1 + rgb, rgb) in the
+ *  core). Before 2026-11-09 a path drew the full width solid (interpolation: a 10 px yellow bar where Cesium shows a thin line). */
+export function glowBands(glowPower: number): Array<{ w: number; a: number; white: number }> {
+	const gp = Math.max(0.01, Math.min(1, Number.isFinite(glowPower) ? glowPower : 0.25)), core = gp / (1 + 2 * gp);
+	const edges = [0.5, 0.32, 0.2, 0.12, 0.07].filter(d => d > core * 1.15).concat(core), out: Array<{ w: number; a: number; white: number }> = [];
+	let cum = 0;
+	for (let i = 0; i + 1 < edges.length; i++) {
+		const dm = (edges[i] + edges[i + 1]) / 2, target = Math.max(0, Math.min(1, gp / dm - 2 * gp));
+		const a = target <= cum ? 0 : 1 - (1 - target) / (1 - cum);
+		if (a > 0.004) out.push({ w: 2 * edges[i], a, white: 0 });
+		cum = Math.max(cum, target);
+	}
+	out.push({ w: 2 * core, a: 1, white: 0.5 });
+	return out;
+}
 const offsetOf = (v: unknown): [number, number] => Array.isArray((v as { cartesian2?: unknown })?.cartesian2) ? [+(v as { cartesian2: number[] }).cartesian2[0] || 0, +(v as { cartesian2: number[] }).cartesian2[1] || 0] : [0, 0];
 // 文字の大きさ（CSS の font の最初の「数 pt|px」）。正規表現 /(\d+(?:\.\d+)?)\s*(pt|px)/ と同じ答えを一度の走査で（数字の長い列で二乗にならない）
 const isDigit = (s: string, i: number): boolean => { const c = s.charCodeAt(i); return c >= 48 && c <= 57; };
@@ -247,6 +271,6 @@ export function styleOf(f: CzmlFeature | null | undefined): CzmlStyle {
 		image: bb && imageOf(bb.image) ? { src: imageOf(bb.image)!, scale: +bb.scale! || 1, offset: offsetOf(bb.pixelOffset), show: bb.show ?? true } : null,
 		label: lb && textOf(lb.text) != null ? { text: textOf(lb.text), color: colorOf(lb.fillColor, "rgba(255,255,255,1)"), outline: colorOf(lb.outlineColor, "rgba(0,0,0,1)"), px: fontPx(lb.font) * (+lb.scale! || 1),
 			offset: offsetOf(lb.pixelOffset), align: String(lb.horizontalOrigin || "CENTER").toLowerCase(), show: lb.show ?? true } : null,
-		path: ph ? { show: ph.show ?? true, width: +ph.width! || 1, color: colorOf(ph.material, "rgba(255,255,255,1)"), lead: ph.leadTime ?? null, trail: ph.trailTime ?? null, resolution: ph.resolution ?? 60, relativeTo: typeof ph.relativeTo === "string" ? ph.relativeTo : null, outline: outlineOf(ph.material) } : null,
+		path: ph ? { show: ph.show ?? true, width: +ph.width! || 1, color: colorOf(ph.material, "rgba(255,255,255,1)"), lead: ph.leadTime ?? null, trail: ph.trailTime ?? null, resolution: ph.resolution ?? 60, relativeTo: typeof ph.relativeTo === "string" ? ph.relativeTo : null, outline: outlineOf(ph.material), glow: glowOf(ph.material) } : null,
 	};
 }
