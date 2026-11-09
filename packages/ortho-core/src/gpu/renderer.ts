@@ -2283,7 +2283,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				// 塗りを焼く（基図の塗り＋利用者の塗り・差し込みの計画どおり）
 				const drawFills = () => {
 					if (!fills.length) return;
-					pass.setPipeline(atlasFillPipe);
+					pass.setPipeline(atlasFillPipe!);
 					pass.setBindGroup(1, paramBG[ROLE.normal]);
 					for (const { slot, gate, at, user, lo = -Infinity, hi = Infinity, pick = null } of fills) {
 						const scene = scenes[slot];
@@ -2303,7 +2303,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 								pass.setVertexBuffer(1, scene.md.orgBuf, e.orgOff);
 								for (let j = 0; j < e.counts.length; j++) pass.drawIndexed(e.counts[j], 1, e.offsets![j] >> 2, 0, j);
 							}
-							pass.setPipeline(atlasFillPipe);
+							pass.setPipeline(atlasFillPipe!);
 							pass.setBindGroup(1, paramBG[ROLE.normal]);
 							continue;
 						}
