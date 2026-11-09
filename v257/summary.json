@@ -1,0 +1,649 @@
+{
+ "at": "2026-11-09T01:32:11.380Z",
+ "cesium": "1.146.0",
+ "n": 21,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 10,
+  "3": 11,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 8,
+  "3": 6,
+  "null": 0
+ },
+ "blockers": [
+  {
+   "blocker": "picture differs",
+   "n": 10,
+   "examples": [
+    "3d-tiles-photogrammetry-classification",
+    "3d-tiles-point-cloud-classification",
+    "clamp-entities-to-ground",
+    "classification",
+    "drawing-on-terrain",
+    "ground-primitive-dev",
+    "ground-primitive-materials-dev",
+    "physically-based-materials",
+    "shadows",
+    "terrain-exaggeration"
+   ]
+  }
+ ],
+ "graded": [
+  {
+   "name": "3d-tiles-photogrammetry-classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 94% · edges 96% of the cells match · a patch of 34 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1918,
+    "n": 2110,
+    "colour": 0.9388625592417061,
+    "edge": 0.9639810426540284,
+    "blob": 34,
+    "masked": 962
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "3d-tiles-point-cloud-classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 91% · edges 93% of the cells match · a patch of 38 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1839,
+    "n": 2143,
+    "colour": 0.9146056929538031,
+    "edge": 0.9281381241250584,
+    "blob": 38,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "billboardclamptoground-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1965,
+    "n": 1989,
+    "colour": 0.9899446958270488,
+    "edge": 0.9969834087481146,
+    "blob": 2,
+    "masked": 1083
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "clamp-entities-to-ground",
+   "level": 2,
+   "reasons": [
+    "picture: colour 77% · edges 87% of the cells match · a patch of 128 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1664,
+    "n": 2326,
+    "colour": 0.7704213241616509,
+    "edge": 0.8701633705932932,
+    "blob": 128,
+    "masked": 746
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "classification",
+   "level": 2,
+   "reasons": [
+    "picture: colour 89% · edges 85% of the cells match · a patch of 70 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1424,
+    "n": 1795,
+    "colour": 0.8880222841225627,
+    "edge": 0.8545961002785515,
+    "blob": 70,
+    "masked": 1277
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "classification-types",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1946,
+    "n": 2078,
+    "colour": 0.9966313763233878,
+    "edge": 0.936958614051973,
+    "blob": 1,
+    "masked": 994
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "drawing-on-terrain",
+   "level": 2,
+   "reasons": [
+    "picture: colour 86% · edges 89% of the cells match · a patch of 29 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1573,
+    "n": 2031,
+    "colour": 0.8626292466765141,
+    "edge": 0.8931560807483998,
+    "blob": 29,
+    "masked": 1041
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "geometry-height-reference",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1879,
+    "n": 2057,
+    "colour": 0.9927078269324259,
+    "edge": 0.9168692270296548,
+    "blob": 4,
+    "masked": 1015
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "globe-translucency",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1601,
+    "n": 1873,
+    "colour": 0.8814735718099306,
+    "edge": 0.9690336358782702,
+    "blob": 6,
+    "masked": 1199
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "gpx",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1915,
+    "n": 2086,
+    "colour": 0.9712368168744008,
+    "edge": 0.9405560882070949,
+    "blob": 11,
+    "masked": 986
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "ground-primitive-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 82% · edges 87% of the cells match · a patch of 95 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1479,
+    "n": 2020,
+    "colour": 0.8212871287128712,
+    "edge": 0.8688118811881188,
+    "blob": 95,
+    "masked": 1052
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "ground-primitive-materials-dev",
+   "level": 2,
+   "reasons": [
+    "picture: colour 89% · edges 94% of the cells match · a patch of 21 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1654,
+    "n": 1963,
+    "colour": 0.8879266428935303,
+    "edge": 0.9383596535914417,
+    "blob": 21,
+    "masked": 1109
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "physically-based-materials",
+   "level": 2,
+   "reasons": [
+    "picture: colour 85% · edges 66% of the cells match · a patch of 40 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1189,
+    "n": 2053,
+    "colour": 0.8548465660009742,
+    "edge": 0.6590355577204091,
+    "blob": 40,
+    "masked": 1019
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "picking-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2080,
+    "n": 2101,
+    "colour": 0.9904807234650167,
+    "edge": 0.9980961446930033,
+    "blob": 2,
+    "masked": 971
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "polygon-texture-coordinates-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2119,
+    "n": 2143,
+    "colour": 0.9902006532897807,
+    "edge": 0.997200186654223,
+    "blob": 2,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "polyline",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2121,
+    "n": 2143,
+    "colour": 0.9939337377508166,
+    "edge": 0.9953336444237051,
+    "blob": 3,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "polylines-on-terrain-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1743,
+    "n": 1827,
+    "colour": 0.9693486590038314,
+    "edge": 0.9819376026272578,
+    "blob": 3,
+    "masked": 1245
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "shadows",
+   "level": 2,
+   "reasons": [
+    "picture: colour 73% · edges 96% of the cells match · a patch of 309 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1436,
+    "n": 1987,
+    "colour": 0.7317564167086059,
+    "edge": 0.9632611977856065,
+    "blob": 309,
+    "masked": 1085
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "terrain-entity-batching-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1910,
+    "n": 2143,
+    "colour": 0.9841343910405973,
+    "edge": 0.9006066262249184,
+    "blob": 5,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "terrain-exaggeration",
+   "level": 2,
+   "reasons": [
+    "picture: colour 79% · edges 88% of the cells match · a patch of 53 cells differs"
+   ],
+   "blockers": [
+    "picture differs"
+   ],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1389,
+    "n": 1903,
+    "colour": 0.7945349448239621,
+    "edge": 0.882816605359958,
+    "blob": 53,
+    "masked": 1169
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "z-indexing-geometry",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2056,
+    "n": 2143,
+    "colour": 0.9720018665422305,
+    "edge": 0.9869342043863742,
+    "blob": 9,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  }
+ ]
+}

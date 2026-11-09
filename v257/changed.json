@@ -1,0 +1,112 @@
+{
+ "at": "2026-11-09T01:32:11.380Z",
+ "run": "v257",
+ "commit": "eb8dff14f",
+ "base": "v250",
+ "examples": [
+  {
+   "name": "classification",
+   "level": 2,
+   "colour": 0.8880222841225627,
+   "edges": 0.8545961002785515,
+   "blob": 70,
+   "v250": {
+    "level": 2,
+    "colour": 0.9225626740947075,
+    "edges": 0.9342618384401115,
+    "blob": 37
+   }
+  },
+  {
+   "name": "classification-types",
+   "level": 3,
+   "colour": 0.9966313763233878,
+   "edges": 0.936958614051973,
+   "blob": 1,
+   "v250": {
+    "level": 2,
+    "colour": 0.9552454282964389,
+    "edges": 0.936958614051973,
+    "blob": 77
+   }
+  },
+  {
+   "name": "drawing-on-terrain",
+   "level": 2,
+   "colour": 0.8626292466765141,
+   "edges": 0.8931560807483998,
+   "blob": 29,
+   "v250": {
+    "level": 2,
+    "colour": 0.8345642540620384,
+    "edges": 0.844903988183161,
+    "blob": 23
+   }
+  },
+  {
+   "name": "geometry-height-reference",
+   "level": 3,
+   "colour": 0.9927078269324259,
+   "edges": 0.9168692270296548,
+   "blob": 4,
+   "v250": {
+    "level": 2,
+    "colour": 0.9936801166747691,
+    "edges": 0.36995624696159457,
+    "blob": 2
+   }
+  },
+  {
+   "name": "gpx",
+   "level": 3,
+   "colour": 0.9712368168744008,
+   "edges": 0.9405560882070949,
+   "blob": 11,
+   "v250": {
+    "level": 3,
+    "colour": 0.9712368168744008,
+    "edges": 0.9405560882070949,
+    "blob": 11
+   }
+  },
+  {
+   "name": "ground-primitive-dev",
+   "level": 2,
+   "colour": 0.8212871287128712,
+   "edges": 0.8688118811881188,
+   "blob": 95,
+   "v250": {
+    "level": 2,
+    "colour": 0.6915841584158415,
+    "edges": 0.8371287128712871,
+    "blob": 301
+   }
+  },
+  {
+   "name": "physically-based-materials",
+   "level": 2,
+   "colour": 0.8548465660009742,
+   "edges": 0.6590355577204091,
+   "blob": 40,
+   "v250": {
+    "level": 2,
+    "colour": 0.873356064296152,
+    "edges": 0.37213833414515346,
+    "blob": 36
+   }
+  },
+  {
+   "name": "terrain-entity-batching-dev",
+   "level": 3,
+   "colour": 0.9841343910405973,
+   "edges": 0.9006066262249184,
+   "blob": 5,
+   "v250": {
+    "level": 3,
+    "colour": 0.9841343910405973,
+    "edges": 0.9206719552029865,
+    "blob": 5
+   }
+  }
+ ]
+}
