@@ -29,6 +29,7 @@
 - [raster-tiles.md](notes/raster-tiles.md) — メルカトル・ラスタタイルの v2 移植
 - [unity-roundtrip.md](notes/unity-roundtrip.md) — ortho-earth ⇄ Unity 6 のデータ往復（錨・GLB・ortho-export・見本プロジェクト）
 - [unreal-roundtrip.md](notes/unreal-roundtrip.md) — ortho-earth ⇄ Unreal Engine 5.6 のデータ往復（軸と cm・Interchange・LAS・プラグイン）
+- [minecraft.md](notes/minecraft.md) — ortho-earth ⇄ Minecraft（Java 版・統合版）：ボクセル化・色→ブロック・Anvil／.schem／.mcworld・ブロック→GLB の取り込み
 
 ## ここ以外に置く文書（置き場が決まっている物）
 

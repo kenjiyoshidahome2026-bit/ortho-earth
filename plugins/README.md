@@ -7,6 +7,7 @@ ortho-earth のデータ（地形・PLATEAU 建物と属性・点群）をゲー
 | --- | --- | --- | --- |
 | [`unity/`](unity/) | Unity 6（URP・glTFast） | UPM package `com.ortho-earth.unity` | [unity-roundtrip.md](../docs/notes/unity-roundtrip.md) |
 | [`unreal/`](unreal/) | Unreal Engine 5.6 以降（5.8.4 で確認・Interchange・glTF Exporter・LiDAR Point Cloud） | C++ プラグイン `OrthoEarth`（.uplugin） | [unreal-roundtrip.md](../docs/notes/unreal-roundtrip.md) |
+| [`minecraft/`](minecraft/) | Minecraft Java 版 1.21 以降・統合版 1.20 以降 | プラグインなし＝`ortho-minecraft` がワールド・.schem・.mcworld を書く／ブロック→GLB | [minecraft.md](../docs/notes/minecraft.md) |
 | [`spec/`](spec/) | 共通 | `anchor.json`・`buildings.attributes.json` の JSON Schema と検定 | 両方 |
 
 ## 共通の約束
