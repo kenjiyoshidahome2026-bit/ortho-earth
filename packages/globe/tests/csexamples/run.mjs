@@ -45,6 +45,11 @@ if (flag("skip-dev")) examples = examples.filter(e => !e.flags.dev);
 // how many frames were drawn, not on the clock. rectangle: the logo's rotation and stRotation are one CallbackProperty that adds 0.005 rad per call,
 // called twice a frame on both sides (measured 2026-11-09: Cesium 120 calls/s at 60 fps, ortho 105 at 52.6) = the angle is the frame count since load,
 // and three Cesium shots alone gave 25°, 5° and 15°. Both sides are set to the same fixed angle (30° + 1200 steps, about 10 s at 60 fps)
+// examples that show live data (the server serves the current hour and the request carries no time): a ref from an earlier run never matches,
+// so a run of the ortho side alone shoots the ref side too, right next to it. web-map-tile-service-picking: an hourly ocean-current forecast
+// (the Channel's tidal currents reverse between hours); shot back to back on 2026-11-09 it was 99.9 % (level 3), against a ref hours old 93.8 % (level 2)
+const LIVE = new Set(["web-map-tile-service-picking"]);
+
 const PRE_SHOT = {
 	rectangle: () => {
 		const v = window.__csx?.viewers?.[0], C = window.__csx?.Cesium;
@@ -230,7 +235,7 @@ const load = (side, name) => {
 if (!flag("regrade")) {
 	const { chromium } = createRequire(import.meta.url)("playwright");
 	for (const s of SIDES) fs.mkdirSync(path.join(OUT, s), { recursive: true });
-	const tasks = examples.flatMap(ex => SIDES.map(side => ({ side, ex })));
+	const tasks = examples.flatMap(ex => (LIVE.has(ex.name) && !SIDES.includes("ref") ? ["ref", ...SIDES] : SIDES).map(side => ({ side, ex })));   // LIVE＝ortho だけの回でも本物を隣で撮り直す
 	let next = 0, done = 0;
 	const worker = async () => {
 		let browser = null, uses = 0;
