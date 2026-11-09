@@ -2133,6 +2133,33 @@
 			"fa": "LAS نقاط خوانده‌شده (متر از لنگر، رنگ، کلاس) را برای Unreal نگه می‌دارد؛ لنگر در سرآیند است.",
 			"ur": "LAS پڑھے گئے پوائنٹس (اینکر سے میٹر، رنگ، کلاس) Unreal کے لیے رکھتا ہے؛ اینکر ہیڈر میں ہے۔",
 			"he": "ה-LAS מכיל את הנקודות שנקראו (מטרים מהעוגן, צבע, מחלקה) עבור Unreal; העוגן בכותרת."
+		},
+		"Sheets marked COPC were converted in advance to COPC (Cloud Optimized Point Cloud) and are read from Hugging Face: only the octree nodes up to the point limit are fetched, instead of the whole ZIP file.": {
+			"ja": "COPC の印の図郭は前もって COPC（Cloud Optimized Point Cloud）に変換した物で、Hugging Face から読みます。ZIP を丸ごと取らず、八分木の節を点の上限まで取るだけです。",
+			"zh": "标有 COPC 的图幅已预先转换为 COPC（Cloud Optimized Point Cloud），从 Hugging Face 读取：只获取八叉树节点直到点数上限，而不是下载整个 ZIP 文件。",
+			"ko": "COPC 표시가 있는 도곽은 미리 COPC(Cloud Optimized Point Cloud)로 변환한 것으로 Hugging Face에서 읽습니다. ZIP 전체를 받지 않고 팔분목 노드를 점 한도까지만 가져옵니다.",
+			"fr": "Les feuilles marquées COPC ont été converties à l'avance en COPC (Cloud Optimized Point Cloud) et sont lues depuis Hugging Face : seuls les nœuds de l'octree jusqu'à la limite de points sont téléchargés, au lieu du fichier ZIP entier.",
+			"de": "Mit COPC markierte Blätter wurden vorab in COPC (Cloud Optimized Point Cloud) umgewandelt und werden von Hugging Face gelesen: Statt der ganzen ZIP-Datei werden nur die Octree-Knoten bis zur Punktgrenze geladen.",
+			"es": "Las hojas marcadas COPC se convirtieron de antemano a COPC (Cloud Optimized Point Cloud) y se leen desde Hugging Face: solo se descargan los nodos del octree hasta el límite de puntos, en lugar del ZIP completo.",
+			"pt": "As folhas marcadas COPC foram convertidas previamente para COPC (Cloud Optimized Point Cloud) e são lidas do Hugging Face: só são obtidos os nós da octree até ao limite de pontos, em vez do ficheiro ZIP inteiro.",
+			"it": "I fogli segnati COPC sono stati convertiti in anticipo in COPC (Cloud Optimized Point Cloud) e vengono letti da Hugging Face: si scaricano solo i nodi dell'octree fino al limite di punti, invece dell'intero file ZIP.",
+			"nl": "Bladen met COPC zijn vooraf omgezet naar COPC (Cloud Optimized Point Cloud) en worden van Hugging Face gelezen: alleen de octree-knopen tot aan de puntlimiet worden opgehaald, niet het hele ZIP-bestand.",
+			"pl": "Arkusze oznaczone COPC zostały wcześniej przekonwertowane do COPC (Cloud Optimized Point Cloud) i są czytane z Hugging Face: pobierane są tylko węzły drzewa ósemkowego do limitu punktów zamiast całego pliku ZIP.",
+			"ru": "Листы с отметкой COPC заранее преобразованы в COPC (Cloud Optimized Point Cloud) и читаются с Hugging Face: загружаются только узлы октодерева до предела по точкам, а не весь ZIP-файл.",
+			"uk": "Аркуші з позначкою COPC заздалегідь перетворено на COPC (Cloud Optimized Point Cloud) і читаються з Hugging Face: завантажуються лише вузли октодерева до межі точок, а не весь ZIP-файл.",
+			"hu": "A COPC jelölésű szelvényeket előre COPC-vé (Cloud Optimized Point Cloud) alakítottuk, és a Hugging Face-ről olvassuk: a teljes ZIP-fájl helyett csak az oktafa csomópontjai töltődnek le a pontlimitig.",
+			"sv": "Blad märkta COPC har i förväg omvandlats till COPC (Cloud Optimized Point Cloud) och läses från Hugging Face: bara octreens noder upp till punktgränsen hämtas, i stället för hela ZIP-filen.",
+			"tr": "COPC işaretli paftalar önceden COPC'ye (Cloud Optimized Point Cloud) dönüştürüldü ve Hugging Face'ten okunur: ZIP dosyasının tamamı yerine yalnızca nokta sınırına kadar sekizli ağaç düğümleri indirilir.",
+			"el": "Τα φύλλα με την ένδειξη COPC έχουν μετατραπεί εκ των προτέρων σε COPC (Cloud Optimized Point Cloud) και διαβάζονται από το Hugging Face: λαμβάνονται μόνο οι κόμβοι του octree μέχρι το όριο σημείων, αντί για ολόκληρο το αρχείο ZIP.",
+			"id": "Lembar bertanda COPC sudah dikonversi lebih dulu ke COPC (Cloud Optimized Point Cloud) dan dibaca dari Hugging Face: hanya simpul octree hingga batas titik yang diambil, bukan seluruh berkas ZIP.",
+			"vi": "Các mảnh có dấu COPC đã được chuyển trước sang COPC (Cloud Optimized Point Cloud) và được đọc từ Hugging Face: chỉ tải các nút octree đến giới hạn điểm thay vì toàn bộ tệp ZIP.",
+			"th": "แผ่นระวางที่มีเครื่องหมาย COPC ถูกแปลงเป็น COPC (Cloud Optimized Point Cloud) ไว้ล่วงหน้าและอ่านจาก Hugging Face โดยดึงเฉพาะโหนดของ octree จนถึงขีดจำกัดจำนวนจุด แทนการโหลดไฟล์ ZIP ทั้งไฟล์",
+			"bn": "COPC চিহ্নিত শিটগুলো আগেই COPC (Cloud Optimized Point Cloud)-এ রূপান্তর করা হয়েছে এবং Hugging Face থেকে পড়া হয়: পুরো ZIP ফাইলের বদলে বিন্দুর সীমা পর্যন্ত শুধু অক্ট্রির নোডগুলো আনা হয়।",
+			"hi": "COPC चिह्नित शीटें पहले से COPC (Cloud Optimized Point Cloud) में बदली गई हैं और Hugging Face से पढ़ी जाती हैं: पूरी ZIP फ़ाइल के बजाय बिंदु सीमा तक केवल ऑक्ट्री के नोड लिए जाते हैं।",
+			"ar": "الأوراق المعلَّمة بـ COPC حُوِّلت مسبقًا إلى COPC (Cloud Optimized Point Cloud) وتُقرأ من Hugging Face: تُجلب عقد الشجرة الثمانية حتى حد النقاط فقط بدلًا من ملف ZIP كاملًا.",
+			"fa": "برگه‌های دارای نشان COPC از پیش به COPC (Cloud Optimized Point Cloud) تبدیل شده‌اند و از Hugging Face خوانده می‌شوند: به‌جای کل فایل ZIP فقط گره‌های octree تا سقف نقاط دریافت می‌شود.",
+			"ur": "COPC نشان والی شیٹیں پہلے سے COPC (Cloud Optimized Point Cloud) میں تبدیل کی گئی ہیں اور Hugging Face سے پڑھی جاتی ہیں: پوری ZIP فائل کے بجائے پوائنٹ کی حد تک صرف octree کے نوڈز لیے جاتے ہیں۔",
+			"he": "גיליונות המסומנים COPC הומרו מראש ל-COPC (Cloud Optimized Point Cloud) ונקראים מ-Hugging Face: במקום כל קובץ ה-ZIP נטענים רק צמתי ה-octree עד למגבלת הנקודות."
 		}
 	}
 }

@@ -61,6 +61,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 | 観測点：`jishin/seismic`・`jishin/fault`・`jma/amedas`（.geopbf） | `japan/` | gishub-jp |
 | 点群の見本：`pointcloud/atami-08NF2392.copc.laz`（熱海 951 万点・77 MB・JGD2011 平面直角 VIII 系＋標高・COPC＝**gzip しない**＝範囲読みするので生のまま）＋出典の `README.md` | `japan/`（**正本は git に入れない**＝大きすぎる。置く元は作業場所・`--scope=japan --from=<作業場所> --only=pointcloud`・2026-10-15・gh-pages 239ed08＝鉛直付き EPSG:6676+6695 で作り直し） | /japan/pointcloud の見本・t-copcbench（点群の計測・`packages/globe/scripts/copc-bench.mjs`）。VIRTUAL SHIZUOKA（静岡県）CC BY 4.0 |
 | 静岡県の点群（VIRTUAL SHIZUOKA・図郭ごとの `.zip` に `.las`・CC BY 4.0／ODbL） | **自前で持たない**＝静岡県の S3（`s3://virtual-shizuoka`・Open Data on AWS・CORS 可・範囲読み可）を頁が直に一覧して読む（2026-10-18） | /japan/pointcloud（apps/pointcloud/pointcloud.ts）・エンジンの ZIP の口（packages/globe/src/pointcloud-zip.ts） |
+| 静岡県の点群の COPC 版（県の `.zip` の LAS を前もって COPC に変換・2021/LP/Original の静岡市 ND77・ND87 の 115 図郭から・CC BY 4.0） | **Hugging Face の dataset** [`KenjiYoshida/shizuoka-pointcloud`](https://huggingface.co/datasets/KenjiYoshida/shizuoka-pointcloud)（`<年>/<計測>/<種類>/<図郭>.copc.laz`＋台帳 `index.json`・resolve の URL は Range と CORS が通る・2026-11-09） | /japan/pointcloud（apps/pointcloud/pc-copc.ts＝台帳にある図郭だけ COPC・無い図郭は県の `.zip`） |
 | 見本 `showcase/*`（人口密度の 3D・江戸の古地図） | **japan の `public/` に残す**（下の 5） | www のデモ（`?g=showcase/…`・`?iiif=/japan/showcase/…`） |
 | エンジンの実行時アセット：`plateau-sets`・`airports`・`plateau-landmarks`・`plateau-exclude` | **japan の `public/` に残す**（npm の SDK に同梱＝`assetBase` の契約） | エンジン |
 | 形状 `ne-cultural-base`／`-detail`・`rivers.json` | **bucket GIS/world に残す** | 全アプリ |

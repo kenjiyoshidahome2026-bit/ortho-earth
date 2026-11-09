@@ -12,6 +12,7 @@ import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";
 import { splatPlugin, cloudToSpz, spzPlacement, cloudTo3DTiles, zipStore, type SplatHandle, type SplatOptions, type CloudData, type CloudColor } from "@ortho-earth/splat";
 import { toPlane, toLonLat, sheetBox, sheetAt, sheetRing } from "./pointcloud-sheets.ts";
 import { openPcCache, type PcCache } from "./pc-cache.ts";
+import { copcOf, loadCopcIndex, type CopcIndex } from "./pc-copc.ts";   // 前もって COPC に変えた図郭（Hugging Face）＝あればそちらを範囲読み
 import { pack, unpack, cacheKey } from "./pc-pack.ts";
 import { dumpToPly } from "./pc-ply.ts";   // Unity 向けの PLY（錨からの m・glTF の向き）
 import { dumpToLas } from "./pc-las.ts";   // Unreal 向けの LAS（錨からの m・(E, N, U)・錨は VLR）
@@ -52,6 +53,7 @@ const HOW = [
 	"Several sheets can be shown side by side (two on phones and other low-memory devices). Each sheet borrows a thin strip of points from the neighbouring sheets that are shown, so the splats meet at the sheet edges without a gap; splats made only of borrowed points are dropped.",
 	"Reading keeps at most the point limit in memory: the ZIP is unpacked as it streams in and thinned on the way, so even a large sheet never holds the whole LAS file. Choosing classes (ground, buildings, vegetation…) re-converts the saved points without downloading.",
 	"Fit to terrain compares the ground points (class 2) with the terrain that is drawn and moves the cloud by the median difference. The map's terrain comes from different source data, so a few metres of difference are normal.",
+	"Sheets marked COPC were converted in advance to COPC (Cloud Optimized Point Cloud) and are read from Hugging Face: only the octree nodes up to the point limit are fetched, instead of the whole ZIP file.",
 	"This page needs WebGPU (Chrome, Edge, Safari 26 or newer, Firefox 141 or newer). There is no WebGL2 fallback — the conversion runs on the GPU by design.",
 ];
 
@@ -78,6 +80,7 @@ const CSS = `
 #side .sheet span { display: block; color: rgba(255,255,255,.55); font-size: 10.5px; }
 #side .sheet.on { border-color: #ffd34d; background: #2b2a1e; }
 #side .sheet.big span { color: #ffb36b; }
+#side .sheet.copc span { color: #7fe3ff; }
 #side .bar { margin: 8px 16px 0; height: 6px; background: rgba(255,255,255,.1); border-radius: 3px; overflow: hidden; }
 #side .bar[hidden] { display: none; }
 #side .bar i { display: block; height: 100%; width: 0; background: #7fb2ff; transition: width .15s; }
@@ -182,7 +185,8 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		const v = +$<HTMLInputElement>("#pc-lift").value; $("#pc-lift-v").textContent = `${v > 0 ? "+" : ""}${v.toFixed(1)} m`;
 	};
 	/** 出している物（図郭ごと）＝手綱・元・地面の見本（fit 用）・錨の高さ・借りた隣（鍵の並び＝継ぎ目）。active＝最後に開いた物（書き出し・地形合わせ・知らせ） */
-	interface Item { key: string; src: string; label: string; extra: Partial<SplatOptions>; code: string | null; h: SplatHandle | null; alt0: number; ground: Array<[number, number, number]>; edges: string; info: string }
+	/** ck＝保管の鍵の元（県の .zip＝key・COPC＝"hf:<置き場>"＝読んだ点の間引きが違うので混ぜない） */
+	interface Item { key: string; ck: string; src: string; label: string; extra: Partial<SplatOptions>; code: string | null; h: SplatHandle | null; alt0: number; ground: Array<[number, number, number]>; edges: string; info: string }
 	const items = new Map<string, Item>();
 	let active: Item | null = null, queue: Promise<unknown> = Promise.resolve();
 	const cur = () => active?.h ?? null;
@@ -251,7 +255,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	$("#pc-exp-spz").onclick = () => exportAs("spz"); $("#pc-exp-tiles").onclick = () => exportAs("tiles"); $("#pc-exp-ply").onclick = () => exportAs("ply"); $("#pc-exp-las").onclick = () => exportAs("las");
 
 	// ── 読む：保管した段 → 保管した点 → 回線（読んだ点と変換した段はその場で保管）・変換は 1 枚ずつ（GPU とメモリ） ──
-	const ptsKey = (it: Item) => cacheKey("points", it.key, "auto");
+	const ptsKey = (it: Item) => cacheKey("points", it.ck, "auto");
 	/** 読んだ点（自分の点だけ・分類で落とす前）＝保管 → 回線 */
 	const pointsOf = async (it: Item, show: boolean): Promise<{ d: PointCloudDump; from: string }> => {
 		const saved = await cache.get(ptsKey(it));
@@ -267,7 +271,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		if (items.get(it.key) !== it) return;
 		const show = !quiet || it === active, t0 = performance.now(), st = style(), keep = classKeep(st.classes);
 		const nb = shownNeighbors(it), edges = nb.join(","), cls = keep ? st.classes.join("+") : "";
-		const kCloud = cacheKey("cloud", it.key, "auto", st) + (cls ? `:c=${cls}` : "") + (edges ? `:e=${encodeURIComponent(edges)}` : "");
+		const kCloud = cacheKey("cloud", it.ck, "auto", st) + (cls ? `:c=${cls}` : "") + (edges ? `:e=${encodeURIComponent(edges)}` : "");
 		if (show) { status(tf(t("Opening $1…"), it.label)); bar(0); }
 		let h: SplatHandle, from = "";
 		const saved = await cache.get(kCloud);
@@ -288,7 +292,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 			if (nb.length) {
 				if (show) status(t("Borrowing the edges of the neighbouring sheets…"));
 				const margin = edgeMargin(own.bb);
-				for (const k of nb) { const p = await cache.get(cacheKey("points", k, "auto")); if (p) ghosts.push(edgePoints(own, unpack<PointCloudDump & SheetPoints>(p), margin)); }
+				for (const k of nb) { const p = await cache.get(cacheKey("points", items.get(k)?.ck ?? k, "auto")); if (p) ghosts.push(edgePoints(own, unpack<PointCloudDump & SheetPoints>(p), margin)); }
 			}
 			let d = filterClasses(withGhosts({ ...own, ghost: 0 }, ghosts), keep);
 			if (d.pts === own.pts) d = { ...d, pts: own.pts.slice() };   // pts は描き手へ transfer される＝保管の view を渡さない
@@ -334,18 +338,23 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	}
 	const removeItem = (it: Item) => { items.delete(it.key); it.h?.remove(); it.h = null; if (active === it) { active = [...items.values()].pop() ?? null; $("#pc-info").textContent = active?.info ?? ""; $("#pc-gap").textContent = ""; } };
 	/** 図郭を足す（出ている物をもう一度＝外す）。上限を超えたら一番古い物を外す */
-	const toggle = (src: string, key: string, label: string, extra: Partial<SplatOptions> = {}, code: string | null = null, force = false) => {
+	const toggle = (src: string, key: string, label: string, extra: Partial<SplatOptions> = {}, code: string | null = null, force = false, ck = key) => {
 		const had = items.get(key);
 		if (had) { if (force) return; removeItem(had); status(tf(t("Removed $1"), label)); updateShown(); return; }
 		while (items.size >= MAX_SHEETS) { const old = [...items.values()][0]; removeItem(old); }
-		const it: Item = { key, src, label, extra, code, h: null, alt0: 0, ground: [], edges: "", info: "" };
+		const it: Item = { key, ck, src, label, extra, code, h: null, alt0: 0, ground: [], edges: "", info: "" };
 		items.set(key, it); active = it; $("#pc-info").textContent = ""; $("#pc-gap").textContent = "";
 		updateShown();
 		const first = !cur() && items.size === 1;
 		queue = queue.then(async () => { try { await build(it, false); if (it.h && it === active && first && $<HTMLInputElement>("#pc-autofit").checked) fit(it, true).catch(e => console.warn("[pointcloud] fit", e)); } catch (e) { fail(it, e); } });
 	};
 	$("#pc-clear-all").onclick = () => { for (const it of [...items.values()]) removeItem(it); status(""); updateShown(); };
-	const openSheet = (f: { key: string; size: number }, force = false) => { const name = last(f.key).replace(/\.zip$/i, ""); toggle(S3 + f.key, "s3:" + f.key, name, { crs: "EPSG:6676", vertical: "orthometric" }, name.replace(/^08/, "").toUpperCase(), force); };
+	let copcIx: CopcIndex = { version: 1, sets: {} };
+	/** 図郭を開く＝COPC があればそれ（Hugging Face・節だけ範囲読み）・無ければ県の .zip。key は S3 の鍵のまま（URL の ?sheet= と地図の印） */
+	const openSheet = (f: { key: string; size: number }, force = false) => {
+		const name = last(f.key).replace(/\.zip$/i, ""), c = copcOf(copcIx, f.key);
+		toggle(c ? c.url : S3 + f.key, "s3:" + f.key, c ? `${name} (COPC)` : name, { crs: "EPSG:6676", vertical: "orthometric" }, name.replace(/^08/, "").toUpperCase(), force, c ? "hf:" + c.path : "s3:" + f.key);
+	};
 	$("#pc-atami").onclick = () => { toggle(ATAMI, "atami", t("Atami sample (COPC)")); };
 
 	// ── 区画（5000）と図郭（500）を地図に ──
@@ -354,13 +363,14 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	map.addSource("pc-sheet", { type: "geojson", data: FC([]) });
 	await map.addLayer({ id: "pc-cover-fill", type: "fill", source: "pc-cover", paint: { "fill-color": "#7fb2ff", "fill-opacity": 0.06 } });
 	await map.addLayer({ id: "pc-cover-line", type: "line", source: "pc-cover", paint: { "line-color": "#7fb2ff", "line-width": 1.2, "line-opacity": 0.8 } });
-	await map.addLayer({ id: "pc-sheet-fill", type: "fill", source: "pc-sheet", paint: { "fill-color": ["case", ["==", ["get", "on"], 1], "#ffd34d", ["==", ["get", "big"], 1], "#ff9a4d", "#9fe3a0"], "fill-opacity": ["case", ["==", ["get", "on"], 1], 0.28, 0.12] } });
-	await map.addLayer({ id: "pc-sheet-line", type: "line", source: "pc-sheet", paint: { "line-color": ["case", ["==", ["get", "on"], 1], "#ffd34d", "#9fe3a0"], "line-width": ["case", ["==", ["get", "on"], 1], 2.4, 1] } });
+	await map.addLayer({ id: "pc-sheet-fill", type: "fill", source: "pc-sheet", paint: { "fill-color": ["case", ["==", ["get", "on"], 1], "#ffd34d", ["==", ["get", "copc"], 1], "#7fe3ff", ["==", ["get", "big"], 1], "#ff9a4d", "#9fe3a0"], "fill-opacity": ["case", ["==", ["get", "on"], 1], 0.28, 0.12] } });
+	await map.addLayer({ id: "pc-sheet-line", type: "line", source: "pc-sheet", paint: { "line-color": ["case", ["==", ["get", "on"], 1], "#ffd34d", ["==", ["get", "copc"], 1], "#7fe3ff", "#9fe3a0"], "line-width": ["case", ["==", ["get", "on"], 1], 2.4, 1] } });
 	const COVER_LAYERS = ["pc-cover-fill", "pc-cover-line", "pc-sheet-fill", "pc-sheet-line"];
 	$("#pc-cover").addEventListener("change", () => { const on = $<HTMLInputElement>("#pc-cover").checked; for (const id of COVER_LAYERS) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); });
 
 	let set = DEFAULT_SET, top: string[] = [], blocks: string[] = [], sheets: Array<{ key: string; size: number; code: string }> = [], block: string | null = null, listAc: AbortController | null = null;
-	const sheetFeats = () => FC(sheets.map(f => { const b = sheetBox(f.code)!; return { type: "Feature", geometry: { type: "Polygon", coordinates: [sheetRing(b)] }, properties: { key: f.key, code: f.code, on: items.has("s3:" + f.key) ? 1 : 0, big: f.size > BIG_MB << 20 ? 1 : 0 } } as GeoJSONFeature; }));
+	const copcIxP = loadCopcIndex().then(ix => { copcIx = ix; if (sheets.length) chooseBlock(block!); });   // 取れたら一覧を出し直す（COPC の印）
+	const sheetFeats = () => FC(sheets.map(f => { const b = sheetBox(f.code)!; return { type: "Feature", geometry: { type: "Polygon", coordinates: [sheetRing(b)] }, properties: { key: f.key, code: f.code, on: items.has("s3:" + f.key) ? 1 : 0, big: !copcOf(copcIx, f.key) && f.size > BIG_MB << 20 ? 1 : 0, copc: copcOf(copcIx, f.key) ? 1 : 0 } } as GeoJSONFeature; }));
 	function highlight() {
 		map.getSource("pc-sheet")?.setData(sheetFeats());
 		side.querySelectorAll<HTMLElement>(".sheet").forEach(el => el.classList.toggle("on", items.has("s3:" + el.dataset.key)));
@@ -397,8 +407,9 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 			const seen = new Set<string>();   // 大文字と小文字の両方の階層に同じ図郭がある組（2021 の "MC"・"mc"）＝先に出た方だけ
 			sheets = files.map(f => ({ ...f, code: up(last(f.key).replace(/\.zip$/i, "").replace(/^08/, "")) })).filter(f => sheetBox(f.code) && !seen.has(f.code) && !!seen.add(f.code)).sort((a, b) => a.code < b.code ? -1 : 1);
 			$("#pc-sheets").replaceChildren(...sheets.map(f => {
-				const b = document.createElement("button"); b.className = "sheet" + (f.size > BIG_MB << 20 ? " big" : ""); b.dataset.key = f.key;
-				b.innerHTML = `${f.code}<span>${mb(f.size)}</span>`; b.onclick = () => openSheet(f); return b;
+				const c = copcOf(copcIx, f.key);   // COPC＝取るのは節だけ（大きさは COPC の物・橙の印は付けない）
+				const b = document.createElement("button"); b.className = "sheet" + (c ? " copc" : f.size > BIG_MB << 20 ? " big" : ""); b.dataset.key = f.key;
+				b.innerHTML = `${f.code}<span>${c ? `COPC · ${mb(c.size)}` : mb(f.size)}</span>`; b.onclick = () => openSheet(f); return b;
 			}));
 			highlight(); hint(tf(t("$1: $2 sheets."), want, fmtN(sheets.length)) + " ");
 		} catch (e) { if (!ac.signal.aborted) listMsg(tf(t("Could not list the data: $1"), String((e as Error)?.message || e)), true); }
@@ -419,6 +430,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	await new Promise<void>(r => { const off = map.onFrame(() => { off(); r(); }); });   // 最初の絵が出てから＝起動の視点合わせが寄り（fitBounds）を上書きしない（エンジンの ?copc= と同じ待ち）
 	const qs = (new URLSearchParams(location.search).get("sheet") ?? "").split(",").filter(q => /^[\w/.-]+\.zip$/i.test(q) && !q.includes("..")).slice(-MAX_SHEETS);
 	if (qs.length) {
+		await Promise.race([copcIxP, new Promise(r => setTimeout(r, 4000))]);   // 共有 URL の図郭も COPC があればそちら（台帳が遅ければ待たない）
 		const q = qs[qs.length - 1], code = last(q).replace(/\.zip$/i, "").replace(/^08/, "").toUpperCase(), b = sheetBox(code);
 		const s = SETS.find(x => q.startsWith(x.id + "/")); if (s && s.id !== set) { $<HTMLSelectElement>("#pc-set").value = s.id; await chooseSet(s.id); }
 		if (b) chooseBlock(code.slice(0, 4));
