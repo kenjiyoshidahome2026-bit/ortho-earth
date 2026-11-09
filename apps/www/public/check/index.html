@@ -76,7 +76,7 @@ put("screen", `${screen.width}x${screen.height} @${devicePixelRatio}x, touch poi
 put("CPU cores / memory", `${navigator.hardwareConcurrency || "?"} / ${navigator.deviceMemory ? navigator.deviceMemory + " GB" : "?"}`);
 put("navigator.gpu", hasGpu ? "present" : "absent");
 
-// WebGL2（Android の既定経路・WebGPU が駄目な時の落ち先）
+// WebGL2（WebGPU が駄目な時の落ち先・?gl2=1。Android も 2026-11-03 から WebGPU が既定）
 try {
 	const gl = document.createElement("canvas").getContext("webgl2", { powerPreference: power });
 	if (!gl) put("WebGL2", "unavailable");
