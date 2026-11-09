@@ -196,13 +196,17 @@ export class Cesium3DTileset {
 		const feats = (this.#h?.tileFeatures?.(id) ?? []).map((p: Any) => new Cesium3DTileFeature(this, { ...p, tile: id }));
 		// a Model3DTileContent (instanceof holds: the examples test it) whose values are its own; getExtension = the glTF's root extension as Cesium's loader
 		// makes it (NGA_gpm_local → GltfGpmLoader's objects), else the raw json
+		// The loaded extension is made once per tile, as Cesium's content holds it: the same objects every frame. The NGA GPM example keys its anchor
+		// point entities by these objects; made anew per call, every frame removed and re-added all its ellipsoids (their fills never finished building)
 		let ext: Record<string, Any> | null | undefined;
+		const loaded = new Map<string, Any>();
 		const getExtension = (name: string) => {
 			if (ext === undefined) ext = this.#h?.tileExtensions?.(id) ?? null;
 			const e = ext?.[name];
 			if (e === undefined) return undefined;
-			if (name === "NGA_gpm_local") { try { return GltfGpmLoader.load(e); } catch { return undefined; } }
-			return e;
+			if (name !== "NGA_gpm_local") return e;
+			if (!loaded.has(name)) { let v: Any; try { v = GltfGpmLoader.load(e); } catch { v = undefined; } loaded.set(name, v); }
+			return loaded.get(name);
 		};
 		const content = Object.create(Model3DTileContent.prototype, Object.fromEntries(Object.entries({ tileset: this, url: this.url, featuresLength: feats.length, innerContents: undefined, getFeature: (i: number) => feats[i], hasProperty: (i: number, name: string) => !!feats[i]?.hasProperty?.(name), getExtension }).map(([k, v]) => [k, { value: v, enumerable: true, writable: true }])));
 		return { ...this.root, tileset: this, content };
