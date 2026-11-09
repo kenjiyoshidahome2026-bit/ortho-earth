@@ -2280,9 +2280,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						pass.setIndexBuffer(t.d.mesh.bIdx, "uint16"); pass.drawIndexed(t.d.mesh.count);
 					}
 				};
-				drawTiles("under");
-				if (fills.length) {
-					pass.setPipeline(atlasFillPipe);
+				// 塗りを焼く（基図の塗り＋利用者の塗り・差し込みの計画どおり）
+				const drawFills = () => {
+					if (!fills.length) return;
+					pass.setPipeline(atlasFillPipe!);
 					pass.setBindGroup(1, paramBG[ROLE.normal]);
 					for (const { slot, gate, at, user, lo = -Infinity, hi = Infinity, pick = null } of fills) {
 						const scene = scenes[slot];
@@ -2302,7 +2303,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 								pass.setVertexBuffer(1, scene.md.orgBuf, e.orgOff);
 								for (let j = 0; j < e.counts.length; j++) pass.drawIndexed(e.counts[j], 1, e.offsets![j] >> 2, 0, j);
 							}
-							pass.setPipeline(atlasFillPipe);
+							pass.setPipeline(atlasFillPipe!);
 							pass.setBindGroup(1, paramBG[ROLE.normal]);
 							continue;
 						}
@@ -2316,14 +2317,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 							if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); } else pass.draw(d.count);
 						}
 					}
-				}
-				if (hook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）＝pass を切り、gint が自分の pass（stencil 付き）を同じエンコーダへ足す
+				};
+				drawTiles("under");
+				drawFills();
+				drawTiles("over");
+				if (hook) {   // gint の面（ラスタ重ね（over）の上＝直描き（地形無し）で画面に描く時と同じ重なり。旧＝over の下＝Cesium の画像が GeoJSON の塗りを覆い傾けると消えた・2026-11-09）＝pass を切り、gint が自分の pass（stencil 付き）を同じエンコーダへ足す
 					pass.end();
 					try { gnd.faces += hook(cam, { enc, view: a.view0, size: a.size, win: a.win, index, ...(side ? { vp: [vx, vw] } : {}) }) | 0; } catch (e) { console.error("[gpu] ground hook", (e as Error)?.message); }
 					pass = enc.beginRenderPass({ colorAttachments: [{ view: a.view0, loadOp: "load", storeOp: "store" }] });
 					pass.setViewport(vx, 0, vw, a.size, 0, 1);
 				}
-				drawTiles("over");
 			}
 			pass.end();
 		}

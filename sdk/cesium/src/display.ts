@@ -339,7 +339,7 @@ export class EntityDisplay {
 	#clusters = new Map<Any, ClusterState>(); #clusterSeq = 0; #clusterRecs = new Map<Any, Rec>();   // data source → its clustering now; the cluster entities' records (drawn and picked like entities)
 	#solids: PrimitiveDrawer; #solidPrims = new Map<Any, { of: Desc["solids"]; ps: Any[] }>();
 	/** what the scene's primitives draw through this display: 3D lines, and pickers ((x, y) → a pick result) */
-	readonly extra = { lines: () => [] as Any[], pickers: [] as Array<(x: number, y: number) => Any>, sources: [] as Any[] };
+	readonly extra = { lines: () => [] as Any[], fills: () => [] as Array<{ polys: number[][][][]; color: string; mat: MatDesc | null }>, pickers: [] as Array<(x: number, y: number) => Any>, sources: [] as Any[] };
 
 	constructor(o: { scene: OrthoScene; dataSourceCollection: Any; host: Host }) {
 		this.scene = o.scene; this.dataSources = o.dataSourceCollection; this.host = o.host;
@@ -475,6 +475,13 @@ export class EntityDisplay {
 			for (let k = 0; k + 2 < l.p.length; k += 3) { const q = llOf(new Cartesian3(l.p[k], l.p[k + 1], l.p[k + 2])); if (q) coords.push([q[0], q[1]]); }
 			const mt = l.material, mp = mt ? { getType: () => mt.type, getValue: () => mt.uniforms } : null;   // a Material as the MaterialProperty styledLines reads
 			if (coords.length > 1) shapes.push(...groundLineFeatures(`cesium-ground-line:${i}`, coords, mp, time, mt?.uniforms?.color ?? c, l.width));
+		});
+		// GroundPrimitive fills (primitives.ts): draped like an entity's ground polygon, in its colour or painted with its material
+		this.extra.fills().forEach((f, i) => {
+			const fid = `cesium-ground-prim:${i}`;
+			if (f.mat) { patterns.push({ id: fid, polys: f.polys, mat: f.mat, z: 0 }); return; }
+			const [fc, fo] = rgbAlpha(Color.fromCssColorString(f.color) ?? Color.WHITE);
+			shapes.push({ type: "Feature", geometry: { type: "MultiPolygon", coordinates: f.polys }, properties: { _id: fid, _k: "fill", _fc: fc, _fo: fo, _b: 0, _h: 0, _z: 0 } });
 		});
 		if (!map) return true;
 		this.#ov ??= map.overlay({ builtin: "czml" }, { name: "cesium-entities", opts: { depthTest: true } });   // depthTest: the lines and tails hide behind the 3D Tiles, models and terrain (pick-from-ray-dev: the arrow ran over an opaque building)

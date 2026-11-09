@@ -854,14 +854,14 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 					drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, Infinity);
 				}
 				if (userIn) drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null);
-				if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
+				if (rasterOn) drawRasterInto(a, bb, "over", side);
+				if (fillsIn && groundHook) {   // gint の面（ラスタ重ね（over）の上＝直描きと同じ重なり・gpu/renderer.ts と対・2026-11-09）。gint は自前で状態を触る＝後で戻す
 					try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", (e as Error | null)?.message); }
 					gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(vx, 0, vw, size);
 					gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.colorMask(true, true, true, true);
 					gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.blendEquation(gl.FUNC_ADD);
 					gl.bindVertexArray(null);
 				}
-				if (rasterOn) drawRasterInto(a, bb, "over", side);
 			}
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 			gl.bindTexture(gl.TEXTURE_2D, a.tex); gl.generateMipmap(gl.TEXTURE_2D); gl.bindTexture(gl.TEXTURE_2D, null);   // 斜め視のちらつき防止
