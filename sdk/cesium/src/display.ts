@@ -757,6 +757,16 @@ export class EntityDisplay {
 			if (!gh) return v;
 			return { ...groundHeights(h!, x, hr, xr, gh), abs: true };
 		};
+		// a box / cylinder / ellipsoid with a heightReference: Cesium moves its centre by the terrain height under it (TerrainOffsetProperty):
+		// CLAMP = the centre on the ground, RELATIVE = the position's height over the ground. Here the centre was the position's own (ellipsoid)
+		// height over the lifted ground (terrain-exaggeration: a CLAMP_TO_GROUND sphere at 4344 m stood 4 km over the ridge). The centre's
+		// ground once sampled = absolute heights, a flat shape; until then the globe lifts each vertex (the centre at 0 for CLAMP)
+		const solidCentre = (g: Any, ll: number[]): { c: number; abs?: boolean } => {
+			const hr = val(g.heightReference, t, HeightReference.NONE);
+			if (hr === HeightReference.NONE) return { c: ll[2] };
+			const own = isClamp(hr) ? 0 : ll[2], gh = this.#groundOf([[ll[0], ll[1]]], r);
+			return gh ? { c: own + gh.off, abs: true } : { c: own };
+		};
 		const solid = this.#solidsOf(e, t, d, r);
 		if (r.solids?.sig) dynamic = true;
 		const pg = e.polygon;
@@ -797,24 +807,25 @@ export class EntityDisplay {
 			if (dm && ll) {
 				const hd = yawOf(val(e.orientation, t), pos), cx = dm.x / 2, cy = dm.y / 2;
 				const pts: Array<[number, number]> = [[-cx, -cy], [cx, -cy], [cx, cy], [-cx, cy]].map(([x, y]) => [x * Math.cos(-hd) - y * Math.sin(-hd), x * Math.sin(-hd) + y * Math.cos(-hd)]);
-				addShape([enuRing(ecef(ll[0], ll[1], 0), pts, 0)], { ...common(bx), base: ll[2] - dm.z / 2, top: ll[2] + dm.z / 2 });
+				const sc = solidCentre(bx, ll);
+				addShape([enuRing(ecef(ll[0], ll[1], 0), pts, 0)], { ...common(bx), base: sc.c - dm.z / 2, top: sc.c + dm.z / 2, abs: sc.abs });
 			}
 		}
 		const cy = e.cylinder;
 		if (cy && pos && val(cy.show, t, true) && !solid.has("cylinder")) {
 			dyn(cy.length, cy.topRadius, cy.bottomRadius); if (!isConst(e.position)) dynamic = true;
 			const L = val(cy.length, t, 0), rr = Math.max(val(cy.topRadius, t, 0), val(cy.bottomRadius, t, 0)), ll = llOf(pos);
-			if (L > 0 && rr > 0 && ll) addShape([enuRing(ecef(ll[0], ll[1], 0), ellipsePts(rr, rr, 0, 48), 0)], { ...common(cy), base: ll[2] - L / 2, top: ll[2] + L / 2 });
+			if (L > 0 && rr > 0 && ll) { const sc = solidCentre(cy, ll); addShape([enuRing(ecef(ll[0], ll[1], 0), ellipsePts(rr, rr, 0, 48), 0)], { ...common(cy), base: sc.c - L / 2, top: sc.c + L / 2, abs: sc.abs }); }
 		}
 		const es = e.ellipsoid;
 		if (es && pos && val(es.show, t, true) && !solid.has("ellipsoid")) {
 			dyn(es.radii); if (!isConst(e.position)) dynamic = true;
 			const rad: Cartesian3 = val(es.radii, t), ll = llOf(pos);
 			if (rad && ll) {
-				const c = common(es), K = 10;   // a stack of discs
+				const c = common(es), K = 10, sc = solidCentre(es, ll);   // a stack of discs
 				for (let i = 0; i < K; i++) {
 					const z0 = -rad.z + (2 * rad.z * i) / K, z1 = z0 + (2 * rad.z) / K, zm = (z0 + z1) / 2, k = Math.sqrt(Math.max(0, 1 - (zm / rad.z) ** 2));
-					addShape([enuRing(ecef(ll[0], ll[1], 0), ellipsePts(rad.x * k, rad.y * k, 0, 40), 0)], { ...c, outline: false, base: ll[2] + z0, top: ll[2] + z1 });
+					addShape([enuRing(ecef(ll[0], ll[1], 0), ellipsePts(rad.x * k, rad.y * k, 0, 40), 0)], { ...c, outline: false, base: sc.c + z0, top: sc.c + z1, abs: sc.abs });
 				}
 			}
 		}
