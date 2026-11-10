@@ -1,0 +1,49 @@
+{
+ "at": "2026-11-10T09:47:05.216Z",
+ "cesium": "1.146.0",
+ "n": 1,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 1,
+  "null": 0
+ },
+ "blockers": [],
+ "graded": [
+  {
+   "name": "3d-tiles-inspector",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1637,
+    "n": 2041,
+    "colour": 0.8829005389514943,
+    "edge": 0.9157275845173934,
+    "blob": 16,
+    "masked": 1031
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
