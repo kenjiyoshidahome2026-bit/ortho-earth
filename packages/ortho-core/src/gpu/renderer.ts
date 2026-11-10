@@ -133,7 +133,8 @@ export interface RenderView {
 	clear?: number[] | null; /** clear の α を合成に使う（利用者が clearColor に透明を明示した時だけ＝下の canvas が透ける・Cesium の facade の星空） */ clearAlpha?: boolean; land?: number[] | null; atmo?: number[] | null; bldColor?: number[] | null; sea?: number[] | null;
 	fog?: boolean; worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
 	underground?: { color: number[]; nf: number[] } | null;   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
-	globeDepth?: boolean;   // 球の床が深度を書く（不透明な地面だけ・gl/renderer.ts と同じ）＝地中の模型が陸に隠れ、色の穴（Cesium の colorToAlpha）からは見える
+	globeDepth?: boolean;
+	globeBack?: boolean;   // 球の裏面を描く（断面で切った手前の面の向こう＝遠い根の内側・Cesium の globe.backFaceCulling=false）   // 球の床が深度を書く（不透明な地面だけ・gl/renderer.ts と同じ）＝地中の模型が陸に隠れ、色の穴（Cesium の colorToAlpha）からは見える
 	meshOverGround?: boolean;   // 模型を地形の深度で隠さない（Cesium の depthTestAgainstTerrain=false・gl/renderer.ts と同じ）
 	globeAlpha?: number; baseAlpha?: number; skySolar?: boolean; clock?: ClockAnchor | null; showConst?: boolean; night?: boolean; graticule?: boolean;
 	showRail?: boolean; showContour?: boolean; hypso?: { color: number[]; amount?: number; max?: number } | null; distColor?: number[] | null;
@@ -3183,6 +3184,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				g.set(anchorUV(mainOrigin, elev.bounds), 88);
 			}
 			packGroundLight(g, 92, st);   // 地面の照明（cg/cgP/cgC）
+			g[103] = view.globeBack ? 1 : 0;   // cgC.w＝球の裏面を描く（断面で切った手前の向こう・Cesium の globe.backFaceCulling=false）
 			packGroundMat(g, 104, cam.dpr || 1);   // 地面の材質（gm/gmC/gmP）
 			{ const ug = view.underground; g.set(ug ? [ug.color[0], ug.color[1], ug.color[2], ug.color[3], ug.nf[0] / 6378137, ug.nf[1], ug.nf[2] / 6378137, ug.nf[3]] : [0, 0, 0, -1, 0, 1, 1, 1], 116); }   // 地下から見た球の裏面（gl と同じ）
 			g[64] = view.atmSun ?? 20; g[65] = view.atmExposure ?? 1; g[66] = view.atmGround ?? 0.5; g[67] = view.atmScale ?? 4;   // 太陽の強さ・露出・床の空気遠近の強さ・帯の幅 k（本人裁定 4）（診断と調律のノブ＝公開面には出さない）

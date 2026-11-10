@@ -199,7 +199,7 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 		map.pinRes?.(true);   // Cesium draws every frame at full resolution (resolutionScale 1): the globe's dynamic resolution stays off
 		map.clock?.setStep?.(0);   // the Cesium clock drives the globe's clock (EntityDisplay.update)
 		syncImagery(scene, map);
-		let base = "", atm = "", gop = -1, ugKey = "", gsp = NaN, mog: boolean | null = null, mgd = false;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
+		let base = "", atm = "", gop = -1, ugKey = "", gsp = NaN, mog: boolean | null = null, mgd = false, mbk = false;   // globe.baseColor → the background under the imagery (scene.backgroundColor → space: skybox.ts)
 		const lighting = syncLighting(scene, map);   // scene.light + Cesium's environment map → the globe's mesh lighting (lighting.ts)
 		const specular = syncSpecularEnv(scene, map);   // ImageBasedLighting.specularEnvironmentMaps → the globe's specular cube (specular-env.ts)
 		scene.postRender.addEventListener((_s: unknown, time: Any) => {
@@ -241,6 +241,10 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 			// opaque, and the models keep that depth (no meshOverGround). frontFaceAlpha < 1 stays as before: the depth is cleared, models drawn over
 			const gd = !!gb && gb.show !== false && !!tr?.enabled && op >= 1 && (gb.baseColor?.alpha ?? 1) < 1;
 			if (gd !== mgd) { mgd = gd; map.setGlobeDepth?.(gd); }
+			// the globe's far side seen from within: globe.backFaceCulling false (where the clipping, cartographicLimitRectangle or clippingPlanes, cuts the near
+			// side away) and a translucent globe (its back faces drawn through the holes in the near side's colour: globe-interior's Antarctica)
+			const gbk = !!gb && gb.show !== false && (gb.backFaceCulling === false || gd);
+			if (gbk !== mbk) { mbk = gbk; map.setGlobeBackFaces?.(gbk); }
 			const og = !!gb && gb.show !== false && !gb.depthTestAgainstTerrain && !gd;
 			if (og !== mog) { mog = og; map.setMeshOverGround?.(og); }
 			const c = scene.globe?.baseColor?.toCssColorString?.() ?? "rgb(0,0,255)";

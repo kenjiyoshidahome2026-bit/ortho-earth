@@ -43,7 +43,7 @@ export interface RasterInfo { id: string; kind: string; tileSize: number; minZoo
 export interface RasterPending { total: number; layers: Record<string, number>; fading: boolean }
 export interface RasterLayerStats { id: string; kind: string | null; ready: number; loading: number; empty: number; error: number; selected: number; draws: number; order: RasterOrder; opacity: number; visible: boolean; hideFills: boolean; resampling: RasterResampling; fadeDuration: number; fading: boolean }
 export interface RasterStats { layers: RasterLayerStats[]; texBytes: number; meshBytes: number; draws: number; meshes: number; inflight: number; budget: number; fading: boolean }
-export interface RasterUpdateOptions { moving?: boolean; groundR?: number; /** 遠景のリフト球（遠景層の最大標高）＝tilecover.selectLOD の farR */ farR?: number }
+export interface RasterUpdateOptions { moving?: boolean; groundR?: number; /** 球の裏面も描く（Cesium の globe.backFaceCulling=false・translucency）＝裏半球のタイルも粗く選ぶ */ backFaces?: boolean; /** 遠景のリフト球（遠景層の最大標高）＝tilecover.selectLOD の farR */ farR?: number }
 export interface RasterOptions { renderer: RasterRenderer; requestDraw?: (() => void) | null; lowMem?: boolean; post?: ((m: unknown) => void) | null; maxTiles?: number; budgetMB?: number | null }
 export interface Raster {
 	add(id: string, spec: RasterSpec, opts?: RasterLayerOptions): Promise<RasterInfo>; remove(id: string): boolean; set(id: string, o?: RasterLayerSet): boolean;
@@ -244,6 +244,17 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			}
 			if (sel.length > maxTiles) { for (const t of sel) t._d = dist(t); sel.sort((a, b) => a._d! - b._d!); sel.length = maxTiles; }
 		}
+		// 球の裏面（切った手前の向こう・色の穴の向こう＝Cesium の globe.backFaceCulling=false / translucency）：見える側しか選ばない selectLOD に
+		// 全球を粗い段 zb（選抜の最も粗い段・≤3）で足す。先頭に置く＝描画リストの先＝見える側の細かいタイルが上に重なる。選抜の子孫（同じ所の細かい方が既にある）だけ省く
+		if (opts?.backFaces) {
+			const minZ = Math.max(0, src.minZoom); let zs = Infinity;
+			for (const t of sel) zs = Math.min(zs, t.z);
+			const zb = Math.max(minZ, Math.min(3, Number.isFinite(zs) ? zs : 3)), n = 1 << zb, have = new Set(sel.map(t => keyOf(t.z, t.x, t.y)));
+			const under = (z: number, x: number, y: number): boolean => { for (; z >= minZ; z--, x >>= 1, y >>= 1) if (have.has(keyOf(z, x, y))) return true; return false; };
+			const back: TileXYZ[] = [];
+			for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (!under(zb, x, y)) back.push({ z: zb, x, y });
+			if (back.length) sel = [...back, ...sel];
+		}
 		L.sticky = new Set();
 		for (const t of sel) { let z = t.z, x = t.x, y = t.y; while (z > src.minZoom) { z--; x >>= 1; y >>= 1; const k = tileId(z, x, y); if (L.sticky.has(k)) break; L.sticky.add(k); } }   // selectLOD の sticky は tileId の番号鍵
 		return sel;
@@ -362,7 +373,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		if (wasMoving && !moving) { for (const L of layers.values()) L.dirty = true; pump(); }   // 着地＝絞っていた取得を本来の並列で再開
 		// 鍵のリフト球（groundR/farR）は 1e-7（≈0.6 m）まで見る：旧＝toFixed(4)＝637 m 刻み＝地形が後から届いて中心の標高が 95 m 持ち上がっても
 		// 鍵が変わらず選び直されない（中心の標高 centerAlt＝目の高さも鍵に無かった）＝低い目（shadows 例・目が地面の 28 m 上）の足元のタイルが海面球の視野のまま＝下地色の長方形（2026-10-28・Mac 実機）
-		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(cam.centerAlt || 0).toFixed(1)}/${(opts?.groundR ?? 1).toFixed(7)}/${(opts?.farR ?? opts?.groundR ?? 1).toFixed(7)}`;
+		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(cam.centerAlt || 0).toFixed(1)}/${(opts?.groundR ?? 1).toFixed(7)}/${(opts?.farR ?? opts?.groundR ?? 1).toFixed(7)}${opts?.backFaces ? "/b" : ""}`;
 		let changed = false, anyFade = false;
 		const tNow = now();
 		const rd: RasterDraws = { rev: 0, hideFills: false, layers: [] };

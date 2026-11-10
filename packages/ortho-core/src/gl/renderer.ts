@@ -68,6 +68,7 @@ interface GLView {
 	clear: number[] | null; land: number[] | null; atmo: number[] | null; bldColor: number[] | null;
 	fog?: boolean; sea?: number[] | null; baseAlpha?: number; globeAlpha?: number;
 	/** 模型（建物メッシュ・3D Tiles）を地形の深度で隠さない（Cesium の globe.depthTestAgainstTerrain=false＝既定）。地形の深度を読む物（深度の書き出し口・面の貼り付け）が無いフレームだけ効く */
+	globeBack?: boolean;   // 球の裏面を描く（断面で切った手前の面の向こう・Cesium の globe.backFaceCulling=false）
 	globeDepth?: boolean;   // 球の床が深度を書く（不透明な地面だけ）＝地中の模型が陸に隠れる（Cesium の globe.translucency・色の穴）
 	meshOverGround?: boolean;
 	/** 地下から見た球の裏面（Cesium の globe.undergroundColor）：color＝rgba（0..1）・nf＝α の距離 [near m, nearValue, far m, farValue] */
@@ -2010,6 +2011,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			bindGnd(globeProg); setGndGlobe(globeProg);   // 地面アトラス＝基球の床（真俯瞰 2D の下地・地形の低地フェードの穴）
 			// 球の床が深度を書く（view.globeDepth）：不透明な地面の画素だけ球の交点の対数深度（GLOBE_FS u_gDepth）＝地中の模型が陸に隠れ、色の穴からは見える
 			const gD = !!view.globeDepth;
+			gl.uniform1f(loc(gl, globeProg, "u_gBack"), view.globeBack ? 1 : 0);
 			gl.uniform1f(loc(gl, globeProg, "u_gDepth"), gD ? logCoefOf(st.camDist) * 0.5 : 0);
 			if (gD) { gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.ALWAYS); gl.depthMask(true); }
 			gl.bindVertexArray(emptyVAO);

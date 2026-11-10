@@ -1015,6 +1015,7 @@ uniform vec4 u_ugNF;   // undergroundColorAlphaByDistance＝(near, nearValue, fa
 // 不透明な地面（α≥0.5）の画素だけ球の交点の対数深度＝地中の模型（Cesium の globe-interior の核）が陸に隠れ、穴（海）からは見える。
 // 光線は t あたり clip w が 1 増える（viewRays の正規化・f64 の mvp＝K 倍なし）＝w＝t。深度テストを切った回（既定）では書いても効かない
 uniform float u_gDepth;
+uniform float u_gBack;   // 球の裏面を描く（Cesium の globe.backFaceCulling=false）：断面で切った手前の面の向こう＝遠い根の内側（GLOBE_CLIP_FS）
 void main() {
 	gl_FragDepth = 1.0;
 	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
@@ -1114,11 +1115,17 @@ void main() {
 	}
 	if (ug) {   // 裏面：霞・大気は掛けない（面の裏から見る）＝床の色に undergroundColor を距離の α で重ねる（Cesium GlobeFS の alphaBlend）
 		float k = clamp((t * sqrt(aa) - u_ugNF.x) / max(u_ugNF.z - u_ugNF.x, 1e-12), 0.0, 1.0);
-		float ua = u_ugC.a * mix(u_ugNF.y, u_ugNF.w, k);
+		float ua = max(u_ugC.a, 0.0) * mix(u_ugNF.y, u_ugNF.w, k);   // α<0＝undergroundColor 無し（切った面の向こうの裏面＝u_gBack）
 		col = u_ugC.rgb * ua * g.a + g.rgb * (1.0 - ua);
 	}
 	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 	if (u_gDepth > 0.0 && !ug && fragColor.a >= 0.5) gl_FragDepth = clamp(log2(1.0 + t) * u_gDepth, 0.0, 1.0);
+	if (u_gBack > 0.5) {   // 球の裏面（Cesium の translucency の backFace）：手前の地面の色の穴（colorToAlpha）の向こう＝遠い根の床の画像を下に敷く（霞・照明なし）。標本は一様な分岐の中で
+		float t2 = (-bb + sqrt(max(disc, 0.0))) / (2.0 * aa);
+		vec2 dl2 = deltaLL(u_rayEO + t2 * d, u_ell);
+		vec4 b2 = gndOver(vec4(u_land.rgb * u_land.a, u_land.a), u_gndOff0.xy + dl2 * u_gndOff0.zw, u_gndOff1.xy + dl2 * u_gndOff1.zw, u_gndOff2.xy + dl2 * u_gndOff2.zw, u_gndOff3.xy + dl2 * u_gndOff3.zw);
+		if (!ug && t > 0.0 && disc >= 0.0 && t2 > t) fragColor += b2 * u_globeAlpha * (1.0 - fragColor.a);
+	}
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（SkyAtmosphere は地面を知らない＝殻の奥の面）
 	if (u_csAtm.x > 0.5 && u_csAtm.z > 0.5 && u_globeAlpha < 1.0) { vec4 cs = csSky2(A * CS_R, normalize(d), u_globeAlpha > 0.0 ? 2.0 : 1.0); fragColor += cs * (1.0 - fragColor.a); }
 }`;
@@ -2090,7 +2097,7 @@ export const LINE_CLIP_FS = clipGL(LINE_FS, [
 ], "LINE_CLIP_FS");
 // 球の床（海抜 0）＝交点の原点相対 δ（u_rayEO＋t·d）で測る＝空と大気のリムは切らない
 export const GLOBE_CLIP_FS = clipGL(GLOBE_FS, [
-	["\tvec2 dll = deltaLL(u_rayEO + t * d, u_ell);", "\tif (clipDist(u_rayEO + t * d) < 0.0) discard;\n\tvec2 dll = deltaLL(u_rayEO + t * d, u_ell);"],
+	["\tvec2 dll = deltaLL(u_rayEO + t * d, u_ell);", "\tif (clipDist(u_rayEO + t * d) < 0.0) {\n\t\tfloat t2 = disc >= 0.0 ? (-bb + sqrt(disc)) / (2.0 * aa) : -1.0;   // 裏面（u_gBack）＝遠い根の内側を裏面の色で\n\t\tif (u_gBack > 0.5 && !ug && t2 > t && clipDist(u_rayEO + t2 * d) >= 0.0) { t = t2; ug = true; } else discard;\n\t}\n\tvec2 dll = deltaLL(u_rayEO + t * d, u_ell);"],
 ], "GLOBE_CLIP_FS");
 // 地形の蓋（WebGPU の CLIP_CAP_WGSL と同じ手順）：面ごとに窓を覆う四角を描き、画素で地表より下かつ海抜 0 より上の所を土の色に。
 // 他の面の外・多角形で消す側・地平線の向こう・窓の外は捨てる。深度は画素ごとに対数（頂点の z はクリップのためだけ）。
