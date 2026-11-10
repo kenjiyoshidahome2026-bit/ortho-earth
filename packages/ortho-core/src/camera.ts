@@ -302,6 +302,13 @@ export function sphereRayUniforms(st: CameraState, origin?: ArrayLike<number> | 
 	}
 	return u;
 }
+// 球の床（全画面レイ）の錨（2026-11-10）：シーン原点（main）が目の近くにあればそれ、無い・遠ければ注視点。旧＝main 原点が無い地図（@ortho-earth/cesium・
+// レンダラ直叩き）では [0,0]＝目の原点相対が ~1.4 地球半径＝f32 で交点が ECEF の軸に沿って ~1.5 m 刻みに丸まり、低い目の地面が平行四辺形の塊になった
+// （Cesium 例 time-dynamic-wheels・clamp-to-3d-model・material-with-custom-glsl）。近い main はそのまま＝基図のある地図はビット同値
+export function floorAnchor(main: ArrayLike<number> | null | undefined, center: ArrayLike<number>): number[] {
+	if (main && Math.abs(main[1] - center[1]) < 0.5 && Math.abs(((main[0] - center[0] + 540) % 360) - 180) * Math.cos(center[1] * D2R) < 0.5) return [main[0], main[1]];
+	return [center[0], center[1]];
+}
 // 窓（[west, south, spanLon, spanLat]・deg）の uv 係数＝(原点の uv, 1/span)（f64）。uv＝off＋δll·inv。窓なし＝0
 export function anchorUV(origin: ArrayLike<number>, win?: ArrayLike<number> | null): number[] { return win ? [(origin[0] - win[0]) / win[2], (origin[1] - win[1]) / win[3], 1 / win[2], 1 / win[3]] : [0, 0, 0, 0]; }
 

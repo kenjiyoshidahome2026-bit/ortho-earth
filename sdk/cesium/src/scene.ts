@@ -319,7 +319,7 @@ export class OrthoScene {
 				this.#terrainPending = true; this.requestRender();
 			}, () => { for (const [lng, lat] of wanted) wanting.delete(`${lng.toFixed(6)},${lat.toFixed(6)}`); });
 		}
-		if (same && this.#lastGlobe && Math.abs(this.#lastGlobe.distance - g.distance) <= 1e-3 * g.distance) return;   // the same pose, and the terrain did not move the target
+		if (same && this.#lastGlobe && Math.abs(this.#lastGlobe.distance - g.distance) <= 1e-3 * g.distance && g.groundAlt === this.#lastGroundAlt) return;   // the same pose, and the terrain moved neither the target nor the ground under it (a tracked entity's ground height arrives later)
 		// the globe's near plane is a share of the distance to the target; with globe:false (no terrain to hit) the target sits on the ellipsoid, up to
 		// 2 km under the 3D Tiles the camera actually looks at, so the near plane (hundreds of metres) cut away everything in front of the camera
 		// (google-photorealistic-3d-tiles-with-building-insert: the whole foreground white). Cesium's own near (frustum.near, 1 m) caps it instead
@@ -333,9 +333,10 @@ export class OrthoScene {
 			g.distance = ortho / 2 / Math.tan(fov / 2);
 		}
 		map.setCamera(g);
-		this.#lastPose = pose; this.#lastOrtho = ortho; this.#lastGlobe = map.getCamera(); this.#lastShift = this.#terrShift;
+		this.#lastPose = pose; this.#lastOrtho = ortho; this.#lastGlobe = map.getCamera(); this.#lastShift = this.#terrShift; this.#lastGroundAlt = g.groundAlt;
 	}
 	#lastShift = 0;
+	#lastGroundAlt: number | undefined;
 	// ── scene.verticalExaggeration / verticalExaggerationRelativeHeight → the globe's terrain exaggeration ──
 	//   Cesium: the terrain (and what is clamped to it) at (h − rel)·k + rel. The globe exaggerates about sea level (k·h, map.setTerrainExaggeration),
 	//   so the difference, a constant (k − 1)·rel, is carried by the camera (#pushCamera) and by the heights the facade hands back (terrainHeightOf,
