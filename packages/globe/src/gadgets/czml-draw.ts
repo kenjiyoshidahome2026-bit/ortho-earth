@@ -21,7 +21,9 @@ import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU�
 /** render worker の host（init の第 3 引数）＝読む分 */
 interface OverlayHost { post(data: unknown): void; requestDraw(): void; depthGLSL?: string; wantDepth?(on: boolean): void }
 /** frame の api（断面＝clip は render worker が足す・#111） */
-type FrameApi = OverlayFrameApi & { clip?: { distM(lon: number, lat: number, hM?: number): number } | null };
+type FrameApi = OverlayFrameApi & { clip?: { distM(lon: number, lat: number, hM?: number): number } | null;
+	/** the ground's clipping (setClipping "terrain"): negative = the globe is cut away there and hides nothing behind it */
+	groundClip?: { distM(lon: number, lat: number, hM?: number): number } | null };
 /** main（czml.ts）から来る軌跡（style つき・description は main に残る） */
 type DrawTrack = CzmlTrack & { style?: CzmlStyle };
 /** 最後に描いた印（device px・r＝当たり半径） */
@@ -267,7 +269,21 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		hidBy = 0;
 		if (ww <= 1e-6) return null;
 		const dx = x - E[0], dy = y - E[1], dz = z - E[2], dd = dx * dx + dy * dy + dz * dz, tt = -(E[0] * dx + E[1] * dy + E[2] * dz) / dd;
-		if (tt > 0 && tt < 1) { const px = E[0] + dx * tt, py = E[1] + dy * tt, pz = E[2] + dz * tt; if (px * px + py * py + pz * pz < 1) { hidBy = 1; return null; } }
+		if (tt > 0 && tt < 1) {
+			const px = E[0] + dx * tt, py = E[1] + dy * tt, pz = E[2] + dz * tt, r2 = px * px + py * py + pz * pz;
+			if (r2 < 1) {
+				// the Earth hides the point only where its surface is there: the view ray's entry into the sphere. A ground clipped away there
+				// (cartographicLimitRectangle: the band's far rim seen over the cut-away pole cap) leaves the point visible, as Cesium's depth does
+				const gc = api.groundClip;
+				let hide = true;
+				if (gc) {
+					const t1 = tt - Math.sqrt((1 - r2) / dd), ex = E[0] + dx * t1, ey = E[1] + dy * t1, ez = E[2] + dz * t1;   // entry (unit sphere: x,z equatorial, y north)
+					const b = Math.atan2(ey, Math.hypot(ex, ez)), lat = (ell ? Math.atan(Math.tan(b) / rAx) : b) / D2R;   // the β sphere (ellipsoid: tanβ = rAx·tanφ)
+					if (t1 > 0 && gc.distM(Math.atan2(ez, ex) / D2R, lat, 0) < 0) hide = false;
+				}
+				if (hide) { hidBy = 1; return null; }
+			}
+		}
 		if (api.clip) { llh ??= ecefToLlh(q[0], q[1], q[2]); if (api.clip.distM(llh[0], llh[1], llh[2]) < 0) { hidBy = 1; return null; } }
 		return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / ww * 0.5 + 0.5) * w, (1 - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / ww * 0.5 + 0.5)) * h, ww];
 	};

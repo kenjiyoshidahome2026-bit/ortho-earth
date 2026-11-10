@@ -1563,6 +1563,19 @@ struct GFragD { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 }
 @fragment fn fs(in: GOut) -> @location(0) vec4f { return globeBack(in, globeColor(in)); }
 // 球の裏面（Cesium の translucency の backFace・G.cgC.w）：手前の地面の色の穴（colorToAlpha）の向こう＝遠い根の床の画像を下に敷く（霞・照明なし・gl と同じ）
+// a ground atlas window at the origin-relative lon/lat dll: xy = its uv, z = its weight (1 inside, fading to 0 over the outer 4%, 0 outside).
+// An edge that is no edge of the ground keeps the weight: a window reaching a pole (the pole cap is in it) and one a whole turn wide
+// (u wraps across the seam). Faded there, the coarsest window let the floor through: a dark smudge at the pole and a dotted seam line
+fn gndWin(dll: vec2f, off: vec4f) -> vec3f {
+	var u = off.xy + dll * off.zw;
+	let whole = abs(off.z) * 360.0 > 0.999;
+	if (whole) { u.x = fract(u.x); }
+	let vS = off.y + (-90.0 - G.anc2.y) * off.w; let vN = off.y + (90.0 - G.anc2.y) * off.w;
+	let e0 = select(u.y, 1.0, min(abs(vS), abs(vN)) < 1e-3 && u.y >= -1e-3);
+	let e1 = select(1.0 - u.y, 1.0, min(abs(vS - 1.0), abs(vN - 1.0)) < 1e-3 && u.y <= 1.0 + 1e-3);
+	let ex = select(min(u.x, 1.0 - u.x), 1.0, whole);
+	return vec3f(u, clamp(min(ex, min(e0, e1)) / 0.04, 0.0, 1.0));
+}
 fn globeBack(in: GOut, c: vec4f) -> vec4f {
 	if (G.cgC.w < 0.5 || c.a >= 0.999) { return c; }
 	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);
@@ -1571,13 +1584,12 @@ fn globeBack(in: GOut, c: vec4f) -> vec4f {
 	let dll = deltaLL(G.eyeO.xyz + t2 * h.d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);
 	var b = vec4f(G.land.rgb * G.land.a, G.land.a);
 	if (GGD.p.x > 0.5) {
-		let u0 = G.gndOff0.xy + dll * G.gndOff0.zw; let u1 = G.gndOff1.xy + dll * G.gndOff1.zw;
-		let u2 = G.gndOff2.xy + dll * G.gndOff2.zw; let u3 = G.gndOff3.xy + dll * G.gndOff3.zw;
-		let d0 = min(u0, vec2f(1.0) - u0); let d1 = min(u1, vec2f(1.0) - u1); let d2 = min(u2, vec2f(1.0) - u2); let d3 = min(u3, vec2f(1.0) - u3);
-		let w0 = clamp(min(d0.x, d0.y) / 0.04, 0.0, 1.0);
-		let w1 = select(0.0, clamp(min(d1.x, d1.y) / 0.04, 0.0, 1.0), GGD.p.x > 1.5);
-		let w2 = select(0.0, clamp(min(d2.x, d2.y) / 0.04, 0.0, 1.0), GGD.p.x > 2.5);
-		let w3 = select(0.0, clamp(min(d3.x, d3.y) / 0.04, 0.0, 1.0), GGD.p.x > 3.5);
+		let k0 = gndWin(dll, G.gndOff0); let k1 = gndWin(dll, G.gndOff1); let k2 = gndWin(dll, G.gndOff2); let k3 = gndWin(dll, G.gndOff3);
+		let u0 = k0.xy; let u1 = k1.xy; let u2 = k2.xy; let u3 = k3.xy;
+		let w0 = k0.z;
+		let w1 = select(0.0, k1.z, GGD.p.x > 1.5);
+		let w2 = select(0.0, k2.z, GGD.p.x > 2.5);
+		let w3 = select(0.0, k3.z, GGD.p.x > 3.5);
 		let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(u0, in.pos.x, GGD.p.y), 0.0);
 		let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(u1, in.pos.x, GGD.p.y), 0.0);
 		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
@@ -1661,15 +1673,12 @@ fn globeColor(in: GOut) -> vec4f {
 		ba = 1.0;
 	}
 	if (GGD.p.x > 0.5) {   // 地面アトラス（球の床）：uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
-		let u0 = G.gndOff0.xy + dll * G.gndOff0.zw;
-		let u1 = G.gndOff1.xy + dll * G.gndOff1.zw;
-		let u2 = G.gndOff2.xy + dll * G.gndOff2.zw;
-		let u3 = G.gndOff3.xy + dll * G.gndOff3.zw;
-		let d0 = min(u0, vec2f(1.0) - u0); let d1 = min(u1, vec2f(1.0) - u1); let d2 = min(u2, vec2f(1.0) - u2); let d3 = min(u3, vec2f(1.0) - u3);
-		let w0 = clamp(min(d0.x, d0.y) / 0.04, 0.0, 1.0);
-		let w1 = select(0.0, clamp(min(d1.x, d1.y) / 0.04, 0.0, 1.0), GGD.p.x > 1.5);
-		let w2 = select(0.0, clamp(min(d2.x, d2.y) / 0.04, 0.0, 1.0), GGD.p.x > 2.5);
-		let w3 = select(0.0, clamp(min(d3.x, d3.y) / 0.04, 0.0, 1.0), GGD.p.x > 3.5);
+		let k0 = gndWin(dll, G.gndOff0); let k1 = gndWin(dll, G.gndOff1); let k2 = gndWin(dll, G.gndOff2); let k3 = gndWin(dll, G.gndOff3);
+		let u0 = k0.xy; let u1 = k1.xy; let u2 = k2.xy; let u3 = k3.xy;
+		let w0 = k0.z;
+		let w1 = select(0.0, k1.z, GGD.p.x > 1.5);
+		let w2 = select(0.0, k2.z, GGD.p.x > 2.5);
+		let w3 = select(0.0, k3.z, GGD.p.x > 3.5);
 		let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(u0, in.pos.x, GGD.p.y), 0.0);
 		let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(u1, in.pos.x, GGD.p.y), 0.0);
 		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
