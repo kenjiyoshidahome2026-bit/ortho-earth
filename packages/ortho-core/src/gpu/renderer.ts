@@ -29,7 +29,7 @@ import type { CsSpec, CsMeta } from "../csshader.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { elevCheapWgsl, FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_LITE_WGSL, MESH_TEX_WGSL, MESH_SIL_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
-	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL,
+	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL, TERRAIN_CAST_NF_WGSL,
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
 	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL, OVERLAY_CLIP_WGSL } from "./wgsl.ts";
@@ -157,10 +157,10 @@ interface TqStaging { buf: GPUBuffer; busy: boolean; spans: TqSpan[] | null; n: 
 interface TimerQuery { qs: GPUQuerySet; resolve: GPUBuffer; staging: TqStaging[]; idx: number; spans: TqSpan[]; ready: { tag: string; ms: number }[] }
 interface ShadowLayouts { terr: GPUPipelineLayout; fill: GPUPipelineLayout; bld: GPUPipelineLayout; mesh: GPUPipelineLayout; meshTex: GPUPipelineLayout; globe: GPUPipelineLayout }
 interface ShadowMods { terr: GPUShaderModule; fill: GPUShaderModule; line: GPUShaderModule; lineX: GPUShaderModule; bld: GPUShaderModule; mesh: GPUShaderModule; meshTex: GPUShaderModule; globe: GPUShaderModule;
-	bldCast: GPUShaderModule; meshCast: GPUShaderModule; meshTexCast: GPUShaderModule; terrCast: GPUShaderModule }
+	bldCast: GPUShaderModule; meshCast: GPUShaderModule; meshTexCast: GPUShaderModule; terrCast: GPUShaderModule; terrCastNF?: GPUShaderModule }
 interface ShadowPipes { fillOff: GPURenderPipeline; fillTest: GPURenderPipeline; lineOff: GPURenderPipeline; lineTest: GPURenderPipeline; terrain: GPURenderPipeline;
 	bld: GPURenderPipeline; mesh: GPURenderPipeline; meshCull: GPURenderPipeline; meshTex: GPURenderPipeline; meshTexBlend: GPURenderPipeline; globe: GPURenderPipeline }
-interface CastPipes { bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; terr: GPURenderPipeline }
+interface CastPipes { bld: GPURenderPipeline; mesh: GPURenderPipeline; meshTex: GPURenderPipeline; terr: GPURenderPipeline; terrNF?: GPURenderPipeline }   // terrNF＝影の段の地形（近景・足元の窓を分ける）・断面の版は持たない
 interface ShBG0Key { v: GPUTextureView; fv: GPUTextureView; cv: GPUTextureView; nv: GPUTextureView; ev: GPUTextureView }
 /** 落とす側の深度パスが描いた物の数（影の計器・解析の統計） */
 interface CastCount { bldTris: number; meshBatches: number; meshTris: number; terrTris: number }
@@ -169,6 +169,7 @@ interface CastCount { bldTris: number; meshBatches: number; meshTris: number; te
 interface ShadowLayer {
 	view: GPUTextureView; frameB: GPUBuffer; frameT: GPUBuffer; batch: GPUBuffer; batchCPU: Float32Array; batchBG: GPUBindGroup;
 	bg0: GPUBindGroup | null; bg0T: GPUBindGroup | null; castKey?: string; castBld?: SceneBld | null;
+	frameN?: GPUBuffer; frameF?: GPUBuffer; bg0N?: GPUBindGroup | null; bg0F?: GPUBindGroup | null;   // 地形の近景・足元メッシュを落とす側の Frame（影の段だけ・解析の層は持たない）
 }
 interface ShadowRes {
 	bgl: GPUBindGroupLayout; tex: GPUTexture; view: GPUTextureView; pBuf: GPUBuffer; samp: GPUSampler;
@@ -876,6 +877,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				view: tex.createView({ dimension: "2d", baseArrayLayer: i, arrayLayerCount: 1 }),
 				frameB: device.createBuffer({ size: FRAME_SLOT, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
 				frameT: device.createBuffer({ size: FRAME_SLOT, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),   // 地形を落とす側の Frame（#112 段 2）＝地形の窓（F.mesh）＋太陽の正射影
+				frameN: device.createBuffer({ size: FRAME_SLOT, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),   // 同じく近景メッシュ（窓＝近景層・farP.z=2）
+				frameF: device.createBuffer({ size: FRAME_SLOT, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),   // 同じく足元メッシュ（窓＝足元層・farP.z=3）
 				batch, batchCPU: new Float32Array(PL_BATCH_SLOT / 4 * MAX_PL_BATCH),
 				batchBG: device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: batch, offset: 0, size: PL_BATCH_SLOT } }] }),   // PB は 240B（#46 段 2＝sh[9] 込み）
 				bg0: null, bg0T: null,
@@ -924,13 +927,15 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				fragment: { module: mods.meshTexCast, entryPoint: "fsCast", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: dsCast }),   // 模型の MASK（#112 段 4）＝α で抜く
 			terr: () => device.createRenderPipeline({ label: lbl(), layout: device.createPipelineLayout({ bindGroupLayouts: [bgl0] }), vertex: { module: mods.terrCast, entryPoint: "vs", buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }] },
 				primitive: { topology: "triangle-list" }, depthStencil: dsCast }),   // 地形（#112 段 2）＝頂点は group(0)（Frame・標高）だけ読む
+			terrNF: () => { const m = mods.terrCastNF ??= mkMod(TERRAIN_CAST_NF_WGSL, "terrainCastNF"); return device.createRenderPipeline({ label: lbl(), layout: device.createPipelineLayout({ bindGroupLayouts: [bgl0] }), vertex: { module: m, entryPoint: "vs", buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }] },
+				fragment: { module: m, entryPoint: "fsCast", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: dsCast }); },   // 地形を画面と同じ分担で（主・近景・足元の窓を discard で分ける・2026-11-10）
 		}));
 	}
 	let sh0mods: ShadowMods | null = null;   // 派生シェーダのモジュール（初点灯で一度だけ・消灯後も再利用）
 	let castRev = 0;      // 影を落とす側の中身の版（メッシュ・標高・表示区が変わるたび+1）＝同じ窓・同じ中身なら深度パスを省く
 	// 影の計器（#112 段 0）＝点けた後だけ積む。passes/skipped＝深度パスを描いた／省いた回数・last＝直近に描いた窓と落とした物・active＝このフレームに窓が立ったか
 	const shStat: { passes: number; skipped: number; active: boolean; last: Bag | null; cascades?: Bag[] } = { passes: 0, skipped: 0, active: false, last: null };
-	function shadowFree() { if (!sh) return; sh.tex.destroy(); sh.pBuf.destroy(); for (const l of sh.L) { l.frameB.destroy(); l.frameT.destroy(); l.batch.destroy(); } sh = null; }
+	function shadowFree() { if (!sh) return; sh.tex.destroy(); sh.pBuf.destroy(); for (const l of sh.L) { l.frameB.destroy(); l.frameT.destroy(); l.frameN?.destroy(); l.frameF?.destroy(); l.batch.destroy(); } sh = null; }
 	function shadowPipes(sc: number): ShadowPipes {   // 受け手の派生パイプライン（sampleCount 毎・遅延）＝本体 buildPipes と同じ頂点/深度/ブレンド
 		let p = sh!.pipes.get(sc); if (p) return p;
 		const ms = { count: sc }, m = sh0mods!, L = sh!.lay;
@@ -951,13 +956,13 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		sh!.pipes.set(sc, p);
 		return p;
 	}
-	function shadowBG0(L: ShadowLayer, which: "bg0" | "bg0T" = "bg0"): GPUBindGroup {   // 影を落とす側の group(0)＝bg0.bld と同じ素材で Frame だけ太陽の正射影（bg0＝段の frameB・bg0T＝地形の frameT）
+	function shadowBG0(L: ShadowLayer, which: "bg0" | "bg0T" | "bg0N" | "bg0F" = "bg0"): GPUBindGroup {   // 影を落とす側の group(0)＝bg0.bld と同じ素材で Frame だけ太陽の正射影（bg0＝段の frameB・bg0T＝地形の frameT）
 		const v = (elev.has && elevTexView) ? elevTexView : dummyView, fv = (far.has && farTexView) ? farTexView : dummyView, cv = cogTexView || dummyView, nv = (near.has && nearTexView) ? nearTexView : dummyView;
 		const c = (L as unknown as Bag)[which + "K"] as ShBG0Key | undefined;
 		if (L[which] && c && c.v === v && c.fv === fv && c.cv === cv && c.nv === nv && c.ev === envView) return L[which]!;
 		(L as unknown as Bag)[which + "K"] = { v, fv, cv, nv, ev: envView };
 		return (L[which] = device.createBindGroup({ layout: bgl0, entries: [
-			{ binding: 0, resource: { buffer: which === "bg0T" ? L.frameT : L.frameB, offset: 0, size: FRAME_SLOT } },
+			{ binding: 0, resource: { buffer: which === "bg0T" ? L.frameT : which === "bg0N" ? L.frameN! : which === "bg0F" ? L.frameF! : L.frameB, offset: 0, size: FRAME_SLOT } },
 			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv },
 			{ binding: 4, resource: cv }, { binding: 5, resource: { buffer: cogBuf } },
 			{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
@@ -2880,10 +2885,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 
 	// 影を落とす側のパス（太陽の正射影で深度だけ）：基図の押し出し建物（main シーン・被覆マスクで PLATEAU の所は伏せる）＋建物メッシュ
 	//（非表示の区・noCast＝統計の柱や出元が申告しない keep2d・半透明の模型は落とさない）。窓の外のバッチは粗い距離判定で飛ばす。真俯瞰でも描く＝平面の地面に影。
-	function encodeShadowCasters(enc: GPUCommandEncoder, win: ShadowWindow, L: ShadowLayer, cam: CameraPose, opts: RenderDrawOptions | null | undefined, terrOn: boolean, clipPl: Record<string, ClipPlane[]> | null): CastCount | null {   // 戻り＝落とした物の数（省いた＝null）   // terrOn＝地形も落とす（#112 段 2・地形が描かれているフレームだけ＝真俯瞰は平ら）・clipPl＝断面の面（#111 段 2＝切った形で落とす・null＝切らない）
+	function encodeShadowCasters(enc: GPUCommandEncoder, win: ShadowWindow, L: ShadowLayer, cam: CameraPose, opts: RenderDrawOptions | null | undefined, terrOn: boolean, clipPl: Record<string, ClipPlane[]> | null, nf: { near: boolean; fine: boolean } | null = null): CastCount | null {   // 戻り＝落とした物の数（省いた＝null）・nf＝このフレームに描いた地形の近景・足元メッシュ（影の段だけ・frameN/F を書いた時）   // terrOn＝地形も落とす（#112 段 2・地形が描かれているフレームだけ＝真俯瞰は平ら）・clipPl＝断面の面（#111 段 2＝切った形で落とす・null＝切らない）
 		const bld0 = !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;
 		// 窓（行列）・中身の版・標高リフト・マスク・建物シーンが前回と同じ＝深度テクスチャはそのまま使える（静止中は影のコストほぼ 0）
-		const key = `${win.mvp.join(",")}|${castRev}|${elevScaleEff}|${qG}|${qMesh ? qMesh.join(",") : ""}|${maskSig}|${elev.has}|${far.has}|${terrOn ? 1 : 0}|${clipPl ? JSON.stringify(clipPl) : ""}|${clipPl ? (scenes.main.origin || [0, 0]).join(",") : ""}|${mdSceneRev}`;   // 面が変われば描き直す（面の K は main 原点に依る）・mdSceneRev＝md シーンの建物の版
+		const key = `${win.mvp.join(",")}|${castRev}|${elevScaleEff}|${qG}|${qMesh ? qMesh.join(",") : ""}|${maskSig}|${elev.has}|${far.has}|${terrOn ? 1 : 0}|${clipPl ? JSON.stringify(clipPl) : ""}|${clipPl ? (scenes.main.origin || [0, 0]).join(",") : ""}|${mdSceneRev}|${nf && !clipPl && nf.near ? near.bounds.join(",") + (nf.fine ? "/" + fine.bounds.join(",") : "") : ""}`;   // 面が変われば描き直す（面の K は main 原点に依る）・mdSceneRev＝md シーンの建物の版
 		const KC = clipPl ? clipCastPipes() : null, KX = clipPl ? clipShBG() : null;   // 切った形で落とす（#111 段 2）・clipPl＝対象ごとの面（段 4）
 		if (L.castKey === key && L.castBld === bld0) { shStat.skipped++; return null; }
 		L.castKey = key; L.castBld = bld0;
@@ -2900,13 +2905,31 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (terrOn) {   // 地形＝影の窓に太陽方向で投げて掛かるチャンクだけ（カメラの視野では刈らない＝画面の外の山も画面の中へ落とす）。z13 の近窓 8° のうち 1〜数チャンク
 			const ti = terrIx.ibo ? terrIx : terrain!;   // draw() の中＝そのフレームの選び（pickTerrIx）・解析のパス（draw の外・959 行付近）＝本番
 			const runs = shadowChunkRuns(ti.chunks, terrain!.mesh, win.mvp, 1 + TERR_HMAX_M * (elev.scale || 0));
+			// 近景・足元メッシュを描いたフレーム＝落とす側も画面と同じ分担（主メッシュは近景層の窓を・近景メッシュは足元層の窓を discard して、
+			// その窓は細かいメッシュで落とす・2026-11-10）。旧＝主メッシュ（粗い格子）だけを落とした＝その平面が細かい地面より浮く所が地面へ影を
+			// 落とした（Cesium 例 shadows の左の大きな影）。断面で切っている間（KC）は従来どおり主メッシュだけ
+			const nfOn = !KC && !!nf && nf.near && !!L.frameN;
 			if (runs.length) {
-				sp.setPipeline(KC ? KC.terr : castPipes().terr);
+				sp.setPipeline(KC ? KC.terr : nfOn ? castPipes().terrNF! : castPipes().terr);
 				sp.setBindGroup(0, shadowBG0(L, "bg0T"));
 				if (KC) sp.setBindGroup(1, cl!.bg.terrain);
 				sp.setVertexBuffer(0, terrain!.vbo);
 				sp.setIndexBuffer(ti.ibo, "uint32");
 				for (const [f0, n] of runs) { sp.drawIndexed(n, 1, f0); cnt.terrTris += n / 3; }
+			}
+			if (nfOn) {
+				const rMax = 1 + TERR_HMAX_M * (elev.scale || 0);
+				const layers: [ArrayLike<number>, "bg0N" | "bg0F"][] = [[near.bounds, "bg0N"]];
+				if (nf!.fine && L.frameF) layers.push([fine.bounds, "bg0F"]);
+				for (const [b, which] of layers) {
+					const r = shadowChunkRuns(ti.chunks, b, win.mvp, rMax);
+					if (!r.length) continue;
+					sp.setPipeline(castPipes().terrNF!);
+					sp.setBindGroup(0, shadowBG0(L, which));
+					sp.setVertexBuffer(0, terrain!.vbo);
+					sp.setIndexBuffer(ti.ibo, "uint32");
+					for (const [f0, n] of r) { sp.drawIndexed(n, 1, f0); cnt.terrTris += n / 3; }
+				}
 			}
 		}
 		const bg0s = shadowBG0(L, "bg0");
@@ -3083,6 +3106,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				device.queue.writeBuffer(Ls.frameB, 0, packFrame({ mvp: w.mvp, invMvp: st.invMvp, eye: shWin.eye, rays: st.rays } as CameraState, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, fogColorOf(land), logCoef, dpr));
 				// 地形を落とす側（#112 段 2）＝terrain スロットと同じ窓・同じ距離フェード（eye はカメラ＝画面の地形と同じ形）で行列だけ太陽
 				if (terrainActive) device.queue.writeBuffer(Ls.frameT, 0, packFrame({ mvp: w.mvp, invMvp: st.invMvp, eye: st.eye, rays: st.rays } as CameraState, terrOrigin, terrainFogNearOf(st.fogDist, pfFog, 1), fogFarCap, fogColorOf(dc), logCoef, dpr, terrain!.mesh));
+				// 近景・足元メッシュを落とす側（2026-11-10）＝画面の近景・足元メッシュパスと同じ窓・同じ farP.z
+				if (nearActive && Ls.frameN) device.queue.writeBuffer(Ls.frameN, 0, packFrame({ mvp: w.mvp, invMvp: st.invMvp, eye: st.eye, rays: st.rays } as CameraState, terrOrigin, terrainFogNearOf(st.fogDist, pfFog, 1), fogFarCap, fogColorOf(dc), logCoef, dpr, near.bounds, 2));
+				if (fineActive && Ls.frameF) device.queue.writeBuffer(Ls.frameF, 0, packFrame({ mvp: w.mvp, invMvp: st.invMvp, eye: st.eye, rays: st.rays } as CameraState, terrOrigin, terrainFogNearOf(st.fogDist, pfFog, 1), fogFarCap, fogColorOf(dc), logCoef, dpr, fine.bounds, 3));
 			}
 			// 受け手の錨＝窓の中心（視点の注視点）の f32 値（旧＝main の原点 Frame.originPt＝基図のタイルが無い地図（@ortho-earth/cesium）では経度 0・緯度 0
 			// のまま＝8000km 離れた錨から f32 で相対位置を取ると 1m 近くずれ、模型が 1m ずれた自分の影をまだらに被った・2026-10-27）。
@@ -3224,7 +3250,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const PX = CR || C || R || P;   // 描く物ごとの派生の選び（影＋面 → 面 → 影 → 素）
 		const grp = (k: string) => CR ? CX!.bg[k] : C ? cl!.bg[k] : R ? sh!.bg : null;   // その派生の束縛（k＝原点のスロット・影だけの時は共通）
 		if (shadow.on) shStat.active = !!shWin;
-		if (shWin) { encodeShadowCasters(enc, shWin, sh!.L[0], cam, opts, terrainActive, clipOPt ? tp : null); shCas.forEach((c, k) => encodeShadowCasters(enc, c, sh!.L[k + 1], cam, opts, terrainActive, clipOPt ? tp : null)); }
+		if (shWin) { const nf = { near: !!nearActive, fine: !!fineActive }; encodeShadowCasters(enc, shWin, sh!.L[0], cam, opts, terrainActive, clipOPt ? tp : null, nf); shCas.forEach((c, k) => encodeShadowCasters(enc, c, sh!.L[k + 1], cam, opts, terrainActive, clipOPt ? tp : null, nf)); }
 		// 1x（遷移フレーム／?msaa=0）＝canvas の current texture へ直描き。以降の全パス（gint 含む）が同じ view に
 		// load で重ね、flush() の resolve パスは丸ごと消える＝MSAA store/load/resolve がフレームから消滅する。
 		const colorView = S > 1 ? t.view! : ctx!.getCurrentTexture().createView();
