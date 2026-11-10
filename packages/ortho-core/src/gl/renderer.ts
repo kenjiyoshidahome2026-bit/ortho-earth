@@ -78,7 +78,7 @@ interface GLView {
 	contourAlpha?: number; contourColor?: number[]; distColor?: number[]; hypso?: { color: number[]; max?: number; amount?: number } | null;
 	gintFarPivot?: boolean; gintSub?: boolean; gintSubBudget?: number; gintSubMove?: number; gintSubBudgetMove?: number;   // ?subbudget / ?submove / ?subbudgetmove（gint/drawdata.ts subPlan）
 	dashDz?: number;   // 破線（S-P1-3）の段の目盛り＝外来 style の z とエンジンの z の差（globe の STYLE_DZ・既定 1）
-	csAtmo?: { ground?: boolean; sky?: boolean } | null;   // Cesium の大気（../csatmo.ts）＝点けると球の霞・リム光・sky の代わり
+	csAtmo?: { ground?: boolean; sky?: boolean; skyHsb?: [number, number, number]; fogDensity?: number } | null;   // Cesium の大気（../csatmo.ts）＝点けると球の霞・リム光・sky の代わり
 }
 /** style の sky（B4） */
 interface GLSky { sky: number[]; horizon: number[]; fog: number[]; groundBlend: number; horizonFogBlend: number; skyHorizonBlend: number; atmosphereBlend: number }
@@ -1858,7 +1858,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		fogDist = fogFollow(fogDist, lastCamDist, st.camDist, fogK());   // framek.ts（gpu と同式・同閾値）
 		lastCamDist = st.camDist;
 		st.fogDist = fogDist;
-		csFogD = view.csAtmo && view.csAtmo.ground !== false ? csFogDensity((Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - 1) * 6378137, Math.abs(Math.cos(cam.pitch || 0))) : 0;   // Cesium の霧の濃さ（csatmo.ts・800 km より下）
+		csFogD = view.csAtmo && view.csAtmo.ground !== false ? csFogDensity((Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - 1) * 6378137, Math.abs(Math.cos(cam.pitch || 0)), view.csAtmo.fogDensity) : 0;   // Cesium の霧の濃さ（csatmo.ts・800 km より下）
 		const fogAnimating = fogDist !== st.camDist;   // 収束まで追加フレームを要求（呼び出し側が dirty 継続）
 		// 視程下限のチルト係数（20°→46°）：真俯瞰0＝平面地図の縁を青く染めない／傾けるほど実距離の視程が効く
 		const pfFog = pitchFogK(cam.pitch);
@@ -1979,6 +1979,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			bindGm(globeProg, cam.dpr || 1);   // 地面の材質（Cesium の globe.material）＝球の床にも
 			const csA = view.csAtmo;   // Cesium の大気：地面は遠くからだけ（中心から π/2·R → π·R で効く）
 			gl.uniform4f(loc(gl, globeProg, "u_csAtm"), csA ? 1 : 0, csA && csA.ground !== false ? csGroundFade((1 + st.camDist) * 6378137) : 0, csA && csA.sky !== false ? 1 : 0, csFogD);
+			{ const h = csA?.skyHsb; gl.uniform3f(loc(gl, globeProg, "u_csHsb"), h ? h[0] : 0, h ? h[1] : 0, h ? h[2] : 0); }   // 空の大気の HSB のずらし
 			// 全球ハイプソ（view.worldHypso＝テーマ/アプリのknob）：z5.5 まで全開→z6.3 で消灯。
 			// 終端 6.3＝R90 全球窓の終わり（z6.5 でアトラスがビュー窓へ切替＝窓の外の陸が「標高0＝海」に化ける）
 			// より手前。地形面（TERRAIN_FS u_whK）と同じ係数＝チルトでも色が連続。

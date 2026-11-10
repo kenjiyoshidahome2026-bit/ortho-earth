@@ -139,8 +139,10 @@ export interface WalkHandle {
 export interface CloudsImpl { apply(map: GlobeMap, clouds: Required<CloudsSpec> | null): void }
 /** registry.lights に足す光源の type＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／three で描く約束） */
 export interface LightTypeImpl { apply(map: GlobeMap, lights: LightSpec[]): void }
-/** setAtmosphere の形：model＝描き方（今は "cesium" だけ）・ground＝地面の大気（既定 true）・sky＝空の大気（既定 true） */
-export interface AtmosphereSpec { model: "cesium"; ground?: boolean; sky?: boolean }
+/** setAtmosphere の形：model＝描き方（今は "cesium" だけ）・ground＝地面の大気（既定 true）・sky＝空の大気（既定 true）・
+ *  skyHsb＝空の大気の色相・彩度・明るさのずらし（Cesium の skyAtmosphere.hueShift/saturationShift/brightnessShift・既定 [0, 0, 0]）・
+ *  fogDensity＝霧の濃さ（Cesium の scene.fog.density・既定 0.0006・0＝霧なし） */
+export interface AtmosphereSpec { model: "cesium"; ground?: boolean; sky?: boolean; skyHsb?: [number, number, number]; fogDensity?: number }
 /** 模型の照明（setMeshLighting・2026-10-26）：CesiumJS の式でメッシュを描く。dir＝光へ向く単位ベクトル（ECEF）・color＝色×強さ（HDR）・sh＝Cesium の並びの SH9（27 値・立方体図の系＝x 東・y 上・z 南）・ibl＝拡散・鏡面の係数・invL00＝一様な環境で L00 が 1 になる倍率 */
 export interface MeshLightingSpec { dir: [number, number, number]; color?: [number, number, number]; sh: ArrayLike<number>; ibl?: [number, number]; invL00?: number }
 /** 地面の照明（setGroundLighting・2026-10-26）：CesiumJS の globe.enableLighting＝地形・遠景球の画像に太陽の lambert を掛ける。dir＝光へ向く単位ベクトル（ECEF）・color＝光の色（czm_lightColor・既定 白）・

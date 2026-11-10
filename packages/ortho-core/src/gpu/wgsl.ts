@@ -1408,6 +1408,7 @@ struct Globe {
 	gmP: vec4f,
 	ugC: vec4f,          // 地下から見た球の裏面（Cesium の globe.undergroundColor）：rgb＋α・α<0＝切
 	ugNF: vec4f,         // その α の距離 (near, nearValue, far, farValue)・距離は世界単位
+	csHsb: vec4f,        // xyz＝空の大気の色相・彩度・明るさのずらし（Cesium の skyAtmosphere.hueShift…・csHsbShift）
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 地面の照明（setGroundLighting・Cesium の globe.enableLighting・2026-10-26）：経緯度（deg）の点の東・北・上（世界軸＝ECEF の (x, z, y)）での lambert。
@@ -1619,7 +1620,7 @@ fn globeColor(in: GOut) -> vec4f {
 	if (t < 0.0) {                             // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続減衰
 		if (G.misc.z > 0.5) {   // Cesium の空の大気（gl と同じ）
 			if (G.misc.w < 0.5) { discard; }
-			let cs = csSkyL(A * CS_R, normalize(d), 0.0, G.cg.xyz, select(-1.0, G.cgP.w, G.cg.w > 0.5));   // lit by the sun with the globe's lighting (Cesium's dynamic atmosphere)
+			let cs = csSkyL(A * CS_R, normalize(d), 0.0, G.cg.xyz, select(-1.0, G.cgP.w, G.cg.w > 0.5), G.csHsb.xyz);   // lit by the sun with the globe's lighting (Cesium's dynamic atmosphere)
 			if (cs.a <= 0.002) { discard; }
 			return cs;
 		}

@@ -238,8 +238,9 @@ export function installCamera(map: Installing<CameraApi, "__clouds">, live: Came
 	let atmoCur: AtmosphereSpec | null = null;
 	map.setAtmosphere = a => {
 		if (a != null && a.model !== "cesium") throw new Error(`setAtmosphere: unknown model ${String((a as { model?: unknown }).model)}`);
-		atmoCur = a == null ? null : { model: "cesium", ground: a.ground !== false, sky: a.sky !== false };
-		renderer.set("view", { csAtmo: atmoCur && { ground: atmoCur.ground, sky: atmoCur.sky } }); requestDraw(); return map;
+		const hsb = a?.skyHsb, fd = a?.fogDensity;
+		atmoCur = a == null ? null : { model: "cesium", ground: a.ground !== false, sky: a.sky !== false, ...(hsb ? { skyHsb: [+hsb[0] || 0, +hsb[1] || 0, +hsb[2] || 0] as [number, number, number] } : {}), ...(fd != null && isFinite(fd) ? { fogDensity: Math.max(0, fd) } : {}) };
+		renderer.set("view", { csAtmo: atmoCur && { ground: atmoCur.ground, sky: atmoCur.sky, skyHsb: atmoCur.skyHsb, fogDensity: atmoCur.fogDensity } }); requestDraw(); return map;
 	};
 	map.getAtmosphere = () => (atmoCur ? { ...atmoCur } : null);
 	// 模型の照明（2026-10-26・@ortho-earth/cesium）：Cesium の式でメッシュを描く（両レンダラ・renderer "meshLight"）。dir は ECEF → 世界系（x, z, y）へ
