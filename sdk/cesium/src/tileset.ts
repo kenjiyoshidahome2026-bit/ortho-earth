@@ -111,8 +111,9 @@ export class Cesium3DTileset {
 	set show(v: boolean) { this.#show = !!v; this.#h?.setVisible(this.#show); }
 	get style() { return this.#style; }
 	set style(s: Any) { this.#style = s; this.#h?.setStyle(this.#styleSent()); }
-	// no style: every feature's colour is Cesium's default white, which REPLACE / MIX paint too (imodel-mesh-export-service: the iModels white)
-	#styleSent() { return styleOf(this.#style) ?? ((this.colorBlendMode | 0) === 0 ? null : { color: "color('white')" }); }
+	// no style = nothing painted. Cesium leaves a white feature colour out of every blend mode (MaterialStageFS blend(): isDefaultStyleColor keeps the
+	// source colour), so REPLACE / MIX without a style keep the model's own colours (3d-tiles-bim, imodel-mesh-export-service: coloured pipes, not white)
+	#styleSent() { return styleOf(this.#style) ?? null; }
 	makeStyleDirty() { this.#h?.setStyle(styleOf(this.#style)); }
 	get timeSinceLoad() { return 0; }
 	get statistics() { return statsOf(this.#h); }
@@ -294,7 +295,8 @@ export class Cesium3DTileFeature {
 	get content() { return { tileset: this.tileset, url: this.tileset.url }; }
 	get pickId() { return this.featureId; }
 	get color() { return this.#color ?? Color.WHITE; }
-	set color(c: Color) { this.#color = c; this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: c ? c.toCssColorString() : null }, this.#p.tile); }
+	// white = Cesium's default feature colour = the source colour in every blend mode (isDefaultStyleColor): unselect → WHITE puts the model's colour back
+	set color(c: Color) { this.#color = c; const keep = !c || (c.red > 0.99 && c.green > 0.99 && c.blue > 0.99); this.tileset.orthoHandle?.setFeatureState(this.featureId, { color: keep ? null : c.toCssColorString() }, this.#p.tile); }
 	get show() { return this.#show; }
 	set show(v: boolean) { this.#show = !!v; this.tileset.orthoHandle?.setFeatureState(this.featureId, { show: v ? undefined : false }, this.#p.tile); }   // the globe cuts a hidden feature out (alpha 0 on a MASK batch)
 	getPropertyIds(result: string[] = []) { result.length = 0; result.push(...Object.keys(this.#p.properties || {}).filter(k => !k.startsWith("__"))); return result; }

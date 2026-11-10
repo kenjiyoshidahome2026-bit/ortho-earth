@@ -603,7 +603,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// スタイル（＋feature state の色）＝束ごとに元の頂点色から塗り直す。属性＝tileset ＜ group ＜ tile ＜ content の metadata ＜ 地物の属性
 	const paintStyled = (n: T3dNode) => {
 		if (!setMeshCol || !n.ward) return;
-		const set = n.set, sty = set.style ?? null;
+		const set = n.set, sty = set.style ?? null, cesiumWhite = !!set.opts.colorBlend;
 		let reblend = false;
 		set.metaBase ??= { ...(entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema)?.properties || {}) };
 		const base = { ...set.metaBase, ...(n.group != null ? n.scope?.groups[n.group]?.properties : null), ...n.tileMeta?.properties, ...n.contentMeta?.properties };
@@ -616,7 +616,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				const state = id != null ? stateOf(set, n, id) ?? null : null, table = id != null && t != null && t >= 0 ? f?.tables?.[t] : null;
 				const props = table ? { ...base, ...featureProperties(table, id!) } : base, x = { props, id, state, int64: table?.int64 };
 				let c: number[] = [NaN, NaN, NaN, NaN];
-				const sc = sty?.color?.(x); if (sc) c = [sc[0], sc[1], sc[2], NaN];
+				const sc = sty?.color?.(x); if (sc && !(cesiumWhite && sc[0] >= 253 && sc[1] >= 253 && sc[2] >= 253)) c = [sc[0], sc[1], sc[2], NaN];   // Cesium blend (colorBlend set): white = keep the source colour (isDefaultStyleColor)
 				const sa = sc && sc[3] < 255 ? sc[3] : NaN; if (!Number.isNaN(sa)) seeThrough = true;   // a translucent style colour (color('lightblue', 0.05))
 				const st = state?.color ? cssRGB(String(state.color)) : null; if (st) c = [st[0], st[1], st[2], NaN];   // feature state の色が勝つ
 				const shown = (sty?.show ? sty.show(x) : true) && state?.show !== false;   // feature state の show:false も抜く
