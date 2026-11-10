@@ -2062,6 +2062,21 @@ export const MESH_TEX_CAST_WGSL = deriveWgsl(MESH_TEX_WGSL, [
 export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	["\tp.z = logDepthZ(p.w);\n\to.pos = p;", "\to.pos = p;"],
 ], "TERRAIN_CAST_WGSL");
+// 地形の落とす側を画面と同じ分担で描く版（2026-11-10・Cesium 例 shadows の左の余計な影）：主メッシュ（粗い格子）は近景層の窓の内側、近景メッシュは
+// 足元層の窓の内側を discard＝本体 fs と同じ判定。旧＝主メッシュだけを窓ごと落とした＝粗い三角形の平面が細かい地面（近景・足元メッシュ）より
+// 数 m 上に浮く所（くぼ地）がそのまま地面へ大きな影を落とした。近景・足元メッシュも同じ単位格子を各窓へ縮めて落とす（renderer の encodeShadowCasters）
+export const TERRAIN_CAST_NF_WGSL = TERRAIN_CAST_WGSL + `
+@fragment fn fsCast(in: TerrOut) {
+	if (F.farP.z < 0.5 && F.nearP.x > 0.5) {
+		let uvF = (in.ll - F.nearBounds.xy) / F.nearBounds.zw;
+		if (uvF.x >= 0.0 && uvF.x <= 1.0 && uvF.y >= 0.0 && uvF.y <= 1.0) { discard; }
+	}
+	if (F.farP.z > 1.5 && F.farP.z < 2.5 && F.fineP.x > 0.5) {
+		let uvG = (in.ll - F.fineBounds.xy) / F.fineBounds.zw;
+		if (uvG.x >= 0.0 && uvG.x <= 1.0 && uvG.y >= 0.0 && uvG.y <= 1.0) { discard; }
+	}
+}
+`;
 
 // ── 断面とクリッピング平面（#111 段 0〜2・2026-09-29）＝切っている時だけ使う派生シェーダ（影と同じ約束＝本体は 1 バイトも変えない・WebGPU 専用）。
 // 面＝CL.pl[i]＝(n.xyz, K)・距離 d＝n·rel + K（rel＝その描画の原点からの相対位置・K＝n·originPt − c を CPU f64 で＝clip.js packClip）。全部の面で d ≥ 0 の所だけ残す（交わり＝箱）。
