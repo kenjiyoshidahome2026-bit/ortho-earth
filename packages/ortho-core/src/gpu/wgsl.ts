@@ -1564,16 +1564,14 @@ struct GFragD { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 @fragment fn fs(in: GOut) -> @location(0) vec4f { return globeBack(in, globeColor(in)); }
 // 球の裏面（Cesium の translucency の backFace・G.cgC.w）：手前の地面の色の穴（colorToAlpha）の向こう＝遠い根の床の画像を下に敷く（霞・照明なし・gl と同じ）
 // a ground atlas window at the origin-relative lon/lat dll: xy = its uv, z = its weight (1 inside, fading to 0 over the outer 4%, 0 outside).
-// An edge that is no edge of the ground keeps the weight: a window reaching a pole (the pole cap is in it) and one a whole turn wide
-// (u wraps across the seam). Faded there, the coarsest window let the floor through: a dark smudge at the pole and a dotted seam line
+// An edge at a pole is no edge of the ground (the pole cap is in the window) and keeps the weight: faded there, the coarsest window let
+// the floor through (a dark smudge at the pole). Longitude is not wrapped: a window wider than a turn holds imagery only in −180…180
 fn gndWin(dll: vec2f, off: vec4f) -> vec3f {
-	var u = off.xy + dll * off.zw;
-	let whole = abs(off.z) * 360.0 > 0.999;
-	if (whole) { u.x = fract(u.x); }
+	let u = off.xy + dll * off.zw;
 	let vS = off.y + (-90.0 - G.anc2.y) * off.w; let vN = off.y + (90.0 - G.anc2.y) * off.w;
 	let e0 = select(u.y, 1.0, min(abs(vS), abs(vN)) < 1e-3 && u.y >= -1e-3);
 	let e1 = select(1.0 - u.y, 1.0, min(abs(vS - 1.0), abs(vN - 1.0)) < 1e-3 && u.y <= 1.0 + 1e-3);
-	let ex = select(min(u.x, 1.0 - u.x), 1.0, whole);
+	let ex = min(u.x, 1.0 - u.x);
 	return vec3f(u, clamp(min(ex, min(e0, e1)) / 0.04, 0.0, 1.0));
 }
 fn globeBack(in: GOut, c: vec4f) -> vec4f {
