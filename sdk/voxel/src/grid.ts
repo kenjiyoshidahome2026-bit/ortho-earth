@@ -192,6 +192,8 @@ export function placeBox(box: NonNullable<VoxelData["box"]>, dims: [number, numb
 /** 経緯度・高さ → 単位球（本体の単位球＝y が極・rAx＝楕円体の b/a で測地緯度を更成緯度に） */
 export const unitAt = (lon: number, lat: number, h: number, rAx = 1): number[] => { const u = unit(lon, lat, rAx), r = 1 + h / (rAx === 1 ? R_SPHERE : R_ELL); return [u[0] * r, u[1] * r, u[2] * r]; };
 export const SHELL_N = 16;
+/** 殻の一区切りの最大の角度（度）＝大きな region（全球）を細かく切る。弦が球から離れる分（≈ R·(1−cos(区切り/2))）を 1 px 程度に抑える */
+export const SHELL_DEG = 3.75;
 /** VoxelData の region → 錨（中心の経緯度・h0）＋殻＋セルの大きさ。region＝[w, s, e, n（度）, h0, h1（m）]・e < w は日付変更線を跨ぐ */
 export function placeRegion(region: ArrayLike<number>, dims: [number, number, number], rAx = 1): Placement & { geo: GeoGrid } {
 	const [w, s, e, n, h0, h1] = Array.from(region, Number);
@@ -201,18 +203,28 @@ export function placeRegion(region: ArrayLike<number>, dims: [number, number, nu
 	const B = enuBasis(anchor[0], anchor[1], rAx), o = unitAt(anchor[0], anchor[1], h0, rAx), k = 1 / R;
 	const Eu = B.E.map(v => v / k), Nu = B.N.map(v => v / k), Uu = B.U.map(v => v / k);   // 単位ベクトル
 	const enu = (lon: number, lat: number, h: number): number[] => { const p = unitAt(lon, lat, h, rAx), d = [p[0] - o[0], p[1] - o[1], p[2] - o[2]]; return [(d[0] * Eu[0] + d[1] * Eu[1] + d[2] * Eu[2]) * R, (d[0] * Nu[0] + d[1] * Nu[1] + d[2] * Nu[2]) * R, (d[0] * Uu[0] + d[1] * Uu[1] + d[2] * Uu[2]) * R]; };
-	// 6 面を SHELL_N×SHELL_N に分け、面ごとの外向き（錨の東北上で 下・上・南・北・西・東）に合う向きで三角形に（丸みで面が傾くので「中心から外」では決めない）
-	const out: number[] = [], N = SHELL_N;
-	const quad = (p: number[][], o: number[]): void => {   // p＝4 隅（周回順）・o＝外向き
-		const nx = (p[1][1] - p[0][1]) * (p[3][2] - p[0][2]) - (p[1][2] - p[0][2]) * (p[3][1] - p[0][1]), ny = (p[1][2] - p[0][2]) * (p[3][0] - p[0][0]) - (p[1][0] - p[0][0]) * (p[3][2] - p[0][2]), nz = (p[1][0] - p[0][0]) * (p[3][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[3][0] - p[0][0]);
-		const order = nx * o[0] + ny * o[1] + nz * o[2] >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
+	// 6 面を分けた三角形。向き＝その四角の場所での外向き（面の上の点を外へ少しずらした差）＝全球の region でも裏側の面が裏返らない
+	// （以前は錨の東北上で面ごとに一つの向き＝錨の反対の半球の三角形が内向きになり、Cesium の Voxel Rendering の楕円体の殻が欠けた）。
+	// 区切り＝各軸 SHELL_N か、角度が SHELL_DEG を越えない数。上の面は球に外接させる（平らな四角が h1 の球の外＝光線が弦で止まらず、全球の殻の縁が多角形にならない）
+	const out: number[] = [], N = SHELL_N, nLon = Math.max(N, Math.ceil(spanLon / SHELL_DEG)), nLat = Math.max(N, Math.ceil(spanLat / SHELL_DEG));
+	const lift = 1 / (Math.cos(spanLon / nLon / 2 * D2R) * Math.cos(spanLat / nLat / 2 * D2R)), h1s = (R + h1) * lift - R;
+	const quad = (p: number[][], ov: number[]): void => {   // p＝4 隅（周回順）・ov＝外向き。法線＝対角線の外積（極で隅が重なっても向きが決まる）
+		const a = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]], b = [p[3][0] - p[1][0], p[3][1] - p[1][1], p[3][2] - p[1][2]];
+		const nx = a[1] * b[2] - a[2] * b[1], ny = a[2] * b[0] - a[0] * b[2], nz = a[0] * b[1] - a[1] * b[0];
+		const order = nx * ov[0] + ny * ov[1] + nz * ov[2] >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
 		for (const i of order) out.push(p[i][0], p[i][1], p[i][2]);
 	};
-	const face = (f: (a: number, b: number) => number[], o: number[]): void => { for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) quad([f(i / N, j / N), f((i + 1) / N, j / N), f((i + 1) / N, (j + 1) / N), f(i / N, (j + 1) / N)], o); };
-	const lonAt = (a: number): number => w + spanLon * a, latAt = (b: number): number => s + spanLat * b, hAt = (c: number): number => h0 + (h1 - h0) * c;
-	face((a, b) => enu(lonAt(a), latAt(b), h0), [0, 0, -1]); face((a, b) => enu(lonAt(a), latAt(b), h1), [0, 0, 1]);   // 下・上
-	face((a, c) => enu(lonAt(a), s, hAt(c)), [0, -1, 0]); face((a, c) => enu(lonAt(a), n, hAt(c)), [0, 1, 0]);   // 南・北
-	face((b, c) => enu(w, latAt(b), hAt(c)), [-1, 0, 0]); face((b, c) => enu(w + spanLon, latAt(b), hAt(c)), [1, 0, 0]);   // 西・東
+	const sub = (x: number[], y: number[]): number[] => [x[0] - y[0], x[1] - y[1], x[2] - y[2]];
+	// f(a, b, d)＝面の上の点（d＝外へのずらし・0 で面そのもの）
+	const face = (f: (a: number, b: number, d: number) => number[], na: number, nb: number): void => {
+		for (let j = 0; j < nb; j++) for (let i = 0; i < na; i++) quad([f(i / na, j / nb, 0), f((i + 1) / na, j / nb, 0), f((i + 1) / na, (j + 1) / nb, 0), f(i / na, (j + 1) / nb, 0)], sub(f((i + 0.5) / na, (j + 0.5) / nb, 1), f((i + 0.5) / na, (j + 0.5) / nb, 0)));
+	};
+	const lonAt = (a: number): number => w + spanLon * a, latAt = (b: number): number => s + spanLat * b, hAt = (c: number): number => h0 + (h1s - h0) * c;
+	const dH = 1, dA = 1e-3;   // 外へのずらし（m・度）
+	face((a, b, d) => enu(lonAt(a), latAt(b), h0 - d * dH), nLon, nLat); face((a, b, d) => enu(lonAt(a), latAt(b), h1s + d * dH), nLon, nLat);   // 下・上
+	if (s > -90 + 1e-9) face((a, c, d) => enu(lonAt(a), s - d * dA, hAt(c)), nLon, N);   // 南（極まで届く region は線に潰れる＝描かない）
+	if (n < 90 - 1e-9) face((a, c, d) => enu(lonAt(a), n + d * dA, hAt(c)), nLon, N);   // 北
+	if (spanLon < 360 - 1e-9) { face((b, c, d) => enu(w - d * dA, latAt(b), hAt(c)), nLat, N); face((b, c, d) => enu(w + spanLon + d * dA, latAt(b), hAt(c)), nLat, N); }   // 西・東（一周する region＝同じ子午面の裏表＝内側の壁なので描かない）
 	const shell = Float32Array.from(out);
 	let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
 	for (let i = 0; i < out.length; i += 3) { x0 = Math.min(x0, out[i]); x1 = Math.max(x1, out[i]); y0 = Math.min(y0, out[i + 1]); y1 = Math.max(y1, out[i + 1]); z0 = Math.min(z0, out[i + 2]); z1 = Math.max(z1, out[i + 2]); }

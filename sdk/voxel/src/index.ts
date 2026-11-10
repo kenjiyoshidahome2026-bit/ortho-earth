@@ -51,6 +51,8 @@ export interface VoxelOptions {
 	step?: number;
 	/** multiplies every cell's opacity (default 1) */
 	opacity?: number;
+	/** volume: a cell's alpha is what this many meters of the ray let through it (exponential decay, as Cesium voxel shaders that scale by fsInput.voxel.travelDistance). Default: the alpha of each sample step */
+	opacityDistance?: number;
 	/** "relative": the box / cylinder origin's alt is above the ground (default for origin boxes and cylinders); "absolute": above the ellipsoid (default for transform boxes / cylinders and region grids) */
 	altitude?: "relative" | "absolute";
 	/** hidden by terrain and buildings (default true) */
@@ -197,12 +199,13 @@ const isVoxelHit = (id: string) => (t: OverlayPick): t is VoxelHit => t.layer ==
 const checkEnum = (v: unknown, allowed: readonly string[], name: string): void => { if (!allowed.includes(v as string)) throw new RangeError(`voxel: ${name} must be ${allowed.map(a => JSON.stringify(a)).join(" | ")}`); };
 const MODE: Record<RenderMode, 0 | 1 | 2> = { blocks: 0, volume: 1, iso: 2 };
 /** 格子を上げ直さずに変えられる opts（setProps はこれだけなら "style" を送る） */
-export const STYLE_KEYS: readonly (keyof VoxelOptions)[] = Object.freeze(["render", "opacity", "step", "threshold", "clip", "depthTest", "lighting", "properties", "colormap", "alphaRamp", "time"]);
+export const STYLE_KEYS: readonly (keyof VoxelOptions)[] = Object.freeze(["render", "opacity", "opacityDistance", "step", "threshold", "clip", "depthTest", "lighting", "properties", "colormap", "alphaRamp", "time"]);
 function checkOpts(opts: Partial<VoxelOptions>): void {
 	if (opts.render != null) checkEnum(opts.render, ["blocks", "volume", "iso"], "render");
 	if (opts.altitude != null) checkEnum(opts.altitude, ["relative", "absolute"], "altitude");
 	if (opts.step != null && !(typeof opts.step === "number" && opts.step > 0)) throw new RangeError("voxel: step must be a positive number (cells)");
 	if (opts.opacity != null && !(typeof opts.opacity === "number" && opts.opacity >= 0 && opts.opacity <= 1)) throw new RangeError("voxel: opacity must be 0..1");
+	if (opts.opacityDistance != null && !(typeof opts.opacityDistance === "number" && opts.opacityDistance >= 0 && Number.isFinite(opts.opacityDistance))) throw new RangeError("voxel: opacityDistance must be meters >= 0");
 	if (opts.threshold != null && !Number.isFinite(opts.threshold)) throw new TypeError("voxel: threshold must be a finite number (data units)");
 	checkClip(opts.clip);
 	if (opts.time != null && opts.time !== "clock" && !(typeof opts.time === "number" && Number.isFinite(opts.time))) throw new TypeError("voxel: time must be \"clock\" or a time in ms");
@@ -233,7 +236,7 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 		const p = await load(src, o, rAxOf(map), budget);
 		if (removed || my !== seq) return h;
 		h.dims = p.dims; h.n = p.n; h.anchor = p.anchor; h.range = p.range; h.reader = p.reader; h.error = null; h.shape = p.shape; h.bricks = p.bricks?.length ?? 0; h.levels = (p.lods ?? p.bricks?.[0]?.lods)?.length ?? 0; times = h.times = p.times; h.frame = frameNow(); follow(!!times && (o.time ?? "clock") === "clock"); cur = src; values = p.values ?? (src as VoxelData).values; h.source = p.meta ?? null; comps = p.comps; baked = true;
-		const style = { mode: MODE[o.render ?? "volume"], thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, clip: checkClip(o.clip), depthTest: o.depthTest !== false, lighting: o.lighting !== false, properties: o.properties ?? null, range: p.range, on: visible, frame: h.frame, alt: o.altitude ?? (p.placed ? "absolute" : "relative") };
+		const style = { mode: MODE[o.render ?? "volume"], thr: p.thr, step: o.step ?? 0.5, opacity: o.opacity ?? 1, opacityDistance: o.opacityDistance ?? 0, clip: checkClip(o.clip), depthTest: o.depthTest !== false, lighting: o.lighting !== false, properties: o.properties ?? null, range: p.range, on: visible, frame: h.frame, alt: o.altitude ?? (p.placed ? "absolute" : "relative") };
 		const next = p.bricks ? p.bricks.map((_, b) => `${id}#${b}`) : [id];
 		for (const q of qs) if (!next.includes(q)) { ov.post({ type: "remove", q }); slot.errors.delete(q); }   // 前の形の層（一枚 ↔ ブリック・ブリックの数）を片付ける
 		qs = next;
@@ -243,10 +246,10 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 			[...levelBuffers(b), ...(b.lods ?? []).flatMap(levelBuffers)].filter((x, k, a) => a.indexOf(x) === k)));
 		return h;
 	};
-	// 見た目だけの変更＝格子を上げ直さない（render・opacity・step・threshold・clip・depthTest・lighting・properties・colormap・alphaRamp）
+	// 見た目だけの変更＝格子を上げ直さない（render・opacity・opacityDistance・step・threshold・clip・depthTest・lighting・properties・colormap・alphaRamp）
 	const restyle = (p: Partial<VoxelOptions>): void => {
 		const s: VoxelStyle = {};
-		if ("render" in p) s.mode = MODE[props.render ?? "volume"]; if ("opacity" in p) s.opacity = props.opacity ?? 1; if ("step" in p) s.step = props.step ?? 0.5;
+		if ("render" in p) s.mode = MODE[props.render ?? "volume"]; if ("opacity" in p) s.opacity = props.opacity ?? 1; if ("opacityDistance" in p) s.opacityDistance = props.opacityDistance ?? 0; if ("step" in p) s.step = props.step ?? 0.5;
 		if ("threshold" in p) s.thr = comps === 4 || !h.range ? 0 : thrOf(props.threshold, h.range); if ("clip" in p) s.clip = checkClip(props.clip); if ("depthTest" in p) s.depthTest = props.depthTest !== false; if ("lighting" in p) s.lighting = props.lighting !== false; if ("properties" in p) s.properties = props.properties ?? null;
 		if ("time" in p && times) { follow((props.time ?? "clock") === "clock"); const f = frameNow(); if (f !== h.frame) { h.frame = f; s.frame = f; } }
 		const cmap = "colormap" in p || "alphaRamp" in p ? buildColormap(props.colormap, props.alphaRamp ?? null) : null;
@@ -273,7 +276,7 @@ export function createVoxel(map: VoxelMap, data: VoxelSource, opts: VoxelOptions
 	return h;
 }
 
-/** map.use(voxelPlugin()) → map.addData(data, { kind: "voxel", render?, colormap?, range?, threshold?, alphaRamp?, step?, opacity?, altitude?, depthTest?, above?, properties? }) */
+/** map.use(voxelPlugin()) → map.addData(data, { kind: "voxel", render?, colormap?, range?, threshold?, alphaRamp?, step?, opacity?, opacityDistance?, altitude?, depthTest?, above?, properties? }) */
 export function voxelPlugin({ backend = "auto", budget = defaultBudgetMB() }: VoxelPluginOptions = {}): VoxelPlugin {
 	checkEnum(backend, ["auto", "webgpu", "webgl2"], "backend");
 	if (!(typeof budget === "number" && budget > 0)) throw new RangeError("voxel: budget must be a positive number of MB (Infinity = no budget)");
