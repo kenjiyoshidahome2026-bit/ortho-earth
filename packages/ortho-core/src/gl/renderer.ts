@@ -2241,7 +2241,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 				setCommonUniforms(md!.lineProg, st, scene.origin, land);
 				gl.useProgram(md!.fillProg); gl.uniform1f(loc(gl, md!.fillProg, "u_fogFar"), fogFarCap);
 				gl.useProgram(md!.lineProg); gl.uniform1f(loc(gl, md!.lineProg, "u_fogFar"), fogFarCap);
-				gl.uniform1f(loc(gl, md!.lineProg, "u_lift"), cityLift);
+				gl.uniform1f(loc(gl, md!.lineProg, "u_lift"), -cityLift);   // 負＝深度だけ（位置は地面＝建物の足元と揃う・LINE_MAIN）
 				gl.uniform1f(loc(gl, md!.lineProg, "u_dpr"), cam.dpr || 1);
 				gl.uniform1i(loc(gl, md!.lineProg, "u_segTex"), 6);
 				if (md!.lineTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, md!.lineTex); gl.activeTexture(gl.TEXTURE0); }
@@ -2295,7 +2295,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap); setCogScene(fillProg, scene.origin); setGndScene(fillProg, scene.origin);
 			if (userSlot) gl.uniform1f(loc(gl, fillProg, "u_baseAlpha"), 1);
 			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
-			gl.uniform1f(loc(gl, lineProg, "u_lift"), cityLift);
+			gl.uniform1f(loc(gl, lineProg, "u_lift"), -cityLift);   // 負＝深度だけ（位置は地面＝建物の足元と揃う・LINE_MAIN）
 			if (userSlot) gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), 1);
 			lineOffZero();
 			let curProg: WebGLProgram | null = null;

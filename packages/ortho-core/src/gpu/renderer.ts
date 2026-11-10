@@ -2841,7 +2841,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const baseA = view.baseAlpha ?? 1;   // 基図の濃さ（表示パネル）＝fill/line の p0.w に一括（COG は下層にも合成済み＝紙と線だけが引く）
 		const f = paramF32; f.fill(0);
 		const at = (role: number, vals: number[]) => { const o = role * (PARAM_SLOT / 4); for (let i = 0; i < vals.length; i++) f[o + i] = vals[i]; };
-		at(ROLE.normal, [0, cityLift, 0, baseA]);
+		at(ROLE.normal, [0, -cityLift, 0, baseA]);   // p0.y 負＝線の深度だけのリフト（位置は地面＝建物の足元と揃う・vsLine 2026-11-11）
 		at(ROLE.water, [0, 0, 0, baseA]);
 		at(ROLE.seaFb, [1, 0, 0, baseA]);
 		const hy = view.hypso, gmP = new Float32Array(12); packGroundMat(gmP, 0, dpr);
@@ -2856,11 +2856,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const lb = liftBounds || [0, 0, 0, 0];
 		at(ROLE.mesh, [lb[0], lb[1], lb[2], lb[3], bldColor[0], bldColor[1], bldColor[2], 0]);
 		// クロスフェード中の新シーン用＝通常ロールの複製＋p0.w=α（旧シーンは通常ロールでα1のまま下に描く）
-		at(ROLE.fadeNormal, [0, cityLift, 0, fadeK * baseA]);
+		at(ROLE.fadeNormal, [0, -cityLift, 0, fadeK * baseA]);
 		at(ROLE.fadeWater, [0, 0, 0, fadeK * baseA]);
 		at(ROLE.fadeSeaFb, [1, 0, 0, fadeK * baseA]);
 		at(ROLE.fadeBld, [bldColor[0], bldColor[1], bldColor[2], fadeK]);
-		at(ROLE.user, [0, cityLift, 0, 1]);   // 利用者の vector の層（段 8⑤）＝線の接地リフトは通常と同じ・濃さは 1
+		at(ROLE.user, [0, -cityLift, 0, 1]);   // 利用者の vector の層（段 8⑤）＝線の接地リフトは通常と同じ・濃さは 1
 		return f;
 	}
 
