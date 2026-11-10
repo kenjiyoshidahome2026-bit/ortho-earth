@@ -127,13 +127,14 @@ vec3 csFogL(vec3 col, vec3 eye, vec3 p, float density, vec3 lightDir, float nigh
 vec3 csFog(vec3 col, vec3 eye, vec3 p, float density) { return csFogL(col, eye, p, density, vec3(0.0), -1.0); }
 // 地面の向こうの空の大気（globe:false・translucency で地面が透ける時）＝Cesium の SkyAtmosphere は地面を知らず殻の奥の面まで描く。地面を通る視線だけ色を返す（通らない＝a<0）
 //   translucent（globe.translucency）：Cesium は球の裏面（backFaceAlpha 既定 1＝不透明・光の当たらない内側）が透けた表面の奥に見える＝黒
-//   それ以外（globe を描かない）：Cesium は地球の中まで標本化する＝密度 exp が溢れて NaN＝白く出る。浅い弦（地平の近く）は溢れず黒。その見た目を写す（深さ 282km＝exp(88) の 3200m）
+//   それ以外（globe を描かない）：Cesium は地球の中まで標本化する＝深い弦は密度 exp が溢れて NaN＝実 GPU（Metal）では何も描かれない＝透明（後ろの星空・背景色が見える）。
+//   浅い弦（地平の近く）は溢れず不透明の黒。その見た目を写す（深さ 282km＝exp(88) の 3200m）。白は SwiftShader の NaN の出方だった（2026-10-28 より前の門の ref）＝clipping-regions の穴で実測（2026-11-10）
 vec4 csSkyUnder(vec3 eye, vec3 dir, float inner, float translucent) {
 	vec2 g;
 	if (!csSphere(eye, dir, inner, g) || g.y <= 0.0) return vec4(-1.0);
 	if (translucent > 0.5) return vec4(0.0, 0.0, 0.0, 1.0);
 	vec3 pm = eye + dir * (max(g.x, 0.0) + g.y) * 0.5;
-	return inner - length(pm) > 282000.0 ? vec4(1.0) : vec4(0.0, 0.0, 0.0, 1.0);
+	return inner - length(pm) > 282000.0 ? vec4(0.0) : vec4(0.0, 0.0, 0.0, 1.0);
 }
 // 空の大気（SkyAtmosphereCommon＋SkyAtmosphereFS・HDR なし）：殻（半径×1.025）の奥の面の点の色。前乗算の rgba。under＝地面を通る視線も描く（0=描かない 1=不透明の地面の向こう 2=半透明の地面の向こう）
 // lightDir/dyn: the sun when Cesium lights the atmosphere (globe.enableLighting + dynamicAtmosphereLighting: dyn >= 0), otherwise the light is
@@ -273,7 +274,7 @@ fn csSkyUnder(eye: vec3f, dir: vec3f, inner: f32, translucent: f32) -> vec4f {
 	if (g.z < 0.5 || g.y <= 0.0) { return vec4f(-1.0); }
 	if (translucent > 0.5) { return vec4f(0.0, 0.0, 0.0, 1.0); }
 	let pm = eye + dir * (max(g.x, 0.0) + g.y) * 0.5;
-	return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0), inner - length(pm) > 282000.0);
+	return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(0.0), inner - length(pm) > 282000.0);
 }
 // czm_applyHSBShift（gl と同じ・csHsbShift）
 fn csHsbShift(rgb: vec3f, sh: vec3f) -> vec3f {
