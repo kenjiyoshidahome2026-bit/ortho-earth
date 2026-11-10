@@ -1,0 +1,3123 @@
+{
+ "run": "v280",
+ "main": "4390431c5",
+ "grade": "9952534e5 (#1081)",
+ "runs": [
+  "v280"
+ ],
+ "reshot": {
+  "v280r": [
+   "3d-tiles-1.1-cdb-yemen",
+   "japan-buildings"
+  ]
+ },
+ "compareTo": "v271",
+ "levels": {
+  "3": 260,
+  "2": 38,
+  "None": 11
+ },
+ "levelsInclChecked": {
+  "3": 264,
+  "2": 40,
+  "None": 5
+ },
+ "examples": [
+  {
+   "name": "3d-models",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9529702970297029,
+   "edge": 0.9811881188118812,
+   "blob": 14,
+   "masked": 1052
+  },
+  {
+   "name": "3d-models-articulations-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9911634756995582,
+   "edge": 0.9985272459499264,
+   "blob": 2,
+   "masked": 1035
+  },
+  {
+   "name": "3d-models-coloring",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.948582729070534,
+   "edge": 0.991430454845089,
+   "blob": 10,
+   "masked": 1555
+  },
+  {
+   "name": "3d-models-dev",
+   "run": "v280",
+   "level": 2,
+   "dev": true,
+   "colour": 0.9161147902869757,
+   "edge": 0.9254966887417219,
+   "blob": 30,
+   "masked": 1260
+  },
+  {
+   "name": "3d-models-node-explorer-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9780334728033473,
+   "edge": 0.9942468619246861,
+   "blob": 5,
+   "masked": 1160
+  },
+  {
+   "name": "3d-tiles-1.1-cdb-yemen",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.8949795081967213,
+   "edge": 0.4569672131147541,
+   "blob": 19,
+   "masked": 1120
+  },
+  {
+   "name": "3d-tiles-1.1-photogrammetry",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9838169642857143,
+   "edge": 0.9631696428571429,
+   "blob": 2,
+   "masked": 1280
+  },
+  {
+   "name": "3d-tiles-1.1-photogrammetry-classification",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9593373493975904,
+   "edge": 0.9884538152610441,
+   "blob": 2,
+   "masked": 1080
+  },
+  {
+   "name": "3d-tiles-1.1-s2-globe",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9443063152660368,
+   "blob": 0,
+   "masked": 1061
+  },
+  {
+   "name": "3d-tiles-3d-native-vector",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9894837476099426,
+   "edge": 0.9808795411089866,
+   "blob": 7,
+   "masked": 980
+  },
+  {
+   "name": "3d-tiles-adjust-height",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9830592924763328,
+   "blob": 0,
+   "masked": 1065
+  },
+  {
+   "name": "3d-tiles-batch-table-hierarchy",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 1068
+  },
+  {
+   "name": "3d-tiles-bim",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9794117647058823,
+   "blob": 0,
+   "masked": 1032
+  },
+  {
+   "name": "3d-tiles-clipping-planes",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9587576374745418,
+   "blob": 0,
+   "masked": 1108
+  },
+  {
+   "name": "3d-tiles-compare",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9841997961264016,
+   "edge": 0.9576962283384302,
+   "blob": 2,
+   "masked": 1110
+  },
+  {
+   "name": "3d-tiles-edge-visibility",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9806023481368045,
+   "edge": 0.9897907095456866,
+   "blob": 10,
+   "masked": 1113
+  },
+  {
+   "name": "3d-tiles-feature-picking",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9909177820267686,
+   "edge": 0.9837476099426387,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "3d-tiles-feature-styling",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9405320813771518,
+   "edge": 0.9770474700052165,
+   "blob": 7,
+   "masked": 1155
+  },
+  {
+   "name": "3d-tiles-formats",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9881974248927039,
+   "edge": 1,
+   "blob": 4,
+   "masked": 1208
+  },
+  {
+   "name": "3d-tiles-gaussian-splats-with-lod",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9292452830188679,
+   "edge": 0.9339622641509434,
+   "blob": 17,
+   "masked": 740
+  },
+  {
+   "name": "3d-tiles-gaussian-splatting",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9392925430210325,
+   "edge": 0.9741873804971319,
+   "blob": 26,
+   "masked": 980
+  },
+  {
+   "name": "3d-tiles-gaussian-splatting-comparison",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.802672147995889,
+   "edge": 0.8165467625899281,
+   "blob": 16,
+   "masked": 1126
+  },
+  {
+   "name": "3d-tiles-inspector",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9274193548387096,
+   "edge": 0.9158266129032258,
+   "blob": 11,
+   "masked": 1088
+  },
+  {
+   "name": "3d-tiles-interactivity",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9923896499238964,
+   "edge": 0.9751395230847285,
+   "blob": 2,
+   "masked": 1101
+  },
+  {
+   "name": "3d-tiles-interior",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9990439770554493,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "3d-tiles-nga-gpm-visualization",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9939849624060151,
+   "edge": 0.9894736842105263,
+   "blob": 2,
+   "masked": 1742
+  },
+  {
+   "name": "3d-tiles-performance-testing-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9909456740442656,
+   "edge": 0.9984909456740443,
+   "blob": 2,
+   "masked": 1084
+  },
+  {
+   "name": "3d-tiles-photogrammetry",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9894837476099426,
+   "edge": 0.9703632887189293,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "3d-tiles-photogrammetry-classification",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9442270058708415,
+   "edge": 0.9691780821917808,
+   "blob": 34,
+   "masked": 1028
+  },
+  {
+   "name": "3d-tiles-picking-dev",
+   "run": "v280",
+   "level": 2,
+   "dev": true,
+   "colour": 0.9493670886075949,
+   "edge": 0.9236286919831224,
+   "blob": 28,
+   "masked": 702
+  },
+  {
+   "name": "3d-tiles-point-cloud",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9225621414913958,
+   "edge": 0.9349904397705545,
+   "blob": 38,
+   "masked": 980
+  },
+  {
+   "name": "3d-tiles-point-cloud-classification",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9153919694072657,
+   "edge": 0.9330783938814532,
+   "blob": 38,
+   "masked": 980
+  },
+  {
+   "name": "3d-tiles-point-cloud-shading",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.8440899202320522,
+   "edge": 0.9695431472081218,
+   "blob": 127,
+   "masked": 1693
+  },
+  {
+   "name": "3d-tiles-point-cloud-styling",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 1052
+  },
+  {
+   "name": "3d-tiles-property-lod-river",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.916419679905157,
+   "edge": 0.9857735625370481,
+   "blob": 3,
+   "masked": 1385
+  },
+  {
+   "name": "3d-tiles-split-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9888827126181212,
+   "edge": 0.9866592551417455,
+   "blob": 4,
+   "masked": 1273
+  },
+  {
+   "name": "3d-tiles-terrain-classification",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9990123456790123,
+   "edge": 0.994567901234568,
+   "blob": 0,
+   "masked": 1047
+  },
+  {
+   "name": "3d-tiles-vertical-exaggeration",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.8777272727272727,
+   "edge": 0.89,
+   "blob": 30,
+   "masked": 872
+  },
+  {
+   "name": "aec-architectural-design",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9198588709677419,
+   "edge": 0.9632056451612904,
+   "blob": 24,
+   "masked": 1088
+  },
+  {
+   "name": "aec-clipping",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9960106382978723,
+   "edge": 1,
+   "blob": 2,
+   "masked": 816
+  },
+  {
+   "name": "aec-elements-api-query",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9329874621703416,
+   "edge": 0.9351491569390402,
+   "blob": 7,
+   "masked": 759
+  },
+  {
+   "name": "aec-isolate-by-category",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.920264093448451,
+   "edge": 0.9598781107160995,
+   "blob": 24,
+   "masked": 1103
+  },
+  {
+   "name": "aec-metadata-styling",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9435483870967742,
+   "edge": 0.9808467741935484,
+   "blob": 3,
+   "masked": 1088
+  },
+  {
+   "name": "aec-snapping",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9870867768595041,
+   "edge": 0.9736570247933884,
+   "blob": 7,
+   "masked": 1136
+  },
+  {
+   "name": "aec-tileset-metadata-filtering",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9337877312560857,
+   "edge": 0.8169425511197663,
+   "blob": 2,
+   "masked": 2045
+  },
+  {
+   "name": "aerometrex-san-francisco",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9403131115459883,
+   "edge": 0.9525440313111546,
+   "blob": 15,
+   "masked": 1028
+  },
+  {
+   "name": "ambient-occlusion",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9875296912114014,
+   "edge": 0.9928741092636579,
+   "blob": 1,
+   "masked": 1388
+  },
+  {
+   "name": "arcgis-mapserver",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 1139
+  },
+  {
+   "name": "arcgis-tiled-elevation-terrain",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9913957934990439,
+   "edge": 0.9966539196940727,
+   "blob": 4,
+   "masked": 980
+  },
+  {
+   "name": "arcticdem",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9392156862745098,
+   "edge": 0.8436274509803922,
+   "blob": 18,
+   "masked": 1032
+  },
+  {
+   "name": "atmosphere",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.6379781420765027,
+   "edge": 0.9521857923497268,
+   "blob": 165,
+   "masked": 2340
+  },
+  {
+   "name": "azure-2d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 317
+  },
+  {
+   "name": "bathymetry",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9699570815450643,
+   "edge": 0.8358369098712446,
+   "blob": 2,
+   "masked": 1208
+  },
+  {
+   "name": "billboardclamptoground-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9911962713619886,
+   "edge": 0.9984464008285863,
+   "blob": 2,
+   "masked": 1141
+  },
+  {
+   "name": "billboards",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9909274193548387,
+   "edge": 0.9984879032258065,
+   "blob": 2,
+   "masked": 1088
+  },
+  {
+   "name": "billboards-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9915338645418327,
+   "edge": 0.9985059760956175,
+   "blob": 2,
+   "masked": 1064
+  },
+  {
+   "name": "billboards-instancing-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9623601220752798,
+   "edge": 0.8641912512716174,
+   "blob": 2,
+   "masked": 1106
+  },
+  {
+   "name": "bing-maps-labels-only",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9943214082907439,
+   "blob": 0,
+   "masked": 1311
+  },
+  {
+   "name": "bloom",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.7402015677491601,
+   "edge": 0.9916013437849944,
+   "blob": 55,
+   "masked": 1286
+  },
+  {
+   "name": "blue-marble",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "box",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9823135755258127,
+   "edge": 0.9990439770554493,
+   "blob": 5,
+   "masked": 980
+  },
+  {
+   "name": "box-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "box-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "callback-position-property",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9847036328871893,
+   "edge": 0.9689292543021033,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "callback-property",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9173040152963671,
+   "edge": 0.8752390057361377,
+   "blob": 4,
+   "masked": 980
+  },
+  {
+   "name": "camera",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9907312049433573,
+   "edge": 0.9984552008238929,
+   "blob": 2,
+   "masked": 1130
+  },
+  {
+   "name": "camera-controllers",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9739077669902912,
+   "blob": 0,
+   "masked": 1424
+  },
+  {
+   "name": "camera-tutorial",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9920993227990971,
+   "edge": 0.9983069977426636,
+   "blob": 2,
+   "masked": 1300
+  },
+  {
+   "name": "cardboard",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9292543021032504,
+   "edge": 0.7825047801147228,
+   "blob": 5,
+   "masked": 980
+  },
+  {
+   "name": "cartographic-limit-rectangle",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9887365328109696,
+   "edge": 0.9877571008814887,
+   "blob": 4,
+   "masked": 1030
+  },
+  {
+   "name": "cesium-inspector",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9918582375478927,
+   "edge": 0.9990421455938697,
+   "blob": 2,
+   "masked": 984
+  },
+  {
+   "name": "cesium-osm-buildings",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9708413001912046,
+   "edge": 0.9694072657743786,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "cesium-widget",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9675281643472499,
+   "edge": 0.9257786613651425,
+   "blob": 61,
+   "masked": 54
+  },
+  {
+   "name": "cesium-world-terrain",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9880497131931166,
+   "edge": 0.9837476099426387,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "circle-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "circle-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "circles-and-ellipses",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9818355640535373,
+   "edge": 0.998565965583174,
+   "blob": 6,
+   "masked": 980
+  },
+  {
+   "name": "clamp-entities-to-ground",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.7800999545661064,
+   "edge": 0.8696047251249432,
+   "blob": 123,
+   "masked": 871
+  },
+  {
+   "name": "clamp-model-to-ground",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9755600814663951,
+   "edge": 0.9704684317718941,
+   "blob": 1,
+   "masked": 1108
+  },
+  {
+   "name": "clamp-to-3d-model",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9517208413001912,
+   "edge": 0.8819311663479924,
+   "blob": 8,
+   "masked": 980
+  },
+  {
+   "name": "classification",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9728637413394919,
+   "edge": 0.9659353348729792,
+   "blob": 35,
+   "masked": 1340
+  },
+  {
+   "name": "classification-types",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9965243296921549,
+   "edge": 0.9369414101290964,
+   "blob": 1,
+   "masked": 1058
+  },
+  {
+   "name": "client-side-snapping-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.981253083374445,
+   "edge": 0.9896398618648249,
+   "blob": 10,
+   "masked": 1045
+  },
+  {
+   "name": "clipping-performance-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 1,
+   "edge": 0.9680735930735931,
+   "blob": 0,
+   "masked": 1224
+  },
+  {
+   "name": "clipping-regions",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9880705394190872,
+   "edge": 0.9865145228215768,
+   "blob": 1,
+   "masked": 1144
+  },
+  {
+   "name": "clock",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9928861788617886,
+   "edge": 0.9969512195121951,
+   "blob": 1,
+   "masked": 1104
+  },
+  {
+   "name": "cloud-parameters",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.996042216358839,
+   "blob": 0,
+   "masked": 1556
+  },
+  {
+   "name": "clouds",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9861376673040153,
+   "edge": 0.9737093690248566,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "clustering",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9869706840390879,
+   "edge": 0.995656894679696,
+   "blob": 2,
+   "masked": 1230
+  },
+  {
+   "name": "constant-lod-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9994686503719448,
+   "edge": 0.9984059511158342,
+   "blob": 1,
+   "masked": 1190
+  },
+  {
+   "name": "coplanar-polygon-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "coplanar-polygon-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "corridor",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9818355640535373,
+   "edge": 0.997131931166348,
+   "blob": 4,
+   "masked": 980
+  },
+  {
+   "name": "corridor-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "corridor-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "custom-datasource",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9921671018276762,
+   "edge": 0.9969538729329852,
+   "blob": 1,
+   "masked": 774
+  },
+  {
+   "name": "custom-geocoder",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.989010989010989,
+   "edge": 0.9743589743589743,
+   "blob": 4,
+   "masked": 888
+  },
+  {
+   "name": "custom-per-feature-post-process",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9072657743785851,
+   "edge": 0.9225621414913958,
+   "blob": 54,
+   "masked": 980
+  },
+  {
+   "name": "custom-post-process",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9000956022944551,
+   "edge": 0.9880497131931166,
+   "blob": 55,
+   "masked": 980
+  },
+  {
+   "name": "custom-primitive-dev",
+   "run": "v280",
+   "level": null,
+   "dev": true,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null
+  },
+  {
+   "name": "custom-shaders-3d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.987378640776699,
+   "edge": 0.983495145631068,
+   "blob": 18,
+   "masked": 1012
+  },
+  {
+   "name": "custom-shaders-models",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.967564870259481,
+   "edge": 0.9900199600798403,
+   "blob": 4,
+   "masked": 1068
+  },
+  {
+   "name": "custom-shaders-property-textures",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9640748031496063,
+   "blob": 0,
+   "masked": 1040
+  },
+  {
+   "name": "cylinder-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "cylinder-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "cylinders-and-cones",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9808795411089866,
+   "edge": 0.9775334608030593,
+   "blob": 8,
+   "masked": 980
+  },
+  {
+   "name": "czml",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9902152641878669,
+   "edge": 0.9946183953033269,
+   "blob": 2,
+   "masked": 1028
+  },
+  {
+   "name": "czml-3d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.984225621414914,
+   "edge": 0.988527724665392,
+   "blob": 9,
+   "masked": 980
+  },
+  {
+   "name": "czml-billboard-and-label",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9890057361376673,
+   "edge": 0.997131931166348,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "czml-box",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9823135755258127,
+   "edge": 0.9990439770554493,
+   "blob": 5,
+   "masked": 980
+  },
+  {
+   "name": "czml-circles-and-ellipses",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9784894837476099,
+   "edge": 0.9976099426386233,
+   "blob": 6,
+   "masked": 980
+  },
+  {
+   "name": "czml-colors",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.984225621414914,
+   "edge": 0.9966539196940727,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "czml-cones-and-cylinders",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9808795411089866,
+   "edge": 0.9670172084130019,
+   "blob": 8,
+   "masked": 980
+  },
+  {
+   "name": "czml-corridor",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9818355640535373,
+   "edge": 0.9995219885277247,
+   "blob": 4,
+   "masked": 980
+  },
+  {
+   "name": "czml-custom-properties",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9366404715127702,
+   "edge": 0.8978388998035364,
+   "blob": 0,
+   "masked": 1036
+  },
+  {
+   "name": "czml-model",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9115678776290631,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "czml-model-articulations",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9474187380497132,
+   "edge": 0.8790630975143403,
+   "blob": 21,
+   "masked": 980
+  },
+  {
+   "name": "czml-model-data-url",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9120458891013384,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "czml-model-node-transformations",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9923518164435946,
+   "edge": 0.9861376673040153,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "czml-path",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.997144217039505,
+   "edge": 0.9976201808662541,
+   "blob": 1,
+   "masked": 971
+  },
+  {
+   "name": "czml-point",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9555449330783938,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "czml-point-time-dynamic",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "czml-polygon",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9904397705544933,
+   "edge": 0.9928298279158699,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "czml-polygon-interpolating-references",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9550669216061185,
+   "edge": 0.98565965583174,
+   "blob": 48,
+   "masked": 980
+  },
+  {
+   "name": "czml-polygon-intervals-availability",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.989961759082218,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "czml-polyline",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.994263862332696,
+   "edge": 0.9980879541108987,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "czml-polyline-volume",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9808795411089866,
+   "edge": 0.9918738049713193,
+   "blob": 14,
+   "masked": 980
+  },
+  {
+   "name": "czml-position-definitions",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "czml-rectangle",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9966539196940727,
+   "edge": 0.9804015296367112,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "czml-reference-properties",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9894837476099426,
+   "edge": 0.987093690248566,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "czml-spheres-and-ellipsoids",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9823135755258127,
+   "edge": 0.9990439770554493,
+   "blob": 4,
+   "masked": 980
+  },
+  {
+   "name": "czml-wall",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9928298279158699,
+   "edge": 0.9794455066921606,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "czml-zindex",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9818355640535373,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "datasource-ordering",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9912959381044487,
+   "edge": 0.9985493230174082,
+   "blob": 2,
+   "masked": 1004
+  },
+  {
+   "name": "depth-of-field",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.8668122270742358,
+   "edge": 0.7074235807860262,
+   "blob": 19,
+   "masked": 1240
+  },
+  {
+   "name": "display-conditions-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9911242603550295,
+   "edge": 0.9985207100591716,
+   "blob": 2,
+   "masked": 1044
+  },
+  {
+   "name": "distance-display-conditions",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9901380670611439,
+   "edge": 0.9985207100591716,
+   "blob": 2,
+   "masked": 1044
+  },
+  {
+   "name": "drape-imagery-on-3d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9892795883361921,
+   "edge": 0.9168096054888508,
+   "blob": 2,
+   "masked": 740
+  },
+  {
+   "name": "drawing-on-terrain",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.869653767820774,
+   "edge": 0.8986761710794298,
+   "blob": 29,
+   "masked": 1108
+  },
+  {
+   "name": "earth-at-night",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 1024
+  },
+  {
+   "name": "edge-visibility-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "elevation-band-material",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9360535931790499,
+   "edge": 0.9543239951278928,
+   "blob": 11,
+   "masked": 1430
+  },
+  {
+   "name": "ellipse-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "ellipse-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "ellipsoid-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "ellipsoid-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "ellipsoid-surface-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9866156787762906,
+   "edge": 0.998565965583174,
+   "blob": 4,
+   "masked": 980
+  },
+  {
+   "name": "entity-tracking",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9804928131416838,
+   "edge": 0.9958932238193019,
+   "blob": 0,
+   "masked": 1124
+  },
+  {
+   "name": "export-kml",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9906771344455348,
+   "edge": 0.9950932286555446,
+   "blob": 2,
+   "masked": 1034
+  },
+  {
+   "name": "fog",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9782016348773842,
+   "edge": 0.5592643051771117,
+   "blob": 3,
+   "masked": 1604
+  },
+  {
+   "name": "fog-post-process",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9995219885277247,
+   "edge": 0.9980879541108987,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "frustum-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "fxaa",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9990328820116054,
+   "edge": 0.995164410058027,
+   "blob": 0,
+   "masked": 1004
+  },
+  {
+   "name": "geojson-and-topojson",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9989939637826962,
+   "edge": 0.9984909456740443,
+   "blob": 0,
+   "masked": 1084
+  },
+  {
+   "name": "geojson-simplestyle",
+   "run": "v280",
+   "level": null,
+   "dev": false,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null,
+   "checked": 2
+  },
+  {
+   "name": "geometry-and-appearances",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9866156787762906,
+   "edge": 0.9832695984703633,
+   "blob": 6,
+   "masked": 980
+  },
+  {
+   "name": "geometry-and-appearances-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9799235181644359,
+   "edge": 0.9875717017208413,
+   "blob": 14,
+   "masked": 980
+  },
+  {
+   "name": "geometry-height-reference",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9207470974255426,
+   "blob": 0,
+   "masked": 1091
+  },
+  {
+   "name": "geometry-offset-attribute-box-cylinder-ellipsoid-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9889779559118237,
+   "edge": 0.996993987975952,
+   "blob": 2,
+   "masked": 1076
+  },
+  {
+   "name": "geometry-offset-attribute-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9912621359223301,
+   "edge": 0.9985436893203884,
+   "blob": 2,
+   "masked": 1012
+  },
+  {
+   "name": "globe-interior",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9964929859719439,
+   "blob": 0,
+   "masked": 1076
+  },
+  {
+   "name": "globe-materials",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.8171296296296297,
+   "edge": 0.9947916666666666,
+   "blob": 83,
+   "masked": 1344
+  },
+  {
+   "name": "globe-materials-3d-tiles-terrain",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9892857142857143,
+   "edge": 0.998015873015873,
+   "blob": 1,
+   "masked": 552
+  },
+  {
+   "name": "globe-materials-water-mask-elevation-map",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.989769820971867,
+   "edge": 0.9987212276214834,
+   "blob": 6,
+   "masked": 726
+  },
+  {
+   "name": "globe-translucency",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.8863885839736553,
+   "edge": 0.968715697036224,
+   "blob": 2,
+   "masked": 1250
+  },
+  {
+   "name": "gltf-pbr-extensions",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9049955396966993,
+   "edge": 0.9455842997323818,
+   "blob": 7,
+   "masked": 830
+  },
+  {
+   "name": "gltf-planar-fill-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 1945
+  },
+  {
+   "name": "google-2d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 317
+  },
+  {
+   "name": "google-2d-tiles-with-custom-styles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 317
+  },
+  {
+   "name": "google-earth-enterprise",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 971
+  },
+  {
+   "name": "google-photorealistic-3d-tiles",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9611486486486487,
+   "edge": 0.9767736486486487,
+   "blob": 87,
+   "masked": 704
+  },
+  {
+   "name": "google-photorealistic-3d-tiles-with-building-insert",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9751958224543081,
+   "blob": 0,
+   "masked": 774
+  },
+  {
+   "name": "google-streetview-panorama",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.45167812373635263,
+   "edge": 0.959563283461383,
+   "blob": 140,
+   "masked": 599
+  },
+  {
+   "name": "gpx",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9846230158730159,
+   "edge": 0.9404761904761905,
+   "blob": 3,
+   "masked": 1056
+  },
+  {
+   "name": "ground-polyline-material-dev",
+   "run": "v280",
+   "level": 2,
+   "dev": true,
+   "colour": 0.8465583173996176,
+   "edge": 0.8647227533460803,
+   "blob": 31,
+   "masked": 980
+  },
+  {
+   "name": "ground-primitive-dev",
+   "run": "v280",
+   "level": 2,
+   "dev": true,
+   "colour": 0.9149377593360996,
+   "edge": 0.8874481327800829,
+   "blob": 47,
+   "masked": 1144
+  },
+  {
+   "name": "ground-primitive-materials-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.8767923526287839,
+   "edge": 0.9453000531067446,
+   "blob": 19,
+   "masked": 1189
+  },
+  {
+   "name": "headingpitchroll",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9725239616613418,
+   "edge": 0.9610223642172524,
+   "blob": 9,
+   "masked": 1507
+  },
+  {
+   "name": "hello-world",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "high-dynamic-range",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9381633594831564,
+   "edge": 0.7978772496538994,
+   "blob": 13,
+   "masked": 905
+  },
+  {
+   "name": "html-overlays",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9912621359223301,
+   "edge": 0.9985436893203884,
+   "blob": 2,
+   "masked": 1012
+  },
+  {
+   "name": "hybrid-snapping-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9875498007968128,
+   "edge": 0.973605577689243,
+   "blob": 10,
+   "masked": 1064
+  },
+  {
+   "name": "i3s-3d-object-layer",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9927659574468085,
+   "edge": 0.994468085106383,
+   "blob": 2,
+   "masked": 722
+  },
+  {
+   "name": "i3s-building-scene-layer",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9142091152815014,
+   "edge": 0.7363717605004468,
+   "blob": 19,
+   "masked": 834
+  },
+  {
+   "name": "i3s-feature-picking",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9910638297872341,
+   "edge": 0.997872340425532,
+   "blob": 1,
+   "masked": 722
+  },
+  {
+   "name": "i3s-integratedmesh-layer",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9582978723404255,
+   "edge": 0.9948936170212765,
+   "blob": 3,
+   "masked": 722
+  },
+  {
+   "name": "image-based-lighting",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9975198412698413,
+   "edge": 0.9821428571428571,
+   "blob": 0,
+   "masked": 1056
+  },
+  {
+   "name": "imagery-adjustment",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9714125560538116,
+   "edge": 0.9983183856502242,
+   "blob": 2,
+   "masked": 1288
+  },
+  {
+   "name": "imagery-assets-available-from-ion",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 409
+  },
+  {
+   "name": "imagery-color-to-alpha",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.97002997002997,
+   "edge": 0.981018981018981,
+   "blob": 10,
+   "masked": 1070
+  },
+  {
+   "name": "imagery-cutout",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9989873417721519,
+   "edge": 0.9959493670886076,
+   "blob": 2,
+   "masked": 1097
+  },
+  {
+   "name": "imagery-layers",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.997144217039505,
+   "edge": 0.9838172298905283,
+   "blob": 0,
+   "masked": 971
+  },
+  {
+   "name": "imagery-layers-manipulation",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9978054133138259,
+   "edge": 0.9809802487198245,
+   "blob": 0,
+   "masked": 1705
+  },
+  {
+   "name": "imagery-layers-split",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9686035613870665,
+   "edge": 0.9582942830365511,
+   "blob": 13,
+   "masked": 938
+  },
+  {
+   "name": "imagery-layers-texture-filters",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 1090
+  },
+  {
+   "name": "imodel-mesh-export-service",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9989189189189189,
+   "edge": 0.9718918918918918,
+   "blob": 0,
+   "masked": 1222
+  },
+  {
+   "name": "interpolation",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.6529535864978903,
+   "edge": 0.7816455696202531,
+   "blob": 36,
+   "masked": 1176
+  },
+  {
+   "name": "ion-snapping-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9994882292732856,
+   "edge": 0.981064483111566,
+   "blob": 0,
+   "masked": 1118
+  },
+  {
+   "name": "itwin-feature-service",
+   "run": "v280",
+   "level": null,
+   "dev": false,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null,
+   "checked": 3
+  },
+  {
+   "name": "itwin-gaussian-splats",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9374468085106383,
+   "edge": 0.9638297872340426,
+   "blob": 3,
+   "masked": 722
+  },
+  {
+   "name": "japan-buildings",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.9114035087719298,
+   "edge": 0.9491228070175438,
+   "blob": 24,
+   "masked": 792
+  },
+  {
+   "name": "khr-mesh-primitive-restart-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9812889812889813,
+   "edge": 0.9745322245322245,
+   "blob": 3,
+   "masked": 1148
+  },
+  {
+   "name": "kml",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9914658634538153,
+   "edge": 1,
+   "blob": 1,
+   "masked": 1080
+  },
+  {
+   "name": "kml-tours",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9912109375,
+   "edge": 0.99853515625,
+   "blob": 2,
+   "masked": 1024
+  },
+  {
+   "name": "labels",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9905378486055777,
+   "edge": 0.9945219123505976,
+   "blob": 2,
+   "masked": 1064
+  },
+  {
+   "name": "labels-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9910714285714286,
+   "edge": 0.9985119047619048,
+   "blob": 2,
+   "masked": 1056
+  },
+  {
+   "name": "lensflare",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.987825124515772,
+   "edge": 0.9955727725511898,
+   "blob": 2,
+   "masked": 1265
+  },
+  {
+   "name": "lighting",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.6796875,
+   "edge": 0.99462890625,
+   "blob": 615,
+   "masked": 1024
+  },
+  {
+   "name": "localtofixedframe",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9372409709887507,
+   "blob": 0,
+   "masked": 1383
+  },
+  {
+   "name": "manually-controlled-animation",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9913957934990439,
+   "edge": 0.9655831739961759,
+   "blob": 1,
+   "masked": 980
+  },
+  {
+   "name": "many-clipping-planes-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9950678175092479,
+   "edge": 0.9895191122071517,
+   "blob": 1,
+   "masked": 1450
+  },
+  {
+   "name": "map-pins",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9970212765957447,
+   "blob": 0,
+   "masked": 722
+  },
+  {
+   "name": "mars",
+   "run": "v280",
+   "level": null,
+   "dev": false,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null
+  },
+  {
+   "name": "material-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "material-with-custom-glsl",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "materials",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.990343347639485,
+   "edge": 0.9983905579399142,
+   "blob": 2,
+   "masked": 1208
+  },
+  {
+   "name": "montreal-point-cloud",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9454022988505747,
+   "edge": 0.8908045977011494,
+   "blob": 4,
+   "masked": 1332
+  },
+  {
+   "name": "moon",
+   "run": "v280",
+   "level": null,
+   "dev": false,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null
+  },
+  {
+   "name": "msaa",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9980139026812314,
+   "edge": 0.9915590863952334,
+   "blob": 0,
+   "masked": 1058
+  },
+  {
+   "name": "multi-part-czml",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9967776584317938,
+   "edge": 0.9881847475832438,
+   "blob": 0,
+   "masked": 1210
+  },
+  {
+   "name": "multifrustum-snapping-dev",
+   "run": "v280",
+   "level": null,
+   "dev": true,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null,
+   "checked": 3
+  },
+  {
+   "name": "multiple-shadows-dev",
+   "run": "v280",
+   "level": null,
+   "dev": true,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null
+  },
+  {
+   "name": "multiple-synced-views",
+   "run": "v280",
+   "level": null,
+   "dev": false,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null,
+   "checked": 2
+  },
+  {
+   "name": "natural-earth-ii",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "offline",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 803
+  },
+  {
+   "name": "pamap-terrain",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9975393700787402,
+   "edge": 0.9896653543307087,
+   "blob": 0,
+   "masked": 1040
+  },
+  {
+   "name": "panorama",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9655296229802514,
+   "blob": 0,
+   "masked": 287
+  },
+  {
+   "name": "parallels-and-meridians",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9922760041194645,
+   "edge": 0.9994850669412977,
+   "blob": 2,
+   "masked": 1130
+  },
+  {
+   "name": "partial-ellipsoids",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9717973231357553,
+   "edge": 0.997131931166348,
+   "blob": 8,
+   "masked": 980
+  },
+  {
+   "name": "particle-system",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.977922077922078,
+   "edge": 0.9701298701298702,
+   "blob": 28,
+   "masked": 1532
+  },
+  {
+   "name": "particle-system-fireworks",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9837476099426387,
+   "edge": 0.9875717017208413,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "particle-system-tails",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.985812133072407,
+   "edge": 0.9814090019569471,
+   "blob": 11,
+   "masked": 1028
+  },
+  {
+   "name": "particle-system-weather",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.7790354330708661,
+   "edge": 0.8479330708661418,
+   "blob": 13,
+   "masked": 1040
+  },
+  {
+   "name": "pbr-lighting-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9964438122332859,
+   "edge": 0.8726884779516358,
+   "blob": 0,
+   "masked": 1666
+  },
+  {
+   "name": "per-feature-post-processing",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9712301587301587,
+   "edge": 0.9558531746031746,
+   "blob": 14,
+   "masked": 1056
+  },
+  {
+   "name": "per-instance-color-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "physically-based-materials",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.8886113886113887,
+   "edge": 0.6653346653346653,
+   "blob": 38,
+   "masked": 1070
+  },
+  {
+   "name": "pick-from-ray-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9636627906976745,
+   "edge": 0.9937015503875969,
+   "blob": 3,
+   "masked": 1008
+  },
+  {
+   "name": "picking",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9905511811023622,
+   "edge": 0.9984251968503937,
+   "blob": 2,
+   "masked": 1167
+  },
+  {
+   "name": "picking-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9906679764243614,
+   "edge": 0.9985265225933202,
+   "blob": 2,
+   "masked": 1036
+  },
+  {
+   "name": "plane",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9823135755258127,
+   "edge": 0.997131931166348,
+   "blob": 1,
+   "masked": 980
+  },
+  {
+   "name": "pointprimitives-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9910714285714286,
+   "edge": 0.9985119047619048,
+   "blob": 2,
+   "masked": 1056
+  },
+  {
+   "name": "points",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9910714285714286,
+   "edge": 0.9985119047619048,
+   "blob": 2,
+   "masked": 1056
+  },
+  {
+   "name": "polygon",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9913957934990439,
+   "edge": 0.9913957934990439,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polygon-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polygon-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polygon-texture-coordinates-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.9980879541108987,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polyline",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9947418738049714,
+   "edge": 0.998565965583174,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "polyline-color-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9823135755258127,
+   "edge": 0.997131931166348,
+   "blob": 4,
+   "masked": 980
+  },
+  {
+   "name": "polyline-dash",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9660611854684512,
+   "edge": 0.9847036328871893,
+   "blob": 12,
+   "masked": 980
+  },
+  {
+   "name": "polyline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polyline-material-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.9980879541108987,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polyline-volume",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9808795411089866,
+   "edge": 0.9947418738049714,
+   "blob": 6,
+   "masked": 980
+  },
+  {
+   "name": "polyline-volume-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polyline-volume-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polylines-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9918738049713193,
+   "edge": 0.9980879541108987,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "polylines-on-3d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9651960784313726,
+   "edge": 0.9465686274509804,
+   "blob": 2,
+   "masked": 1032
+  },
+  {
+   "name": "polylines-on-terrain-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9901904212348529,
+   "edge": 0.9878822850548182,
+   "blob": 2,
+   "masked": 1339
+  },
+  {
+   "name": "post-processing",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.8664529914529915,
+   "edge": 0.8851495726495726,
+   "blob": 80,
+   "masked": 1200
+  },
+  {
+   "name": "procedural-terrain",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9830097087378641,
+   "edge": 0.9917475728155339,
+   "blob": 2,
+   "masked": 1012
+  },
+  {
+   "name": "projection",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.8108497359577532,
+   "edge": 0.8526164186269803,
+   "blob": 63,
+   "masked": 989
+  },
+  {
+   "name": "rectangle",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9918738049713193,
+   "edge": 0.9770554493307839,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "rectangle-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "rectangle-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "relative-paths",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9989842559674962,
+   "blob": 0,
+   "masked": 1103
+  },
+  {
+   "name": "resolution-scaling",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9851222104144527,
+   "edge": 0.8336875664187035,
+   "blob": 2,
+   "masked": 1190
+  },
+  {
+   "name": "rotatable-2d-map",
+   "run": "v280",
+   "level": null,
+   "dev": false,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null
+  },
+  {
+   "name": "sample-height-from-3d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9832695984703633,
+   "edge": 0.9832695984703633,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "scene-rendering-performance",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9905437352245863,
+   "edge": 0.99822695035461,
+   "blob": 3,
+   "masked": 1380
+  },
+  {
+   "name": "sentinel-2",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "shadows",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9777892561983471,
+   "edge": 0.9912190082644629,
+   "blob": 1,
+   "masked": 1136
+  },
+  {
+   "name": "shadows-dev",
+   "run": "v280",
+   "level": 2,
+   "dev": true,
+   "colour": 0.5933983495873969,
+   "edge": 0.9347336834208552,
+   "blob": 140,
+   "masked": 1739
+  },
+  {
+   "name": "shared-context",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9844804318488529,
+   "edge": 0.9865047233468286,
+   "blob": 9,
+   "masked": 1590
+  },
+  {
+   "name": "show-or-hide-entities",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9787878787878788,
+   "edge": 0.9651515151515152,
+   "blob": 3,
+   "masked": 1092
+  },
+  {
+   "name": "simple-polyline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9909177820267686,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "sphere-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "sphere-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.9966539196940727,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "spheres-and-ellipsoids",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9799235181644359,
+   "edge": 0.9861376673040153,
+   "blob": 4,
+   "masked": 980
+  },
+  {
+   "name": "splitdirection",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9915506958250497,
+   "edge": 0.9880715705765407,
+   "blob": 2,
+   "masked": 1060
+  },
+  {
+   "name": "star-burst",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9913793103448276,
+   "edge": 0.9980842911877394,
+   "blob": 2,
+   "masked": 984
+  },
+  {
+   "name": "styled-gltf-lines-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "styled-gltf-points-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "terrain",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9682726204465335,
+   "edge": 0.9300822561692127,
+   "blob": 5,
+   "masked": 1370
+  },
+  {
+   "name": "terrain-clipping-planes",
+   "run": "v280",
+   "level": 2,
+   "dev": false,
+   "colour": 0.8905524006195147,
+   "edge": 0.9220443985544656,
+   "blob": 123,
+   "masked": 1135
+  },
+  {
+   "name": "terrain-entity-batching-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.987093690248566,
+   "edge": 0.8996175908221797,
+   "blob": 5,
+   "masked": 980
+  },
+  {
+   "name": "terrain-exaggeration",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9789416846652268,
+   "edge": 0.9611231101511879,
+   "blob": 1,
+   "masked": 1220
+  },
+  {
+   "name": "terrain-performance-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9910761154855643,
+   "edge": 0.9989501312335958,
+   "blob": 2,
+   "masked": 1167
+  },
+  {
+   "name": "terrain-tweaks-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9915824915824916,
+   "edge": 0.9983164983164983,
+   "blob": 2,
+   "masked": 1290
+  },
+  {
+   "name": "time-dependent-path-graphics",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9798890429958391,
+   "edge": 0.9930651872399445,
+   "blob": 2,
+   "masked": 1630
+  },
+  {
+   "name": "time-dynamic-point-cloud",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9918738049713193,
+   "edge": 0.9918738049713193,
+   "blob": 3,
+   "masked": 980
+  },
+  {
+   "name": "time-dynamic-wheels",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9894837476099426,
+   "edge": 0.9502868068833652,
+   "blob": 6,
+   "masked": 980
+  },
+  {
+   "name": "timeline",
+   "run": "v280",
+   "level": null,
+   "dev": false,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null,
+   "checked": 3
+  },
+  {
+   "name": "underground-color",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9428406466512702,
+   "blob": 0,
+   "masked": 1340
+  },
+  {
+   "name": "vector-3d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9982678983833718,
+   "edge": 0.9982678983833718,
+   "blob": 0,
+   "masked": 1340
+  },
+  {
+   "name": "video",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9843656043295249,
+   "edge": 0.9819603126879134,
+   "blob": 2,
+   "masked": 1409
+  },
+  {
+   "name": "viewerless",
+   "run": "v280",
+   "level": null,
+   "dev": false,
+   "colour": null,
+   "edge": null,
+   "blob": null,
+   "masked": null,
+   "checked": 3
+  },
+  {
+   "name": "volumecloud",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9901044529961517,
+   "blob": 0,
+   "masked": 1253
+  },
+  {
+   "name": "volumes-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9918738049713193,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "voxel-picking",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9948320413436692,
+   "edge": 0.9931093884582257,
+   "blob": 2,
+   "masked": 750
+  },
+  {
+   "name": "voxels",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 786
+  },
+  {
+   "name": "voxels-in-3d-tiles",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9926151172893136,
+   "edge": 0.9995655951346655,
+   "blob": 3,
+   "masked": 770
+  },
+  {
+   "name": "wall",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.982791586998088,
+   "edge": 0.9741873804971319,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "wall-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "wall-outline-dev",
+   "run": "v280",
+   "level": 3,
+   "dev": true,
+   "colour": 0.9913957934990439,
+   "edge": 0.998565965583174,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "washington-dc-2017",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 1,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "web-map-service-wms",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.995697896749522,
+   "blob": 0,
+   "masked": 980
+  },
+  {
+   "name": "web-map-tile-service-picking",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 1,
+   "edge": 0.9985163204747775,
+   "blob": 0,
+   "masked": 1050
+  },
+  {
+   "name": "web-map-tile-service-with-time",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9980879541108987,
+   "edge": 0.9980879541108987,
+   "blob": 2,
+   "masked": 980
+  },
+  {
+   "name": "z-indexing-geometry",
+   "run": "v280",
+   "level": 3,
+   "dev": false,
+   "colour": 0.9732313575525813,
+   "edge": 0.9923518164435946,
+   "blob": 9,
+   "masked": 980
+  }
+ ]
+}
