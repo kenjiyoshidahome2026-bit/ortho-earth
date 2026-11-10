@@ -1011,7 +1011,12 @@ float cgLambert(vec2 ll, vec2 gEN, float mode) {
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 uniform vec4 u_ugC;    // 地下から見た球の裏面（Cesium の globe.undergroundColor）：rgb＋α・α<0＝切（目が地面の下の時だけ renderer が点ける）
 uniform vec4 u_ugNF;   // undergroundColorAlphaByDistance＝(near, nearValue, far, farValue)・距離は世界単位
+// 球の床が深度を書く（view.globeDepth・Cesium の globe.translucency で地面の色に穴＝colorToAlpha の海）：0.5·logCoef（0＝書かない）。
+// 不透明な地面（α≥0.5）の画素だけ球の交点の対数深度＝地中の模型（Cesium の globe-interior の核）が陸に隠れ、穴（海）からは見える。
+// 光線は t あたり clip w が 1 増える（viewRays の正規化・f64 の mvp＝K 倍なし）＝w＝t。深度テストを切った回（既定）では書いても効かない
+uniform float u_gDepth;
 void main() {
+	gl_FragDepth = 1.0;
 	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
 	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = u_rayC;
 	float disc = bb * bb - 4.0 * aa * cc;
@@ -1113,6 +1118,7 @@ void main() {
 		col = u_ugC.rgb * ua * g.a + g.rgb * (1.0 - ua);
 	}
 	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
+	if (u_gDepth > 0.0 && !ug && fragColor.a >= 0.5) gl_FragDepth = clamp(log2(1.0 + t) * u_gDepth, 0.0, 1.0);
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（SkyAtmosphere は地面を知らない＝殻の奥の面）
 	if (u_csAtm.x > 0.5 && u_csAtm.z > 0.5 && u_globeAlpha < 1.0) { vec4 cs = csSky2(A * CS_R, normalize(d), u_globeAlpha > 0.0 ? 2.0 : 1.0); fragColor += cs * (1.0 - fragColor.a); }
 }`;
