@@ -214,6 +214,8 @@ export interface GlobeCoreApi {
 	setMeshOverGround(on: boolean): GlobeMap;
 	/** The globe's ground writes depth where it is opaque: models inside the earth hide behind the land and show through holes in its colour (Cesium's globe.translucency with a transparent baseColor and colorToAlpha). Default off. */
 	setGlobeDepth(on: boolean): GlobeMap;
+	/** Draw the globe's inside where the clipping (setClipping on "terrain") cuts its near side away: the far side seen from within (Cesium's globe.backFaceCulling = false). Default off. */
+	setGlobeBackFaces(on: boolean): GlobeMap;
 	/** imagery draped on 3D Tiles (Cesium3DTileset.imageryLayers): one picture over a window (degrees, Web Mercator rows, north up), read by the tilesets whose Tiles3DOptions.imagery is this id, by each pixel's place
 	 *  (straight down). The ImageBitmap is transferred. Same id again = a new picture; null = remove */
 	setMeshImagery(id: string, drape: { bitmap: ImageBitmap; west: number; south: number; east: number; north: number } | null): GlobeMap;

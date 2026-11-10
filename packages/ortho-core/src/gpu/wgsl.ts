@@ -1554,13 +1554,39 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 struct GFragD { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 @fragment fn fsDepth(in: GOut) -> GFragD {
 	var o: GFragD;
-	o.c = globeColor(in);
+	let c = globeColor(in);
 	o.d = 1.0;
 	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);
-	if (h.t > 0.0 && o.c.a >= 0.5) { o.d = clamp(log2(1.0 + h.t) * G.farP.w, 0.0, 1.0); }
+	if (h.t > 0.0 && c.a >= 0.5) { o.d = clamp(log2(1.0 + h.t) * G.farP.w, 0.0, 1.0); }   // 深度は手前の面の α で（裏面は模型の後ろ）
+	o.c = globeBack(in, c);
 	return o;
 }
-@fragment fn fs(in: GOut) -> @location(0) vec4f { return globeColor(in); }
+@fragment fn fs(in: GOut) -> @location(0) vec4f { return globeBack(in, globeColor(in)); }
+// 球の裏面（Cesium の translucency の backFace・G.cgC.w）：手前の地面の色の穴（colorToAlpha）の向こう＝遠い根の床の画像を下に敷く（霞・照明なし・gl と同じ）
+fn globeBack(in: GOut, c: vec4f) -> vec4f {
+	if (G.cgC.w < 0.5 || c.a >= 0.999) { return c; }
+	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);
+	if (h.t <= 0.0 || h.disc < 0.0) { return c; }
+	let t2 = (-h.bb + sqrt(h.disc)) / (2.0 * h.aa);
+	let dll = deltaLL(G.eyeO.xyz + t2 * h.d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);
+	var b = vec4f(G.land.rgb * G.land.a, G.land.a);
+	if (GGD.p.x > 0.5) {
+		let u0 = G.gndOff0.xy + dll * G.gndOff0.zw; let u1 = G.gndOff1.xy + dll * G.gndOff1.zw;
+		let u2 = G.gndOff2.xy + dll * G.gndOff2.zw; let u3 = G.gndOff3.xy + dll * G.gndOff3.zw;
+		let d0 = min(u0, vec2f(1.0) - u0); let d1 = min(u1, vec2f(1.0) - u1); let d2 = min(u2, vec2f(1.0) - u2); let d3 = min(u3, vec2f(1.0) - u3);
+		let w0 = clamp(min(d0.x, d0.y) / 0.04, 0.0, 1.0);
+		let w1 = select(0.0, clamp(min(d1.x, d1.y) / 0.04, 0.0, 1.0), GGD.p.x > 1.5);
+		let w2 = select(0.0, clamp(min(d2.x, d2.y) / 0.04, 0.0, 1.0), GGD.p.x > 2.5);
+		let w3 = select(0.0, clamp(min(d3.x, d3.y) / 0.04, 0.0, 1.0), GGD.p.x > 3.5);
+		let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(u0, in.pos.x, GGD.p.y), 0.0);
+		let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(u1, in.pos.x, GGD.p.y), 0.0);
+		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
+		let g3 = textureSampleLevel(gGnd3, gSamp, gndUV0(u3, in.pos.x, GGD.p.y), 0.0);
+		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
+		b = b * (1.0 - gc.a) + gc;
+	}
+	return c + b * G.misc.x * (1.0 - c.a);
+}
 fn globeColor(in: GOut) -> vec4f {
 	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);   // #65：視線は CPU f64 の基底・交点は桁落ちなし
 	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let cc = h.cc;
@@ -1669,7 +1695,7 @@ fn globeColor(in: GOut) -> vec4f {
 	if (G.misc.z > 0.5) { let night = select(-1.0, G.cgP.w, G.cg.w > 0.5); colC = csFogL(csGroundL(base, A * CS_R, Pt * CS_R, G.misc.y, G.cg.xyz, night), A * CS_R, Pt * CS_R, G.farP.z, G.cg.xyz, night); }   // Cesium の地面の大気（遠くから）と霧（800 km より下・farP.z＝濃さ）＝従来の霞の代わり
 	if (ug) {   // 裏面：霞・大気は掛けない＝床の色に undergroundColor を距離の α で重ねる（gl と同じ）
 		let kd = clamp((t * sqrt(aa) - G.ugNF.x) / max(G.ugNF.z - G.ugNF.x, 1e-12), 0.0, 1.0);
-		let ua = G.ugC.a * mix(G.ugNF.y, G.ugNF.w, kd);
+		let ua = max(G.ugC.a, 0.0) * mix(G.ugNF.y, G.ugNF.w, kd);   // α<0＝undergroundColor 無し（切った面の向こうの裏面＝cgC.w）
 		colC = G.ugC.rgb * ua + base * (1.0 - ua);
 	}
 	var outC = vec4f(colC * ba * G.misc.x, ba * G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
@@ -2106,7 +2132,7 @@ const CLIP_STEPS: Record<ClipKind, readonly WgslAlts[]> = {
 		[["\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]],
 		[["@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n" + EDGE_HEAD]]],   // 基図の押し出し建物は面の向きが揃っていない（リングの向き・earcut 任せ）＝疑似の蓋は付けず帯だけ
 	// 球の床（海抜 0・海面を含む）：交点の原点相対 δ＝eyeO＋t·d（#65・f32 で mm 級）で測る＝空と大気のリムは切らない
-	globe: [[["\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n", "\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n\tif (clipDist(G.eyeO.xyz + t * d) < 0.0) { discard; }\n"]]],
+	globe: [[["\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n", "\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n\tif (clipDist(G.eyeO.xyz + t * d) < 0.0) {\n\t\tlet t2 = select(-1.0, (-bb + sqrt(max(disc, 0.0))) / (2.0 * aa), disc >= 0.0);   // 裏面（Cesium の globe.backFaceCulling=false・G.cgC.w）＝遠い根の内側を裏面の色で\n\t\tif (G.cgC.w > 0.5 && !ug && t2 > t && clipDist(G.eyeO.xyz + t2 * d) >= 0.0) { t = t2; ug = true; } else { discard; }\n\t}\n"]]],
 	// 影の深度パス（落とす側）＝切った形で落とす。頂点だけのパイプラインには FS（fsClip）を足す
 	terrCast: [CD("\t@location(8) guv3: vec2f,\n", 10),
 		[["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]]],
