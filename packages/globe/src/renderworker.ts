@@ -245,6 +245,7 @@ function overlayFrame(camNow: CameraPose, depthFrame?: DepthFrame | null) {
 			// 断面（#111 段 4）＝そのオーバーレイの対象の面：記号（symbols）と集約（cluster）＝注記＝labels・それ以外（heatmap・模様・anno・地震…）＝vector
 			ovPl = /^(symbols|cluster)/.test(name) ? clipPlL : clipPlW;
 			api!.clip = ovPl ? { planes: ovPl, distM: (lon: number, lat: number, hM = 0) => clipDistanceM(ovPl!, lon, lat, hM), pack: (origin: ArrayLike<number>) => clipPackOrigin(ovPl!, origin) } : null;   // pack(origin)＝自前の GPU シェーダ向けの uniform（WGSL の ClipP 先頭 112B＝pl[6]＋p・K はその原点）
+			api!.groundClip = clipPlT ? { distM: (lon: number, lat: number, hM = 0) => clipDistanceM(clipPlT!, lon, lat, hM) } : null;
 			if (o.mod.frame(camNow, s!, { w: o.canvas.width, h: o.canvas.height }, api!)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", (e as Error)?.message); }
 	}
@@ -277,6 +278,7 @@ let gint: GintEngine | null = null;   // gint（知性の層＝海岸線/14条�
 const gintLs = new Map<string | null | undefined, GintLayerEngine>();   // 追加層のレジストリ（layer id → addLayer ハンドル）。既定層＝gint（facade）
 const gTgt = (m: RwMsg) => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
 (self as RwSelf).__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
+let clipPlT: ClipPlane[] | null = null;   // 断面の面（地面＝terrain）：地球の陰で隠す時、その陰の所の地面が切られていれば隠さない（Cesium の cartographicLimitRectangle の奥の線）
 let clipPlW: ClipPlane[] | null = null, clipPlL: ClipPlane[] | null = null, ovPl: ClipPlane[] | null = null;   // 断面の面（#111）＝vector（同一フレームのオーバーレイ）・labels（注記と記号・集約のオーバーレイ）・ovPl＝今呼んでいるオーバーレイの面（レンダラは自前で持つ）
 let terrain: RwTerrain | null = null, pendingLabels: Label2D[] | null = null;
 // 標高の升目（可視域・見通し線・日影時間）＝範囲の R01 セルを先に読み（外来 DEM の上書き込み）、画素の中心で標本化。row0＝北・本当の m（誇張なし）
@@ -657,7 +659,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			else if (m.cmd === "view" && m.data && ("clock" in (m.data as object) || "time" in (m.data as object))) { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }
 			else if (m.cmd === "clip") {   // 断面（#111）＝レンダラへ＋注記（labels の面）と同一フレームのオーバーレイ（vector の面）。面は worker の楕円体の状態で作る
 				const n = normClip(m.data as Parameters<typeof normClip>[0]), pl = (t: string) => { const a = clipPlanesFor(n, t); return a.length ? a : null; };
-				clipPlW = pl("vector"); clipPlL = pl("labels"); labelLayer?.setClip(clipPlL); renderer?.set("clip", m.data);
+				clipPlW = pl("vector"); clipPlL = pl("labels"); clipPlT = pl("terrain"); labelLayer?.setClip(clipPlL); renderer?.set("clip", m.data);
 			}   // 断面（#111）＝レンダラへ＋注記と同一フレームのオーバーレイ（面は worker の楕円体の状態で作る）
 			else if (renderer) {
 				if (m.cmd === "view" && m.data && typeof m.data === "object" && "globeBack" in (m.data as object)) { globeBackW = !!(m.data as { globeBack?: boolean }).globeBack; }   // 球の裏面＝画像タイルも裏半球を選ぶ（raster.update backFaces）
