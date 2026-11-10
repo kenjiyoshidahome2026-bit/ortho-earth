@@ -1566,7 +1566,8 @@ struct GFragD { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 // 球の裏面（Cesium の translucency の backFace・G.cgC.w）：手前の地面の色の穴（colorToAlpha）の向こう＝遠い根の床の画像を下に敷く（霞・照明なし・gl と同じ）
 // a ground atlas window at the origin-relative lon/lat dll: xy = its uv, z = its weight (1 inside, fading to 0 over the outer 4%, 0 outside).
 // An edge at a pole is no edge of the ground (the pole cap is in the window) and keeps the weight: faded there, the coarsest window let
-// the floor through (a dark smudge at the pole). Longitude is not wrapped: a window wider than a turn holds imagery only in −180…180
+// the floor through (a dark smudge at the pole). u is not wrapped (#1063): a window a turn wide or more holds imagery only in −180…180,
+// so the longitude is folded into that range instead (#1065, below)
 fn gndWin(dll: vec2f, off: vec4f) -> vec3f {
 	// a window a turn wide or more (globe zoom) holds imagery only for lon −180…180, but dll is relative to the floor anchor (the view
 	// centre since #1062): anchor ± 180° reaches past ±180 → fold that lon back by a turn (else the far side samples empty atlas = navy)
@@ -1579,6 +1580,20 @@ fn gndWin(dll: vec2f, off: vec4f) -> vec3f {
 	let ex = min(u.x, 1.0 - u.x);
 	return vec3f(u, clamp(min(ex, min(e0, e1)) / 0.04, 0.0, 1.0));
 }
+// the ground atlas (up to 4 windows, finest first) at the origin-relative lon/lat dll, premultiplied: one copy for the near side
+// (globeColor) and the far side (globeBack), so a change to the window weights reaches both (#1061 had to patch two copies)
+fn gndAtlas(dll: vec2f, px: f32) -> vec4f {
+	let k0 = gndWin(dll, G.gndOff0); let k1 = gndWin(dll, G.gndOff1); let k2 = gndWin(dll, G.gndOff2); let k3 = gndWin(dll, G.gndOff3);
+	let w0 = k0.z;
+	let w1 = select(0.0, k1.z, GGD.p.x > 1.5);
+	let w2 = select(0.0, k2.z, GGD.p.x > 2.5);
+	let w3 = select(0.0, k3.z, GGD.p.x > 3.5);
+	let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(k0.xy, px, GGD.p.y), 0.0);
+	let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(k1.xy, px, GGD.p.y), 0.0);
+	let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(k2.xy, px, GGD.p.y), 0.0);
+	let g3 = textureSampleLevel(gGnd3, gSamp, gndUV0(k3.xy, px, GGD.p.y), 0.0);
+	return mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
+}
 fn globeBack(in: GOut, c: vec4f) -> vec4f {
 	if (G.cgC.w < 0.5 || c.a >= 0.999) { return c; }
 	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);
@@ -1587,17 +1602,7 @@ fn globeBack(in: GOut, c: vec4f) -> vec4f {
 	let dll = deltaLL(G.eyeO.xyz + t2 * h.d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);
 	var b = vec4f(G.land.rgb * G.land.a, G.land.a);
 	if (GGD.p.x > 0.5) {
-		let k0 = gndWin(dll, G.gndOff0); let k1 = gndWin(dll, G.gndOff1); let k2 = gndWin(dll, G.gndOff2); let k3 = gndWin(dll, G.gndOff3);
-		let u0 = k0.xy; let u1 = k1.xy; let u2 = k2.xy; let u3 = k3.xy;
-		let w0 = k0.z;
-		let w1 = select(0.0, k1.z, GGD.p.x > 1.5);
-		let w2 = select(0.0, k2.z, GGD.p.x > 2.5);
-		let w3 = select(0.0, k3.z, GGD.p.x > 3.5);
-		let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(u0, in.pos.x, GGD.p.y), 0.0);
-		let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(u1, in.pos.x, GGD.p.y), 0.0);
-		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
-		let g3 = textureSampleLevel(gGnd3, gSamp, gndUV0(u3, in.pos.x, GGD.p.y), 0.0);
-		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
+		let gc = gndAtlas(dll, in.pos.x);
 		b = b * (1.0 - gc.a) + gc;
 	}
 	return c + b * G.misc.x * (1.0 - c.a);
@@ -1676,17 +1681,7 @@ fn globeColor(in: GOut) -> vec4f {
 		ba = 1.0;
 	}
 	if (GGD.p.x > 0.5) {   // 地面アトラス（球の床）：uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
-		let k0 = gndWin(dll, G.gndOff0); let k1 = gndWin(dll, G.gndOff1); let k2 = gndWin(dll, G.gndOff2); let k3 = gndWin(dll, G.gndOff3);
-		let u0 = k0.xy; let u1 = k1.xy; let u2 = k2.xy; let u3 = k3.xy;
-		let w0 = k0.z;
-		let w1 = select(0.0, k1.z, GGD.p.x > 1.5);
-		let w2 = select(0.0, k2.z, GGD.p.x > 2.5);
-		let w3 = select(0.0, k3.z, GGD.p.x > 3.5);
-		let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(u0, in.pos.x, GGD.p.y), 0.0);
-		let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(u1, in.pos.x, GGD.p.y), 0.0);
-		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
-		let g3 = textureSampleLevel(gGnd3, gSamp, gndUV0(u3, in.pos.x, GGD.p.y), 0.0);
-		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
+		let gc = gndAtlas(dll, in.pos.x);
 		if (ba < 1.0) {   // 前乗算の重ね（gl の gndOver と同じ）＝穴（Cesium の colorToAlpha）は床の α のまま
 			let ga = ba * (1.0 - gc.a) + gc.a;
 			base = (base * ba * (1.0 - gc.a) + gc.rgb) / max(ga, 1e-4);

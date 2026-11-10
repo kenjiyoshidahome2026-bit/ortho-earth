@@ -133,8 +133,8 @@ export interface RenderView {
 	clear?: number[] | null; /** clear の α を合成に使う（利用者が clearColor に透明を明示した時だけ＝下の canvas が透ける・Cesium の facade の星空） */ clearAlpha?: boolean; land?: number[] | null; atmo?: number[] | null; bldColor?: number[] | null; sea?: number[] | null;
 	fog?: boolean; worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
 	underground?: { color: number[]; nf: number[] } | null;   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
-	globeDepth?: boolean;
-	globeBack?: boolean;   // 球の裏面を描く（断面で切った手前の面の向こう＝遠い根の内側・Cesium の globe.backFaceCulling=false）   // 球の床が深度を書く（不透明な地面だけ・gl/renderer.ts と同じ）＝地中の模型が陸に隠れ、色の穴（Cesium の colorToAlpha）からは見える
+	globeDepth?: boolean;   // 球の床が深度を書く（不透明な地面だけ・gl/renderer.ts と同じ）＝地中の模型が陸に隠れ、色の穴（Cesium の colorToAlpha）からは見える
+	globeBack?: boolean;   // 球の裏面を描く（断面で切った手前の面の向こう＝遠い根の内側・Cesium の globe.backFaceCulling=false）
 	meshOverGround?: boolean;   // 模型を地形の深度で隠さない（Cesium の depthTestAgainstTerrain=false・gl/renderer.ts と同じ）
 	globeAlpha?: number; baseAlpha?: number; skySolar?: boolean; clock?: ClockAnchor | null; showConst?: boolean; night?: boolean; graticule?: boolean;
 	showRail?: boolean; showContour?: boolean; hypso?: { color: number[]; amount?: number; max?: number } | null; distColor?: number[] | null;
