@@ -1567,7 +1567,11 @@ struct GFragD { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 // An edge at a pole is no edge of the ground (the pole cap is in the window) and keeps the weight: faded there, the coarsest window let
 // the floor through (a dark smudge at the pole). Longitude is not wrapped: a window wider than a turn holds imagery only in −180…180
 fn gndWin(dll: vec2f, off: vec4f) -> vec3f {
-	let u = off.xy + dll * off.zw;
+	// a window a turn wide or more (globe zoom) holds imagery only for lon −180…180, but dll is relative to the floor anchor (the view
+	// centre since #1062): anchor ± 180° reaches past ±180 → fold that lon back by a turn (else the far side samples empty atlas = navy)
+	var dl = dll;
+	if (abs(off.z) * 360.0 <= 1.001) { let lon = G.anc2.x + dl.x; if (lon < -180.0) { dl.x += 360.0; } else if (lon > 180.0) { dl.x -= 360.0; } }
+	let u = off.xy + dl * off.zw;
 	let vS = off.y + (-90.0 - G.anc2.y) * off.w; let vN = off.y + (90.0 - G.anc2.y) * off.w;
 	let e0 = select(u.y, 1.0, min(abs(vS), abs(vN)) < 1e-3 && u.y >= -1e-3);
 	let e1 = select(1.0 - u.y, 1.0, min(abs(vS - 1.0), abs(vN - 1.0)) < 1e-3 && u.y <= 1.0 + 1e-3);
