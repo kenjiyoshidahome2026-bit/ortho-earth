@@ -18,7 +18,7 @@ import { Cesium3DTileset } from "./tileset.ts";
 import { PrimitiveDrawer } from "./primitives.ts";
 import { runClustering } from "./clusters.ts";
 import type { ClusterState } from "./clusters.ts";
-import { matKey, matOfProperty, paint } from "./materials.ts";
+import { lightPicture, matKey, matOfProperty, paint } from "./materials.ts";
 import type { MatDesc } from "./materials.ts";
 import type { Host, OrthoScene } from "./scene.ts";
 import { timed } from "./perf.ts";
@@ -341,12 +341,33 @@ export function rectStOf({ rect: [w, s, e, n], rot, str }: RectSt): (lon: number
 	};
 }
 
+/** czm_phong's light on the ground (Cesium's ShadowVolumeAppearanceFS for a ground shape with a material that is not flat): two lights at the eye,
+ *  along the eye's z (towards the viewer) and y (camera up), diffuse = Σ max(0, n·l), colour = material × (0.5 + 0.5·diffuse), no specular for the
+ *  painted materials. n = the ellipsoid normal (Cesium takes it from the depth: the terrain's; the facade's painted shapes lie on the ellipsoid).
+ *  null when the camera is not known */
+export function groundPhong(cam: Any): ((lon: number, lat: number) => number) | null {
+	const d = cam?.directionWC, u = cam?.upWC;
+	if (!d || !u) return null;
+	return (lon, lat) => {
+		const p = lat * D2R, l = lon * D2R, cp = Math.cos(p), nx = cp * Math.cos(l), ny = cp * Math.sin(l), nz = Math.sin(p);
+		const diffuse = Math.max(0, -(nx * d.x + ny * d.y + nz * d.z)) + Math.max(0, nx * u.x + ny * u.y + nz * u.z);
+		return 0.5 + 0.5 * diffuse;
+	};
+}
+/** the light over a shape (its box's corners and centre) in steps of 0.04: a key that changes when the lit picture should be painted again */
+function litSig(polys: number[][][][], lf: (lon: number, lat: number) => number): string {
+	let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+	for (const p of polys) for (const r of p) for (const [x, y] of r) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
+	if (!(e >= w && n >= s)) return "";
+	return "|lit" + [[w, s], [e, s], [w, n], [e, n], [(w + e) / 2, (s + n) / 2]].map(([x, y]) => Math.round(lf(x, y) / 0.04)).join(",");
+}
+
 /** what one entity shows at a time (JSON-comparable) */
 interface Desc {
 	track: { id: string; name: string | null; t: number[]; p: number[]; degree: number; style: Any; avail: number[][] | null } | null;
 	shapes: Any[];
 	/** shapes on the ground with a painted material (stripe, checkerboard, grid, image): an image layer over their box */
-	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number; st?: RectSt }>;
+	patterns: Array<{ id: string; polys: number[][][][]; mat: MatDesc; z: number; st?: RectSt; lit?: boolean }>;
 	lines: Array<{ p: number[]; color: string; width: number; dash?: { len: number; pattern: number }; arrow?: boolean }>;
 	/** ground shapes and clamped polylines classifying the 3D Tiles and models (classificationType CESIUM_3D_TILE or BOTH): a classification volume in their colour
 	 *  (the terrain part stays a fill / line layer); a polyline's width is its pixel width at the entity's distance, in metres */
@@ -696,7 +717,7 @@ export class EntityDisplay {
 			// stays a plain fill: every GeoJSON polygon would otherwise become a volume
 			const onTiles = o.fill && !ext && (o.cls === ClassificationType.CESIUM_3D_TILE || o.cls === ClassificationType.BOTH);
 			if (onTiles) { const [cc, co] = rgbAlpha(o.color); d.classify.push({ geom: { type: "MultiPolygon", coordinates: polys }, color: cc, opacity: co }); }
-			if (o.fill && o.mat && !ext) { if (o.cls !== ClassificationType.CESIUM_3D_TILE) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0, ...(o.st ? { st: o.st } : {}) }); }
+			if (o.fill && o.mat && !ext) { if (o.cls !== ClassificationType.CESIUM_3D_TILE) d.patterns.push({ id, polys, mat: o.mat, z: o.z ?? 0, lit: true, ...(o.st ? { st: o.st } : {}) }); }   // lit: a MaterialAppearance (not flat), shaded by czm_phong
 			else if (o.fill && o.cls !== ClassificationType.CESIUM_3D_TILE) {
 				const [fc, fo] = rgbAlpha(o.color);
 				d.shapes.push({ type: "Feature", geometry: geom, properties: { _id: id, _k: ext ? (o.abs ? "exta" : "ext") : "fill", _fc: fc, _fo: fo, _b: o.base ?? 0, _h: o.top ?? 0, _z: o.z ?? 0 } });
@@ -955,8 +976,15 @@ export class EntityDisplay {
 	/** each patterned ground shape: its material painted over its longitude/latitude box (st across the box, as Cesium's rectangles map it),
 	 *  clipped to the shape, as an image layer under the outlines */
 	#setPatterns(map: Any, pats: Desc["patterns"]) {
-		const want = new Map<string, Desc["patterns"][number]>();
-		for (const q of pats) want.set(JSON.stringify(q.polys) + matKey(q.mat) + (q.st ? JSON.stringify(q.st) : ""), q);
+		const want = new Map<string, Desc["patterns"][number]>(), litOf = new Map<Desc["patterns"][number], ((lon: number, lat: number) => number) | null>();
+		const shade = groundPhong(this.scene.camera);
+		for (const q of pats) {
+			// an entity's painted ground shape is lit as Cesium's ShadowVolumeAppearance lights it (czm_phong from the eye), which turns with the
+			// camera: the picture is painted again when the light over the shape changes by a step (0.04)
+			const lf = q.lit && shade ? shade : null, sig = lf ? litSig(q.polys, lf) : "";
+			litOf.set(q, lf);
+			want.set(JSON.stringify(q.polys) + matKey(q.mat) + (q.st ? JSON.stringify(q.st) : "") + sig, q);
+		}
 		const drop = (k: string, pt: { n: number }) => { const id = `__cs-pat-${pt.n}`; if (map.getLayer?.(id)) map.removeLayer(id); if (map.getSource?.(id)) map.removeSource(id); this.#pats.delete(k); };
 		// a shape that changes (a turning rectangle: a new picture every frame) keeps its last picture until the next one is painted, and paints one
 		// picture at a time (a paint started every frame would be dropped every frame and never show)
@@ -990,6 +1018,8 @@ export class EntityDisplay {
 			const rst = q.st ? rectStOf(q.st) : null;
 			void paint(q.mat, W, H, rst ? (x, y) => rst(w + (x / W) * (e - w), nn - (y / H) * (nn - s)) : (x, y) => [x / W, 1 - y / H]).then(cv => {
 				if (!cv || this.#pats.get(k) !== pt || this.#destroyed) return;
+				const lf = litOf.get(q);
+				if (lf) lightPicture(cv, (x, y) => lf(w + (x / W) * (e - w), nn - (y / H) * (nn - s)));
 				const ctx = cv.getContext("2d")!;
 				ctx.globalCompositeOperation = "destination-in"; ctx.beginPath();
 				for (const p of q.polys) for (const r of p) r.forEach(([x, y], i) => { const px = ((x - w) / (e - w)) * W, py = ((nn - y) / (nn - s)) * H; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
