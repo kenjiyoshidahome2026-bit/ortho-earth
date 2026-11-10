@@ -1,7 +1,7 @@
 // Cesium の大気（view.csAtmo・2026-10-25）＝CesiumJS（1.146）の地面の大気と空の大気を、その式のまま写した物。@ortho-earth/cesium が Cesium の頁を
 // Cesium と同じ見た目で描くための口（既定は off＝従来の霞とリム光）。写した式：AtmosphereCommon.glsl computeScattering／computeAtmosphereColor、
 // GroundAtmosphere.glsl、SkyAtmosphereCommon.glsl、GlobeFS.glsl（地面の大気の枝・HDR なし）、SkyAtmosphereFS.glsl（HDR なし）。
-// Cesium の既定の場合だけ：動的な光源なし（光は各点の真上から＝DynamicAtmosphereLightingType.NONE・enableLighting false）、HDR なし、色相の補正なし。
+// Cesium の既定の場合だけ：動的な光源なし（光は各点の真上から＝DynamicAtmosphereLightingType.NONE・enableLighting false）、HDR なし。色相の補正は空の大気だけ（csHsbShift）。
 // 単位はメートル（ortho の β 単位球×赤道半径）。散乱は球殻の近似（Cesium も球殻）。
 // 地面の大気は遠くから見た時だけ（Cesium の lightingFadeOut/InDistance＝中心から π/2·R → π·R で 0 → 1）。空の大気は殻（半径×1.025）の奥の面の点で計る。
 
@@ -11,10 +11,10 @@ export function csGroundFade(eyeDistM: number): number {
 	return Math.max(0, Math.min(1, (eyeDistM - out) / (inn - out)));
 }
 
-/** Cesium の霧の濃さ（Scene/Fog.js update・既定値）：目の楕円体上の高さ h（m）と視線と上向きの cos の絶対値。800 km より上は 0（霧なし＝遠くから見た地面の大気に替わる） */
-export function csFogDensity(heightM: number, absDot: number): number {
-	if (!(heightM < 800000)) return 0;
-	const d = 0.0006 * 0.001 * Math.pow(Math.max(heightM / 800000, 1e-4), -0.59);   // density × heightScalar × (h / maxHeight)^-heightFalloff
+/** Cesium の霧の濃さ（Scene/Fog.js update・density＝scene.fog.density・他は既定値）：目の楕円体上の高さ h（m）と視線と上向きの cos の絶対値。800 km より上は 0（霧なし＝遠くから見た地面の大気に替わる） */
+export function csFogDensity(heightM: number, absDot: number, density = 0.0006): number {
+	if (!(heightM < 800000) || !(density > 0)) return 0;
+	const d = density * 0.001 * Math.pow(Math.max(heightM / 800000, 1e-4), -0.59);   // density × heightScalar × (h / maxHeight)^-heightFalloff
 	return d * (1 - Math.max(0, Math.min(1, absDot)));
 }
 
@@ -138,7 +138,21 @@ vec4 csSkyUnder(vec3 eye, vec3 dir, float inner, float translucent) {
 // 空の大気（SkyAtmosphereCommon＋SkyAtmosphereFS・HDR なし）：殻（半径×1.025）の奥の面の点の色。前乗算の rgba。under＝地面を通る視線も描く（0=描かない 1=不透明の地面の向こう 2=半透明の地面の向こう）
 // lightDir/dyn: the sun when Cesium lights the atmosphere (globe.enableLighting + dynamicAtmosphereLighting: dyn >= 0), otherwise the light is
 // straight above each point (dyn < 0). Lit, the night side of the sky fades out by sqrt(dot(up, light)) as SkyAtmosphereCommon's nightAlpha
-vec4 csSkyL(vec3 eye, vec3 dir, float under, vec3 lightDir, float dyn) {
+// czm_applyHSBShift（ignoreBlackPixels）＝空の大気の色相・彩度・明るさのずらし（Cesium の skyAtmosphere.hueShift/saturationShift/brightnessShift・COLOR_CORRECT）
+vec3 csHsbShift(vec3 rgb, vec3 sh) {
+	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+	vec4 p = mix(vec4(rgb.bg, K.wz), vec4(rgb.gb, K.xy), step(rgb.b, rgb.g));
+	vec4 q = mix(vec4(p.xyw, rgb.r), vec4(rgb.r, p.yzx), step(p.x, rgb.r));
+	float d = q.x - min(q.w, q.y);
+	vec3 hsb = vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-7)), d / (q.x + 1e-7), q.x);
+	hsb.x += sh.x;
+	hsb.y = clamp(hsb.y + sh.y, 0.0, 1.0);
+	hsb.z = clamp(hsb.z > 1e-7 ? hsb.z + sh.z : 0.0, 0.0, 1.0);
+	vec3 h = abs(fract(hsb.xxx + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+	return hsb.z * mix(vec3(1.0), clamp(h - 1.0, 0.0, 1.0), hsb.y);
+}
+// hsb：csHsbShift のずらし（全部 0＝Cesium は COLOR_CORRECT を立てない＝掛けない）
+vec4 csSkyL(vec3 eye, vec3 dir, float under, vec3 lightDir, float dyn, vec3 hsb) {
 	vec2 s;
 	if (!csSphere(eye, dir, CS_R * 1.025, s) || s.y <= 0.0) return vec4(0.0);
 	vec3 p = eye + dir * s.y;
@@ -154,10 +168,11 @@ vec4 csSkyL(vec3 eye, vec3 dir, float under, vec3 lightDir, float dyn) {
 	if (dyn >= 0.0) op *= sqrt(clamp(dot(normalize(p), L), 0.0, 1.0));
 	vec4 c = csColor(eye, p, L, ray, mie, op, 50.0);
 	c.rgb = pow(max(csTone(c.rgb), vec3(0.0)), vec3(1.0 / 2.2));
+	if (any(notEqual(hsb, vec3(0.0)))) c.rgb = csHsbShift(c.rgb, hsb);   // α は ずらした後の青から（SkyAtmosphereFS と同じ順）
 	float a = clamp(mix(c.b, 1.0, c.a), 0.0, 1.0);
 	return vec4(c.rgb * a, a);
 }
-vec4 csSky2(vec3 eye, vec3 dir, float under) { return csSkyL(eye, dir, under, vec3(0.0), -1.0); }
+vec4 csSky2(vec3 eye, vec3 dir, float under) { return csSkyL(eye, dir, under, vec3(0.0), -1.0, vec3(0.0)); }
 vec4 csSky(vec3 eye, vec3 dir) { return csSky2(eye, dir, 0.0); }
 `;
 
@@ -260,8 +275,21 @@ fn csSkyUnder(eye: vec3f, dir: vec3f, inner: f32, translucent: f32) -> vec4f {
 	let pm = eye + dir * (max(g.x, 0.0) + g.y) * 0.5;
 	return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0), inner - length(pm) > 282000.0);
 }
-// lightDir/dyn: as the GLSL csSkyL
-fn csSkyL(eye: vec3f, dir: vec3f, under: f32, lightDir: vec3f, dyn: f32) -> vec4f {
+// czm_applyHSBShift（gl と同じ・csHsbShift）
+fn csHsbShift(rgb: vec3f, sh: vec3f) -> vec3f {
+	let K = vec4f(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+	let p = mix(vec4f(rgb.bg, K.wz), vec4f(rgb.gb, K.xy), step(rgb.b, rgb.g));
+	let q = mix(vec4f(p.xyw, rgb.r), vec4f(rgb.r, p.yzx), step(p.x, rgb.r));
+	let d = q.x - min(q.w, q.y);
+	var hsb = vec3f(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-7)), d / (q.x + 1e-7), q.x);
+	hsb.x += sh.x;
+	hsb.y = clamp(hsb.y + sh.y, 0.0, 1.0);
+	hsb.z = clamp(select(0.0, hsb.z + sh.z, hsb.z > 1e-7), 0.0, 1.0);
+	let h = abs(fract(hsb.xxx + vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+	return hsb.z * mix(vec3f(1.0), clamp(h - 1.0, vec3f(0.0), vec3f(1.0)), hsb.y);
+}
+// lightDir/dyn/hsb: as the GLSL csSkyL
+fn csSkyL(eye: vec3f, dir: vec3f, under: f32, lightDir: vec3f, dyn: f32, hsb: vec3f) -> vec4f {
 	let s = csSphere(eye, dir, CS_R * 1.025);
 	if (s.z < 0.5 || s.y <= 0.0) { return vec4f(0.0); }
 	let p = eye + dir * s.y;
@@ -274,10 +302,11 @@ fn csSkyL(eye: vec3f, dir: vec3f, under: f32, lightDir: vec3f, dyn: f32) -> vec4
 	sc.opac = clamp((outer - (eyeH + inner)) / (outer - inner), 0.0, 1.0);
 	if (dyn >= 0.0) { sc.opac *= sqrt(clamp(dot(normalize(p), L), 0.0, 1.0)); }
 	let c = csColor(eye, p, L, sc, 50.0);
-	let rgb = pow(max(csTone(c.rgb), vec3f(0.0)), vec3f(1.0 / 2.2));
+	var rgb = pow(max(csTone(c.rgb), vec3f(0.0)), vec3f(1.0 / 2.2));
+	if (any(hsb != vec3f(0.0))) { rgb = csHsbShift(rgb, hsb); }   // α は ずらした後の青から（SkyAtmosphereFS と同じ順）
 	let a = clamp(mix(rgb.b, 1.0, c.a), 0.0, 1.0);
 	return vec4f(rgb * a, a);
 }
-fn csSky2(eye: vec3f, dir: vec3f, under: f32) -> vec4f { return csSkyL(eye, dir, under, vec3f(0.0), -1.0); }
+fn csSky2(eye: vec3f, dir: vec3f, under: f32) -> vec4f { return csSkyL(eye, dir, under, vec3f(0.0), -1.0, vec3f(0.0)); }
 fn csSky(eye: vec3f, dir: vec3f) -> vec4f { return csSky2(eye, dir, 0.0); }
 `;

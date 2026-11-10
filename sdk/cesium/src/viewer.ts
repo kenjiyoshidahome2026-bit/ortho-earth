@@ -251,7 +251,12 @@ export function CesiumWidget(this: Any, container: Any, options: Any = {}) {
 			if (c !== base) { base = c; map.setPaintProperty?.("__cs-base", "background-color", c); }
 			// Cesium's atmosphere (the ground atmosphere seen from afar, the sky atmosphere): the globe draws them with Cesium's own formulas
 			const ground = scene.globe?.show !== false && scene.globe?.showGroundAtmosphere !== false, sky = !!scene.skyAtmosphere && scene.skyAtmosphere.show !== false;
-			if (`${ground}${sky}` !== atm) { atm = `${ground}${sky}`; map.setAtmosphere?.({ model: "cesium", ground, sky }); }
+			// skyAtmosphere.hueShift/saturationShift/brightnessShift (the sky's colour correction) and scene.fog.density / enabled (particle-system-weather's grey snow sky)
+			const sa = scene.skyAtmosphere, fg = scene.fog;
+			const skyHsb: [number, number, number] = [+sa?.hueShift || 0, +sa?.saturationShift || 0, +sa?.brightnessShift || 0];
+			const fogDensity = fg && fg.enabled !== false && fg.renderable !== false ? (Number.isFinite(fg.density) ? fg.density : 0.0006) : 0;
+			const ak = `${ground}${sky}${skyHsb}|${fogDensity}`;
+			if (ak !== atm) { atm = ak; map.setAtmosphere?.({ model: "cesium", ground, sky, skyHsb, fogDensity }); }
 		});
 		this._forceResize = true;
 		await useKtx2(map);   // before anything loads: a tile decoded without the transcoder keeps its fallback (white) for good

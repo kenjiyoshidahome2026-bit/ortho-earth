@@ -951,6 +951,7 @@ uniform vec3 u_skyFogColor;
 uniform vec4 u_skyBlend;
 // Cesium の大気（view.csAtmo・../csatmo.ts）＝(点ける 0/1, 地面の大気の効き 0..1, 空の大気 0/1, 霧の濃さ＝csFogDensity)。点けると従来の霞・リム光・sky の代わり
 uniform vec4 u_csAtm;
+uniform vec3 u_csHsb;   // 空の大気の色相・彩度・明るさのずらし（Cesium の skyAtmosphere.hueShift…・csHsbShift）
 ${CS_ATMO_GLSL}// 全球ハイプソ（NEラスタの美しさを標高から計算で作る＝ラスタタイル配布ゼロ）：
 // レイ→球→測地緯度→elev() は CONTOUR_FS と同式。R90 全球窓（z<6.5 は bounds=[-180,-90,360,180]）を引く。
 // 配色本体は WORLD_HYPSO（TERRAIN_FS と共有＝ピッチで色が変わらない）。
@@ -1028,7 +1029,7 @@ void main() {
 	if (t < 0.0) {                                 // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続に減衰
 		if (u_csAtm.x > 0.5) {   // Cesium の空の大気（殻の奥の面で計る・星の上に α で重なる）
 			if (u_csAtm.z < 0.5) discard;
-			vec4 cs = csSkyL(A * CS_R, normalize(d), 0.0, u_cg.xyz, u_cg.w > 0.5 ? u_cgP.w : -1.0);   // lit by the sun with the globe's lighting (Cesium's dynamic atmosphere)
+			vec4 cs = csSkyL(A * CS_R, normalize(d), 0.0, u_cg.xyz, u_cg.w > 0.5 ? u_cgP.w : -1.0, u_csHsb);   // lit by the sun with the globe's lighting (Cesium's dynamic atmosphere)
 			if (cs.a <= 0.002) discard;
 			fragColor = cs;
 			return;

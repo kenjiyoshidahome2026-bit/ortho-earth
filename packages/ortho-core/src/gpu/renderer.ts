@@ -145,7 +145,7 @@ export interface RenderView {
 	atmSun?: number; atmScale?: number; atmGround?: number; atmExposure?: number; pbrFill?: number;
 	aoStrength?: number; aoRadius?: number; aoBias?: number; aoPhase?: number;
 	dashDz?: number;   // 破線・模様（S-P1-3/4）の段の目盛り＝外来 style の z とエンジンの z の差（globe の STYLE_DZ・既定 1・gl/renderer.ts と同じ）
-	csAtmo?: { ground?: boolean; sky?: boolean } | null;   // Cesium の大気（../csatmo.ts・gl と同じ）
+	csAtmo?: { ground?: boolean; sky?: boolean; skyHsb?: [number, number, number]; fogDensity?: number } | null;   // Cesium の大気（../csatmo.ts・gl と同じ）
 }
 /** draw の旗 */
 export interface RenderDrawOptions { aa?: boolean; skipMain?: boolean; skipBase?: boolean; noBld?: boolean; noTerrain?: boolean; moving?: boolean }   // moving＝カメラが動いている（入力中・飛行中・静定前）＝地形メッシュを粗い index で描く（rOpts.terrCoarse）
@@ -1232,7 +1232,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 8, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const globeBuf = device.createBuffer({ size: 448 + 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
+	const globeBuf = device.createBuffer({ size: 448 + 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
 	let globeBG: GPUBindGroup = null!;   // rebuildBG0()（初期化の内）が作る   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
 	// 塗りの模様（S-P1-4/5）の束縛の既定＝1×1 の透明な絵（模様を使わない塗りも group(1) の binding 1/2 を満たす）・サンプラは repeat・linear（GL2 と同じ）
@@ -2990,7 +2990,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// フォグ距離の臨界減衰追従（gl/renderer.js draw と同式・同閾値）
 		// 霧を焚かない時とカメラが飛んだ時は追わずに合わせる（gl/renderer.ts と同じ・2026-10-23）
 		fogDist = fogFollow(fogDist, lastCamDist, st.camDist, fogK());   // framek.ts（gl と同式・同閾値）
-		csFogD = view.csAtmo && view.csAtmo.ground !== false ? csFogDensity((Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - 1) * 6378137, Math.abs(Math.cos(cam.pitch || 0))) : 0;   // Cesium の霧の濃さ（csatmo.ts・800 km より下）
+		csFogD = view.csAtmo && view.csAtmo.ground !== false ? csFogDensity((Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - 1) * 6378137, Math.abs(Math.cos(cam.pitch || 0)), view.csAtmo.fogDensity) : 0;   // Cesium の霧の濃さ（csatmo.ts・800 km より下）
 		lastCamDist = st.camDist;
 		st.fogDist = fogDist;
 		const fogAnimating = fogDist !== st.camDist;
@@ -3153,7 +3153,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		for (let k = 0; k < 2; k++) { const o = k * (PARAM_SLOT / 4); ptAtlCPU.set(paramF32.subarray(ROLE.normal * (PARAM_SLOT / 4), ROLE.normal * (PARAM_SLOT / 4) + 12), o); ptAtlCPU[o + 46] = k + 1; }   // 地面アトラスの表を読む列＝役割 normal＋pzO.z
 		device.queue.writeBuffer(ptAtlBuf, 0, ptAtlCPU);
 		if (!flat2d) {
-			const g = new Float32Array(124);   // +ugC/ugNF（地下から見た球の裏面 2026-10-29）   // +gm/gmC/gmP（地面の材質 2026-10-28）   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
+			const g = new Float32Array(128);   // +csHsb（空の大気の HSB 2026-11-10） +ugC/ugNF（地下から見た球の裏面 2026-10-29）   // +gm/gmC/gmP（地面の材質 2026-10-28）   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
 			packRays(g, 0, st);   // 視線の基底（#65・旧 invMvp の枠）
 			const gl4 = see && view.land ? view.land : land;   // 床の色と α：透かす地図（clearAlpha・Cesium の globe.baseColor TRANSPARENT）だけ素の land（gl と同じ＝穴は宇宙が見える）。他は白に畳んだ不透明の land（従来どおり）
 			g[16] = gl4[0]; g[17] = gl4[1]; g[18] = gl4[2]; g[19] = gl4[3] ?? 1;
@@ -3171,6 +3171,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			g[45] = csA && csA.ground !== false ? csGroundFade((1 + st.camDist) * 6378137) : 0; g[46] = csA ? 1 : 0; g[47] = csA && csA.sky !== false ? 1 : 0;
 			g[42] = csFogD;   // farP.z＝Cesium の霧の濃さ（gl の u_csAtm.w と同じ）
 			g[43] = view.globeDepth ? logCoef * 0.5 : 0;   // farP.w＝球の床が深度を書く（fsDepth・0.5·logCoef）
+			{ const h = csA?.skyHsb; if (h) { g[124] = h[0]; g[125] = h[1]; g[126] = h[2]; } }   // csHsb＝空の大気の HSB のずらし（gl の u_csHsb）
 			// 大気散乱（#46 段 1）：太陽の方向（段 0 の sunF）と点ける度合い＝fx.atmosphere × 全球ハイプソの出現度（紙のテーマ・基図の帯＝従来のリム光）。atmP＝太陽の強さ・露出
 			g[48] = sunF[0]; g[49] = sunF[1]; g[50] = sunF[2]; g[51] = FX.atmosphere && view.worldHypso ? worldHypsoKOf(cam.zoom, whZ) : 0;   // ハイプソと同じ帯（標高の到着は待たない＝殻の絵は標高に依らない）
 			{   // 錨（#65）：球の床・海面下の交点を原点相対 δ で持ち、uv は f64 前計算の (off, 1/span) で作る＝絶対経緯度（f32 で 1.4 m 刻み）を経ない
