@@ -401,6 +401,9 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		else { const llh = ecefToLlh(q[0], q[1], q[2]), a = llh[0] * D2R, b = llh[1] * D2R, k = 1 + llh[2] / R, cb = Math.cos(b); x = cb * Math.cos(a) * k; y = Math.sin(b) * k; z = cb * Math.sin(a) * k; }
 		return Math.hypot(x - E[0], y - E[1], z - E[2]) * R;
 	};
+	// 遠い印から先に（Cesium の BillboardCollection／LabelCollection／PointPrimitiveCollection は深度を比べて描く＝重なった所は目に近い印が勝つ。
+	// 軌跡の順に重ねると最後の印が勝った：billboards-instancing-dev の 10 万枚の格子が東半分だけ橙・白い印が北の端に出た）。同じ深さは元の順（sort は安定）
+	marks.sort((a, b) => (b[0][2] ?? 0) - (a[0][2] ?? 0));
 	for (const [P, st, tr, q] of marks) {
 		let hitR = 4 * dpr;   // 当たり半径＝描いた物の大きさ（画像＝短辺の半分・点＝半径・最低 4px）
 		const dM = st.image?.sbd || st.image?.tbd || st.label?.sbd || st.label?.tbd ? distM(q) : 0;
