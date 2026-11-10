@@ -87,12 +87,21 @@ interface MlState {
 	layerSubs: LayerSub[]; sources: Set<string>; controls: globalThis.Map<IControl, HTMLElement>; corners: Record<string, HTMLElement> | null;
 	last: CamAngles | null; raf: number; projection: string; init: { center: LngLat; zoom: number; bearing: number; pitch: number; roll: number };
 	ready?: Promise<Engine | null>; handlerInit?: Record<string, boolean>; handlers?: Record<string, object>; dz?: number; down?: number[];
-	sq?: SyncQ; customHost?: boolean; anim?: globalThis.Map<string, { img: AnimImage; tick: () => void; stop: () => void }>; placeholder?: HTMLCanvasElement;
+	sq?: SyncQ; customHost?: boolean; anim?: globalThis.Map<string, { img: AnimImage; tick: () => void; stop: () => void }>; placeholder?: HTMLCanvasElement; interactive?: boolean;
 	dbg?: { tileBoundaries?: boolean; padding?: boolean; collision?: boolean; overdraw?: boolean; vertices?: boolean }; repaint?: boolean; anisoPitch?: number;
 	eventedParent?: { parent: unknown; data: unknown } | null;
 }
 
 // MapLibre GL JS 6.11.2 の Map の公開の口（型定義から）。ここに実装の無い口は「unsupported を記録して this」を返す
+// MapLibre の canvas は tabindex を持つ（interactive＝"0"・false＝"-1"）＋role "region"・aria-label "Map"。
+// tabindex が無いと map.getCanvas().focus() が効かず、canvas に keydown を付ける例（navigate-the-map-with-game-like-controls）でキーが届かない（2026-11-10）。
+// 既に付いている属性は上書きしない（使う側の指定を尊重）
+const focusable = (cv: HTMLCanvasElement, interactive = true): HTMLCanvasElement => {
+	if (!cv.hasAttribute("tabindex")) cv.tabIndex = interactive ? 0 : -1;
+	if (!cv.hasAttribute("role")) cv.setAttribute("role", "region");
+	if (!cv.hasAttribute("aria-label")) cv.setAttribute("aria-label", "Map");
+	return cv;
+};
 const ML_METHODS = new Set(["addControl", "addImage", "addLayer", "addSource", "addSprite", "areTilesLoaded", "calculateAnchoredCameraOptions", "calculateCameraOptionsFromCameraLngLatAltRotation", "calculateCameraOptionsFromTo", "cameraForBounds", "coveringTiles", "easeTo", "fire", "fitBounds", "fitScreenCoordinates", "flyTo", "getAnisotropicFilterPitch", "getBearing", "getBounds", "getCameraTargetElevation", "getCanvas", "getCanvasContainer", "getCenter", "getCenterClampedToGround", "getCenterElevation", "getContainer", "getFeatureState", "getFilter", "getFontFaces", "getGlobalState", "getGlyphs", "getImage", "getLayer", "getLayersOrder", "getLayoutProperty", "getLight", "getMaxBounds", "getMaxPitch", "getMaxZoom", "getMinPitch", "getMinZoom", "getPadding", "getPaintProperty", "getPitch", "getPixelRatio", "getProjection", "getRenderWorldCopies", "getRoll", "getSky", "getSource", "getSprite", "getStyle", "getStyleUrl", "getTerrain", "getVerticalFieldOfView", "getZoom", "getZoomSnap", "hasControl", "hasImage", "isMoving", "isRotating", "isSourceLoaded", "isStyleLoaded", "isZooming", "jumpTo", "listImages", "listens", "loadImage", "loaded", "moveLayer", "off", "on", "once", "panBy", "panTo", "project", "queryRenderedFeatures", "querySourceFeatures", "queryTerrainElevation", "redraw", "refreshTiles", "remove", "removeControl", "removeFeatureState", "removeImage", "removeLayer", "removeSource", "removeSprite", "repaint", "resetNorth", "resetNorthPitch", "resize", "rotateTo", "setAnisotropicFilterPitch", "setBearing", "setCenter", "setCenterClampedToGround", "setCenterElevation", "setEventedParent", "setFeatureState", "setFilter", "setFontFaces", "setGlobalStateProperty", "setGlyphs", "setLayerZoomRange", "setLayoutProperty", "setLight", "setMaxBounds", "setMaxPitch", "setMaxZoom", "setMinPitch", "setMinZoom", "setPadding", "setPaintProperty", "setPitch", "setPixelRatio", "setProjection", "setRenderWorldCopies", "setRoll", "setSky", "setSourceTileLodParams", "setSprite", "setStyle", "setTerrain", "setTransformCameraUpdate", "setTransformConstrain", "setTransformRequest", "setVerticalFieldOfView", "setZoom", "setZoomSnap", "showCollisionBoxes", "showOverdrawInspector", "showPadding", "showTileBoundaries", "snapToNorth", "stop", "triggerRepaint", "unproject", "updateImage", "version", "vertices", "zoomIn", "zoomOut", "zoomTo"]);
 const HANDLERS = ["scrollZoom", "boxZoom", "dragRotate", "dragPan", "keyboard", "doubleClickZoom", "touchZoomRotate", "touchPitch", "cooperativeGestures"];
 // 事象：エンジンの事象から作る物／容れ物の DOM から作る物（点と経緯度は公開の unproject）
@@ -265,6 +274,7 @@ export class Map {
 			: k === "isActive" ? () => false
 			: /^(enable|disable)/.test(k) ? () => { const on = /^enable/.test(k), f = flag(h, k); st.handlerInit![f] = on; onEngine(st, eng => eng.setHandler(f as HandlerName, on)); return undefined; }
 			: () => { unsupported(self, `${h}.${k}()`, "cosmetic"); return undefined; } });
+		st.interactive = options.interactive !== false;
 		st.handlerInit = Object.fromEntries(HANDLERS.map(h => [h, options[h] !== false && options.interactive !== false]));
 		st.handlerInit.touchRotate = st.handlerInit.touchZoomRotate;
 		st.handlerInit.cooperativeGestures = !!options.cooperativeGestures;
@@ -388,7 +398,18 @@ export class Map {
 	panTo(c: LngLatLike, o?: CamIn): this { return this.easeTo({ ...o, center: c }); }
 	panBy(off: PointLike, o?: CamIn): this {
 		const st = S.get(this)!, [dx, dy] = Array.isArray(off) ? off : [off.x, off.y];
-		const r = st.container.getBoundingClientRect(), c = this.unproject([r.width / 2 + dx, r.height / 2 + dy]);
+		const r = st.container.getBoundingClientRect(), cx = r.width / 2, cy = r.height / 2;
+		// MapLibre の panBy＝panTo(今の中心, { offset: −off })＝今の中心が動いた後の画面で (中心 − off) に来る。傾けた地図では「off 先の点を中心へ」と量が違う
+		// （↑100px＝手前 100px 分の地面だけ進む・↓100px＝奥 100px 分だけ戻る）＝(中心 − off) の点を今の中心の周りに 180° 回した点（球の上の点対称）が新しい中心。
+		// 傾き 0 なら off 先の点と同じ。旧＝off 先の点を中心へ＝傾けた地図で ↑ と ↓ の量が MapLibre と逆（navigate-the-map-with-game-like-controls・2026-11-10）
+		const q = this.unproject([cx - dx, cy - dy]), a = this.getCenter();
+		if (q && a) {
+			const R = Math.PI / 180, v = (l: LngLat) => [Math.cos(l.lat * R) * Math.cos(l.lng * R), Math.cos(l.lat * R) * Math.sin(l.lng * R), Math.sin(l.lat * R)];
+			const A = v(a), Q = v(q), k = 2 * (A[0] * Q[0] + A[1] * Q[1] + A[2] * Q[2]), P = [0, 1, 2].map(i => k * A[i] - Q[i]);
+			const lng = Math.atan2(P[1], P[0]) / R, lat = Math.asin(Math.max(-1, Math.min(1, P[2]))) / R;
+			return this.easeTo({ ...o, center: [a.lng + ((lng - a.lng + 540) % 360) - 180, lat] });   // 経度は今の中心から近い向きに（±180 を跨いでも遠回りしない）
+		}
+		const c = this.unproject([cx + dx, cy + dy]);   // (中心 − off) が球の外（地平線の上）＝旧のやり方で
 		return c ? this.easeTo({ ...o, center: c }) : this;
 	}
 	zoomTo(z: number, o?: CamIn): this { return this.easeTo({ ...o, zoom: z }); }
@@ -658,12 +679,12 @@ export class Map {
 	getCanvasContainer(): HTMLElement { return S.get(this)!.container; }
 	getCanvas(): HTMLCanvasElement {
 		const st = S.get(this)!, cg = st.engine?.getCustomLayerCanvas?.();
-		if (cg) return cg;   // custom 層がある地図＝その WebGL2 canvas（three.js の new WebGLRenderer({ canvas: map.getCanvas(), context: gl }) が同じ canvas と文脈を受け取る）
+		if (cg) return focusable(cg, st.interactive);   // custom 層がある地図＝その WebGL2 canvas（three.js の new WebGLRenderer({ canvas: map.getCanvas(), context: gl }) が同じ canvas と文脈を受け取る）
 		const c = st.container.querySelector("canvas#c");
-		if (c) return c as HTMLCanvasElement;
+		if (c) return focusable(c as HTMLCanvasElement, st.interactive);
 		if (st.engine || st.inert) { unsupported(this, "getCanvas before the map is ready"); return (st.placeholder ??= document.createElement("canvas")); }
 		const cv = st.container.appendChild(document.createElement("canvas")); cv.id = "c";   // 起動前＝エンジンが使う #c を先に置く（エンジンは容れ物の直下の #c を拾う）＝MapLibre と同じく構築直後から本物の canvas
-		return cv;
+		return focusable(cv, st.interactive);
 	}
 	getPixelRatio() { return ask(this, "getPixelRatio", [], { before: window.devicePixelRatio || 1 }); }
 	triggerRepaint(): void { S.get(this)!.engine?.requestDraw?.(); }

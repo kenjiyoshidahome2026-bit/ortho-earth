@@ -1909,6 +1909,25 @@ try {
 			pop.remove();
 			return [!!ll && !!want && Math.abs(ll.lng - want.lng) < 1e-6 && Math.abs(ll.lat - want.lat) < 1e-6 && pen === "none", `ll=${ll?.lng?.toFixed(4)},${ll?.lat?.toFixed(4)} want=${want?.lng?.toFixed(4)},${want?.lat?.toFixed(4)} pe=${pen}`];
 		});
+		await scene("canvas-focus-keydown", async () => {   // getCanvas() は tabindex を持つ（interactive＝"0"）＝focus() が効き、canvas の keydown が届く（例 navigate-the-map-with-game-like-controls・2026-11-10）
+			const cv = map.getCanvas(); cv.focus();
+			let got = 0; const h = e => { if (e.code === "KeyW") got++; }; cv.addEventListener("keydown", h, true);
+			document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "w", code: "KeyW", bubbles: true }));
+			cv.removeEventListener("keydown", h, true);
+			const ok = document.activeElement === cv && cv.getAttribute("tabindex") === "0" && cv.getAttribute("aria-label") === "Map" && got === 1;
+			cv.blur();
+			return [ok, `active=${document.activeElement === cv ? "canvas" : document.activeElement?.tagName} tabindex=${cv.getAttribute("tabindex")} aria=${cv.getAttribute("aria-label")} keydown=${got}`];
+		});
+		await scene("panby-pitched-moves-like-maplibre", async () => {   // panBy(off)＝今の中心が動いた後の画面で (中心 − off) に来る（MapLibre の panTo(center, { offset: −off })）。傾けた地図で ↑ は手前の量・↓ は奥の量
+			const cv = map.getCanvas().getBoundingClientRect(), cx = cv.width / 2, cy = cv.height / 2, out = [];
+			for (const off of [[0, -100], [0, 100], [120, -60]]) {
+				map.jumpTo({ center: C, zoom: 17, pitch: 60, bearing: -12 }); await sleep(100);
+				const a = map.getCenter(); map.panBy(off, { duration: 0 }); await sleep(100);
+				const q = map.project(a); out.push([off, q.x - (cx - off[0]), q.y - (cy - off[1])]);
+			}
+			map.jumpTo({ center: C, zoom: 11, pitch: 0, bearing: 0 }); await sleep(200);
+			return [out.every(([, ex, ey]) => Math.abs(ex) < 1.5 && Math.abs(ey) < 1.5), out.map(([o, ex, ey]) => `${o}:${ex.toFixed(2)},${ey.toFixed(2)}`).join(" ")];
+		});
 	} else if (G === "motion") {
 		// ── 動きを減らす・動きの時計（C10・2026-10-12）：reduceMotion＝easeTo/flyTo は essential:true でなければ即座に・無指定は OS の prefers-reduced-motion を追う。
 		//    setNow(ms)＝飛行と paint の transition がその時刻で止まる／進む（決定論の撮影）・restoreNow で実時間へ ──
