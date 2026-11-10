@@ -348,9 +348,11 @@ export class OrthoScene {
 		const on = !!map.getTerrain?.(), k0 = Number(this.verticalExaggeration), rel0 = Number(this.verticalExaggerationRelativeHeight);
 		const k = on && Number.isFinite(k0) && k0 > 0 ? k0 : 1, rel = Number.isFinite(rel0) ? rel0 : 0;
 		const shift = k === 1 ? 0 : (k - 1) * rel;
+		// the globe's factor is checked every frame, not only when k changes: map.setTerrain (a new terrainProvider, scene.setTerrain) puts it
+		// back to 1, and the facade would go on shifting the camera and heights for a k the globe no longer draws
+		if (map.getTerrainExaggeration?.() !== k) map.setTerrainExaggeration(k);
 		if (k === this.#terrK && shift === this.#terrShift) return;
 		this.#terrK = k; this.#terrShift = shift;
-		if (map.getTerrainExaggeration?.() !== k) map.setTerrainExaggeration(k);
 		this.host.display?.setTerrainScale?.(k);
 		this.requestRender();
 	}
