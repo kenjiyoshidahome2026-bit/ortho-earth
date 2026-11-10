@@ -21,7 +21,9 @@ import { glAttrs } from "@ortho-earth/core/gpupower";   // 既定＝速い GPU�
 /** render worker の host（init の第 3 引数）＝読む分 */
 interface OverlayHost { post(data: unknown): void; requestDraw(): void; depthGLSL?: string; wantDepth?(on: boolean): void }
 /** frame の api（断面＝clip は render worker が足す・#111） */
-type FrameApi = OverlayFrameApi & { clip?: { distM(lon: number, lat: number, hM?: number): number } | null };
+type FrameApi = OverlayFrameApi & { clip?: { distM(lon: number, lat: number, hM?: number): number } | null;
+	/** the ground's clipping (setClipping "terrain"): negative = the globe is cut away there and hides nothing behind it */
+	groundClip?: { distM(lon: number, lat: number, hM?: number): number } | null };
 /** main（czml.ts）から来る軌跡（style つき・description は main に残る） */
 type DrawTrack = CzmlTrack & { style?: CzmlStyle };
 /** 最後に描いた印（device px・r＝当たり半径） */
@@ -264,11 +266,57 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 		if (ell) { x = q[0] / R; y = q[2] / (R * rAx); z = q[1] / R; }
 		else { llh = ecefToLlh(q[0], q[1], q[2]); const a = llh[0] * D2R, b = llh[1] * D2R, k = 1 + llh[2] / R, cb = Math.cos(b); x = cb * Math.cos(a) * k; y = Math.sin(b) * k; z = cb * Math.sin(a) * k; }
 		const ww = m[3] * x + m[7] * y + m[11] * z + m[15];
+		hidBy = 0;
 		if (ww <= 1e-6) return null;
 		const dx = x - E[0], dy = y - E[1], dz = z - E[2], dd = dx * dx + dy * dy + dz * dz, tt = -(E[0] * dx + E[1] * dy + E[2] * dz) / dd;
-		if (tt > 0 && tt < 1) { const px = E[0] + dx * tt, py = E[1] + dy * tt, pz = E[2] + dz * tt; if (px * px + py * py + pz * pz < 1) return null; }
-		if (api.clip) { llh ??= ecefToLlh(q[0], q[1], q[2]); if (api.clip.distM(llh[0], llh[1], llh[2]) < 0) return null; }
+		if (tt > 0 && tt < 1) {
+			const px = E[0] + dx * tt, py = E[1] + dy * tt, pz = E[2] + dz * tt, r2 = px * px + py * py + pz * pz;
+			if (r2 < 1) {
+				// the Earth hides the point only where its surface is there: the view ray's entry into the sphere. A ground clipped away there
+				// (cartographicLimitRectangle: the band's far rim seen over the cut-away pole cap) leaves the point visible, as Cesium's depth does
+				const gc = api.groundClip;
+				let hide = true;
+				if (gc) {
+					const t1 = tt - Math.sqrt((1 - r2) / dd), ex = E[0] + dx * t1, ey = E[1] + dy * t1, ez = E[2] + dz * t1;   // entry (unit sphere: x,z equatorial, y north)
+					const b = Math.atan2(ey, Math.hypot(ex, ez)), lat = (ell ? Math.atan(Math.tan(b) / rAx) : b) / D2R;   // the β sphere (ellipsoid: tanβ = rAx·tanφ)
+					if (t1 > 0 && gc.distM(Math.atan2(ez, ex) / D2R, lat, 0) < 0) hide = false;
+				}
+				if (hide) { hidBy = 1; return null; }
+			}
+		}
+		if (api.clip) { llh ??= ecefToLlh(q[0], q[1], q[2]); if (api.clip.distM(llh[0], llh[1], llh[2]) < 0) { hidBy = 1; return null; } }
 		return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / ww * 0.5 + 0.5) * w, (1 - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / ww * 0.5 + 0.5)) * h, ww];
+	};
+	// 線分 a（見える）→ b（地球の陰・断面の外）の見える端＝2 点の間を二分して陰に入る所まで（custom-datasource：地球の裏から立つ棒の、縁より上に出た部分。
+	// 頂点ごとに捨てると根元が裏の棒は丸ごと消えた。Cesium は深度で切るので縁の上に出た所は見える）。カメラの後ろで消えた点（hidBy 0）は今まで通り切る
+	let hidBy = 0;
+	const edgeOf = (a: ArrayLike<number>, b: ArrayLike<number>): RunPt | null => {
+		let lo = 0, hi = 1, P: RunPt | null = null;
+		const q = [0, 0, 0];
+		for (let k = 0; k < 24; k++) {
+			const s = (lo + hi) / 2;
+			for (let j = 0; j < 3; j++) q[j] = a[j] + (b[j] - a[j]) * s;
+			const R2 = toScreen(q);
+			if (R2) { lo = s; P = R2; } else hi = s;
+		}
+		return P;
+	};
+	// 点の列 → 見える区間ごとの run（陰との境は二分した端で止める）
+	const runs = (pts: Array<ArrayLike<number> | null>, emit: (run: RunPt[]) => void) => {
+		let run: RunPt[] = [], prevQ: ArrayLike<number> | null = null, prevVis = false;
+		for (const q of pts) {
+			const P = q && toScreen(q), hid = hidBy;
+			if (P) {
+				if (!prevVis && prevQ && q) { const e = edgeOf(q, prevQ); if (e) run.push(e); }
+				run.push(P);
+			} else {
+				if (prevVis && prevQ && q && hid) { const e = edgeOf(prevQ, q); if (e) run.push(e); }
+				if (run.length) emit(run);
+				run = [];
+			}
+			prevQ = q && (P || hid) ? q : null; prevVis = !!P;
+		}
+		if (run.length) emit(run);
 	};
 	g.enable(g.BLEND);
 	g.useProgram(seg!.p);   // シーンの深度（#47）：このフレームの深度を貼る・まだ無い（申し出の直後・LOW_MEM）＝比べない
@@ -308,16 +356,13 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 	// 高さのある線（CZML の polyline・P0 #5）＝尾と同じ描き方（隠れた所・切られた所で途切れる）
 	for (const L of lines) {
 		if ((L.avail && !L.avail.some(([a, b]) => ms >= a && ms <= b)) || !boolAt(L.show, ms, true)) continue;
-		const lw = L.width * dpr, out: number[] = [];
-		let run: RunPt[] = [];
-		const flush = () => {
+		const lw = L.width * dpr, out: number[] = [], pts: number[][] = [];
+		for (let i = 0; i + 2 < L.p.length; i += 3) pts.push([L.p[i], L.p[i + 1], L.p[i + 2]]);
+		runs(pts, run => {
 			if (L.arrow && run.length > 1) arrowRun(run, lw, out);
 			else if (L.dash) dashRun(run, lw, L.dash.len * dpr, L.dash.pattern, out);
 			else for (let i = 0; i + 1 < run.length; i++) out.push(run[i][0], run[i][1], run[i + 1][0], run[i + 1][1], lw, i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0, run[i][2] ?? 0, run[i + 1][2] ?? 0);
-			run = [];
-		};
-		for (let i = 0; i + 2 < L.p.length; i += 3) { const P = toScreen([L.p[i], L.p[i + 1], L.p[i + 2]]); if (!P) { flush(); continue; } run.push(P); }
-		flush();
+		});
 		stroke(out, rgbaOf(L.color), lw);
 	}
 	for (const tr of tracks) {
@@ -330,10 +375,7 @@ function draw(cam: CameraPose, s: CameraState, w: number, h: number, api: FrameA
 			// polylineOutline（czml-path）＝全幅を縁の色で描き、その上に width − outlineWidth の芯（Cesium の PolylineOutline の interior と同じ）
 			// polylineGlow（interpolation）＝glowBands の帯を外から内へ重ねる（細い芯＋薄い光彩。全幅をべた塗りにしない）
 			const ol = ph.outline && ph.outline.width > 0 ? ph.outline : null, lw = ph.width * dpr, cw = ol ? Math.max(1, ph.width - ol.width) * dpr : lw, segs: number[] = [];
-			let run: RunPt[] = [];
-			const flush = () => { for (let i = 0; i + 1 < run.length; i++) { const a = run[i], b = run[i + 1]; segs.push(a[0], a[1], b[0], b[1], i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0, a[2] ?? 0, b[2] ?? 0); } run = []; };   // 継ぎは丸・尾の端は butt
-			for (const t of times) { const q = pathPositionAt(tr, t, ms, rel, ph.frame ?? null), P = q && toScreen(q); if (!P) { flush(); continue; } run.push(P); }
-			flush();
+			runs(times.map(t => pathPositionAt(tr, t, ms, rel, ph.frame ?? null)), run => { for (let i = 0; i + 1 < run.length; i++) { const a = run[i], b = run[i + 1]; segs.push(a[0], a[1], b[0], b[1], i > 0 ? 1 : 0, i + 2 < run.length ? 1 : 0, a[2] ?? 0, b[2] ?? 0); } });   // 継ぎは丸・尾の端は butt
 			const withWidth = (wd: number) => { const out: number[] = []; for (let i = 0; i < segs.length; i += 8) out.push(segs[i], segs[i + 1], segs[i + 2], segs[i + 3], wd, segs[i + 4], segs[i + 5], segs[i + 6], segs[i + 7]); return out; };
 			const col = rgbaOf(ph.color);
 			if (segs.length && ph.glow != null) for (const b of glowBands(ph.glow)) {

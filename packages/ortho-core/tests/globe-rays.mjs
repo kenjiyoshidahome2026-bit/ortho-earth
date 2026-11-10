@@ -7,7 +7,7 @@
 //   3. deltaLL（δ → 経緯度の差の恒等式・f32）＝真の経緯度差と 1e-8°（1 mm）以内・絶対の経緯度（f32 で 1.4 m 刻み）を経ない
 //   4. sphereRayUniforms の c と、視線 v の長さ（clip w＝1 の向き）＝f64 で自明に正しい
 // 使い方: node packages/ortho-core/tests/globe-rays.mjs
-import { cameraState, lonlatTo3D, betaToLonLat as lonlatOf3D, viewRays, sphereRayUniforms, anchorUV, setEllipsoid } from '../src/camera.ts';
+import { cameraState, lonlatTo3D, betaToLonLat as lonlatOf3D, viewRays, sphereRayUniforms, anchorUV, floorAnchor, setEllipsoid } from '../src/camera.ts';
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };
@@ -129,6 +129,19 @@ console.log('― 基底と c（f64）＝自明に正しい ―');
 	ok(Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.01, `画面中心の床の点：f64 との差 ${Math.hypot(a[0] - b[0], a[1] - b[1]).toExponential(1)} 画素`);
 	const uv = anchorUV([139.5, 35.5], [139, 35, 1, 2]);
 	ok(uv[0] === 0.5 && uv[1] === 0.25 && uv[2] === 1 && uv[3] === 0.5 && anchorUV([0, 0], null).every(v => v === 0), 'anchorUV＝(原点の uv, 1/span)・窓なし＝0');
+}
+
+// 5. 床の錨（floorAnchor・2026-11-10）：main 原点が無い（Cesium の facade）＝注視点。原点 [0,0] のままだと目の原点相対が ~1.4 地球半径＝
+//    f32 の δ が 1 m 級に丸まる（低い目の地面が平行四辺形の塊）。近い main 原点はそのまま（基図のある地図はビット同値）・遠い main は注視点
+{
+	console.log('5. floorAnchor');
+	const c = [-117.023, 34.8916];
+	ok(floorAnchor(null, c).join() === c.join() && floorAnchor(undefined, c).join() === c.join(), 'main 原点なし＝注視点');
+	ok(floorAnchor([-117.1, 34.9], c).join() === '-117.1,34.9', '近い main 原点＝そのまま');
+	ok(floorAnchor([139.7, 35.7], c).join() === c.join() && floorAnchor([179.9, 0], [-179.9, 0]).join() === '179.9,0', '遠い main＝注視点・日付変更線を跨ぐ近さは近い');
+	const st = cameraState({ center: c, zoom: 23, pitch: 1.25, bearing: 0, dpr: 1 }, W, H);
+	const ef = O => { const u = sphereRayUniforms(st, O); return Math.max(...u.EO.map(Math.abs)); };
+	ok(ef(floorAnchor(null, c)) < 1e-5 && ef([0, 0]) > 1, `目の原点相対：注視点の錨 ${ef(floorAnchor(null, c)).toExponential(1)}・[0,0] ${ef([0, 0]).toFixed(2)}（地球半径）`);
 }
 
 console.log(fails ? `\n✗ ${fails} 件失敗` : '\nPASS');

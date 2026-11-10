@@ -25,7 +25,7 @@ import { Color, Material, HeightReference } from "@cesium/engine";
 import { CustomShader, UniformType, LightingModel, CustomShaderTranslucencyMode, TextureUniform } from "@cesium/engine";
 import { customShaderId } from "../src/custom-shader.ts";
 import { terrainSourceOf } from "../src/terrain.ts";
-import { groundHeights, ellipsePts, rectStOf, rectRing } from "../src/display.ts";
+import { groundHeights, ellipsePts, rectStOf, rectRing, groundPhong } from "../src/display.ts";
 import RectangleGeometryLibrary from "../../../node_modules/@cesium/core/Source/RectangleGeometryLibrary.js";
 
 let fails = 0; const ok = (n, c, info = "") => { console.log(`${c ? "PASS" : "FAIL"} ${n}${info ? " " + info : ""}`); if (!c) fails++; };
@@ -602,6 +602,26 @@ for (const g of [
 		}
 		ok(`rectangle rotation ${rot} stRotation ${str}: corners and st as Cesium's`, worstSt < 1e-6 && worstPos < 1e-6, `st ${worstSt} pos ${worstPos}`);
 	}
+}
+
+// a painted ground shape's light = czm_phong in eye space (ShadowVolumeAppearanceFS): lights along eye z and y, 0.5 + 0.5·Σ max(0, n·l).
+// rectangle's shot camera (2026-11-09): the Cesium logo's colours came out ×1.20 (green 91,135,38 → 110,163,46)
+{
+	const { Transforms } = await import("@cesium/engine");
+	const { Matrix3 } = await import("@cesium/core");
+	const pos = Cartesian3.fromDegrees(-94.70054660110519, 11.104007231509396, 5322567.35), R = Matrix4.getMatrix3(Transforms.eastNorthUpToFixedFrame(pos), new Matrix3());
+	const p = -67.6098 * Math.PI / 180, dir = Matrix3.multiplyByVector(R, new Cartesian3(0, Math.cos(p), Math.sin(p)), new Cartesian3()), up = Matrix3.multiplyByVector(R, new Cartesian3(0, -Math.sin(p), Math.cos(p)), new Cartesian3());
+	const right = Cartesian3.cross(dir, up, new Cartesian3()), view = Matrix4.computeView(pos, dir, up, right, new Matrix4());
+	const f = groundPhong({ directionWC: dir, upWC: up });
+	let worst = 0;
+	for (const [lon, lat] of [[-84, 35], [-92.96, 28.24], [-75.04, 41.76], [-100, 10], [-60, 50]]) {
+		const n = Ellipsoid.WGS84.geodeticSurfaceNormalCartographic(Cartographic.fromDegrees(lon, lat)), ne = Matrix4.multiplyByPointAsVector(view, n, new Cartesian3());
+		const want = 0.5 + 0.5 * (Math.max(0, ne.z) + Math.max(0, ne.y));
+		worst = Math.max(worst, Math.abs(f(lon, lat) - want));
+	}
+	ok("ground phong: eye-space lights as czm_phong", worst < 1e-9, `worst ${worst}`);
+	ok("ground phong: rectangle's logo lit ×1.20", near(f(-84, 35), 1.2, 0.01), String(f(-84, 35)));
+	ok("ground phong: no camera = unlit", groundPhong(null) === null);
 }
 
 // Globe.clippingPlanes (terrain-clipping-planes): four upright planes, union false = a 1400 m square hole in the terrain = the polygon clip

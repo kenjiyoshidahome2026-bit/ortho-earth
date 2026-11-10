@@ -3180,6 +3180,8 @@ map.setMeshEnvironmentMap = e => { const data = e && e.size > 0 && e.levels?.len
 map.setCustomShaderTexture = (id, name, tex, opts = {}) => { const bm = (tex as { bitmap?: ImageBitmap } | null)?.bitmap, rg = (tex as { rgba?: Uint8Array } | null)?.rgba; wPost({ type: "set", cmd: "customShaderTex", data: { name, tex, ...opts }, prop: String(id) }, [bm, rg?.buffer].filter(Boolean) as Transferable[]); requestDraw(); return map; };
 map.setMeshImagery = (id, d) => { const data = d?.bitmap ? { bitmap: d.bitmap, west: +d.west, south: +d.south, east: +d.east, north: +d.north } : null; wPost({ type: "set", cmd: "meshDrape", data, prop: String(id) }, data ? [data.bitmap] : []); requestDraw(); return map; };   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）＝窓 1 枚・Tiles3DOptions.imagery が id を指す
 map.setUnderground = u => { renderer.set("view", { underground: u && Array.isArray(u.color) && Array.isArray(u.nf) ? { color: [...u.color], nf: [...u.nf] } : null }); requestDraw(); return map; };   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
+map.setGlobeBackFaces = on => { renderer.set("view", { globeBack: !!on }); requestDraw(); return map; };   // 球の裏面を描く＝断面（setClipping の terrain）で切った手前の面の向こうに球の内側（Cesium の globe.backFaceCulling=false）
+map.setGlobeDepth = on => { renderer.set("view", { globeDepth: !!on }); requestDraw(); return map; };   // 球の床が深度を書く（不透明な地面だけ）＝地中の模型が陸に隠れ、色の穴（Cesium の translucency＋colorToAlpha の海）からは見える
 map.setMeshOverGround = on => { renderer.set("view", { meshOverGround: !!on }); requestDraw(); return map; };   // 模型を地形の深度で隠さない（Cesium の globe.depthTestAgainstTerrain=false）
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;

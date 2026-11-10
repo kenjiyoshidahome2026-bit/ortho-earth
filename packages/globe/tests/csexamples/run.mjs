@@ -63,6 +63,21 @@ const PRE_SHOT = {
 		}
 		return n > 0;
 	},
+	// material-with-custom-glsl: preRender adds 1 per frame to the material's time (the white bands' height and the box colour) and to the
+	// appearance's frameNumber (the box's turn, 0.01 rad a frame) = the picture is the frame count since load, not the clock. Both counters are
+	// pinned to the same frame on both sides (1625 ≈ 27 s at 60 fps: two bands at ±5 m, as Cesium's own shots mostly show); the listener keeps running
+	"material-with-custom-glsl": () => {
+		const v = window.__csx?.viewers?.[0];
+		if (!v) return false;
+		const T = 1625, pin = (o, k, x) => Object.defineProperty(o, k, { get: () => x, set: () => {}, configurable: true, enumerable: true });
+		let n = 0;
+		for (const p of v.scene.primitives._primitives ?? []) {
+			const a = p?.appearance;
+			if (!a?.uniforms || !("frameNumber" in a.uniforms) || !a.material?.uniforms || !("time" in a.material.uniforms)) continue;
+			pin(a.material.uniforms, "time", T); pin(a.uniforms, "frameNumber", T + 1); n++;
+		}
+		return n > 0;
+	},
 };
 
 // what the page says about itself after the wait (both sides keep their viewers and widgets on window.__csx)

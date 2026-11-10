@@ -174,6 +174,7 @@ function depthOff(e: unknown) {
 	dOutH = null; depthOk = false;
 }
 const overlayWantsDepth = () => { for (const o of overlays.values()) if (o.mod && o.depth) return true; return false; };
+let globeBackW = false;   // 球の裏面を描く（view.globeBack）＝画像タイルの選抜も裏半球へ
 let clockA: ClockAnchor | null = null, clockSet: ClockAnchor | null = null;   // 共通の時計の基準（#42）。null＝実時刻。renderer の view.clock（夜の側・星）と overlay の api.time の出所。clockSet＝renderer へ渡し済みの基準（起動前に届いても描画の直前に渡る）
 let elevBase = 0, elevEarthM = 0;
 let bakeLift = false;   // ?bakelift=1＝建物メッシュの接地リフトを転送時に頂点へ焼く（bakeMeshLift）
@@ -244,6 +245,7 @@ function overlayFrame(camNow: CameraPose, depthFrame?: DepthFrame | null) {
 			// 断面（#111 段 4）＝そのオーバーレイの対象の面：記号（symbols）と集約（cluster）＝注記＝labels・それ以外（heatmap・模様・anno・地震…）＝vector
 			ovPl = /^(symbols|cluster)/.test(name) ? clipPlL : clipPlW;
 			api!.clip = ovPl ? { planes: ovPl, distM: (lon: number, lat: number, hM = 0) => clipDistanceM(ovPl!, lon, lat, hM), pack: (origin: ArrayLike<number>) => clipPackOrigin(ovPl!, origin) } : null;   // pack(origin)＝自前の GPU シェーダ向けの uniform（WGSL の ClipP 先頭 112B＝pl[6]＋p・K はその原点）
+			api!.groundClip = clipPlT ? { distM: (lon: number, lat: number, hM = 0) => clipDistanceM(clipPlT!, lon, lat, hM) } : null;
 			if (o.mod.frame(camNow, s!, { w: o.canvas.width, h: o.canvas.height }, api!)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", (e as Error)?.message); }
 	}
@@ -276,6 +278,7 @@ let gint: GintEngine | null = null;   // gint（知性の層＝海岸線/14条�
 const gintLs = new Map<string | null | undefined, GintLayerEngine>();   // 追加層のレジストリ（layer id → addLayer ハンドル）。既定層＝gint（facade）
 const gTgt = (m: RwMsg) => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
 (self as RwSelf).__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
+let clipPlT: ClipPlane[] | null = null;   // 断面の面（地面＝terrain）：地球の陰で隠す時、その陰の所の地面が切られていれば隠さない（Cesium の cartographicLimitRectangle の奥の線）
 let clipPlW: ClipPlane[] | null = null, clipPlL: ClipPlane[] | null = null, ovPl: ClipPlane[] | null = null;   // 断面の面（#111）＝vector（同一フレームのオーバーレイ）・labels（注記と記号・集約のオーバーレイ）・ovPl＝今呼んでいるオーバーレイの面（レンダラは自前で持つ）
 let terrain: RwTerrain | null = null, pendingLabels: Label2D[] | null = null;
 // 標高の升目（可視域・見通し線・日影時間）＝範囲の R01 セルを先に読み（外来 DEM の上書き込み）、画素の中心で標本化。row0＝北・本当の m（誇張なし）
@@ -656,9 +659,12 @@ const dispatch = (e: { data: RwMsg }) => {
 			else if (m.cmd === "view" && m.data && ("clock" in (m.data as object) || "time" in (m.data as object))) { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }
 			else if (m.cmd === "clip") {   // 断面（#111）＝レンダラへ＋注記（labels の面）と同一フレームのオーバーレイ（vector の面）。面は worker の楕円体の状態で作る
 				const n = normClip(m.data as Parameters<typeof normClip>[0]), pl = (t: string) => { const a = clipPlanesFor(n, t); return a.length ? a : null; };
-				clipPlW = pl("vector"); clipPlL = pl("labels"); labelLayer?.setClip(clipPlL); renderer?.set("clip", m.data);
+				clipPlW = pl("vector"); clipPlL = pl("labels"); clipPlT = pl("terrain"); labelLayer?.setClip(clipPlL); renderer?.set("clip", m.data);
 			}   // 断面（#111）＝レンダラへ＋注記と同一フレームのオーバーレイ（面は worker の楕円体の状態で作る）
-			else if (renderer) renderer.set(m.cmd!, m.data, m.prop);              // view/overlay/elev…
+			else if (renderer) {
+				if (m.cmd === "view" && m.data && typeof m.data === "object" && "globeBack" in (m.data as object)) { globeBackW = !!(m.data as { globeBack?: boolean }).globeBack; }   // 球の裏面＝画像タイルも裏半球を選ぶ（raster.update backFaces）
+				renderer.set(m.cmd!, m.data, m.prop);              // view/overlay/elev…
+			}
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
 		case "pinRes":   // 録画（scene エディタ）＝動的解像度の固定/解除（on中は降段しない・即 res=1 へ）
@@ -1210,7 +1216,7 @@ function frame() {
 			const terrC0 = cpuNow();   // 地形の窓（標高アトラス）＋画像タイルの選抜＝HUD の terrain
 			if (terrain && !opts?.noTerrain && (opts?.terrainGate !== false || !lastEnsure || (lastFrameRun - lastEnsureT > 1000 && Math.abs(glCam.zoom - lastEnsure.zoom) < 0.12))) { lastEnsureT = lastFrameRun; ensureIfMoved(glCam); }
 			// 画像タイル層：カメラ不変・在庫不変なら選抜は走らない（raster.js が camKey で判定）。groundR＝地形リフト球（塗りの選抜と同じ流儀）
-			if (raster) raster.update(glCam, canvas!.width, canvas!.height, { groundR: groundRNow(glCam), farR: farRNow(glCam), moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS });   // moving＝入力中/飛行中/静定前＝取得の並列を絞る（着地で戻す）
+			if (raster) raster.update(glCam, canvas!.width, canvas!.height, { groundR: groundRNow(glCam), farR: farRNow(glCam), backFaces: globeBackW, moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS });   // moving＝入力中/飛行中/静定前＝取得の並列を絞る（着地で戻す）
 			if (memOn) cpuAcc.terr = performance.now() - terrC0;
 			let fogAnim = false;
 			const pfT0 = perfOn ? performance.now() : 0;

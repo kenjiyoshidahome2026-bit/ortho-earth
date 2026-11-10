@@ -1549,7 +1549,59 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	o.pos = vec4f(p, 0.0, 1.0);
 	return o;
 }
-@fragment fn fs(in: GOut) -> @location(0) vec4f {
+// 球の床が深度を書く変種（view.globeDepth・gl の u_gDepth と同じ）：G.farP.w＝0.5·logCoef。不透明な地面（α≥0.5）だけ球の交点の対数深度・他は 1（＝消した値）。
+// 光線は t あたり clip w が 1 増える（viewRays の正規化・f64 の mvp）＝w＝t。地下の目（裏面）は書かない
+struct GFragD { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
+@fragment fn fsDepth(in: GOut) -> GFragD {
+	var o: GFragD;
+	let c = globeColor(in);
+	o.d = 1.0;
+	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);
+	if (h.t > 0.0 && c.a >= 0.5) { o.d = clamp(log2(1.0 + h.t) * G.farP.w, 0.0, 1.0); }   // 深度は手前の面の α で（裏面は模型の後ろ）
+	o.c = globeBack(in, c);
+	return o;
+}
+@fragment fn fs(in: GOut) -> @location(0) vec4f { return globeBack(in, globeColor(in)); }
+// 球の裏面（Cesium の translucency の backFace・G.cgC.w）：手前の地面の色の穴（colorToAlpha）の向こう＝遠い根の床の画像を下に敷く（霞・照明なし・gl と同じ）
+// a ground atlas window at the origin-relative lon/lat dll: xy = its uv, z = its weight (1 inside, fading to 0 over the outer 4%, 0 outside).
+// An edge at a pole is no edge of the ground (the pole cap is in the window) and keeps the weight: faded there, the coarsest window let
+// the floor through (a dark smudge at the pole). Longitude is not wrapped: a window wider than a turn holds imagery only in −180…180
+fn gndWin(dll: vec2f, off: vec4f) -> vec3f {
+	// a window a turn wide or more (globe zoom) holds imagery only for lon −180…180, but dll is relative to the floor anchor (the view
+	// centre since #1062): anchor ± 180° reaches past ±180 → fold that lon back by a turn (else the far side samples empty atlas = navy)
+	var dl = dll;
+	if (abs(off.z) * 360.0 <= 1.001) { let lon = G.anc2.x + dl.x; if (lon < -180.0) { dl.x += 360.0; } else if (lon > 180.0) { dl.x -= 360.0; } }
+	let u = off.xy + dl * off.zw;
+	let vS = off.y + (-90.0 - G.anc2.y) * off.w; let vN = off.y + (90.0 - G.anc2.y) * off.w;
+	let e0 = select(u.y, 1.0, min(abs(vS), abs(vN)) < 1e-3 && u.y >= -1e-3);
+	let e1 = select(1.0 - u.y, 1.0, min(abs(vS - 1.0), abs(vN - 1.0)) < 1e-3 && u.y <= 1.0 + 1e-3);
+	let ex = min(u.x, 1.0 - u.x);
+	return vec3f(u, clamp(min(ex, min(e0, e1)) / 0.04, 0.0, 1.0));
+}
+fn globeBack(in: GOut, c: vec4f) -> vec4f {
+	if (G.cgC.w < 0.5 || c.a >= 0.999) { return c; }
+	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);
+	if (h.t <= 0.0 || h.disc < 0.0) { return c; }
+	let t2 = (-h.bb + sqrt(h.disc)) / (2.0 * h.aa);
+	let dll = deltaLL(G.eyeO.xyz + t2 * h.d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);
+	var b = vec4f(G.land.rgb * G.land.a, G.land.a);
+	if (GGD.p.x > 0.5) {
+		let k0 = gndWin(dll, G.gndOff0); let k1 = gndWin(dll, G.gndOff1); let k2 = gndWin(dll, G.gndOff2); let k3 = gndWin(dll, G.gndOff3);
+		let u0 = k0.xy; let u1 = k1.xy; let u2 = k2.xy; let u3 = k3.xy;
+		let w0 = k0.z;
+		let w1 = select(0.0, k1.z, GGD.p.x > 1.5);
+		let w2 = select(0.0, k2.z, GGD.p.x > 2.5);
+		let w3 = select(0.0, k3.z, GGD.p.x > 3.5);
+		let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(u0, in.pos.x, GGD.p.y), 0.0);
+		let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(u1, in.pos.x, GGD.p.y), 0.0);
+		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
+		let g3 = textureSampleLevel(gGnd3, gSamp, gndUV0(u3, in.pos.x, GGD.p.y), 0.0);
+		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
+		b = b * (1.0 - gc.a) + gc;
+	}
+	return c + b * G.misc.x * (1.0 - c.a);
+}
+fn globeColor(in: GOut) -> vec4f {
 	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);   // #65：視線は CPU f64 の基底・交点は桁落ちなし
 	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let cc = h.cc;
 	let aDotd = bb * 0.5; let tstar = -aDotd / aa;
@@ -1598,6 +1650,8 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let dll = deltaLL(G.eyeO.xyz + t * d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);   // 原点相対の経緯度差（deg・測地）＝uv の正本（#65）
 	let ll = G.anc2.xy + dll;                                                  // 絶対経緯度（粗くて可＝ハイプソ・気候）
 	var base = G.land.rgb;
+	// 床の不透明度（B5・gl の ba と同じ）＝G.land.a。透明を明示した地図（clearAlpha・Cesium の globe.baseColor TRANSPARENT）だけ CPU が land.a を載せる（他は 1＝従来とビット同一）
+	var ba = mix(G.land.a, 1.0, G.whP.x);
 	if (G.whP.x > 0.001 && G.whP.y > 0.5) {   // 全球ハイプソ：標高×気候→配色＋陰影（gl/glsl.js GLOBE_FS と同式）
 		let e = gElevAt(ll);
 		let tsz = vec2f(textureDimensions(gElevTex, 0));
@@ -1618,23 +1672,25 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 			let cc = textureSampleLevel(gCogTex, gSamp, vec2f(cuv.x, cv), 0.0);
 			base = mix(base, cc.rgb, cc.a);
 		}
+		ba = 1.0;
 	}
 	if (GGD.p.x > 0.5) {   // 地面アトラス（球の床）：uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
-		let u0 = G.gndOff0.xy + dll * G.gndOff0.zw;
-		let u1 = G.gndOff1.xy + dll * G.gndOff1.zw;
-		let u2 = G.gndOff2.xy + dll * G.gndOff2.zw;
-		let u3 = G.gndOff3.xy + dll * G.gndOff3.zw;
-		let d0 = min(u0, vec2f(1.0) - u0); let d1 = min(u1, vec2f(1.0) - u1); let d2 = min(u2, vec2f(1.0) - u2); let d3 = min(u3, vec2f(1.0) - u3);
-		let w0 = clamp(min(d0.x, d0.y) / 0.04, 0.0, 1.0);
-		let w1 = select(0.0, clamp(min(d1.x, d1.y) / 0.04, 0.0, 1.0), GGD.p.x > 1.5);
-		let w2 = select(0.0, clamp(min(d2.x, d2.y) / 0.04, 0.0, 1.0), GGD.p.x > 2.5);
-		let w3 = select(0.0, clamp(min(d3.x, d3.y) / 0.04, 0.0, 1.0), GGD.p.x > 3.5);
+		let k0 = gndWin(dll, G.gndOff0); let k1 = gndWin(dll, G.gndOff1); let k2 = gndWin(dll, G.gndOff2); let k3 = gndWin(dll, G.gndOff3);
+		let u0 = k0.xy; let u1 = k1.xy; let u2 = k2.xy; let u3 = k3.xy;
+		let w0 = k0.z;
+		let w1 = select(0.0, k1.z, GGD.p.x > 1.5);
+		let w2 = select(0.0, k2.z, GGD.p.x > 2.5);
+		let w3 = select(0.0, k3.z, GGD.p.x > 3.5);
 		let g0 = textureSampleLevel(gGnd0, gSamp, gndUV0(u0, in.pos.x, GGD.p.y), 0.0);
 		let g1 = textureSampleLevel(gGnd1, gSamp, gndUV0(u1, in.pos.x, GGD.p.y), 0.0);
 		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
 		let g3 = textureSampleLevel(gGnd3, gSamp, gndUV0(u3, in.pos.x, GGD.p.y), 0.0);
 		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
-		base = base * (1.0 - gc.a) + gc.rgb;
+		if (ba < 1.0) {   // 前乗算の重ね（gl の gndOver と同じ）＝穴（Cesium の colorToAlpha）は床の α のまま
+			let ga = ba * (1.0 - gc.a) + gc.a;
+			base = (base * ba * (1.0 - gc.a) + gc.rgb) / max(ga, 1e-4);
+			ba = ga;
+		} else { base = base * (1.0 - gc.a) + gc.rgb; }
 	}
 	if (G.gm.x > 0.5) {   // 地面の材質（Cesium の globe.material）＝球の床（低地の t フェードの穴と真俯瞰）にも地形面と同じ式で。標高が無い所は Cesium と同じく高さ 0 の色
 		var e = 0.0; var gEN = vec2f(0.0);
@@ -1642,7 +1698,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 			e = gElevAt(ll); let dstep = G.elevBounds.w / vec2f(textureDimensions(gElevTex, 0)).y;
 			gEN = vec2f((gElevAt(ll + vec2f(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (gElevAt(ll + vec2f(0.0, dstep)) - e) / (dstep * 111320.0));
 		}
-		let m = gGmColor(e, gEN, gmDe, G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);   // 標高の画素差は冒頭で（一様な制御の流れ）
+		let m = gGmColor(e, gEN, gmDe, G.gm, G.gmC, G.gmP); if (ba < 1.0) { base = (base * ba * (1.0 - m.a) + m.rgb * m.a) / max(ba * (1.0 - m.a) + m.a, 1e-4); ba = max(ba, m.a); } else { base = mix(base, m.rgb, m.a); }   // 標高の画素差は冒頭で（一様な制御の流れ）
 	}
 	if (G.cg.w > 0.5) { base *= G.cgC.rgb * cgLambert(ll, vec2f(0.0), vec4f(G.cg.xyz, 2.0), G.cgP); }   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
@@ -1650,10 +1706,10 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	if (G.misc.z > 0.5) { let night = select(-1.0, G.cgP.w, G.cg.w > 0.5); colC = csFogL(csGroundL(base, A * CS_R, Pt * CS_R, G.misc.y, G.cg.xyz, night), A * CS_R, Pt * CS_R, G.farP.z, G.cg.xyz, night); }   // Cesium の地面の大気（遠くから）と霧（800 km より下・farP.z＝濃さ）＝従来の霞の代わり
 	if (ug) {   // 裏面：霞・大気は掛けない＝床の色に undergroundColor を距離の α で重ねる（gl と同じ）
 		let kd = clamp((t * sqrt(aa) - G.ugNF.x) / max(G.ugNF.z - G.ugNF.x, 1e-12), 0.0, 1.0);
-		let ua = G.ugC.a * mix(G.ugNF.y, G.ugNF.w, kd);
+		let ua = max(G.ugC.a, 0.0) * mix(G.ugNF.y, G.ugNF.w, kd);   // α<0＝undergroundColor 無し（切った面の向こうの裏面＝cgC.w）
 		colC = G.ugC.rgb * ua + base * (1.0 - ua);
 	}
-	var outC = vec4f(colC * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
+	var outC = vec4f(colC * ba * G.misc.x, ba * G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（gl と同じ）
 	if (G.misc.z > 0.5 && G.misc.w > 0.5 && G.misc.x < 1.0) { let cs = csSky2(A * CS_R, normalize(d), select(1.0, 2.0, G.misc.x > 0.0)); outC += cs * (1.0 - outC.a); }
 	return outC;
@@ -2087,7 +2143,7 @@ const CLIP_STEPS: Record<ClipKind, readonly WgslAlts[]> = {
 		[["\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]],
 		[["@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n" + EDGE_HEAD]]],   // 基図の押し出し建物は面の向きが揃っていない（リングの向き・earcut 任せ）＝疑似の蓋は付けず帯だけ
 	// 球の床（海抜 0・海面を含む）：交点の原点相対 δ＝eyeO＋t·d（#65・f32 で mm 級）で測る＝空と大気のリムは切らない
-	globe: [[["\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n", "\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n\tif (clipDist(G.eyeO.xyz + t * d) < 0.0) { discard; }\n"]]],
+	globe: [[["\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n", "\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n\tif (clipDist(G.eyeO.xyz + t * d) < 0.0) {\n\t\tlet t2 = select(-1.0, (-bb + sqrt(max(disc, 0.0))) / (2.0 * aa), disc >= 0.0);   // 裏面（Cesium の globe.backFaceCulling=false・G.cgC.w）＝遠い根の内側を裏面の色で\n\t\tif (G.cgC.w > 0.5 && !ug && t2 > t && clipDist(G.eyeO.xyz + t2 * d) >= 0.0) { t = t2; ug = true; } else { discard; }\n\t}\n"]]],
 	// 影の深度パス（落とす側）＝切った形で落とす。頂点だけのパイプラインには FS（fsClip）を足す
 	terrCast: [CD("\t@location(8) guv3: vec2f,\n", 10),
 		[["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]]],

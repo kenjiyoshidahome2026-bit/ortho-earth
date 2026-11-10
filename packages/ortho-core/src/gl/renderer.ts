@@ -11,7 +11,7 @@ import { normClip, clipPlanesFor, clipPolygonFor, packClip, CLIP_F32 } from "../
 import type { ClipNorm, ClipPlane, ClipPoly } from "../clip.ts";
 import { groundWindows, groundSizes, windowsKey } from "../ground.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
+import { cameraState, unproject, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, floorAnchor, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { drapeMap, drapeUniforms } from "../drape.ts";   // 3D Tiles に重ねる絵（Cesium3DTileset.imageryLayers）の平面写像
 import type { DrapeIn, DrapeMap } from "../drape.ts";
 import { viewRays } from "../camera.ts";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
@@ -68,6 +68,8 @@ interface GLView {
 	clear: number[] | null; land: number[] | null; atmo: number[] | null; bldColor: number[] | null;
 	fog?: boolean; sea?: number[] | null; baseAlpha?: number; globeAlpha?: number;
 	/** 模型（建物メッシュ・3D Tiles）を地形の深度で隠さない（Cesium の globe.depthTestAgainstTerrain=false＝既定）。地形の深度を読む物（深度の書き出し口・面の貼り付け）が無いフレームだけ効く */
+	globeBack?: boolean;   // 球の裏面を描く（断面で切った手前の面の向こう・Cesium の globe.backFaceCulling=false）
+	globeDepth?: boolean;   // 球の床が深度を書く（不透明な地面だけ）＝地中の模型が陸に隠れる（Cesium の globe.translucency・色の穴）
 	meshOverGround?: boolean;
 	/** 地下から見た球の裏面（Cesium の globe.undergroundColor）：color＝rgba（0..1）・nf＝α の距離 [near m, nearValue, far m, farValue] */
 	underground?: { color: number[]; nf: number[] } | null;
@@ -1055,6 +1057,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// 頂点の相対ベクトルが ~1 の大きさになり、f32 の u_mvp との積が深ズームで相殺を失う＝低い目で地形が目の前で何倍にも歪んだ（Cesium 例 shadows・2026-10-28）。
 	// 注視点なら相対ベクトルは常に画面の中の距離＝桁落ちなし。地形の錨を使う物（蓋・断面・影の落とし手）も同じ値を使う
 	let terrOrigin: number[] = [0, 0];
+	let rayOrigin: number[] = [0, 0];   // 全画面レイ（球の床・海面下・経緯線・等高線・夜面）の錨＝camera.ts floorAnchor（main 原点が近ければそれ・無ければ注視点）
 	let exagMul = 1;        // 地形の誇張（setTerrain の exaggeration・既定 1＝実スケール）＝アトラスの scale に掛ける
 	let gintCtx: GintDepthCtx | null = null;   // gint 埋込パス用の frame コンテキスト（terrainDepth 時のみ非null。draw() が毎フレーム更新）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
@@ -1782,7 +1785,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 	// 全画面レイキャスト（球の床・海面下・経緯線・等高線・夜面）の視線一式（#65）：camera.js sphereRayUniforms＝f64 で作って渡す（glsl.js の RAY 節と対）
 	// 錨＝シーン原点（交点は原点相対 δ で持ち、uv は anchorUV の f64 係数＝絶対経緯度を経ない）
 	function setRayUniforms(prog: WebGLProgram, st: GLCamState): void {
-		const u = sphereRayUniforms(st, scenes.main.origin || [0, 0]) as Required<SphereRayUniforms>;
+		const u = sphereRayUniforms(st, rayOrigin) as Required<SphereRayUniforms>;
 		gl.uniform3f(loc(gl, prog, "u_rayF"), u.F[0], u.F[1], u.F[2]);
 		gl.uniform3f(loc(gl, prog, "u_rayX"), u.X[0], u.X[1], u.X[2]);
 		gl.uniform3f(loc(gl, prog, "u_rayY"), u.Y[0], u.Y[1], u.Y[2]);
@@ -1792,7 +1795,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		gl.uniform3f(loc(gl, prog, "u_rayEO"), u.EO[0], u.EO[1], u.EO[2]);
 		gl.uniform4f(loc(gl, prog, "u_rayLL"), u.ll[0], u.ll[1], u.beta0, u.rho);
 	}
-	const setUV4 = (prog: WebGLProgram, name: string, win: ArrayLike<number> | null | undefined): void => { const a = anchorUV(scenes.main.origin || [0, 0], win); gl.uniform4f(loc(gl, prog, name), a[0], a[1], a[2], a[3]); };
+	const setUV4 = (prog: WebGLProgram, name: string, win: ArrayLike<number> | null | undefined): void => { const a = anchorUV(rayOrigin, win); gl.uniform4f(loc(gl, prog, name), a[0], a[1], a[2], a[3]); };
 	function setCommonUniforms(prog: WebGLProgram, st: GLCamState, origin: ArrayLike<number>, fog: ArrayLike<number>): void {
 		gl.useProgram(prog);
 		gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
@@ -1868,6 +1871,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		elevScaleEff = elev.scale * pf;
 		{ const g = sphereRayUniforms(st); lastGlobe = { F: g.F, X: g.X, Y: g.Y, E: g.E, c: g.c }; }   // 海面の球の光線＝オーバーレイの深度に添える（depthout.ts sceneGlobeW）
 		terrOrigin = [cam.center[0], cam.center[1]];   // 地形パスの錨＝注視点（上の宣言を参照）
+		rayOrigin = floorAnchor(scenes.main.origin, cam.center);
 		// 地面アトラス（RTT ドレープ）：3D（地形あり）＝ベクタ塗りもアトラスへ（直描きは伏せる）／ラスタは常にアトラス。鍵が変わった時だけ合成
 		{
 			const fillsIn = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);   // ＝terrainActive（下で再計算される同じ式）
@@ -1949,7 +1953,7 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 		if (!flat2d) {
 			gl.useProgram(globeProg);
 			setRayUniforms(globeProg, st);   // #65：視線の基底（f64）＋目＋c
-			clipBind("terrain", scenes.main.origin);   // 球の床＝地形の面（レイは main 原点相対）
+			clipBind("terrain", rayOrigin);   // 球の床＝地形の面（レイは rayOrigin 相対）
 			gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
 			gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
 			gl.uniform1f(loc(gl, globeProg, "u_skyOn"), sky ? 1 : 0);   // style の sky（B4）＝簡易の空。無指定＝従来の絵
@@ -2007,8 +2011,14 @@ const PAINT_UNIT = 23, DRAPE_UNIT = 21;   // 模型の塗る絵（meshPaint）�
 			bindCog(globeProg);   // ユーザ COG（has=0 でもサンプラは unit9 へ＝轍対策）
 			setUV4(globeProg, "u_cogOff", cogSt.has ? cogSt.bbox : null);   // 球の床の uv 係数（#65・原点相対）
 			bindGnd(globeProg); setGndGlobe(globeProg);   // 地面アトラス＝基球の床（真俯瞰 2D の下地・地形の低地フェードの穴）
+			// 球の床が深度を書く（view.globeDepth）：不透明な地面の画素だけ球の交点の対数深度（GLOBE_FS u_gDepth）＝地中の模型が陸に隠れ、色の穴からは見える
+			const gD = !!view.globeDepth;
+			gl.uniform1f(loc(gl, globeProg, "u_gBack"), view.globeBack ? 1 : 0);
+			gl.uniform1f(loc(gl, globeProg, "u_gDepth"), gD ? logCoefOf(st.camDist) * 0.5 : 0);
+			if (gD) { gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.ALWAYS); gl.depthMask(true); }
 			gl.bindVertexArray(emptyVAO);
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
+			if (gD) { gl.disable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); }
 		}
 
 		// 標高テクスチャをユニット1へ（全プログラムが elev() で参照）。標高なしでも必ず「null を」バインド＝

@@ -21,6 +21,8 @@ export interface OverlayApi {
 	dpr: number; W: number; H: number; time: number; clock: ClockAnchor | null; depth: DepthApi | null;
 	elevM(lon: number, lat: number): number; liftScale: number; terrainOn: boolean; rAx: number;
 	clip: { planes: ClipPlane[]; distM(lon: number, lat: number, hM?: number): number; pack(origin: ArrayLike<number>): Float32Array } | null;
+	/** the ground's clipping (setClipping "terrain"): negative = the globe is cut away there and hides nothing behind it (czml-draw's Earth test) */
+	groundClip?: { distM(lon: number, lat: number, hM?: number): number } | null;
 }
 /** 最後に描いたフレーム（統一 picking が同じ cam で当てる） */
 export interface LastOverlayFrame { cam: CameraPose; s: CameraState; size: OverlaySize; api: OverlayApi }

@@ -142,3 +142,39 @@ export async function paint(d: MatDesc, W: number, H: number, stOf: (x: number, 
 }
 /** the material over the whole st square (row 0 = t 1: the top of the picture, as glTF reads it with v = 1 − t) */
 export const paintSquare = (d: MatDesc, size = 512) => paint(d, size, size, (x, y) => [x / size, 1 - y / size]);
+
+/** multiply a painted picture's colour (not its alpha) by a light factor f(x, y) (pixels; Cesium's czm_phong, display.ts groundPhong); the light
+ *  changes slowly over a shape, so it is taken every 8 pixels. Values over 1 brighten up to white, as Cesium's framebuffer clamps them */
+export function lightPicture(cv: HTMLCanvasElement, f: (x: number, y: number) => number): void {
+	const W = cv.width, H = cv.height, ctx = cv.getContext("2d");
+	if (!ctx || W < 1 || H < 1) return;
+	const B = 8, bw = Math.ceil(W / B), bh = Math.ceil(H / B), k = new Float32Array(bw * bh);
+	let lo = Infinity, hi = -Infinity, sum = 0;
+	for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) { const v = f(Math.min(W, i * B + B / 2), Math.min(H, j * B + B / 2)); k[j * bw + i] = v; lo = Math.min(lo, v); hi = Math.max(hi, v); sum += v; }
+	const mean = sum / k.length;
+	if (hi - lo <= 0.04 && Math.abs(mean - 1) <= 0.005) return;
+	// about the same light all over (most shapes: the rotating logo of rectangle is 1.17–1.20): one brightness filter on the GPU, alpha kept.
+	// The pixel loop below costs ~10 ms for 1024² (a read back from the GPU), too much for a shape painted 4 times a second
+	if (hi - lo <= 0.04 && "filter" in ctx) {
+		const tmp = document.createElement("canvas"); tmp.width = W; tmp.height = H;
+		const tc = tmp.getContext("2d");
+		if (tc) {
+			tc.drawImage(cv, 0, 0);
+			ctx.save(); ctx.globalCompositeOperation = "copy"; ctx.filter = `brightness(${mean.toFixed(4)})`; ctx.drawImage(tmp, 0, 0); ctx.restore();
+			return;
+		}
+	}
+	let img: ImageData;
+	try { img = ctx.getImageData(0, 0, W, H); } catch { return; }
+	const o = img.data;
+	for (let y = 0; y < H; y++) {
+		const row = ((y / B) | 0) * bw;
+		for (let x = 0; x < W; x++) {
+			const j = (y * W + x) * 4;
+			if (!o[j + 3]) continue;
+			const v = k[row + ((x / B) | 0)];
+			o[j] = o[j] * v; o[j + 1] = o[j + 1] * v; o[j + 2] = o[j + 2] * v;   // Uint8ClampedArray: rounds and clamps to 0..255
+		}
+	}
+	ctx.putImageData(img, 0, 0);
+}
