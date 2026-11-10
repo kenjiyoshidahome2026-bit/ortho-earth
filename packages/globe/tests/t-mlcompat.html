@@ -325,12 +325,14 @@ try {
 			const img = await snap(map); let nw = lum(px(img, ...pNW)), se = lum(px(img, ...pSE)); const b0 = lum(px(before, ...pNW)), b1 = lum(px(before, ...pSE));
 			const t1 = performance.now(); while (idleLoaded === null && performance.now() - t1 < 5000) await sleep(100);
 			armed = false;
+			// 陰影が効いた＝北西（光の側）は前より明るく・南東は前より暗い（2026-11-11：旧「|SE−前|>10」は実測 SE 67/前 77 の差がちょうど 10 前後＝#1061 の地面アトラスの丸めの差で 2026-11-10 から毎回落ち、deploy を止めていた。
+			// 向きを見る形に＝NW は +27・SE は −10 の実測に余白を持たせる）
 			const drawnStyle = map.getStyle().layers.find(L => L.id === "hs");
 			map.removeLayer("hs"); map.removeSource("hsd"); await sleep(1500);
 			const after = await snap(map), a1 = lum(px(after, ...pSE));
 			map.jumpTo({ center: [35.9, 137.2].reverse(), zoom: 7, pitch: 0 }); await sleep(2000);
-			return [nw - se > 15 && Math.abs(se - b1) > 10 && Math.abs(a1 - b1) < 8 && drawnStyle?.metadata?.["ortho:drawn"] !== false && !l0 && !l1 && tLoaded < 20000 && idleLoaded === true && map.isSourceLoaded("hsd") === false,   // removeSource 後＝source が無い＝false（MapLibre と同じ）
-				`NW=${nw.toFixed(0)} SE=${se.toFixed(0)} before=${b0.toFixed(0)}/${b1.toFixed(0)} removed=${a1.toFixed(0)} loaded=${l0}/${l1}→true@${tLoaded.toFixed(0)}ms idleLoaded=${idleLoaded} afterRemove=${map.isSourceLoaded("hsd")}`];
+			return [nw - se > 15 && nw - b0 > 10 && b1 - se > 5 && Math.abs(a1 - b1) < 8 && drawnStyle?.metadata?.["ortho:drawn"] !== false && !l0 && !l1 && tLoaded < 20000 && idleLoaded === true && map.isSourceLoaded("hsd") === false,   // removeSource 後＝source が無い＝false（MapLibre と同じ）
+				`NW=${nw.toFixed(1)} SE=${se.toFixed(1)} before=${b0.toFixed(1)}/${b1.toFixed(1)} removed=${a1.toFixed(1)} loaded=${l0}/${l1}→true@${tLoaded.toFixed(0)}ms idleLoaded=${idleLoaded} afterRemove=${map.isSourceLoaded("hsd")}`];
 		});
 		// ── custom 層（MapLibre の CustomLayerInterface・4 巡目）＝main の WebGL2 canvas に mainMatrix（メルカトル→クリップ）で描く。中心の周りの小さな四角＝中心は赤・外は元のまま・外すと戻る ──
 		await scene("custom-layer", async () => {
