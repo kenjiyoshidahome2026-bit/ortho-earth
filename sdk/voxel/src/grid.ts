@@ -205,9 +205,10 @@ export function placeRegion(region: ArrayLike<number>, dims: [number, number, nu
 	const enu = (lon: number, lat: number, h: number): number[] => { const p = unitAt(lon, lat, h, rAx), d = [p[0] - o[0], p[1] - o[1], p[2] - o[2]]; return [(d[0] * Eu[0] + d[1] * Eu[1] + d[2] * Eu[2]) * R, (d[0] * Nu[0] + d[1] * Nu[1] + d[2] * Nu[2]) * R, (d[0] * Uu[0] + d[1] * Uu[1] + d[2] * Uu[2]) * R]; };
 	// 6 面を分けた三角形。向き＝その四角の場所での外向き（面の上の点を外へ少しずらした差）＝全球の region でも裏側の面が裏返らない
 	// （以前は錨の東北上で面ごとに一つの向き＝錨の反対の半球の三角形が内向きになり、Cesium の Voxel Rendering の楕円体の殻が欠けた）。
-	// 区切り＝各軸 SHELL_N か、角度が SHELL_DEG を越えない数。上の面は球に外接させる（平らな四角が h1 の球の外＝光線が弦で止まらず、全球の殻の縁が多角形にならない）
+	// 区切り＝各軸 SHELL_N か、角度が SHELL_DEG を越えない数。上と下の面は球に外接させる（平らな四角が h1・h0 の球の外＝光線が弦で止まらず、全球の殻の縁が多角形にならない。
+	// 下の面が内接だと、地表の縁をかすめる画素で地球（深度）には当たるのに下の面の裏面が無く、残る上の面の裏面は地表で切られて何も描かない＝縁に黒い穴）
 	const out: number[] = [], N = SHELL_N, nLon = Math.max(N, Math.ceil(spanLon / SHELL_DEG)), nLat = Math.max(N, Math.ceil(spanLat / SHELL_DEG));
-	const lift = 1 / (Math.cos(spanLon / nLon / 2 * D2R) * Math.cos(spanLat / nLat / 2 * D2R)), h1s = (R + h1) * lift - R;
+	const lift = 1 / (Math.cos(spanLon / nLon / 2 * D2R) * Math.cos(spanLat / nLat / 2 * D2R)), h1s = (R + h1) * lift - R, h0s = (R + h0) * lift - R;
 	const quad = (p: number[][], ov: number[]): void => {   // p＝4 隅（周回順）・ov＝外向き。法線＝対角線の外積（極で隅が重なっても向きが決まる）
 		const a = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]], b = [p[3][0] - p[1][0], p[3][1] - p[1][1], p[3][2] - p[1][2]];
 		const nx = a[1] * b[2] - a[2] * b[1], ny = a[2] * b[0] - a[0] * b[2], nz = a[0] * b[1] - a[1] * b[0];
@@ -221,7 +222,7 @@ export function placeRegion(region: ArrayLike<number>, dims: [number, number, nu
 	};
 	const lonAt = (a: number): number => w + spanLon * a, latAt = (b: number): number => s + spanLat * b, hAt = (c: number): number => h0 + (h1s - h0) * c;
 	const dH = 1, dA = 1e-3;   // 外へのずらし（m・度）
-	face((a, b, d) => enu(lonAt(a), latAt(b), h0 - d * dH), nLon, nLat); face((a, b, d) => enu(lonAt(a), latAt(b), h1s + d * dH), nLon, nLat);   // 下・上
+	face((a, b, d) => enu(lonAt(a), latAt(b), h0s - d * dH), nLon, nLat); face((a, b, d) => enu(lonAt(a), latAt(b), h1s + d * dH), nLon, nLat);   // 下・上
 	if (s > -90 + 1e-9) face((a, c, d) => enu(lonAt(a), s - d * dA, hAt(c)), nLon, N);   // 南（極まで届く region は線に潰れる＝描かない）
 	if (n < 90 - 1e-9) face((a, c, d) => enu(lonAt(a), n + d * dA, hAt(c)), nLon, N);   // 北
 	if (spanLon < 360 - 1e-9) { face((b, c, d) => enu(w - d * dA, latAt(b), hAt(c)), nLat, N); face((b, c, d) => enu(w + spanLon + d * dA, latAt(b), hAt(c)), nLat, N); }   // 西・東（一周する region＝同じ子午面の裏表＝内側の壁なので描かない）
