@@ -44,7 +44,7 @@ export class Cesium3DTileset {
 	#shadeKey = ""; #csId: string | null = null; #blendKey = "";
 	#show = true; #style: Any = undefined; #h: Any = null; #host: TilesetHost | null = null; #destroyed = false; #sphere: BoundingSphere; #env: Float32Array | null = null; #olKey = ""; #edges = 0;
 	#opts: Any;
-	#split: string | null = null;
+	#split: string | null = null; #dbgColor = false;
 	#tiles = new Map<number, Any>(); #drape: TilesetDrape | null = null;   // the loaded tiles tileLoad was raised for (tileUnload gets the same object)
 
 	constructor(resource: Any, json: Any, opts: Any = {}) {
@@ -171,6 +171,7 @@ export class Cesium3DTileset {
 		const ed = this.edgeDisplayMode | 0; if (ed !== this.#edges) { this.#edges = ed; this.#h.setOptions({ edges: ed }); }   // edgeDisplayMode: the globe re-decodes the loaded tiles
 		const sd = this.splitDirection < 0 ? "left" : this.splitDirection > 0 ? "right" : null;   // SplitDirection LEFT -1 / NONE 0 / RIGHT 1 (scene.splitPosition: the viewer)
 		if (sd !== this.#split) { this.#split = sd; this.#h.setOptions({ splitDirection: sd }); }
+		const dc = !!this.debugColorizeTiles; if (dc !== this.#dbgColor) { this.#dbgColor = dc; this.#h.setOptions({ debugColorize: dc }); }   // each tile in a random colour (3d-tiles-inspector)
 		const cam = scene?.camera, cull = this.tileVisible.numberOfListeners && cam?.frustum?.computeCullingVolume ? cam.frustum.computeCullingVolume(cam.positionWC, cam.directionWC, cam.upWC) : null;
 		if (this.tileVisible.numberOfListeners) for (const id of this.#h.shownTileIds ?? []) {   // tileVisible: each tile drawn this frame and in the view frustum (raised between preRender and postRender, as Cesium does while it renders)
 			const sp = cull ? this.#h.tileSphere?.(id) : null;

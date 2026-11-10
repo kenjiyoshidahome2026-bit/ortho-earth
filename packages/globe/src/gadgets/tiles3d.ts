@@ -109,6 +109,8 @@ interface T3dNode {
 	json?: TileJson; base?: string; geoLift?: number; external?: boolean; i3s?: I3SNodeMsg; kidsState?: "none" | "loading" | "ready" | "failed"; imp?: ImpNode;
 	scope?: T3dScope; tileMeta?: MetadataEntity | null; contentMeta?: MetadataEntity | null; group?: number;
 	paint?: PaintPart[] | null;
+	/** debugColorize: the tile's random colour (Cesium3DTile debugColor = Color.fromRandom, kept while the node lives) */
+	dbgColor?: number[];
 	/** 複数 content＝2 個目からの content の節点（タイルと一緒に読み・出す）／owner＝content の節点が付くタイル */
 	extra?: T3dNode[] | null; owner?: T3dNode;
 	state: "none" | "loading" | "ready" | "failed"; ward: string | null; bytes: number; /** main のヒープに持つ写しの量（当たり・塗り直し・地物の番号）＝予算に数える（2026-10-20） */ mainBytes: number; pts: string[] | null; /** 点群の点の地物（スタイルで塗り直す元・pts と同じ並び） */ ptsFeat?: (PointsFeat | null | undefined)[] | null; splat?: SplatLayer[] | null; voxel?: SplatLayer[] | null; on: boolean; used: number; err: number;
@@ -157,6 +159,8 @@ export interface Tiles3DEnv {
 	setMeshSplit?: ((name: string, side: number) => void) | null;
 	/** the environment SH9 (27 values) of a mesh, over map.setMeshLighting's sh | null (renderer meshEnv) */
 	setMeshEnv?: ((name: string, sh: ArrayLike<number> | null) => void) | null;
+	/** Cesium Model.color of a mesh [r,g,b,a, blend] | null (renderer meshTint): Tiles3DOptions.debugColorize */
+	setMeshTint?: ((name: string, tint: ArrayLike<number> | null) => void) | null;
 	/** CESIUM_primitive_outline colour rgba of a mesh | null = no outline (renderer meshOutline) */
 	setMeshOutline?: ((name: string, rgba: ArrayLike<number> | null) => void) | null;
 	/** a mesh left out of map.setClipping (renderer meshNoClip) */
@@ -249,7 +253,7 @@ let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;
 const cssRGB = (c: string): number[] | null => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB!.fillStyle = "#000"; ctxRGB!.fillStyle = c; const f = ctxRGB!.fillStyle as string, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshNrm = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setMeshSplit = null, setMeshEnv = null, setMeshOutline = null, setMeshNoClip = null, setMeshImagery = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshNrm = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setMeshSplit = null, setMeshEnv = null, setMeshTint = null, setMeshOutline = null, setMeshNoClip = null, setMeshImagery = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -475,6 +479,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			n.copyright = r.stats?.copyright || null;
 			n.gltfExt = r.stats?.extensions ?? null;   // glTF の根の拡張（Cesium の Model3DTileContent.getExtension）   // glTF の asset.copyright（W8）＝出典の欄へ
 			n.meshN = r.batches.length; n.bbox = r.batches[0]?.mesh.bbox?.map(v => +v.toFixed(5)) ?? null;
+			if (set.opts.debugColorize) dbgTint(n);   // after meshN (the batches the tint goes to)
 			if (r.volumes?.length) { n.vols = r.volumes; for (const g of r.volumes) for (const q of g.parts) n.mainBytes += q.pos.byteLength + q.idx.byteLength; }   // 分類の立体（.geom）＝出すのは setOn（見える時だけ柱を上げる）
 			if (r.points.length) {
 				set.pts ??= map.overlay({ builtin: "points" }, { name: `tiles3d:${set.id}` });
@@ -568,6 +573,12 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		for (let i = 0; i < pos.length; i += 3) { const x = pos[i], y = pos[i + 1], z = pos[i + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; }
 		const v = (x1 - x0) * (y1 - y0) * (z1 - z0);
 		return cnt > 0 && v > 0 ? Math.cbrt(v / cnt) : 0;
+	};
+	// Cesium debugColorizeTiles: Model3DTileContent.applyDebugSettings sets every feature to the tile's random colour, HIGHLIGHT (multiplied)
+	const dbgTint = (n: T3dNode) => {
+		if (!setMeshTint || !n.ward) return;
+		const t = n.set.opts.debugColorize ? [...(n.dbgColor ??= [Math.random(), Math.random(), Math.random()]), 1, 0] : null;
+		for (let k = 0; k < (n.meshN || 0); k++) setMeshTint(`${n.ward}#${k}`, t);
 	};
 	const splitOf = (set: T3dSet) => set.opts.splitDirection === "left" ? -1 : set.opts.splitDirection === "right" ? 1 : 0;
 	const edlOf = (set: T3dSet): [number, number] | null => { const o = set.opts.pointShading; return o?.eyeDomeLighting ? [o.edlStrength ?? 1, o.edlRadius ?? 1] : null; };
@@ -997,7 +1008,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 				/** metadata（3D Tiles 1.1）：schema・tileset の metadata を schema で読んだ物・groups */
 				get schema() { return (set.scope?.schema ?? null) as Record<string, unknown> | null; }, get tilesetMetadata() { return entityOf(set.metadata as MetadataEntityJson | null, set.scope?.schema); }, get groups() { return [...(set.scope?.groups || [])]; }, get extras() { return set.extras!; }, get extensionsUsed() { return [...set.extensionsUsed!]; }, get extensionsRequired() { return [...set.extensionsRequired!]; },   // root の見出し（F5）
 				remove: () => ctl.remove(id), setVisible: v => setHidden(set, !v),
-				setOptions: o => { const edgesWas = set.opts.edges ?? 0; Object.assign(set.opts, o); if ("edges" in o && (o.edges ?? 0) !== edgesWas) for (const n of set.loaded()) unload(n); if ("style" in o) setStyle(set, o.style); if ("customShader" in o && setMeshCustom) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshCustom(`${n.ward}#${k}`, o.customShader ?? null); if ("splitDirection" in o && setMeshSplit) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshSplit(`${n.ward}#${k}`, splitOf(set)); if ("environment" in o && setMeshEnv) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshEnv(`${n.ward}#${k}`, o.environment ?? null); if ("outline" in o && setMeshOutline) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshOutline(`${n.ward}#${k}`, o.outline ?? null); if ("clip" in o && setMeshNoClip) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshNoClip(`${n.ward}#${k}`, o.clip === false); if ("imagery" in o && setMeshImagery) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshImagery(`${n.ward}#${k}`, o.imagery ?? null); if ("pointShading" in o) setPointShading(set); if ("colorBlend" in o && set.style) for (const n of set.loaded()) if (n.state === "ready" && n.paint) paintStyled(n); schedule(); },
+				setOptions: o => { const edgesWas = set.opts.edges ?? 0; Object.assign(set.opts, o); if ("edges" in o && (o.edges ?? 0) !== edgesWas) for (const n of set.loaded()) unload(n); if ("style" in o) setStyle(set, o.style); if ("customShader" in o && setMeshCustom) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshCustom(`${n.ward}#${k}`, o.customShader ?? null); if ("splitDirection" in o && setMeshSplit) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshSplit(`${n.ward}#${k}`, splitOf(set)); if ("environment" in o && setMeshEnv) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshEnv(`${n.ward}#${k}`, o.environment ?? null); if ("outline" in o && setMeshOutline) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshOutline(`${n.ward}#${k}`, o.outline ?? null); if ("clip" in o && setMeshNoClip) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshNoClip(`${n.ward}#${k}`, o.clip === false); if ("imagery" in o && setMeshImagery) for (const n of set.loaded()) if (n.ward) for (let k = 0; k < (n.meshN || 0); k++) setMeshImagery(`${n.ward}#${k}`, o.imagery ?? null); if ("pointShading" in o) setPointShading(set); if ("debugColorize" in o) for (const n of set.loaded()) if (n.state === "ready") dbgTint(n); if ("colorBlend" in o && set.style) for (const n of set.loaded()) if (n.state === "ready" && n.paint) paintStyled(n); schedule(); },
 				/** スタイル（地物ごとの color・show を MapLibre の式で）。null で外す */
 				setStyle(style) { setStyle(set, style); return this; }, get style() { return set.styleSpec ?? null; },
 				// 当たりと feature state（W7）＝EXT_mesh_features／_BATCHID の番号。色は { color } を頂点色へ（他の鍵は保つだけ）。状態は tileset ごと（タイルを跨いで同じ番号＝同じ地物）
