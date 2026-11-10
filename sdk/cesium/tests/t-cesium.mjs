@@ -15,7 +15,7 @@ import { rasterSourceOf, mercatorRows, adjustPaint } from "../src/imagery.ts";
 import { unsupported, unsupportedReport } from "../src/report.ts";
 import { glbOf, meshOutline } from "../src/primitives.ts";
 import { PolygonGeometry, PolygonHierarchy } from "@cesium/engine";
-import { gridOf, placementOf } from "../src/voxels.ts";
+import { gridOf, placementOf, travelDistanceOf } from "../src/voxels.ts";
 import { parseKtx2Cube } from "../src/specular-env.ts";
 import { cesiumSphereOf } from "../src/spheres.ts";
 import { cesiumEnvSH, cesiumEvalSH, cesiumEnvRadiance, CESIUM_SH_UNIFORM_L00 } from "../src/envmap.ts";
@@ -190,6 +190,9 @@ for (const g of [
 	ok("voxel box placement", pl.box.transform[0] === 20 && pl.box.transform[10] === 10 && pl.box.transform[12] === -10 && pl.box.transform[14] === -10, JSON.stringify(pl.box.transform));
 	const pr = placementOf({ provider: {}, shape: "ELLIPSOID", minBounds: new Cartesian3(-Math.PI, -Math.PI / 2, 0), maxBounds: new Cartesian3(Math.PI, Math.PI / 2, 1e6), modelMatrix: Matrix4.IDENTITY });
 	ok("voxel ellipsoid → region", pr.shape === "region" && near(pr.region[0], -180) && near(pr.region[3], 90) && pr.region[5] === 1e6);
+	// Voxel Rendering's shader: alpha = 1 − (1 − a)^(travelDistance / 1e6) → opacityDistance 1e6 m; a shader without it → 0 (per sample)
+	const vr = "float transparency = 1.0 - fsInput.metadata.color.a;\n float thickness = fsInput.voxel.travelDistance / 1000000.0;\n material.alpha = 1.0 - pow(transparency, thickness);";
+	ok("voxel travelDistance → opacityDistance", travelDistanceOf({ customShader: { fragmentShaderText: vr } }) === 1e6 && travelDistanceOf({ customShader: { fragmentShaderText: "material.alpha = fsInput.metadata.color.a;" } }) === 0);
 }
 
 // ── entity bounding spheres as Cesium frames them (the geometry's own sphere, single-precision centre) ──

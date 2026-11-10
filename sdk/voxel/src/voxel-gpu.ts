@@ -33,7 +33,7 @@ struct Uni {
 	bs: vec4f,                   // 72
 	gspanLat: f32, gh0: f32, gh1: f32, ceps: f32,   // 76（ceps＝cylinder の差分の幅 m）
 	vp: vec2f, ddim: vec2f,      // 80
-	logCoef: f32, eps: f32, pad1: f32, pad2: f32,   // 84
+	logCoef: f32, eps: f32, aexp: f32, pad2: f32,   // 84（aexp＝volume の一刻みの α の指数＝刻み m ÷ opacityDistance・0＝刻みごと）
 	light: vec3f, lit: f32,      // 88（lit＝0 で面の陰を付けない）
 	mode: u32, comps: u32, maxSteps: u32, geo: u32,   // 92
 	base: u32, occl: u32, depthOn: u32, pad4: u32,    // 96
@@ -54,6 +54,8 @@ struct VO { @builtin(position) pos: vec4f, @location(0) p: vec3f }
 	var o: VO;
 	let p = select(a, a * U.dims, U.geo == 0u);
 	o.p = p; o.pos = U.mvp * vec4f(p, 1.0);
+	// 殻の裏面は本体の far を越える（全球の殻の向こう側）＝z を [0, w] に収めて far で切らない（深度は書かない・光線は p から）。切ると地球の縁に黒い穴
+	if (o.pos.w > 0.0) { o.pos.z = clamp(o.pos.z, 0.0, o.pos.w); }
 	return o;
 }
 fn cellOf(p: vec3f) -> vec3f {
@@ -117,6 +119,18 @@ fn sceneW(pos: vec2f) -> f32 {
 	}
 	return ws;
 }
+// region の殻（h0〜h1 の球殻）にこの裏面の手前で最後に入った所（m）＝光線の区間をそこから。全球の殻は一つの画素に裏面が二枚
+// （地表の手前の下の面と向こうの上の面）重なり、どちらも外から歩くと同じ区間を二度足す（Cesium の Voxel Rendering の地球が濃すぎた）
+fn shellEntry(ro: vec3f, rd: vec3f, tb: f32) -> f32 {
+	let P0 = U.o + (U.E * ro.x + U.N * ro.y + U.Uu * ro.z) / U.R; let Q = U.E * rd.x + U.N * rd.y + U.Uu * rd.z;
+	let b = dot(P0, Q); let pp = dot(P0, P0); let sb = tb / U.R;
+	var te = -1e30;
+	let r1 = 1.0 + U.gh1 / U.R; let d1 = b * b - (pp - r1 * r1);
+	if (d1 > 0.0) { let s = -b - sqrt(d1); if (s <= sb) { te = max(te, s); } }
+	let r0 = 1.0 + U.gh0 / U.R; let d0 = b * b - (pp - r0 * r0);
+	if (d0 > 0.0) { let s = -b + sqrt(d0); if (s <= sb) { te = max(te, s); } }
+	return te * U.R;
+}
 struct Hit { ok: bool, col: vec4f, id: u32 }
 fn march(pos: vec2f, vp: vec3f, pick: bool) -> Hit {
 	var h: Hit; h.ok = false; h.col = vec4f(0.0); h.id = 0u;
@@ -142,6 +156,7 @@ fn march(pos: vec2f, vp: vec3f, pick: bool) -> Hit {
 		t1 = length(vp - ro);
 		let oc = ro - U.bs.xyz; let b = dot(oc, rd); let c = dot(oc, oc) - U.bs.w * U.bs.w; let disc = b * b - c;
 		t0 = select(0.0, max(0.0, -b - sqrt(disc)), disc > 0.0);
+		t0 = max(t0, shellEntry(ro, rd, t1));
 	}
 	if (U.occl != 0u) {
 		let ws = sceneW(pos);
@@ -198,7 +213,7 @@ fn march(pos: vec2f, vp: vec3f, pick: bool) -> Hit {
 				if (U.comps == 4u) { col = s; a = s.a; }
 				else { let vn = (s.r * 255.0 - 1.0) / 254.0; if (s.r > 0.5 / 255.0 && vn >= U.thr) { col = cmapAt(max(vn, 0.0)); a = col.a; } }
 				if (a > 0.0) {
-					a = 1.0 - pow(1.0 - min(a * U.opacity, 0.999), select(1.0, U.step, U.geo == 0u));
+					a = 1.0 - pow(1.0 - min(a * U.opacity, 0.999), select(select(1.0, U.step, U.geo == 0u), U.aexp, U.aexp > 0.0));
 					acc = vec4f(acc.rgb + (1.0 - acc.a) * col.rgb * a, acc.a + (1.0 - acc.a) * a);
 					if (pick) { if (acc.a >= 0.5) { h.ok = true; h.id = cellId(clamp(vec3i(floor(c)), vec3i(0), vec3i(U.dims) - 1)); return h; } }
 					else if (acc.a > 0.98) { break; }
@@ -236,7 +251,7 @@ fn march(pos: vec2f, vp: vec3f, pick: bool) -> Hit {
 
 interface Layer {
 	q: string; shape: "box" | "region" | "cylinder"; dims: [number, number, number]; comps: 1 | 4; n: number; anchor: [number, number, number]; alt: VoxelAltitude; A: Float64Array; Ainv: Float64Array; radius: number;
-	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; occl: boolean; lit: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
+	mode: 0 | 1 | 2; thr: number; step: number; opacity: number; alen: number; occl: boolean; lit: boolean; clip: Clip | null; properties: Record<string, unknown> | null; range: [number, number];
 	tex: GPUTexture; cmap: GPUTexture; vb: GPUBuffer; nVerts: number; ub: GPUBuffer; bg: GPUBindGroup | null; bgDep: GPUTexture | null;
 	on: boolean; base: number; dist: number; nrm: Float32Array; gradM: Float32Array; geo: GeoGrid | null;
 	layer: string | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; vmax: number;
@@ -278,6 +293,8 @@ const stepsOf = (L: Layer): { step: number; maxSteps: number } => {
 	if (L.mode === 0) return { step: L.step, maxSteps: L.dims[0] + L.dims[1] + L.dims[2] + 2 };
 	return { step: L.step, maxSteps: Math.min(4096, Math.ceil(Math.hypot(L.dims[0], L.dims[1], L.dims[2]) / L.step) + 2) };
 };
+/** volume の一刻みの α の指数（刻みの長さ m ÷ opacityDistance・0＝刻みごとの α）。box の刻みはセル＝セルの大きさ（A の列の長さの相乗平均）で m に */
+const aexpOf = (L: { alen: number; geo: GeoGrid | null; A: ArrayLike<number> }, step: number): number => !(L.alen > 0) ? 0 : (L.geo ? step : step * Math.cbrt(Math.hypot(L.A[0], L.A[3], L.A[6]) * Math.hypot(L.A[1], L.A[4], L.A[7]) * Math.hypot(L.A[2], L.A[5], L.A[8]))) / L.alen;
 const align256 = (v: number): number => Math.ceil(v / 256) * 256;
 // ブリック（第 5 段）＝voxel-gl.ts の drawBounds／isEmpty／centerDist／pickedCell と同じ（依存ゼロ＝写し）
 type BrickLike = { dims: [number, number, number]; clip: Clip | null; off: [number, number, number] | null; own: [number, number, number, number, number, number] | null; full: [number, number, number] | null; s?: number };
@@ -402,7 +419,7 @@ export function create(): VoxelGpuModule {
 		upCmap(cmap, d.cmap);
 		const ub = device!.createBuffer({ label: `voxel-u-${q}`, size: UB_SIZE, usage: BUF.UNIFORM | BUF.COPY_DST });
 		const V = levels[0], fullFine = d.full ?? d.dims;
-		const L: Layer = { q, shape: d.shape, dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, occl: d.depthTest !== false, lit: d.lighting !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
+		const L: Layer = { q, shape: d.shape, dims: V.dims, comps: d.comps, n: V.dims[0] * V.dims[1] * V.dims[2], anchor: V.anchor, alt: d.alt || "relative", A: V.A, Ainv: V.Ainv, radius: V.radius, mode: d.mode, thr: d.thr || 0, step: d.step || 0.5, opacity: d.opacity ?? 1, alen: d.opacityDistance ?? 0, occl: d.depthTest !== false, lit: d.lighting !== false, clip: d.clip ?? null, properties: d.properties ?? null, range: d.range,
 			tex: null as unknown as GPUTexture, cmap, vb: V.vb, nVerts: V.nVerts, ub, bg: null, bgDep: null, on: d.on !== false, base: 0, dist: 0, nrm: V.nrm, gradM: V.gradM, geo: V.geo, layer: d.layer ?? null, off: V.off, own: V.own, full: d.full ?? null, vmax: d.vmax ?? 255,
 			frame: Math.max(0, d.frame ?? 0), lv: 0, s: 1, levels, cell: cellOf(V.A, V.geo), fullFine: [fullFine[0], fullFine[1], fullFine[2]] };
 		useLevel(L, 0);
@@ -431,7 +448,7 @@ export function create(): VoxelGpuModule {
 		else if (d.type === "style") {
 			const L = layers.get(d.q); if (!L) return;
 			if (d.frame != null) L.frame = Math.max(0, d.frame);   // 次に描く時に上げ直す（ensure）
-			if (d.mode != null) L.mode = d.mode; if (d.thr != null) L.thr = d.thr; if (d.step != null) L.step = d.step; if (d.opacity != null) L.opacity = d.opacity;
+			if (d.mode != null) L.mode = d.mode; if (d.thr != null) L.thr = d.thr; if (d.step != null) L.step = d.step; if (d.opacity != null) L.opacity = d.opacity; if (d.opacityDistance != null) L.alen = d.opacityDistance;
 			if (d.clip !== undefined) L.clip = d.clip ?? null; if (d.depthTest != null) L.occl = d.depthTest; if (d.lighting != null) L.lit = d.lighting; if (d.properties !== undefined) L.properties = d.properties ?? null;
 			if (d.cmap) upCmap(L.cmap, d.cmap);
 			host?.requestDraw?.();
@@ -484,7 +501,7 @@ export function create(): VoxelGpuModule {
 		const cy = L.geo?.cyl;
 		if (cy) { uF[79] = 0.5 * Math.min(...L.geo!.cellM); for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) uF[100 + c * 4 + r] = cy.inv[r * 3 + c]; uF[112] = cy.r0; uF[113] = cy.r1; uF[114] = cy.a0; uF[115] = cy.span; }
 		uF[80] = w; uF[81] = h; uF[82] = dep ? dep.w : 1; uF[83] = dep ? dep.h : 1;
-		uF[84] = dep ? dep.logCoef : 1; uF[85] = 2e-6;
+		uF[84] = dep ? dep.logCoef : 1; uF[85] = 2e-6; uF[86] = aexpOf(L, step);
 		uF[88] = LIGHT[0]; uF[89] = LIGHT[1]; uF[90] = LIGHT[2]; uF[91] = L.lit ? 1 : 0;
 		uU[92] = L.mode; uU[93] = L.comps; uU[94] = maxSteps; uU[95] = L.geo ? (L.geo.cyl ? 2 : 1) : 0;
 		uU[96] = L.base; uU[97] = L.occl ? 1 : 0; uU[98] = dep && !pick ? 1 : 0;

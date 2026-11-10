@@ -2,7 +2,8 @@
 // requestData, put together into one grid at the finest level that fits (a child tile overwrites its parent; a missing one leaves the
 // parent's cells), and handed to @ortho-earth/voxel as map.addData(VoxelData, { kind: "voxel" }). BOX → a box transform, ELLIPSOID → a
 // lon/lat/height region; CYLINDER is reported. The custom shader is not run: a shader that reads fsInput.metadata.<name> draws that field
-// (RGBA fields as their colour), anything else (the default shader included) draws white cells. nearestSampling → blocks, else volume.
+// (RGBA fields as their colour), anything else (the default shader included) draws white cells. An alpha that falls off with
+// fsInput.voxel.travelDistance becomes the plugin's opacityDistance (travelDistanceOf). nearestSampling → blocks, else volume.
 // scene.pickVoxel answers with the last hit near that position (the hit itself is found asynchronously).
 import { Cartesian3, Matrix4, Math as CesiumMath } from "@cesium/core";
 import * as engine from "@cesium/engine";
@@ -91,6 +92,15 @@ const drawsField = (p: Any, field: string) => {
 	return !!field && t.includes(`metadata.${field}`) && p.customShader !== VoxelPrimitive?.DefaultCustomShader;
 };
 
+/** the custom shader's alpha falls off with the ray's fsInput.voxel.travelDistance (Cesium's Voxel Rendering: `thickness = travelDistance / 1000000.0;
+ *  alpha = 1.0 - pow(1.0 - a, thickness)` = a over every 1000 km) → that distance in meters (0: the shader does not, each sample step is a) */
+export const travelDistanceOf = (p: Any): number => {
+	const t = String(p.customShader?.fragmentShaderText ?? "");
+	if (!/voxel\.travelDistance/.test(t) || !/\bpow\s*\(/.test(t)) return 0;
+	const m = /voxel\.travelDistance\s*\/\s*([0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)/.exec(t);
+	return m ? +m[1] : 1;
+};
+
 interface Rec { h?: Any; key: string; gen: number; last?: { x: number; y: number; cell: Any } }
 
 /** draws the scene's voxel primitives */
@@ -135,7 +145,7 @@ export class VoxelDrawer {
 		} else if (g.comps === 1) unsupported("VoxelPrimitive scalar field in a custom shader (drawn with a colormap)");
 		await this.#ensurePlugin(map);
 		const comps = values.length === g.dims[0] * g.dims[1] * g.dims[2] ? 1 : 4;
-		const h = map.addData({ ...place, dims: g.dims, components: comps, values }, { kind: "voxel", render, colormap: "grey", altitude: "absolute", properties: { field: g.field }, lighting: !(field && g.comps === 4) || shaderLit(p) });   // a VEC4 colour field is drawn unlit (buildVoxelCustomShader's colour shader) unless the shader lights it (shaderLit); the default and the colormap shaders shade by the light
+		const h = map.addData({ ...place, dims: g.dims, components: comps, values }, { kind: "voxel", render, colormap: "grey", altitude: "absolute", properties: { field: g.field }, opacityDistance: field ? travelDistanceOf(p) : 0, lighting: !(field && g.comps === 4) || shaderLit(p) });   // a VEC4 colour field is drawn unlit (buildVoxelCustomShader's colour shader) unless the shader lights it (shaderLit); the default and the colormap shaders shade by the light
 		await h.ready;
 		h.__values = g.comps === 4 ? g.values : null;   // the provider's values, for VoxelCell.getProperty
 		return h;

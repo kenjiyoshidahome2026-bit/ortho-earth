@@ -79,6 +79,24 @@ const throws = (f, re) => { try { f(); return false; } catch (e) { return re ? r
 	// 日付変更線を跨ぐ region（e < w）
 	const dl = placeRegion([179, 0, -179, 1, 0, 10], [2, 2, 2]);
 	ok("region.antimeridian", near(dl.geo.spanLon, 2) && near(Math.abs(dl.anchor[0]), 180, 1e-9));
+	// 全球の殻（Cesium の Voxel Rendering の楕円体：0〜1000 km）＝三角形はどこでも外向き（上の面＝中心から外・下の面＝中心へ）で、
+	// 一周＝西と東の壁・極まで＝南と北の壁は無い。上の面は h1 の球に外接（弦が球の内へ入らない＝縁が多角形にならない）
+	{
+		const g = placeRegion([-180, -90, 180, 90, 0, 1e6], [8, 8, 8]), sh = g.geo.shell, Rs = 6371000, C = [0, 0, -Rs];
+		let bad = 0, inTop = Infinity, inBot = Infinity, tri = 0;
+		for (let i = 0; i < sh.length; i += 9) {
+			const p0 = [sh[i], sh[i + 1], sh[i + 2]], p1 = [sh[i + 3], sh[i + 4], sh[i + 5]], p2 = [sh[i + 6], sh[i + 7], sh[i + 8]];
+			const a = p1.map((v, k) => v - p0[k]), b = p2.map((v, k) => v - p0[k]), n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+			if (Math.hypot(...n) < 1e-3) continue;   // 極で潰れた三角形
+			tri++;
+			const c = [0, 1, 2].map(k => (p0[k] + p1[k] + p2[k]) / 3 - C[k]), r = Math.hypot(...c), top = r > Rs + 5e5, d = n[0] * c[0] + n[1] * c[1] + n[2] * c[2];
+			if (top ? d <= 0 : d >= 0) bad++;
+			if (top) inTop = Math.min(inTop, r); else inBot = Math.min(inBot, r);
+		}
+		ok("region.globe.outward", bad === 0 && tri > 4000, `${bad} inward of ${tri}`);
+		ok("region.globe.circumscribed", inTop >= Rs + 1e6 - 50 && inBot >= Rs - 50, `${(inTop - Rs).toFixed(0)} ${(inBot - Rs).toFixed(0)}`);
+		ok("region.globe.noWalls", sh.length === 2 * 96 * 48 * 6 * 3, String(sh.length / 18));
+	}
 	ok("unitAt", (() => { const u = unitAt(0, 0, 0); return near(u[0], 1) && near(u[1], 0) && near(u[2], 0) && near(unitAt(90, 0, 6371000)[2], 2); })());
 }
 // ---- cylinder（2026-10-26）----
