@@ -54,6 +54,8 @@ struct VO { @builtin(position) pos: vec4f, @location(0) p: vec3f }
 	var o: VO;
 	let p = select(a, a * U.dims, U.geo == 0u);
 	o.p = p; o.pos = U.mvp * vec4f(p, 1.0);
+	// 殻の裏面は本体の far を越える（全球の殻の向こう側）＝z を [0, w] に収めて far で切らない（深度は書かない・光線は p から）。切ると地球の縁に黒い穴
+	if (o.pos.w > 0.0) { o.pos.z = clamp(o.pos.z, 0.0, o.pos.w); }
 	return o;
 }
 fn cellOf(p: vec3f) -> vec3f {

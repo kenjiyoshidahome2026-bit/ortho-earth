@@ -38,7 +38,9 @@ precision highp float;
 layout(location = 0) in vec3 a_pos;
 uniform mat4 u_mvp; uniform vec3 u_dims; uniform int u_geo;
 out vec3 v_p;
-void main() { v_p = u_geo == 0 ? a_pos * u_dims : a_pos; gl_Position = u_mvp * vec4(v_p, 1.0); }`;
+// 殻の裏面は遠い（全球の殻の向こう側＝地球の縁の外）＝本体の far を越える。z を w に収めて far で切らない（深度は書かない・光線は v_p から＝z は使わない）。
+// 切ると縁の画素に描く面が無くなる（Cesium の Voxel Rendering の地球の縁の黒い穴）
+void main() { v_p = u_geo == 0 ? a_pos * u_dims : a_pos; vec4 q = u_mvp * vec4(v_p, 1.0); if (q.w > 0.0) q.z = clamp(q.z, -q.w, q.w); gl_Position = q; }`;
 const FS = (depthGLSL: string, pick: boolean): string => `#version 300 es
 precision highp float; precision highp int; precision highp sampler3D;
 ${depthGLSL}
