@@ -1,0 +1,200 @@
+[
+ {
+  "name": "3d-tiles-nga-gpm-visualization",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 1348,
+   "n": 1462,
+   "colour": 0.9316005471956225,
+   "edge": 0.9637482900136799,
+   "blob": 29,
+   "masked": 1610
+  },
+  "newPicture": {
+   "ok": 1405,
+   "n": 1462,
+   "colour": 0.9705882352941176,
+   "edge": 0.9856361149110807,
+   "blob": 3,
+   "masked": 1610
+  },
+  "run": "v271"
+ },
+ {
+  "name": "custom-datasource",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 2231,
+   "n": 2353,
+   "colour": 0.9596260093497663,
+   "edge": 0.9609009774755631,
+   "blob": 27,
+   "masked": 719
+  },
+  "newPicture": {
+   "ok": 2330,
+   "n": 2353,
+   "colour": 0.9919252018699533,
+   "edge": 0.996600084997875,
+   "blob": 1,
+   "masked": 719
+  },
+  "run": "v271"
+ },
+ {
+  "name": "czml-path",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 188,
+   "n": 2152,
+   "colour": 0.9888475836431226,
+   "edge": 0.0887546468401487,
+   "blob": 0,
+   "masked": 920
+  },
+  "newPicture": {
+   "ok": 2131,
+   "n": 2152,
+   "colour": 0.9925650557620818,
+   "edge": 0.9976765799256505,
+   "blob": 1,
+   "masked": 920
+  },
+  "run": "v271"
+ },
+ {
+  "name": "globe-interior",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 1454,
+   "n": 2068,
+   "colour": 0.7074468085106383,
+   "edge": 0.8143133462282398,
+   "blob": 565,
+   "masked": 1004
+  },
+  "newPicture": {
+   "ok": 2012,
+   "n": 2068,
+   "colour": 0.9796905222437138,
+   "edge": 0.9850096711798839,
+   "blob": 18,
+   "masked": 1004
+  },
+  "run": "v271"
+ },
+ {
+  "name": "material-with-custom-glsl",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 1987,
+   "n": 2143,
+   "colour": 0.9286047596826879,
+   "edge": 0.9472701819878675,
+   "blob": 114,
+   "masked": 929
+  },
+  "newPicture": {
+   "ok": 2134,
+   "n": 2143,
+   "colour": 0.9958002799813346,
+   "edge": 1,
+   "blob": 1,
+   "masked": 929
+  },
+  "run": "v271d"
+ },
+ {
+  "name": "rectangle",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 2016,
+   "n": 2143,
+   "colour": 0.9561362575828278,
+   "edge": 0.9580027998133458,
+   "blob": 64,
+   "masked": 929
+  },
+  "newPicture": {
+   "ok": 2049,
+   "n": 2143,
+   "colour": 0.9916005599626692,
+   "edge": 0.9640690620625292,
+   "blob": 3,
+   "masked": 929
+  },
+  "run": "v271"
+ },
+ {
+  "name": "terrain-exaggeration",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 1389,
+   "n": 1903,
+   "colour": 0.7945349448239621,
+   "edge": 0.882816605359958,
+   "blob": 53,
+   "masked": 1169
+  },
+  "newPicture": {
+   "ok": 1784,
+   "n": 1903,
+   "colour": 0.9753021544929059,
+   "edge": 0.9574356279558591,
+   "blob": 5,
+   "masked": 1169
+  },
+  "run": "v271"
+ },
+ {
+  "name": "time-dynamic-wheels",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 1852,
+   "n": 2143,
+   "colour": 0.9076061595893608,
+   "edge": 0.9323378441437238,
+   "blob": 119,
+   "masked": 929
+  },
+  "newPicture": {
+   "ok": 2026,
+   "n": 2143,
+   "colour": 0.9860009332711153,
+   "edge": 0.9491367242183855,
+   "blob": 6,
+   "masked": 929
+  },
+  "run": "v271"
+ },
+ {
+  "name": "web-map-tile-service-picking",
+  "prev": 2,
+  "new": 3,
+  "prevPicture": {
+   "ok": 1940,
+   "n": 2078,
+   "colour": 0.9384023099133783,
+   "edge": 0.9942252165543792,
+   "blob": 30,
+   "masked": 994
+  },
+  "newPicture": {
+   "ok": 2066,
+   "n": 2078,
+   "colour": 0.9990375360923965,
+   "edge": 0.9942252165543792,
+   "blob": 0,
+   "masked": 994
+  },
+  "run": "v271"
+ }
+]
