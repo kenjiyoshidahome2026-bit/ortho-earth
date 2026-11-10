@@ -16,7 +16,7 @@ const PORT = +process.env.VGW_PORT || 5246;
 // t-meshmask＝メッシュ被覆マスクの 4 枠選抜（原点そのままカメラだけ動いて近い 4 区が入れ替わる＝BG の作り直し）
 // t-meshmany＝メッシュの可視バッチが 512 を越えても最後まで描く（PB の受け皿を倍々に広げる・cdb-yemen 2026-10-31）
 // t-rectlook の 2 変種＝旧 verify:editor（japan）が引数で回していた円ツール・ズーム列の検分（頁が globe へ移ったのでここが宿す）
-const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-clipgint?gintsb=0", "t-clipmap", "t-qmesh", "t-meshmask", "t-meshmany", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintgpu?gintsb=0&gintlh=16", "t-gintgpu?gintlh=16", "t-gintlayers", "t-gintexpr", "t-gintexprdraw", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
+const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-bldalign", "t-bldalign?pitch=60", "t-clip", "t-clipgint", "t-clipgint?gintsb=0", "t-clipmap", "t-qmesh", "t-meshmask", "t-meshmany", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintgpu?gintsb=0&gintlh=16", "t-gintgpu?gintlh=16", "t-gintlayers", "t-gintexpr", "t-gintexprdraw", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
 	"t-spotlight", "t-linedeco", "t-linegrad", "t-mdparity", "t-shotov",

@@ -656,8 +656,10 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	// 標高変位は地形と同じ距離フェード＝遠景の平ら化に追随（無いと地平線に「漂う点線の鎖」）
 	let dfa = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, da));
 	let dfb = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, db));
-	let ha = (elevL(la1) + P.p0.y) * F.elevP.x * dfa;   // 案A（F.fineP.z＝?lineelev で軽い版）
-	let hb = (elevL(la2) + P.p0.y) * F.elevP.x * dfb;
+	// p0.y＜0＝深度だけのリフト（基図・利用者の vector の層＝gl LINE_MAIN と同式・2026-11-11「チルトを深くすると、基図と建物がズレる？」）：位置は地面のまま
+	let liftP = max(P.p0.y, 0.0); let liftZ = abs(P.p0.y);
+	let ha = (elevL(la1) + liftP) * F.elevP.x * dfa;   // 案A（F.fineP.z＝?lineelev で軽い版）
+	let hb = (elevL(la2) + liftP) * F.elevP.x * dfb;
 	let relWa = rela + ha * liftDir(la1, da); let relWb = relb + hb * liftDir(la2, db);   // 楕円体＝測地法線
 	let wa = F.originPt + relWa; let wb = F.originPt + relWb;
 	let ca = F.clipT + F.mvp * vec4f(relWa, 0.0);
@@ -702,14 +704,14 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	// 端点の深度は対数系＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
 	// 深度だけの余白（gl LINE_MAIN と同式・2026-11-07）：画素は動かさず、深度テストの点だけ lift＋弦のたるみ（中点の地面−弦）だけ上げる＝市街地（lift>0）限定
 	var relDa = relWa; var relDb = relWb; var cda = ca; var cdb = cb;
-	if (P.p0.y > 0.0) {
+	if (liftZ > 0.0) {
 		// 軽い標高（F.ellP.z＝?elevcheap・LOW_MEM 既定）は 3 点を 1 標本（elev1）で引く＝建物の頂点と同じ扱い。elevQ だと 1 頂点あたり
 		// 標本 12×3 が足され、2026-11-07 Mali 実機で #997 公開後に基図 59 枚の最初の描画が 3.9 秒の GPU 待ちに戻った（bldrange=1.5 でも）。
 		// 深度の余白は数 m 単位の話＝格子量子化（elevQ）でなく 1 標本でも縁の波打ちは抑えられる。?elevcheap=0 で従来（全機種の既定）
 		var ga = 0.0; var gb = 0.0; var gm = 0.0;
 		if (F.ellP.z > 0.5) { ga = elev1(la1); gb = elev1(la2); gm = elev1((la1 + la2) * 0.5); } else { ga = elevQ(la1); gb = elevQ(la2); gm = elevQ((la1 + la2) * 0.5); }
-		let sag = max(0.0, gm - 0.5 * (ga + gb));
-		relDa = relWa + ((P.p0.y + sag) * F.elevP.x * dfa) * liftDir(la1, da); relDb = relWb + ((P.p0.y + sag) * F.elevP.x * dfb) * liftDir(la2, db);
+		let dz = 2.0 * liftZ - liftP + max(0.0, gm - 0.5 * (ga + gb));   // 地面から 2|lift|＋たるみ（位置のリフトの分は差し引く＝基図の深度は従来と同じ高さ）
+		relDa = relWa + (dz * F.elevP.x * dfa) * liftDir(la1, da); relDb = relWb + (dz * F.elevP.x * dfb) * liftDir(la2, db);
 		cda = F.clipT + F.mvp * vec4f(relDa, 0.0); cdb = F.clipT + F.mvp * vec4f(relDb, 0.0);
 	}
 	let wz = select(lineGroundW(relDb, la2, db, cdb, posS - toScreen(cdb)), lineGroundW(relDa, la1, da, cda, posS - toScreen(cda)), corner.x < 0.5);   // 四隅＝その下の地面の深さ（lineGroundW）

@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- 実描画の検分：深いチルトで基図の線と建物の足元が揃う（2026-11-11 本人報告「チルトを深くすると、基図と建物がズレる？」）。
+     試料＝tests/fixtures/bldalign（一様 40m の台地・40m 四方の建物・その南 20m の東西の道路）。
+     74° で北を向く：道路の赤い線の芯が、地面の点（projectLL＝地形の高さ込み）に載る（接地リフト 5m の位置ずれ＝5·tan74°≈17m 奥＝十数 px 上に無い）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-bldalign</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const base = new URL("./fixtures/bldalign/", location.href).href;
+const SRC = { tiles: [base + "dem/{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, minzoom: 12, maxzoom: 12, cellZoom: 12, bounds: [150.45, 30.45, 150.55, 30.55] };
+const MY = 111320, MX = MY * Math.cos(30.5 * Math.PI / 180);
+const at = (eM, nM) => [150.5 + eM / MX, 30.5 + nM / MY];
+const q = new URLSearchParams(location.search), pitch = +(q.get("pitch") || 74);
+const style = {
+	version: 8, name: "t-bldalign",
+	sources: { s: { type: "vector", tiles: [base + "mvt/{z}/{x}/{y}.pbf"], minzoom: 16, maxzoom: 16 } },
+	layers: [
+		{ id: "bg", type: "background", paint: { "background-color": "#f4f4f4" } },
+		{ id: "bldfill", type: "fill", source: "s", "source-layer": "bld", paint: { "fill-color": "#3060c0" } },
+		{ id: "bld", type: "fill-extrusion", source: "s", "source-layer": "bld", paint: { "fill-extrusion-color": "#c0c0c0", "fill-extrusion-height": 20 } },
+		{ id: "road", type: "line", source: "s", "source-layer": "road", paint: { "line-color": "#ff0000", "line-width": 2 } },
+	],
+};
+try {
+	const map = await createGlobe({ target: "#map", view: `#18/${at(0, -60)[1]}/${at(0, -60)[0]}/${pitch}t`, chips: false, night: false, persistView: false, debugGlobals: true, style, terrain: { source: SRC } });
+	await new Promise(r => map.on("load", r));
+	await sleep(8000);
+	const h = await map.getHeight(...at(0, -40));
+	ok("dem", Math.abs(h - 40) < 3, h.toFixed(1));
+	{ const P = map.projectLL(...at(80, -40)), H = map.makeProjectorH({}); window.__probe = { x: P[0], yG: P[1], y5: H(...at(80, -40), 5)[1] }; }   // 外から画面を撮って測る口（WebGPU の検分）
+	const shot = map.gadget.shot();
+	const blob = await Promise.race([shot.composite(), sleep(30000).then(() => { throw new Error("composite timeout"); })]);
+	const bmp = await createImageBitmap(blob);
+	const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height }); const g = cv.getContext("2d"); g.drawImage(bmp, 0, 0);
+	const k = bmp.width / 960, img = g.getImageData(0, 0, bmp.width, bmp.height).data;
+	// 道路（南 40m）の芯：建物の外（東 80m）の列で赤い画素の重心
+	const P = map.projectLL(...at(80, -40)), x = Math.round(P[0] * k);
+	let sy = 0, n = 0; for (let y = 0; y < bmp.height; y++) { const i = (y * bmp.width + x) * 4, r = img[i], gg = img[i + 1], b = img[i + 2]; const w = r > 150 && r - gg > 60 && r - b > 60 ? (r - gg) / 255 : 0; sy += y * w; n += w; }   // 赤み（r−g）の重み付き重心＝AA の縁も含める
+	const yRed = n ? sy / n / k : NaN, dy = yRed - P[1];
+	const H = map.makeProjectorH ? map.makeProjectorH({}) : null, P5 = H ? H(...at(80, -40), 5) : null;
+	ok(`道路の芯が地面に載る(赤 y=${yRed.toFixed(1)} 地面 y=${P[1].toFixed(1)} 差=${dy.toFixed(1)}px${P5 ? ` 5m 上=${P5[1].toFixed(1)}` : ""})`, n > 0 && Math.abs(dy) < 3);
+	window.__img = cv.toDataURL("image/png");
+} catch (e) { t.push("NG:" + (e && e.stack || e)); }
+document.title = (t.some(s => s.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ") + " backend=" + window.__backend;
+</script>
+</body></html>

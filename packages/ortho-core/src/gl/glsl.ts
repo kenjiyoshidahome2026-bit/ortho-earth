@@ -1551,7 +1551,7 @@ uniform vec2 u_pzO;       // ズーム連続のずらし（paintzoom.ts）＝x �
 uniform vec4 u_lt;        // 線の色の見本（G-3）＝x 1＝line-gradient（色の語は線分の始点・終点の進み unorm16×2・色は u_ltTex を画素の進みで引く）。0＝色の語が色
                           // x 2＝line-pattern（G-4）＝u_ltTex は模様の画像（前乗算）・y＝破線と同じ尺（floor(zoom) の px ÷ z24 の px）・z＝層の line-opacity`;
 const LINE_VARY = /* glsl */`${LINE_DASH}
-uniform float u_lift;   // 接地リフト(m)。都市帯（深度テスト×DTM起伏）で線を地形メッシュ面の上へ逃がす（fill の u_lift と同意味論）
+uniform float u_lift;   // 接地リフト(m)。都市帯（深度テスト×DTM起伏）で線を地形メッシュ面の上へ逃がす（fill の u_lift と同意味論）。負＝深度だけ（位置は地面・LINE_MAIN）
 uniform float u_cj;     // 端と継ぎ（S-P1-1）＝cap | join<<2 | round(miter-limit×8)<<4（build.ts の lineCapJoin）。0＝丸い端と丸い継ぎ＝p0/p3/jf0 を読まない（従来の capsule）
 flat out vec2 v_a;
 flat out vec2 v_b;
@@ -1636,7 +1636,11 @@ const LINE_MAIN = /* glsl */`
 	// これが無いと平ら化された山脈の上に線だけがフル標高で浮き、「地平線に漂う点線の鎖」になる
 	float dfa = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, da));
 	float dfb = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, db));
-	float ha = (elevQ(la1) + u_lift) * u_elevScale * dfa, hb = (elevQ(la2) + u_lift) * u_elevScale * dfb;   // 案A
+	// u_lift＜0＝深度だけのリフト（基図・利用者の vector の層＝2026-11-11 本人報告「チルトを深くすると、基図と建物がズレる？」）：画素の位置は地面のまま、
+	// 深度の点だけ |u_lift| 上げる。位置まで 5m 上げると、深いチルトでは道路が地面より 5·tan(チルト) 奥に描かれる（74° で 17m＝建物の足元・地面アトラスの塗りから離れる）。
+	// u_lift＞0（overlay＝塗りも同じ高さに浮かせる）は従来どおり位置ごと上げる＝境界線と塗りが揃う
+	float liftP = max(u_lift, 0.0), liftZ = abs(u_lift);
+	float ha = (elevQ(la1) + liftP) * u_elevScale * dfa, hb = (elevQ(la2) + liftP) * u_elevScale * dfb;   // 案A
 	vec3 relWa = rela + ha * liftDir(la1, da), relWb = relb + hb * liftDir(la2, db);   // (dir*(1+h)) − 原点3D を相殺なしで（楕円体＝測地法線）
 	vec3 wa = u_originPt + relWa, wb = u_originPt + relWb;       // 絶対（fog 用＝粗くて可）
 	vec4 ca = u_clipT + u_mvp * vec4(relWa, 0.0), cb = u_clipT + u_mvp * vec4(relWb, 0.0);   // RTE：mvp*[w,1] を相殺なしで
@@ -1678,9 +1682,10 @@ const LINE_MAIN = /* glsl */`
 	// さらに u_lift ＋ 弦のたるみ（線分の中点の地面が両端を結ぶ弦より高い分＝疎な頂点の区間が凸地形の中へ沈む）だけ持ち上げる。
 	// 地形の深度テストは「線が地面の手前か」しか見ないので、深度の点を上げても絵は浮かない（尾根に隠れにくくなるだけ＝市街地の接地リフト（u_lift>0）の帯に限る）
 	vec3 relDa = relWa, relDb = relWb; vec4 cda = ca, cdb = cb;
-	if (u_lift > 0.0) {
-		float ga = elevQ(la1), gb = elevQ(la2), sag = max(0.0, elevQ((la1 + la2) * 0.5) - 0.5 * (ga + gb));
-		relDa = relWa + ((u_lift + sag) * u_elevScale * dfa) * liftDir(la1, da); relDb = relWb + ((u_lift + sag) * u_elevScale * dfb) * liftDir(la2, db);
+	// 深度の点＝地面から 2|u_lift|＋たるみ（位置のリフト liftP の分は差し引く＝u_lift＜0 の基図も深度は従来と同じ高さ）
+	if (liftZ > 0.0) {
+		float ga = elevQ(la1), gb = elevQ(la2), sag = max(0.0, elevQ((la1 + la2) * 0.5) - 0.5 * (ga + gb)), dz = 2.0 * liftZ - liftP + sag;
+		relDa = relWa + (dz * u_elevScale * dfa) * liftDir(la1, da); relDb = relWb + (dz * u_elevScale * dfb) * liftDir(la2, db);
 		cda = u_clipT + u_mvp * vec4(relDa, 0.0); cdb = u_clipT + u_mvp * vec4(relDb, 0.0);
 	}
 	float wz = (corner.x < 0.5) ? lineGroundW(relDa, la1, da, cda, pos - toScreen(cda)) : lineGroundW(relDb, la2, db, cdb, pos - toScreen(cdb));   // 四隅＝その下の地面の深さ（lineGroundW）
