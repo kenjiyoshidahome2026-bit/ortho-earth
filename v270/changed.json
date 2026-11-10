@@ -1,0 +1,98 @@
+{
+ "at": "2026-11-09T23:59:52.111Z",
+ "run": "v270",
+ "commit": "f6fd4b4a8",
+ "branch": "claude/project-thread-7bmgob",
+ "examples": [
+  {
+   "name": "rectangle",
+   "level": 3,
+   "colour": 0.9916005599626692,
+   "edges": 0.9640690620625292,
+   "blob": 3,
+   "base": "v262m",
+   "before": {
+    "level": 3,
+    "colour": 0.9902006532897807,
+    "edges": 0.9640690620625292,
+    "blob": 3
+   },
+   "shot2": {
+    "level": 3,
+    "colour": 0.9916005599626692,
+    "edges": 0.9640690620625292,
+    "blob": 3
+   }
+  },
+  {
+   "name": "clamp-entities-to-ground",
+   "level": 2,
+   "colour": 0.7704213241616509,
+   "edges": 0.8701633705932932,
+   "blob": 128,
+   "base": "v269",
+   "before": {
+    "level": 2,
+    "colour": 0.7704213241616509,
+    "edges": 0.8701633705932932,
+    "blob": 128
+   }
+  },
+  {
+   "name": "geometry-and-appearances",
+   "level": 3,
+   "colour": 0.9864675688287448,
+   "edges": 0.9692020531964536,
+   "blob": 6,
+   "base": "v259",
+   "before": {
+    "level": 3,
+    "colour": 0.9874008399440037,
+    "edges": 0.9701353243117126,
+    "blob": 6
+   }
+  },
+  {
+   "name": "ground-primitive-materials-dev",
+   "level": 2,
+   "colour": 0.8731533367294957,
+   "edges": 0.9373408048904738,
+   "blob": 21,
+   "base": "v266",
+   "before": {
+    "level": 2,
+    "colour": 0.8731533367294957,
+    "edges": 0.9373408048904738,
+    "blob": 21
+   }
+  },
+  {
+   "name": "terrain-entity-batching-dev",
+   "level": 3,
+   "colour": 0.9832011199253383,
+   "edges": 0.8940737284181055,
+   "blob": 5,
+   "base": "v269",
+   "before": {
+    "level": 3,
+    "colour": 0.9841343910405973,
+    "edges": 0.9006066262249184,
+    "blob": 5
+   }
+  },
+  {
+   "name": "z-indexing-geometry",
+   "level": 3,
+   "colour": 0.97246850209986,
+   "edges": 0.9869342043863742,
+   "blob": 9,
+   "base": "v266",
+   "before": {
+    "level": 3,
+    "colour": 0.9720018665422305,
+    "edges": 0.9869342043863742,
+    "blob": 9
+   }
+  }
+ ]
+}
