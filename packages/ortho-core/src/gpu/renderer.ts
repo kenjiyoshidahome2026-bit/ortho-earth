@@ -14,7 +14,7 @@
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
 import { pipeSet, lbl, warmPipes, warmPipesBg, pipeLog } from "./pipeset.ts";
 import { viewRays } from "../camera.ts";
-import { cameraState, lonlatTo3D, ellNormal3D, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
+import { cameraState, lonlatTo3D, ellNormal3D, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, floorAnchor, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
 import { evalPaintZoomMemo } from "../paintzoom.ts";   // ズーム連続の paint＝層の値を今の z で（gl と同じ memo）
 import type { PaintZoom, PzV } from "../paintzoom.ts";
@@ -3035,6 +3035,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 地形パスの RTE の錨＝カメラの注視点（f64・毎フレーム）。旧＝main の原点＝基図のタイルが無い地図（@ortho-earth/cesium）では経度 0・緯度 0 のまま＝
 		// 頂点の相対ベクトルが ~1 の大きさになり、f32 の mvp との積が深ズームで相殺を失う＝低い目で地形が目の前で何倍にも歪んだ（Cesium 例 shadows・2026-10-28）。gl/renderer.ts terrOrigin と同じ
 		const terrOrigin = [cam.center[0], cam.center[1]];
+		const floorOrigin = floorAnchor(scenes.main.origin, cam.center);   // 球の床の錨（camera.ts floorAnchor）＝床のレイ・窓の uv・globe スロットの断面で共通
 		// 太陽（#46 段 0）：共通の時計の太陽方向（地球固定）と、シーン原点での昼の度合い（高度 −6°→+6°＝市民薄明の幅で 0→1）。
 		// 影の shadow.time は影だけの時刻＝ここは時計に従う（面の照明は「その時刻の空」に合わせる・段 2）。
 		// 評価点＝カメラの中心（シーンの原点は無い時に (0,0) へ落ちる＝レンダラ直叩き・世界ビュー）
@@ -3113,7 +3114,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			CLIP_SLOTS.forEach((k, i) => {   // 対象のスロット＝main 原点・塗りと線のスロット＝そのシーンの原点で vector の面。蓋はその対象に面がある時だけ
 				// globe＝球の床：地形と同じ面を mainOrigin の K で（床のレイ・錨は mainOrigin＝gl の clipBind(錨) と同じ分担。#730 で terrain スロットだけ注視点の錨になった）
 				const kt = k === "globe" ? "terrain" : k;
-				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : k === "terrain" ? terrOrigin : mainOrigin, pl = tp![kt] || tp!.vector, pg = (tg as Record<string, ReturnType<typeof clipPolygonFor>>)[kt] ?? (kt in tg! ? null : tg!.vector);
+				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : k === "terrain" ? terrOrigin : k === "globe" ? floorOrigin : mainOrigin, pl = tp![kt] || tp!.vector, pg = (tg as Record<string, ReturnType<typeof clipPolygonFor>>)[kt] ?? (kt in tg! ? null : tg!.vector);
 				packClip(pl, lonlatTo3D(o[0], o[1]), cl!.cpu.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), { ...sty, capOn: sty.capOn && pl.length > 0 }, pg);
 			});
 			device.queue.writeBuffer(cl!.buf, 0, cl!.cpu);
@@ -3175,13 +3176,13 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			{   // 錨（#65）：球の床・海面下の交点を原点相対 δ で持ち、uv は f64 前計算の (off, 1/span) で作る＝絶対経緯度（f32 で 1.4 m 刻み）を経ない
 				// 錨＝シーン原点（mainOrigin）。断面の面は globe スロット（mainOrigin の K）を束ねる＝#730 で terrain スロットの錨が注視点になって床の切り口が
 				// ずれた（t-clipgint 西側）のを #735 は床の錨を terrOrigin に変えて直したが、画像の uv の丸めが変わり t-mlcompat の陰影の輝度が 0.6 動いた（2026-10-28）
-				const u = sphereRayUniforms(st, mainOrigin);
+				const u = sphereRayUniforms(st, floorOrigin);
 				g[52] = u.O![0]; g[53] = u.O![1]; g[54] = u.O![2]; g[55] = u.rho!;
 				g[56] = u.ll![0]; g[57] = u.ll![1]; g[58] = u.beta0!; g[59] = 0;
 				g[60] = u.EO![0]; g[61] = u.EO![1]; g[62] = u.EO![2]; g[63] = 0;
-				g.set(anchorUV(mainOrigin, cogGeo), 68);
-				for (let k = 0; k < 4; k++) g.set(anchorUV(mainOrigin, k < gnd.n ? gnd.w[k]!.win : null), 72 + k * 4);
-				g.set(anchorUV(mainOrigin, elev.bounds), 88);
+				g.set(anchorUV(floorOrigin, cogGeo), 68);
+				for (let k = 0; k < 4; k++) g.set(anchorUV(floorOrigin, k < gnd.n ? gnd.w[k]!.win : null), 72 + k * 4);
+				g.set(anchorUV(floorOrigin, elev.bounds), 88);
 			}
 			packGroundLight(g, 92, st);   // 地面の照明（cg/cgP/cgC）
 			g[103] = view.globeBack ? 1 : 0;   // cgC.w＝球の裏面を描く（断面で切った手前の向こう・Cesium の globe.backFaceCulling=false）

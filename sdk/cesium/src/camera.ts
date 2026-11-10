@@ -65,12 +65,15 @@ export function globeCamOf(pos: Cartesian3, dir: Cartesian3, up: Cartesian3, foc
 		roll = Math.atan2(Cartesian3.dot(cr, d), Cartesian3.dot(level, v3)) * R2D;
 	}
 	const out: GlobeCam = { lng: tc.longitude * R2D, lat: tc.latitude * R2D, height: tc.height, distance: t, heading: ((heading % 360) + 360) % 360, pitch, roll: Math.abs(roll) < 1e-3 ? 0 : roll };
-	if (pending) out.pending = true;
 	// the ground under the target (the globe's imagery windows measure the view's distances on a sphere at this height, not at sea level: a camera
 	// standing in the mountains got windows 4-5× too wide and blurry foreground imagery, fog / high-dynamic-range 2026-10-31). On the terrain = the
 	// target's own height; a target in the air (tracked entity, sky) = the terrain under it; unknown yet = left out (sea level)
-	if (terrainAt) { const g = terrainAt(out.lng, out.lat); if (g != null && Number.isFinite(g)) groundAlt = Math.max(0, g); }
+	// A height not in yet marks the result pending too, so the caller fetches it and pushes again (before 2026-11-10 only terrainHit set pending,
+	// which a focus skips: a tracked entity over terrain never got its ground height and its windows stayed sea-level wide = foreground imagery
+	// ~10× coarser than Cesium's, czml-path 2.4 m/texel against 0.25 m)
+	if (terrainAt) { const g = terrainAt(out.lng, out.lat); if (g != null && Number.isFinite(g)) groundAlt = Math.max(0, g); else pending = true; }
 	if (groundAlt !== undefined) out.groundAlt = groundAlt;
+	if (pending) out.pending = true;
 	return out;
 }
 /** how far the view ray (ray.origin / ray.direction) goes before it meets the terrain: null = no crossing before tMax. pending = a sample had no height yet */
