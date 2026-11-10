@@ -1125,7 +1125,7 @@ export class EntityDisplay {
 		const g = entity.billboard ?? entity.point ?? entity.label, href = g ? val(g.heightReference, t, HeightReference.NONE) : HeightReference.NONE;
 		if (href === HeightReference.NONE) return;
 		const c = Cartographic.fromCartesian(s.center), th = c && this.host.map?.queryTerrainElevation?.(c.longitude * 180 / Math.PI, c.latitude * 180 / Math.PI);
-		if (c && Number.isFinite(th)) s.center = Cartesian3.fromRadians(c.longitude, c.latitude, th + (href % 2 === 0 ? c.height : 0));
+		if (c && Number.isFinite(th)) s.center = Cartesian3.fromRadians(c.longitude, c.latitude, ((this.scene as Any).cesiumHeightOf?.(th) ?? th) + (href % 2 === 0 ? c.height : 0));
 	}
 
 	// ── picking: marks (projected now), models, then ground shapes under the point ──
@@ -1170,7 +1170,14 @@ export class EntityDisplay {
 	/** forget what was sent (the overlay or the layers were lost) */
 	// the terrain under a shape: its height at the centre of the outline (Cesium's TerrainOffsetProperty) and the lowest of the outline's points,
 	// from map.sampleTerrain into a memo (shared by the shapes, dropped when the terrain changes); null while a point is still being sampled
-	#gh = new Map<string, number>(); #ghWant = new Set<string>(); #ghWaiting = new Set<Rec>(); #ghTerr: Any = null;
+	#gh = new Map<string, number>(); #ghWant = new Set<string>(); #ghWaiting = new Set<Rec>(); #ghTerr: Any = null; #ghK = 1;
+	/** the globe's terrain exaggeration changed (scene.verticalExaggeration): the shapes on the ground are placed again */
+	setTerrainScale(k: number) {
+		if (k === this.#ghK) return;
+		this.#ghK = k;
+		for (const r of this.#recs.values()) r.dirty = true;
+		this.invalidate();
+	}
 	#groundOf(ring: number[][], r: Rec): { off: number; min: number } | null {
 		const map = this.host.map, terr = map?.getTerrain?.()?.source ?? null;
 		if (!terr || typeof map.sampleTerrain !== "function") return null;
@@ -1184,7 +1191,7 @@ export class EntityDisplay {
 		const key = (p: [number, number]) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
 		const hs: number[] = [], miss: [number, number][] = [];
 		for (const p of pts) { const v = this.#gh.get(key(p)); if (v === undefined) { if (!this.#ghWant.has(key(p))) miss.push(p); } else hs.push(v); }
-		if (hs.length === pts.length) return { off: hs[0], min: Math.min(...hs) };
+		if (hs.length === pts.length) { const k = this.#ghK; return { off: hs[0] * k, min: Math.min(...hs) * k }; }   // on the globe's terrain = exaggerated about sea level (scene.ts #syncExaggeration)
 		this.#ghWaiting.add(r);
 		if (miss.length) {
 			for (const p of miss) this.#ghWant.add(key(p));

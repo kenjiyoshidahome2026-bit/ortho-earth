@@ -19,7 +19,7 @@ export interface Host {
 	map: any | null;
 	ready: Promise<any>;
 	/** the entity display (picking, bounding spheres) */
-	display: { pick(x: number, y: number): unknown; drillPick(x: number, y: number, limit?: number): unknown[] } | null;
+	display: { pick(x: number, y: number): unknown; drillPick(x: number, y: number, limit?: number): unknown[]; setTerrainScale?(k: number): void } | null;
 	/** the viewer's clock: model animations run only while it animates, at its multiplier (Cesium's ModelVisualizer) */
 	clock?: { shouldAnimate: boolean; multiplier: number; currentTime?: JulianDate } | null;
 }
@@ -233,7 +233,7 @@ export class OrthoScene {
 		if (Number.isFinite(fovy) && Math.abs(fovy - this.#fovy) > 1e-9) { this.#fovy = fovy; map.setVerticalFieldOfView(fovy * R2D); }
 		const pose = poseKey(this.camera);
 		if (this.#lastGlobe && !sameGlobeCam(this.#lastGlobe, g) && sameKey(this.#lastPose, pose)) {
-			setCameraWorldPose(this.camera, poseOfGlobeCam(g));
+			setCameraWorldPose(this.camera, poseOfGlobeCam(this.#terrShift ? { ...g, height: (g.height || 0) - this.#terrShift } : g));
 			this.#lastPose = poseKey(this.camera); this.#lastGlobe = g;
 		}
 	}
@@ -253,6 +253,7 @@ export class OrthoScene {
 			}
 			this.controllerHost.update(this, time);   // as Scene.render: the registered controllers move the camera before it is pushed to the globe
 			this.#collide();
+			this.#syncExaggeration();
 			this.#pushCamera();
 			this.globe?.__orthoSyncMaterial?.();   // globe.material → the globe's ground material (after preRender: the examples set its uniforms there)
 			for (const t of (this as any).__tilesets ?? []) t.__sync?.(this);   // tileset pointCloudShading → the globe
@@ -291,7 +292,7 @@ export class OrthoScene {
 		const map = this.host.map;
 		if (!map) return;
 		const pose = poseKey(this.camera), ortho = orthoExtent(this.camera.frustum);
-		const same = sameKey(this.#lastPose, pose) && ortho === this.#lastOrtho, terrOn = !!map.getTerrain?.();
+		const same = sameKey(this.#lastPose, pose) && ortho === this.#lastOrtho && this.#terrShift === this.#lastShift, terrOn = !!map.getTerrain?.();
 		if (same && !this.#terrainPending && terrOn === this.#terrOnLast) return;   // also again when a terrain arrived or left after the last push
 		this.#terrOnLast = terrOn;
 		const tf = this.camera.transform, focus = tf && !Matrix4.equals(tf, Matrix4.IDENTITY) ? Matrix4.getTranslation(tf, new Cartesian3()) : null;   // camera.lookAt / trackedEntity
@@ -300,13 +301,17 @@ export class OrthoScene {
 		const memo = this.#terrHeights, wanted: [number, number][] = [], wanting = this.#terrWanting;
 		const terrainAt = typeof map.sampleTerrain === "function" && map.getTerrain?.() ? (lng: number, lat: number) => {
 			const k = `${lng.toFixed(6)},${lat.toFixed(6)}`, v = memo.get(k);
-			if (v !== undefined) return v;
+			if (v !== undefined) return this.terrainHeightOf(v);   // the memo holds the DEM's heights; Cesium's terrain is exaggerated
 			if (!wanting.has(k)) { wanting.add(k); wanted.push([lng, lat]); }
 			return null;
 		} : null;
 		const g = globeCamOf(this.camera.positionWC, this.camera.directionWC, this.camera.upWC, focus, terrainAt);
 		if (!g) return;
 		this.#terrainPending = false;
+		// scene.verticalExaggerationRelativeHeight: Cesium draws the terrain at k·h + (1 − k)·rel, the globe at k·h, so the globe's terrain stands
+		// (k − 1)·rel higher than Cesium's everywhere. The target (on Cesium's terrain) and the camera move up by that much together: the view of
+		// the terrain is the same (terrain-exaggeration: k 2, rel 2400 m = the eye 2400 m higher over the globe's terrain)
+		if (this.#terrShift) { g.height = (g.height || 0) + this.#terrShift; if (g.groundAlt !== undefined) g.groundAlt = Math.max(0, g.groundAlt + this.#terrShift); }
 		if (g.pending && wanted.length) {
 			if (memo.size > 4000) memo.clear();
 			map.sampleTerrain(wanted).then((rs: Array<{ lng: number; lat: number; height: number }>) => {
@@ -328,8 +333,34 @@ export class OrthoScene {
 			g.distance = ortho / 2 / Math.tan(fov / 2);
 		}
 		map.setCamera(g);
-		this.#lastPose = pose; this.#lastOrtho = ortho; this.#lastGlobe = map.getCamera();
+		this.#lastPose = pose; this.#lastOrtho = ortho; this.#lastGlobe = map.getCamera(); this.#lastShift = this.#terrShift;
 	}
+	#lastShift = 0;
+	// ── scene.verticalExaggeration / verticalExaggerationRelativeHeight → the globe's terrain exaggeration ──
+	//   Cesium: the terrain (and what is clamped to it) at (h − rel)·k + rel. The globe exaggerates about sea level (k·h, map.setTerrainExaggeration),
+	//   so the difference, a constant (k − 1)·rel, is carried by the camera (#pushCamera) and by the heights the facade hands back (terrainHeightOf,
+	//   cesiumHeightOf). Only with a terrain: on the ellipsoid alone the globe's default heights would be lifted where Cesium has none to lift
+	#terrK = 1; #terrShift = 0;
+	#syncExaggeration() {
+		const map = this.host.map;
+		if (!map?.setTerrainExaggeration) return;
+		const on = !!map.getTerrain?.(), k0 = Number(this.verticalExaggeration), rel0 = Number(this.verticalExaggerationRelativeHeight);
+		const k = on && Number.isFinite(k0) && k0 > 0 ? k0 : 1, rel = Number.isFinite(rel0) ? rel0 : 0;
+		const shift = k === 1 ? 0 : (k - 1) * rel;
+		if (k === this.#terrK && shift === this.#terrShift) return;
+		this.#terrK = k; this.#terrShift = shift;
+		if (map.getTerrainExaggeration?.() !== k) map.setTerrainExaggeration(k);
+		this.host.display?.setTerrainScale?.(k);
+		this.requestRender();
+	}
+	/** a DEM height (m) → the height of Cesium's exaggerated terrain there */
+	terrainHeightOf(h: number) { return this.#terrK === 1 ? h : h * this.#terrK - this.#terrShift; }
+	/** a height on Cesium's exaggerated terrain → the DEM height drawn there (the globe's ground material reads DEM heights) */
+	demHeightOf(h: number) { return this.#terrK === 1 ? h : (h + this.#terrShift) / this.#terrK; }
+	/** what the exaggeration is now (a key for what depends on it) */
+	get exaggerationKey() { return this.#terrK === 1 ? "" : `${this.#terrK},${this.#terrShift}`; }
+	/** a height on the globe's drawn terrain (exaggerated about sea level) → the same point on Cesium's terrain */
+	cesiumHeightOf(h: number) { return h - this.#terrShift; }
 	#lastOrtho: number | null = null;   // the orthographic frustum's height last pushed (its size moves the telephoto eye)
 	#terrainPending = false; #terrOnLast = false; #terrHeights = new Map<string, number>(); #terrWanting = new Set<string>();
 
@@ -346,7 +377,7 @@ export class OrthoScene {
 		const ll = map.unproject([windowPosition.x, windowPosition.y]);
 		if (!ll) return undefined;
 		const h = map.queryTerrainElevation?.(ll.lng, ll.lat) ?? 0;
-		return Cartesian3.fromDegrees(ll.lng, ll.lat, Number.isFinite(h) ? h : 0, Ellipsoid.WGS84, result);
+		return Cartesian3.fromDegrees(ll.lng, ll.lat, Number.isFinite(h) ? this.cesiumHeightOf(h) : 0, Ellipsoid.WGS84, result);
 	}
 	pickMetadata() { unsupported("scene.pickMetadata"); return undefined; }
 	pickMetadataSchema() { unsupported("scene.pickMetadataSchema"); return undefined; }
@@ -388,13 +419,13 @@ export class OrthoScene {
 			}
 		}
 		const t = map?.queryTerrainElevation?.(lng, lat);
-		return Number.isFinite(t) ? t : undefined;
+		return Number.isFinite(t) ? this.cesiumHeightOf(t) : undefined;
 	}
 	// Billboard/Label/PointPrimitive clamping (private Cesium API): the globe clamps the drawn marks itself, so answer once with the height
 	// known now and hand back the remover Cesium expects
 	// heightReference CLAMP_TO_TERRAIN / RELATIVE_TO_TERRAIN (3, 4): the terrain only; the others: the 3D Tiles and models too, as sampleHeight
 	#heightFor(c: Cartographic, ref?: number) {
-		if (ref === 3 || ref === 4) { const t = this.host.map?.queryTerrainElevation?.(c.longitude * R2D, c.latitude * R2D); return Number.isFinite(t) ? t : undefined; }
+		if (ref === 3 || ref === 4) { const t = this.host.map?.queryTerrainElevation?.(c.longitude * R2D, c.latitude * R2D); return Number.isFinite(t) ? this.cesiumHeightOf(t) : undefined; }
 		return this.sampleHeight(c);
 	}
 	getHeight(cartographic: Cartographic, heightReference?: number) { return this.#heightFor(cartographic, heightReference); }
@@ -457,7 +488,7 @@ function makeGlobe(scene: OrthoScene): any {
 		// as Cesium's Globe.getHeight: the height of the terrain loaded there, undefined while nothing is (the globe's height memo fills on the first ask:
 		// the next call answers). Was 0 when the map existed = a caller took sea level for the ground (interpolation's points: 0 against Cesium's 723 m)
 		const t = scene.host.map?.queryTerrainElevation?.(c.longitude * R2D, c.latitude * R2D);
-		return Number.isFinite(t) ? t : undefined;
+		return Number.isFinite(t) ? scene.cesiumHeightOf(t) : undefined;
 	};
 	g.pick = (ray: Ray, _scene: unknown, result?: Cartesian3) => {
 		const hit = IntersectionTests.rayEllipsoid(ray, Ellipsoid.WGS84);
@@ -470,10 +501,14 @@ function makeGlobe(scene: OrthoScene): any {
 	Object.defineProperty(g, "material", { get: () => material, set: (m: any) => { material = m; sent = ""; }, configurable: true });
 	g.__orthoSyncMaterial = () => {
 		const map = scene.host.map; if (!map || typeof map.setGroundMaterial !== "function") return;
-		const key = material ? materialKey(material) : "";
+		const key = material ? materialKey(material) + scene.exaggerationKey : "";
 		if (key === sent) return;
 		sent = key;
-		map.setGroundMaterial(material ? groundMaterialOf(material, readRampImage) : null);
+		const spec = material ? groundMaterialOf(material, readRampImage) : null;
+		// Cesium's material reads the exaggerated height (GlobeVS v_height): its elevation ramp over [min, max] lies over the DEM heights that are
+		// drawn at min and max (terrain-exaggeration: the white band at 2400 m stays at 2400 m, its ±100 m are ±50 m of the DEM at k 2)
+		if (spec?.ramp?.kind === "elevation" && scene.exaggerationKey && spec.ramp.min != null && spec.ramp.max != null) spec.ramp = { ...spec.ramp, min: scene.demHeightOf(spec.ramp.min), max: scene.demHeightOf(spec.ramp.max) };
+		map.setGroundMaterial(spec);
 	};
 	return g;
 }
