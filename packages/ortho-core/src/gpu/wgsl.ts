@@ -1549,7 +1549,19 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	o.pos = vec4f(p, 0.0, 1.0);
 	return o;
 }
-@fragment fn fs(in: GOut) -> @location(0) vec4f {
+// 球の床が深度を書く変種（view.globeDepth・gl の u_gDepth と同じ）：G.farP.w＝0.5·logCoef。不透明な地面（α≥0.5）だけ球の交点の対数深度・他は 1（＝消した値）。
+// 光線は t あたり clip w が 1 増える（viewRays の正規化・f64 の mvp）＝w＝t。地下の目（裏面）は書かない
+struct GFragD { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
+@fragment fn fsDepth(in: GOut) -> GFragD {
+	var o: GFragD;
+	o.c = globeColor(in);
+	o.d = 1.0;
+	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);
+	if (h.t > 0.0 && o.c.a >= 0.5) { o.d = clamp(log2(1.0 + h.t) * G.farP.w, 0.0, 1.0); }
+	return o;
+}
+@fragment fn fs(in: GOut) -> @location(0) vec4f { return globeColor(in); }
+fn globeColor(in: GOut) -> vec4f {
 	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);   // #65：視線は CPU f64 の基底・交点は桁落ちなし
 	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let cc = h.cc;
 	let aDotd = bb * 0.5; let tstar = -aDotd / aa;
@@ -1598,6 +1610,8 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let dll = deltaLL(G.eyeO.xyz + t * d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);   // 原点相対の経緯度差（deg・測地）＝uv の正本（#65）
 	let ll = G.anc2.xy + dll;                                                  // 絶対経緯度（粗くて可＝ハイプソ・気候）
 	var base = G.land.rgb;
+	// 床の不透明度（B5・gl の ba と同じ）＝G.land.a。透明を明示した地図（clearAlpha・Cesium の globe.baseColor TRANSPARENT）だけ CPU が land.a を載せる（他は 1＝従来とビット同一）
+	var ba = mix(G.land.a, 1.0, G.whP.x);
 	if (G.whP.x > 0.001 && G.whP.y > 0.5) {   // 全球ハイプソ：標高×気候→配色＋陰影（gl/glsl.js GLOBE_FS と同式）
 		let e = gElevAt(ll);
 		let tsz = vec2f(textureDimensions(gElevTex, 0));
@@ -1618,6 +1632,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 			let cc = textureSampleLevel(gCogTex, gSamp, vec2f(cuv.x, cv), 0.0);
 			base = mix(base, cc.rgb, cc.a);
 		}
+		ba = 1.0;
 	}
 	if (GGD.p.x > 0.5) {   // 地面アトラス（球の床）：uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
 		let u0 = G.gndOff0.xy + dll * G.gndOff0.zw;
@@ -1634,7 +1649,11 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let g2 = textureSampleLevel(gGnd2, gSamp, gndUV0(u2, in.pos.x, GGD.p.y), 0.0);
 		let g3 = textureSampleLevel(gGnd3, gSamp, gndUV0(u3, in.pos.x, GGD.p.y), 0.0);
 		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
-		base = base * (1.0 - gc.a) + gc.rgb;
+		if (ba < 1.0) {   // 前乗算の重ね（gl の gndOver と同じ）＝穴（Cesium の colorToAlpha）は床の α のまま
+			let ga = ba * (1.0 - gc.a) + gc.a;
+			base = (base * ba * (1.0 - gc.a) + gc.rgb) / max(ga, 1e-4);
+			ba = ga;
+		} else { base = base * (1.0 - gc.a) + gc.rgb; }
 	}
 	if (G.gm.x > 0.5) {   // 地面の材質（Cesium の globe.material）＝球の床（低地の t フェードの穴と真俯瞰）にも地形面と同じ式で。標高が無い所は Cesium と同じく高さ 0 の色
 		var e = 0.0; var gEN = vec2f(0.0);
@@ -1642,7 +1661,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 			e = gElevAt(ll); let dstep = G.elevBounds.w / vec2f(textureDimensions(gElevTex, 0)).y;
 			gEN = vec2f((gElevAt(ll + vec2f(dstep, 0.0)) - e) / (dstep * 111320.0 * max(cos(ll.y * 0.017453292519943295), 0.01)), (gElevAt(ll + vec2f(0.0, dstep)) - e) / (dstep * 111320.0));
 		}
-		let m = gGmColor(e, gEN, gmDe, G.gm, G.gmC, G.gmP); base = mix(base, m.rgb, m.a);   // 標高の画素差は冒頭で（一様な制御の流れ）
+		let m = gGmColor(e, gEN, gmDe, G.gm, G.gmC, G.gmP); if (ba < 1.0) { base = (base * ba * (1.0 - m.a) + m.rgb * m.a) / max(ba * (1.0 - m.a) + m.a, 1e-4); ba = max(ba, m.a); } else { base = mix(base, m.rgb, m.a); }   // 標高の画素差は冒頭で（一様な制御の流れ）
 	}
 	if (G.cg.w > 0.5) { base *= G.cgC.rgb * cgLambert(ll, vec2f(0.0), vec4f(G.cg.xyz, 2.0), G.cgP); }   // 地面の照明（Cesium の globe.enableLighting）：遠景球は楕円体の上向きで
 	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
@@ -1653,7 +1672,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let ua = G.ugC.a * mix(G.ugNF.y, G.ugNF.w, kd);
 		colC = G.ugC.rgb * ua + base * (1.0 - ua);
 	}
-	var outC = vec4f(colC * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
+	var outC = vec4f(colC * ba * G.misc.x, ba * G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 	// 球が透ける時（globe:false・translucency）は Cesium と同じく空の大気の殻が地面の向こうに見える（gl と同じ）
 	if (G.misc.z > 0.5 && G.misc.w > 0.5 && G.misc.x < 1.0) { let cs = csSky2(A * CS_R, normalize(d), select(1.0, 2.0, G.misc.x > 0.0)); outC += cs * (1.0 - outC.a); }
 	return outC;

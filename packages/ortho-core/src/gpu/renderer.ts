@@ -133,6 +133,7 @@ export interface RenderView {
 	clear?: number[] | null; /** clear の α を合成に使う（利用者が clearColor に透明を明示した時だけ＝下の canvas が透ける・Cesium の facade の星空） */ clearAlpha?: boolean; land?: number[] | null; atmo?: number[] | null; bldColor?: number[] | null; sea?: number[] | null;
 	fog?: boolean; worldHypso?: (Record<string, unknown> & { clim?: string }) | null; worldHypsoOpacity?: number; worldHypsoZ?: number;
 	underground?: { color: number[]; nf: number[] } | null;   // 地下から見た球の裏面（Cesium の globe.undergroundColor）
+	globeDepth?: boolean;   // 球の床が深度を書く（不透明な地面だけ・gl/renderer.ts と同じ）＝地中の模型が陸に隠れ、色の穴（Cesium の colorToAlpha）からは見える
 	meshOverGround?: boolean;   // 模型を地形の深度で隠さない（Cesium の depthTestAgainstTerrain=false・gl/renderer.ts と同じ）
 	globeAlpha?: number; baseAlpha?: number; skySolar?: boolean; clock?: ClockAnchor | null; showConst?: boolean; night?: boolean; graticule?: boolean;
 	showRail?: boolean; showContour?: boolean; hypso?: { color: number[]; amount?: number; max?: number } | null; distColor?: number[] | null;
@@ -801,6 +802,17 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 		});
 	}
 	const pipeSets = new Map<number, ReturnType<typeof buildPipes>>();
+	// 球の床が深度を書く変種（view.globeDepth）：使う地図だけ初回に作る（起動時に全部作る束には入れない＝球のシェーダは重い）
+	const globeDepthPipes = new Map<number, GPURenderPipeline>();
+	const globeDepthPipe = (sc: number): GPURenderPipeline => {
+		let p = globeDepthPipes.get(sc);
+		if (!p) {
+			p = device.createRenderPipeline({ label: "globeDepth", layout: globeLayout, vertex: { module: globeMod, entryPoint: "vs" }, fragment: { module: globeMod, entryPoint: "fsDepth", targets: [target] },
+				primitive: { topology: "triangle-list" }, depthStencil: { format: DEPTH, depthWriteEnabled: true, depthCompare: "always" }, multisample: { count: sc } });
+			globeDepthPipes.set(sc, p);
+		}
+		return p;
+	};
 	const pipesFor = (sc: number) => { let p = pipeSets.get(sc); if (!p) { p = buildPipes(sc); pipeSets.set(sc, p); } return p; };
 	let P = pipesFor(SAMPLES);   // 品質段（既定4x）は起動時に先行コンパイル＝初回フレーム検証スコープで検札。1x は初の遷移フレームで遅延生成
 	// 最初のフレームに要る本体 10 本（2026-11-06 Galaxy の lazy トレース＝初回描画で作られた main1x.* の全部）。lazy のときだけ意味がある（eager は上で全部作った）
@@ -3141,7 +3153,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!flat2d) {
 			const g = new Float32Array(124);   // +ugC/ugNF（地下から見た球の裏面 2026-10-29）   // +gm/gmC/gmP（地面の材質 2026-10-28）   // +cg/cgP/cgC（地面の照明 2026-10-26）+farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
 			packRays(g, 0, st);   // 視線の基底（#65・旧 invMvp の枠）
-			g[16] = land[0]; g[17] = land[1]; g[18] = land[2]; g[19] = land[3];
+			const gl4 = see && view.land ? view.land : land;   // 床の色と α：透かす地図（clearAlpha・Cesium の globe.baseColor TRANSPARENT）だけ素の land（gl と同じ＝穴は宇宙が見える）。他は白に畳んだ不透明の land（従来どおり）
+			g[16] = gl4[0]; g[17] = gl4[1]; g[18] = gl4[2]; g[19] = gl4[3] ?? 1;
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
 			g[24] = elev.bounds[0]; g[25] = elev.bounds[1]; g[26] = elev.bounds[2]; g[27] = elev.bounds[3];   // 全球ハイプソ（R90全球窓）
 			g[28] = worldHypsoK; g[29] = elev.has ? 1 : 0; g[30] = ellipsoidOn() ? 1 : 0; g[31] = climTexView ? 1 : 0;
@@ -3155,6 +3168,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const csA = view.csAtmo;   // misc.yzw＝Cesium の大気（地面の効き・点ける・空）＝gl の u_csAtm と同じ
 			g[45] = csA && csA.ground !== false ? csGroundFade((1 + st.camDist) * 6378137) : 0; g[46] = csA ? 1 : 0; g[47] = csA && csA.sky !== false ? 1 : 0;
 			g[42] = csFogD;   // farP.z＝Cesium の霧の濃さ（gl の u_csAtm.w と同じ）
+			g[43] = view.globeDepth ? logCoef * 0.5 : 0;   // farP.w＝球の床が深度を書く（fsDepth・0.5·logCoef）
 			// 大気散乱（#46 段 1）：太陽の方向（段 0 の sunF）と点ける度合い＝fx.atmosphere × 全球ハイプソの出現度（紙のテーマ・基図の帯＝従来のリム光）。atmP＝太陽の強さ・露出
 			g[48] = sunF[0]; g[49] = sunF[1]; g[50] = sunF[2]; g[51] = FX.atmosphere && view.worldHypso ? worldHypsoKOf(cam.zoom, whZ) : 0;   // ハイプソと同じ帯（標高の到着は待たない＝殻の絵は標高に依らない）
 			{   // 錨（#65）：球の床・海面下の交点を原点相対 δ で持ち、uv は f64 前計算の (off, 1/span) で作る＝絶対経緯度（f32 で 1.4 m 刻み）を経ない
@@ -3255,7 +3269,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}
 		}
 		if (!flat2d) {   // 球体本体：land基色を縁(リム)まで敷く。2D高速パス時は clear で代替＝省略
-			pass.setPipeline(PX.globe);
+			pass.setPipeline(view.globeDepth && PX === P ? globeDepthPipe(clipS) : PX.globe);   // 深度を書く変種は素の束だけ（影・断面の間は従来）
 			pass.setBindGroup(0, globeBG);
 			if (grp("globe")) pass.setBindGroup(1, grp("globe"));   // 球の床＝地形の対象の面を mainOrigin の K で（globe スロット）
 			pass.draw(3);
