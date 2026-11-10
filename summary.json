@@ -1,0 +1,77 @@
+{
+ "at": "2026-11-10T09:27:59.989Z",
+ "cesium": "1.146.0",
+ "n": 2,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 2,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 2,
+  "null": 0
+ },
+ "blockers": [],
+ "graded": [
+  {
+   "name": "3d-tiles-bim",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2037,
+    "n": 2107,
+    "colour": 0.988609397247271,
+    "edge": 0.9672520170859041,
+    "blob": 11,
+    "masked": 965
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "imodel-mesh-export-service",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true,
+    "drawn": true
+   },
+   "picture": {
+    "ok": 1888,
+    "n": 1994,
+    "colour": 0.9719157472417251,
+    "edge": 0.9719157472417251,
+    "blob": 10,
+    "masked": 1078
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
