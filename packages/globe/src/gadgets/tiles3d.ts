@@ -577,7 +577,8 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// Cesium debugColorizeTiles: Model3DTileContent.applyDebugSettings sets every feature to the tile's random colour, HIGHLIGHT (multiplied)
 	const dbgTint = (n: T3dNode) => {
 		if (!setMeshTint || !n.ward) return;
-		const t = n.set.opts.debugColorize ? [...(n.dbgColor ??= [Math.random(), Math.random(), Math.random()]), 1, 0] : null;
+		// the feature colour goes through czm_gammaCorrect (sRGB → linear) before it multiplies the linear diffuse: darker, deeper colours than the raw random
+		const t = n.set.opts.debugColorize ? [...(n.dbgColor ??= [Math.random(), Math.random(), Math.random()]).map(v => v ** 2.2), 1, 0] : null;
 		for (let k = 0; k < (n.meshN || 0); k++) setMeshTint(`${n.ward}#${k}`, t);
 	};
 	const splitOf = (set: T3dSet) => set.opts.splitDirection === "left" ? -1 : set.opts.splitDirection === "right" ? 1 : 0;
