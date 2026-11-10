@@ -27,13 +27,15 @@ export function cells(img, T = THRESH) {
 	}
 	return { c, e };
 }
-// the cells the page furniture covers (half or more of the cell under the union of the rectangles, CSS px of the w × h shot): left out of the grade
+// the cells the page furniture touches (any part of the cell under one of the rectangles, CSS px of the w × h shot): left out of the grade.
+// A centre-only test kept the cells along a widget's edge, and the few px of widget in them (shown on the Cesium side, hidden on ortho's) made a
+// one-row patch past blobMax (imagery-assets-available-from-ion: 22 cells under the toolbar, 2026-11-10).
 export function uiMask(rects, T = THRESH, w = 800, h = 600) {
 	if (!rects?.length) return null;
 	const cw = w / T.gridW, ch = h / T.gridH, m = new Uint8Array(T.gridW * T.gridH);
 	for (let gy = 0; gy < T.gridH; gy++) for (let gx = 0; gx < T.gridW; gx++) {
-		const x0 = gx * cw, y0 = gy * ch, cx = x0 + cw / 2, cy = y0 + ch / 2;
-		if (rects.some(([l, t, r, b]) => cx >= l && cx < r && cy >= t && cy < b)) m[gy * T.gridW + gx] = 1;
+		const x0 = gx * cw, y0 = gy * ch, x1 = x0 + cw, y1 = y0 + ch;
+		if (rects.some(([l, t, r, b]) => l < x1 && r > x0 && t < y1 && b > y0)) m[gy * T.gridW + gx] = 1;
 	}
 	return m;
 }
