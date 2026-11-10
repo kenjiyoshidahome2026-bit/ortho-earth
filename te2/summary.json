@@ -1,0 +1,265 @@
+{
+ "at": "2026-11-10T09:46:28.466Z",
+ "cesium": "1.146.0",
+ "n": 9,
+ "levels": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 9,
+  "null": 0
+ },
+ "levelsNonDev": {
+  "0": 0,
+  "1": 0,
+  "2": 0,
+  "3": 7,
+  "null": 0
+ },
+ "blockers": [],
+ "graded": [
+  {
+   "name": "box",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2084,
+    "n": 2143,
+    "colour": 0.9799346710219319,
+    "edge": 0.9925338310779281,
+    "blob": 5,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "clamp-model-to-ground",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1911,
+    "n": 2015,
+    "colour": 0.9662531017369727,
+    "edge": 0.967741935483871,
+    "blob": 8,
+    "masked": 1057
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "cylinders-and-cones",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2044,
+    "n": 2143,
+    "colour": 0.9785347643490434,
+    "edge": 0.975268315445637,
+    "blob": 8,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "czml-spheres-and-ellipsoids",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2084,
+    "n": 2143,
+    "colour": 0.9776014932337844,
+    "edge": 0.9948670088660756,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "geometry-height-reference",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1878,
+    "n": 2057,
+    "colour": 0.9927078269324259,
+    "edge": 0.9163830821584832,
+    "blob": 4,
+    "masked": 1015
+   },
+   "dev": false,
+   "ion": true
+  },
+  {
+   "name": "geometry-offset-attribute-box-cylinder-ellipsoid-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2041,
+    "n": 2071,
+    "colour": 0.9888942539835828,
+    "edge": 0.994205697730565,
+    "blob": 2,
+    "masked": 1001
+   },
+   "dev": true,
+   "ion": false
+  },
+  {
+   "name": "spheres-and-ellipsoids",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 2056,
+    "n": 2143,
+    "colour": 0.975268315445637,
+    "edge": 0.9836677554829678,
+    "blob": 4,
+    "masked": 929
+   },
+   "dev": false,
+   "ion": false
+  },
+  {
+   "name": "terrain-entity-batching-dev",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1893,
+    "n": 2143,
+    "colour": 0.9832011199253383,
+    "edge": 0.8940737284181055,
+    "blob": 5,
+    "masked": 929
+   },
+   "dev": true,
+   "ion": true
+  },
+  {
+   "name": "terrain-exaggeration",
+   "level": 3,
+   "reasons": [],
+   "blockers": [],
+   "unsupported": [],
+   "checks": {
+    "unsupported": true,
+    "renderErrors": true,
+    "entities": true,
+    "dataSources": true,
+    "primitives": true,
+    "imageryLayers": true,
+    "camera": true,
+    "drawnCamera": true
+   },
+   "picture": {
+    "ok": 1785,
+    "n": 1903,
+    "colour": 0.976353126642144,
+    "edge": 0.9574356279558591,
+    "blob": 5,
+    "masked": 1169
+   },
+   "dev": false,
+   "ion": true
+  }
+ ]
+}
