@@ -1919,6 +1919,22 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 }
 `;
 
+// 間引きの足元（2026-11-11・?shedfoot=0 で切る）：動いている間に建物メッシュを間引いた（meshShed）跡を、基図の建物の足形で建物の色に焼く＝地面の抜けを見せない。
+// ATLAS_FILL の派生＝メッシュの被覆マスク（基図の押し出しを伏せるのと同じ 4 枚・uv は原点相対の (off, inv)）に掛かる画素だけ・色は FT.color（建物の色）。
+// マスクは group(2) に AtlP と同居（md の派生が group(3) に paint 表を置く＝group を増やさない）。塗りの頂点色・paint 表は読まない
+const FOOT_MASK = (i: number): string => `\tif (FT.count.x > ${i}u) { let uv${i} = FT.bbox[${i}].xy + in.rel * FT.bbox[${i}].zw; if (uv${i}.x >= 0.0 && uv${i}.x <= 1.0 && uv${i}.y >= 0.0 && uv${i}.y <= 1.0 && textureSampleLevel(footTex${i}, footSamp, uv${i}, 0.0).r > 0.5) { hit = true; } }\n`;
+export const ATLAS_FOOT_WGSL = deriveWgsl(ATLAS_FILL_WGSL, [
+	["@group(2) @binding(0) var<uniform> A: AtlP;\n",
+	 "@group(2) @binding(0) var<uniform> A: AtlP;\nstruct FootP { count: vec4u, bbox: array<vec4f, 4>, color: vec4f };\n@group(2) @binding(1) var<uniform> FT: FootP;\n" +
+	 "@group(2) @binding(2) var footTex0: texture_2d<f32>;\n@group(2) @binding(3) var footTex1: texture_2d<f32>;\n@group(2) @binding(4) var footTex2: texture_2d<f32>;\n@group(2) @binding(5) var footTex3: texture_2d<f32>;\n@group(2) @binding(6) var footSamp: sampler;\n"],
+	["struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @location(1) ll: vec2f };",
+	 "struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @location(1) ll: vec2f, @location(2) rel: vec2f };   // rel＝原点相対（マスクの uv・絶対経緯度の f32 ジッタを避ける＝BUILDING と同じ）"],
+	["\to.ll = F.origin + a_delta;\n", "\to.ll = F.origin + a_delta;\n\to.rel = a_delta;\n"],
+	["@fragment fn fs(in: AFOut) -> @location(0) vec4f {\n\tif (A.p.x > 0.5 && elev(in.ll) > 0.0) { discard; }   // 図郭外＝陸は塗り残す\n\tlet a = in.color.a * A.p.y;\n\tif (a <= 0.003) { discard; }\n\treturn vec4f(in.color.rgb * a, a);\n}",
+	 "@fragment fn fs(in: AFOut) -> @location(0) vec4f {\n\tvar hit = false;\n" + [0, 1, 2, 3].map(FOOT_MASK).join("") +
+	 "\tif (!hit) { discard; }   // メッシュの区の外＝基図の押し出しが立つ所（足元は塗らない＝静止の絵と同じ）\n\tlet a = FT.color.a * A.p.y;\n\treturn vec4f(FT.color.rgb * a, a);\n}"],
+], "ATLAS_FOOT");
+
 // ── 建物の影（リアルタイム shadow map・2026-09-24）＝影を点けた時だけ使う派生シェーダ（本体は1バイトも変えない）。
 // 受け手＝本体の文字列派生＋SHADOW_WGSL(g, b0)（g＝空いている group 番号・b0＝その group の最初の binding）。影なしの描画は従来の本体パイプラインのまま＝影響ゼロ。
 // 模型は group 4 枚を使い切る＝影は group(2)（バッチごとの PB が binding 0）の binding 1〜3 に同居させる（#112 段 1・#111 の面も同じ置き方で使い回す）。

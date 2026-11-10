@@ -108,7 +108,7 @@ interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
 	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; meshCull?: number; meshSort?: number; resMin?: number; meshLiteMove?: number; meshLiteFs?: number; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
-	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean;
+	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean; shedFoot?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
 	meshDrain?: number;   // ?meshdrain=MS＝建物メッシュの小片を 1 フレームに時間予算 MS ms ぶん（＋フレームの合間も timer で）当てる。0＝従来の 1 フレーム 1 個
@@ -378,6 +378,7 @@ function tqFeed(tag: string, ms: number) {
 			// M1+dpr2級は重いビューで自然に落選、軽いビューでは昇格＝機種名簿でなくビュー込みの実力で決まる。切替時だけ通知。
 			// 動的解像度用（現解像度の実コスト・map/gint別に追う）。非対称ゲイン＝重くなる方向は即応
 			//（軽ビュー→重ビューのズームで降段が遅れてガクつかない）、軽くなる方向はゆっくり（単発の谷で暴れない）。
+	if (resProbe && drawnN >= resProbe.from) { if (tag === "map") { resProbe.mapS += ms; resProbe.mapN++; } else if (tag === "gint") { resProbe.gintS += ms; resProbe.gintN++; } }   // 降段の後の画の素の GPU 時間（効き目の確かめ）
 	if (tag === "gint") {
 		gintEmaRaw = gintEmaRaw ? gintEmaRaw + (ms - gintEmaRaw) * (ms > gintEmaRaw ? 0.3 : 0.1) : ms;
 	}
@@ -536,7 +537,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			MESH_DRAIN_MS = m.meshDrain! > 0 ? m.meshDrain! : 0;   // ?meshdrain=MS（建物メッシュの小片の消化予算）
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, meshCull: m.meshCull || 0, meshSort: !!m.meshSort, meshLiteFs: m.meshLiteFs || 0, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, warmPar: m.warmPar, gintWarm: m.gintWarm || 0, terrCoarse: m.terrCoarse || 0, terrCoarseAlways: !!m.terrCoarseAlways, flatVec: !!m.flatVec, lineElev: m.lineElev || 0, lineElevMove: m.lineElevMove || 0, gndHold: m.gndHold || 0, gndMipSep: !!m.gndMipSep, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, meshCull: m.meshCull || 0, meshSort: !!m.meshSort, meshLiteFs: m.meshLiteFs || 0, elevCheap: !!m.elevCheap, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, shedFoot: m.shedFoot !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, warmPar: m.warmPar, gintWarm: m.gintWarm || 0, terrCoarse: m.terrCoarse || 0, terrCoarseAlways: !!m.terrCoarseAlways, flatVec: !!m.flatVec, lineElev: m.lineElev || 0, lineElevMove: m.lineElevMove || 0, gndHold: m.gndHold || 0, gndMipSep: !!m.gndMipSep, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; bootMarks.renderer = bootEp(); if (r.boot) Object.assign(bootDur, r.boot); hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
@@ -881,7 +882,10 @@ function applyLabels() {
 }
 
 // --- 動的解像度（タブレット対策）：連続描画中のフレーム間隔を EMA で監視し、間に合わない端末では
-// GL キャンバスの実解像度を段階的に下げる（1→0.85→0.7→0.55）。ラベルは別キャンバス＝文字は常にくっきり。
+// GL キャンバスの実解像度を段階的に下げる（1→0.85→0.7）。ラベルは別キャンバス＝文字は常にくっきり。
+// 形を先に削る（2026-11-11・本人裁定「0.55 は結構汚く見える」）：解像度は 0.85 まで。それより下（0.7）は、動いている間の建物の間引き（SHED_STEPS）を
+// 使い切った後の最後の手段。解像度を下げても GPU 時間が見込み（画素数に比例＝×s²）の 4 割も減らなければ「この端末・この絵では解像度が効かない」と見て
+// 一段戻し、静止まで解像度は下げない（頂点・描画量が床の場面＝2026-11-08 Mali-G615 の滑走の実測で、効かない縮小だけが残らないように）
 // renderer は毎フレーム canvas.width を読む＝サイズ変更だけで全系（viewport/mvp/terrain）が追随する。
 // 復帰は「軽い状態が続いたら一段上げて様子見」のプローブ式。失敗（また重くなる）したら待ち時間を倍にする
 // ＝重い端末で上げ下げが振動しない。60Hz でも 120Hz でも閾値が成立する（重い=24ms超、軽い=17.5ms未満）。
@@ -893,7 +897,7 @@ let gpuEmaRaw = 0, gintEmaRaw = 0;   // 現解像度での素のGPU時間EMA（m
 let shadowEmaRaw = 0;   // 影の深度パス（#112 段 0）の GPU 時間 EMA＝描いたパスだけで更新（省いたフレームは積まない）。計器だけ＝動的解像度の物差しには入れない
 // （正規化しない＝「今の絵の実コスト」。gint を足すのが肝＝球ビューのデモ飛行は gint海岸線 ≫ map で、
 //   map単独だと総GPUが予算超過でも降段せず「スムーズな動きがなくなった」＝実機フルスクリーンで顕在化）
-const RES_STEPS = [1, 0.85, 0.7, 0.55];
+const RES_STEPS = [1, 0.85, 0.7];   // 旧＝0.55 まで（?resmin=0.55 で旧の梯子）
 // 動的な間引き（?meshshed=1・2026-11-08）＝動いている間に busyMs > SHED_MS（40 ms）の時、解像度の梯子と並行して PLATEAU 建物を
 // 「高さ SHED_STEPS[i] m 未満は描かない」と段階的に強める（LOD_H の段 6/12/24 m・高い建物から残る）。復帰は解像度と同じ時計（静止 RES_SETTLE_MS で一気に 0・軽い連続描画で一段ずつ）。
 // 塗りの量でなく頂点・描画量が床の端末（Mali-G615：PLATEAU 3 区 257 MB で 1 フレーム 86〜105 ms・解像度を落としても不変）向け。
@@ -910,6 +914,11 @@ let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の�
 // 予約の有無に関わらず段階を踏まず一気に res=1 へ戻す。少し余裕（500ms）を持たせて誤検出を避ける。
 const RES_SETTLE_MS = 500;
 let lastDrewT = 0;
+// 解像度の効き目の確かめ（上の注）：降段の直前の busyMs と画素数の比 k を覚え、降段の後に描いた新しい画の GPU 実測（tqFeed が積む）と比べる
+const RES_PROBE_FRAMES = 4, RES_PROBE_MIN = 4, RES_PROBE_MS = 1500, RES_PROBE_GAIN = 0.4;
+let resProbe: { before: number; k: number; from: number; at: number; mapS: number; mapN: number; gintS: number; gintN: number; frames: number } | null = null;
+let resNoHelp = false;   // 解像度が効かなかった＝静止まで解像度は下げない（間引きは解像度の物差し 24 ms で進む）
+let drawnN = 0;          // 計測した描画の通し番号（効き目の確かめで「降段の後の画」を見分ける）
 // 読込の束ね（2026-10-19・PLATEAU ベンチ実測）：初回表示の約 6 秒、カメラは 2 姿勢しか取らないのに地図全体を 300〜470 回描いていた
 //（タイル 1 枚の転送・表示切替・main の描き直し依頼のたびに 1 枚）。読込の最中（転送が LOAD_BURST_MS 以内にあった）で、
 // カメラが動いておらず、時計で動く物も自前の継続（フェード等）も無い間は、描き直しを LOAD_BATCH_MS に 1 回へまとめる。
@@ -1125,15 +1134,20 @@ function tuneRes(drew: boolean) {
 	prevDrew = drew;
 	if (!measured) return;
 	emaMs = emaMs ? emaMs + (dt - emaMs) * 0.1 : dt;
+	drawnN++;
 	const gpuMs = (tqExt || (renderer && renderer.hasTQ)) ? gpuEmaRaw + gintEmaRaw : emaMs;   // GPU実測が有る方（GL=tqExt／WebGPU=timestamp-query）を物差しに（下の注）
 	const busyMs = emaMs > 50 ? Math.max(gpuMs, emaMs) : gpuMs;
 	// 動的な間引き（?meshshed=1）＝解像度の梯子とは独立の時計：動いている間に busyMs > SHED_MS（既定 40 ms＝25 fps 未満）なら即一段
 	// （保持 250 ms）。解像度の床を待つと最初の 5 秒（1→0.85→0.7→0.55）が素通り＝実測で効かなかった（2026-11-08 Mali-G615：
 	// 発動 5.6 秒・最重の 0〜5 秒は無間引き）。重い 1 フレーム目から 2〜3 フレームで入る。録画中（resPinned）は間引かない
-	if (shedOn && !resPinned && now >= shedHoldUntil && busyMs > SHED_MS && shedIdx < shedMax && now - lastCamMoveT < RES_SETTLE_MS) {
+	// 解像度を一段（0.85）下げた後・解像度が効かないと分かった後は、間引きも解像度と同じ 24 ms で進める＝0.7 より先に形を削る
+	const moving = now - lastCamMoveT < RES_SETTLE_MS;
+	const shedThr = resIdx >= 1 || resNoHelp ? Math.min(SHED_MS, 24) : SHED_MS;
+	if (shedOn && !resPinned && now >= shedHoldUntil && busyMs > shedThr && shedIdx < shedMax && moving) {
 		pendingUp = false; shedIdx++; setMeshShed(SHED_STEPS[shedIdx]); if (liteMove) setMeshLite(true); shedHoldUntil = now + 250; upStreak = 0;
 		console.log(`[render] mesh shed ↓ ≥${SHED_STEPS[shedIdx]} m (busy ${busyMs.toFixed(0)} ms)`);
 	}
+	if (resProbe && checkResProbe(now)) return;
 	if (now < resHoldUntil) return;
 	// 物差し：timer query があれば素のGPU時間の合計（map+gint）＝壁時計dtはvsync量子化で、30Hzモニタ
 	//（実機のデュアル外部ディスプレイで実測）では常に33ms＝速いGPUでも移動中必ず0.55まで縮む恒常誤判定だった。
@@ -1142,18 +1156,38 @@ function tuneRes(drew: boolean) {
 	// 非対応環境（Safari等）は従来の壁時計へフォールバック＝挙動不変。閾値は従来のまま（24/17.5）。
 	// ただし壁時計が 50ms 超（＝30Hz のvsync量子 33ms でも説明できない遅さ）なら壁時計も採る：タイル型GPU（Mali 等）は
 	// timestamp-query がタイル処理を取りこぼして過小に出る＝実機 Mali-G615 で 1 フレーム ~120ms でも ×1.0 に張り付いた（2026-11-03）。
-	if (!resPinned && !resFixed && busyMs > 24 && resIdx < RES_STEPS.length - 1) {
+	const shapesLeft = shedOn && !resPinned && shedIdx < shedMax && moving;   // まだ削れる形がある（動いている間の建物の間引き）＝0.85 より下へは行かない
+	if (!resPinned && !resFixed && !resNoHelp && busyMs > 24 && resIdx < RES_STEPS.length - 1 && !(resIdx >= 1 && shapesLeft)) {
 		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
 		const sOld = RES_STEPS[resIdx];
 		resIdx++; scheduleRes(); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
 		// EMAはゼロから再学習させず fill-bound 予測（×(sNew/sOld)²）で継承＝まだ重ければ350ms後に即もう一段
 		//（ゼロ化だと再学習+ホールドで降段カスケードが数秒かかり、フル解像度のまま重ビューへ突っ込んだズームがガクつく）。
 		const k = (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
+		resProbe = { before: busyMs, k, from: drawnN + RES_PROBE_FRAMES, at: now, mapS: 0, mapN: 0, gintS: 0, gintN: 0, frames: 0 };   // 見込み（×k）が本当に出るかを降段の後の画で確かめる
 		gpuEmaRaw *= k; gintEmaRaw *= k;
 		console.log(`[render] dynamic res ↓ ×${RES_STEPS[resIdx]}`);
 	} else if (!resFixed && (resIdx > 0 || shedIdx > 0) && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
 		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
+}
+
+// 解像度の効き目の確かめ（RES_STEPS の上の注）。true＝一段戻した（この計測は終わり）
+function checkResProbe(now: number): boolean {
+	const p = resProbe!;
+	if (resPinned || resFixed || now - p.at > RES_PROBE_MS) { resProbe = null; return false; }   // 測れないまま時間切れ（止まった等）＝確かめない
+	if (drawnN < p.from) return false;
+	p.frames++;
+	const hasTQ = !!(tqExt || (renderer && renderer.hasTQ));
+	if (hasTQ ? p.mapN < RES_PROBE_MIN : p.frames < RES_PROBE_MIN + 2) return false;
+	let fresh = hasTQ ? p.mapS / p.mapN + (p.gintN ? p.gintS / p.gintN : 0) : emaMs;
+	if (hasTQ && emaMs > 50) fresh = Math.max(fresh, emaMs);   // busyMs と同じ物差し（タイル型 GPU は timestamp が過小）
+	resProbe = null;
+	const gain = 1 - fresh / p.before, want = 1 - p.k;
+	if (gain >= want * RES_PROBE_GAIN || resIdx === 0) return false;
+	resIdx--; scheduleRes(); resNoHelp = true; resHoldUntil = now + 350; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;
+	console.log(`[render] dynamic res ↑ ×${RES_STEPS[resIdx]} (no help: ${p.before.toFixed(0)}→${fresh.toFixed(0)} ms, want −${(want * 100).toFixed(0)}%) = shapes first until rest`);
+	return true;
 }
 
 // terrain.ensure は視野→セル範囲計算（cameraState＋108回unproject）を伴う＝毎フレームは無駄。
@@ -1312,6 +1346,7 @@ function frame() {
 		for (const key of ["up", "terr", "map", "gint", "lab", "ov"] as const) cpuEma[key] += (cpuAcc[key] - cpuEma[key]) * k;
 	}
 	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
+	if (!drew && (resNoHelp || resProbe) && nowT - lastDrewT > RES_SETTLE_MS) { resNoHelp = false; resProbe = null; }   // 止まった＝次の動きでまた解像度の効き目を確かめる
 	if (!drew && (resIdx > 0 || shedIdx > 0) && nowT - lastDrewT > RES_SETTLE_MS && (!resFixed || shedIdx > 0)) {
 		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。間引きも同時に全部戻す
 		pendingUp = false; if (!resFixed) resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
@@ -1319,12 +1354,13 @@ function frame() {
 		if (!resFixed) console.log(`[render] dynamic res ↑ ×1 (idle restore)`);
 	} else if (!resFixed && !drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
 		pendingUp = false;
-		if (shedIdx > 0) {   // 間引きを先に戻す（解像度より目に付く）
-			shedIdx--; setMeshShed(SHED_STEPS[shedIdx]); if (shedIdx === 0) setMeshLite(false); dirty = true; resHoldUntil = nowT + 700;
-			console.log(`[render] mesh shed ↑ ≥${SHED_STEPS[shedIdx]} m (applied at idle)`);
-		} else if (resIdx > 0) {
+		// 下ろした順の逆：0.85 より下の解像度（最後の手段）→ 間引き → 0.85 の順に戻す（2026-11-11・解像度の粗さの方が目に付く）
+		if (resIdx > 1 || (resIdx > 0 && shedIdx === 0)) {
 			resIdx--; scheduleRes(); resHoldUntil = nowT + 700;
 			console.log(`[render] dynamic res ↑ ×${RES_STEPS[resIdx]} (applied at idle)`);
+		} else if (shedIdx > 0) {
+			shedIdx--; setMeshShed(SHED_STEPS[shedIdx]); if (shedIdx === 0) setMeshLite(false); dirty = true; resHoldUntil = nowT + 700;
+			console.log(`[render] mesh shed ↑ ≥${SHED_STEPS[shedIdx]} m (applied at idle)`);
 		}
 	}
 	// 遷移時AA：静止が RES_SETTLE_MS 続き画面が 1x のまま＝4x 品質フレームを1枚（解像度の静止復帰と同じ時計。
