@@ -27,6 +27,7 @@
 <nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-features.html" lang="en">English</a></nav>
 <header class="masthead"><h1>Web 地図エンジンの機能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth</h1><p class="byline">2026-10-21 · Kenji Yoshida</p></header>
 <article class="reading essay">
+<p class="note-small">2026 年 11 月 11 日の追記：この比較は ortho-earth 2.0.2 の時点のものです。その後、MapLibre の公式例は同じ絵 91・同じ答え 43・一部だけ動く 3（本文では 66・50・21）に、CesiumJS の Sandcastle は 304 本中 264 本が同じ絵になりました。他のエンジンも新しい版が出ています。今の数は <a href="/maplibre/" target="_top">MapLibre</a> と <a href="/sandcastle/" target="_top">Sandcastle</a> のギャラリーにいつも載っています。</p>
 <h2>はじめに</h2>
 <p><a href="story-benchmark-jp.html">先の記事</a>では、PLATEAU の建物を五つのエンジンで描いて速さを比べました。今回はその対として、何ができるかを比べます。ベンチで使った版の資料とソースを読んで確かめました。MapLibre GL JS 6.15.0（と deck.gl 9.4）、CesiumJS 1.146、TerriaJS 8.13.0（中の Cesium は 1.142 相当）、Navara（@navaramap/three 0.2.1）、ortho-earth（@ortho-earth/globe 2.0.2）です。</p>
 <p>今回も先に断っておくと、私は ortho-earth の開発者です。他のエンジンの強いところは強いと、ortho-earth の足りないところは足りないと書くようにしました。</p>

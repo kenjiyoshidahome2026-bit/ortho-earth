@@ -38,7 +38,7 @@ glbconv 0.3.0). New: Unity and Unreal Engine plugins 0.1.0 (`plugins/`) and Mine
 npm i @ortho-earth/globe@2.4
 ```
 
-Release article: [日本語](https://www.ortho-earth.com/docs/story-v240-jp)
+Release article: [English](https://www.ortho-earth.com/docs/story-v240) · [日本語](https://www.ortho-earth.com/docs/story-v240-jp)
 
 - **Android on WebGPU.** Android starts on WebGPU like every other platform (checked on a 4 GB Mali-G615 tablet, where
   PLATEAU is faster than on WebGL2); `?gl2=1` stays the way back. A GPU check page: https://www.ortho-earth.com/check/

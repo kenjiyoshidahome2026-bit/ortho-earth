@@ -10,7 +10,7 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 export const FULL_DOCS = [
 	'from-maplibre', 'from-cesium', 'from-leaflet', 'from-google-maps', 'equal-earth',
 	'core', 'geopbf', 'gint', 'altpbf',
-	'story-features', 'story-benchmark', 'story-benchmark-mobile-jp',
+	'story-v240', 'story-features', 'story-benchmark', 'story-benchmark-mobile-jp',
 ];
 
 const NAMED = { middot: '·', minus: '−', times: '×', alpha: 'α', mdash: '—', ndash: '–', rarr: '→', hellip: '…', deg: '°' };
