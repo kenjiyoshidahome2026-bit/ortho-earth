@@ -15,6 +15,12 @@ export function setMeshLodScale(s: number): void { lodScale = s > 0 ? s : 1; }
 // px の物差し（?meshlod）は z17.7 では ×10 でも 2〜3 m＝何も削れない（Mali-G615 実測 2026-11-08：meshlod=10 でコマ数不変）ので m で切る。
 // Mali-G615 実測：丸の内→レインボーブリッジの滑走は PLATEAU メッシュの描画が 1 フレーム 86〜105 ms で解像度を落としても下がらない（塗りでなく頂点・描画量）
 let shedMinH = 0;
+// 動いている間の間引きは画面上の大きさで決める（2026-11-11・本人裁定）：m の段（6/12/24 m）と軽量 index（4 m² 未満）は丸の内を z17.7 で滑走する絵で
+// 決めた値＝その縮尺（0.6 m/px）で 10〜40 px の建物・3 px の三角形。同じ m を z20 のデルフト（/nl・家は 6〜10 m）へ当てると、画面いっぱいの家が
+// 動かすたびに消えた。物差し（m/px）が MOVE_REF_MPPX より細かい（寄っている）時は、m の段を画面上の同じ px 数へ縮める（H × mppx / 基準）＝
+// 6/12/24 m は 12/24/48 px を上限に・軽量 index は 2 m の辺が 4 px を越える縮尺では使わない。基準より引いている時は従来の m のまま
+/** 動いている間の間引きを決めた縮尺（m/px・mppxOf(z17.96)）＝これより寄ると m の段を px へ縮める */
+export const MOVE_REF_MPPX = 0.5;
 /** 動的な間引きの下限の高さ（m・0＝無し） */
 export function setMeshShed(minHm: number): void { shedMinH = minHm > 0 ? minHm : 0; }
 /** 今の動的な間引きの下限の高さ（m） */
@@ -26,6 +32,8 @@ let liteOn = false;
 export function setMeshLite(on: boolean): void { liteOn = !!on; }
 /** 今、軽量 index で描いているか */
 export function meshLite(): boolean { return liteOn; }
+/** この縮尺（m/px）で軽量 index を使うか＝オンで、落とす三角形（2 m の辺）が画面上 4 px 以下の時だけ */
+export function meshLiteAt(mppx: number): boolean { return liteOn && mppx >= MOVE_REF_MPPX; }
 let rangeM = Infinity;   // 注視点からこの距離（m）より遠い束は描かない（Infinity＝切らない・既定）。?meshrange=KM＝傾けた時の遠景の頂点代を切る（非力 GPU の実験ノブ・2026-11-04）
 /** 遠景の切り（km・0 以下＝切らない） */
 export function setMeshRange(km: number): void { rangeM = km > 0 ? km * 1000 : Infinity; }
@@ -45,7 +53,7 @@ export function meshLodCount(p: LodBatch, center: ArrayLike<number>, cosLat: num
 	}
 	if (!p.lodH || p.two) return p.count;
 	const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - center[1]) * 111320);
-	const minH = Math.max(mppx * lodScale * (1 + dm / 4000), shedMinH);
+	const far = mppx * (1 + dm / 4000), minH = Math.max(far * lodScale, shedMinH * Math.min(1, far / MOVE_REF_MPPX));   // 動的な間引きは寄っている時だけ px へ縮める（上の注記）
 	let li = 0;
 	for (let i = p.lodH.length - 1; i > 0; i--) if (p.lodH[i] <= minH) { li = i; break; }
 	return p.lodCounts![li];
