@@ -34,8 +34,13 @@ const dir = mkdtempSync(join(tmpdir(), "ortho-mcp-"));
 mkdirSync(join(dir, "ref"));
 for (const [k, v] of Object.entries(FILES)) writeFileSync(join(dir, k), v);
 
-test("版：src/version.js と package.json が同じ", () => {
-	assert.equal(VERSION, JSON.parse(readFileSync(here("../package.json"), "utf8")).version);
+test("版：src/version.js・server.json（MCP Registry の登録）と package.json が同じ", () => {
+	const pkg = JSON.parse(readFileSync(here("../package.json"), "utf8")), srv = JSON.parse(readFileSync(here("../server.json"), "utf8"));
+	assert.equal(VERSION, pkg.version);
+	assert.equal(srv.name, pkg.mcpName);   // 登録簿は npm の mcpName で持ち主を確かめる
+	assert.equal(srv.version, pkg.version);
+	assert.deepEqual(srv.packages.map(p => [p.identifier, p.version]), [[pkg.name, pkg.version]]);
+	assert.ok(srv.description.length <= 100, "登録簿の description は 100 文字まで");
 });
 
 test("節：``` の中の # は見出しでない・Source を小見出しが継ぐ・Full text は道に入れない", () => {

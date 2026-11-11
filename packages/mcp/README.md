@@ -68,6 +68,10 @@ VS Code (`.vscode/mcp.json`):
 The server reads `/facts.json`, `/llms.txt`, `/llms-full.txt`, `/start.md`, `/compat.json` and `/ref/*.ts` from www.ortho-earth.com and keeps them for ten minutes.
 It has no dependencies. The same code runs as the npm command (stdio) and as the Cloudflare Worker behind `https://www.ortho-earth.com/mcp` (`worker.js`, stateless Streamable HTTP).
 
+## For maintainers
+
+`server.json` is the entry in the [MCP Registry](https://registry.modelcontextprotocol.io/) (`io.github.kenjiyoshidahome2026-bit/ortho-earth`). When the version changes, change it in `package.json`, `src/version.js` and `server.json` together (the test checks), publish to npm, then run `mcp-publisher publish` in this folder.
+
 ## License
 
 GPL-3.0-or-later, like the engine.
