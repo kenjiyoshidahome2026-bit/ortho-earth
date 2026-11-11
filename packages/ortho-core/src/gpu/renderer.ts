@@ -122,7 +122,7 @@ export interface RendererGPUOptions {
 	clipK?: number;
 	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして散らす（実験ノブ・既定オフ・?meshchunk=1。2026-11-04 実機 Mali で 1 バッチの転送が 100〜600ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
-	/** 逆向きの浮動小数深度（?depth=rz・wgsl.ts rzWgsl）＝depth32float-stencil8 が要る（無い端末は対数深度のまま）。既定 false */
+	/** 逆向きの浮動小数深度（wgsl.ts rzWgsl）＝depth32float-stencil8 が要る（無い端末は対数深度のまま）。既定 true（2026-11-11）・false＝対数深度（?depth=log） */
 	depthRZ?: boolean;
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; /** 間引きの足元（既定 true・?shedfoot=0 で false）＝ATLAS_FOOT_WGSL */ shedFoot?: boolean; requestDraw?: () => void;
 	/** 動いている間の地形メッシュの間引き（頂点おき・2 か 4。0/未指定＝しない）。同じ頂点配列に粗い index を 1 本足し、draw(opts.moving) の間だけそれで描く（?terrcoarse・2026-11-07） */
@@ -398,10 +398,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const reqFeats: GPUFeatureName[] = [];
 	if (wantTQ) reqFeats.push("timestamp-query");
 	if (adapter.features?.has?.("float32-blendable")) reqFeats.push("float32-blendable");
-	const wantRZ = rOpts.depthRZ ?? /[?&]depth=rz/.test((globalThis as { location?: { search?: string } }).location?.search || "");   // 頁が renderer を直に作る検定（verify:webgpu の noBoot の頁）は URL から
+	const wantRZ = rOpts.depthRZ ?? !/[?&]depth=log/.test((globalThis as { location?: { search?: string } }).location?.search || "");   // 頁が renderer を直に作る検定（verify:webgpu の noBoot の頁）は URL から
 	const RZ = wantRZ && !!adapter.features?.has?.("depth32float-stencil8");   // 逆向きの浮動小数深度（wgsl.ts rzWgsl）＝任意機能が無い端末は対数深度のまま
 	if (RZ) reqFeats.push("depth32float-stencil8");
-	if (wantRZ) console.log(`[gpu] depth=rz: ${RZ ? "reversed float depth (near/w, depth32float-stencil8, no frag_depth)" : "depth32float-stencil8 not available = log depth"}`);
+	console.log(`[gpu] depth=${RZ ? "rz" : "log"}: ${!wantRZ ? "log depth (?depth=log)" : RZ ? "reversed float depth (near/w, depth32float-stencil8, no frag_depth)" : "depth32float-stencil8 not available = log depth"}`);
 	// maxTextureDimension2D＝既定8192のままだと、縦長ウィンドウ×高dpr（ブラウザ拡大率等）でスワップチェイン/
 	// 画面サイズ従属テクスチャ（gint idTex 等）が上限超えで即死する（実測 2026-09-02: 2042x9677）。アダプタの
 	// 実力値（Apple系=16384）をそのまま要求＝タダで倍の頭上空間。適用失敗の互換性リスクはアダプタ自己申告値ゆえ無い
