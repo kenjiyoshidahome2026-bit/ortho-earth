@@ -2451,6 +2451,46 @@ fn rd(idx: u32) -> f32 {
 // 他パス（頂点補間のまま）との釣り合いが崩れ、手前に別の帯が出た（実験 2026-09-29）。影を落とす側（CAST＝正射影・頂点だけ）は対象外。
 // 派生（deriveWgsl）の錨は触らない＝この変換は mkMod の直前に最後に掛ける（元の fs を fsColor に改名して包む＝return を書き換えない）。
 // 費用＝early-Z が効かない分（東京駅 z16.5・55° で gpuMap +0.4ms・山地は差なし）。逃げ道＝?fd=0（renderer の rOpts.fragDepth=false）
+// 逆向きの浮動小数深度（?depth=rz・2026-11-11・早期深度の復活）：深度を z_ndc＝near／w で持つ（手前 1・無限遠 0・depth32float-stencil8・比較は greater）。
+// near／w は画面の上で直線＝頂点で書くだけで三角形の内側も正確（対数深度は内側で撓む＝#62 で画素ごとに書いた＝early-Z が効かない・タイル型 GPU の
+// 隠面消去も働かない）。clip z は定数（near×K）＝GPU が本当の near 面（w＝near）で切る（?nearclip の役目も兼ねる）。精度は f32 の相対 1e-7＝1000 km 先で 10 cm。
+// シェーダの原本は対数深度のまま＝モジュールを作る直前にこの置換を掛ける（対数深度の式は 3 つの形だけ・残っていたら投げる）。
+// RZ_NEAR＝near 面（単位球の世界・3e-9＝約 2 cm）
+export const RZ_NEAR = 3e-9;
+const RZ_N = RZ_NEAR.toExponential();
+/** 対数深度の式（clip z・画素の深度）を逆向きの浮動小数深度へ置き換える。logDepthZ／fragDepthOf／地面の四角・面の貼り付け・gint の線が同じ形 */
+export function rzWgsl(src: string, label = ""): string {
+	let s = src.split("log1pS(max(wTrue(w), 1e-30)) * 1.4426950 * F.params.z * 0.5 * w").join(`select(${RZ_N}, ${RZ_N} / F.nearP.w, F.nearP.w > 0.0)`);   // logDepthZ＝clip z（定数＝near×K）
+	s = s.replace(/log1p[SG]\(max\(([\w.]+), 1e-30\)\) \* 1\.4426950 \* [\w.]+ \* 0\.5 \* \1/g, RZ_N);   // 自前の mvp（K 無し）の clip z
+	s = s.replace(/log1p[SG]\(max\((wTrue\(\w+\)|[\w.]+), 1e-30\)\) \* 1\.4426950 \* [\w.]+ \* 0\.5/g, `clamp(${RZ_N} / max($1, 1e-30), 0.0, 1.0)`);   // z_ndc＝near／w
+	s = s.split("\to.d = 1.0;\n\tlet h = sphereRay(").join("\to.d = 0.0;\n\tlet h = sphereRay(").split("o.d = clamp(log2(1.0 + h.t) * G.farP.w, 0.0, 1.0);").join(`o.d = clamp(${RZ_N} / max(h.t, 1e-30), 0.0, 1.0);`);   // 球の床の深度（消した値＝0）
+	s = s.split("select(0.0, clamp(").join("select(1.0, clamp(");   // gint の線＝深度オフは最前面（旧 z=0）
+	if (s.includes("1.4426950")) throw new Error(`rzWgsl(${label}): a log-depth expression is left`);
+	return s;
+}
+/** 深度を読む側（AO・映り込み・場面の効果・画面の段）を逆向きの浮動小数深度に合わせる：本体の深度 tex の textureLoad を「対数深度の値へ直す関数」で包む
+ *  （k＝そのシェーダが持つ 2·ln2／logCoef の式）＝後ろの式（expm1 で w へ・1 以上は深度なし）は原本のまま。tex を結んでいないシェーダは素通し */
+export function rzReadWgsl(src: string, tex: string, k: string): string {
+	if (!new RegExp(`var ${tex}\\s*:`).test(src)) return src;
+	const fn = `rzLog_${tex}`, head = `textureLoad(${tex},`;
+	let out = "", i = 0;
+	for (;;) {
+		const j = src.indexOf(head, i);
+		if (j < 0) { out += src.slice(i); break; }
+		let d = 0, e = j + "textureLoad".length;
+		for (; e < src.length; e++) { const c = src[e]; if (c === "(") d++; else if (c === ")" && --d === 0) break; }
+		out += src.slice(i, j) + `${fn}(${src.slice(j, e + 1)})`; i = e + 1;
+	}
+	return out + `
+fn ${fn}(d: f32) -> f32 {   // near／w → 対数深度の値（ln(1+w)／k）。0＝消した値＝深度なし（1）
+	if (d <= 0.0) { return 1.0; }
+	let w = ${RZ_N} / d;
+	var l = log(1.0 + w);
+	if (w < 0.1) { l = w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715)))))); }
+	return min(l / (${k}), 0.99999994);
+}
+`;
+}
 export function fragDepthWgsl(src: string, label = ""): string {
 	const m = /@fragment fn fs\(in: (\w+)(, @builtin\(front_facing\) ff: bool)?\) -> @location\(0\) vec4f \{/.exec(src);   // ff＝模型の fs だけ（Cesium の表裏）
 	if (!m) throw new Error(`fragDepth(${label}): fs not found`);

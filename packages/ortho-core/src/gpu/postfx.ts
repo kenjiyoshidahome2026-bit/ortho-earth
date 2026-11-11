@@ -119,7 +119,7 @@ export interface PostFrameOptions {
 export interface PostGPU { encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): GPUCommandEncoder; dispose(): void; bytes(): number }
 interface PostTargets { w: number; h: number; hw: number; hh: number; scratch: GPUTexture; half: GPUTexture[]; sv: GPUTextureView; hv: GPUTextureView[] }
 interface PostLut { url: string; size: number; tex: GPUTexture | null; view: GPUTextureView | null; n: number; ready: boolean }
-export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null): PostGPU {
+export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null, rz = false): PostGPU {   // rz＝本体の深度が逆向きの浮動小数（poststage の深度の写しが読み替える）
 	const F = GPUShaderStage.FRAGMENT;
 	const bgl = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: F, buffer: {} },
@@ -171,7 +171,7 @@ export function createPostGPU(device: GPUDevice, format: GPUTextureFormat, reque
 	function encode(enc: GPUCommandEncoder, canvasTex: GPUTexture, W: number, H: number, post: PostFrameOptions, sf?: StageFrameGPU | null): GPUCommandEncoder {
 		ensure(W, H);
 		const stages = post.stages?.length && sf ? post.stages : null;
-		if (stages) SG ??= createPostStagesGPU(device, format, requestDraw); else if (SG) { SG.dispose(); SG = null; }
+		if (stages) SG ??= createPostStagesGPU(device, format, requestDraw, rz); else if (SG) { SG.dispose(); SG = null; }
 		const stageOn = !!(stages && SG!.drawable(stages));
 		const b = post.bloom, v = post.vignette, t = post.tonemap, g = post.grade;
 		gr = g && g.length >= 3 ? [g[0], g[1], g[2], 1] : [1, 1, 1, 0];

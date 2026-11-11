@@ -9,6 +9,7 @@ import { createPostStagesGL } from "./gl/poststage.ts";
 import type { PostStagesGL, StageFrame } from "./gl/poststage.ts";
 import type { PostStage } from "./postfx.ts";
 import { glAttrs } from "./gpupower.ts";
+import { rzReadWgsl } from "./gpu/wgsl.ts";
 
 const FULL_VS = `struct VOut { @builtin(position) pos: vec4f };
 @vertex fn vs(@builtin(vertex_index) i: u32) -> VOut {
@@ -44,7 +45,7 @@ export interface GlslBridge {
 	run(enc: GPUCommandEncoder, stages: PostStage[], src: GPUTextureView, dst: GPUTexture, W: number, H: number, f: GlslBridgeFrame): GPUCommandEncoder | null;
 	dispose(): void;
 }
-export function createGlslBridge(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null): GlslBridge | null {
+export function createGlslBridge(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null, rz = false): GlslBridge | null {   // rz＝本体の深度が逆向きの浮動小数（gpu/wgsl.ts rzReadWgsl）＝詰める値は対数深度のまま
 	if (typeof OffscreenCanvas === "undefined") return null;
 	const glCanvas = new OffscreenCanvas(1, 1);
 	const opts: WebGLContextAttributes = glAttrs({ alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
@@ -64,14 +65,15 @@ export function createGlslBridge(device: GPUDevice, format: GPUTextureFormat, re
 	gl.bindTexture(gl.TEXTURE_2D, tC); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);   // 利用者の段は uv で色を引く（Cesium の colorTexture は線形）
 	const F = GPUShaderStage.FRAGMENT;
 	const lC = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: F, texture: {} }] });
-	const lD = (ms: boolean) => device.createBindGroupLayout({ entries: [{ binding: 0, visibility: F, texture: { sampleType: "depth", multisampled: ms } }] });
+	const lD = (ms: boolean) => device.createBindGroupLayout({ entries: [{ binding: 0, visibility: F, texture: { sampleType: "depth", multisampled: ms } }, ...(rz ? [{ binding: 1, visibility: F, buffer: {} }] : [])] });
+	const rk = rz ? device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }) : null;
 	const mk = (code: string, l: GPUBindGroupLayout): GPURenderPipeline => { const m = device.createShaderModule({ code }); return device.createRenderPipeline({ label: "glslbridge", layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), vertex: { module: m, entryPoint: "vs" }, fragment: { module: m, entryPoint: "fs", targets: [{ format }] }, primitive: { topology: "triangle-list" } }); };
 	// 写した ImageBitmap の行 0 が GL のテクスチャのどちらへ来るかは器で違う（UNPACK_FLIP_Y は仕様では ImageBitmap に効かない・SwiftShader の Chrome は効かせ、
 	// Mac の Chrome は効かない＝fog-post-process が上下さかさま・2026-10-31）。FLIP_Y は使わず、最初に 1×2 の試しを写して向きを測り、写す側（WebGPU）で返す
 	let flip: boolean | null = null;
 	const pPack = new Map<boolean, { p: GPURenderPipeline; l: GPUBindGroupLayout }>();
 	let pCopy: GPURenderPipeline | null = null;
-	const pack = (ms: boolean) => { let e = pPack.get(ms); if (!e) { const l = lD(ms); e = { l, p: mk(PACK_WGSL(ms, !!flip), l) }; pPack.set(ms, e); } return e; };
+	const pack = (ms: boolean) => { let e = pPack.get(ms); if (!e) { const l = lD(ms); e = { l, p: mk(rz ? rzReadWgsl(PACK_WGSL(ms, !!flip) + "\n@group(0) @binding(1) var<uniform> RK: vec4f;   // x＝2·ln2／logCoef（逆向きの浮動小数深度 → 対数深度の値へ直して詰める＝受け手の式は不変）\n", "dep", "RK.x") : PACK_WGSL(ms, !!flip), l) }; pPack.set(ms, e); } return e; };
 	function resize(W: number, H: number): void {
 		if (size[0] === W && size[1] === H) return;
 		size = [W, H];
@@ -101,7 +103,8 @@ export function createGlslBridge(device: GPUDevice, format: GPUTextureFormat, re
 		resize(W, H);
 		draw(enc, pCopy!, device.createBindGroup({ layout: lC, entries: [{ binding: 0, resource: src }] }), xC.getCurrentTexture().createView());
 		const pk = pack(f.samples > 1);
-		draw(enc, pk.p, device.createBindGroup({ layout: pk.l, entries: [{ binding: 0, resource: f.depthTex.createView({ aspect: "depth-only" }) }] }), xD.getCurrentTexture().createView());
+		if (rk) device.queue.writeBuffer(rk, 0, new Float32Array([2 * Math.LN2 / Math.max(f.logCoef, 1e-9), 0, 0, 0]));
+		draw(enc, pk.p, device.createBindGroup({ layout: pk.l, entries: [{ binding: 0, resource: f.depthTex.createView({ aspect: "depth-only" }) }, ...(rk ? [{ binding: 1, resource: { buffer: rk } }] : [])] }), xD.getCurrentTexture().createView());
 		device.queue.submit([enc.finish()]);
 		const bC = cC.transferToImageBitmap(), bD = cD.transferToImageBitmap();
 		// 上下は WebGPU の写しで揃えてある（probeFlip・行 0＝画面の下）。UNPACK_FLIP_Y は使わない

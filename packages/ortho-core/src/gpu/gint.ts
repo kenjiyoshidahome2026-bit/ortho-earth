@@ -20,6 +20,7 @@
 //  ・stencil はパス先頭 stencilLoadOp:"clear"＋中間クリアは「フルスクリーン replace(0) 描き」（mid-pass clear が無いため）。
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
 import { pipeSet, lbl, named, warmPipes } from "./pipeset.ts";
+import { rzWgsl } from "./wgsl.ts";
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.ts";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
 import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns } from "../gint/utility.ts";
@@ -53,7 +54,7 @@ export interface GintDepthCtx extends SubDep {
 export interface GintClipInfo { planes: ClipPlane[]; poly?: ClipPoly | null; st: CameraState }
 /** host＝createRendererGPU の戻りのうち gint が読む面 */
 export interface GintHost {
-	device: GPUDevice; format: GPUTextureFormat; samples?: number; quad4?: boolean; gpuErrors?: string[];
+	device: GPUDevice; format: GPUTextureFormat; /** 本体の深度の形式と持ち方（renderer が返す・0／無し＝対数深度） */ depthFormat?: GPUTextureFormat; depthRZ?: number; samples?: number; quad4?: boolean; gpuErrors?: string[];
 	/** パイプラインを初回使用時に作る（renderer の lazyPipes＝?lazypipe=1） */
 	lazyPipes?: boolean;
 	/** 線のパイプライン（line/lineTest/lineHidden）を起動の MS 後に createRenderPipelineAsync で先に作る（?gintwarm=MS・0＝しない）。
@@ -203,7 +204,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bglFrame, bglParam, bglTex2, bglAux] });
 	const layoutSB = device.createPipelineLayout({ bindGroupLayouts: [bglFrame, bglParam, bglBuf2, bglAux] });
 	const mkMod = (code: string, label: string): GPUShaderModule => {   // WGSL コンパイル失敗の可視化（renderer.js mkMod と同文・host.gpuErrors へ合流）
-		const m = device.createShaderModule({ code });
+		const m = device.createShaderModule({ code: host.depthRZ ? rzWgsl(code, "gint-" + label) : code });
 		m.getCompilationInfo && m.getCompilationInfo().then(info => {
 			for (const x of info.messages || []) if (x.type === "error") { const t = `WGSL gint-${label}: ${x.lineNum}:${x.linePos} ${x.message}`; host.gpuErrors && host.gpuErrors.push(t); console.error("[gpu] " + t); }
 		});
@@ -225,7 +226,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
 		alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 	};
-	const DS = "depth24plus-stencil8";   // renderer と共有する深度・ステンシル
+	const DS: GPUTextureFormat = host.depthFormat || "depth24plus-stencil8";   // renderer と共有する深度・ステンシル
 	const keepDS: GPUDepthStencilState = { format: DS, depthWriteEnabled: false, depthCompare: "always" };
 	const pipe = (mod: GPUShaderModule, vs: string, fs: string, { ds = keepDS, blend = SBLEND, writeMask, samples = host.samples || 4, fmt = format, lay = layout }: PipeOpts = {}): GPURenderPipeline =>   // 既定＝renderer の MSAA 段数（?msaa=0＝1x に追随）
 		device.createRenderPipeline({
@@ -315,8 +316,8 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		zero: () => pipe(sm, "vsFull", "fsNull", { ds: stZero, blend: undefined, writeMask: 0, samples: sc, lay }),
 		occlude: () => pipe(sm, "vsFull", "fsNull", { ds: stOcc, blend: undefined, writeMask: 0, samples: sc, lay }),   // 建物 bit7→winding 消し込み
 		line: () => pipe(lm, "vsRender", "fsRender", { samples: sc, lay }),
-		lineTest: () => pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" }, samples: sc, lay }),
-		lineHidden: () => pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" }, samples: sc, lay }),
+		lineTest: () => pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: host.depthRZ ? "greater-equal" : "less-equal" }, samples: sc, lay }),
+		lineHidden: () => pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: host.depthRZ ? "less" : "greater" }, samples: sc, lay }),
 		point: () => pipe(pm, "vsPoint", "fsPoint", { samples: sc, lay }),
 		idResolve: () => mkIdResolve(keepDS, sc, rm),
 		idResolveOcc: () => mkIdResolve(stIdOcc, sc, rm),

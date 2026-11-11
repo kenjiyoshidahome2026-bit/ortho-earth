@@ -3,6 +3,7 @@
 // 本体の main パスの中（メッシュの後・夜面の前）で描く＝深度・stencil（depth24plus-stencil8）は本体の物をそのまま使う。
 // パイプラインは sampleCount ごと（本体の遷移時AA＝1x／4x と同じ）に遅延生成。柱ごとに uniform（mvp・原点の clip・色・logCoef）を 1 本。
 import * as mat from "../mat.ts";
+import { rzWgsl } from "./wgsl.ts";
 import { flatOrigin, type ClassifyIn, type ClassifyStyle } from "../classify.ts";
 
 const WGSL = /* wgsl */`
@@ -41,9 +42,9 @@ struct F { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 interface Vol { vbo: GPUBuffer; ibo: GPUBuffer; ubo: GPUBuffer; bg: GPUBindGroup; count: number; origin: number[]; color: number[]; type: number }
 type Pipes = { stencil: GPURenderPipeline; ground: GPURenderPipeline; occ: GPURenderPipeline; cover: GPURenderPipeline; cover3d: GPURenderPipeline; zero: GPURenderPipeline };
 
-export function createClassifyGPU(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat, blend: GPUBlendState) {
+export function createClassifyGPU(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat, blend: GPUBlendState, rz = false) {   // rz＝逆向きの浮動小数深度（wgsl.ts rzWgsl）
 	const vols = new Map<string, Vol>();
-	const mod = device.createShaderModule({ code: WGSL, label: "classify" });
+	const mod = device.createShaderModule({ code: rz ? rzWgsl(WGSL, "classify") : WGSL, label: "classify" });
 	const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: {} }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
 	const pipeSets = new Map<number, Pipes>();
@@ -59,9 +60,9 @@ export function createClassifyGPU(device: GPUDevice, format: GPUTextureFormat, d
 		});
 		return {
 			// ① z-fail：深度で負けた裏面 +1・表面 −1
-			stencil: mk({ depthCompare: "less", stencilFront: st("always", "keep", "decrement-wrap"), stencilBack: st("always", "keep", "increment-wrap") }, false, "stencil"),
+			stencil: mk({ depthCompare: rz ? "greater" : "less", stencilFront: st("always", "keep", "decrement-wrap"), stencilBack: st("always", "keep", "increment-wrap") }, false, "stencil"),
 			// ①b 深度の無い平らな地面：深度に勝った面のうち地面の向こうの物も数える
-			ground: mk({ depthCompare: "less", stencilFront: st("always", "decrement-wrap"), stencilBack: st("always", "increment-wrap") }, false, "ground", "fsg"),
+			ground: mk({ depthCompare: rz ? "greater" : "less", stencilFront: st("always", "decrement-wrap"), stencilBack: st("always", "increment-wrap") }, false, "ground", "fsg"),
 			// ② 地形だけ：bit7 の画素の巻き数を 0 へ（ref 0x80・replace は ref&0x7F＝0 を書く）
 			occ: mk({ stencilFront: st("equal", "replace"), stencilBack: st("equal", "replace"), stencilReadMask: 0x80 }, false, "occ"),
 			// ③ 塗り：巻き数≠0（ref 0）／3D だけ＝0x80 < s（ref 0x80）。通った画素は 0 へ＝一画素一回

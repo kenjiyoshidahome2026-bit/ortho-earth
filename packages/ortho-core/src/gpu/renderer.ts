@@ -33,7 +33,7 @@ import { elevCheapWgsl, FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
 	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL, OVERLAY_CLIP_WGSL } from "./wgsl.ts";
-import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl, meshCustomWGSL, ATLAS_FOOT_WGSL, MESH_TEX_FAST_WGSL } from "./wgsl.ts";
+import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl, rzWgsl, RZ_NEAR, meshCustomWGSL, ATLAS_FOOT_WGSL, MESH_TEX_FAST_WGSL } from "./wgsl.ts";
 import { mdFillWgsl, mdLineWgsl, mdBldWgsl, lineXWgsl } from "./wgsl.ts";   // タイル GPU 常駐プールの派生（vt perf plan §4 step A）   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.ts";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標高セルの再標本化の係数と CPU 退避（段階 3・gl と共通）
@@ -122,6 +122,8 @@ export interface RendererGPUOptions {
 	clipK?: number;
 	meshChunk?: boolean;   // 建物メッシュの GPU 転送を小分けにして散らす（実験ノブ・既定オフ・?meshchunk=1。2026-11-04 実機 Mali で 1 バッチの転送が 100〜600ms＝画面が止まった）
 	noLx?: boolean;   // 層の画面効果（S-P1-1/3/4/5＝端と継ぎ・破線・translate/blur・模様）を切る（?nolx=1＝2026-10-22 より前の WebGPU の絵：丸い端・CPU で刻む破線・模様の塗りは描かない）
+	/** 逆向きの浮動小数深度（?depth=rz・wgsl.ts rzWgsl）＝depth32float-stencil8 が要る（無い端末は対数深度のまま）。既定 false */
+	depthRZ?: boolean;
 	fragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; /** 間引きの足元（既定 true・?shedfoot=0 で false）＝ATLAS_FOOT_WGSL */ shedFoot?: boolean; requestDraw?: () => void;
 	/** 動いている間の地形メッシュの間引き（頂点おき・2 か 4。0/未指定＝しない）。同じ頂点配列に粗い index を 1 本足し、draw(opts.moving) の間だけそれで描く（?terrcoarse・2026-11-07） */
 	terrCoarse?: number;
@@ -396,6 +398,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const reqFeats: GPUFeatureName[] = [];
 	if (wantTQ) reqFeats.push("timestamp-query");
 	if (adapter.features?.has?.("float32-blendable")) reqFeats.push("float32-blendable");
+	const wantRZ = rOpts.depthRZ ?? /[?&]depth=rz/.test((globalThis as { location?: { search?: string } }).location?.search || "");   // 頁が renderer を直に作る検定（verify:webgpu の noBoot の頁）は URL から
+	const RZ = wantRZ && !!adapter.features?.has?.("depth32float-stencil8");   // 逆向きの浮動小数深度（wgsl.ts rzWgsl）＝任意機能が無い端末は対数深度のまま
+	if (RZ) reqFeats.push("depth32float-stencil8");
+	if (wantRZ) console.log(`[gpu] depth=rz: ${RZ ? "reversed float depth (near/w, depth32float-stencil8, no frag_depth)" : "depth32float-stencil8 not available = log depth"}`);
 	// maxTextureDimension2D＝既定8192のままだと、縦長ウィンドウ×高dpr（ブラウザ拡大率等）でスワップチェイン/
 	// 画面サイズ従属テクスチャ（gint idTex 等）が上限超えで即死する（実測 2026-09-02: 2042x9677）。アダプタの
 	// 実力値（Apple系=16384）をそのまま要求＝タダで倍の頭上空間。適用失敗の互換性リスクはアダプタ自己申告値ゆえ無い
@@ -446,7 +452,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const mkMod = (code: string, label: string): GPUShaderModule => {
 		if (rOpts.elevCheap === true) code = elevCheapWgsl(code);   // 軽い標高の枝だけ残す（elevQ 側を捨てる）＝Mali のコールドコンパイルを短く（2026-11-07）。desktop は原本のまま
 		if (rOpts.gndFast === false) code = gndMixSlow(code);   // 逃げ道（perf plan P6）＝A/B と切り分け。既定は早期 return の新順序
-		if (fragDepthOn && FD_LABELS.has(label)) code = fragDepthWgsl(code, label);
+		if (RZ) code = rzWgsl(code, label);   // 逆向きの浮動小数深度＝頂点で書くだけ（frag_depth 無し＝early-Z が効く）
+		else if (fragDepthOn && FD_LABELS.has(label)) code = fragDepthWgsl(code, label);
 		const m = device.createShaderModule({ code });
 		m.getCompilationInfo && m.getCompilationInfo().then(info => {
 			for (const x of info.messages || []) if (x.type === "error") gpuErr(`WGSL ${label}`, `${x.lineNum}:${x.linePos} ${x.message}`);
@@ -505,7 +512,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 描画の質の旗（#46・2026-09-26）＝globe の opts.render と ?fx= を boot/tier.js renderFx が裁いた結果（LOW_MEM・GL2 は全部 false）。
 	// 段 0 は旗を運ぶだけ＝段 1（atmosphere）・段 2（pbr）・段 3（ao）が順に読む。無指定＝全部 false＝従来の絵。
 	const FX: RenderFx = { atmosphere: false, pbr: false, ao: false, ...(rOpts.fx || {}) };
-	const DEPTH = "depth24plus-stencil8";   // stencil は gint（winding 塗り）が同一アタッチメントで使う（renderer 自身は不使用＝既定 keep で不干渉）
+	const DEPTH: GPUTextureFormat = RZ ? "depth32float-stencil8" : "depth24plus-stencil8";
+	const Z_CLEAR = RZ ? 0 : 1, Z_LE: GPUCompareFunction = RZ ? "greater-equal" : "less-equal";   // 逆向き＝手前が大きい（消した値 0・比較は greater）   // stencil は gint（winding 塗り）が同一アタッチメントで使う（renderer 自身は不使用＝既定 keep で不干渉）
 	const target: GPUColorTargetState = { format, blend: BLEND };
 	// 素の建物メッシュ（不透明）＝置き換え（α もそのまま書く）＝夜の街明かりの窓の印（α＝1−印・後処理の夜の色 grade が読む・2026-10-24）。α＝1 の間は BLEND と同じ絵
 	const alphaOneMod = device.createShaderModule({ label: "alphaOne", code: `@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f { let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u)); return vec4f(p * 2.0 - 1.0, 0.0, 1.0); }
@@ -590,9 +598,9 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	];
 	// 深度状態の変種＝GL の enable/disable/depthMask/polygonOffset の写し（深度アタッチメントは常設）
 	const dsOff: GPUDepthStencilState = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always" };
-	const dsTest: GPUDepthStencilState = { format: DEPTH, depthWriteEnabled: false, depthCompare: "less-equal" };
-	const dsWrite: GPUDepthStencilState = { format: DEPTH, depthWriteEnabled: true, depthCompare: "less-equal" };
-	const dsTerrain: GPUDepthStencilState = { ...dsWrite, depthBias: 4, depthBiasSlopeScale: 1.0 };   // gl.polygonOffset(1.0, 4.0) 相当＝ドレープした基図が z-fight せず表に出る
+	const dsTest: GPUDepthStencilState = { format: DEPTH, depthWriteEnabled: false, depthCompare: Z_LE };
+	const dsWrite: GPUDepthStencilState = { format: DEPTH, depthWriteEnabled: true, depthCompare: Z_LE };
+	const dsTerrain: GPUDepthStencilState = { ...dsWrite, depthBias: RZ ? -4 : 4, depthBiasSlopeScale: RZ ? -1.0 : 1.0 };   // gl.polygonOffset(1.0, 4.0) 相当＝ドレープした基図が z-fight せず表に出る
 	// 建物マスク（面ドレープの深度統合・2026-08-14）：建物 FS が通った画素に stencil bit7(0x80) を刻む
 	//（reference は建物ドロー直前に 0x80）。gint の cover/idResolve が「建物の陰」を画素単位でスキップする根拠。
 	// 扇形状の深度テストは不可（fan は winding の便法＝内部 frag は地形面に乗っていない）＝この bit が唯一の正解。
@@ -2100,7 +2108,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// meshMasks: 区名 → { ward, rev, tex(r8unorm 被覆マスク), bbox }（基図建物 FS が uv 参照して footprint を伏せる）
 	// ward/rev＝buildMaskBG のシグネチャ（どの区のどの版か）。rev は writeTexture ごとに全体通しの連番＝作り直した区とも衝突しない
 	const meshes = new Map<string, MeshBatch>();
-	const classify = createClassifyGPU(device, format, DEPTH, BLEND);   // 面の貼り付け（set("classify"・"classifyStyle")）＝メッシュの後・夜面の前に main パスの中で描く
+	const classify = createClassifyGPU(device, format, DEPTH, BLEND, RZ);   // 面の貼り付け（set("classify"・"classifyStyle")）＝メッシュの後・夜面の前に main パスの中で描く
 	const meshKeep2d = () => { for (const p of meshes.values()) if (p.keep2d) return true; return false; };   // 真俯瞰でも描くバッチがあるか
 	const meshMasks = new Map<string, MeshMask>();
 	let maskRevSeq = 0;
@@ -3398,7 +3406,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}],
 			depthStencilAttachment: {
 				view: t.depthView,
-				depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store",   // gint の隠線（地形深度テスト）が読む
+				depthLoadOp: "clear", depthClearValue: Z_CLEAR, depthStoreOp: "store",   // gint の隠線（地形深度テスト）が読む
 				stencilLoadOp: "clear", stencilStoreOp: "store",                      // bit7=建物マスク（bld/mesh が刻み gint パスが load で読む）
 			},
 		};
@@ -3707,7 +3715,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (meshes.size && terrainActive && ((view.globeAlpha ?? 1) < 1 || (view.meshOverGround && !post && !ao && !classify.size))) {
 			pass.end();
 			pass = enc.beginRenderPass({ colorAttachments: [{ view: colorView, loadOp: "load", storeOp: "store" }],
-				depthStencilAttachment: { view: t.depthView, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store", stencilLoadOp: "load", stencilStoreOp: "store" } });
+				depthStencilAttachment: { view: t.depthView, depthLoadOp: "clear", depthClearValue: Z_CLEAR, depthStoreOp: "store", stencilLoadOp: "load", stencilStoreOp: "store" } });
 			pass.setStencilReference(0x80);
 		}
 		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
@@ -3873,7 +3881,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 入口はフェード（チルト 0.02→0.10 rad で強さ 0→1）＝真俯瞰から傾けた瞬間に建物の周りの陰がポンと点かない
 		const aoIn = Math.min(1, Math.max(0, ((cam.pitch || 0) - 0.02) / 0.08));
 		if (FX.ao && !flat2d && aoIn > 0) {
-			ao ??= createAoGPU(device, format);
+			ao ??= createAoGPU(device, format, RZ);
 			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, focal: st.focal, logCoef,
 				strength: (view.aoStrength ?? 0.6) * aoIn * aoIn * (3 - 2 * aoIn), radiusK: view.aoRadius ?? 0.10, biasSin: view.aoBias ?? 0.15, phase: view.aoPhase ?? 0 });   // 調律ノブ（公開面には出さない）。半径＝視距離の 10%（20〜400m）・強さ 0.6（#63 本人裁定 2026-09-29＝0.5 は斑を抑える暫定で、斑は PR #61 で根治済み）・接平面の sin の下駄 0.15（地平線型・2026-09-26）。aoPhase＝模様の位相（t-ao の安定の検定）
 		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
@@ -3890,16 +3898,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		accMore = accOn && accK < ACC_N - 1 && accBudget > 0;
 		const fxFrameIn: SceneFxFrame | null = sceneOpt && !flat2d ? { depthTex: t.depth, samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, logCoef,
 			sun: [sunF[0], sunF[1], sunF[2]], dpr: cam.dpr || 1, pole, time: fxNow, opt: sceneOpt, fade: aoIn * aoIn * (3 - 2 * aoIn), phase: accK } : null;
-		if (fxFrameIn) { sceneFx ??= createSceneFxGPU(device, format); sceneFx.pre(enc, fxFrameIn); }   // 接触影・雨の濡れ（SSR の前＝映る色も陰と濡れの付いた色）
+		if (fxFrameIn) { sceneFx ??= createSceneFxGPU(device, format, RZ); sceneFx.pre(enc, fxFrameIn); }   // 接触影・雨の濡れ（SSR の前＝映る色も陰と濡れの付いた色）
 		else if (sceneFx && !sceneOpt && !ssrOpt) { sceneFx.dispose(); sceneFx = null; }
 		// SSR（画面空間の映り込み・2026-11-01）＝setPostChain の ssr の間だけ・傾けた 3D の時だけ（入口のフェードは AO と同じ）。AO の後＝陰の付いた色を映す・gint の線と注記の前
 		if (ssrOpt && !flat2d && aoIn > 0) {
-			ssr ??= createSsrGPU(device, format, bgl0, bgl1);
+			ssr ??= createSsrGPU(device, format, bgl0, bgl1, RZ);
 			ssr.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), mvp: st.mvp, invMvp: st.invMvp!, eye: st.eye, logCoef,
 				bg0: bg0.main, bg1: paramBG[ROLE.contour], opt: ssrOpt, fade: aoIn * aoIn * (3 - 2 * aoIn), time: fxNow, pole, phase: accK });
 		} else if (ssr && !ssrOpt) { ssr.dispose(); ssr = null; }
 		if (fxFrameIn && sceneFx) sceneFx.post(enc, fxFrameIn);   // 高さ霧・雨の筋・光芒・イラスト風（映り込みの後＝霧は映り込みにも掛かる）
-		if (accOn) { sceneFx ??= createSceneFxGPU(device, format); sceneFx.accumulate(enc, { samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), k: accK }); }   // 静止の積み上げ（gint の線と注記の前）
+		if (accOn) { sceneFx ??= createSceneFxGPU(device, format, RZ); sceneFx.accumulate(enc, { samples: S, W, H, colorView, canvasTex: S > 1 ? null : ctx!.getCurrentTexture(), k: accK }); }   // 静止の積み上げ（gint の線と注記の前）
 		lastStage = { depthTex: t.depth, samples: S, logCoef, dpr: cam.dpr || 1, frame: ++stageFrame, fovy: cam.fovy || 50 * Math.PI / 180 };   // 画面の段（Cesium の postProcessStages）が flush の後処理で使う尺
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
@@ -3939,7 +3947,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 後処理（PR-8）：描き終えた canvas（1x＝直描き／4x＝上の resolve 済み）を控えに写して bloom・vignette を掛けて戻す。注記・オーバーレイは別 canvas＝掛からない
 		if (post) {
-			try { postFx ??= createPostGPU(device, format, () => rOpts.requestDraw?.()); frame.enc = postFx.encode(frame.enc, ctx!.getCurrentTexture(), frame.w, frame.h, post, lastStage); }
+			try { postFx ??= createPostGPU(device, format, () => rOpts.requestDraw?.(), RZ); frame.enc = postFx.encode(frame.enc, ctx!.getCurrentTexture(), frame.w, frame.h, post, lastStage); }
 			catch (e) { console.warn("[gpu] post-process failed (disabled):", (e as Error)?.message || e); post = null; postFx?.dispose(); postFx = null; }
 		} else if (postFx) { postFx.dispose(); postFx = null; }
 		let st = null;
@@ -4024,7 +4032,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (got) return got === "pending" ? null : got;
 		let code = v.code!;
 		if (rOpts.gndFast === false) code = gndMixSlow(code);
-		if (fragDepthOn) code = fragDepthWgsl(code, "meshTex");   // 模型と同じ深度の書き方（対数深度を FS で）
+		if (RZ) code = rzWgsl(code, "meshTexCustom"); else if (fragDepthOn) code = fragDepthWgsl(code, "meshTex");   // 模型と同じ深度の書き方（対数深度を FS で）
 		device.pushErrorScope("validation");   // 訳した WGSL の誤り＝描き手の誤りに数えない（素の模型で描く）
 		const mod = device.createShaderModule({ code });
 		const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch, v.bgl!] });
@@ -4078,7 +4086,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	function depthOut(on: unknown): { begin(): boolean; abort(): void; end(): { bitmap: () => ImageBitmap; gpu: { device: GPUDevice; texture: GPUTexture }; w: number; h: number; logCoef: number; globe: DepthGlobe | null } | null } | null {
 		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } lastDepth = null; return null; }
 		if (!dOut) {
-			try { dOut = createDepthOutGPU(device); }
+			try { dOut = createDepthOutGPU(device, RZ); }
 			catch (e) { dOutFailed = true; console.warn("[gpu] depthOut unavailable:", (e as Error)?.message || e); return null; }
 		}
 		return {
@@ -4302,6 +4310,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		meshUpPump, meshUpBusy: () => meshUp.size > 0 || meshSettled.length > 0,   // settled が残る間も pump を回す＝捨てた荷の参照を握り続けない meshUpPending: (key: string) => meshUp.has(key),   // 建物の小分け転送（2026-11-04）：renderworker が毎フレーム pump し、上がり切った（か捨てた）キーの ack を返す get hasTQ() { return !!tq; },
 		shadowStats: () => shadow.on ? { on: true, active: shStat.active, passes: shStat.passes, skipped: shStat.skipped, ...(shStat.last || {}), cascades: shStat.cascades || [] } : null,   // 影の計器（#112 段 0・?hud=1 のテレメトリ）＝消している間は null
 		analysis,   // 日影時間・可視域の GPU 版（2026-10-24）＝描いている物から測る
+		depthFormat: DEPTH, depthRZ: RZ ? RZ_NEAR : 0,   // 深度の形式と持ち方（0＝対数深度・正＝逆向きの浮動小数深度の near）＝gint・点群・three.js などホストに載る描き手が合わせる
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
 		quad4: QUAD4,   // 線・点＝index の 4 頂点（perf plan P3）。gint（createGintLayerGPU）の既定がこれに揃う
 		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）

@@ -5,6 +5,7 @@
 // 深度＝Cesium の尺（log2(w−near+1)／log2(far−near+1)・w＝目からの奥行き m）に写した depth24plus を、段が要る時だけ 1 フレームに 1 度作る（本体の深度＝対数・4x は sample 0）
 import type { PostStage } from "../postfx.ts";
 import type { GlslBridge } from "../glslbridge.ts";
+import { rzReadWgsl } from "./wgsl.ts";
 
 const R_M = 6378137, CZM_NEAR = 1, CZM_FAR = 5e8;
 const FULL_VS = `struct VOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
@@ -216,7 +217,7 @@ export interface PostStagesGPU {
 	encode(enc: GPUCommandEncoder, stages: PostStage[], dst: GPUTextureView, W: number, H: number, f: StageFrameGPU): GPUCommandEncoder;
 	dispose(): void; bytes(): number;
 }
-export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null): PostStagesGPU {
+export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat, requestDraw?: (() => void) | null, rz = false): PostStagesGPU {   // rz＝本体の深度が逆向きの浮動小数（wgsl.ts rzReadWgsl）
 	const F = GPUShaderStage.FRAGMENT;
 	const bgl = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: F, buffer: {} }, { binding: 1, visibility: F, texture: {} }, { binding: 2, visibility: F, sampler: {} }, { binding: 3, visibility: F, texture: { sampleType: "depth" } },
@@ -236,7 +237,7 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 	const dPipes = new Map<boolean, { p: GPURenderPipeline; l: GPUBindGroupLayout }>();
 	const dPipe = (ms: boolean) => {
 		let d = dPipes.get(ms);
-		if (!d) { const l = bglD(ms), code = DEPTH_WGSL(ms); d = { l, p: device.createRenderPipeline({ label: `postDepth${ms}x`, layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "always" } }) }; dPipes.set(ms, d); }
+		if (!d) { const l = bglD(ms), code = rz ? rzReadWgsl(DEPTH_WGSL(ms), "dep", "P.p.x") : DEPTH_WGSL(ms); d = { l, p: device.createRenderPipeline({ label: `postDepth${ms}x`, layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), vertex: { module: device.createShaderModule({ code }), entryPoint: "vs" }, fragment: { module: device.createShaderModule({ code }), entryPoint: "fs", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "always" } }) }; dPipes.set(ms, d); }
 		return d;
 	};
 	const smp = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
@@ -285,7 +286,7 @@ export function createPostStagesGPU(device: GPUDevice, format: GPUTextureFormat,
 	const bridgeOf = (): GlslBridge | null => {
 		if (bridge === undefined && !bridgeLoading) {
 			bridgeLoading = true;
-			import("../glslbridge.ts").then(m => { if (disposed) return; try { bridge = m.createGlslBridge(device, format, requestDraw); } catch (e) { bridge = null; console.warn("[gpu] glsl post stages:", (e as Error)?.message || e); } })
+			import("../glslbridge.ts").then(m => { if (disposed) return; try { bridge = m.createGlslBridge(device, format, requestDraw, rz); } catch (e) { bridge = null; console.warn("[gpu] glsl post stages:", (e as Error)?.message || e); } })
 				.catch(e => { bridge = null; console.warn("[gpu] glsl post stages:", (e as Error)?.message || e); })
 				.finally(() => requestDraw?.());
 		}
