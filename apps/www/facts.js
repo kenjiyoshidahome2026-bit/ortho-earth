@@ -3,6 +3,7 @@
 //   互換の数＝/maplibre/ と /sandcastle/ のギャラリー頁が持つ採点（payload の "l"：3 同じ絵・2 同じ答え・1 動く・0 動かない）。
 // vite.config.js がここから /facts.json・llms.txt の {{…}}・トップの JSON-LD の版と更新日を出す。門＝tests/t-facts.mjs（README の数と版のずれも止める）
 import { readFileSync } from 'node:fs';
+import { TOOLS as MCP_TOOLS } from '../../packages/mcp/src/tools.js';   // MCP サーバーの道具の名前＝台帳から（書き写さない）
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -80,6 +81,8 @@ export const buildFacts = () => {
 			selfDescription: 'map.supports(key) and map.capabilities() report what the map can do',
 			types: 'TypeScript types ship in the packages',
 			healthCheck: 'a healthy start logs "[boot] frame1 received" in the browser console',
+			mcp: { remote: 'https://www.ortho-earth.com/mcp', npm: 'npx -y @ortho-earth/mcp', tools: MCP_TOOLS.map(t => t.name), readOnly: true, noKeys: true },
+			compat: 'https://www.ortho-earth.com/compat.json',
 		},
 		maintenance: {
 			maintainers: 1,
