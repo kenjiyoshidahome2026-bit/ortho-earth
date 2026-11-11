@@ -3,6 +3,8 @@
 //   互換の数＝/maplibre/ と /sandcastle/ のギャラリー頁が持つ採点（payload の "l"：3 同じ絵・2 同じ答え・1 動く・0 動かない）。
 // vite.config.js がここから /facts.json・llms.txt の {{…}}・トップの JSON-LD の版と更新日を出す。門＝tests/t-facts.mjs（README の数と版のずれも止める）
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
@@ -29,7 +31,12 @@ export const gradeGallery = (html, { payloadId, refRe }) => {
 	};
 };
 
+/** npm test が走らせる検査の数＝scripts/test-all.mjs --list の行数（手で書かない） */
+export const countTests = () => execFileSync(process.execPath, ['scripts/test-all.mjs', '--list'], { cwd: fileURLToPath(here('../../')), encoding: 'utf8' })
+	.split('\n').filter(Boolean).length;
+
 export const buildFacts = () => {
+	const TESTS = countTests();
 	const rel = latestRelease(read('../../CHANGELOG.md'));
 	const core = pkg('../../packages/ortho-core/package.json');
 	const globe = pkg('../../packages/globe/package.json');
@@ -73,6 +80,16 @@ export const buildFacts = () => {
 			selfDescription: 'map.supports(key) and map.capabilities() report what the map can do',
 			types: 'TypeScript types ship in the packages',
 			healthCheck: 'a healthy start logs "[boot] frame1 received" in the browser console',
+		},
+		maintenance: {
+			maintainers: 1,
+			sla: 'none',
+			tests: TESTS,
+			security: 'private reports via GitHub Security Advisories; reply within 7 days; 90-day disclosure window; CodeQL on every pull request; monthly dependency updates with a 7-day cooldown',
+			compatibility: 'every app built on 1.x runs on 2.x; every 2.x release kept the same API; 3.x is planned on the same rule',
+			serverSide: 'none: no map server, no backend, no accounts; the map runs in the browser',
+			continuity: 'GPL-3.0-or-later (formats MIT) so anyone may continue it; CLA for contributions; published packages keep working without project servers; open documented formats; MapLibre GL JS and CesiumJS APIs leave a way back to those engines',
+			securityPolicy: 'https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/SECURITY.md',
 		},
 		license: { engine: 'GPL-3.0-or-later (a commercial license is available)', formats: 'MIT (geopbf, altpbf, geoedit, glbconv, native-bucket)' },
 		source: 'https://github.com/kenjiyoshidahome2026-bit/ortho-earth',
