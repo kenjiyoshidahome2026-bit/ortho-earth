@@ -3,6 +3,28 @@
 Release notes for the Ortho Earth npm packages. Each release also has a longer article on
 ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases).
 
+## 2.4.1 — 2026-11-11
+
+**@ortho-earth/globe 2.4.1 · @ortho-earth/core 2.4.1** (also @ortho-earth/cesium 0.3.1 and @ortho-earth/voxel 0.6.3).
+
+```
+npm i @ortho-earth/globe@2.4
+```
+
+- **Faster 3D Tiles on WebGPU.** Plain 3D Tiles batches draw with a lighter shader (same picture; `?meshfast=0` is the
+  old way). One-sided batches cull their back faces by default (`backFaceCulling: false` draws both sides). The depth
+  buffer is now reversed floating point, which brings early depth testing back (`?depth=log` is the old logarithmic
+  depth). On a Galaxy Tab A11+ the PLATEAU Chiyoda orbit went from about 30 to 60 fps.
+- **Dynamic LOD.** While the camera moves, buildings lose detail before they are dropped, and the gaps are filled in the
+  building colour at their foot. Close up, which buildings are thinned is decided by their size on screen (houses no
+  longer vanish at /nl z20).
+- **Basemap lines stay on the ground in deep tilt**: roads no longer drift away from the buildings.
+- **MapLibre shim**: the canvas can take keyboard focus, and `panBy` works on tilted maps.
+- **Closer to CesiumJS**: the globe's far side and a translucent globe (`backFaceCulling: false`, globe-interior),
+  `scene.verticalExaggeration` on terrain, ground primitives lit like Cesium's and blended where they overlap, voxel
+  ellipsoid shells, terrain shadow casters, `debugColorizeTiles`, sky atmosphere HSB shift and fog density.
+- **Same API as 2.4.0.** Everything is a fix or an addition.
+
 ## 2.4.0 — 2026-11-09
 
 **@ortho-earth/globe 2.4.0 · @ortho-earth/core 2.4.0** (also @ortho-earth/cesium 0.3.0, @ortho-earth/voxel 0.6.2 and
