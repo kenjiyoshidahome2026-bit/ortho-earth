@@ -3,7 +3,7 @@
 	"version": "2.4.1",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"description": "A 3D globe for the web: createGlobe() draws the whole Earth with WebGPU (WebGL2 fallback) and takes your data through a MapLibre-style API. No API key, no server of your own.",
+	"description": "One true-scale Earth, for people and their AI agents. A 3D globe for the web: createGlobe() draws the whole Earth with WebGPU (WebGL2 fallback) and takes your data through a MapLibre-style API. No API key, no server of your own.",
 	"types": "./globe.d.ts",
 	"exports": {
 		".": {

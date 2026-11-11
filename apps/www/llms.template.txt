@@ -2,7 +2,7 @@
 
 > Equal to all, fair to the Earth. This is the project for all people on the earth. The earth is round.
 
-Ortho Earth reads the open data of the Earth in your own browser — on a round globe, at true scale, with no server, no account and no install. A map engine built from scratch (WebGPU with a WebGL2 fallback) draws government vector tiles straight onto the sphere, lifts real terrain, and raises 3D cities as you zoom in. Big data is drawn from GeoParquet, the intelligence layer (identify, topology, choropleths) is Gint, and nothing is exaggerated (terrain at real scale).
+One true-scale Earth, for people and their AI agents. Ortho Earth reads the open data of the Earth in your own browser — on a round globe, at true scale, with no server, no account and no install. A map engine built from scratch (WebGPU with a WebGL2 fallback) draws government vector tiles straight onto the sphere, lifts real terrain, and raises 3D cities as you zoom in. Big data is drawn from GeoParquet, the intelligence layer (identify, topology, choropleths) is Gint, and nothing is exaggerated (terrain at real scale).
 
 ## Current facts
 
