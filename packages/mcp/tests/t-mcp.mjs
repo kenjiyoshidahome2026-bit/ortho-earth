@@ -160,7 +160,7 @@ test("stdio：bin を起こして全部の道具を 1 回ずつ（資料は手�
 	assert.equal(JSON.parse(by.list_apps.content[0].text).length, 2);
 });
 
-test("Worker：POST で答え・通知は 202・GET は 405・preflight・道の外は 404・壊れた JSON は 400", async () => {
+test("Worker：POST で答え・通知は 202・GET は案内（SSE 要求だけ 405）・preflight・道の外は 404・壊れた JSON は 400", async () => {
 	const realFetch = globalThis.fetch;
 	globalThis.fetch = async (url) => { const p = String(url).replace("https://www.ortho-earth.com/", ""); return Object.hasOwn(FILES, p) ? new Response(FILES[p]) : new Response("no", { status: 404 }); };
 	try {
@@ -172,7 +172,21 @@ test("Worker：POST で答え・通知は 202・GET は 405・preflight・道の
 		assert.match((await r.json()).result.content[0].text, /9\.9\.9/);
 		assert.equal((await post({ jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
 		assert.equal((await post("{oops")).status, 400);
-		assert.equal((await worker.fetch(new Request("https://www.ortho-earth.com/mcp"))).status, 405);
+		const get = (accept) => worker.fetch(new Request("https://www.ortho-earth.com/mcp", { headers: accept ? { Accept: accept } : {} }));
+		assert.equal((await get("text/event-stream")).status, 405);   // MCP の client の SSE 要求は仕様どおり
+		const md = await get("");
+		assert.equal(md.status, 200);
+		assert.match(md.headers.get("Content-Type"), /text\/markdown/);
+		const mdText = await md.text();
+		for (const t of TOOLS) assert.ok(mdText.includes(`\`${t.name}\``), t.name);
+		assert.match(mdText, /Streamable HTTP/);
+		assert.match(mdText, /does not open or operate a map/);
+		const html = await get("text/html,application/xhtml+xml,*/*;q=0.8");
+		assert.equal(html.status, 200);
+		assert.match(html.headers.get("Content-Type"), /text\/html/);
+		const htmlText = await html.text();
+		assert.match(htmlText, /<h2>Tools<\/h2>/);
+		assert.doesNotMatch(htmlText, /<script/);
 		assert.equal((await worker.fetch(new Request("https://www.ortho-earth.com/mcp", { method: "OPTIONS" }))).status, 204);
 		assert.equal((await worker.fetch(new Request("https://www.ortho-earth.com/mcpx", { method: "POST", body: "{}" }))).status, 404);
 	} finally { globalThis.fetch = realFetch; }
