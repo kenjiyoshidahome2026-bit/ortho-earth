@@ -3,6 +3,23 @@
 Release notes for the Ortho Earth npm packages. Each release also has a longer article on
 ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases).
 
+## mcp 0.1.0 — 2026-11-11
+
+**@ortho-earth/mcp 0.1.0** — new: an MCP server, so AI agents can look Ortho Earth up instead of guessing.
+
+```
+npx -y @ortho-earth/mcp                      # local (stdio)
+https://www.ortho-earth.com/mcp              # remote (Streamable HTTP)
+```
+
+- **Seven read-only tools, no key**: `get_facts` (version, packages, compatibility numbers), `get_started` (the tested
+  recipe), `check_compat` (how each official MapLibre GL JS and CesiumJS example runs on the globe), `lookup_api` (the
+  declaration from the published types), `search_docs`, `view_link` (a link to a place on the globe) and `list_apps`.
+- **Always current**: answers come from files the site rebuilds on every deploy — `/facts.json`, `/llms-full.txt`,
+  `/start.md`, and new `/compat.json` and `/ref/*.ts`.
+- Listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/) as
+  `io.github.kenjiyoshidahome2026-bit/ortho-earth`. Setup for each client: [packages/mcp](packages/mcp/README.md).
+
 ## 2.4.1 — 2026-11-11
 
 **@ortho-earth/globe 2.4.1 · @ortho-earth/core 2.4.1** (also @ortho-earth/cesium 0.3.1 and @ortho-earth/voxel 0.6.3).
