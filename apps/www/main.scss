@@ -156,9 +156,14 @@ body #demoOverlay main .grid .card .card-cta { padding-top: .6rem; align-self: f
 	body #demoOverlay nav .links select.lang { max-width: 6.5rem; margin-inline-start: .6rem; }
 	body #demoOverlay main .grid { grid-template-columns: 1fr; }
 	/* 区分けの札＝画面の幅に収める（旧＝札の余白 2rem で 3 枚が画面からはみ出し、Gallery が左で欠けていた） */
-	body #demoOverlay main .tabs { display: flex; max-width: 100%; box-sizing: border-box; }
-	body #demoOverlay main .tabs .tab { flex: 1 1 auto; padding: .6rem .7rem; font-size: .95rem; white-space: nowrap; }
+	/* 2026-11-11 本人「ギャラリーが一列の時、横スクロールする」＝札が 4 枚（Stories 追加）になり nowrap の最小幅 389px が 390px 以下の画面からはみ出し、main（overflow:auto）が横に流れていた。
+	   札を縮めてよい（min-width:0）・「Get started」は 2 行に折ってよい＝どの幅でも枠内に収める */
+	body #demoOverlay main .tabs { display: flex; max-width: 100%; box-sizing: border-box; gap: .15rem; padding: .25rem; }
+	body #demoOverlay main .tabs .tab { flex: 1 1 auto; min-width: 0; padding: .55rem .45rem; font-size: .9rem; line-height: 1.15; white-space: normal; }
 	body #demoOverlay footer { padding: .7rem 1rem; font-size: .72rem; }   /* 下に貼り付く帯＝狭い画面ではカードの場所を食わない薄さに */
+}
+@media (max-width: 360px) {
+	body #demoOverlay main .tabs .tab { padding: .5rem .3rem; font-size: .84rem; }
 }
 /* デモの画像（全カード・9/22 本人「全てのデモに画像を」）＝カードの幅いっぱい・16:10。題はその上（9/24「角丸があるので、タイトルを上に」）＝画像の角は丸で欠けない */
 body #demoOverlay main .grid .card { padding: 0 0 1rem; overflow: hidden; }
