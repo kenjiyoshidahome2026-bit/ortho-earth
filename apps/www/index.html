@@ -180,21 +180,26 @@ const map = new maplibregl.Map({
 				<section class="card path">
 					<span class="path-no" aria-hidden="true">3</span>
 					<h3 class="card-title" data-t="Build with an AI agent">Build with an AI agent</h3>
-					<p class="card-desc" data-t="Claude Code, Cursor, Codex … Give it the address of the recipe and say what you want.">Claude Code, Cursor, Codex … Give it the address of the recipe and say what you want.</p>
+					<p class="card-desc" data-t="Claude Code, Cursor, Codex … Connect the Ortho Earth MCP server once, then just say what you want.">Claude Code, Cursor, Codex … Connect the Ortho Earth MCP server once, then just say what you want.</p>
 					<ol class="steps">
+						<li><span data-t="Connect the MCP server (first time only)">Connect the MCP server (first time only)</span>
+							<pre class="code" translate="no"><code>claude mcp add --transport http ortho-earth https://www.ortho-earth.com/mcp</code></pre>
+							<button type="button" class="copy-btn" data-copy="mcp" data-t="Copy">Copy</button>
+							<span class="step-note" data-t="In Cursor and other clients, add https://www.ortho-earth.com/mcp as a remote MCP server.">In Cursor and other clients, add https://www.ortho-earth.com/mcp as a remote MCP server.</span></li>
 						<li><span data-t="Open your AI coding agent in an empty folder">Open your AI coding agent in an empty folder</span></li>
 						<li><span data-t="Paste a request like this">Paste a request like this</span>
-							<pre class="code prompt" dir="auto"><code data-t="Read https://www.ortho-earth.com/llms.txt and follow &quot;Build with it&quot;.
+							<pre class="code prompt" dir="auto"><code data-t="Use the ortho-earth MCP server and check the recipe (get_started) first.
 Make me a web page with a 3D globe that shows the 10 most populous
 cities of the world as red dots. When I click a dot, show the city's
-name and population. Start the view looking at Asia.">Read https://www.ortho-earth.com/llms.txt and follow "Build with it".
+name and population. Start the view looking at Asia.">Use the ortho-earth MCP server and check the recipe (get_started) first.
 Make me a web page with a 3D globe that shows the 10 most populous
 cities of the world as red dots. When I click a dot, show the city's
 name and population. Start the view looking at Asia.</code></pre>
 							<button type="button" class="copy-btn" data-copy="prompt" data-t="Copy">Copy</button></li>
 						<li><span data-t="It installs, writes the code and checks it in the browser. Then run npm run dev and look.">It installs, writes the code and checks it in the browser. Then run npm run dev and look.</span></li>
 					</ol>
-					<p class="path-note" data-t="Tested: an AI agent given only this request built and verified the page on its first run.">Tested: an AI agent given only this request built and verified the page on its first run.</p>
+					<p class="path-note" data-t="No MCP? Start the request with &quot;Read https://www.ortho-earth.com/llms.txt&quot; and it works the same way.">No MCP? Start the request with "Read https://www.ortho-earth.com/llms.txt" and it works the same way.</p>
+					<p class="path-note" data-t="The recipe the MCP server hands out is checked on every release by an automated test against the published npm packages.">The recipe the MCP server hands out is checked on every release by an automated test against the published npm packages.</p>
 				</section>
 				<section class="card path small">
 					<h3 class="card-title" data-t="Publish your map">Publish your map</h3>
