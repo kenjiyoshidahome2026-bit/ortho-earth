@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>モバイルでのパフォーマンスを測ってみた：古い iPhone と Android の普及機で PLATEAU を回す</title>
+<meta name="description" content="2018 年の iPhone XS と普及帯の Android タブレットで、PLATEAU の千代田区を MapLibre・Cesium・Navara・ortho-earth の最新版で測りました。Navara はどの計り方でも崩れず、普及機でも 60 fps で回せるエンジンが複数ありました。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-benchmark-mobile-jp">
+<meta property="og:title" content="モバイルでのパフォーマンスを測ってみた：古い iPhone と Android の普及機で PLATEAU を回す">
+<meta property="og:description" content="2018 年の iPhone XS と普及帯の Android タブレットで、PLATEAU の千代田区を MapLibre・Cesium・Navara・ortho-earth の最新版で測りました。Navara はどの計り方でも崩れず、普及機でも 60 fps で回せるエンジンが複数ありました。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-benchmark-mobile-jp">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-11-11">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"モバイルでのパフォーマンスを測ってみた：古い iPhone と Android の普及機で PLATEAU を回す","description":"2018 年の iPhone XS と普及帯の Android タブレットで、PLATEAU の千代田区を MapLibre・Cesium・Navara・ortho-earth の最新版で測りました。Navara はどの計り方でも崩れず、普及機でも 60 fps で回せるエンジンが複数ありました。","url":"https://www.ortho-earth.com/docs/story-benchmark-mobile-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-benchmark-mobile-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-11","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+<!-- Stories の記事（apps/www/stories.json のカードから開く）。2026-11-11 の端末計測（iPhone XS・Galaxy Tab A11+ を同時に）。story-benchmark-jp の続編 -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a></nav>
+<header class="masthead"><h1>モバイルでのパフォーマンスを測ってみた：古い iPhone と Android の普及機で PLATEAU を回す</h1><p class="byline">2026-11-11 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<h2>はじめに</h2>
+<p>10 月に、PLATEAU の千代田区 LOD2 建物を Web の 3D 地図エンジン 5 つで描き、Mac 2 台と iPhone 16 Pro で測りました（<a href="story-benchmark-jp.html">PLATEAU 3D 都市モデルの描画性能比較</a>）。どれも速い機械で、差はあまり出ませんでした。そこで今回は、もっと厳しい機械で測りました。2018 年の iPhone XS と、普及帯の Android タブレット Galaxy Tab A11+ です。エンジンはどれも 11 月 11 日時点の最新版にそろえました。分かったことは 3 つです。</p>
+<ul>
+<li><strong>Navara は、どの計り方でも崩れませんでした。</strong> 2 台とも周回とズームで画面の上限（59.5〜60.3 fps）を保ち、遅いフレームはほぼ 0 でした。Android の初回表示も振れが一番小さく、かっちり作られたエンジンだと感じました。</li>
+<li><strong>普及機でも 60 fps は出ます。</strong> ortho-earth と Navara は 2 台とも 60 fps に張り付き、CesiumJS も Android で周回 57 fps・ズーム 60 fps でした。MapLibre＋deck.gl は周回で 60 fps に届きません。</li>
+<li><strong>CesiumJS 1.147 は、古い iPhone でも動くようになりました。</strong> 前の版（1.146）は、XS で読み込み中に落ちていました。1.147 は 1 回なら最後まで完走します。ただし、続けて測ると途中で Safari が落ちました。</li>
+</ul>
+<p>先に断っておくと、私は ortho-earth の開発者です。身内びいきにならないよう、条件は全エンジンでそろえ、測った数字のとおりに書きます。</p>
+
+<h2>比べ方</h2>
+<p>前回と同じ、PLATEAU 千代田区の建築物 LOD2（テクスチャなし）3D Tiles を、全エンジンに同じオリジンから読ませました。シナリオも同じです。初回表示（東京駅の上空 1,500 m・俯角 60°）、周回（高度 500 m・半径 1 km を 30 秒で 1 周）、ズーム（高度 10 km から 300 m まで 20 秒）を、それぞれ 5 周測り、中央値を取りました。1 周ごとにエンジンの順番を 1 つずらしています。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>iPhone XS</th><th>Galaxy Tab A11+</th></tr></thead><tbody>
+<tr><td>位置づけ</td><td>2018 年発売</td><td>現行の普及帯</td></tr>
+<tr><td>中身</td><td>A12 Bionic・iOS 18.7</td><td>MediaTek MT8775・メモリ 6 GB・Android 16</td></tr>
+<tr><td>ブラウザ</td><td>Safari 18.7</td><td>Chrome 156</td></tr>
+<tr><td>画面</td><td>60 Hz</td><td>60 Hz（計測の前後で確認）、描画 800×1184</td></tr>
+<tr><td>配信</td><td>Mac から Wi-Fi</td><td>Mac から USB</td></tr>
+</tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>エンジン</th><th>版</th></tr></thead><tbody>
+<tr><td>MapLibre GL JS ＋ deck.gl</td><td>6.17.0 ＋ 9.4.1（Tile3DLayer を重ね描き）</td></tr>
+<tr><td>CesiumJS</td><td>1.147.0</td></tr>
+<tr><td>Navara</td><td>@navaramap/three 0.3.1</td></tr>
+<tr><td>ortho-earth</td><td>@ortho-earth/globe 2.4.1</td></tr>
+</tbody></table></div>
+<p>エンジンの機能差を混ぜないよう、次の条件をそろえました。</p>
+<ul>
+<li>描画解像度は全エンジン 1x（CSS ピクセル）。ortho-earth は既定でスマホを 2x で描くので、1x に固定しました。</li>
+<li>細かさの倍率は全エンジンで同じ。Navara は既定でモバイルの細かさを下げるので、倍率 1 に固定しました。</li>
+<li>初回表示の完了は「タイルの読み込みが 5 秒止まった時刻」。キャッシュは無効です。</li>
+<li><strong>2 台を同じ回線で、同時に測りました。</strong> タイルを取り合ううえに、計測中の通信状態にもばらつきがありました。初回表示は目安として読んでください。fps は回線の影響を受けません。</li>
+<li>TerriaJS は描画に CesiumJS を使っているので、今回は特に測っていません。</li>
+</ul>
+
+<h2>結果 1：動かしたとき</h2>
+<p>ortho-earth と Navara は、2 台とも周回とズームで画面の上限の 60 fps でした。</p>
+<div class="table-wrap"><table><thead><tr><th>エンジン</th><th>XS 周回</th><th>XS ズーム</th><th>Android 周回</th><th>Android ズーム</th></tr></thead><tbody>
+<tr><td>Navara</td><td>59.5</td><td>60.0</td><td>60.3</td><td>60.2</td></tr>
+<tr><td>ortho-earth</td><td>59.6</td><td>59.6</td><td>60.1</td><td>59.9</td></tr>
+<tr><td>CesiumJS</td><td>—（結果 3）</td><td>—</td><td>57.4</td><td>60.5</td></tr>
+<tr><td>MapLibre ＋ deck.gl</td><td>46.8 ※</td><td>※</td><td>38.5 ※</td><td>58.6 ※</td></tr>
+</tbody></table></div>
+<p class="note-small">（fps、5 周の中央値。60 が画面更新の上限。※ は下の注を参照）</p>
+<p>遅いフレーム（1 フレーム 33 ms 超）の割合は、周回で Navara が XS 0.2%・Android 0%、ortho-earth が 0.7%・0.1%、CesiumJS が Android 2.4%、MapLibre＋deck.gl が 14%・21% でした。</p>
+<p class="note-small">※ MapLibre＋deck.gl は、地図の上に deck.gl が別のキャンバスを重ねて描きます。そのため数えた fps が画面の更新と合わず、XS のズームでは 80 fps と、上限を超える値が出ました。主スレッドの更新は周回で XS 23・Android 19 回/秒なので、実際の見た目は表の値より低いと考えてください。MapLibre の本業は 2D のベクトルタイルで、3D Tiles は deck.gl を借りて描いています。</p>
+
+<h2>結果 2：初回表示</h2>
+<div class="table-wrap"><table><thead><tr><th>エンジン</th><th>iPhone XS</th><th>Galaxy Tab A11+</th></tr></thead><tbody>
+<tr><td>MapLibre ＋ deck.gl</td><td>12.3 秒（10.7〜17.1）</td><td>6.0 秒（5.1〜7.4）</td></tr>
+<tr><td>Navara</td><td>15.4 秒（11.4〜23.9）</td><td>8.3 秒（6.3〜9.3）</td></tr>
+<tr><td>ortho-earth</td><td>18.9 秒（11.6〜25.6）</td><td>10.0 秒（8.5〜12.1）</td></tr>
+<tr><td>CesiumJS</td><td>11.1 秒（1 回）</td><td>10.2 秒（9.4〜14.5）</td></tr>
+</tbody></table></div>
+<p class="note-small">（5 周の中央値、括弧内は最小〜最大）</p>
+<p>通信状態のばらつきで、同じエンジンでも XS では周によって 2 倍近く違いました。エンジンの間の差はこの振れより小さいので、順位は付けません。その中で Android の Navara は 6.3〜9.3 秒と、振れが一番小さく出ています。</p>
+
+<h2>結果 3：iPhone XS の CesiumJS</h2>
+<p>CesiumJS だけを先に単独で 1 回測ると、XS でも初回表示 11.1 秒・周回 56.1 fps・ズーム 60.0 fps で最後まで走りました。前の版の 1.146 は、読み込み中に Safari ごと落ちていました。ただし、他のエンジンと順に 5 周測ると、1 周目のズームで Safari が落ちました。そのため XS の表からは外しています。Android では 5 周とも完走しました。</p>
+
+<h2>エンジンごとに</h2>
+<p><strong>Navara</strong>：今回いちばん印象に残ったエンジンです。細かさの倍率を他とそろえて、モバイルでの手加減を外しても、古い iPhone でも普及機でも 60 fps を崩しませんでした。遅いフレームもほぼ出ず、初回表示の振れも小さい。データの解読と形の組み立てを Rust（WebAssembly）で行い、描画を Three.js に任せる作りが、弱い機械でもそのまま効いています。かっちり作られている、というのが素直な感想です。</p>
+<p><strong>CesiumJS</strong>：1.147 で、古い iPhone でも 1 回なら最後まで走るようになりました。Android では周回 57 fps・ズーム 60 fps で、普及機でも十分に滑らかです。</p>
+<p><strong>ortho-earth</strong>：2.4.1 のいちばんの成果は、CesiumJS に機能の面でほぼ追いついたことです。Cesium の公式例（Sandcastle）304 本が全部動き、264 本で同じ絵、残る 40 本も同じ答えになりました。そのうえで性能を見たのが今回の計測です。2.4.1 では 3D Tiles の描き方も軽くしました。片面の建物は裏面を描かず、深度の持ち方を変えて GPU が早めに描かない画素を捨てられるようにしています。その結果、2 台とも 60 fps に届きました。</p>
+<p><strong>MapLibre＋deck.gl</strong>：2D の地図では定番の組み合わせですが、3D Tiles を重ね描きすると、弱い機械では周回で 60 fps に届きませんでした。前回の Mac と iPhone 16 Pro でも同じ傾向です。初回表示は、今回も速い側に入っています。</p>
+
+<h2>おわりに</h2>
+<p>古い iPhone と普及機のタブレットでも、PLATEAU の千代田区を 60 fps で回せるエンジンが、もう複数あります。速い機械だけでなく、多くの人が実際に持っている機械でも、都市の 3D を気軽に見られるようになってきた、というのが今回のいちばんの収穫でした。</p>
+<p>ただし、今回の結果には限りがあります。前回と同じく、測ったのは千代田区のテクスチャなしの建物だけで、データの規模が小さすぎました。ほとんどのエンジンが 60 fps の天井に届いてしまい、地力の差は見えていません。ortho-earth が WebGPU で描くことによる速さも、実はまだ評価できていません。XS の Safari 18 には WebGPU が無く、ここでは WebGL2 で動いています。Android では WebGPU で動いていますが、天井に届いているので差が出ません。WebGPU の効き目を確かめるには、都心の複数の区、テクスチャ付きの建物、地形や背景地図まで載せた大規模なデータでの評価が必要です。次はそれを測るつもりです。</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>

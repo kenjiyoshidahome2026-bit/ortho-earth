@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/voxel",
-	"version": "0.6.2",
+	"version": "0.6.3",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "Voxel grids for @ortho-earth/globe as the map.addData kind \"voxel\" (box, region or cylinder grids, scalar or RGBA): ray-marched as blocks, volume or isosurface, with clipping, scene depth, picking and a worker reader. WebGPU or WebGL2.",
