@@ -100,6 +100,8 @@ export interface RendererGPUOptions {
 	meshLiteFs?: number;
 	/** 模型（3D Tiles・glb・I3S・押し出し）の素の束を速い道（MESH_TEX_FAST_WGSL）で描く（既定 true・?meshfast=0 で false＝従来＝全部 MESH_TEX_WGSL）。絵は同じ（2026-11-11） */
 	meshFast?: boolean;
+	/** 速い道の束のうち、裏面を捨てて良いと送られた束（backCull＝3D Tiles の既定・巻き順の決まった wind の束だけ）の裏面をラスタライザで捨てる（既定 1＝back・?meshfastcull=0＝捨てない＝両面・2＝front＝向きの確認用）。Cesium の backFaceCulling 既定 true・three.js と同じ扱い＝巻き順の怪しいデータは add3DTiles の backFaceCulling:false で両面へ戻す（2026-11-11 既定化・Galaxy Tab A11+ で周回 53 → 59 fps） */
+	meshFastCull?: number;
 	/** 素の建物メッシュの束を目に近い順（手前→奥）に描く（?meshsort=1）＝奥の束の画素を早期深度で捨てる（塗りが床の端末の実験ノブ・2026-11-08） */
 	meshSort?: boolean;
 	/** 建物（基図の押し出し・PLATEAU）の頂点の標高を主アトラス 1 標本で引く（?elevcheap=1・既定オフ） */
@@ -236,7 +238,7 @@ export interface MeshSetData {
 	pos?: Float32Array; nrm?: Int8Array | ArrayLike<number> | null; idx?: Uint32Array; uv?: Float32Array | null; col?: Uint8Array | null;
 	tex?: MeshTexSrc | null; texMR?: MeshTexSrc | null; texN?: MeshTexSrc | null; texOcc?: MeshTexSrc | null; texEm?: MeshTexSrc | null;
 	pbr?: MeshPbr | null; csLit?: string; wind?: boolean; alphaMode?: string; alphaCutoff?: number; origin?: number[]; bbox?: number[]; ward?: string; lodH?: number[] | null; lodCounts?: number[] | null; liteCounts?: number[] | null; /** mesh worker が巻き順を法線に揃えた束（meshwind.ts）＝裏面をラスタライザで捨ててよい */ wound?: boolean;
-	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean;
+	twoSided?: boolean; noCull?: boolean; colSrgb?: boolean; noLift?: boolean; drape?: boolean; keep2d?: boolean; castShadow?: boolean; backCull?: boolean;
 	liftBaked?: boolean;   // 接地リフトを頂点へ焼き済み（render worker の bakeMeshLift・?bakelift=1）＝VS は標高を引かない（noLift と同じ PB.alpha.z）・可視判定の bbox は持ち上げたまま
 	maskCells?: ArrayLike<number> | null; mask?: ArrayLike<number> | null; maskN?: number; maskBbox?: number[];
 	uvm?: Float32Array | null; meta?: { props: Record<string, CsMeta>; texs: (MeshTexSrc | null)[] } | null;   // property texture の texCoord と読み方・画像（fsInput.metadata）
@@ -256,7 +258,7 @@ interface MeshBatch {
 	plain?: boolean; flat?: Float32Array | null;   // 速い道（MESH_TEX_FAST_WGSL）の下調べ：plain＝模型でテクスチャも線のリボンも無い・flat＝束が 1 色ならその色（表示空間の rgb）
 	pre: boolean;   // preOpaque: drawn twice, its alpha-1 texels first in the opaque pass (depth written, a slot of its own), then the whole batch blended
 	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; csLit: string; wind: boolean; count: number; origin: number[]; bbox: number[]; ward: string;
-	lodH: number[] | null; lodCounts: number[] | null; liteCounts: number[] | null; wound: boolean; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; baked: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
+	lodH: number[] | null; lodCounts: number[] | null; liteCounts: number[] | null; wound: boolean; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; baked: boolean; drape: boolean; keep2d: boolean; noCast: boolean; backCull: boolean; xf?: ArrayLike<number> | null;
 	tint?: Float32Array | null;   // Cesium の Model.color（set "meshTint"）＝[r,g,b,a, blend]
 	paint?: MeshTex | null; paintB?: number;   // 画素ごとの地物の番号から塗った絵（set "meshPaint"・photogrammetry の分類）と混ぜ方（tint と同じ数）
 	sil?: Float32Array | null;   // Cesium の Model.silhouetteColor／silhouetteSize（set "meshSil"）＝[r,g,b,a, size px]
@@ -564,6 +566,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const plLiteMod = MESH_LITE_FS > 0 ? mkMod(MESH_LITE_WGSL, MESH_LITE_FS >= 2 ? "meshLite" : "mesh") : null;   // ?meshlitefs（1＝label mesh＝fragDepthWgsl が掛かる・2＝掛からない）
 	const plTexMod = mkMod(MESH_TEX_WGSL, "meshTex");
 	const MESH_FAST = rOpts.meshFast !== false;   // ?meshfast=0 の逃げ道
+	const MESH_FAST_CULL: GPUCullMode = !MESH_FAST ? "none" : rOpts.meshFastCull === 0 ? "none" : rOpts.meshFastCull === 2 ? "front" : "back";
 	const plFastMod = MESH_FAST ? mkMod(MESH_TEX_FAST_WGSL, "meshTexFast") : null;   // 模型の素の束の速い道（深度は従来どおり画素で＝FD_LABELS）
 	const plSilMod = mkMod(MESH_SIL_WGSL, "meshSil");
 	// 画像タイル層（raster.js・2026-09-21・RTT ドレープ）：アトラス合成パイプライン＝group(0)=per-tile UBO（dynamic offset）・group(1)=サンプラ＋テクスチャ（bglPlTex 流用）
@@ -734,6 +737,11 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },    // a_col
 			], dsWriteBld, "fs", plLayout, "none", targetA) : (null as unknown as GPURenderPipeline),
+			meshTexFastCull: () => plFastMod ? pipe(plFastMod, [   // 同じ束で裏面をラスタライザが捨てる版（?meshfastcull・巻き順の決まった束だけ）
+				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
+			], dsWriteBld, "fs", plLayout, MESH_FAST_CULL, targetA) : (null as unknown as GPURenderPipeline),
 			meshTexBlend: () => pipe(plTexMod, [   // 模型の半透明（alphaMode=BLEND）＝同シェーダ・深度書き込み無し（target の blend は premultiplied 既定）
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
@@ -2153,14 +2161,17 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		return srgb ? Float32Array.of(r / 255, g / 255, b / 255) : Float32Array.of(srgbEnc1(r / 255), srgbEnc1(g / 255), srgbEnc1(b / 255));
 	}
 	const noRibbon = (nrm: Int8Array): boolean => { for (let i = 3; i < nrm.length; i += 4) if (nrm[i] < 0) return false; return true; };   // glTF の線のリボン（法線の 4 バイト目が負）は頂点を画面で広げる＝速い道の VS に無い
-	const fastTried = new WeakSet<object>();
-	function fastPipeOf(PS: typeof P): GPURenderPipeline | null {   // 速い道のパイプライン＝要る束が初めて出た時に裏で作る（起動の暖機に足さない）。出来るまで null＝その間は従来の meshTex で描く（絵は同じ）
-		if (pipeMade(PS, "meshTexFast")) return PS.meshTexFast;
-		if (pipePending(PS, "meshTexFast")) return null;
-		if (fastTried.has(PS)) return PS.meshTexFast;   // Async が失敗した＝同期生成へ落ちる（pipeset の作法）
-		fastTried.add(PS);
-		warmPipesBg(PS, device, ["meshTexFast"], () => rOpts.requestDraw?.());
-		return pipeMade(PS, "meshTexFast") ? PS.meshTexFast : null;
+	const fastTried = new Set<string>();
+	const psId = new WeakMap<object, number>(); let psN = 0;
+	function fastPipeOf(PS: typeof P, key: "meshTexFast" | "meshTexFastCull" = "meshTexFast"): GPURenderPipeline | null {   // 速い道のパイプライン＝要る束が初めて出た時に裏で作る（起動の暖機に足さない）。出来るまで null＝その間は従来の meshTex で描く（絵は同じ）
+		if (pipeMade(PS, key)) return PS[key];
+		if (pipePending(PS, key)) return null;
+		if (!psId.has(PS)) psId.set(PS, ++psN);
+		const tk = `${psId.get(PS)}.${key}`;
+		if (fastTried.has(tk)) return PS[key];   // Async が失敗した＝同期生成へ落ちる（pipeset の作法）
+		fastTried.add(tk);
+		warmPipesBg(PS, device, [key], () => rOpts.requestDraw?.());
+		return pipeMade(PS, key) ? PS[key] : null;
 	}
 	const frontAll = (p: MeshBatch, eye: ArrayLike<number>): boolean => {   // 束の全頂点が地平線の手前（MESH_WGSL の front＝dot(dir, eye)−1 ≥ 0）か＝FS の front の discard が要らない束。bbox の中心からの角半径で保守的に
 		const e2 = eye[0] * eye[0] + eye[1] * eye[1] + eye[2] * eye[2];
@@ -2617,7 +2628,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, pre: blend && !!data.preOpaque, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", wind: !!data.wind, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
-				lodH: data.lodH || null, lodCounts: data.lodCounts || null, liteCounts: data.liteCounts || null, wound: !!data.wound, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, baked: !!data.liftBaked, drape: !!data.drape, keep2d: !!data.keep2d,
+				lodH: data.lodH || null, lodCounts: data.lodCounts || null, liteCounts: data.liteCounts || null, backCull: !!data.backCull && !!data.wind, wound: !!data.wound, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, baked: !!data.liftBaked, drape: !!data.drape, keep2d: !!data.keep2d,
 				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta,
 				plain: MESH_FAST && textured && !texs!.some(Boolean) && noRibbon(nrm), flat: MESH_FAST && textured ? flatColOf(data.col, !!data.colSrgb) : null });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
@@ -3774,10 +3785,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const cullOf = (d: typeof draws[number]) => (!!cullPipe || !!litePipe) && d.p.wound && !d.p.textured && !d.p.two && !d.p.noCull;   // 巻き順を揃えた束（wound）だけ＝揃えていない束（古い焼き・ノブの食い違い）は従来の fs（2026-11-08 既定化で worker 側の既定が 0 のままだった反省）
 				// 模型の素の束の速い道（MESH_TEX_FAST_WGSL）＝このフレームと束が「MESH_TEX_WGSL の余分な枝を一つも使わない」時だけ（絵は同じ・条件はシェーダの頭の注記）
 				meshStat.fast = 0;
-				let fastPipe: GPURenderPipeline | null = null;
+				let fastPipe: GPURenderPipeline | null = null, fastCullPipe: GPURenderPipeline | null = null;
 				if (MESH_FAST && PX === P && !meshLight && !light && !(lights && lights.n > 0) && !FX.pbr && csFogD <= 0) {
 					const cand = draws.filter(({ p, pre }) => !pre && p.plain && !p.blend && p.cut < 0 && (!!p.two || p.noCull) && !p.xf && !p.paint && !p.tint && !p.sil && !p.split && !p.custom && !drapeOf(p) && p.csLit !== "phong" && p.csLit !== "phongc" && frontAll(p, st.eye));
 					if (cand.length && (fastPipe = fastPipeOf(P))) { for (const d of cand) d.fast = true; meshStat.fast = cand.length; }
+					if (fastPipe && MESH_FAST_CULL !== "none" && cand.some(d => d.p.backCull)) fastCullPipe = fastPipeOf(P, "meshTexFastCull");
 				}
 				const plainDraws = draws.filter(d => !d.p.textured);
 				if (MESH_SORT && plainDraws.length > 1) {   // ?meshsort=1＝手前→奥（片は束の origin を共有するので bbox の中心と目の経緯度の距離で）
@@ -3785,7 +3797,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					const dE = (p: MeshBatch) => { const dx = ((p.bbox[0] + p.bbox[2]) / 2 - eLon) * cosE, dy = (p.bbox[1] + p.bbox[3]) / 2 - eLat; return dx * dx + dy * dy; };
 					plainDraws.sort((x, y) => dE(x.p) - dE(y.p));
 				}
-				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, plainDraws.filter(d => !cullOf(d))], [(litePipe || cullPipe)!, litePipe || cullPipe ? plainDraws.filter(cullOf) : []], [fastPipe!, fastPipe ? draws.filter(d => d.fast) : []], [TX.meshTex, draws.filter(d => d.p.textured && !d.fast && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
+				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, plainDraws.filter(d => !cullOf(d))], [(litePipe || cullPipe)!, litePipe || cullPipe ? plainDraws.filter(cullOf) : []], [fastPipe!, fastPipe ? draws.filter(d => d.fast && !(fastCullPipe && d.p.backCull)) : []], [fastCullPipe!, fastCullPipe ? draws.filter(d => d.fast && d.p.backCull) : []], [TX.meshTex, draws.filter(d => d.p.textured && !d.fast && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
 				const sils = draws.filter(d => d.p.textured && d.p.sil && !d.pre && !blendOf(d.p));   // 半透明の束は殻を出さない
 				meshStat.sil = sils.length;
 				if (sils.length) {   // 模型の輪郭線（Model.silhouette）＝模型より先に・深度を書かずに押し出した殻を塗る（模型が内側を塗り直す）。素の束縛（PB だけの group(2)）
@@ -3802,7 +3814,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setPipeline(pipeline);
 					pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
 					pass.setBindGroup(1, paramBG[ROLE.mesh]); // p0=liftBounds, p1=bldColor
-					if (pipeline === fastPipe) {   // 速い道＝pos・法線・頂点色だけ結ぶ（uv・テクスチャの group(3) 無し）
+					if (pipeline === fastPipe || pipeline === fastCullPipe) {   // 速い道＝pos・法線・頂点色だけ結ぶ（uv・テクスチャの group(3) 無し）
 						for (const { p, count, slot } of list) {
 							pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);
 							pass.setVertexBuffer(0, p.vbo); pass.setVertexBuffer(1, p.nbo); pass.setVertexBuffer(2, p.cbo);
