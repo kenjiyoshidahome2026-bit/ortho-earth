@@ -91,3 +91,10 @@ test("GitHub Release の本文（scripts/release-notes.mjs）＝CHANGELOG の先
 test("htmlToMarkdown：大文字・崩れた閉じタグの script、注釈、nav を中身ごと落とす", () => {
 	assert.equal(htmlToMarkdown("<body><SCRIPT>x</script\t\n bar><p>a<!-- c -->b</p><nav>n</nav><p>z</p></body>", "https://a/b"), "ab\n\nz");
 });
+
+test("Maintenance and continuity：検査の数は test-all の一覧から・節が llms.txt にある", () => {
+	assert.ok(f.maintenance.tests > 100);
+	const out = fillFacts(read("../llms.template.txt"), f);
+	assert.ok(out.includes("## Maintenance and continuity"));
+	assert.ok(out.includes(`${f.maintenance.tests} automated checks run on every change`));
+});
