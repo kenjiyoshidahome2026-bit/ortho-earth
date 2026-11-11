@@ -2,6 +2,15 @@
 	"_note": "Stories タブ（Technologies の後）の記事一覧（日付・題のリンク・一文）。新しい記事は先頭に 1 件足す。ja / en の片方だけでも可（無い言語ではある方を出す）。href は同じオリジンのパス＝押すとナビの下の iframe で開く",
 	"stories": [
 		{
+			"id": "benchmark-mobile",
+			"date": "2026-11-11",
+			"ja": {
+				"title": "モバイルでのパフォーマンスを測ってみた：古い iPhone と Android の普及機で PLATEAU を回す",
+				"desc": "2018 年の iPhone XS と普及帯の Android タブレットで、PLATEAU の千代田区を MapLibre・Cesium・Navara・ortho-earth の最新版で測りました。Navara はどの計り方でも崩れず、普及機でも 60 fps で回せるエンジンが複数ありました。",
+				"href": "/docs/story-benchmark-mobile-jp"
+			}
+		},
+		{
 			"id": "story-v240",
 			"date": "2026-11-09",
 			"ja": {
