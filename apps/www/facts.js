@@ -39,6 +39,7 @@ export const buildFacts = () => {
 	return {
 		name: 'Ortho Earth',
 		url: 'https://www.ortho-earth.com/',
+		tagline: 'One true-scale Earth, for people and their AI agents.',
 		summary: 'An open-source 3D globe map engine for the browser. WebGPU with a WebGL2 fallback, always a round globe (no Mercator mode), terrain at true scale, MapLibre GL JS and CesiumJS code run on it unchanged. No server, no account.',
 		release: { version: rel.version, date: rel.date, changelog: 'https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/CHANGELOG.md' },
 		packages: {
