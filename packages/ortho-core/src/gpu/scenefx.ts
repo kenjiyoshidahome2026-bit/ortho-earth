@@ -10,6 +10,7 @@
 //   α は触らない（夜の窓の印は α に居る）。真俯瞰（flat2d）では掛けない（renderer が呼ばない）。
 import { viewRays } from "../camera.ts";
 import { ssrInverse } from "./ssr.ts";
+import { rzReadWgsl } from "./wgsl.ts";
 
 const M_PER_R = 1 / 6371000;   // 1 m／地球半径（シェーダの単位＝β 単位球）
 /** 雑音の錨の格子（m）＝雑音の周期（水たまり 6 m・3 m、波紋 0.75 m の格子がちょうど割り切れる）。目の位置をこの格子に丸めた点からの相対で雑音を引く＝f32 で mm 級 */
@@ -327,7 +328,7 @@ export function fxFrame(eye: ArrayLike<number>, pole: ArrayLike<number>): { ex: 
 	return { ex, ny, an };
 }
 
-export function createSceneFxGPU(device: GPUDevice, format: GPUTextureFormat): SceneFxGPU {
+export function createSceneFxGPU(device: GPUDevice, format: GPUTextureFormat, rz = false): SceneFxGPU {   // rz＝本体の深度が逆向きの浮動小数（wgsl.ts rzReadWgsl）
 	const FS = GPUShaderStage.FRAGMENT;
 	const lays = new Map<string, GPUBindGroupLayout>();
 	const lay = (k: string, make: () => GPUBindGroupLayout) => { let l = lays.get(k); if (!l) { l = make(); lays.set(k, l); } return l; };
@@ -346,7 +347,7 @@ export function createSceneFxGPU(device: GPUDevice, format: GPUTextureFormat): S
 	const pipes = new Map<string, GPURenderPipeline>();
 	const pipe = (k: string, make: () => GPURenderPipeline) => { let p = pipes.get(k); if (!p) { p = make(); pipes.set(k, p); } return p; };
 	const mk = (code: string, layout: GPUBindGroupLayout, targets: GPUColorTargetState[], sampleCount: number, label: string): GPURenderPipeline => {
-		const module = device.createShaderModule({ code, label });
+		const module = device.createShaderModule({ code: rz ? rzReadWgsl(code, "fxDep", "U.rY.w") : code, label });
 		return device.createRenderPipeline({ label, layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets }, primitive: { topology: "triangle-list" }, multisample: { count: sampleCount } });
 	};
 	const KEEP_A = { srcFactor: "zero", dstFactor: "one", operation: "add" } as const;

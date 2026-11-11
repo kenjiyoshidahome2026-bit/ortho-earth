@@ -1,3 +1,4 @@
+import { rzReadWgsl } from "./wgsl.ts";
 // WebGPU の深度の書き出し（#47・2026-09-25）：本体の深度テクスチャ（depth24plus-stencil8・1x／4x）は copy できない形式＝
 // 描き終えたフレーム（flush＝submit の後）に 1 パス足して、深度を RGBA8 に詰めて自前の OffscreenCanvas へ描き、
 // transferToImageBitmap で ImageBitmap にする（同じ worker のオーバーレイ＝別の WebGL2 コンテキストへ texImage2D で上がる）。
@@ -22,11 +23,12 @@ const WGSL = (ms: boolean): string => `
 }`;
 
 /** encode の入力＝{ tex（深度テクスチャ・TEXTURE_BINDING つき）, samples, w, h }。 */
-export interface DepthOutFrame { tex: GPUTexture; samples: number; w: number; h: number }
+export interface DepthOutFrame { tex: GPUTexture; samples: number; w: number; h: number; /** 本体の深度が逆向きの浮動小数の時に要る（対数深度の値へ直す係数） */ logCoef?: number }
 /** encode の戻り＝詰めた深度（texture・このフレームの間有効）と、WebGL のオーバーレイ向けの ImageBitmap を作る関数 */
 export interface DepthOutResult { texture: GPUTexture; bitmap(): ImageBitmap }
 export interface DepthOutGPU { encode(d: DepthOutFrame): DepthOutResult; dispose(): void; bytes(): number }
-export function createDepthOutGPU(device: GPUDevice): DepthOutGPU {
+export function createDepthOutGPU(device: GPUDevice, rz = false): DepthOutGPU {   // rz＝本体の深度が逆向きの浮動小数（wgsl.ts rzReadWgsl）＝詰める値は対数深度のまま（受け手は不変）
+	const rk = rz ? device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }) : null;
 	const cv = new OffscreenCanvas(1, 1);
 	const ctx = cv.getContext("webgpu");
 	if (!ctx) throw new Error("depthout: webgpu context unavailable");
@@ -36,7 +38,7 @@ export function createDepthOutGPU(device: GPUDevice): DepthOutGPU {
 	const pipe = (ms: boolean): GPURenderPipeline => {
 		let p = pipes.get(ms);
 		if (!p) {
-			const module = device.createShaderModule({ code: WGSL(ms) });
+			const module = device.createShaderModule({ code: rz ? rzReadWgsl(WGSL(ms) + "\n@group(0) @binding(1) var<uniform> RK: vec4f;   // x＝2·ln2／logCoef（逆向きの浮動小数深度 → 対数深度の値へ直して詰める＝受け手の式は不変）\n", "dep", "RK.x") : WGSL(ms) });
 			p = device.createRenderPipeline({ label: "depthout", layout: "auto", vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] }, primitive: { topology: "triangle-list" } });
 			pipes.set(ms, p);
 		}
@@ -50,7 +52,8 @@ export function createDepthOutGPU(device: GPUDevice): DepthOutGPU {
 			tex = device.createTexture({ size: [d.w, d.h], format: "rgba8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC });
 		}
 		const ms = d.samples > 1, p = pipe(ms);
-		if (bgKey !== d.tex) { bg = device.createBindGroup({ layout: p.getBindGroupLayout(0), entries: [{ binding: 0, resource: d.tex.createView({ aspect: "depth-only" }) }] }); bgKey = d.tex; }
+		if (bgKey !== d.tex) { bg = device.createBindGroup({ layout: p.getBindGroupLayout(0), entries: [{ binding: 0, resource: d.tex.createView({ aspect: "depth-only" }) }, ...(rk ? [{ binding: 1, resource: { buffer: rk } }] : [])] }); bgKey = d.tex; }
+		if (rk) device.queue.writeBuffer(rk, 0, new Float32Array([2 * Math.LN2 / Math.max(d.logCoef || 0, 1e-9), 0, 0, 0]));
 		const enc = device.createCommandEncoder();
 		const pass = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView(), loadOp: "clear", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] });
 		pass.setPipeline(p); pass.setBindGroup(0, bg); pass.draw(3); pass.end();
@@ -67,6 +70,6 @@ export function createDepthOutGPU(device: GPUDevice): DepthOutGPU {
 			},
 		};
 	}
-	function dispose() { bg = null; bgKey = null; pipes.clear(); tex?.destroy(); tex = null; try { ctx!.unconfigure(); } catch { /* 古い実装 */ } }
+	function dispose() { bg = null; bgKey = null; pipes.clear(); tex?.destroy(); tex = null; rk?.destroy(); try { ctx!.unconfigure(); } catch { /* 古い実装 */ } }
 	return { encode, dispose, bytes: () => (tex ? tex.width * tex.height * 4 : 0) + cv.width * cv.height * 4 };
 }

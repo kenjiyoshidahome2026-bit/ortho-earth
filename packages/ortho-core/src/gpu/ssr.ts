@@ -13,6 +13,7 @@
 import { FRAME } from "./wgsl.ts";
 import { viewRays } from "../camera.ts";
 import { FX_NOISE_WGSL, fxFrame } from "./scenefx.ts";   // 雨（setPostChain の rain）＝波紋と水たまりの雑音・目の所の東北と錨（scenefx と共有）
+import { rzReadWgsl } from "./wgsl.ts";
 
 const M_PER_R = 1 / 6371000;   // 1 m／地球半径（シェーダの単位＝β 単位球）
 
@@ -221,7 +222,7 @@ export interface SsrFrame {
 }
 export interface SsrGPU { encode(enc: GPUCommandEncoder, d: SsrFrame): void; dispose(): void; bytes(): number }
 // device・format（canvas の色形式）・bgl0/bgl1＝本体の group(0)/(1) のレイアウト（Frame と標高を同じ束縛で読む）
-export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: GPUBindGroupLayout, bgl1: GPUBindGroupLayout): SsrGPU {
+export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: GPUBindGroupLayout, bgl1: GPUBindGroupLayout, rz = false): SsrGPU {   // rz＝本体の深度が逆向きの浮動小数（wgsl.ts rzReadWgsl）
 	const FS = GPUShaderStage.FRAGMENT;
 	const bglS = (ms: boolean): GPUBindGroupLayout => device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: FS, buffer: {} },
@@ -239,7 +240,7 @@ export function createSsrGPU(device: GPUDevice, format: GPUTextureFormat, bgl0: 
 	const pipes = new Map<string, GPURenderPipeline>();
 	const pipe = (k: string, make: () => GPURenderPipeline) => { let p = pipes.get(k); if (!p) { p = make(); pipes.set(k, p); } return p; };
 	const mk = (code: string, layouts: GPUBindGroupLayout[], targets: GPUColorTargetState[], sampleCount = 1, label = "ssr"): GPURenderPipeline => {
-		const module = device.createShaderModule({ code, label });
+		const module = device.createShaderModule({ code: rz ? rzReadWgsl(rzReadWgsl(code, "ssrDep", "SS.rY.w"), "bD", "BP.x") : code, label });
 		return device.createRenderPipeline({ label, layout: device.createPipelineLayout({ bindGroupLayouts: layouts }), vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets }, primitive: { topology: "triangle-list" }, multisample: { count: sampleCount } });
 	};
 	const OVER: GPUColorTargetState[] = [{ format, blend: { color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" } } }];

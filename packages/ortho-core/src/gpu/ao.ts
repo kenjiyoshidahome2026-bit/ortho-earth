@@ -15,6 +15,7 @@
 //   ・球の床は −b−√h（打ち消し）でなく c/(−b＋√h)・c＝|eye|²−1 は CPU（f64）＝床が 0.4m 級に波打たない
 
 import { viewRays as aoRays } from "../camera.ts";   // 視線の基底（f64）＝camera.js が正本（#65 と共有）
+import { rzReadWgsl } from "./wgsl.ts";
 // 深度を GB の 16bit に詰める／戻す（ぼかしと合成の深度重み用・AO 面に同梱＝ぼかしは深度テクスチャを読まない）
 const ENC_W = "fn encW(w: f32) -> vec2f { let g = clamp(log2(1.0 + w * 1.0e5) / 25.0, 0.0, 1.0); let hi = floor(g * 255.0); return vec2f(hi, floor((g * 255.0 - hi) * 255.0)) / 255.0; }";
 const DEC_W = "fn decW(gb: vec2f) -> f32 { let g = (gb.x * 255.0 + gb.y) / 255.0; return (exp2(g * 25.0) - 1.0) * 1.0e-5; }";
@@ -169,7 +170,7 @@ export interface AoFrame {
 }
 interface AoBindGroups { dep: GPUTexture; ao: GPUBindGroup; blurH: GPUBindGroup; blurV: GPUBindGroup; comp: GPUBindGroup }
 export interface AoGPU { encode(enc: GPUCommandEncoder, d: AoFrame): void; dispose(): void; bytes(): number }
-export function createAoGPU(device: GPUDevice, format: GPUTextureFormat): AoGPU {
+export function createAoGPU(device: GPUDevice, format: GPUTextureFormat, rz = false): AoGPU {   // rz＝本体の深度が逆向きの浮動小数（wgsl.ts rzReadWgsl）
 	const F = GPUShaderStage.FRAGMENT;
 	const bglAo = (ms: boolean): GPUBindGroupLayout => device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: F, buffer: {} },
@@ -185,7 +186,7 @@ export function createAoGPU(device: GPUDevice, format: GPUTextureFormat): AoGPU 
 	const lay = (ms: boolean) => { let l = layouts.get(ms); if (!l) { l = { ao: bglAo(ms), comp: bglComp(ms) }; layouts.set(ms, l); } return l; };
 	const pipes = new Map<string, GPURenderPipeline>();     // "ms"/"ss" → ao・"blurH"/"blurV"・`comp${sc}`
 	const mk = (code: string, layout: GPUBindGroupLayout, targets: GPUColorTargetState[], sampleCount = 1): GPURenderPipeline => {
-		const module = device.createShaderModule({ code });
+		const module = device.createShaderModule({ code: rz ? rzReadWgsl(code, "dep", "A.rY.w") : code });
 		return device.createRenderPipeline({ label: "ao", layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets }, primitive: { topology: "triangle-list" }, multisample: { count: sampleCount } });
 	};
 	const pipe = (k: string, make: () => GPURenderPipeline): GPURenderPipeline => { let p = pipes.get(k); if (!p) { p = make(); pipes.set(k, p); } return p; };
