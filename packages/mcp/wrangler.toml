@@ -1,0 +1,12 @@
+# Ortho Earth の MCP サーバー（リモート版）の Worker（worker.js 冒頭が仕様の正本）。読み手＝AI のクライアント（Claude・ChatGPT・Cursor…）。
+# ⚠route は "/mcp" と "/mcp/*" だけ＝"mcp*" だと www の /mcp… で始まる別の道まで横取りする（quakes-mirror・sats-mirror と同じ轍）。
+# 鍵も置き場（KV・R2）も持たない＝読むだけ。配り方＝deploy.yml の target「mcp」。
+name = "ortho-mcp"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+
+routes = [
+	{ pattern = "www.ortho-earth.com/mcp", zone_name = "ortho-earth.com" },
+	{ pattern = "www.ortho-earth.com/mcp/*", zone_name = "ortho-earth.com" }
+]
