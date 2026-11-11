@@ -27,6 +27,7 @@
 <nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-benchmark.html" lang="en">English</a></nav>
 <header class="masthead"><h1>PLATEAU 3D 都市モデルの描画性能比較：MapLibre・Cesium・TerriaJS・Navara・ortho-earth</h1><p class="byline">2026-10-20 · Kenji Yoshida</p></header>
 <article class="reading essay">
+<p class="note-small">2026 年 11 月 11 日の追記：この計測は 2026 年 10 月時点の版（ortho-earth 2.0.2）です。2018 年の iPhone と普及帯の Android タブレットで、各エンジンの最新版を測り直した続きは <a href="story-benchmark-mobile-jp.html">モバイルでのパフォーマンスを測ってみた</a> にあります。</p>
 <h2>はじめに</h2>
 <p>PLATEAU の千代田区 LOD2 建物を、Web の 3D 地図エンジン 5 つで同じ条件で描き、私の MacBook Pro・M1 Mac mini・iPhone 16 Pro の 3 台で測りました。分かったことは 3 つです。</p>
 <ol><li>初回表示はどの機械でも上位が同着で、Mac では最も遅いエンジンとの差も 0.5 秒前後。ほとんどがタイルを落とす時間で、上位は同着です。iPhone では自分から控えるエンジンが遅れます。</li><li>動かしたときはどのエンジンも 60 fps に張り付きます。ただし MapLibre＋deck.gl だけは M1 と iPhone で 60 fps に届かず、止まってから描き終わるまで 1〜3 秒かかります。</li><li>同じ 60 fps でも中身は違います。Cesium は動いている間は読まず、Navara はスマホで絵を粗くし、ortho-earth と MapLibre は読みながら描いています。この「手の抜き方」に各エンジンの設計が出ます。</li></ol>

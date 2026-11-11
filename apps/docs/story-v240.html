@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortho Earth 2.4 is out</title>
+<meta name="description" content="A first Android tablet arrived. The same day Android started on WebGPU, and in six days the Kyoto glide got 36% faster and the Marunouchi buildings 25–30%.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/story-v240">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/story-v240">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/story-v240-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/story-v240">
+<meta property="og:title" content="Ortho Earth 2.4 is out">
+<meta property="og:description" content="A first Android tablet arrived. The same day Android started on WebGPU, and in six days the Kyoto glide got 36% faster and the Marunouchi buildings 25–30%.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/story-v240">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-11-09">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Ortho Earth 2.4 is out","description":"A first Android tablet arrived. The same day Android started on WebGPU, and in six days the Kyoto glide got 36% faster and the Marunouchi buildings 25–30%.","url":"https://www.ortho-earth.com/docs/story-v240","mainEntityOfPage":"https://www.ortho-earth.com/docs/story-v240","inLanguage":"en","image":"https://www.ortho-earth.com/og-image.jpg","datePublished":"2026-11-09","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="story.css">
+</head>
+<body>
+<!-- A Stories article (English edition of story-v240-jp, 2026-11-11): the v2.4.0 record, the six days after the Android tablet (Galaxy, Mali-G615) arrived on 11/3. Numbers are the tablet measurements in each PR -->
+<nav class="story-nav"><a href="/#stories" target="_top">Stories</a><a href="story-v240-jp.html" lang="ja">日本語</a></nav>
+<header class="masthead"><h1>Ortho Earth 2.4 is out</h1><p class="byline">2026-11-09 · Kenji Yoshida</p></header>
+<article class="reading essay">
+<p>On 3 November I bought an Android tablet. It is a Galaxy, with a Mali-G615 GPU and 4 GB of memory: the first Android I have ever bought with my own money.</p>
+<p>I chose an everyday 4 GB model on purpose, not a high-end one. This is the kind of machine most people actually hold, and I wanted to see with my own eyes how well the globe runs on it.</p>
+<p>Everything around me is Mac, iPhone and iPad. Working alone, you can only imagine the machines you do not have. Once one arrived, I could not keep my hands off it. 2.4 is the record of six days spent with that one tablet.</p>
+
+<h2>3 November: WebGPU ran</h2>
+<p>Until now Android started on WebGL2, just in case. In August one Android phone had reported the map going black while moving, so I had played it safe.</p>
+<p>On the day the tablet arrived, I first made a GPU check page (<a href="https://www.ortho-earth.com/check/" target="_top">/check/</a>). It shows on one page whether the device takes WebGPU or WebGL2, its adapter, features and limits, and a test drawing. Nothing is sent anywhere.</p>
+<p>I opened /japan/ on WebGPU, and it worked. PLATEAU buildings were even faster than on WebGL2. That same day Android started on WebGPU like every other platform, so the reflections, fog and other effects added in 2.3 can now be seen on Android too. If anything goes wrong, <code>?gl2=1</code> goes back to WebGL2.</p>
+<p>Along the way, laptops now use the faster of their built-in and discrete GPUs (<code>powerPreference</code> defaults to <code>"high-performance"</code>). I checked it on a real Windows machine as well.</p>
+
+<h2>What only a real device shows</h2>
+<p>Once it runs, you want it to run well. Touching it on the tablet, I kept finding room to grow that the Mac never showed. The HUD (<code>?hud=1</code>) shows where each frame's time goes, part by part, and I went through them one by one like a treasure hunt.</p>
+<ul>
+<li><strong>The resolution did not drop.</strong> Flying over PLATEAU took about 120 ms a frame, yet dynamic resolution stayed at full size. Tile-based GPUs can report less GPU time than they spend. Now real time over 50 ms is taken into account too.</li>
+<li><strong>The main thread stopped for 800 ms.</strong> The function that samples elevation did not keep the tiles it read from IndexedDB, so tens of MB of tiles were read again at every move. It now keeps the last three.</li>
+<li><strong>Nearby buildings smeared.</strong> The Earth is computed as a sphere of radius 1, so the w of nearby vertices came to about 1e-6, and Mali treated it as 0. Scaling clip space by 2<sup>20</sup> before handing it over removed the smear. The picture on the Mac does not change.</li>
+<li><strong>Tiles went through the main thread.</strong> Tile geometry now goes straight from the tile worker to the render worker; the main thread only receives the index.</li>
+</ul>
+
+<h2>A lighter start</h2>
+<p>On the tablet the screen sometimes waited for a while after the first picture. The start-up timeline (<code>[boot] timeline</code>) showed the GPU process compiling shaders one at a time, 6–14 seconds in all, while the renderer waited.</p>
+<p>So the globe and terrain are now drawn first, and the other layers appear as they become ready (progressive drawing). Only the pipelines needed now are built first; the rest come later. The freeze went from 6.5–6.9 s to 1.0–2.1 s. On Mali, unused shader branches are dropped when the shader is generated, which shortens compiling. Baked glyphs can also be kept in IndexedDB so the next start does not bake them again (<code>?glyphdb=1</code>).</p>
+
+<h2>From Kyoto to the whole of Japan</h2>
+<p>One of the demos glides in one go from the streets of Kyoto out to the whole Japanese archipelago. On the tablet the first 8 seconds ran at 8–10 fps.</p>
+<p>One culprit was in an unexpected place. Whenever a frame was free, the map took itself to have "landed", even mid-flight, and rewrote the URL. Chrome on Android then redrew the address bar, which blocked the GPU process for 0.1–6 seconds: 102 times in 20 seconds, 11.4 seconds in all. Writing no URL during a flight and waiting until it lands raised the frame count from 167 to 227 (about 36% more).</p>
+<p>The other was terrain. With terrain off it ran at about 60 fps. Now, only while moving, terrain is drawn with a coarser mesh. On 4 GB devices, the elevation that lines sample is lighter too.</p>
+
+<h2>From Marunouchi to the Rainbow Bridge</h2>
+<p>What remained last were the PLATEAU buildings. The glide from Marunouchi to the Rainbow Bridge ran at 12–18 fps for its first 6–8 seconds. The middle of Tokyo simply has that much to draw.</p>
+<p>So the map now takes a few shortcuts, only while it moves. The full picture comes back the moment it stops, so what you look at does not change.</p>
+<div class="table-wrap"><table><thead><tr><th>Only while moving</th><th>Frames in glide seconds 4–12</th></tr></thead><tbody>
+<tr><td>Skip low buildings (6 → 12 → 24 m)</td><td>182, 240 → 280, 262 (about 30% more)</td></tr>
+<tr><td>Drop small triangles (reordering only, no extra GPU memory)</td><td>208 → 295</td></tr>
+<tr><td>Draw buildings with a lighter pixel shader</td><td>average 236 → 294 (about 25% more, ahead in all 3 alternating pairs)</td></tr>
+</tbody></table></div>
+<p class="note-small">Note: all measured on the tablet (Mali-G615). They went in one after another, so each row starts from a different point. All three are now the default on every device. They only kick in while the camera moves and a frame takes over 40 ms, so nothing changes on a fast machine.</p>
+
+<h2>To games, and back to the globe</h2>
+<p>The other big newcomer is the link with games. There are three destinations: Unity, Unreal Engine and Minecraft. You can take a city from the globe into a game, and bring what you built in the game back to the globe.</p>
+<p>What travels is terrain and PLATEAU buildings (for Unity and Unreal also the building attributes and point clouds), for an area of about two or three city blocks. Streaming tiles inside a game is already done by Cesium for Unity and the PLATEAU SDK for Unity, so this sticks to "cut it out and hand it over as files".</p>
+
+<h3>Just one agreement</h3>
+<p>All three are joined by one agreement. A point on the ground is chosen as the anchor (longitude, latitude, ellipsoidal height and a heading), and everything is given in metres east, north and up from it. The hand-over is a GLB with the anchor inside (<code>asset.extras.orthoEarth</code>). In Minecraft one block is 1 m and the anchor sits at block (0, 0, 0).</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>Unity 6</th><th>Unreal Engine 5.6+</th><th>Minecraft</th></tr></thead><tbody>
+<tr><td>Install</td><td>Plugin (Package Manager)</td><td>Plugin (zip into <code>Plugins/</code>)</td><td>Nothing (world files are written directly)</td></tr>
+<tr><td>From the globe</td><td>Menu: <strong>Place export folder…</strong></td><td>Same menu</td><td><code>ortho-minecraft</code> bakes a world</td></tr>
+<tr><td>To the globe</td><td><strong>Export selection to GLB…</strong></td><td>Same menu</td><td>An area or a diff, taken out as GLB</td></tr>
+<tr><td>Axes and units</td><td>X east, Y up, Z north, m</td><td>X east, Y south, Z up, cm</td><td>X east, Y up, Z south, 1 block = 1 m</td></tr>
+<tr><td>Building attributes</td><td>In the Inspector</td><td>In Details</td><td>—</td></tr>
+<tr><td>Point clouds</td><td>PLY</td><td>LAS</td><td>—</td></tr>
+</tbody></table></div>
+
+<h3>From the globe to a game</h3>
+<p>All three start from the same <code>ortho-export</code>. Export an area, and the anchor, terrain, buildings and the building attribute table land in one folder. Point clouds are read at <a href="https://www.ortho-earth.com/japan/pointcloud" target="_top">/japan/pointcloud</a> and saved as PLY or LAS.</p>
+<p>In Unity and Unreal, choosing <strong>Place export folder…</strong> from the menu is all it takes: everything is laid out in the right place under the anchor. Each building can be selected by its PLATEAU <code>gml_id</code> and shows attributes such as use, height, address and flood risk; code can read them too, with <code>b.Get("bldg:usage")</code> or <code>b.MeasuredHeight</code>. PLATEAU's webp textures are re-baked to jpeg, which the engines can read.</p>
+<p>For Minecraft the same folder goes to <code>ortho-minecraft</code>. Terrain and buildings are baked into blocks, the ground and roofs are painted with the blocks closest in colour to the aerial photo, and buildings get floors. Out come three things: a Java Edition world, a WorldEdit <code>.schem</code> and a Bedrock <code>.mcworld</code>, which opens with a double-click. The anchor is the spawn point, so the coordinates F3 shows are metres from the anchor. It opens in Creative, frozen at midday.</p>
+
+<h3>From a game back to the globe</h3>
+<p>The way back ends at the same door for all three. In Unity and Unreal, put the model under the anchor and choose <strong>Export selection to GLB…</strong>. In Minecraft, take the house you built out by area, or as the difference from the world you exported. Each becomes a GLB with the anchor inside.</p>
+<p>Drop that GLB on <a href="https://www.ortho-earth.com/japan/" target="_top">/japan/</a> and it stands where it came from. A model made in Unity and a house built in Minecraft stand side by side in Marunouchi. <code>map.model()</code> also uses the GLB's anchor when no position is given. Large models can be turned into 3D Tiles with <code>glbconv</code>.</p>
+
+<h3>Checked in Marunouchi</h3>
+<p>All three samples are Marunouchi.</p>
+<ul>
+<li><strong>Unity 6</strong>: the four corners of the placed terrain matched the exported area exactly, and the tallest building, 238 m, stood where Tokyo Midtown Yaesu is. A test point cloud with its anchor deliberately moved 158 m east and 139 m south came back with all four points within about 1 cm. Terrain exported again and read back matched the original in vertex count and extent.</li>
+<li><strong>Unreal Engine 5.8.4</strong>: the same sample was used to check axis directions and point cloud positions. Nanite meshes export as they are.</li>
+<li><strong>Minecraft</strong>: the world files are read and written with Node alone. Opened with another reader (Amulet), both the Java and Bedrock worlds matched block for block.</li>
+</ul>
+<p>The Unity and Unreal plugins (both 0.1.0) are attached to the GitHub Release. Minecraft is part of <code>ortho-export</code>.</p>
+
+<h2>Also new</h2>
+<ul>
+<li><strong>Point clouds.</strong> Sheets are shown side by side without seams, the memory they use has a ceiling, and they can be filtered by class (<code>map.readPointCloud</code>). PLY export for Unity.</li>
+<li><strong>Lines and terrain.</strong> In tilted 3D the edges of wide roads were eaten into by terrain and came out jagged, and nearby lines turned into a string of translucent beads. Both are fixed.</li>
+</ul>
+
+<h2>One tablet, faster for everyone</h2>
+<p>Over 130 changes went in during those six days. Most of what was added for the tablet became the default on every device. Nothing changes on a fast machine; the more modest the device, the more it helps. Choosing an everyday model was the right call. One Android tablet made the globe lighter for everyone.</p>
+<p>Please try it on your own Android or Windows device. If anything looks wrong, a report with the result of <a href="https://www.ortho-earth.com/check/" target="_top">/check/</a> attached helps a great deal.</p>
+
+<p>It was not only about speed. Through those six days with Android, the work on Cesium did not stop. A fresh shoot of all 309 Sandcastle examples at the end (v259, v260) raised the same picture from 226 to <strong>234</strong>. Examples that do not run stayed at 0.</p>
+<div class="table-wrap"><table><thead><tr><th>Shoot</th><th>3</th><th>2</th><th>1</th><th>0</th><th>What went in</th></tr></thead><tbody>
+<tr><td>v2.3.0</td><td>226</td><td>77</td><td>0</td><td>0</td><td>The last count before</td></tr>
+<tr><td>v2.4.0</td><td><strong>234</strong></td><td>69</td><td><strong>0</strong></td><td><strong>0</strong></td><td>Shapes on terrain, classifying 3D Tiles, Cesium's way of choosing tiles, outlines on lines and points</td></tr>
+</tbody></table></div>
+<p class="note-small">Note: 303 examples including those checked by eye (on a real Mac GPU). 3 = same picture, 2 = same answers, 1 = runs, 0 = does not run. Every picture is in the <a href="https://www.ortho-earth.com/sandcastle/" target="_top">Sandcastle</a> gallery, side by side with the original. The MapLibre official examples were shot again the same day and held at 91 / 43 / 3 / 0.</p>
+<ul>
+<li><strong>Shapes on terrain.</strong> GroundPrimitive polygons were placed at 0 m and buried inside the 2.5 km Mount St. Helens. Their outlines are now rebuilt from the triangles and painted along the terrain. A fill on terrain that hid under Cesium's imagery is fixed too.</li>
+<li><strong>Classifying 3D Tiles.</strong> ClassificationPrimitive boxes for trees and buildings were drawn as translucent solids. Now only the 3D Tiles surfaces inside a box are coloured.</li>
+<li><strong>Cesium's way of choosing tiles.</strong> For Cesium's imagery layers only, the distance to a tile is now measured to its point nearest the eye. Keeping the small tiles in front of ridges brought the fog example from 56.6% to 95.0% and the point cloud example from 58.2% to 91.7% of the real thing.</li>
+<li><strong>Lines and points.</strong> Entity outlines are 1 px like Cesium's, path outlines (polylineOutline) and glow (PolylineGlow's thin core and soft halo) are drawn, and point outlines sit outside pixelSize. A cos φ applied twice when choosing imagery detail is fixed.</li>
+</ul>
+<p>On a globe that runs light on an everyday device, Cesium code came one more step closer to the real picture.</p>
+
+<h2>And on to v3</h2>
+<p>With this, the work on v2 is nearly done. I have started to think about v3. WebGPU now works in almost every browser: Chrome and Edge on computers, Chrome on Android, and Safari on iPhone, iPad and Mac (from 26). Firefox is getting there too. And these six days showed that it runs well enough on an everyday device. Until now I have kept everything working the same on WebGL2, and that has held back what the globe could do. For v3 I am thinking of dropping WebGL2 and going WebGPU only. The API will stay the same, so today's code keeps running. It is planned for the end of the year. Stay tuned.</p>
+<p class="note-small">Published: <code>@ortho-earth/globe</code> and <code>@ortho-earth/core</code> 2.4.0, <code>@ortho-earth/cesium</code> 0.3.0 (globe 2.4 or later), <code>@ortho-earth/voxel</code> 0.6.2, <code>glbconv</code> 0.3.0, and the Unity and Unreal plugins 0.1.0. Same API as 2.3 (<code>npm i @ortho-earth/globe@2.4</code>). The knobs that restore the old way of drawing while moving (<code>?meshshed=0</code> and others) and <code>?gl2=1</code> to go back to WebGL2 on Android are still there.</p>
+<div class="sig">Kenji Yoshida @ Yokohama</div>
+</article>
+</body>
+</html>

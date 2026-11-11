@@ -17,6 +17,11 @@
 				"title": "Ortho Earth 2.4 を公開しました",
 				"desc": "初めての Android タブレットがやって来た。その日のうちに Android も WebGPU で動くようになり、6 日間で京都の滑走は 36%、丸の内の建物は 25〜30% 速くなった。Unity・Unreal・Minecraft とも行き来でき、Cesium の同じ絵は 226 → 234 本に。",
 				"href": "/docs/story-v240-jp"
+			},
+			"en": {
+				"title": "Ortho Earth 2.4 is out",
+				"desc": "A first Android tablet arrived. The same day Android started on WebGPU, and in six days the Kyoto glide got 36% faster and the Marunouchi buildings 25–30%. Round trips with Unity, Unreal and Minecraft, and Cesium's same picture 226 → 234.",
+				"href": "/docs/story-v240"
 			}
 		},
 		{
