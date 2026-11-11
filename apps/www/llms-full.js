@@ -16,21 +16,24 @@ export const FULL_DOCS = [
 const NAMED = { middot: '·', minus: '−', times: '×', alpha: 'α', mdash: '—', ndash: '–', rarr: '→', hellip: '…', deg: '°' };
 const unesc = (s) => s.replace(/&nbsp;/g, ' ').replace(/&(middot|minus|times|alpha|mdash|ndash|rarr|hellip|deg);/g, (_, k) => NAMED[k]).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
 	.replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&amp;/g, '&');
+// 入力は repo の自前の docs・出力は text/plain（HTML として描かない）。それでもタグの剥がしは変化が止まるまで繰り返す（入れ子の <scr<script>ipt> を残さない・CodeQL）
+const untilStable = (s, f) => { for (let prev; prev !== s;) { prev = s; s = f(s); } return s; };
+const stripTags = (s) => untilStable(s, (x) => x.replace(/<[^>]*>/g, ''));
 const abs = (href, base) => { try { return new URL(href, base).href.replace(/\.html(?=$|[?#])/, ''); } catch { return href; } };
-const inline = (h, base) => unesc(h
+const inline = (h, base) => unesc(stripTags(h
 	.replace(/<br\s*\/?>/g, ' ')
 	.replace(/<img[^>]*>/g, '')
-	.replace(/<code[^>]*>([\s\S]*?)<\/code>/g, (_, c) => '`' + c.replace(/<[^>]+>/g, '') + '`')
+	.replace(/<code[^>]*>([\s\S]*?)<\/code>/g, (_, c) => '`' + stripTags(c) + '`')
 	.replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/g, '**$2**')
 	.replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/g, '*$2*')
-	.replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g, (_, href, t) => `[${t.replace(/<[^>]+>/g, '').trim()}](${abs(unesc(href), base)})`)
-	.replace(/<[^>]+>/g, ''))
+	.replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g, (_, href, t) => `[${stripTags(t).trim()}](${abs(unesc(href), base)})`)
+	))
 	.replace(/\s+/g, ' ').trim();
 
 /** docs の HTML の本文を Markdown に。頭・見出し帯・nav・script・style は落とす */
 export const htmlToMarkdown = (html, base) => {
 	let b = (html.match(/<body[^>]*>([\s\S]*)<\/body>/) || [, html])[1];
-	b = b.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>|<!--[\s\S]*?-->/g, '')
+	b = untilStable(b, (x) => x.replace(/<script\b[\s\S]*?<\/script\s*>|<style\b[\s\S]*?<\/style\s*>|<nav\b[\s\S]*?<\/nav\s*>|<!--[\s\S]*?-->/gi, ''))
 		.replace(/<div class="header-bar">[\s\S]*?<\/div>\s*<\/div>/, '');
 	const out = [];
 	const re = /<(h[1-4]|p|pre|table|ul|ol|blockquote|figcaption)\b[^>]*>([\s\S]*?)<\/\1>/g;
@@ -39,9 +42,9 @@ export const htmlToMarkdown = (html, base) => {
 		const [, tag, inner] = m;
 		if (tag === 'h1') continue;   // 題は節の見出しに出す
 		if (/^h\d$/.test(tag)) out.push('#'.repeat(+tag[1] + 1) + ' ' + inline(inner, base));
-		else if (tag === 'pre') out.push('```\n' + unesc(inner.replace(/<[^>]+>/g, '')).replace(/^\n+|\s+$/g, '') + '\n```');
+		else if (tag === 'pre') out.push('```\n' + unesc(stripTags(inner)).replace(/^\n+|\s+$/g, '') + '\n```');
 		else if (tag === 'table') {
-			const rows = [...inner.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map(r => [...r[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map(c => inline(c[1], base).replace(/\|/g, '\\|')));
+			const rows = [...inner.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map(r => [...r[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map(c => inline(c[1], base).replace(/\\/g, '\\\\').replace(/\|/g, '\\|')));
 			if (rows.length) {
 				const w = Math.max(...rows.map(r => r.length));
 				const line = (r) => '| ' + Array.from({ length: w }, (_, i) => r[i] ?? '').join(' | ') + ' |';
