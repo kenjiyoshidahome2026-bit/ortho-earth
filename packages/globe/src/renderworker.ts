@@ -903,6 +903,7 @@ const RES_STEPS = [1, 0.85, 0.7];   // 旧＝0.55 まで（?resmin=0.55 で旧�
 // 塗りの量でなく頂点・描画量が床の端末（Mali-G615：PLATEAU 3 区 257 MB で 1 フレーム 86〜105 ms・解像度を落としても不変）向け。
 // 速い端末では 40 ms に届かない＝決して発動しない（MacBook 実測 8〜14 ms・511 万三角形 46 fps）。既定オン・全機種（本人裁定 2026-11-08：タブレット実測で動いている区間のコマ数 +28%・
 // 12 m 止めは差なし・止まると全部戻る）＝?meshshed=0 で切る・?meshshedmax=12（段の上限 m）・?meshshedms=N
+// 寄っている時（0.5 m/px より細かい＝z18 以上）は core が m の段を画面上の px（12/24/48 px）へ縮め、軽量 index も使わない（meshcull.ts MOVE_REF_MPPX・2026-11-11 /nl z20 で家が消えた）
 const SHED_STEPS = [0, 6, 12, 24];
 let shedOn = false, shedIdx = 0, shedMax = SHED_STEPS.length - 1, shedHoldUntil = 0;
 let SHED_MS = 40;

@@ -40,7 +40,7 @@ import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標�
 import { dashU, userAnchorPlan as planUserAnchor, hiFillOf, worldFanRuns, packCapQuads } from "../drawshared.ts";   // 描き手の共通の小物（段階 3・gl と共通）
 import type { DashU, UserAnchorPlan } from "../drawshared.ts";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../framek.ts";   // フレームの係数（段階 3・gl と同式の正本）
-import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, meshShed, meshLite, liftGroundROf, pickMeshMasks, orMaskBytes, maskRows } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
+import { meshLodCount, setMeshLodScale, setMeshRange, setMeshLodZoom, meshLodMppx, meshShed, meshLiteAt, liftGroundROf, pickMeshMasks, orMaskBytes, maskRows } from "../meshcull.ts";   // メッシュの束の選び（段階 3・gl と共通）
 import { terrainGridUV, terrainMeshSliced } from "../terrainlod.ts";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.ts";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowWindowFit, shadowCascades, shadowDarkness, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.ts";   // 建物の影（点けた時だけ）
@@ -3778,7 +3778,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (customs.size) csFrame++;
 				const meshPipe = PX.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const TX = PX;   // 模型の受け手＝影＋面 → 面 → 影 → 素（#111 段 1〜2）
-				const liteNow = meshLite();   // 動いている間だけの軽量 index（meshcull.ts・render worker が shed と同時に切り替える）
+				const liteNow = meshLiteAt(mppx);   // 動いている間だけの軽量 index（meshcull.ts・render worker が shed と同時に切り替える）
 				const cullPipe = MESH_CULL !== "none" ? PX.meshCull : null;   // ?meshcull＝巻き順を揃えた素の束は裏面をラスタライザで捨てる（橋梁 two・両面配信 noCull は従来の mesh）
 				const litePipe = liteNow && MESH_LITE_FS > 0 && PX === P && cityLights <= 0 ? P.meshLite : null;   // ?meshlitefs（既定 1）＝間引きが点いている間は軽いピクセルシェーダ。影・断面の派生の間と、街明かり（夜の上映）が点いている間は従来＝滑走中に窓の灯りが消えない
 				meshStat.fs = litePipe ? 1 : 0;

@@ -5,7 +5,7 @@
 // node tests/shared-purefns.mjs
 import { readFileSync } from "node:fs";
 import { fogKOf, fogFollow, fogNearOf, fogFarOf, terrainFogNearOf, fogFarCapOf, pitchFogK, pitchElevK, cityKOf, worldHypsoKOf, graticuleKOf, worldFadeOf, skyKOf, logCoefOf, mppxOf } from "../src/framek.ts";
-import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes, setMeshLodZoom, meshLodMppx, setMeshShed, meshShed } from "../src/meshcull.ts";
+import { meshLodCount, liftGroundROf, pickMeshMasks, orMaskBytes, setMeshLodZoom, meshLodMppx, setMeshShed, meshShed, setMeshLite, meshLiteAt, MOVE_REF_MPPX } from "../src/meshcull.ts";
 import { dashU, userAnchorPlan, hiFillOf, worldFanRuns } from "../src/drawshared.ts";
 import { packResampleParams, cpuResampleCell } from "../src/elevcell.ts";
 import { evalPaintZoomMemo, evalPaintZoom } from "../src/paintzoom.ts";
@@ -92,6 +92,21 @@ const zooms = [-1, 0, 0.3, 1, 1.9, 2.2, 3.7, 4.9, 5, 6.4, 6.5, 8, 12, 13.5, 13.7
 		same(meshLodCount(P[2], center, cosLat, mppx), 900, "meshShed：橋梁（two）は全描画のまま"); same(meshLodCount(P[3], center, cosLat, mppx), 900, "meshShed：keep2d は間引かない");
 		setMeshShed(0);
 		same(meshLodCount(P[0], center, cosLat, mppx), base, "setMeshShed(0)：元の打ち切りへ戻る");
+		// 画面上の大きさで決める（2026-11-11）：寄っている時（物差しが基準より細かい）は m の段を同じ px 数へ縮める＝z20 の家並みで 6〜24 m の家が消えない
+		const near = mppxOf(19.93), nearBase = meshLodCount(P[0], center, cosLat, near);
+		setMeshShed(24);
+		same(meshLodCount(P[0], center, cosLat, mppx), 100, "meshShed 24 m：基準より引いている縮尺（z16.5）は従来の m のまま");
+		same(meshLodCount(P[0], center, cosLat, near), 400, `meshShed 24 m：z19.93 は ${(24 * near / MOVE_REF_MPPX).toFixed(1)} m 未満だけ落とす（10 m・30 m の建物は残る）`);
+		setMeshShed(6);
+		same(meshLodCount(P[0], center, cosLat, near), 700, "meshShed 6 m：z19.93 は 1.5 m 未満だけ＝3 m 以上の家は残る");
+		same(meshLodCount(P[0], center, cosLat, MOVE_REF_MPPX), 400, "meshShed 6 m：基準の縮尺ちょうどは 6 m のまま");
+		setMeshShed(0);
+		same(meshLodCount(P[0], center, cosLat, near), nearBase, "setMeshShed(0)：寄っていても元へ戻る");
+		ok(!meshLiteAt(mppx), "meshLiteAt：オフの間は使わない");
+		setMeshLite(true);
+		ok(meshLiteAt(mppx) && meshLiteAt(mppxOf(17.7)), "meshLiteAt：決めた縮尺（z17.7）と引いた縮尺では使う");
+		ok(!meshLiteAt(near) && !meshLiteAt(mppxOf(18.5)), "meshLiteAt：寄っている時は使わない（落とす三角形が画面上で大きい）");
+		setMeshLite(false);
 	}
 	same(liftGroundROf(100), 1 + 100 / worldRadiusM(), "liftGroundROf：注視点の高さ 100 m"); same(liftGroundROf(-5), 1, "liftGroundROf：負は 0"); same(liftGroundROf(undefined), 1, "liftGroundROf：未指定は 1");
 	const masks = new Map([["far", { bbox: [140, 36, 141, 37] }], ["near", { bbox: [139.6, 35.6, 139.8, 35.8] }], ["hidden", { bbox: [139.7, 35.68, 139.71, 35.69] }], ["mid", { bbox: [139.9, 35.9, 140, 36] }]]);
