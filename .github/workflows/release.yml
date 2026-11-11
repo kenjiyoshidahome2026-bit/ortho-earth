@@ -1,0 +1,47 @@
+# GitHub Release を CHANGELOG.md の節から作る（2026-11-11）。npm に出した版と GitHub の「Latest release」をそろえる
+#   （Latest が古いままだと、AI や人が古い版を最新と答える）。
+#   publish.yml が本当に出した後に自動で呼ぶ。手で押す時＝Actions →「release」→ Run workflow（版・対象のコミット）。
+#   既にある版は作り直さない（本文を CHANGELOG に合わせて直すだけ）。
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 版（空＝CHANGELOG の先頭のエンジンの版）例「2.4.1」
+        type: string
+        default: ""
+      target:
+        description: タグを打つコミット（空＝今の main）
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ""
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target || github.sha }}
+        run: |
+          node scripts/release-notes.mjs "$VERSION" > /tmp/out.txt
+          V=$(head -1 /tmp/out.txt); tail -n +2 /tmp/out.txt > /tmp/notes.md
+          if gh release view "v$V" > /dev/null 2>&1; then
+            gh release edit "v$V" --notes-file /tmp/notes.md --latest
+          else
+            gh release create "v$V" --target "$TARGET" --title "Ortho Earth $V" --notes-file /tmp/notes.md --latest
+          fi

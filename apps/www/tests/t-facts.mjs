@@ -79,3 +79,11 @@ test("トップの JSON-LD に版と更新日の差し込み口がある", () =>
 	assert.ok(html.includes('"softwareVersion":"__RELEASE_VERSION__","dateModified":"__RELEASE_DATE__"'));
 	assert.ok(html.includes('href="/llms.txt"') && html.includes('href="/facts.json"'));
 });
+
+test("GitHub Release の本文（scripts/release-notes.mjs）＝CHANGELOG の先頭の版の節", async () => {
+	const { releaseNotes } = await import("../../../scripts/release-notes.mjs");
+	const r = releaseNotes(read("../../../CHANGELOG.md"));
+	assert.equal(r.version, f.release.version);
+	assert.ok(r.body.length > 100 && !/^## /m.test(r.body));
+	assert.throws(() => releaseNotes("# x\n", "9.9.9"));
+});

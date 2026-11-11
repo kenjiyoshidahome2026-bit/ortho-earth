@@ -85,3 +85,11 @@ jobs:
     with:
       published: ${{ needs.publish.outputs.published }}
     secrets: inherit
+
+  # エンジン（@ortho-earth/globe）を出したら GitHub Release も同じ版で（2026-11-11・release.yml＝CHANGELOG の先頭の節）
+  github-release:
+    needs: [publish, verify-npm]
+    if: contains(needs.publish.outputs.published, '@ortho-earth/globe')
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
