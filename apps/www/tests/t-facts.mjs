@@ -87,3 +87,7 @@ test("GitHub Release の本文（scripts/release-notes.mjs）＝CHANGELOG の先
 	assert.ok(r.body.length > 100 && !/^## /m.test(r.body));
 	assert.throws(() => releaseNotes("# x\n", "9.9.9"));
 });
+
+test("htmlToMarkdown：大文字・崩れた閉じタグの script、注釈、nav を中身ごと落とす", () => {
+	assert.equal(htmlToMarkdown("<body><SCRIPT>x</script\t\n bar><p>a<!-- c -->b</p><nav>n</nav><p>z</p></body>", "https://a/b"), "ab\n\nz");
+});

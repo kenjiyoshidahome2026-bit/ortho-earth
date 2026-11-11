@@ -16,9 +16,39 @@ export const FULL_DOCS = [
 const NAMED = { middot: '·', minus: '−', times: '×', alpha: 'α', mdash: '—', ndash: '–', rarr: '→', hellip: '…', deg: '°' };
 const unesc = (s) => s.replace(/&nbsp;/g, ' ').replace(/&(middot|minus|times|alpha|mdash|ndash|rarr|hellip|deg);/g, (_, k) => NAMED[k]).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
 	.replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&amp;/g, '&');
-// 入力は repo の自前の docs・出力は text/plain（HTML として描かない）。それでもタグの剥がしは変化が止まるまで繰り返す（入れ子の <scr<script>ipt> を残さない・CodeQL）
-const untilStable = (s, f) => { for (let prev; prev !== s;) { prev = s; s = f(s); } return s; };
-const stripTags = (s) => untilStable(s, (x) => x.replace(/<[^>]*>/g, ''));
+// 入力は repo の自前の docs・出力は text/plain（HTML として描かない）。タグの剥がしは正規表現でなく 1 文字ずつ読む
+// （正規表現の置き換えは入れ子や大文字・崩れた閉じタグを取りこぼす＝CodeQL の指摘・2026-11-11）
+/** < から > までを全部落とす（> が無ければ < 以降を落とす） */
+const stripTags = (s) => {
+	let out = '', inTag = false;
+	for (const ch of s) {
+		if (inTag) { if (ch === '>') inTag = false; }
+		else if (ch === '<') inTag = true;
+		else out += ch;
+	}
+	return out;
+};
+/** 中身ごと落とす要素（script・style・nav）と注釈。大文字小文字を問わず、閉じタグが無ければ残りを全部落とす */
+const dropBlocks = (s) => {
+	const lower = s.toLowerCase();
+	let out = '', i = 0;
+	const opens = [['<script', '</script'], ['<style', '</style'], ['<nav', '</nav'], ['<!--', '-->']];
+	while (i < s.length) {
+		let best = null;
+		for (const [o, c] of opens) {
+			const j = lower.indexOf(o, i);
+			if (j >= 0 && (!best || j < best.j)) best = { j, c };
+		}
+		if (!best) { out += s.slice(i); break; }
+		out += s.slice(i, best.j);
+		const k = lower.indexOf(best.c, best.j);
+		if (k < 0) break;
+		const end = best.c === '-->' ? k + 3 : lower.indexOf('>', k);
+		if (end < 0) break;
+		i = best.c === '-->' ? end : end + 1;
+	}
+	return out;
+};
 const abs = (href, base) => { try { return new URL(href, base).href.replace(/\.html(?=$|[?#])/, ''); } catch { return href; } };
 const inline = (h, base) => unesc(stripTags(h
 	.replace(/<br\s*\/?>/g, ' ')
@@ -33,7 +63,7 @@ const inline = (h, base) => unesc(stripTags(h
 /** docs の HTML の本文を Markdown に。頭・見出し帯・nav・script・style は落とす */
 export const htmlToMarkdown = (html, base) => {
 	let b = (html.match(/<body[^>]*>([\s\S]*)<\/body>/) || [, html])[1];
-	b = untilStable(b, (x) => x.replace(/<script\b[\s\S]*?<\/script\s*>|<style\b[\s\S]*?<\/style\s*>|<nav\b[\s\S]*?<\/nav\s*>|<!--[\s\S]*?-->/gi, ''))
+	b = dropBlocks(b)
 		.replace(/<div class="header-bar">[\s\S]*?<\/div>\s*<\/div>/, '');
 	const out = [];
 	const re = /<(h[1-4]|p|pre|table|ul|ol|blockquote|figcaption)\b[^>]*>([\s\S]*?)<\/\1>/g;
