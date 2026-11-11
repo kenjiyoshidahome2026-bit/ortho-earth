@@ -2,25 +2,35 @@ import { defineConfig } from 'vite';
 import { readFileSync } from 'node:fs';
 import { renderDemos, renderStories } from './cards.js';
 import { buildSitemap } from './sitemap.js';
+import { buildFacts, fillFacts } from './facts.js';
+import { buildLlmsFull } from './llms-full.js';
 import { crossOriginIsolation, CSS_TARGET, bootScreen } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 // デモカード＝demos.json から静的 HTML に焼く（<!--DEMOS-->）。dev でも毎回読む＝demos.json を足せば即反映
 const readDemos = () => JSON.parse(readFileSync(new URL('./demos.json', import.meta.url), 'utf8'));
 // ヘッダーの版（[logo] Ortho Earth 2.4）＝ @ortho-earth/core の package.json から焼く（手で書き換えない・2026-11-09 本人）。表示は major.minor（main.ts）
 const SITE_VERSION = JSON.parse(readFileSync(new URL('../../packages/ortho-core/package.json', import.meta.url), 'utf8')).version;
+let factsCache = null;
+const facts = () => (factsCache ??= buildFacts());
 const readStories = () => JSON.parse(readFileSync(new URL('./stories.json', import.meta.url), 'utf8'));   // Stories タブ（<!--STORIES-->）
 const demosHtml = () => ({
 	name: 'www-demos',
 	transformIndexHtml(html) {
 		const langs = JSON.parse(readFileSync(new URL('../../packages/world/i18n/langs.json', import.meta.url), 'utf8'));
 		return html.replace('<!--DEMOS-->', renderDemos(readDemos())).replace('<!--STORIES-->', renderStories(readStories()))
+			.replace('__RELEASE_VERSION__', facts().release.version).replace('__RELEASE_DATE__', facts().release.date)
 			.replace('__LANG_CODES__', langs.map(l => l.code).join(' ')).replace('__RTL_CODES__', langs.filter(l => l.rtl).map(l => l.code).join(' '));
 	},
 	// llms.txt の Apps 節も demos.json から（サンプルが増えても目次が古びない）。sitemap.xml も同じ所で（sitemap.js・Issue #308）
 	generateBundle() {
 		this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: buildSitemap() });
 		const apps = readDemos().demos.map(d => `- [${d.title}](https://www.ortho-earth.com${d.href}): ${d.desc}`).join('\n');
-		this.emitFile({ type: 'asset', fileName: 'llms.txt', source: readFileSync(new URL('./llms.template.txt', import.meta.url), 'utf8').replace('<!--APPS-->', apps) });
+		// AI エージェント向け（2026-11-11）：今の事実（版・公開日・互換の数）は facts.js が正本から数える＝llms.txt の {{…}}・/facts.json・JSON-LD が同じ数を言う
+		const f = facts();
+		const llms = fillFacts(readFileSync(new URL('./llms.template.txt', import.meta.url), 'utf8').replace('<!--APPS-->', apps), f);
+		this.emitFile({ type: 'asset', fileName: 'llms.txt', source: llms });
+		this.emitFile({ type: 'asset', fileName: 'llms-full.txt', source: buildLlmsFull(llms) });
+		this.emitFile({ type: 'asset', fileName: 'facts.json', source: JSON.stringify(f, null, '\t') + '\n' });
 	},
 });
 
