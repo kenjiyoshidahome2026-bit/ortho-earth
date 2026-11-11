@@ -12,7 +12,7 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { pipeSet, lbl, warmPipes, warmPipesBg, pipeLog } from "./pipeset.ts";
+import { pipeSet, lbl, warmPipes, warmPipesBg, pipeLog, pipeMade, pipePending } from "./pipeset.ts";
 import { viewRays } from "../camera.ts";
 import { cameraState, lonlatTo3D, ellNormal3D, unproject, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV, floorAnchor, liftedBboxVisible, movedBbox, betaGeo } from "../camera.ts";
 import { csGroundFade, csFogDensity } from "../csatmo.ts";   // Cesium の大気（view.csAtmo）
@@ -33,7 +33,7 @@ import { elevCheapWgsl, FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
 	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL, OVERLAY_CLIP_WGSL } from "./wgsl.ts";
-import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl, meshCustomWGSL, ATLAS_FOOT_WGSL } from "./wgsl.ts";
+import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl, meshCustomWGSL, ATLAS_FOOT_WGSL, MESH_TEX_FAST_WGSL } from "./wgsl.ts";
 import { mdFillWgsl, mdLineWgsl, mdBldWgsl, lineXWgsl } from "./wgsl.ts";   // タイル GPU 常駐プールの派生（vt perf plan §4 step A）   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.ts";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { packResampleParams, cpuResampleCell } from "../elevcell.ts";   // 標高セルの再標本化の係数と CPU 退避（段階 3・gl と共通）
@@ -98,6 +98,8 @@ export interface RendererGPUOptions {
 	meshCull?: number;
 	/** 動いている間だけの軽いピクセルシェーダ（?meshlitefs・1＝深度は画素で書く・2＝頂点だけ） */
 	meshLiteFs?: number;
+	/** 模型（3D Tiles・glb・I3S・押し出し）の素の束を速い道（MESH_TEX_FAST_WGSL）で描く（既定 true・?meshfast=0 で false＝従来＝全部 MESH_TEX_WGSL）。絵は同じ（2026-11-11） */
+	meshFast?: boolean;
 	/** 素の建物メッシュの束を目に近い順（手前→奥）に描く（?meshsort=1）＝奥の束の画素を早期深度で捨てる（塗りが床の端末の実験ノブ・2026-11-08） */
 	meshSort?: boolean;
 	/** 建物（基図の押し出し・PLATEAU）の頂点の標高を主アトラス 1 標本で引く（?elevcheap=1・既定オフ） */
@@ -251,6 +253,7 @@ interface CsVarG { code: string | null; bgl: GPUBindGroupLayout | null; textures
 interface CsTexInG { name: string; tex: MeshTexSrc; nearest?: boolean; repeat?: boolean }
 interface MeshBatch {
 	vbo: GPUBuffer; nbo: GPUBuffer; ibo: GPUBuffer; textured: boolean; blend: boolean; cut: number; uvbo: GPUBuffer | null; cbo: GPUBuffer | null;
+	plain?: boolean; flat?: Float32Array | null;   // 速い道（MESH_TEX_FAST_WGSL）の下調べ：plain＝模型でテクスチャも線のリボンも無い・flat＝束が 1 色ならその色（表示空間の rgb）
 	pre: boolean;   // preOpaque: drawn twice, its alpha-1 texels first in the opaque pass (depth written, a slot of its own), then the whole batch blended
 	texs: (MeshTex | null)[] | null; texBG: GPUBindGroup | null; pbr: MeshPbr | null; csLit: string; wind: boolean; count: number; origin: number[]; bbox: number[]; ward: string;
 	lodH: number[] | null; lodCounts: number[] | null; liteCounts: number[] | null; wound: boolean; two: number; noCull: boolean; colSrgb: boolean; noLift: boolean; baked: boolean; drape: boolean; keep2d: boolean; noCast: boolean; xf?: ArrayLike<number> | null;
@@ -436,7 +439,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	let frame1Scoped = 0;
 	const gpuErr = (where: string, msg: string) => { const t = `${where}: ${msg}`; gpuErrors.push(t); console.error("[gpu] " + t); };
 	// 深度を画素で書く本パス（#62）＝地形・押し出し建物・メッシュ・模型の main／影の受け手／断面の派生。影を落とす側（Cast）と深度を書かない層は対象外
-	const FD_LABELS = new Set(["terrain", "building", "mesh", "meshTex", "terrainSh", "buildingSh", "meshSh", "meshTexSh", "terrainClip", "buildingClip", "meshClip", "meshTexClip", "terrainShClip", "buildingShClip", "meshShClip", "meshTexShClip"]);
+	const FD_LABELS = new Set(["terrain", "building", "mesh", "meshTex", "meshTexFast", "terrainSh", "buildingSh", "meshSh", "meshTexSh", "terrainClip", "buildingClip", "meshClip", "meshTexClip", "terrainShClip", "buildingShClip", "meshShClip", "meshTexShClip"]);
 	const fragDepthOn = rOpts.fragDepth !== false;   // ?fd=0 の逃げ道
 	const mkMod = (code: string, label: string): GPUShaderModule => {
 		if (rOpts.elevCheap === true) code = elevCheapWgsl(code);   // 軽い標高の枝だけ残す（elevQ 側を捨てる）＝Mali のコールドコンパイルを短く（2026-11-07）。desktop は原本のまま
@@ -560,6 +563,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const plMod = mkMod(MESH_WGSL, "mesh");
 	const plLiteMod = MESH_LITE_FS > 0 ? mkMod(MESH_LITE_WGSL, MESH_LITE_FS >= 2 ? "meshLite" : "mesh") : null;   // ?meshlitefs（1＝label mesh＝fragDepthWgsl が掛かる・2＝掛からない）
 	const plTexMod = mkMod(MESH_TEX_WGSL, "meshTex");
+	const MESH_FAST = rOpts.meshFast !== false;   // ?meshfast=0 の逃げ道
+	const plFastMod = MESH_FAST ? mkMod(MESH_TEX_FAST_WGSL, "meshTexFast") : null;   // 模型の素の束の速い道（深度は従来どおり画素で＝FD_LABELS）
 	const plSilMod = mkMod(MESH_SIL_WGSL, "meshSil");
 	// 画像タイル層（raster.js・2026-09-21・RTT ドレープ）：アトラス合成パイプライン＝group(0)=per-tile UBO（dynamic offset）・group(1)=サンプラ＋テクスチャ（bglPlTex 流用）
 	const rasAtlasMod = mkMod(RASTER_ATLAS_WGSL, "rasterAtlas");
@@ -724,6 +729,11 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 				{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },   // a_uv
 				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },    // a_col（baseColorFactor×COLOR_0）
 			], dsWriteBld, "fs", plTexLayout),
+			meshTexFast: () => plFastMod ? pipe(plFastMod, [   // 模型の素の束の速い道（MESH_TEX_FAST_WGSL）＝uv を結ばない・group(3) 無し（plLayout）・blend 無し（不透明だけ＝α 1 を書く）
+				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },    // a_col
+			], dsWriteBld, "fs", plLayout, "none", targetA) : (null as unknown as GPURenderPipeline),
 			meshTexBlend: () => pipe(plTexMod, [   // 模型の半透明（alphaMode=BLEND）＝同シェーダ・深度書き込み無し（target の blend は premultiplied 既定）
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
@@ -2070,7 +2080,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// 地形チャンクのカリング（perf plan P4 step B）：可視チャンクの区間だけ drawIndexed。?terrlod=0（rOpts.terrLod===false）＝従来の全量 1 draw
 	let TERR_LOD = rOpts.terrLod !== false;   // set("terrLod", bool) で実行時切替（門 t-terrcull＝同じ絵の A/B）
 	// 建物メッシュの描画の計器（?hud=1 の 30 秒ログ・__perf().meshDraw・2026-11-08）：直近フレームの束の総数／描いた／視野外／LOD で 0／伏せた区・三角形数・前パス・輪郭
-	const meshStat = { of: 0, drawn: 0, cull: 0, lod0: 0, hidden: 0, tris: 0, pre: 0, sil: 0, shed: 0, fs: 0 };   // fs＝このフレームは軽いピクセルシェーダ（?meshlitefs）で描いた
+	const meshStat = { of: 0, drawn: 0, cull: 0, lod0: 0, hidden: 0, tris: 0, pre: 0, sil: 0, shed: 0, fs: 0, fast: 0 };   // fast＝速い道（MESH_TEX_FAST_WGSL）で描いた模型の束の数   // fs＝このフレームは軽いピクセルシェーダ（?meshlitefs）で描いた
 	const terrStat: Record<string, Required<ChunkStats>> = { near: { drawn: 0, of: 0 }, far: { drawn: 0, of: 0 }, fine: { drawn: 0, of: 0 }, foot: { drawn: 0, of: 0 } };   // fine＝近景層のパス・foot＝足元層のパス   // ?perf=1／HUD の物差し（renderworker が mem テレメトリに載せる）
 	// このフレームで結ぶ index＝本番（terrain）か粗い方（terrain.coarse）。draw() の頭で選ぶ（opts.moving＝動いている間・rOpts.terrCoarseAlways＝常に）
 	let terrIx: TerrainIndex = { ibo: null as unknown as GPUBuffer, count: 0, chunks: [] }, terrCoarseOn = 0;   // terrCoarseOn＝粗い方で描いた（HUD／__perf の terr.coarse）
@@ -2134,6 +2144,32 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		else device.queue.writeTexture({ texture: tex }, t.rgba, { bytesPerRow: w * 4, rowsPerImage: h }, [w, h]);
 		return { tex, view: tex.createView() };
 	}
+	// ── 模型の素の束の速い道（MESH_TEX_FAST_WGSL・2026-11-11）の下調べ（転送の時に 1 回・頂点色／法線を書き換えた時にやり直す）
+	const srgbEnc1 = (x: number): number => x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+	function flatColOf(col: Uint8Array | null | undefined, srgb: boolean): Float32Array | null {   // 束の頂点色が 1 色ならその色（表示空間）＝FS の画素ごとの sRGB 符号化を省く。α は不透明の束では読まない
+		if (!col || col.length < 4) return null;
+		const r = col[0], g = col[1], b = col[2];
+		for (let i = 4; i < col.length; i += 4) if (col[i] !== r || col[i + 1] !== g || col[i + 2] !== b) return null;
+		return srgb ? Float32Array.of(r / 255, g / 255, b / 255) : Float32Array.of(srgbEnc1(r / 255), srgbEnc1(g / 255), srgbEnc1(b / 255));
+	}
+	const noRibbon = (nrm: Int8Array): boolean => { for (let i = 3; i < nrm.length; i += 4) if (nrm[i] < 0) return false; return true; };   // glTF の線のリボン（法線の 4 バイト目が負）は頂点を画面で広げる＝速い道の VS に無い
+	const fastTried = new WeakSet<object>();
+	function fastPipeOf(PS: typeof P): GPURenderPipeline | null {   // 速い道のパイプライン＝要る束が初めて出た時に裏で作る（起動の暖機に足さない）。出来るまで null＝その間は従来の meshTex で描く（絵は同じ）
+		if (pipeMade(PS, "meshTexFast")) return PS.meshTexFast;
+		if (pipePending(PS, "meshTexFast")) return null;
+		if (fastTried.has(PS)) return PS.meshTexFast;   // Async が失敗した＝同期生成へ落ちる（pipeset の作法）
+		fastTried.add(PS);
+		warmPipesBg(PS, device, ["meshTexFast"], () => rOpts.requestDraw?.());
+		return pipeMade(PS, "meshTexFast") ? PS.meshTexFast : null;
+	}
+	const frontAll = (p: MeshBatch, eye: ArrayLike<number>): boolean => {   // 束の全頂点が地平線の手前（MESH_WGSL の front＝dot(dir, eye)−1 ≥ 0）か＝FS の front の discard が要らない束。bbox の中心からの角半径で保守的に
+		const e2 = eye[0] * eye[0] + eye[1] * eye[1] + eye[2] * eye[2];
+		if (e2 < 1) return true;   // 目が球の中＝front は常に 1
+		const b = p.bbox; if (!(b[2] >= b[0] && b[3] >= b[1])) return false;
+		const c = lonlatTo3D((b[0] + b[2]) / 2, (b[1] + b[3]) / 2), el = Math.sqrt(e2);
+		const th = Math.acos(Math.max(-1, Math.min(1, (c[0] * eye[0] + c[1] * eye[1] + c[2] * eye[2]) / el))) + Math.hypot(b[2] - b[0], b[3] - b[1]) * (Math.PI / 360) + 0.005;   // ＋半対角（経度は縮めない＝広め）＋測地⇄β の差と丸めの余裕
+		return th < Math.PI / 2 && el * Math.cos(th) > 1;
+	};
 	function meshTexBG(texs: (MeshTex | null)[], paint: MeshTex | null = null, drape: MeshTex | null = null): GPUBindGroup {   // 5 枚（無い所は既定）＋塗る絵（無ければ重ねる絵：同じ枠）→ group(3)
 		return device.createBindGroup({ layout: bglPlTex5, entries: [{ binding: 0, resource: texSampler }, ...texs.map((t, i) => ({ binding: i + 1, resource: (t || TEX_DEF[i]).view })), { binding: PAINT_BINDING, resource: (paint || drape || mrTex1).view }] });
 	}
@@ -2582,7 +2618,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, pre: blend && !!data.preOpaque, uvbo, cbo, texs, texBG, pbr: pb, csLit: data.csLit || "pbr", wind: !!data.wind, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, liteCounts: data.liteCounts || null, wound: !!data.wound, two: data.twoSided ? 1 : 0, noCull: !!data.noCull, colSrgb: !!data.colSrgb, noLift: !!data.noLift, baked: !!data.liftBaked, drape: !!data.drape, keep2d: !!data.keep2d,
-				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
+				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true), custom: data.custom ?? null, split: data.split ?? 0, sh: data.sh && data.sh.length >= 27 ? Float32Array.from(data.sh) : null, ol: data.outline ? Float32Array.from(data.outline) : null, noClip: !!data.noClip, imagery: data.imagery ?? null, mcJ: data.mcJ && data.mcJ.length >= 9 ? Float32Array.from(data.mcJ) : null, mcbo, cs: null, uvmbo, meta,
+				plain: MESH_FAST && textured && !texs!.some(Boolean) && noRibbon(nrm), flat: MESH_FAST && textured ? flatColOf(data.col, !!data.colSrgb) : null });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのに建物メッシュが無い」
@@ -3667,7 +3704,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const mppx = meshLodMppx(mppxOf(cam.zoom), cam.zoom);   // 画面1pxが何m（LOD打ち切りの物差し・framek.ts）＋ズームアウトの坂（?meshlodz）
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180), foot = betaGeo(st.eye);   // foot＝目の足元（bbox 内なら無条件で可視）
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
-			const draws: { p: MeshBatch; count: number; slot: number; pre?: boolean }[] = [];
+			const draws: { p: MeshBatch; count: number; slot: number; pre?: boolean; fast?: boolean }[] = [];
 			const liftGroundR = liftGroundROf(cam.centerAlt);   // 注視点の地面の高さ（持ち上げる束の間引きの第 2 候補・camera.ts liftedBboxVisible）
 			meshStat.of = meshes.size; meshStat.cull = meshStat.lod0 = meshStat.hidden = meshStat.tris = meshStat.pre = 0; meshStat.shed = meshShed();
 			for (const p of meshes.values()) {
@@ -3692,6 +3729,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (lights) { plBatchCPU[o + 64] = lights.n; plBatchCPU.set(lights.data, o + 68); } else plBatchCPU[o + 64] = 0;   // 局所の光源（W2）＝ln.x＋lt[32]（バッチごとに同じ物を写す）
 				writeXf(plBatchCPU, o, p.xf);   // バッチの剛体変換（W4）
 				if (light) { const lc = light.color || [1, 1, 1]; plBatchCPU[o + 212] = light.dir[0]; plBatchCPU[o + 213] = light.dir[1]; plBatchCPU[o + 214] = light.dir[2]; plBatchCPU[o + 215] = 1; plBatchCPU[o + 216] = lc[0]; plBatchCPU[o + 217] = lc[1]; plBatchCPU[o + 218] = lc[2]; plBatchCPU[o + 219] = light.intensity ?? 0.5; } else plBatchCPU[o + 215] = 0;   // style の light（sl0/sl1）
+				if (p.flat) { plBatchCPU[o + 268] = p.flat[0]; plBatchCPU[o + 269] = p.flat[1]; plBatchCPU[o + 270] = p.flat[2]; plBatchCPU[o + 271] = 1; } else plBatchCPU[o + 271] = 0;   // fc＝束が 1 色の時の表示空間の色（速い道だけが読む）
 				plBatchCPU[o + 220] = p.colSrgb ? 1 : 0;   // cs.x＝頂点色が sRGB（押し出し）
 				if (meshLight) {   // Cesium の模型の照明（csL/csC/csI＝float 224〜235）・sh[9] の xyz には Cesium の係数
 					plBatchCPU[o + 224] = meshLight.dir[0]; plBatchCPU[o + 225] = meshLight.dir[1]; plBatchCPU[o + 226] = meshLight.dir[2]; plBatchCPU[o + 227] = p.csLit === "off" ? 0 : p.csLit === "unlit" ? 2 : 1;   // csL.w：1＝csLit・2＝素の色（unlit）・0＝固定光（entity geometry）
@@ -3734,13 +3772,20 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const litePipe = liteNow && MESH_LITE_FS > 0 && PX === P && cityLights <= 0 ? P.meshLite : null;   // ?meshlitefs（既定 1）＝間引きが点いている間は軽いピクセルシェーダ。影・断面の派生の間と、街明かり（夜の上映）が点いている間は従来＝滑走中に窓の灯りが消えない
 				meshStat.fs = litePipe ? 1 : 0;
 				const cullOf = (d: typeof draws[number]) => (!!cullPipe || !!litePipe) && d.p.wound && !d.p.textured && !d.p.two && !d.p.noCull;   // 巻き順を揃えた束（wound）だけ＝揃えていない束（古い焼き・ノブの食い違い）は従来の fs（2026-11-08 既定化で worker 側の既定が 0 のままだった反省）
+				// 模型の素の束の速い道（MESH_TEX_FAST_WGSL）＝このフレームと束が「MESH_TEX_WGSL の余分な枝を一つも使わない」時だけ（絵は同じ・条件はシェーダの頭の注記）
+				meshStat.fast = 0;
+				let fastPipe: GPURenderPipeline | null = null;
+				if (MESH_FAST && PX === P && !meshLight && !light && !(lights && lights.n > 0) && !FX.pbr && csFogD <= 0) {
+					const cand = draws.filter(({ p, pre }) => !pre && p.plain && !p.blend && p.cut < 0 && (!!p.two || p.noCull) && !p.xf && !p.paint && !p.tint && !p.sil && !p.split && !p.custom && !drapeOf(p) && p.csLit !== "phong" && p.csLit !== "phongc" && frontAll(p, st.eye));
+					if (cand.length && (fastPipe = fastPipeOf(P))) { for (const d of cand) d.fast = true; meshStat.fast = cand.length; }
+				}
 				const plainDraws = draws.filter(d => !d.p.textured);
 				if (MESH_SORT && plainDraws.length > 1) {   // ?meshsort=1＝手前→奥（片は束の origin を共有するので bbox の中心と目の経緯度の距離で）
 					const er = Math.hypot(ex[0], ex[1], ex[2]) || 1, eLat = Math.asin(Math.max(-1, Math.min(1, ex[1] / er))) * 180 / Math.PI, eLon = Math.atan2(ex[2], ex[0]) * 180 / Math.PI, cosE = Math.cos(eLat * Math.PI / 180);
 					const dE = (p: MeshBatch) => { const dx = ((p.bbox[0] + p.bbox[2]) / 2 - eLon) * cosE, dy = (p.bbox[1] + p.bbox[3]) / 2 - eLat; return dx * dx + dy * dy; };
 					plainDraws.sort((x, y) => dE(x.p) - dE(y.p));
 				}
-				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, plainDraws.filter(d => !cullOf(d))], [(litePipe || cullPipe)!, litePipe || cullPipe ? plainDraws.filter(cullOf) : []], [TX.meshTex, draws.filter(d => d.p.textured && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
+				const lists: [GPURenderPipeline, typeof draws][] = [[meshPipe, plainDraws.filter(d => !cullOf(d))], [(litePipe || cullPipe)!, litePipe || cullPipe ? plainDraws.filter(cullOf) : []], [fastPipe!, fastPipe ? draws.filter(d => d.fast) : []], [TX.meshTex, draws.filter(d => d.p.textured && !d.fast && (d.pre || !blendOf(d.p)))], [TX.meshTexBlend, draws.filter(d => d.p.textured && !d.pre && blendOf(d.p)).sort((x, y) => d2(y.p) - d2(x.p))]].filter(l => !!l[0]) as [GPURenderPipeline, typeof draws][];   // null＝進行描き（?warmpipe=3）でコンパイル中＝その層は飛ばす
 				const sils = draws.filter(d => d.p.textured && d.p.sil && !d.pre && !blendOf(d.p));   // 半透明の束は殻を出さない
 				meshStat.sil = sils.length;
 				if (sils.length) {   // 模型の輪郭線（Model.silhouette）＝模型より先に・深度を書かずに押し出した殻を塗る（模型が内側を塗り直す）。素の束縛（PB だけの group(2)）
@@ -3757,6 +3802,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setPipeline(pipeline);
 					pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
 					pass.setBindGroup(1, paramBG[ROLE.mesh]); // p0=liftBounds, p1=bldColor
+					if (pipeline === fastPipe) {   // 速い道＝pos・法線・頂点色だけ結ぶ（uv・テクスチャの group(3) 無し）
+						for (const { p, count, slot } of list) {
+							pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);
+							pass.setVertexBuffer(0, p.vbo); pass.setVertexBuffer(1, p.nbo); pass.setVertexBuffer(2, p.cbo);
+							pass.setIndexBuffer(p.ibo, "uint32"); pass.drawIndexed(count);
+						}
+						continue;
+					}
 					if (!tx && grp("buildings")) pass.setBindGroup(3, grp("buildings"));   // 素の建物メッシュ＝建物の対象（模型は group(2) に models の面）
 					let cur = pipeline;
 					for (const { p, count, slot } of list) {
@@ -4134,12 +4187,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				p.texBG = meshTexBG(p.texs, p.paint, drapeOf(p)?.t ?? null); p.texBGDrape = drapeOf(p)?.t ?? null;   // 利用者のシェーダの group(3) は csBind が p.paint の替わりを見て作り直す
 				break;
 			}
-			case "meshCol": { const p = meshes.get(prop as string); if (p?.cbo && (data as Uint8Array | null)?.length && (data as Uint8Array).byteLength <= p.cbo.size) device.queue.writeBuffer(p.cbo, 0, (data as Uint8Array).buffer, (data as Uint8Array).byteOffset, (data as Uint8Array).byteLength); break; }   // 頂点色だけ書き換える（feature state の色・W7）
+			case "meshCol": { const p = meshes.get(prop as string); if (p?.cbo && (data as Uint8Array | null)?.length && (data as Uint8Array).byteLength <= p.cbo.size) { device.queue.writeBuffer(p.cbo, 0, (data as Uint8Array).buffer, (data as Uint8Array).byteOffset, (data as Uint8Array).byteLength); if (MESH_FAST) p.flat = (data as Uint8Array).byteLength === p.cbo.size ? flatColOf(data as Uint8Array, p.colSrgb) : null; } break; }   // 頂点色だけ書き換える（feature state の色・W7）
 			case "meshPos": {   // skin の頂点の焼き直し（2026-10-28）＝pos（原点相対・Float32・3n）と法線（Int8・4n）を同じ頂点数のまま書き換える（大きさが違えば捨てる）。影の深度も描き直す
 				const p = meshes.get(prop as string), d = data as { pos?: Float32Array; nrm?: Int8Array } | null;
 				if (!p || (!d?.pos?.length && !d?.nrm?.length) || (d.pos?.length && ((d.pos.byteLength + 3) & ~3) !== p.vbo.size)) break;   // nrm alone: a line batch's widths (the style's lineWidth)
 				if (d.pos?.length) device.queue.writeBuffer(p.vbo, 0, d.pos.buffer, d.pos.byteOffset, d.pos.byteLength);
-				if (d.nrm?.length && ((d.nrm.byteLength + 3) & ~3) === p.nbo.size) device.queue.writeBuffer(p.nbo, 0, d.nrm.buffer, d.nrm.byteOffset, d.nrm.byteLength);
+				if (d.nrm?.length && ((d.nrm.byteLength + 3) & ~3) === p.nbo.size) { device.queue.writeBuffer(p.nbo, 0, d.nrm.buffer, d.nrm.byteOffset, d.nrm.byteLength); if (p.plain) p.plain = noRibbon(d.nrm); }
 				castRev++;
 				break;
 			}
