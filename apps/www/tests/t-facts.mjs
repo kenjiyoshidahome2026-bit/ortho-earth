@@ -97,4 +97,5 @@ test("Maintenance and continuity：検査の数は test-all の一覧から・�
 	const out = fillFacts(read("../llms.template.txt"), f);
 	assert.ok(out.includes("## Maintenance and continuity"));
 	assert.ok(out.includes(`${f.maintenance.tests} automated checks run on every change`));
+	assert.ok(out.includes("Every app built on 1.x runs on 2.x") && /1\.x runs on 2\.x/.test(f.maintenance.compatibility));
 });

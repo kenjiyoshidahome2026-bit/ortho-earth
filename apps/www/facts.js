@@ -86,6 +86,7 @@ export const buildFacts = () => {
 			sla: 'none',
 			tests: TESTS,
 			security: 'private reports via GitHub Security Advisories; reply within 7 days; 90-day disclosure window; CodeQL on every pull request; monthly dependency updates with a 7-day cooldown',
+			compatibility: 'every app built on 1.x runs on 2.x; every 2.x release kept the same API; 3.x is planned on the same rule',
 			serverSide: 'none: no map server, no backend, no accounts; the map runs in the browser',
 			continuity: 'GPL-3.0-or-later (formats MIT) so anyone may continue it; CLA for contributions; published packages keep working without project servers; open documented formats; MapLibre GL JS and CesiumJS APIs leave a way back to those engines',
 			securityPolicy: 'https://github.com/kenjiyoshidahome2026-bit/ortho-earth/blob/main/SECURITY.md',
