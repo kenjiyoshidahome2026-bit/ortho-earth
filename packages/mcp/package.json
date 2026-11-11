@@ -1,0 +1,43 @@
+{
+	"name": "@ortho-earth/mcp",
+	"version": "0.1.0",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"description": "MCP server for Ortho Earth, the true-scale 3D globe map engine: current facts, tested setup recipe, MapLibre/CesiumJS compatibility per example, API types, doc search and place links. Read-only, no keys.",
+	"mcpName": "io.github.kenjiyoshidahome2026-bit/ortho-earth",
+	"bin": {
+		"ortho-earth-mcp": "bin/ortho-earth-mcp.js"
+	},
+	"exports": {
+		".": "./src/server.js",
+		"./tools": "./src/tools.js"
+	},
+	"files": [
+		"bin",
+		"src",
+		"LICENSE",
+		"README.md"
+	],
+	"engines": {
+		"node": ">=18"
+	},
+	"scripts": {
+		"test": "node --test tests/t-mcp.mjs"
+	},
+	"keywords": [
+		"mcp",
+		"model-context-protocol",
+		"ai-agents",
+		"globe",
+		"maplibre",
+		"cesium",
+		"ortho-earth"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "packages/mcp"
+	},
+	"homepage": "https://www.ortho-earth.com/",
+	"bugs": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues"
+}

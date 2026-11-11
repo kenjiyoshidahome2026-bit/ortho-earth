@@ -142,6 +142,7 @@ const open = name => {
 for (const c of document.querySelectorAll(".card")) { c.onclick = () => open(c.dataset.name); c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(c.dataset.name); } }; }
 $("cl").onclick = () => $("dlg").close();
 $("dlg").onclick = e => { if (e.target === $("dlg")) $("dlg").close(); };
+{ let h = location.hash.slice(1); try { h = decodeURIComponent(h); } catch {} open(h); }   // /sandcastle/#<名前> で開く（MCP の check_compat が返す URL・open は一覧の鍵だけを通す）
 </script></body></html>`;
 fs.writeFileSync(path.join(OUT, "index.html"), withBootStatic(html, "images"));
 const bytes = fs.readdirSync(path.join(OUT, "pics")).reduce((a, f) => a + fs.statSync(path.join(OUT, "pics", f)).size, 0);

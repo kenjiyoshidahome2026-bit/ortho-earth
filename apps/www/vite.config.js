@@ -4,6 +4,7 @@ import { renderDemos, renderStories } from './cards.js';
 import { buildSitemap } from './sitemap.js';
 import { buildFacts, fillFacts } from './facts.js';
 import { buildLlmsFull } from './llms-full.js';
+import { buildCompat, refFiles } from './agent-data.js';
 import { crossOriginIsolation, CSS_TARGET, bootScreen } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 // デモカード＝demos.json から静的 HTML に焼く（<!--DEMOS-->）。dev でも毎回読む＝demos.json を足せば即反映
@@ -31,6 +32,9 @@ const demosHtml = () => ({
 		this.emitFile({ type: 'asset', fileName: 'llms.txt', source: llms });
 		this.emitFile({ type: 'asset', fileName: 'llms-full.txt', source: buildLlmsFull(llms) });
 		this.emitFile({ type: 'asset', fileName: 'facts.json', source: JSON.stringify(f, null, '\t') + '\n' });
+		// MCP サーバー（packages/mcp）が読む資料（2026-11-11）：例ごとの互換の採点・style-spec の性質の状態・公開面の型
+		this.emitFile({ type: 'asset', fileName: 'compat.json', source: JSON.stringify(buildCompat()) + '\n' });
+		for (const [fileName, source] of Object.entries(refFiles())) this.emitFile({ type: 'asset', fileName, source });
 	},
 });
 

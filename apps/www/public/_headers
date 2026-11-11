@@ -19,3 +19,7 @@
   Access-Control-Allow-Origin: *
 /facts.json
   Access-Control-Allow-Origin: *
+/compat.json
+  Access-Control-Allow-Origin: *
+/ref/*
+  Access-Control-Allow-Origin: *
