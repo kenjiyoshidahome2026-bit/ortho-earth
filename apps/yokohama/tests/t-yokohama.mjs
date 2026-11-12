@@ -151,6 +151,9 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 	t("通信なしの検索：前方一致が先・英語でも・ヶ/ケ と大小・ハイフンを問わない・1 文字は引かない",
 		searchPlaces(rows, "綱島").map(r => r.ja).join() === "綱島東,綱島駅,新綱島駅" && searchPlaces(rows, "shintsunashima")[0]?.ja === "新綱島駅"
 		&& searchPlaces(rows, "保土ヶ谷")[0]?.ja === "保土ケ谷区" && searchPlaces(rows, "綱").length === 0);
+	const spot = [{ ja: "横浜スタジアム", en: "Yokohama Stadium", loc: "Stade de Yokohama", note: "", c: [139.64, 35.44] }];
+	t("通信なしの検索：英語名は表示の言語に関係なく当たり、表示名（loc）でも当たる",
+		searchPlaces(spot, "Yokohama Stadium").length === 1 && searchPlaces(spot, "stade").length === 1 && searchPlaces(spot, "スタジアム").length === 1);
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

@@ -10,7 +10,7 @@
 //   ⑥ 建物 LOD1（13 区の 3D Tiles 全部）… 同上の Cache・⑦ 建物 LOD2（5 区＋橋梁）… エンジンの IDB/OPFS（map.prefetchBuildings）
 // 配るのは共有の Service Worker（packages/globe/scripts/lib/sw.js）＝名前が oj-pack で始まる置き場にある URL は通信なしで返す。
 // 束の版＝offline.json の build（アプリとエンジンのファイル名の要約）。通信のある起動で版が変わっていたら、変わったファイルだけ黙って詰め直す
-import { CITY_BBOX, MASK_BOX, HAZARDS, LOD1_WARDS, LOD2_PREFETCH, HINAN_URL, lod1Url, inGeometry, tilesIn, tileKids, fillTpl, cityTileMask, tilesetRefs, slimTile } from "./data.ts";
+import { CITY_BBOX, MASK_BOX, HAZARDS, LOD1_WARDS, LOD2_PREFETCH, HINAN_URL, lod1Url, inGeometry, tilesIn, tileKids, tileBox, fillTpl, cityTileMask, tilesetRefs, slimTile } from "./data.ts";
 import type { GlobeMap } from "@ortho-earth/globe";
 
 export const PACK = "oj-pack-yokohama";
@@ -177,7 +177,9 @@ export async function run(d: Deps, o: { refresh?: boolean } = {}): Promise<Offli
 		for (let z = b.minZoom; z <= BASEMAP_ZMAX; z++) for (const t of tilesIn(z < MASK_FROM ? MASK_BOX : CITY_BBOX, z)) if (keep(...t)) urls.push(fillTpl(b.template, ...t));
 		return putAll(tiles, urls, "map", d, { conc: 8 });
 	});
-	await step("hazard", () => putHazards(tiles, d, keep));
+	// 災害の想定は市の外接矩形の中だけ降りる（粗い段の枡は日本中に想定がある＝子を全部辿ると関東一円へ広がった・Mac 本番 2026-11-12：71,438 枚・404 が 3.9 万）
+	const inCityBox = (z: number, x: number, y: number) => { const b = tileBox(z, x, y); return b[0] < CITY_BBOX[2] && b[2] > CITY_BBOX[0] && b[1] < CITY_BBOX[3] && b[3] > CITY_BBOX[1]; };
+	await step("hazard", () => putHazards(tiles, d, (z, x, y) => inCityBox(z, x, y) && keep(z, x, y)));
 	await step("terrain", async () => { const r = await d.map.prefetchTerrain({ bbox: CITY_BBOX, zmax: BASEMAP_ZMAX, signal: d.signal, onProgress: (done, total) => d.onProgress?.({ stage: "terrain", done, total, bytes: 0, failed: 0 }) }); return { failed: r.failed + r.empty }; });   // 横浜の標高セル（R10・R01 各 1）は必ず中身がある＝空は取れなかった
 	// LOD1 は textures:false・pickable:false・単色で描く＝地物の属性（batch table＝b3dm の 6 割）と画像は使わない。抜いてから詰める（Mac 実測：13 区 2.9 GB → 約 1.2 GB）
 	await step("bld1", async () => {

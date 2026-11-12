@@ -613,7 +613,8 @@ function stripGlbImages(g: Uint8Array): Uint8Array {
 	return out;
 }
 /** 通信なしの地名検索（地理院の検索は通信が要る）＝台帳の名所・駅・施設・町丁目・区から引く 1 行 */
-export interface PlaceRow { ja: string; en: string; note: string; c?: [number, number]; bbox?: [number, number, number, number] }
+/** 地名の 1 行。ja＝日本語名・en＝英語名（英語の問いで引く）・loc＝今の言語の表示名（無い＝ja/en） */
+export interface PlaceRow { ja: string; en: string; loc?: string; note: string; c?: [number, number]; bbox?: [number, number, number, number] }
 const searchKey = (s: string) => normJa(s).toLowerCase().replace(/[\s\-・ー'’.]/g, "");
 /** 通信なしの地名検索：日本語か英語の名前に問いを含む行（完全一致 → 前方一致 → 途中・短い名前を先に）。2 文字未満は引かない */
 export function searchPlaces(rows: readonly PlaceRow[], q: string, max = 8): PlaceRow[] {
@@ -621,7 +622,7 @@ export function searchPlaces(rows: readonly PlaceRow[], q: string, max = 8): Pla
 	const hits: { r: PlaceRow; s: number }[] = [];
 	for (const r of rows) {
 		let best = 9;
-		for (const n of [r.ja, r.en]) { if (!n) continue; const m = searchKey(n), i = m.indexOf(k); if (i < 0) continue; best = Math.min(best, m === k ? 0 : i === 0 ? 1 : 2); }
+		for (const n of [r.ja, r.en, r.loc]) { if (!n) continue; const m = searchKey(n), i = m.indexOf(k); if (i < 0) continue; best = Math.min(best, m === k ? 0 : i === 0 ? 1 : 2); }
 		if (best < 9) hits.push({ r, s: best * 1000 + Math.min(999, (r.ja || r.en).length) });
 	}
 	return hits.sort((a, b) => a.s - b.s).slice(0, max).map(h => h.r);
