@@ -463,7 +463,7 @@ export interface EqualOptions { url?: string; load?: (...args: any[]) => unknown
 /** map.gadget.<名前> の名前 → 呼び方（引数と戻り）。登録は registerGadget(name, (map, ...args) => handle)（map は第 1 引数・this は使わない）。
  *  plugin が足す gadget はこの interface を拡張して型を付ける（declare module "@ortho-earth/globe" { interface Gadgets { … } }） */
 export interface Gadgets {
-	/** 地名検索の窓（#175）。問い合わせ先＝地域の宣言（日本＝地理院）→ world → localGeocoder → geocoderApi の順に候補を積む。
+	/** 地名検索の窓（#175）。問い合わせ先＝localGeocoder（手元の地物）→ 地域の宣言（日本＝地理院）→ world → geocoderApi の順に候補を積む。
 	 *  問い合わせ先が 1 つも無い（地域の宣言も world も geocoderApi も無い）＝窓を出さない（undefined）。二重搭載も undefined */
 	search(opts?: SearchOptions): HTMLElement | undefined;
 	zoom(): unknown;
