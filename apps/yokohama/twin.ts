@@ -1223,7 +1223,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	$(".profile").onclick = () => { profile.open?.(); };
 
 	// ── 通信なしで使う（完全オフライン・本人 2026-11-12）：一気に詰める・続きから・「更新」＝台帳と写真を取り直す・消す ──
-	const STAGE_NAMES: Record<Offline.Stage, string> = { app: "App", data: "Data and photos", map: "Base map", hazard: "Hazard maps", terrain: "Terrain", bld2: "3D buildings" };
+	const STAGE_NAMES: Record<Offline.Stage, string> = { app: "App", data: "Data and photos", map: "Base map", hazard: "Hazard maps", terrain: "Terrain", bld: "3D buildings" };
 	const fmtMB = (b: number) => b >= 1e9 ? `${num(+(b / 1e9).toFixed(2))} GB` : `${num(Math.round(b / 1e6))} MB`;
 	let offAc: AbortController | null = null, offNote = false;   // offNote＝最後の保存が「保存できなかった物がある」で終わった（止めたのでなく）
 	const offIntro = $<HTMLElement>(".off-msg").textContent || "";

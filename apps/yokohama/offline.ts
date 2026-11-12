@@ -24,8 +24,9 @@ const PACK_TILES = PACK + "-tiles";
 const OLD_BLD = PACK + "-bld";
 const REC_KEY = "yk-offline";
 /** 段（進捗の見出しと、どこまで済んだかの記録） */
-export type Stage = "app" | "data" | "map" | "hazard" | "terrain" | "bld2";
-export const STAGES: Stage[] = ["app", "data", "map", "hazard", "terrain", "bld2"];
+// 建物の段は "bld"（2026-11-12 まで LOD1 の 3D Tiles＝"bld1" と LOD2＝"bld2" の 2 段）＝名前を変えた＝古い記録は建物の段が「まだ」に見え、次の同期で 18 区を詰め直す
+export type Stage = "app" | "data" | "map" | "hazard" | "terrain" | "bld";
+export const STAGES: Stage[] = ["app", "data", "map", "hazard", "terrain", "bld"];
 /** 端末の記録（localStorage）：いつ・どの版を・どれだけ詰めたか */
 export interface OfflineRec { v: 1; ts: number; build: string; bytes: number; done: boolean; stages: Partial<Record<Stage, boolean>> }
 /** ビルドが書く目録（vite.config.js の offlineManifest）＝このビルドのファイル・エンジンの版とファイル・台帳のファイル */
@@ -34,7 +35,7 @@ export interface Progress { stage: Stage; done: number; total: number; bytes: nu
 
 const BASEMAP_ZMAX = 16, HAZARD_ZMIN = 2, HAZARD_ZMAX = 17, MASK_FROM = 13;
 
-export const readRec = (): OfflineRec | null => { try { const r = JSON.parse(localStorage.getItem(REC_KEY) || "null"); return r?.v === 1 ? r : null; } catch { return null; } };
+export const readRec = (): OfflineRec | null => { try { const r = JSON.parse(localStorage.getItem(REC_KEY) || "null") as OfflineRec | null; if (r?.v !== 1) return null; r.done = STAGES.every(s => r.stages?.[s]); return r; } catch { return null; } };   // done は段から数え直す（段が増えた・名前が変わった版でも正しい）
 const writeRec = (r: OfflineRec | null) => { try { if (r) localStorage.setItem(REC_KEY, JSON.stringify(r)); else localStorage.removeItem(REC_KEY); } catch { /* 書けない端末＝記録なし */ } };
 const swNotify = () => { try { navigator.serviceWorker?.controller?.postMessage({ type: "oj-pack" }); } catch { /* SW 無し */ } };
 export const canPack = () => typeof caches !== "undefined" && "serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost");
@@ -155,10 +156,10 @@ export async function run(d: Deps, o: { refresh?: boolean } = {}): Promise<Offli
 	const used = async () => (await navigator.storage?.estimate?.().catch(() => null))?.usage ?? 0;
 	await step("terrain", async () => { const u0 = await used(); const r = await d.map.prefetchTerrain({ bbox: CITY_BBOX, zmax: BASEMAP_ZMAX, signal: d.signal, onProgress: (done, total) => d.onProgress?.({ stage: "terrain", done, total, bytes: 0, failed: 0 }) }); return { failed: r.failed + r.empty, bytes: Math.max(0, (await used()) - u0) }; });   // 横浜の標高セル（R10・R01 各 1）は必ず中身がある＝空は取れなかった
 	// 建物＝18 区＋橋梁をエンジンの置き場へ（R2 の焼き・無い区はエンジンが PLATEAU から解いて焼く）。旧版の LOD1 の置き場（1.13 GB）はここで手放す
-	await step("bld2", async () => {
+	await step("bld", async () => {
 		await caches.delete(OLD_BLD).catch(() => false);
 		const u0 = await used();
-		const got = await d.map.prefetchBuildings({ names: BLD_SETS, onProgress: (done, total) => d.onProgress?.({ stage: "bld2", done, total, bytes: 0, failed: 0 }) });
+		const got = await d.map.prefetchBuildings({ names: BLD_SETS, onProgress: (done, total) => d.onProgress?.({ stage: "bld", done, total, bytes: 0, failed: 0 }) });
 		return { failed: BLD_SETS.length - got.length, bytes: Math.max(0, (await used()) - u0) };
 	});
 	rec.done = STAGES.every(s => rec.stages[s]);
@@ -193,5 +194,8 @@ export async function syncApp(d: Deps): Promise<boolean> {
 	const r = await putApp(cache, man, d);
 	if (r.failed) return false;
 	writeRec({ ...rec, build: man.build, stages: { ...rec.stages, app: true } }); swNotify();
+	// 前の版で保存した端末に、この版で増えた・変わった段があれば黙って続きを詰める（2026-11-12：建物が LOD1 の 3D Tiles からエンジンの 18 区へ＝
+	// 保存済みの端末はそのままでは LOD1 の 13 区が通信なしで出なくなる）。済んだ段は run が飛ばす
+	if (!readRec()?.done) await run(d).catch(e => console.warn("[offline] sync: continue", e));
 	return true;
 }
