@@ -20,7 +20,12 @@ function install(origin: string): void {
 		try { h = (u instanceof URL ? u : new URL(String(u), self.location.href)).href; } catch { return u; }
 		if (!h.startsWith(origin + "/")) return u;
 		let b = made.get(h);
-		if (!b) { b = URL.createObjectURL(new Blob(["(" + install.toString() + ")(" + JSON.stringify(origin) + ");await import(" + JSON.stringify(h) + ");"], { type: "text/javascript" })); made.set(h, b); }   // 解かない＝入れ子の worker もこの URL を使い回す
+		// 本体を読み終えるまでに頁から届いた postMessage（初期化の指示・MessagePort）は、受け手がまだいないので捨てられる
+		// （MacBook 2026-11-13：worker は起きたが黙って止まり、通信なしで地図が空）＝先に受けて溜め、読み終えたら同じ順で流し直す
+		const src = "const q=[],h=e=>{e.stopImmediatePropagation();q.push(e)};self.addEventListener(\"message\",h);"
+			+ "(" + install.toString() + ")(" + JSON.stringify(origin) + ");"
+			+ "try{await import(" + JSON.stringify(h) + ")}finally{self.removeEventListener(\"message\",h);for(const e of q)self.dispatchEvent(new MessageEvent(\"message\",{data:e.data,ports:[...e.ports]}))}";
+		if (!b) { b = URL.createObjectURL(new Blob([src], { type: "text/javascript" })); made.set(h, b); }   // 解かない＝入れ子の worker もこの URL を使い回す
 		return b;
 	};
 	class W extends N { constructor(u: string | URL, o?: WorkerOptions) { super(wrap(u, o), o); } }
