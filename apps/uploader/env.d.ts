@@ -3,5 +3,3 @@
 // __SHARED_DATA_DIR__／__BAKE_OUT_DIR__＝vite.config の define（共有データの正本・焼きスクリプトの出力の絶対パス＝dev の /@fs で読む）
 declare const __SHARED_DATA_DIR__: string;
 declare const __BAKE_OUT_DIR__: string;
-// __PLATEAU_BAKE_DIR__＝PLATEAU の焼き（apps/japan-map/plateau-bake-out・bake-plateau.mjs の既定の出力）
-declare const __PLATEAU_BAKE_DIR__: string;

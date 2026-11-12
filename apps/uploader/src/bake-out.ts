@@ -56,20 +56,16 @@ export async function nlftpCatalog(q: screenLogger, { Bucket, apiUrl }: NativeBu
 	q.log(`${plan.from} → ${plan.to} を差し替えた（${plan.from}.json は残す＝旧リンク用）`);
 }
 
-// PLATEAU の焼き（apps/japan-map/scripts/bake-plateau.mjs → apps/japan-map/plateau-bake-out・目録 index.json）→ GIS/plateau/（2026-11-12）。
+// PLATEAU の焼き（apps/japan-map/scripts/bake-plateau.mjs → bake-out/plateau・目録 index.json）→ GIS/plateau/（2026-11-12）。
 // 横浜の LOD1 13 区を R2 に置く（通信なしの保存が 1.13 GB → 約 73 MB・本人「縮退した plateau を R2 に置くのはアリ」）。全国の焼きにも使える。
 // 置き方は焼きスクリプトの --upload と同じ＝本体（b*.plq）を先に、manifest.json を最後に（manifest が見えた時には本体が揃っている＝エンジンの 404 → 生経路の判定に矛盾を作らない）。
 // R2 に manifest が既にある焼きは飛ばす（焼きスクリプトの --upload と同じ＝置いた物は差し替えない・途中で止まってもやり直しが効く）。取れなかったタイル（unbaked）を持つ焼きは上げない（エンジンは焼きを正として欠けたまま描く）＝--redo-unbaked で焼き直してから。
 export async function plateauBake(q: screenLogger, { Bucket, apiUrl }: NativeBucket & { apiUrl: string }) {
-	q.clear(); q.title("PLATEAU の焼き（apps/japan-map/plateau-bake-out）→ GIS/plateau/");
+	q.clear(); q.title("PLATEAU の焼き（bake-out/plateau）→ GIS/plateau/");
 	devOnly();
-	const read = async (rel: string) => {
-		const res = await fetch(`/@fs${__PLATEAU_BAKE_DIR__}/${rel}`, { cache: "no-store" });
-		if (!res.ok) throw new Error(`plateau-bake-out/${rel} を読めない（${res.status}）＝先に node apps/japan-map/scripts/bake-plateau.mjs --only=… を回す`);
-		return res;
-	};
+	const read = (rel: string) => readLocal(`plateau/${rel}`);   // 無ければ「先に焼きスクリプトを回す」＝node apps/japan-map/scripts/bake-plateau.mjs --only=…
 	const rels: string[] = await (await read("index.json")).json();
-	if (!rels.length) throw new Error("plateau-bake-out に焼きが無い");
+	if (!rels.length) throw new Error("bake-out/plateau に焼きが無い");
 	const bucket = await Bucket("GIS/plateau", { silent: true, lazy: true });
 	if (!bucket) throw new Error("Bucket(GIS/plateau) に到達できない");
 	let up = 0, same = 0, holes = 0, bytes = 0;

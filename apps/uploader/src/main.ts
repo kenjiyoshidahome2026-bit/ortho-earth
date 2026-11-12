@@ -64,7 +64,7 @@ const MENU: [string, [string, Run][]][] = [
 		["国立公園 (環境省 nps_all)", japan.nps],
 		["行政区域 (N03 admin_all)", japan.admin],
 		["国土数値情報カタログ（bake-out/catalog）→ catalog/", nlftpCatalog],   // 年版の差し替え＝apps/gishub-jp/scripts/nlftp-bump.mjs --write が書いた物
-		["PLATEAU の焼き（plateau-bake-out）→ GIS/plateau", plateauBake],   // apps/japan-map/scripts/bake-plateau.mjs --only=… が焼いた物（横浜の LOD1 13 区など）
+		["PLATEAU の焼き（bake-out/plateau）→ GIS/plateau", plateauBake],   // apps/japan-map/scripts/bake-plateau.mjs --only=… が焼いた物（横浜の LOD1 13 区など）
 	]],
 	["共有データ", [
 		["census・zipcode → GIS/shared", sharedData],
