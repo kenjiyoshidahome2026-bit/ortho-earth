@@ -11,6 +11,7 @@ let _loaders: Promise<typeof import("./mesh-loaders.ts")> | null = null;
 const loaders = () => _loaders ??= import("./mesh-loaders.ts");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
 import { weldMesh } from "./meshq.ts";
 import { fetchOrPack } from "./packfetch.ts";   // 通信なしは端末の束から（worker は頁の SW の外）
+import { DRACO_OPTS } from "./draco-libs.ts";   // Draco はこの worker の中で同梱の復号器で解く（CDN の worker・復号器を使わない＝通信なしでも解ける）
 import { primitiveOutline } from "./outline.ts";
 import { gltfMeta, rawGltfJson } from "./gltf-meta.ts";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
 import { rigFromGltf, skinsFromGltf, jointMatrices, skinVertices, I4, m4mul, m4trs } from "./gltf-anim.ts";
@@ -548,7 +549,7 @@ export async function decodeBatch(base: string, leaves: LeafTile[], wardMask: Ui
 				// 宣言するだけで preprocess が throw する（worker内はwebp判定不能）。テクスチャは不使用＝安全に除外。
 				// loadImages:false: テクスチャ版しか無い区(約35)でJPEGデコードを丸ごと省く（色は使わない）。
 				const { loadParse, Tiles3DLoader } = await loaders();
-				const tile = await loadParse(fixMeshoptGlb(ab), Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false } } });   // EXT_texture_avif: false＝loaders.gl 4.5 の AVIF 判定（getSupportedImageFormats）は worker に無い Image を new して倒れる＝外す
+				const tile = await loadParse(fixMeshoptGlb(ab), Tiles3DLoader, { ...DRACO_OPTS, "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false } } });   // EXT_texture_avif: false＝loaders.gl 4.5 の AVIF 判定（getSupportedImageFormats）は worker に無い Image を new して倒れる＝外す
 				mergeTile(tile as Tile3DContent, t.xf ?? null);
 			} catch (e) { console.warn("[mesh] tile failed", t.uri, (e as Error).message); }
 			onTile && onTile();   // 成否に関わらず歩数は進む＝分母が縮まない
@@ -1185,7 +1186,7 @@ function linePrimAsRibbons(pr: GltfPrimitive, mode: number): LinePrim | null {
 }
 export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, atGiven = true, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0, fetchOpts = null, mc = false, upAxis = null, edges = 0 }: DecodeModelOpts = {}): Promise<ModelOut | null> {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
-	const parseOpts = (img: boolean) => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
+	const parseOpts = (img: boolean) => ({ ...DRACO_OPTS, gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, EXT_texture_avif: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}), ...(fetchOpts ? { fetch: f } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）。EXT_texture_avif も外す（loaders.gl 4.5 の AVIF 判定は worker に無い Image を new して倒れる）
 	const f = fetchFor(baseUri, fetchOpts);   // 外部画像・buffer＝タイルと同じ headers で（ion の Bearer）
 	const raw = rawGltfJson(ab);   // 生の json（見出し＝F4・KHR_texture_basisu の texture→image＝W5）
 	// glb 自身の錨（asset.extras.orthoEarth＝Unity との往復・docs/notes/unity-roundtrip.md §2.3）：頂点は錨の ENU を (E, U, −N) で持つ＝③の置き方そのもの。
