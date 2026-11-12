@@ -2,8 +2,9 @@
 // map.gadget.search() で搭載する（v1 ortho-map の gadget 作法＝this が map）。DOM＋挙動配線をここで完結。
 // input→button の順＝虫めがねが input の上に描かれる（DOM順の裁き・z-index不使用）。
 // 検索の窓（履歴・IME）は search.js の createSearch・問い合わせ先は並べた順に（#175）：
-//   opts.provider（地域宣言の供給元＝日本は地理院・1 つか配列）→ opts.world（世界の既定＝国・州・都市・地形・26 言語・true か { url, lang }）
-//   → opts.localGeocoder → opts.geocoderApi（maplibre-gl-geocoder と同じ形＝利用者が自分の geocoder を差す）
+//   opts.localGeocoder（手元の地物＝maplibre-gl-geocoder と同じく先頭）→ opts.provider（地域宣言の供給元＝日本は地理院・1 つか配列）
+//   → opts.world（世界の既定＝国・州・都市・地形・26 言語・true か { url, lang }）→ opts.geocoderApi（maplibre-gl-geocoder と同じ形＝利用者が自分の geocoder を差す）
+//   手元が先＝2026-11-13：横浜で「綱島」が地理院の「綱島 長崎県」の下に沈み、Enter で長崎へ飛んだ（オフラインでは束の外＝何も出ない所へ）
 // 世界と外の geocoder の中身は初めて問い合わせた時に import()＝搭載だけなら初期バンドルも索引も読まない。
 // ヒット→ opts.onResult(hit)・onGo(lon, lat, zoom, tilt)（既定＝球面フライト）。範囲（bbox）の候補は地図の cameraForBounds で倍率を出す。
 import { createSearch } from "../search.ts";
@@ -21,10 +22,11 @@ export type SearchboxOpts = Omit<SearchOptions, "provider" | "world"> & { provid
 // 中身を初めて使う時に import する供給元（窓の搭載は同期のまま）
 const lazy = (load: () => Promise<SearchSource>, histKey?: string): SearchSource => { let p: Promise<SearchSource> | null = null; return { histKey, query: (q: string, s?: AbortSignal) => (p ||= load().catch(e => { p = null; throw e; })).then(x => x.query(q, s)) }; };
 function searchProviders(opts: SearchboxOpts = {}): SearchSource[] {
-	const list = ([] as SearchSource[]).concat(opts.provider || []).filter(Boolean);
-	if (opts.world) { const o = opts.world === true ? {} : opts.world; list.push(typeof (o as SearchSource).query === "function" ? o as SearchSource : lazy(() => import("../worldsearch.ts").then(m => m.createWorldSearch(o as WorldOpts)), "ortho.searches")); }
 	const g = { limit: opts.limit, language: opts.language, countries: opts.countries, bbox: opts.bbox, types: opts.types, proximity: opts.proximity, minLength: opts.minLength, zoom: opts.zoom === undefined || Array.isArray(opts.zoom) ? undefined : opts.zoom, filter: opts.filter };   // zoom＝公式の点の着地（数）・配列はガジェットの表示宣言（ズーム域）
-	if (opts.localGeocoder) list.push(lazy(() => import("../geocoder.ts").then(m => m.localGeocoderProvider(opts.localGeocoder!, g))));
+	const list: SearchSource[] = [];
+	if (opts.localGeocoder) list.push(lazy(() => import("../geocoder.ts").then(m => m.localGeocoderProvider(opts.localGeocoder!, g))));   // 手元の地物が先（アプリの地物＝その画面の主役）
+	list.push(...([] as SearchSource[]).concat(opts.provider || []).filter(Boolean));
+	if (opts.world) { const o = opts.world === true ? {} : opts.world; list.push(typeof (o as SearchSource).query === "function" ? o as SearchSource : lazy(() => import("../worldsearch.ts").then(m => m.createWorldSearch(o as WorldOpts)), "ortho.searches")); }
 	if (opts.geocoderApi && !opts.localGeocoderOnly) list.push(lazy(() => import("../geocoder.ts").then(m => m.geocoderProvider(opts.geocoderApi!, g))));
 	return list;
 }

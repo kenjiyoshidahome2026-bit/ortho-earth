@@ -517,7 +517,7 @@ export function walkTo(g: WalkGraph, from: WalkFrom, to: [number, number]): { m:
 
 // ── 通信なしで使う（完全オフライン・本人 2026-11-12「通信が可能な場所で一気にダウンロードしてデータベースを更新」）──
 /** 端末に詰める物のおおよその大きさ（MB）＝Mac の実測（scripts/measure-offline.mjs）。保存ボタンの説明に出す */
-export const OFFLINE_MB = 600;   // 見込み（2026-11-12）：Mac 本番の保存 1,669 MB から LOD1 の 3D Tiles（属性を抜いて 1,130 MB）を外し、R2 の焼き（18 区＋橋梁で約 73 MB）に替えた分。次の実測で直す
+export const OFFLINE_MB = 750;   // 実測（MacBook 本番・新しいプロファイル 2026-11-13）：保存 112 秒・カード 721 MB・端末の使用量 +790 MB（エンジンの置き場を含む）。少し多めに言う
 // 端末に詰める束の中身を決める純関数（タイルの列と、市の形で間引く升目）。詰める・配る仕組みは offline.ts と共有の sw.js
 /** タイル z/x/y の範囲 [w,s,e,n]（度） */
 export function tileBox(z: number, x: number, y: number): [number, number, number, number] {

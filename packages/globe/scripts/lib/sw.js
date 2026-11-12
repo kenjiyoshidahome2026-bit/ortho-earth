@@ -10,7 +10,7 @@
 //   非ハッシュの同一オリジン資産(json/png)も素通し＝版ズレの罠を避け、ブラウザのHTTPキャッシュに委ねる。
 // 依存ゼロ（[[軽さの訴求]] の掟＝出荷コードに npm を足さない）。★ロジックを変えたら CACHE の版番号を上げる＝activate で旧キャッシュを一掃。
 // 前提：登録は本番httpsの index.html だけ（[[gadget-development-principle]] と同じくアプリ本体 app.js には副作用を入れない＝埋め込みを汚さない）。
-const CACHE = "oj-assets-v9";      // v9＝2026-11-12 横浜の完全オフライン（パックを oj-pack* の名前で複数持てる・同一オリジンもパックへ退避・ナビは ?query 無視でパックから）・v8＝2026-10-15 japan の一枚を各アプリ共通に（base を scope から読む＝census2020・nl も自分の assets/ を握る）・v7＝2026-10-14 エンジンの入口に jp/*・nl/* が入った（入口の判定を assets/ の外に一般化）・v6＝2026-10-14 共有エンジンの入口（globe.js 等）を network-first へ＝旧版の入口を握ったまま遅延チャンクを旧版へ取りに行って 404（tellus の cog）・v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
+const CACHE = "oj-assets-v10";     // v10＝2026-11-13 束から返す越境の応答に CORP を付ける（COEP credentialless の頁で横浜の名所写真が通信なしで出なかった）・v9＝2026-11-12 横浜の完全オフライン（パックを oj-pack* の名前で複数持てる・同一オリジンもパックへ退避・ナビは ?query 無視でパックから）・v8＝2026-10-15 japan の一枚を各アプリ共通に（base を scope から読む＝census2020・nl も自分の assets/ を握る）・v7＝2026-10-14 エンジンの入口に jp/*・nl/* が入った（入口の判定を assets/ の外に一般化）・v6＝2026-10-14 共有エンジンの入口（globe.js 等）を network-first へ＝旧版の入口を握ったまま遅延チャンクを旧版へ取りに行って 404（tellus の cog）・v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
 const PACK = "oj-pack";            // オフラインパック（gadgets/offline.js が詰める＝基図タイル・ラスタ）。activate で掃かない（利用者の持ち物）
 // パックは名前が PACK で始まる Cache 全部（2026-11-12〜）：oj-pack＝範囲の gadget・oj-pack-<アプリ>＝アプリ丸ごとの束（横浜＝oj-pack-yokohama）。
 // 束ごとに置き場を分ける＝gadget の「最後のパックを消す＝置き場ごと消す」がアプリの束を巻き込まない
@@ -22,6 +22,16 @@ const hasPack = async () => packOn ??= await caches.keys().then(ks => (packNames
 const fromPack = async (url, opt = {}) => { if (!(await hasPack())) return null; for (const n of packNames) { const r = await caches.match(url, { cacheName: n, ignoreVary: true, ...opt }).catch(() => null); if (r) return r; } return null; };
 // 通信が切れた時の受け皿＝パック → 普段の置き場の順（同一オリジンの要求）
 const offline = async (req, opt = {}) => (await fromPack(req.url, opt)) || (await caches.match(req, { ignoreVary: true, ...opt }).catch(() => null)) || Response.error();
+// 束から返す越境の応答に Cross-Origin-Resource-Policy: cross-origin を付ける（<img> 等の no-cors の要求だけ）。
+// 頁は COEP: credentialless。網から来た no-cors の応答は「資格情報なしで取った」と分かるので CORP 無しでも通るが、
+// Cache Storage から返した応答はその印を失い、CORP の無い越境の応答として弾かれる（net::ERR_FAILED）＝
+// 横浜の名所写真（upload.wikimedia.org）が束に入っているのに通信なしで出なかった（MacBook 本番 2026-11-13）。
+// 中身が読める応答（cors で詰めた物）だけ頭を足せる。不透明な応答（opaque）は触れない＝そのまま返す
+const corp = res => {
+	if (res.type === "opaque" || res.headers.has("Cross-Origin-Resource-Policy")) return res;
+	const h = new Headers(res.headers); h.set("Cross-Origin-Resource-Policy", "cross-origin");
+	return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+};
 self.addEventListener("message", e => { if (e.data?.type === "oj-pack") packOn = null; });      // v3＝2026-09-22 の大改名（PLATEAU→mesh・遅延ロードの組み替え）で旧チャンクが全部入れ替わった＝古い掴みを一掃する
 // v2＝SDK二重構成（2026-08-20）：/japan/lib/ を導入した版
 // このアプリの base（登録の scope の path＝"/japan/" など・末尾 /）
@@ -61,7 +71,8 @@ self.addEventListener("fetch", e => {
 		if (packOn === false || req.cache === "reload" || req.cache === "no-store") return;   // パック無し＝素通し（照会もしない）・reload＝束を詰め直す取得（パックを見ずに網へ）
 		e.respondWith((async () => {
 			if (!(await hasPack())) return fetch(req);
-			return (await fromPack(req.url)) || fetch(req);
+			const hit = await fromPack(req.url);
+			return hit ? (req.mode === "no-cors" ? corp(hit) : hit) : fetch(req);
 		})());
 		return;
 	}
