@@ -180,7 +180,9 @@ export async function run(d: Deps, o: { refresh?: boolean } = {}): Promise<Offli
 	// 災害の想定は市の外接矩形の中だけ降りる（粗い段の枡は日本中に想定がある＝子を全部辿ると関東一円へ広がった・Mac 本番 2026-11-12：71,438 枚・404 が 3.9 万）
 	const inCityBox = (z: number, x: number, y: number) => { const b = tileBox(z, x, y); return b[0] < CITY_BBOX[2] && b[2] > CITY_BBOX[0] && b[1] < CITY_BBOX[3] && b[3] > CITY_BBOX[1]; };
 	await step("hazard", () => putHazards(tiles, d, (z, x, y) => inCityBox(z, x, y) && keep(z, x, y)));
-	await step("terrain", async () => { const r = await d.map.prefetchTerrain({ bbox: CITY_BBOX, zmax: BASEMAP_ZMAX, signal: d.signal, onProgress: (done, total) => d.onProgress?.({ stage: "terrain", done, total, bytes: 0, failed: 0 }) }); return { failed: r.failed + r.empty }; });   // 横浜の標高セル（R10・R01 各 1）は必ず中身がある＝空は取れなかった
+	// 地形と LOD2 はエンジンの置き場（IDB・OPFS）＝詰めた量は端末の使用量の増えで数える（「保存済み・n GB」に入れる）
+	const used = async () => (await navigator.storage?.estimate?.().catch(() => null))?.usage ?? 0;
+	await step("terrain", async () => { const u0 = await used(); const r = await d.map.prefetchTerrain({ bbox: CITY_BBOX, zmax: BASEMAP_ZMAX, signal: d.signal, onProgress: (done, total) => d.onProgress?.({ stage: "terrain", done, total, bytes: 0, failed: 0 }) }); return { failed: r.failed + r.empty, bytes: Math.max(0, (await used()) - u0) }; });   // 横浜の標高セル（R10・R01 各 1）は必ず中身がある＝空は取れなかった
 	// LOD1 は textures:false・pickable:false・単色で描く＝地物の属性（batch table＝b3dm の 6 割）と画像は使わない。抜いてから詰める（Mac 実測：13 区 2.9 GB → 約 1.2 GB）
 	await step("bld1", async () => {
 		const l = await lod1Urls(d); if (d.signal?.aborted) return;
@@ -188,8 +190,9 @@ export async function run(d: Deps, o: { refresh?: boolean } = {}): Promise<Offli
 		return { bytes: r.bytes, failed: r.failed + l.failed };
 	});
 	await step("bld2", async () => {
+		const u0 = await used();
 		const got = await d.map.prefetchBuildings({ names: LOD2_PREFETCH, onProgress: (done, total) => d.onProgress?.({ stage: "bld2", done, total, bytes: 0, failed: 0 }) });
-		return { failed: LOD2_PREFETCH.length - got.length };
+		return { failed: LOD2_PREFETCH.length - got.length, bytes: Math.max(0, (await used()) - u0) };
 	});
 	rec.done = STAGES.every(s => rec.stages[s]);
 	rec.ts = Date.now(); writeRec(rec); swNotify();

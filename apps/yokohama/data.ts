@@ -516,7 +516,7 @@ export function walkTo(g: WalkGraph, from: WalkFrom, to: [number, number]): { m:
 
 // ── 通信なしで使う（完全オフライン・本人 2026-11-12「通信が可能な場所で一気にダウンロードしてデータベースを更新」）──
 /** 端末に詰める物のおおよその大きさ（MB）＝Mac の実測（scripts/measure-offline.mjs）。保存ボタンの説明に出す */
-export const OFFLINE_MB = 2400;   // 2026-11-12 Mac 実測から：基図 約 140・災害の想定 約 90・建物 LOD1 約 1,200（属性を抜いた後）・LOD2 約 980・台帳とアプリ 約 30
+export const OFFLINE_MB = 1700;   // 2026-11-12 Mac 本番で保存した実測（端末の使用量 1,669 MB・約 7 分）：基図 約 100・災害の想定 約 20,900 枚・建物 LOD1 約 1,130（属性を抜いた後）・LOD2（エンジンの焼き）・台帳とアプリ
 // 端末に詰める束の中身を決める純関数（タイルの列と、市の形で間引く升目）。詰める・配る仕組みは offline.ts と共有の sw.js
 /** タイル z/x/y の範囲 [w,s,e,n]（度） */
 export function tileBox(z: number, x: number, y: number): [number, number, number, number] {

@@ -1258,7 +1258,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				msg.textContent = `${t(STAGE_NAMES[p.stage])} ${num(p.done)} / ${num(p.total)}${p.bytes ? " · " + fmtMB(p.bytes) : ""}`;
 			} }, { refresh });
 		} catch (e) { err = String((e as Error)?.message || e); console.warn("[yokohama] offline", e); }
-		const stopped = offAc.signal.aborted; offAc = null;
+		const stopped = offAc.signal.aborted; offAc = null; msg.textContent = ""; bar.style.width = "0";   // 進みの行は畳む（終わった後に「立体の建物 6 / 6」が残っていた）
 		offNote = !stopped && (!!err || !rec?.done);
 		await offPaint();
 	};
