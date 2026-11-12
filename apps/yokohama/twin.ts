@@ -356,10 +356,12 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const photoHTML = (ph: Photo | undefined, cls = "ph") => ph ? `<figure class="${cls}"><img src="${esc(ph.src)}" alt="" loading="lazy" referrerpolicy="no-referrer">
 		<figcaption><a href="${esc(ph.file)}" target="_blank" rel="noopener">${esc(t("Photo: $1", (ph.artist || "Wikimedia Commons") + (ph.license ? ` / ${ph.license}` : "")))}</a></figcaption></figure>` : "";
 	const spotNote = $<HTMLElement>(".spot-note");
-	async function showSpot(s: Spot | null) {
+	// brief＝名所ツアーの間（札だけ選ぶ・説明欄は伏せる）＝写真と説明は画面下のツアーの札が出す。両方に出すと同じ写真が 2 枚並ぶ（本人 2026-11-13）
+	async function showSpot(s: Spot | null, brief = false) {
 		st.spot = s?.id || ""; save();
 		$$<HTMLButtonElement>("[data-spot]").forEach(b => b.classList.toggle("on", b.dataset.spot === st.spot));
-		spotNote.hidden = !s;
+		spotNote.hidden = !s || brief;
+		if (brief) return;
 		if (!s) { spotNote.innerHTML = ""; return; }
 		const head = `<b>${esc(t(s.name))}</b><span>${esc(wardName(s.ward))}</span><p>${esc(t(s.note))}</p>`;
 		spotNote.innerHTML = head;
@@ -569,7 +571,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		for (const [i, s] of stops.entries()) {
 			if (touring !== run) return;
 			say(`${photoHTML(ph?.[s.id], "cph")}<div class="ct"><small>${i + 1} / ${stops.length} · ${esc(wardName(s.ward))}</small><b>${esc(t(s.name))}</b><p>${esc(t(s.note))}</p></div>`);
-			showSpot(s);
+			showSpot(s, true);
 			await flySpot(s);
 			if (touring !== run) return;
 			await map.easeTo({ bearing: s.bearing + 40, duration: 6000 });   // ゆっくり回り込む
