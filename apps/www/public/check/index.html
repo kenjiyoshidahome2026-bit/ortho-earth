@@ -97,6 +97,8 @@ const engineWould = !forceGl2 && hasGpu;
 const why = forceGl2 ? "?gl2=1 forces WebGL2" : !hasGpu ? "this browser has no WebGPU" : forceGpu ? "?gpu=1 forces WebGPU" : "WebGPU is available";
 put("GPU preference", power + (power === "high-performance" ? " (engine default: asks for the faster GPU; add ?lowpower=1 to compare)" : " (?lowpower=1)"));
 put("engine starts on", (engineWould ? "WebGPU" : "WebGL2") + " — " + why);
+// 地図が最後に WebGL2 へ落ちた時の理由（globe.ts noteGpuFallback が localStorage に残す）＝「なぜか GL2」の手がかり
+try { const lf = JSON.parse(localStorage.getItem("oj.gpuLastFallback") || "null"); put("last WebGL2 fallback", lf ? `${lf.at} on ${lf.page} — ${lf.why}` : "none recorded"); } catch (e) { put("last WebGL2 fallback", "unreadable"); }
 
 let gpuOk = null, drawOk = null;
 if (hasGpu) {

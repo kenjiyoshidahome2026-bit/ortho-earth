@@ -555,7 +555,9 @@ const dispatch = (e: { data: RwMsg }) => {
 						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=${!!r.hasTQ}${r.hasTQ ? " (timestamp-query = measured gpuMap/gpuGint, GPU tiering on)" : " (unsupported = ema wall-clock fallback)"}`);
 					}))
 					.catch(err => {
-						console.warn("[render] WebGPU init failed → WebGL2 fallback:", err && ((err as Error).message || err));
+						const why = String(err && ((err as Error).message || err));
+						console.warn("[render] WebGPU init failed → WebGL2 fallback:", why);
+						postMessage({ type: "gpuFallback", why: "init: " + why.slice(0, 300) });   // main へ＝画面のチップ・/check/ の「最後の WebGL2 落ち」に理由を出す（旧は worker のコンソールにだけ＝気づけない）
 						return bootWebGL(m);
 					})
 				: bootWebGL(m))
