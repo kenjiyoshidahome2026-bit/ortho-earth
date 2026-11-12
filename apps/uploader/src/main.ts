@@ -27,7 +27,7 @@ import { worldAtlas } from "./terrain/worldatlas.ts";
 import { worldUI } from "./world/index.ts";
 import { modelsUI } from "./models.ts";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
 import { sharedData } from "./shared-data.ts";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）
-import { altTiles, nlftpCatalog } from "./bake-out.ts";   // 焼きスクリプトの出力（bake-out/）→ GIS/alt・catalog/（スクリプトは鍵を読まない・2026-10-15）
+import { altTiles, nlftpCatalog, plateauBake } from "./bake-out.ts";   // 焼きスクリプトの出力（bake-out/）→ GIS/alt・catalog/（スクリプトは鍵を読まない・2026-10-15）
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -64,6 +64,7 @@ const MENU: [string, [string, Run][]][] = [
 		["国立公園 (環境省 nps_all)", japan.nps],
 		["行政区域 (N03 admin_all)", japan.admin],
 		["国土数値情報カタログ（bake-out/catalog）→ catalog/", nlftpCatalog],   // 年版の差し替え＝apps/gishub-jp/scripts/nlftp-bump.mjs --write が書いた物
+		["PLATEAU の焼き（plateau-bake-out）→ GIS/plateau", plateauBake],   // apps/japan-map/scripts/bake-plateau.mjs --only=… が焼いた物（横浜の LOD1 13 区など）
 	]],
 	["共有データ", [
 		["census・zipcode → GIS/shared", sharedData],

@@ -255,5 +255,12 @@ if (agg.sets) {
 	writeFileSync(join(OUT, "stats.json"), JSON.stringify({ ts: Date.now(), ...agg }, null, 1));
 	console.log(`  → ${join(OUT, "stats.json")}`);
 }
+// 目録＝OUT にある焼き（manifest のあるモードの置き場）の一覧＝uploader の「PLATEAU の焼き → GIS/plateau」ボタンが読む（R2 へ出すのは uploader・本人 2026-09-30）
+{
+	const rels = [];
+	for (const v of existsSync(OUT) ? readdirSync(OUT).filter(n => /^v\d+$/.test(n)) : []) for (const slug of readdirSync(join(OUT, v))) for (const sub of ["", "ell/"]) if (existsSync(join(OUT, v, slug, sub, "manifest.json"))) rels.push(`${v}/${slug}/${sub}`);
+	writeFileSync(join(OUT, "index.json"), JSON.stringify(rels));
+	console.log(`目録 ${rels.length} 件 → ${join(OUT, "index.json")}（R2 へは uploader の「PLATEAU の焼き」ボタン）`);
+}
 console.log(`\n完了: ok=${ok} skip=${skip} err=${err}`);
 process.exit(err ? 1 : 0);
