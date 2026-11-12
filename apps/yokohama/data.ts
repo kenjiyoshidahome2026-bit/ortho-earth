@@ -343,6 +343,29 @@ export function distM(a: [number, number], b: [number, number]): number {
 	const h = Math.sin(dla / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dlo / 2) ** 2;
 	return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
+/** 道順の高低差（本人 2026-11-13「ルート案内のときに標高差のグラフも」）＝線をほぼ step m ごとに区切った点と、そこまでの道のり m。
+ *  始点・終点と曲がり角（頂点）は必ず入れる。点が max を超える長い道は step を広げて max に収める */
+export function sampleLine(line: [number, number][], step = 20, max = 120): { at: [number, number]; d: number }[] {
+	if (line.length < 2) return line.map(at => ({ at, d: 0 }));
+	const seg = line.slice(1).map((p, i) => distM(line[i], p)), total = seg.reduce((s, m) => s + m, 0);
+	const st = Math.max(step, total / Math.max(1, max - line.length));
+	const out: { at: [number, number]; d: number }[] = [{ at: line[0], d: 0 }];
+	let d0 = 0;
+	for (let i = 0; i < seg.length; i++) {
+		const [a, b] = [line[i], line[i + 1]], n = Math.floor(seg[i] / st);
+		for (let j = 1; j <= n; j++) { const f = j * st / seg[i]; if (f >= 1) break; out.push({ at: [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], d: d0 + j * st }); }
+		d0 += seg[i]; out.push({ at: b, d: d0 });
+	}
+	return out;
+}
+/** 標高の列 → 上りの計・下りの計・最高・最低（m）。DEM の細かい段差（thr m 未満の揺れ）は数えない＝基準から thr 以上動いた時だけ足して基準を移す */
+export function climb(h: number[], thr = 1): { up: number; down: number; min: number; max: number } {
+	const v = h.filter(Number.isFinite);
+	if (!v.length) return { up: 0, down: 0, min: NaN, max: NaN };
+	let up = 0, down = 0, r = v[0];
+	for (const x of v) { if (x - r >= thr) { up += x - r; r = x; } else if (r - x >= thr) { down += r - x; r = x; } }
+	return { up, down, min: Math.min(...v), max: Math.max(...v) };
+}
 /** 近い順に k 件（避難場所の行・直線距離） */
 export function nearestRows<T extends [number, number, ...unknown[]]>(rows: T[], at: [number, number], k: number): { row: T; m: number }[] {
 	return rows.map(row => ({ row, m: distM(at, [row[0], row[1]]) })).sort((a, b) => a.m - b.m).slice(0, k);

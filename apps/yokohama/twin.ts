@@ -14,7 +14,7 @@ import type { BigTable } from "common/bigtable";   // 施設の検索の表（�
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, sampleLine, climb, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 import { OFFLINE_MB, searchPlaces, type PlaceRow } from "./data.ts";
 import * as Offline from "./offline.ts";   // 通信なしで使う束（完全オフライン・本人 2026-11-12）
@@ -1031,6 +1031,28 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const g = buildWalkGraph(lines), snaps = walkSnap(g, at);
 		return snaps.length && snaps[0].m <= 150 ? { g, from: walkSearch(g, at, snaps) } : null;
 	}
+	// 道順の高低差（本人 2026-11-13「ルート案内のときに標高差のグラフも」）＝地図の下に小さなグラフ。坂の多い横浜で「上りが何 m か」を道順と一緒に見せる。
+	// 標高＝map.getHeight（DEM の最大ズーム＝通信なしの束にもある）。名所めぐりの札が出ている間は札を優先（CSS で伏せる）
+	const prof = document.createElement("div");
+	prof.className = "yk-prof"; prof.hidden = true;
+	mapEl.appendChild(prof);
+	prof.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) prof.hidden = true; });
+	let profRun = 0;
+	async function paintProfile(k: number) {
+		const run = ++profRun, line = routes[k];
+		if (!line || line.length < 2) { prof.hidden = true; return; }
+		const pts = sampleLine(line), h = await Promise.all(pts.map(p => map.getHeight(p.at[0], p.at[1]).catch(() => NaN)));
+		if (run !== profRun) return;
+		const c = climb(h);
+		if (!Number.isFinite(c.max)) { prof.hidden = true; return; }
+		const W = 360, H = 84, total = pts[pts.length - 1].d || 1, lo = Math.floor(c.min), span = Math.max(10, c.max - lo);   // 10 m より平らな道は平らに見せる（縦を伸ばしすぎない）
+		const xy = pts.flatMap((p, i) => Number.isFinite(h[i]) ? [`${(p.d / total * W).toFixed(1)},${(H - 4 - (h[i] - lo) / span * (H - 12)).toFixed(1)}`] : []);
+		prof.innerHTML = `<button class="x" type="button" aria-label="${esc(t("Close"))}">×</button>`
+			+ `<b>${esc(t("Elevation along this route"))}${routeTo[k] ? ` <small>→ ${esc(routeTo[k])}</small>` : ""}</b>`
+			+ `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path class="a" d="M${xy[0].split(",")[0]},${H} L${xy.join(" L")} L${xy[xy.length - 1].split(",")[0]},${H} Z"/><path class="l" d="M${xy.join(" L")}"/></svg>`
+			+ `<p><span>${esc(t("Up $1 m · down $2 m", num(Math.round(c.up)), num(Math.round(c.down))))}</span><span>${esc(t("Highest $1 m · lowest $2 m", num(Math.round(c.max)), num(Math.round(c.min))))}</span></p>`;
+		prof.hidden = false;
+	}
 	// 道順の線（押した行の行き先まで）
 	let routeOn = false, destMark: Marker | null = null;
 	const routes: [number, number][][] = [], routeTo: string[] = [];   // routeTo＝行き先の名（終点のピンに出す）
@@ -1049,8 +1071,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			await map.addLayer({ id: "yk-route", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0288d1", "line-width": 6 } });   // 太め・濃いめ＝明るい基図の上でも傾けても見える（Mac の試し撮り 2026-10-26）
 		} else map.getSource("yk-route")?.setData?.(fc);
 		homeOut.querySelectorAll<HTMLElement>(".wroute").forEach(b => b.classList.toggle("on", +b.dataset.k! === k));
+		paintProfile(k);
 	}
-	const clearHome = () => { homeOut.hidden = true; homeNow = null; homeMark?.remove(); homeMark = null; routes.length = 0; routeTo.length = 0; if (routeOn) showRoute(-1); else { destMark?.remove(); destMark = null; } };
+	const clearHome = () => { homeOut.hidden = true; homeNow = null; homeMark?.remove(); homeMark = null; routes.length = 0; routeTo.length = 0; if (routeOn) showRoute(-1); else { destMark?.remove(); destMark = null; } profRun++; prof.hidden = true; };
 	// 保存した地点＝自宅・実家・職場など名前を付けて 3 か所まで。押せばその地点のカードへ（この端末だけ＝localStorage・Kenji 2026-10-27「2〜3 点登録できると便利」）
 	const PLACES_KEY = "yk-places", savedEl = $<HTMLElement>(".hm-saved");
 	let places: SavedPlace[] = [], homeNow: [number, number] | null = null;
@@ -1536,4 +1559,14 @@ const CSS = `
 .yk-cap b{font-size:18px;color:#fff}
 .yk-cap p{margin:3px 0 0;color:rgba(255,255,255,.8)}
 .yk-cap .x{position:absolute;top:10px;right:10px;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:rgba(255,255,255,.75);cursor:pointer}
-@media (max-width:640px){ .yk-cap{bottom:auto;top:12px} .yk-cap .cph{width:96px} }`;
+.yk-prof{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);z-index:30;width:min(400px,calc(100% - 24px));box-sizing:border-box;padding:10px 40px 8px 12px;
+	border-radius:var(--qm-r-l);background:rgba(8,14,26,.88);color:#f1f3f6;font:13px/1.45 var(--qm-font);box-shadow:var(--qm-shadow-pop);backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur))}
+.yk-prof[hidden],.yk-cap:not([hidden])~.yk-prof{display:none}
+.yk-prof b{display:block;font-size:13.5px;color:#fff}
+.yk-prof b small{font-weight:400;color:rgba(255,255,255,.7)}
+.yk-prof svg{display:block;width:100%;height:84px;margin:6px 0 4px}
+.yk-prof .a{fill:rgba(79,195,247,.28)}
+.yk-prof .l{fill:none;stroke:#4fc3f7;stroke-width:2;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.yk-prof p{margin:0;display:flex;justify-content:space-between;gap:4px 12px;flex-wrap:wrap;color:rgba(255,255,255,.85)}
+.yk-prof .x{position:absolute;top:8px;right:8px;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:rgba(255,255,255,.75);cursor:pointer}
+@media (max-width:640px){ .yk-cap{bottom:auto;top:12px} .yk-cap .cph{width:96px} .yk-prof{bottom:auto;top:12px} }`;

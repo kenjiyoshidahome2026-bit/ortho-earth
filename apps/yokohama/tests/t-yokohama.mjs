@@ -2,7 +2,7 @@
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
 import { readFileSync } from "node:fs";
 import { makeEn, romaji } from "../scripts/en-names.mjs";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn, tileBox, tilesIn, cityTileMask, tileKids, fillTpl, searchPlaces, BLD_SETS } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn, tileBox, tilesIn, cityTileMask, tileKids, fillTpl, searchPlaces, BLD_SETS, sampleLine, climb } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -138,6 +138,17 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 	const spot = [{ ja: "横浜スタジアム", en: "Yokohama Stadium", loc: "Stade de Yokohama", note: "", c: [139.64, 35.44] }];
 	t("通信なしの検索：英語名は表示の言語に関係なく当たり、表示名（loc）でも当たる",
 		searchPlaces(spot, "Yokohama Stadium").length === 1 && searchPlaces(spot, "stade").length === 1 && searchPlaces(spot, "スタジアム").length === 1);
+}
+{	// 道順の高低差
+	const line = [[139.6380, 35.4437], [139.6380, 35.4537], [139.6390, 35.4537]];
+	const s = sampleLine(line, 20, 120), last = s[s.length - 1];
+	t("高低差：線を区切った点＝始点・終点・曲がり角を含み、道のりは増えるだけ・終点＝全長",
+		s[0].d === 0 && last.at === line[2] && s.some(p => p.at === line[1]) && s.every((p, i) => !i || p.d > s[i - 1].d) && Math.abs(last.d - (distM(line[0], line[1]) + distM(line[1], line[2]))) < 1e-6 && s.length <= 120 && s.length > 50, String(s.length));
+	const long = sampleLine([[139.60, 35.40], [139.60, 35.50]], 20, 120);
+	t("高低差：長い道（11 km）も点は 120 以内", long.length <= 120 && long.length > 100, String(long.length));
+	const c = climb([5, 5.4, 4.8, 12, 30, 28, 29.5, 10, NaN, 8]);
+	t("高低差：上り 26.5 m・下り 23.5 m（1 m 未満の揺れは数えない）・最高 30・最低 4.8", c.up === 26.5 && c.down === 23.5 && c.max === 30 && c.min === 4.8, JSON.stringify(c));
+	t("高低差：標高が取れない＝0 と NaN", climb([NaN]).up === 0 && Number.isNaN(climb([]).max));
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);
