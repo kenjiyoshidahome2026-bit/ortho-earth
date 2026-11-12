@@ -780,7 +780,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (!s && !navigator.onLine) { const box = document.createElement("div"); box.className = "wsum off"; box.textContent = t("Wikipedia cannot be shown offline."); walkOut.append(box); return; }   // 例外は Wikipedia だけ（本人 2026-11-12）
 		if (!s?.extract) return;
 		const box = document.createElement("div"); box.className = "wsum";
-		box.innerHTML = `${s.thumbnail ? `<img src="${esc(s.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<p>${esc(s.extract.length > 320 ? s.extract.slice(0, 300).replace(/[^。.！？!?]*$/, "") || s.extract.slice(0, 300) + "…" : s.extract)}</p><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(t("Read on Wikipedia"))}</a>`;
+		// 本文は端末に残っていれば通信なしでも出す。写真（Wikimedia）は通信なしでは出ない＝壊れた絵を出さない（Mac 本番 2026-11-12）
+		box.innerHTML = `${s.thumbnail && navigator.onLine ? `<img src="${esc(s.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<p>${esc(s.extract.length > 320 ? s.extract.slice(0, 300).replace(/[^。.！？!?]*$/, "") || s.extract.slice(0, 300) + "…" : s.extract)}</p><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(t("Read on Wikipedia"))}</a>`;
+		box.querySelector("img")?.addEventListener("error", e => (e.currentTarget as HTMLElement).remove());
 		wikiFrame.link(box.querySelector("a")!, s.url, s.title);
 		walkOut.append(box);
 	}
@@ -884,6 +886,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// 地図を見せるために畳む＝操作方法カード（#hint）も閉じる（畳むと出てきて地図の上半分を覆っていた・Mac 390px 2026-10-26。閉じた選択は記憶＝以後は「?」）
 	const foldForMap = () => { if (!narrow()) return; P.setFold(true); const h = mapEl.querySelector<HTMLElement>("#hint"); if (h && h.style.display !== "none") h.querySelector<HTMLElement>("#hint-close")?.click(); };
 	$(".probe").onclick = () => { setProbing(!(probing && !probeHome)); if (probing) foldForMap(); };
+	// 操作方法カード（#hint）は最初の操作で畳む＝タブを選ぶ・地図に触れる（本番チェック 2026-11-12：スマホでタブを選ぶまで画面中央を覆い、PC でも残っていた）。
+	// 閉じた選択は記憶＝以後は「?」から（foldForMap と同じ）。カード自身と「?」を押した時は畳まない
+	const hintOff = (e: PointerEvent) => {
+		if ((e.target as Element | null)?.closest?.("#hint, #hint-btn")) return;
+		removeEventListener("pointerdown", hintOff, true);
+		const h = mapEl.querySelector<HTMLElement>("#hint"); if (h && h.style.display !== "none") h.querySelector<HTMLElement>("#hint-close")?.click();
+	};
+	addEventListener("pointerdown", hintOff, true);
 	async function samplePx(url: string, lon: number, lat: number, legend: typeof DEPTH): Promise<number> {
 		const z = 17, p = tilePixel(lon, lat, z);
 		try {
@@ -1220,20 +1230,24 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 通信なしで使う（完全オフライン・本人 2026-11-12）：一気に詰める・続きから・「更新」＝台帳と写真を取り直す・消す ──
 	const STAGE_NAMES: Record<Offline.Stage, string> = { app: "App", data: "Data and photos", map: "Base map", hazard: "Hazard maps", terrain: "Terrain", bld1: "Buildings", bld2: "3D buildings" };
 	const fmtMB = (b: number) => b >= 1e9 ? `${num(+(b / 1e9).toFixed(2))} GB` : `${num(Math.round(b / 1e6))} MB`;
-	let offAc: AbortController | null = null;
+	let offAc: AbortController | null = null, offNote = false;   // offNote＝最後の保存が「保存できなかった物がある」で終わった（止めたのでなく）
+	const offIntro = $<HTMLElement>(".off-msg").textContent || "";
 	const offPaint = async () => {
 		const ok = Offline.canPack(), rec = ok ? await Offline.status() : null, busy = !!offAc;
+		mapEl.classList.toggle("yk-packed", !!rec);   // 端末に束がある＝通信なしは想定どおり＝エンジンの「取得に失敗」の帯は出さない（見出しの「オフライン」の札で足りる）
 		$(".off-run").hidden = busy || !!rec?.done || !ok;   // 途中まで＝もう一度押すと続きから
 		$<HTMLElement>(".off-saved").hidden = busy || !rec;
-		if (rec) $<HTMLElement>(".off-when").textContent = rec.done ? t("Saved on this device: $1 · $2", new Date(rec.ts).toLocaleDateString(lang), fmtMB(rec.bytes)) : t("Stopped. Press again to continue from where it stopped.");
+		// 途中までの束＝説明は上の一行（止めた／保存できなかった物がある）に一つだけ出す（二つ並んでいた・Mac 本番 2026-11-12）
+		if (rec) $<HTMLElement>(".off-when").textContent = rec.done ? t("Saved on this device: $1 · $2", new Date(rec.ts).toLocaleDateString(lang), fmtMB(rec.bytes)) : fmtMB(rec.bytes);
 		$<HTMLElement>(".off-bar").hidden = $<HTMLElement>(".off-prog").hidden = !busy;
 		const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 		$<HTMLElement>(".off-ios").hidden = !(rec && ios && !matchMedia("(display-mode: standalone)").matches);
-		if (!ok) $<HTMLElement>(".off-msg").textContent = t("This browser cannot save the app for offline use.");
+		$<HTMLElement>(".off-msg").textContent = !ok ? t("This browser cannot save the app for offline use.")
+			: rec && !rec.done && !busy ? (offNote ? t("Finished, but some items could not be saved. Press Update to try again.") : t("Stopped. Press again to continue from where it stopped.")) : offIntro;
 	};
 	const offRun = async (refresh = false) => {
 		if (offAc) return;
-		offAc = new AbortController(); offPaint();
+		offAc = new AbortController(); offNote = false; offPaint();
 		const bar = $<HTMLElement>(".off-bar i"), msg = $<HTMLElement>(".off-prog small");
 		msg.textContent = t("Saving… keep this page open.");
 		let rec: Offline.OfflineRec | null = null, err = "";
@@ -1245,9 +1259,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			} }, { refresh });
 		} catch (e) { err = String((e as Error)?.message || e); console.warn("[yokohama] offline", e); }
 		const stopped = offAc.signal.aborted; offAc = null;
+		offNote = !stopped && (!!err || !rec?.done);
 		await offPaint();
-		const note = $<HTMLElement>(".off-msg");
-		if (!stopped && (err || !rec?.done)) note.textContent = t("Finished, but some items could not be saved. Press Update to try again.");
 	};
 	$(".off-run").onclick = () => offRun();
 	$(".off-upd").onclick = () => offRun(true);
@@ -1281,9 +1294,10 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// 通信なしの地名検索（地理院の検索は通信が要る＝main.ts の検索窓が通信の無い時だけここを引く）：名所・駅・施設・町丁目・区
 	let placeRows: Promise<PlaceRow[]> | null = null;
 	const loadPlaceRows = () => placeRows ??= (async () => {
-		const out: PlaceRow[] = WARDS.map(w => ({ ja: w.name, en: w.en, note: "", c: [w.lon, w.lat] as [number, number] }));
+		// en は英語のまま（英語で引ける＝日本語表示の時も「Yokohama Stadium」で当たる）・loc＝今の言語の表示名
+		const out: PlaceRow[] = WARDS.map(w => ({ ja: w.name, en: w.en, loc: t(w.en), note: "", c: [w.lon, w.lat] as [number, number] }));
 		const wardName = (code: string) => { const w = WARDS.find(x => x.code === code); return w ? (lang === "ja" ? w.name : t(w.en)) : ""; };
-		for (const s of SPOTS) out.push({ ja: s.wiki, en: t(s.name), note: wardName(s.ward), c: [s.lon, s.lat] });
+		for (const s of SPOTS) out.push({ ja: s.wiki, en: s.name, loc: t(s.name), note: wardName(s.ward), c: [s.lon, s.lat] });
 		const [pl, fc] = await Promise.all([ledger<{ rows: [number, number, string, string, number][] }>("places.json"), ledger<{ rows: FacilityRow[] }>("facilities.json"), enP]);
 		for (const r of pl?.rows || []) out.push({ ja: r[2], en: r[3], note: "", c: [r[0], r[1]] });
 		for (const r of fc?.rows || []) { const en = EN?.rows?.[`${r[2]}|${r[4]}`]; out.push({ ja: r[2], en: en?.[0] || "", note: lang === "ja" ? r[4] : en?.[1] || r[4], c: [r[0], r[1]] }); }
@@ -1298,7 +1312,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		}));
 		return out;
 	})();
-	const offlineSearch = async (q: string) => searchPlaces(await loadPlaceRows(), q).map(r => ({ text: lang === "ja" ? r.ja : r.en || r.ja, place_name: [lang === "ja" ? r.ja : r.en || r.ja, r.note].filter(Boolean).join(", "), center: r.c, bbox: r.bbox }));
+	const nameOf = (r: PlaceRow) => lang === "ja" ? r.ja : r.loc || r.en || r.ja;
+	const offlineSearch = async (q: string) => searchPlaces(await loadPlaceRows(), q).map(r => ({ text: nameOf(r), place_name: [nameOf(r), r.note].filter(Boolean).join(", "), center: r.c, bbox: r.bbox }));
 
 	return { offlineSearch, state: st, setTab, setWard, setHazard, setHinan, setTransit, setFac, tour, stopTour, lod1Ready,
 		get shelters() { return shelters; }, get lod1() { return lod1; }, get facilities() { return fac; }, get bus() { return bus; }, get subwayMarkers() { return subMarks; } };
@@ -1326,6 +1341,7 @@ const CSS = `
 .yk-panel .off-saved button,.yk-panel .off-prog button{font:inherit;font-size:12px;padding:4px 10px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
 .yk-panel .off-bar{height:4px;margin-top:8px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
 .yk-panel .off-bar i{display:block;height:100%;width:0;background:#4fc3f7;transition:width .3s}
+.yk-packed #net-toast{display:none!important}
 .yk-panel .yk-offline{flex:none;margin-left:auto;margin-right:6px;padding:2px 8px;border-radius:10px;background:#ffb300;color:#000;font-size:11.5px;font-weight:700}
 .yk-panel .yk-offline[hidden]{display:none}
 .yk-panel .msel{display:flex;flex-direction:column;gap:3px;margin-top:8px;font-size:12px;color:var(--qm-text-dim)}

@@ -13,9 +13,10 @@ startPage("yokohama", async () => {
 	const map = await orthoJapan({ target: "#map", view: location.hash || `#${v.zoom}/${v.lat}/${v.lon}`,
 		instruments: ["pos", "scale", "attr"], urlHash: true,
 		layers: { facility: false } });   // 基図の施設名は封印＝公共施設の点と名が被る（本人 2026-10-26「基図の施設名は被るから外しましょう」）
-	// 地名検索＝地理院（通信が要る）。通信の無い時だけ横浜の台帳（名所・駅・施設・町丁目）から引く（完全オフライン・2026-11-12）
+	// 地名検索＝地理院（通信が要る）＋横浜の台帳（名所・駅・施設・町丁目＝通信なしでも引ける・英語名でも当たる・完全オフライン 2026-11-12）。
+	// 台帳は通信のある時も並べる（地理院は英語で引けず、「綱島」の 1 件目が長崎県だった・Mac 本番 2026-11-12）
 	let twinRef: { offlineSearch(q: string): Promise<CarmenFeature[]> } | null = null;
-	map.gadget.search({ localGeocoder: q => !navigator.onLine && twinRef ? twinRef.offlineSearch(q) : [] });
+	map.gadget.search({ localGeocoder: q => twinRef ? twinRef.offlineSearch(q) : [] });
 	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.qr(); map.gadget.sunshadow(); map.gadget.hint(); map.gadget.lang();
 	const twin = await mountTwin(map, { base: new URLSearchParams(location.search).get("data") || __DATA_JAPAN__ + "yokohama/" });
 	twinRef = twin;
