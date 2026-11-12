@@ -83,7 +83,7 @@ export const MAP_MEMBERS: Record<string, ZoomClass> = {
 	// 画像タイル・ガジェット
 	raster: "raster", gadget: "gadget",
 	// 3D・解析
-	add3DTiles: "none", addI3S: "none", getHeight: "none", sunShadow: "none", setShadows: "none", setClipping: "none", getClipping: "none",
+	add3DTiles: "none", addI3S: "none", getHeight: "none", sunShadow: "none", setShadows: "none", prefetchTerrain: "none", getBasemapTiles: "none", setClipping: "none", getClipping: "none",
 	viewshed: "none", lineOfSight: "none", clearViewshed: "none",
 	// 投影・フレーム・描画
 	project: "none", unproject: "none", projectLL: "none", unprojectXY: "none", unprojectXYAsync: "none", makeProjector: "none", makeProjectorH: "none",

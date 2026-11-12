@@ -513,3 +513,116 @@ export function walkTo(g: WalkGraph, from: WalkFrom, to: [number, number]): { m:
 	put([g.x[v] * WALK_Q, g.y[v] * WALK_Q]); put(from.snaps[from.src[v]].pt); put(from.at);
 	return { m, path: path.reverse() };
 }
+
+// ── 通信なしで使う（完全オフライン・本人 2026-11-12「通信が可能な場所で一気にダウンロードしてデータベースを更新」）──
+/** 端末に詰める物のおおよその大きさ（MB）＝Mac の実測（scripts/measure-offline.mjs）。保存ボタンの説明に出す */
+export const OFFLINE_MB = 2400;   // 2026-11-12 Mac 実測から：基図 約 140・災害の想定 約 90・建物 LOD1 約 1,200（属性を抜いた後）・LOD2 約 980・台帳とアプリ 約 30
+// 端末に詰める束の中身を決める純関数（タイルの列と、市の形で間引く升目）。詰める・配る仕組みは offline.ts と共有の sw.js
+/** タイル z/x/y の範囲 [w,s,e,n]（度） */
+export function tileBox(z: number, x: number, y: number): [number, number, number, number] {
+	const n = 2 ** z, lon = (i: number) => i / n * 360 - 180, lat = (j: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * j / n))) * 180 / Math.PI;
+	return [lon(x), lat(y + 1), lon(x + 1), lat(y)];
+}
+/** bbox（[w,s,e,n]）に掛かる z のタイル */
+export function tilesIn(bbox: readonly number[], z: number): [number, number, number][] {
+	const a = tilePixel(bbox[0], bbox[3], z), b = tilePixel(bbox[2], bbox[1], z), out: [number, number, number][] = [];
+	for (let x = a.x; x <= b.x; x++) for (let y = a.y; y <= b.y; y++) out.push([z, x, y]);
+	return out;
+}
+/** 市に掛かるタイルだけを通す篩（市の外の海・川崎・鎌倉は細かい段を詰めない）。
+ *  mz の段で中心が市の中の枡に印を付け、1 枡ぶん太らせる（境の取りこぼし＝約 1 km の余白）。mz より細かい段＝祖先の印・粗い段＝子孫に印があれば通す */
+export function cityTileMask(inside: (lon: number, lat: number) => boolean, bbox: readonly number[], mz = 15): (z: number, x: number, y: number) => boolean {
+	const marks = new Set<string>(), key = (x: number, y: number) => `${x}/${y}`;
+	for (const [, x, y] of tilesIn(bbox, mz)) {
+		const b = tileBox(mz, x, y);
+		if (inside((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) marks.add(key(x + dx, y + dy));
+	}
+	const coarse = new Map<number, Set<string>>();   // 粗い段の印（子孫に印がある枡）
+	for (let z = mz - 1; z >= 0; z--) { const s = new Set<string>(), k = 2 ** (mz - z); for (const m of marks) { const [x, y] = m.split("/").map(Number); s.add(key(Math.floor(x / k), Math.floor(y / k))); } coarse.set(z, s); }
+	return (z, x, y) => z >= mz ? marks.has(key(x >> (z - mz), y >> (z - mz))) : coarse.get(z)!.has(key(x, y));
+}
+/** 子の 4 枚 */
+export const tileKids = (z: number, x: number, y: number): [number, number, number][] => [[z + 1, 2 * x, 2 * y], [z + 1, 2 * x + 1, 2 * y], [z + 1, 2 * x, 2 * y + 1], [z + 1, 2 * x + 1, 2 * y + 1]];
+/** 型紙（{z}/{x}/{y}）を埋める */
+export const fillTpl = (tpl: string, z: number, x: number, y: number) => tpl.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
+/** 3D Tiles の tileset.json（1 枚）から、中身の URL（b3dm・glb 等）と子の tileset.json の URL を集める */
+export function tilesetRefs(json: { root?: unknown }, base: string): { contents: string[]; children: string[] } {
+	const contents: string[] = [], children: string[] = [];
+	const visit = (t: { content?: { uri?: string; url?: string }; contents?: { uri?: string; url?: string }[]; children?: unknown[] } | undefined) => {
+		if (!t) return;
+		for (const c of [t.content, ...(t.contents || [])]) { const ref = c?.uri ?? c?.url; if (!ref) continue; const abs = new URL(ref, base).href; (/\.json(\?|$)/.test(abs) ? children : contents).push(abs); }
+		for (const ch of t.children || []) visit(ch as typeof t);
+	};
+	visit(json.root as Parameters<typeof visit>[0]);
+	return { contents, children };
+}
+/** 3D Tiles の中身（b3dm・glb）を、描くのに要らない物を抜いて軽くする（LOD1 は textures:false・pickable:false・単色で描く＝画像も地物の属性も使わない）。
+ *  Mac 実測（2026-11-12）：LOD1 に画像は無く、b3dm の 6 割は batch table（属性の JSON）＝これを抜くと 13 区 2.9 GB → 約 1.2 GB。
+ *  ・b3dm の batch table を外す（長さ 0＝属性なし。feature table の BATCH_LENGTH と形の _BATCHID はそのまま）
+ *  ・GLB のテクスチャ画像を抜く：bufferView の番号は変えない（Draco 等の拡張の参照を壊さない）＝画像の bufferView は長さ 1 の空に、後ろは抜いた分（4 の倍数）だけ前へ詰める。
+ *  読めない形・meshopt（拡張が buffer の位置を直に持つ）＝その部分は元のまま */
+export function slimTile(src: ArrayBuffer): ArrayBuffer {
+	const u8 = new Uint8Array(src), dv = new DataView(src), tag = String.fromCharCode(...u8.subarray(0, 4));
+	if (tag === "glTF") return stripGlbImages(u8).slice().buffer;
+	if (tag !== "b3dm" || src.byteLength < 28) return src;
+	const ftJ = dv.getUint32(12, true), ftB = dv.getUint32(16, true), btJ = dv.getUint32(20, true), btB = dv.getUint32(24, true), g0 = 28 + ftJ + ftB + btJ + btB;
+	if (g0 > src.byteLength) return src;
+	const glb = stripGlbImages(u8.subarray(g0, Math.min(src.byteLength, dv.getUint32(8, true))));
+	const out = new Uint8Array(28 + ftJ + ftB + glb.length), o = new DataView(out.buffer);
+	out.set(u8.subarray(0, 28 + ftJ + ftB)); out.set(glb, 28 + ftJ + ftB);
+	o.setUint32(8, out.length, true); o.setUint32(20, 0, true); o.setUint32(24, 0, true);
+	return out.buffer;
+}
+function stripGlbImages(g: Uint8Array): Uint8Array {
+	const src = g, u8 = g, dv = new DataView(g.buffer, g.byteOffset, g.byteLength), g0 = 0;
+	if (g.length < 20 || dv.getUint32(0, true) !== 0x46546c67 || dv.getUint32(4, true) !== 2) return src;
+	const glbLen = dv.getUint32(g0 + 8, true), jLen = dv.getUint32(g0 + 12, true);
+	if (dv.getUint32(g0 + 16, true) !== 0x4e4f534a || g0 + 20 + jLen > src.byteLength) return src;
+	let gl: { images?: { bufferView?: number }[]; bufferViews?: { buffer: number; byteOffset?: number; byteLength: number }[]; buffers?: { byteLength: number; uri?: string }[]; textures?: unknown; samplers?: unknown; materials?: Record<string, unknown>[]; extensionsUsed?: string[]; extensionsRequired?: string[] };
+	try { gl = JSON.parse(new TextDecoder().decode(u8.subarray(g0 + 20, g0 + 20 + jLen))); } catch { return src; }
+	const b0 = g0 + 20 + jLen;
+	if (b0 + 8 > g0 + glbLen || dv.getUint32(b0 + 4, true) !== 0x004e4942) return src;   // BIN チャンクが無い
+	const binLen = dv.getUint32(b0, true), bin = u8.subarray(b0 + 8, b0 + 8 + binLen);
+	const views = gl.bufferViews || [], imgViews = new Set((gl.images || []).map(i => i.bufferView).filter((v): v is number => Number.isInteger(v)));
+	if (!imgViews.size || (gl.extensionsUsed || []).some(e => /meshopt/i.test(e)) || [...imgViews].some(i => !views[i] || views[i].buffer !== 0)) return src;
+	// 抜く範囲（4 の倍数に切り下げ＝後ろの bufferView の並びの揃えを保つ）
+	const cuts = [...imgViews].map(i => ({ at: views[i].byteOffset || 0, n: views[i].byteLength - (views[i].byteLength % 4) })).sort((a, b) => a.at - b.at);
+	const shift = (o: number) => { let s = 0; for (const c of cuts) if (c.at + c.n <= o) s += c.n; return o - s; };
+	const parts: Uint8Array[] = []; let pos = 0;
+	for (const c of cuts) { if (c.at < pos) return src; parts.push(bin.subarray(pos, c.at)); pos = c.at + c.n; }   // 重なる＝読めない形
+	parts.push(bin.subarray(pos));
+	views.forEach((v, i) => { if (imgViews.has(i)) { v.byteOffset = 0; v.byteLength = 1; } else if (v.buffer === 0) v.byteOffset = shift(v.byteOffset || 0); });
+	let nb = parts.reduce((s, p) => s + p.length, 0);
+	delete gl.images; delete gl.textures; delete gl.samplers;
+	for (const m of gl.materials || []) {
+		delete m.normalTexture; delete m.occlusionTexture; delete m.emissiveTexture;
+		const p = m.pbrMetallicRoughness as Record<string, unknown> | undefined; if (p) { delete p.baseColorTexture; delete p.metallicRoughnessTexture; }
+		delete m.extensions;   // 拡張の中の画像の参照（KHR_materials_* の texture）ごと
+	}
+	const tex = /texture|KHR_materials/i;
+	if (gl.extensionsUsed) gl.extensionsUsed = gl.extensionsUsed.filter(e => !tex.test(e));
+	if (gl.extensionsRequired) gl.extensionsRequired = gl.extensionsRequired.filter(e => !tex.test(e));
+	if (gl.buffers?.[0]) gl.buffers[0].byteLength = nb;
+	const pad4 = (n: number) => (4 - (n % 4)) % 4;
+	const jb = new TextEncoder().encode(JSON.stringify(gl)), jPad = pad4(jb.length), bPad = pad4(nb);
+	const n = 12 + 8 + jb.length + jPad + 8 + nb + bPad, out = new Uint8Array(n), o = new DataView(out.buffer);
+	o.setUint32(0, 0x46546c67, true); o.setUint32(4, 2, true); o.setUint32(8, n, true);
+	o.setUint32(12, jb.length + jPad, true); o.setUint32(16, 0x4e4f534a, true); out.set(jb, 20); out.fill(0x20, 20 + jb.length, 20 + jb.length + jPad);
+	let p2 = 20 + jb.length + jPad; o.setUint32(p2, nb + bPad, true); o.setUint32(p2 + 4, 0x004e4942, true); p2 += 8;
+	for (const p of parts) { out.set(p, p2); p2 += p.length; }   // 後ろの埋め草は 0 のまま
+	return out;
+}
+/** 通信なしの地名検索（地理院の検索は通信が要る）＝台帳の名所・駅・施設・町丁目・区から引く 1 行 */
+export interface PlaceRow { ja: string; en: string; note: string; c?: [number, number]; bbox?: [number, number, number, number] }
+const searchKey = (s: string) => normJa(s).toLowerCase().replace(/[\s\-・ー'’.]/g, "");
+/** 通信なしの地名検索：日本語か英語の名前に問いを含む行（完全一致 → 前方一致 → 途中・短い名前を先に）。2 文字未満は引かない */
+export function searchPlaces(rows: readonly PlaceRow[], q: string, max = 8): PlaceRow[] {
+	const k = searchKey(q); if (k.length < 2) return [];
+	const hits: { r: PlaceRow; s: number }[] = [];
+	for (const r of rows) {
+		let best = 9;
+		for (const n of [r.ja, r.en]) { if (!n) continue; const m = searchKey(n), i = m.indexOf(k); if (i < 0) continue; best = Math.min(best, m === k ? 0 : i === 0 ? 1 : 2); }
+		if (best < 9) hits.push({ r, s: best * 1000 + Math.min(999, (r.ja || r.en).length) });
+	}
+	return hits.sort((a, b) => a.s - b.s).slice(0, max).map(h => h.r);
+}

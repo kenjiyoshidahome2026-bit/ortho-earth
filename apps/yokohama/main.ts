@@ -5,6 +5,7 @@
 // UI は 26 言語（英語キー・頁の辞書 i18n/pages/yokohama.json・地図の言語ボタン）。head は英語（共有カードと検索が読む）
 import { startPage } from "@ortho-earth/globe/page.js";
 import { CITY_VIEW } from "./data.ts";
+import type { CarmenFeature } from "@ortho-earth/globe";
 startPage("yokohama", async () => {
 	const [{ default: orthoJapan }, { mountTwin }] = await Promise.all([import("@ortho-earth/regions/app"), import("./twin.ts")]);
 	// 初期視点＝横浜市の全景を真上から（twin.ts が続けて「市全体」＝市を画面の 9 割に収める平面の地区図にする・本人 2026-10-26）。共有 URL の hash があればそちら
@@ -12,8 +13,16 @@ startPage("yokohama", async () => {
 	const map = await orthoJapan({ target: "#map", view: location.hash || `#${v.zoom}/${v.lat}/${v.lon}`,
 		instruments: ["pos", "scale", "attr"], urlHash: true,
 		layers: { facility: false } });   // 基図の施設名は封印＝公共施設の点と名が被る（本人 2026-10-26「基図の施設名は被るから外しましょう」）
-	map.gadget.search(); map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.qr(); map.gadget.sunshadow(); map.gadget.hint(); map.gadget.lang();
+	// 地名検索＝地理院（通信が要る）。通信の無い時だけ横浜の台帳（名所・駅・施設・町丁目）から引く（完全オフライン・2026-11-12）
+	let twinRef: { offlineSearch(q: string): Promise<CarmenFeature[]> } | null = null;
+	map.gadget.search({ localGeocoder: q => !navigator.onLine && twinRef ? twinRef.offlineSearch(q) : [] });
+	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.qr(); map.gadget.sunshadow(); map.gadget.hint(); map.gadget.lang();
 	const twin = await mountTwin(map, { base: new URLSearchParams(location.search).get("data") || __DATA_JAPAN__ + "yokohama/" });
+	twinRef = twin;
 	window.__map = map; window.__twin = twin;   // console 検証用
 	return map;
 }, { page: c => import(`./i18n/lang/yokohama/${c}.json`) });   // 26 言語（本人 2026-10-21）＝言語は URL の ?lang= かブラウザ。頁の辞書＝i18n/pages/yokohama.json
+// サービスワーカー（public/sw.js→packages/globe/scripts/lib/sw.js＝各アプリ共通）：ビルド資産を Cache API で握る＋端末に保存した束（oj-pack-yokohama）を
+// 通信なしで配る（完全オフライン・本人 2026-11-12）。?nosw=1 で外す
+if ((location.protocol === "https:" || location.hostname === "localhost") && !/[?&]nosw=1/.test(location.search) && "serviceWorker" in navigator)
+	addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] register failed", e)));
