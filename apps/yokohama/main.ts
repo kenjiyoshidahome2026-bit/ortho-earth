@@ -6,6 +6,8 @@
 import { startPage } from "@ortho-earth/globe/page.js";
 import { CITY_VIEW } from "./data.ts";
 import type { CarmenFeature } from "@ortho-earth/globe";
+import { bootWorkersFromPack } from "./worker-boot.ts";
+bootWorkersFromPack();   // 通信なしの起動＝エンジンの worker を SW 経由（端末の束）で起こす。エンジンを読む前に（2026-11-13）
 startPage("yokohama", async () => {
 	const [{ default: orthoJapan }, { mountTwin }] = await Promise.all([import("@ortho-earth/regions/app"), import("./twin.ts")]);
 	// 初期視点＝横浜市の全景を真上から（twin.ts が続けて「市全体」＝市を画面の 9 割に収める平面の地区図にする・本人 2026-10-26）。共有 URL の hash があればそちら
