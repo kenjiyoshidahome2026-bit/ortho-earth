@@ -93,3 +93,37 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/release.yml
+
+  # MCP サーバー（@ortho-earth/mcp）を npm に出したら、MCP Registry の登録も同じ版に（2026-11-12）。
+  # 認証＝GitHub の OIDC（mcp-publisher login github-oidc）＝token を置かない。名前 io.github.kenjiyoshidahome2026-bit/* はこの repo の持ち主の物だけが出せる。
+  # Registry は npm の package.json の mcpName で持ち主を確かめる＝npm に届いてから出す（届くまで待ち直す）。版は package.json・src/version.js・server.json を揃えて上げる（t-mcp が見張る）
+  mcp-registry:
+    needs: publish
+    if: contains(needs.publish.outputs.published, '@ortho-earth/mcp')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write   # login github-oidc
+    defaults:
+      run:
+        working-directory: packages/mcp
+    steps:
+      - uses: actions/checkout@v7
+      - name: npm に新しい版が見えるまで待つ
+        run: |
+          set -eu
+          v=$(node -p 'require("./package.json").version')
+          for i in $(seq 1 20); do
+            [ "$(npm view @ortho-earth/mcp@$v version 2>/dev/null || true)" = "$v" ] && { echo "npm に $v あり"; exit 0; }
+            sleep 15
+          done
+          echo "✗ npm に @ortho-earth/mcp@$v が見えない"; exit 1
+      - name: mcp-publisher を入れる（Registry 公式の配布物）
+        run: curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - name: Registry に出す
+        run: |
+          set -eu
+          ./mcp-publisher validate
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
