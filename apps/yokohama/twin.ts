@@ -86,7 +86,10 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); baseLayers(b); }
 	};
 	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setFlat(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
-	const flySpot = (s: Spot) => { const h = holdBuildings(s); return flyView(s).finally(() => { h.armed = true; }); };
+	// 着いたら 0.4 秒止まる＝エンジンは視点が止まった時（settle）にだけ新しい区の建物を読み始める。ツアーは着くとすぐ回り込み（easeTo）へ移る＝
+	// 止まる瞬間が無く、まだ読んでいない区は一度も読まれなかった（本人 2026-11-13「名所ツアーで建物が出ない」・Mac 実測で 400ms で立つ）
+	const SETTLE_MS = 400;
+	const flySpot = (s: Spot) => { const h = holdBuildings(s); return flyView(s).finally(() => { h.armed = true; }).then(() => sleep(SETTLE_MS)); };
 
 	// ── 案内板（右上）──
 	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（夜の配色）。ここは中身だけ
@@ -590,6 +593,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			const h = holdBuildings(v);
 			await (i ? map.easeTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing, duration: 7000 }) : flyView(v));
 			h.armed = true;
+			await sleep(SETTLE_MS);   // 止まって建物を読み始めさせる（flySpot と同じ）
 			if (touring !== run) return;
 			await map.easeTo({ bearing: v.bearing + 25, duration: 5000 });   // 船の上から見渡す
 		}
