@@ -1045,7 +1045,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (run !== profRun) return;
 		const c = climb(h);
 		if (!Number.isFinite(c.max)) { prof.hidden = true; return; }
-		const W = 360, H = 84, total = pts[pts.length - 1].d || 1, lo = Math.floor(c.min), span = Math.max(10, c.max - lo);   // 10 m より平らな道は平らに見せる（縦を伸ばしすぎない）
+		const W = 360, H = 84, total = pts[pts.length - 1].d || 1, span = Math.max(10, c.max - c.min), lo = (c.max + c.min - span) / 2;   // 10 m より平らな道は平らに・高さの中ほどに見せる（縦を伸ばしすぎない・底に張り付けない＝Mac 実測 2026-11-13）
 		const xy = pts.flatMap((p, i) => Number.isFinite(h[i]) ? [`${(p.d / total * W).toFixed(1)},${(H - 4 - (h[i] - lo) / span * (H - 12)).toFixed(1)}`] : []);
 		prof.innerHTML = `<button class="x" type="button" aria-label="${esc(t("Close"))}">×</button>`
 			+ `<b>${esc(t("Elevation along this route"))}${routeTo[k] ? ` <small>→ ${esc(routeTo[k])}</small>` : ""}</b>`
@@ -1569,4 +1569,4 @@ const CSS = `
 .yk-prof .l{fill:none;stroke:#4fc3f7;stroke-width:2;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .yk-prof p{margin:0;display:flex;justify-content:space-between;gap:4px 12px;flex-wrap:wrap;color:rgba(255,255,255,.85)}
 .yk-prof .x{position:absolute;top:8px;right:8px;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:rgba(255,255,255,.75);cursor:pointer}
-@media (max-width:640px){ .yk-cap{bottom:auto;top:12px} .yk-cap .cph{width:96px} .yk-prof{bottom:auto;top:12px} }`;
+@media (max-width:640px){ .yk-cap{bottom:auto;top:12px} .yk-cap .cph{width:96px} .yk-prof{bottom:auto;top:12px;left:56px;right:12px;width:auto;transform:none} }`;
