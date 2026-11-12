@@ -11,6 +11,7 @@ t("区：18 区・コードは 14101〜14118 の連番", WARDS.length === 18 && 
 t("区：名前は「区」で終わり重複しない", WARDS.every(w => w.name.endsWith("区")) && new Set(WARDS.map(w => w.name)).size === 18);
 t("区・名所：座標は横浜市の外接矩形の中", [...WARDS, ...SPOTS].every(p => inCity(p.lon, p.lat)), [...WARDS, ...SPOTS].filter(p => !inCity(p.lon, p.lat)).map(p => p.name).join());
 t("名所：id が重複せず、区は台帳にある", new Set(SPOTS.map(s => s.id)).size === SPOTS.length && SPOTS.every(s => WARDS.some(w => w.code === s.ward)));
+t("名所：名札は市内・名前がある（三塔）", SPOTS.flatMap(s => s.marks || []).every(m => m.name && inCity(m.lon, m.lat)) && SPOTS.some(s => s.marks?.length === 3));
 t("名所：写真の記事名がある", SPOTS.every(s => typeof s.wiki === "string" && s.wiki.length > 1));
 t("名所：視点の値が地図の域（z 12〜19・tilt 0〜75）", SPOTS.every(s => s.zoom >= 12 && s.zoom <= 19 && s.tilt >= 0 && s.tilt <= 75));
 t("ツアー：並びは全部名所の id・重複なし", TOUR.length >= 5 && TOUR.every(id => SPOTS.some(s => s.id === id)) && new Set(TOUR).size === TOUR.length);
