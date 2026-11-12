@@ -70,9 +70,9 @@ async function dracoPnts(J: FeatureTableJson, bin: Uint8Array, BT: Record<string
 	const ext = dracoExtOf(J);
 	if (!ext) return null;
 	const extra = { ...(ext.properties || {}), ...(dracoExtOf(BT)?.properties || {}) };
-	const { loadParse, DracoLoader } = await import("./mesh-loaders.ts");   // loaders.gl の Draco worker で解く（この model worker は module worker＝importScripts で復号器を読めない）
+	const [{ loadParse, DracoLoader }, { DRACO_OPTS }] = await Promise.all([import("./mesh-loaders.ts"), import("./draco-libs.ts")]);   // この worker の中で同梱の復号器で解く（draco-libs.ts＝CDN の worker と復号器を使わない＝通信なしでも解ける）
 	const at = bin.byteOffset + (ext.byteOffset || 0), buf = bin.buffer.slice(at, at + (ext.byteLength || 0)) as ArrayBuffer;
-	const mesh = await loadParse(buf, DracoLoader, { draco: { extraAttributes: extra } }) as { attributes: Record<string, { value: ArrayLike<number>; size: number }> };
+	const mesh = await loadParse(buf, DracoLoader, { ...DRACO_OPTS, draco: { extraAttributes: extra } }) as { attributes: Record<string, { value: ArrayLike<number>; size: number }> };
 	const A = mesh.attributes, P = (A.POSITION ?? A.POSITION_QUANTIZED)?.value, C = A.RGBA ?? A.RGB ?? A.COLOR_0;
 	if (!P) return null;
 	const cols: Record<string, { value: ArrayLike<number>; size: number }> = {};

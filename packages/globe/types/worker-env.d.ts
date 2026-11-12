@@ -10,3 +10,5 @@ type CanvasRenderingContext2D = OffscreenCanvasRenderingContext2D;
 type HTMLImageElement = ImageBitmap;
 interface HTMLElement extends EventTarget {}
 interface WebGL2RenderingContext { readonly canvas: OffscreenCanvas }
+// `import("./x.wasm?url")`・`import("./x.js?url")`＝ビルドが実体ファイルにして URL を既定 export で返す（draco-libs.ts・src/types/assets.d.ts と同じ宣言）
+declare module "*?url" { const url: string; export default url; }
