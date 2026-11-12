@@ -64,8 +64,10 @@ export function qr(this: GlobeMap, { getUrl, signal, btn }: { getUrl?: () => str
 		} catch (e) { markEl.style.width = "0"; urlEl.textContent = t("QR encoding failed (URL too long?)"); console.warn("[qr]", e); }
 	};
 	const close = () => panel.classList.remove("open");
-	btn!.addEventListener("click", () => { if (panel.classList.toggle("open")) render(); });   // 上で必ず持つ   // 開く度に「今の視点」で作り直す
+	// 開く度に容れ物の末尾へ付け直す＝後から足された物（頁のピン・名札・ツアーの札）より上に出る（横浜 2026-11-13：区役所の名札が QR の上に出た）
+	const show = () => { if (panel !== mapEl.lastElementChild) mapEl.append(panel); panel.classList.add("open"); render(); };
+	btn!.addEventListener("click", () => { if (panel.classList.contains("open")) close(); else show(); });   // 上で必ず持つ   // 開く度に「今の視点」で作り直す
 	panel.addEventListener("click", e => { if (!(e.target as Element).closest(".qr-card")) close(); });   // カード外（背景）＝閉じる
 	window.addEventListener("keydown", e => { if (e.key === "Escape" && panel.classList.contains("open")) { e.preventDefault(); close(); } }, { signal });
-	return { open: () => { panel.classList.add("open"); render(); }, close };   // プログラム駆動用
+	return { open: show, close };   // プログラム駆動用
 }
