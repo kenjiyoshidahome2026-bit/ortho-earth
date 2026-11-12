@@ -70,7 +70,7 @@ It has no dependencies. The same code runs as the npm command (stdio) and as the
 
 ## For maintainers
 
-`server.json` is the entry in the [MCP Registry](https://registry.modelcontextprotocol.io/) (`io.github.kenjiyoshidahome2026-bit/ortho-earth`). When the version changes, change it in `package.json`, `src/version.js` and `server.json` together (the test checks), publish to npm, then run `mcp-publisher publish` in this folder.
+`server.json` is the entry in the [MCP Registry](https://registry.modelcontextprotocol.io/) (`io.github.kenjiyoshidahome2026-bit/ortho-earth`). When the version changes, change it in `package.json`, `src/version.js` and `server.json` together (the test checks) and run the `publish` workflow: after the new version reaches npm, its `mcp-registry` job updates the Registry entry (GitHub OIDC, no token). By hand: `mcp-publisher login github && mcp-publisher publish` in this folder.
 
 ## License
 
