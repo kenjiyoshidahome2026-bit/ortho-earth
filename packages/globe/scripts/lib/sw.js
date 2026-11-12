@@ -10,11 +10,18 @@
 //   非ハッシュの同一オリジン資産(json/png)も素通し＝版ズレの罠を避け、ブラウザのHTTPキャッシュに委ねる。
 // 依存ゼロ（[[軽さの訴求]] の掟＝出荷コードに npm を足さない）。★ロジックを変えたら CACHE の版番号を上げる＝activate で旧キャッシュを一掃。
 // 前提：登録は本番httpsの index.html だけ（[[gadget-development-principle]] と同じくアプリ本体 app.js には副作用を入れない＝埋め込みを汚さない）。
-const CACHE = "oj-assets-v8";      // v8＝2026-10-15 japan の一枚を各アプリ共通に（base を scope から読む＝census2020・nl も自分の assets/ を握る）・v7＝2026-10-14 エンジンの入口に jp/*・nl/* が入った（入口の判定を assets/ の外に一般化）・v6＝2026-10-14 共有エンジンの入口（globe.js 等）を network-first へ＝旧版の入口を握ったまま遅延チャンクを旧版へ取りに行って 404（tellus の cog）・v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
+const CACHE = "oj-assets-v9";      // v9＝2026-11-12 横浜の完全オフライン（パックを oj-pack* の名前で複数持てる・同一オリジンもパックへ退避・ナビは ?query 無視でパックから）・v8＝2026-10-15 japan の一枚を各アプリ共通に（base を scope から読む＝census2020・nl も自分の assets/ を握る）・v7＝2026-10-14 エンジンの入口に jp/*・nl/* が入った（入口の判定を assets/ の外に一般化）・v6＝2026-10-14 共有エンジンの入口（globe.js 等）を network-first へ＝旧版の入口を握ったまま遅延チャンクを旧版へ取りに行って 404（tellus の cog）・v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
 const PACK = "oj-pack";            // オフラインパック（gadgets/offline.js が詰める＝基図タイル・ラスタ）。activate で掃かない（利用者の持ち物）
-// パックがあるか＝SW の生存中に一度だけ調べる（無ければクロスオリジンは素通し＝従来と同じ費用）。gadget が作る/消すたびに postMessage で取り直す
-let packOn = null;
-const hasPack = async () => packOn ??= await caches.has(PACK).catch(() => false);
+// パックは名前が PACK で始まる Cache 全部（2026-11-12〜）：oj-pack＝範囲の gadget・oj-pack-<アプリ>＝アプリ丸ごとの束（横浜＝oj-pack-yokohama）。
+// 束ごとに置き場を分ける＝gadget の「最後のパックを消す＝置き場ごと消す」がアプリの束を巻き込まない
+const isPack = k => k.startsWith(PACK);
+// パックがあるか＝SW の生存中に一度だけ調べる（無ければクロスオリジンは素通し＝従来と同じ費用）。gadget／アプリが作る/消すたびに postMessage で取り直す
+let packOn = null, packNames = [];
+const hasPack = async () => packOn ??= await caches.keys().then(ks => (packNames = ks.filter(isPack)).length > 0).catch(() => false);
+// パックから引く（どの束でも・Vary は見ない＝詰めた時の要求と今の要求で Origin 等の頭が違っても同じ物）
+const fromPack = async (url, opt = {}) => { if (!(await hasPack())) return null; for (const n of packNames) { const r = await caches.match(url, { cacheName: n, ignoreVary: true, ...opt }).catch(() => null); if (r) return r; } return null; };
+// 通信が切れた時の受け皿＝パック → 普段の置き場の順（同一オリジンの要求）
+const offline = async (req, opt = {}) => (await fromPack(req.url, opt)) || (await caches.match(req, { ignoreVary: true, ...opt }).catch(() => null)) || Response.error();
 self.addEventListener("message", e => { if (e.data?.type === "oj-pack") packOn = null; });      // v3＝2026-09-22 の大改名（PLATEAU→mesh・遅延ロードの組み替え）で旧チャンクが全部入れ替わった＝古い掴みを一掃する
 // v2＝SDK二重構成（2026-08-20）：/japan/lib/ を導入した版
 // このアプリの base（登録の scope の path＝"/japan/" など・末尾 /）
@@ -39,7 +46,7 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", e => e.waitUntil((async () => {
 	// 版を上げた時だけ旧キャッシュを掃く（同一版の中では未改版ハッシュが自然に再利用される＝取り直さない）。
 	const keys = await caches.keys();
-	await Promise.all(keys.filter(k => k !== CACHE && k !== PACK).map(k => caches.delete(k)));
+	await Promise.all(keys.filter(k => k !== CACHE && !isPack(k)).map(k => caches.delete(k)));
 	packOn = null;
 	await self.clients.claim();
 })()));
@@ -51,11 +58,10 @@ self.addEventListener("fetch", e => {
 	// ⓪ オフラインパック（#40）＝パックに入っている URL（基図タイル・ラスタ＝クロスオリジン）だけ cache-first。無ければ素の fetch（保存しない＝
 	//    パックの外は従来どおり HTTP キャッシュ任せ）。機内モードでパックの範囲が開く仕組み。パックが 1 つも無ければ照会も一度で済む
 	if (url.origin !== location.origin) {
-		if (packOn === false) return;   // パック無し＝素通し（照会もしない）
+		if (packOn === false || req.cache === "reload" || req.cache === "no-store") return;   // パック無し＝素通し（照会もしない）・reload＝束を詰め直す取得（パックを見ずに網へ）
 		e.respondWith((async () => {
 			if (!(await hasPack())) return fetch(req);
-			const hit = await caches.match(req.url, { cacheName: PACK }).catch(() => null);
-			return hit || fetch(req);
+			return (await fromPack(req.url)) || fetch(req);
 		})());
 		return;
 	}
@@ -69,7 +75,7 @@ self.addEventListener("fetch", e => {
 				if (res.ok && !res.redirected) (await caches.open(CACHE)).put(req, res.clone());
 				return res;
 			} catch {
-				return (await caches.match(req)) || Response.error();
+				return offline(req);
 			}
 		})());
 		return;
@@ -77,7 +83,8 @@ self.addEventListener("fetch", e => {
 
 	// ⓪" 共有エンジンの今の版の札（/globe/engine/current.json）＝掴まない（素通し）。エンジンが「旧版を握ったままか」を確かめる時に読む
 	//     （packages/globe/scripts/lib/engine-stale.mjs・2026-10-14）＝下の ① の cache-first に入ると古い札を返し続けて確かめが効かない
-	if (url.pathname === "/globe/engine/current.json") return;
+	//     通信が無い時だけパックの札（アプリの束が詰めた時の版）を返す
+	if (url.pathname === "/globe/engine/current.json") { if (packOn !== false) e.respondWith(fetch(req).catch(() => offline(req))); return; }
 
 	// ① ハッシュ名の不変資産＝cache-first（掴んでいれば無通信、無ければ取って保存）。worker/wasm/css/lazyチャンクが全部ここ。
 	if (ASSETS.some(p => url.pathname.startsWith(p))) {
@@ -85,7 +92,8 @@ self.addEventListener("fetch", e => {
 			const cache = await caches.open(CACHE);
 			const hit = await cache.match(req);
 			if (hit) return hit;
-			const res = await fetch(req);
+			let res;
+			try { res = await fetch(req); } catch { return offline(req); }   // 通信なし＝アプリの束（パック）にあればそれ
 			if (res.ok && !res.redirected) cache.put(req, res.clone());   // 成功(200)時のみ保存＝部分/失敗レスポンスと、旧版→今の版の転送は掴まない
 			return res;
 		})());
@@ -101,7 +109,10 @@ self.addEventListener("fetch", e => {
 				if (res.ok) (await caches.open(CACHE)).put(req, res.clone());
 				return res;
 			} catch {
-				return (await caches.match(req)) || Response.error();
+				// 通信なし：ナビは ?lang= 等を無視してパックの頁を先に（パックの頁はパックの資産と同じ版＝必ず揃う）→ 普段の置き場
+				if (req.mode !== "navigate") return offline(req);
+				return (await fromPack(req.url, { ignoreSearch: true })) || (await fromPack(new URL("./", req.url).href, { ignoreSearch: true }))
+					|| (await caches.match(req, { ignoreVary: true }).catch(() => null)) || (await caches.match(req, { ignoreSearch: true, ignoreVary: true }).catch(() => null)) || Response.error();
 			}
 		})());
 		return;
@@ -114,8 +125,11 @@ self.addEventListener("fetch", e => {
 				if (res.ok) (await caches.open(CACHE)).put(req, res.clone());
 				return res;
 			} catch {
-				return (await caches.match(req)) || Response.error();
+				return offline(req);
 			}
 		})());
+		return;
 	}
+	// ④ その他の同一オリジン（png・bin・wasm 等）＝素通し。パックがある時だけ、通信が切れたらパックから
+	if (packOn !== false) e.respondWith((async () => { try { return await fetch(req); } catch { return (await fromPack(req.url)) || Response.error(); } })());
 });

@@ -265,8 +265,8 @@ export interface GlobeCoreApi {
 	getReduceMotion(): boolean;   // globe.js:2653
 	/** 建物 3D（地域の建物メッシュ＝日本は PLATEAU LOD2）を出す／伏せる（2026-10-21）。伏せている間は描かず新しく読み込まない（読んだ物は保つ＝戻すと即）。opts.mesh=false の地図では効かない */
 	setMeshVisible(on: boolean): GlobeMap;
-	/** 建物 3D（PLATEAU LOD2 など）を IDB へ先読みする（2026-10-26）。names＝カタログ名・bbox＝[w,s,e,n] と交わる区（今の視点に近い順）。描かない・ピン留めしない＝出すかは普段どおり z と視界で決まる。戻り＝先読みした区の名前 */
-	prefetchBuildings(o?: { names?: string[]; bbox?: [number, number, number, number] }): Promise<string[]>;
+	/** 建物 3D（PLATEAU LOD2 など）を IDB へ先読みする（2026-10-26）。names＝カタログ名・bbox＝[w,s,e,n] と交わる区（今の視点に近い順）。描かない・ピン留めしない＝出すかは普段どおり z と視界で決まる。onProgress＝区の数で（2026-11-12）。戻り＝焼けた区の名前（取れなかった区は入らない・2026-11-12） */
+	prefetchBuildings(o?: { names?: string[]; bbox?: [number, number, number, number]; onProgress?: (done: number, total: number) => void }): Promise<string[]>;
 	/** 建物 3D を出しているか（opts.mesh=false の地図は false） */
 	getMeshVisible(): boolean;
 	/** 基図の表示項目を点ける／消す（2026-10-21）。キーは opts.layers と同じ（place/terrain/rail/road/facility）。チップ・共有 URL も一緒に変わる。opts.layers で固定したキーは変わらない */
@@ -512,6 +512,11 @@ export interface ShadowsApi {
 	 *  true／false／{ time（Date・ms・ISO＝その時刻の太陽・省略＝共通の時計）, darkness（影の明るさ 0..1・既定は太陽の高さで 0.4〜0.6＝高い太陽ほど暗い） }。
 	 *  z13 以上・太陽が地平線の上（2° 以上）の時だけ。WebGPU と WebGL2（1.7.0〜・P0 #3）の両方で掛かる。消している間は描画に一切関与しない（資源も持たない） */
 	setShadows(opts?: boolean | { on?: boolean; time?: Date | number | string; darkness?: number }): void;   // api/shadows.ts:64
+	/** 標高（地形）を IDB へ先読みする（2026-11-12・アプリ丸ごとのオフライン＝横浜）。bbox＝[w,s,e,n]・zmax＝寄る段（9 以上で 1° 級の細かい標高も）。
+	 *  地形を描かない地図（terrain:false）・外の基図では何もしない。戻り＝取れたセル・失敗したセル・標高の無かったセル（海・取れなかった時も）の数 */
+	prefetchTerrain(o: { bbox: Bbox; zmax?: number; onProgress?: (done: number, total: number) => void; signal?: AbortSignal }): Promise<{ done: number; failed: number; empty: number }>;
+	/** 基図タイルの型紙（https…{z}/{x}/{y}）・最小ズーム・範囲（2026-11-12・オフラインの束を作る口）。XYZ でない基図（PMTiles・基図なし）は null */
+	getBasemapTiles(): { template: string; minZoom: number; coverage: number[] | null } | null;
 	/** 断面とクリッピング平面（1.7.0〜・#111）。建物・地形・基図を平面で切って中を見る（Cesium の ClippingPlane に当たる）。面は全部の交わり（残るのは全部の面の内側）・6 枚まで。
 	 *  vertical＝2 点 a→b（[lon, lat]）を通る鉛直面＝**a→b に向かって右側を残す**・horizontal＝高さ h（m）の水平面（その地点の接平面・keep "below"＝既定で下を残す／"above"）・
 	 *  box＝箱の内側を残す（center・size＝[東西の幅, 南北の奥行き] m・h＝[底, 天] m・bearing＝奥行きの向き 度）・planes＝単位球の平面 [nx, ny, nz, c]（n·X ≥ c を残す・上級者向け）。

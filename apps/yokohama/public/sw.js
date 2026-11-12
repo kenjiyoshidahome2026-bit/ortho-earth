@@ -1,0 +1,1 @@
+../../../packages/globe/scripts/lib/sw.js

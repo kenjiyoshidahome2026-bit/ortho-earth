@@ -7,6 +7,7 @@ import { close as closeGadget } from "../gadgets/close.ts";
 import { createTileLoader } from "@ortho-earth/core/elevation";
 import { home as homeGadget } from "../gadgets/home.ts";
 import { offline as offlineGadget } from "../gadgets/offline.ts";
+import { demNames, runFetches, tplOf } from "../offline-pack.ts";
 import { print as printGadget } from "../gadgets/print-stub.ts";
 import { qr as qrGadget } from "../gadgets/qr-stub.ts";
 import { shot as shotGadget } from "../gadgets/shot-stub.ts";
@@ -183,11 +184,21 @@ export function installShadows(map: Installing<ShadowsApi>, live: ShadowsLive, {
 	// オフラインパック（#40）：地域の申告（基図・標高・建物・ラスタ）を読んだ結果だけを渡す＝gadget は地域を知らない。
 	// 標高は core のローダ（IDB GIS/alt）を要る時に一度だけ作る。建物は meshMgr（起こしてから台帳を読む）
 	let offlineDem: TileLoader | null = null;
+	const xyzBase = () => typeof BASE_SOURCE.tileUrl === "function" && /^https?:/.test(String(BASE_SOURCE.tileUrl(1, 0, 0) ?? ""));   // XYZ の基図だけ（PMTiles・基図なしは tileUrl が型紙にならない）
+	const demByName = live.noTerr || live.EXT ? null : async (n: string) => (offlineDem ??= await createTileLoader({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM })).byName(n);
+	// アプリ丸ごとのオフライン（横浜・2026-11-12）＝gadget の窓を通さずに同じ部品を使う口
+	map.getBasemapTiles = () => xyzBase() ? { template: tplOf(BASE_SOURCE.tileUrl as (z: number, x: number, y: number) => unknown), minZoom: Math.max(4, Math.floor(TILE_MINZOOM)), coverage: (BASE_SOURCE.coverage || null) as number[] | null } : null;
+	map.prefetchTerrain = async ({ bbox, zmax = 16, onProgress, signal } = {} as Parameters<typeof map.prefetchTerrain>[0]) => {
+		if (!demByName || !bbox) return { done: 0, failed: 0, empty: 0 };
+		const names = demNames(bbox, zmax);
+		let empty = 0;   // 標高の無いセル（海・ALOS の外）＝失敗と区別がつかない（ローダは取れなくても null）＝数だけ返す
+		const r = await runFetches(names, { fetchOne: async n => { if (!(await demByName(n))) empty++; return 0; }, onProgress: p => onProgress?.(p.done, p.total), signal: signal ?? null, concurrency: 2 });
+		return { done: r.aborted ? 0 : names.length - r.failed - empty, failed: r.failed, empty };
+	};
 	registerGadget("offline", (m, opts) => {
 		const sources: OfflineSources = {
-			// XYZ の基図だけ（PMTiles・基図なしは tileUrl が型紙にならない＝gadget は載らない）
-			basemap: typeof BASE_SOURCE.tileUrl === "function" && /^https?:/.test(String(BASE_SOURCE.tileUrl(1, 0, 0) ?? "")) ? { tileUrl: BASE_SOURCE.tileUrl, coverage: BASE_SOURCE.coverage, minZ: Math.max(4, Math.floor(TILE_MINZOOM)) } : null,
-			dem: live.noTerr || live.EXT ? null : { byName: async n => (offlineDem ??= await createTileLoader({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM })).byName(n) },
+			basemap: xyzBase() ? { tileUrl: BASE_SOURCE.tileUrl, coverage: BASE_SOURCE.coverage, minZ: Math.max(4, Math.floor(TILE_MINZOOM)) } : null,
+			dem: demByName ? { byName: demByName } : null,
 			rasters: { list: () => (map.raster.list() as RasterRow[]).filter(r => r.spec?.url && /\{z\}/.test(r.spec.url)).map(r => ({ id: r.id, url: r.spec.url, minZoom: r.spec.minZoom ?? r.spec.minzoom ?? 0, maxZoom: r.spec.maxZoom ?? r.spec.maxzoom ?? 22, subdomains: r.spec.subdomains || null, tms: !!r.spec.tms })) },
 			mesh: meshOn ? { warm: () => wakeMesh(), sets: () => meshMgr.sets, prefetch: (names, onProg) => meshMgr.prefetch([], names, onProg) } : null,
 		};

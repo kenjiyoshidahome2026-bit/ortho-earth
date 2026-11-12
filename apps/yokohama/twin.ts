@@ -16,6 +16,8 @@ import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.j
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
 import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
+import { OFFLINE_MB } from "./data.ts";
+import * as Offline from "./offline.ts";   // 通信なしで使う束（完全オフライン・本人 2026-11-12）
 
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
 
@@ -144,6 +146,16 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<div class="detail walk-out" hidden></div>
 			</section>
 			<section data-pane="risk" hidden>
+				<!-- 通信なしで使う（本人 2026-11-12「災害時の動作保証・外国人が通信なしで使える」）＝一気に端末へ保存・「更新」で取り直す -->
+				<div class="offl">
+				<h2>${esc(t("Use without a connection"))}</h2>
+				<p class="sub flat off-msg">${esc(t("Save the whole app on this device (about $1) and every feature works without a network, for example in a disaster. Only Wikipedia needs a connection.", OFFLINE_MB >= 1000 ? `${(OFFLINE_MB / 1000).toFixed(1)} GB` : `${OFFLINE_MB} MB`))}</p>
+				<button type="button" class="act off-run">${esc(t("Save for offline use"))}</button>
+				<div class="off-saved" hidden><span class="off-when"></span><span class="off-btns"><button type="button" class="off-upd">${esc(t("Update"))}</button><button type="button" class="off-del">${esc(t("Delete"))}</button></span></div>
+				<div class="off-bar" hidden><i></i></div>
+				<div class="off-prog" hidden><small></small><button type="button" class="off-stop">${esc(t("Stop"))}</button></div>
+				<p class="sub flat off-ios" hidden>${esc(t("On iPhone and iPad, add this page to the Home Screen to keep the saved data."))}</p>
+				</div>
 				<h2>${esc(t("Check a location"))}</h2>
 				<button type="button" class="act probe">${esc(t("Tap the map to check a location"))}</button>
 				<div class="detail probe-out" hidden></div>
@@ -764,7 +776,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	async function stationWiki(ja: string, run: string) {
 		const titles = (await staWiki())?.[ja]; if (!titles) return;
 		const s = await summaryIn(titles, lang === "ja" ? ["ja"] : langChain(lang, ["en", "ja"])).catch(() => null);
-		if (!s?.extract || walkOut.dataset.run !== run) return;
+		if (walkOut.dataset.run !== run) return;
+		if (!s && !navigator.onLine) { const box = document.createElement("div"); box.className = "wsum off"; box.textContent = t("Wikipedia cannot be shown offline."); walkOut.append(box); return; }   // 例外は Wikipedia だけ（本人 2026-11-12）
+		if (!s?.extract) return;
 		const box = document.createElement("div"); box.className = "wsum";
 		box.innerHTML = `${s.thumbnail ? `<img src="${esc(s.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<p>${esc(s.extract.length > 320 ? s.extract.slice(0, 300).replace(/[^。.！？!?]*$/, "") || s.extract.slice(0, 300) + "…" : s.extract)}</p><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(t("Read on Wikipedia"))}</a>`;
 		wikiFrame.link(box.querySelector("a")!, s.url, s.title);
@@ -1203,6 +1217,51 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	$(".measure").onclick = () => { measure.open?.(); };
 	$(".profile").onclick = () => { profile.open?.(); };
 
+	// ── 通信なしで使う（完全オフライン・本人 2026-11-12）：一気に詰める・続きから・「更新」＝台帳と写真を取り直す・消す ──
+	const STAGE_NAMES: Record<Offline.Stage, string> = { app: "App", data: "Data and photos", map: "Base map", hazard: "Hazard maps", terrain: "Terrain", bld1: "Buildings", bld2: "3D buildings" };
+	const fmtMB = (b: number) => b >= 1e9 ? `${num(+(b / 1e9).toFixed(2))} GB` : `${num(Math.round(b / 1e6))} MB`;
+	let offAc: AbortController | null = null;
+	const offPaint = async () => {
+		const ok = Offline.canPack(), rec = ok ? await Offline.status() : null, busy = !!offAc;
+		$(".off-run").hidden = busy || !!rec?.done || !ok;   // 途中まで＝もう一度押すと続きから
+		$<HTMLElement>(".off-saved").hidden = busy || !rec;
+		if (rec) $<HTMLElement>(".off-when").textContent = rec.done ? t("Saved on this device: $1 · $2", new Date(rec.ts).toLocaleDateString(lang), fmtMB(rec.bytes)) : t("Stopped. Press again to continue from where it stopped.");
+		$<HTMLElement>(".off-bar").hidden = $<HTMLElement>(".off-prog").hidden = !busy;
+		const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+		$<HTMLElement>(".off-ios").hidden = !(rec && ios && !matchMedia("(display-mode: standalone)").matches);
+		if (!ok) $<HTMLElement>(".off-msg").textContent = t("This browser cannot save the app for offline use.");
+	};
+	const offRun = async (refresh = false) => {
+		if (offAc) return;
+		offAc = new AbortController(); offPaint();
+		const bar = $<HTMLElement>(".off-bar i"), msg = $<HTMLElement>(".off-prog small");
+		msg.textContent = t("Saving… keep this page open.");
+		let rec: Offline.OfflineRec | null = null, err = "";
+		try {
+			rec = await Offline.run({ map, dataBase: opts.base, signal: offAc.signal, onProgress: p => {
+				const i = Offline.STAGES.indexOf(p.stage), f = p.total ? p.done / p.total : 0;
+				bar.style.width = `${(100 * (i + f) / Offline.STAGES.length).toFixed(1)}%`;
+				msg.textContent = `${t(STAGE_NAMES[p.stage])} ${num(p.done)} / ${num(p.total)}${p.bytes ? " · " + fmtMB(p.bytes) : ""}`;
+			} }, { refresh });
+		} catch (e) { err = String((e as Error)?.message || e); console.warn("[yokohama] offline", e); }
+		const stopped = offAc.signal.aborted; offAc = null;
+		await offPaint();
+		const note = $<HTMLElement>(".off-msg");
+		if (!stopped && (err || !rec?.done)) note.textContent = t("Finished, but some items could not be saved. Press Update to try again.");
+	};
+	$(".off-run").onclick = () => offRun();
+	$(".off-upd").onclick = () => offRun(true);
+	$(".off-stop").onclick = () => offAc?.abort();
+	$(".off-del").onclick = async () => { if (!confirm(t("Delete the data saved on this device?"))) return; await Offline.remove(); offPaint(); };
+	// 通信の有無＝見出しに「オフライン」の札
+	const offChip = document.createElement("span"); offChip.className = "yk-offline"; offChip.textContent = t("Offline");
+	P.head.insertBefore(offChip, P.fold);
+	const onNet = () => { offChip.hidden = navigator.onLine; };
+	addEventListener("online", onNet); addEventListener("offline", onNet); onNet();
+	offPaint();
+	// 通信のある起動で：束があって新しいデプロイが出ていたら、アプリとエンジンだけ黙って詰め直す（通信なしで開いた時に頁と資産が揃う）
+	if (Offline.canPack()) setTimeout(() => Offline.syncApp({ map, dataBase: opts.base }).then(n => { if (n) offPaint(); }).catch(e => console.warn("[yokohama] offline sync", e)), 20000);
+
 	// ── 起動時の状態（URL）──
 	setTab(st.tab);
 	const s0 = SPOTS.find(s => s.id === st.spot);
@@ -1238,6 +1297,15 @@ const CSS = `
 .yk-panel .subtabs button[aria-selected=true]{color:var(--qm-text);border-bottom-color:#4fc3f7;font-weight:700}
 .yk-panel [data-sub-pane] h3{margin:12px 0 4px;font-size:12.5px;font-weight:600;color:var(--qm-text-dim)}
 .yk-panel h2{font-size:12px;margin:12px 0 4px;color:var(--qm-text-dim);font-weight:600}
+.yk-panel .offl{margin:0 0 4px;padding:2px 10px 8px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:rgba(79,195,247,.07)}
+.yk-panel .off-saved,.yk-panel .off-prog{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px;font-size:12.5px}
+.yk-panel .off-saved[hidden],.yk-panel .off-prog[hidden],.yk-panel .off-bar[hidden]{display:none}
+.yk-panel .off-btns{display:flex;gap:6px;flex:none}
+.yk-panel .off-saved button,.yk-panel .off-prog button{font:inherit;font-size:12px;padding:4px 10px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
+.yk-panel .off-bar{height:4px;margin-top:8px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
+.yk-panel .off-bar i{display:block;height:100%;width:0;background:#4fc3f7;transition:width .3s}
+.yk-panel .yk-offline{flex:none;margin-left:auto;margin-right:6px;padding:2px 8px;border-radius:10px;background:#ffb300;color:#000;font-size:11.5px;font-weight:700}
+.yk-panel .yk-offline[hidden]{display:none}
 .yk-panel .msel{display:flex;flex-direction:column;gap:3px;margin-top:8px;font-size:12px;color:var(--qm-text-dim)}
 .yk-panel select,.yk-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:5px 6px;min-width:0}
 .yk-panel input[type=range]{width:100%;accent-color:#4fc3f7}

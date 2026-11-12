@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
 import { makeEn, romaji } from "../scripts/en-names.mjs";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn, tileBox, tilesIn, cityTileMask, tileKids, fillTpl, tilesetRefs } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -114,6 +114,18 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 	t("保存した地点：壊れた・市外・名前なしは捨て、3 か所まで・名前は前後の空白を落とす", ok3.length === PLACES_MAX && ok3[0].n === "自宅" && ok3[1].n === "職場" && ok3[2].n === "あ"
 		&& parsePlaces(null).length === 0 && parsePlaces("{") .length === 0 && parsePlaces('{"n":"x"}').length === 0
 		&& samePlace([139.6395, 35.5385], [139.6396, 35.5386]) && !samePlace([139.6395, 35.5385], [139.6405, 35.5385]));
+}
+{	// 通信なしで使う束（2026-11-12）：タイルの列・市の形の篩・3D Tiles の中身の URL
+	const b = tileBox(17, 116358, 51618), [, x, y] = tilesIn([139.6395, 35.5385, 139.6395, 35.5385], 17)[0];
+	t("オフライン：tileBox と tilesIn が往復する（綱島東の z17）", tilesIn(b.map((v, i) => v + (i < 2 ? 1e-7 : -1e-7)), 17).length === 1 && x === tilePixel(139.6395, 35.5385, 17).x && y === tilePixel(139.6395, 35.5385, 17).y);
+	t("オフライン：市の外接矩形の z16 は数千枚（全部数えても軽い）", tilesIn(CITY_BBOX, 16).length > 2000 && tilesIn(CITY_BBOX, 16).length < 6000, String(tilesIn(CITY_BBOX, 16).length));
+	const disc = (lon, lat) => distM([lon, lat], [139.6, 35.45]) < 5000;   // 半径 5 km の円を「市」に見立てる
+	const keep = cityTileMask(disc, CITY_BBOX);
+	const p = tilePixel(139.6, 35.45, 16), far = tilePixel(139.47, 35.59, 16);
+	t("オフライン：篩＝市の中の細かい段は通し、外は落とす・粗い段は子孫があれば通す", keep(16, p.x, p.y) && keep(17, 2 * p.x, 2 * p.y) && !keep(16, far.x, far.y) && keep(10, p.x >> 6, p.y >> 6) && keep(0, 0, 0));
+	t("オフライン：子の 4 枚と型紙", tileKids(10, 3, 5).map(k => k.join("/")).join() === "11/6/10,11/7/10,11/6/11,11/7/11" && fillTpl("https://a/{z}/{x}/{y}.png", 1, 2, 3) === "https://a/1/2/3.png");
+	const r = tilesetRefs({ root: { content: { uri: "a.b3dm" }, children: [{ content: { uri: "sub/tileset.json" } }, { contents: [{ url: "../c.glb?v=1" }] }] } }, "https://h/x/tileset.json");
+	t("オフライン：tileset.json の中身と子の tileset", r.contents.join() === "https://h/x/a.b3dm,https://h/c.glb?v=1" && r.children.join() === "https://h/x/sub/tileset.json", JSON.stringify(r));
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

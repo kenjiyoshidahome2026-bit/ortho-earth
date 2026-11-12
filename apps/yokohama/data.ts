@@ -513,3 +513,46 @@ export function walkTo(g: WalkGraph, from: WalkFrom, to: [number, number]): { m:
 	put([g.x[v] * WALK_Q, g.y[v] * WALK_Q]); put(from.snaps[from.src[v]].pt); put(from.at);
 	return { m, path: path.reverse() };
 }
+
+// ── 通信なしで使う（完全オフライン・本人 2026-11-12「通信が可能な場所で一気にダウンロードしてデータベースを更新」）──
+/** 端末に詰める物のおおよその大きさ（MB）＝Mac の実測（scripts/measure-offline.mjs）。保存ボタンの説明に出す */
+export const OFFLINE_MB = 0;
+// 端末に詰める束の中身を決める純関数（タイルの列と、市の形で間引く升目）。詰める・配る仕組みは offline.ts と共有の sw.js
+/** タイル z/x/y の範囲 [w,s,e,n]（度） */
+export function tileBox(z: number, x: number, y: number): [number, number, number, number] {
+	const n = 2 ** z, lon = (i: number) => i / n * 360 - 180, lat = (j: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * j / n))) * 180 / Math.PI;
+	return [lon(x), lat(y + 1), lon(x + 1), lat(y)];
+}
+/** bbox（[w,s,e,n]）に掛かる z のタイル */
+export function tilesIn(bbox: readonly number[], z: number): [number, number, number][] {
+	const a = tilePixel(bbox[0], bbox[3], z), b = tilePixel(bbox[2], bbox[1], z), out: [number, number, number][] = [];
+	for (let x = a.x; x <= b.x; x++) for (let y = a.y; y <= b.y; y++) out.push([z, x, y]);
+	return out;
+}
+/** 市に掛かるタイルだけを通す篩（市の外の海・川崎・鎌倉は細かい段を詰めない）。
+ *  mz の段で中心が市の中の枡に印を付け、1 枡ぶん太らせる（境の取りこぼし＝約 1 km の余白）。mz より細かい段＝祖先の印・粗い段＝子孫に印があれば通す */
+export function cityTileMask(inside: (lon: number, lat: number) => boolean, bbox: readonly number[], mz = 15): (z: number, x: number, y: number) => boolean {
+	const marks = new Set<string>(), key = (x: number, y: number) => `${x}/${y}`;
+	for (const [, x, y] of tilesIn(bbox, mz)) {
+		const b = tileBox(mz, x, y);
+		if (inside((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) marks.add(key(x + dx, y + dy));
+	}
+	const coarse = new Map<number, Set<string>>();   // 粗い段の印（子孫に印がある枡）
+	for (let z = mz - 1; z >= 0; z--) { const s = new Set<string>(), k = 2 ** (mz - z); for (const m of marks) { const [x, y] = m.split("/").map(Number); s.add(key(Math.floor(x / k), Math.floor(y / k))); } coarse.set(z, s); }
+	return (z, x, y) => z >= mz ? marks.has(key(x >> (z - mz), y >> (z - mz))) : coarse.get(z)!.has(key(x, y));
+}
+/** 子の 4 枚 */
+export const tileKids = (z: number, x: number, y: number): [number, number, number][] => [[z + 1, 2 * x, 2 * y], [z + 1, 2 * x + 1, 2 * y], [z + 1, 2 * x, 2 * y + 1], [z + 1, 2 * x + 1, 2 * y + 1]];
+/** 型紙（{z}/{x}/{y}）を埋める */
+export const fillTpl = (tpl: string, z: number, x: number, y: number) => tpl.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
+/** 3D Tiles の tileset.json（1 枚）から、中身の URL（b3dm・glb 等）と子の tileset.json の URL を集める */
+export function tilesetRefs(json: { root?: unknown }, base: string): { contents: string[]; children: string[] } {
+	const contents: string[] = [], children: string[] = [];
+	const visit = (t: { content?: { uri?: string; url?: string }; contents?: { uri?: string; url?: string }[]; children?: unknown[] } | undefined) => {
+		if (!t) return;
+		for (const c of [t.content, ...(t.contents || [])]) { const ref = c?.uri ?? c?.url; if (!ref) continue; const abs = new URL(ref, base).href; (/\.json(\?|$)/.test(abs) ? children : contents).push(abs); }
+		for (const ch of t.children || []) visit(ch as typeof t);
+	};
+	visit(json.root as Parameters<typeof visit>[0]);
+	return { contents, children };
+}

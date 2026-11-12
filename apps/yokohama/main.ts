@@ -17,3 +17,7 @@ startPage("yokohama", async () => {
 	window.__map = map; window.__twin = twin;   // console 検証用
 	return map;
 }, { page: c => import(`./i18n/lang/yokohama/${c}.json`) });   // 26 言語（本人 2026-10-21）＝言語は URL の ?lang= かブラウザ。頁の辞書＝i18n/pages/yokohama.json
+// サービスワーカー（public/sw.js→packages/globe/scripts/lib/sw.js＝各アプリ共通）：ビルド資産を Cache API で握る＋端末に保存した束（oj-pack-yokohama）を
+// 通信なしで配る（完全オフライン・本人 2026-11-12）。?nosw=1 で外す
+if ((location.protocol === "https:" || location.hostname === "localhost") && !/[?&]nosw=1/.test(location.search) && "serviceWorker" in navigator)
+	addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] register failed", e)));

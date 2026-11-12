@@ -421,7 +421,9 @@ async function preloadForApp({ names, bbox }: { names?: string[] | null; bbox?: 
 	const c = env.cam.center, d2 = (s: MeshSet) => ((s.bbox[0] + s.bbox[2]) / 2 - c[0]) ** 2 + ((s.bbox[1] + s.bbox[3]) / 2 - c[1]) ** 2;
 	const wanted = names?.length ? names.map(n => SETS.find(x => x.name === n)).filter((s): s is MeshSet => !!s && !meshDead(s.name))
 		: bbox ? SETS.filter(s => !meshDead(s.name) && bboxIntersects(s.bbox, bbox)).sort((a, b) => d2(a) - d2(b)) : [];
-	return runPrefetch(wanted, "app", onProgress);
+	const ok = new Set<string>();   // 戻り＝焼けた区だけ（取れなかった区は入れない＝頁が「全部揃ったか」を判定できる・横浜の完全オフライン 2026-11-12）
+	await runPrefetch(wanted, "app", onProgress, ok);
+	return wanted.filter(s => ok.has(s.name));
 }
 // 台本の視点列→PLATEAU区集合の導出（2026-08-12 関数化＝先読みと静穏窓の大掃除で共用）。
 // 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
@@ -480,7 +482,7 @@ function meshTrimForScript(views: unknown[]) {
 	}
 	if (freed) console.log(`[mesh] quiet-window cleanup = evicted residents absent from remaining script ~${(freed / 1048576) | 0}MB (left ${meshResident.size} wards ~${(residentBytes() / 1048576) | 0}MB)`);
 }
-async function runPrefetch(wanted: MeshSet[], how: string, onProgress?: OnProg | null) {   // 戻り値＝対象区リスト（scene 再生のリビール準備＝全区スタンドアップが使う）
+async function runPrefetch(wanted: MeshSet[], how: string, onProgress?: OnProg | null, okOut?: Set<string>) {   // 戻り値＝対象区リスト（scene 再生のリビール準備＝全区スタンドアップが使う）・okOut＝焼けた区の名前（頁の先読み＝map.prefetchBuildings の戻り）
 	if (!wanted.length) return wanted;
 	console.log(`[demo] PLATEAU prefetch ${wanted.length} wards (${how}): ${wanted.map(s => s.name).join(", ")}`);
 	meshPrefetchBusy = true;   // 先読み中＝autoMesh の建物枠を1つ譲る（デコード同時数の総枠を保つ）
@@ -508,7 +510,7 @@ async function runPrefetch(wanted: MeshSet[], how: string, onProgress?: OnProg |
 				while (visibleBusy()) await new Promise(r => setTimeout(r, 1000));
 				const s = wanted[wi++];
 				if (!s) return;
-				await meshPreload(s);
+				if (await meshPreload(s)) okOut?.add(s.name);
 				onProgress?.(++done, wanted.length, s.name);   // 1区 IDB へ焼けた＝進捗を1つ進める
 				autoMesh(true);   // 先読み完了の瞬間に表示判定を一突き＝「先読み中にもう着いていた」際、静止したままでも即立つ（読込中ガードで見送られた分の敗者復活）
 			}
