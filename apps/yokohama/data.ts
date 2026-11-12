@@ -78,8 +78,8 @@ export function subwayCodes(name: string): { code: string; line: SubwayLine }[] 
 /** 交通の層（最初は全部 OFF） */
 export const TRANSIT = [
 	{ id: "subway", name: "Yokohama Municipal Subway (Blue Line, Green Line)" },
-	{ id: "bus", name: "Yokohama Municipal Bus stops" },
 	{ id: "rail", name: "JR and private railway stations and lines" },
+	{ id: "bus", name: "Yokohama Municipal Bus stops" },   // 鉄道の後（本人 2026-11-13「バスの停留所と JR・私鉄の順番を逆に」）
 ] as const;
 export const TRANSIT_DEFAULT: string[] = [];   // 最初は何も出さない（本人 2026-10-21「市営地下鉄は最初は OFF」）＝旧 URL の "tr=" も同じ意味で読める
 

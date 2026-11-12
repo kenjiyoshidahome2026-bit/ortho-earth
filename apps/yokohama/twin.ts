@@ -110,18 +110,19 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<div class="spot-note" hidden></div>
 			</section>
 			<section data-pane="life">
-				<!-- 市民ファースト（本人 2026-10-25）：地区 → 探す（検索と表）を先に・地図に出す施設の種類と区域は畳む＝スマホで最初の一画面に「探す」が入る -->
+				<!-- 市民ファースト（本人 2026-10-25）：地区 → 札（地図の表示＝既定・施設の検索）。2026-11-13 に札の並びを「地図の表示」が先へ -->
 				<h2>${esc(t("District"))}</h2>
 				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t("Yokohama City (18 wards)"))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t("Show the whole city"))}">${esc(t("Whole city"))}</button></div>
 				<div class="detail stats-out" hidden></div>
-				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="find" aria-selected="true">${esc(t("Search facilities"))}</button><button type="button" role="tab" data-sub-tab="show" aria-selected="false">${esc(t("Map display"))}</button></nav>
-				<div data-sub-pane="find">
+				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="show" aria-selected="true">${esc(t("Map display"))}</button><button type="button" role="tab" data-sub-tab="find" aria-selected="false">${esc(t("Search facilities"))}</button></nav>
+				<!-- 札の並び＝「地図の表示」が先・既定（本人 2026-11-13） -->
+				<div data-sub-pane="find" hidden>
 				<input type="search" class="fq" placeholder="${esc(t("Name, type or address"))}" aria-label="${esc(t("Search facilities"))}" enterkeyhint="search">
 				<div class="fbt"></div>
 				<div class="fbar"><small class="fq-n"></small><button type="button" class="fcsv">${esc(t("Download CSV"))}</button></div>
 				<p class="sub flat">${esc(t("Tap a row to fly there. Lists every public facility in the chosen district."))}</p>
 				</div>
-				<div data-sub-pane="show" hidden>
+				<div data-sub-pane="show">
 				<!-- 公共施設＝区分ごとに 1 行（チェック）・種別は ▾ で開く・最初は区役所だけ（本人 2026-10-26「最初から全部出しすぎ・せめて区役所ぐらい」）。出している施設の合計が少ない間（≤ FAC_FAR_MAX 件）は市全体の眺めからも点が出る -->
 				<h3>${esc(t("Types of facilities on the map"))}</h3>
 				<div class="fbar fac-bar"><small class="fac-n"></small><button type="button" class="fac-all">${esc(t("Show all"))}</button><button type="button" class="fac-none">${esc(t("Hide all"))}</button></div>
@@ -239,7 +240,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		}
 		map.addSource("yk-wards", { type: "geojson", data: fc, attribution: KSJ_ATTR("administrative boundaries") });
 		await map.addLayer({ id: "yk-ward-on", type: "fill", source: "yk-wards", filter: ["==", ["get", "code"], ""], paint: { "fill-color": "#1e88e5", "fill-opacity": 0.12 } });
-		await map.addLayer({ id: "yk-ward-line", type: "line", source: "yk-wards", paint: { "line-color": "#37474f", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1, 15, 2.5], "line-opacity": 0.75 } });
+		await map.addLayer({ id: "yk-ward-line", type: "line", source: "yk-wards", paint: { "line-color": "#78909c", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 15, 1.8], "line-opacity": 0.6 } });   // 周りの基図に馴染む淡い灰青（本人 2026-11-13「区の境界の色のトーンが周りに比べて強すぎる」・旧 #37474f 0.75）
 		return fc;
 	});
 	// 9 割＝縦横とも 5% の余白。PC は右上の案内板の幅を右の余白に足す（板の下に区を隠さない）
@@ -542,6 +543,15 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const stopTour = () => { if (!touring) return; touring = 0; cap.hidden = true; $(".tour:not(.port)").textContent = t("▶ Landmark tour"); $(".port").textContent = t("⚓ Port story (1859 to today)"); };
 	for (const ev of ["pointerdown", "wheel"]) mapEl.addEventListener(ev, e => { if (!panel.contains(e.target as Node) && !cap.contains(e.target as Node)) stopTour(); });
 	cap.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) stopTour(); });
+	// ツアーの先読み（本人 2026-11-13「ツアーを始めるときには Plateau を先読みしたい」）＝止まる区の建物を止まる順に IDB へ焼く。
+	// 戻り＝最初の区が焼けた時（呼び手は全景の間だけ待つ＝着いた時に立っている）。残りの区はその後ろで続けて焼く。中区＝ベイブリッジの橋梁も
+	function preloadStops(stops: readonly { ward?: string }[]): Promise<unknown> {
+		const names = [...new Set(stops.flatMap(s => { const w = WARDS.find(x => x.code === s.ward); return w ? ["横浜" + w.name, ...(w.code === "14104" ? ["横浜市（橋梁）"] : [])] : []; }))];
+		const [first, ...rest] = names;
+		const p = first ? map.prefetchBuildings({ names: [first] }).catch(e => console.warn("[yokohama] tour prefetch", e)) : Promise.resolve();
+		if (rest.length) p.then(() => map.prefetchBuildings({ names: rest })).catch(e => console.warn("[yokohama] tour prefetch", e));
+		return p;
+	}
 	async function tour() {
 		if (touring) { stopTour(); return; }
 		const run = touring = Date.now();
@@ -551,7 +561,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const ph = await photos();
 		const say = (html: string) => { if (touring === run) { cap.hidden = false; cap.innerHTML = `${html}<button class="x" type="button" aria-label="${esc(t("Stop"))}">×</button>`; } };
 		say(`<div class="ct"><b>${esc(t("Yokohama City"))}</b><p>${esc(t("18 wards, about 437 km². From the port to the hillside suburbs, a tour through the city in 3D."))}</p></div>`);
-		await flyView(CITY_VIEW); await sleep(2500);
+		const pre = preloadStops(stops);
+		await flyView(CITY_VIEW); await Promise.all([sleep(2500), Promise.race([pre, sleep(8000)])]);   // 全景の間に最初の区を焼き終える（最長 8 秒・保存済みの端末は即）
 		for (const [i, s] of stops.entries()) {
 			if (touring !== run) return;
 			say(`${photoHTML(ph?.[s.id], "cph")}<div class="ct"><small>${i + 1} / ${stops.length} · ${esc(wardName(s.ward))}</small><b>${esc(t(s.name))}</b><p>${esc(t(s.note))}</p></div>`);
@@ -588,7 +599,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const run = touring = Date.now();
 		setTab("sight"); showSpot(null);
 		$(".port").textContent = t("■ Stop the tour");
+		const pre = preloadStops(PORT_STORY);
 		const ph = await photos();
+		await Promise.race([pre, sleep(5000)]);   // 最初の章の区（中区）が焼けるまで（最長 5 秒）
 		const say = (html: string) => { if (touring === run) { cap.hidden = false; cap.innerHTML = `${html}<button class="x" type="button" aria-label="${esc(t("Stop"))}">×</button>`; } };
 		for (const c of PORT_STORY) {
 			if (touring !== run) return;
