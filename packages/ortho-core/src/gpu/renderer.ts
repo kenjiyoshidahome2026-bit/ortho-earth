@@ -79,7 +79,7 @@ import type { GintFrame, GintDepthCtx, GintClipInfo } from "./gint.ts";
 /** createRendererGPU の起動の旗（renderworker が渡す） */
 export interface RendererGPUOptions {
 	/** 既定 "high-performance"（外付け GPU のあるノート PC で速い方を頼む・gpupower.ts）。"low-power"／"default" で戻せる */
-	powerPreference?: GpuPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
+	powerPreference?: GpuPowerPreference; adapterTries?: number; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
 	/** パイプラインを初回使用時に作る（?lazypipe=1）。既定＝起動時に全部（従来）。2026-11-06 Galaxy：GPU プロセスの直列コンパイル 9.6 秒の切り分け・短縮 */
 	lazyPipes?: boolean;
 	/** lazyPipes の束のうち最初のフレームに要る 10 本を起動時に先に作る（?warmpipe=1＝同期・2＝createRenderPipelineAsync で並列）。2026-11-06 Galaxy のトレース：
@@ -385,8 +385,15 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	setMeshLodScale(rOpts.meshLod || 1); setMeshRange(rOpts.meshRange || 0); setMeshLodZoom(rOpts.meshLodZ0 || 15, rOpts.meshLodZ || 1);
 	if (typeof navigator === "undefined" || !navigator.gpu) throw new Error("WebGPU unavailable");
 	const tBoot0 = performance.now();   // 起動の時間割（adapter／device／init＝パイプライン等の生成）＝renderworker が frame1 で main へ（?hud=1 の boot 行）
-	const adapter = await navigator.gpu.requestAdapter(gpuAdapterOptions(rOpts.powerPreference ?? powerPreference()));
-	if (!adapter) throw new Error("WebGPU adapter unavailable");
+	// 【一度の null で諦めない・2026-11-12】デスクトップ Chrome は GPU プロセスの立ち上げ直後・スリープ明け・GPU 切替の最中に requestAdapter が
+	// 一時的に null を返す（例外も無い）＝旧はその一回で WebGL2 へ落ちていた。①同じ希望で 300 ms 後にもう一度 ②それでも無ければ希望なし（ブラウザ任せ）で
+	const aOpts = gpuAdapterOptions(rOpts.powerPreference ?? powerPreference());
+	const reqA = (o?: GPURequestAdapterOptions) => navigator.gpu.requestAdapter(o).catch((e: unknown) => { console.warn("[gpu] requestAdapter threw:", (e as Error)?.message || e); return null; });
+	let adapter = await reqA(aOpts);
+	// 試行回数 adapterTries（既定 2）。以前 WebGPU で描けた端末（globe の oj.gpuOk）は 6 回＝間隔を 300 ms から倍々に（合計 ~9 秒）粘る
+	for (let i = 1, wait = 300; !adapter && i < (rOpts.adapterTries || 2); i++, wait *= 2) { console.warn(`[gpu] requestAdapter returned null = retrying in ${wait} ms`); await new Promise(r => setTimeout(r, wait)); adapter = await reqA(aOpts); }
+	if (!adapter && aOpts && Object.keys(aOpts).length) { console.warn("[gpu] still no adapter = retrying without powerPreference"); adapter = await reqA(); }
+	if (!adapter) throw new Error("WebGPU adapter unavailable (requestAdapter kept returning null)");
 	const tAdapter = performance.now();
 	// A/B 計測用の GPU 識別（WebGL の WEBGL_debug_renderer_info 相当）。info は環境で空の事があるので緩く。
 	const ai: Partial<GPUAdapterInfo> = adapter.info || {};
@@ -409,7 +416,8 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	// テクスチャ経路へ落ちる壁。Apple/Windows の実力値は GiB 級＝そのまま storage で描ける。swiftshader 等は既定のまま）。
 	// 超える層は gint.js が 2D 配列テクスチャ（分割送り）で受ける＝どちらにも天井が無い（2026-10-12・geopbf 改良点 ⑤）
 	const AL: Partial<GPUSupportedLimits> = adapter.limits || {};
-	const device = await adapter.requestDevice({
+	// 実力値の要求で断られた時（ドライバの申告と実際の食い違い）は、既定の上限で 1 回だけ頼み直す＝WebGL2 へ落ちるより、上限が既定の WebGPU の方が良い
+	const devDesc = {
 		...(reqFeats.length ? { requiredFeatures: reqFeats } : {}),
 		requiredLimits: { maxTextureDimension2D: AL.maxTextureDimension2D || 8192,
 			...(AL.maxStorageBufferBindingSize ? { maxStorageBufferBindingSize: AL.maxStorageBufferBindingSize } : {}),
@@ -417,6 +425,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 			// 1 段のテクスチャ・標本器の数＝既定 16 は模型（材質 5 枚＋塗る絵＋group(0) の地面・標高・鏡面の環境）に利用者のシェーダの property texture が載ると越える（Apple＝48）
 			...(AL.maxSampledTexturesPerShaderStage ? { maxSampledTexturesPerShaderStage: AL.maxSampledTexturesPerShaderStage } : {}),
 			...(AL.maxSamplersPerShaderStage ? { maxSamplersPerShaderStage: AL.maxSamplersPerShaderStage } : {}) },
+	};
+	const device = await adapter.requestDevice(devDesc).catch(async (e: unknown) => {
+		console.warn("[gpu] requestDevice with adapter limits failed = retrying with default limits:", (e as Error)?.message || e);
+		return adapter!.requestDevice(reqFeats.length ? { requiredFeatures: reqFeats } : {});
 	});
 	const tDevice = performance.now();
 	const ctx = (canvas as { getContext(id: "webgpu"): GPUCanvasContext | null }).getContext("webgpu");

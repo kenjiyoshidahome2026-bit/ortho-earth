@@ -874,10 +874,19 @@ const sealGpuForOverlay = !!opts.glOverlay && IS_WEBKIT;
 // 新方式＝①印は起動時に消費（このブートだけ GL2・次のリロードは WebGPU 再試行）②累積 oj.nogpuN が
 // 2 回に達したら本物の故障とみなしタブセッション固定 ③フォールバック中は画面チップで明示＋タップで
 // 印を全部消して再試行（CNG フリートの見回り診断）。WebGPU の present 検証が通ったら累積もリセット。
+// 【一度 WebGPU で描けた端末は落とさない・2026-11-12 本人裁定】present 検証が通った端末を localStorage oj.gpuOk に覚える（UA ごと＝ブラウザ更新で
+// 一度だけ確かめ直す）。覚えた端末では ①失敗印 oj.nogpu を読まない ②20 秒番犬・present 検証の失敗でも GL2 へ読み直さない（印を外すだけ＝次の読み込みは
+// 通常の網に戻る＝ドライバ更新等で本当に壊れた時の出口）③adapter 取得は粘る（worker へ gpuKnown）。手動の逃げ道 ?gl2=1 はそのまま
+const gpuKnown = (() => { try { const v = JSON.parse(localStorage.getItem("oj.gpuOk") || "null"); return !!v && v.ua === navigator.userAgent; } catch { return false; } })();
+const forgetGpuOk = (why: string) => { try { localStorage.removeItem("oj.gpuOk"); } catch {} console.error(`[boot] WebGPU trouble on a device known to run WebGPU (${why}) = staying on WebGPU (no WebGL2 restart); the next load uses the normal fallback checks`); };
+if (gpuKnown) { sessionStorage.removeItem("oj.nogpu"); sessionStorage.removeItem("oj.nogpuN"); }
 const nogpuN = +(sessionStorage.getItem("oj.nogpuN") || 0);
 const nogpuMark = sessionStorage.getItem("oj.nogpu");
 if (nogpuMark && nogpuN < 2) sessionStorage.removeItem("oj.nogpu");   // 一発分を消費＝次のリロードで WebGPU 再試行
-const markNoGpu = (why: string) => { sessionStorage.setItem("oj.nogpu", why); sessionStorage.setItem("oj.nogpuN", String(nogpuN + 1)); };
+// 最後の WebGL2 落ちの理由（localStorage＝タブを跨いで残る）＝/check/ が表示する。デスクトップで「なぜか GL2」の時、本人が理由を読める（2026-11-12）
+const noteGpuFallback = (why: string) => { try { localStorage.setItem("oj.gpuLastFallback", JSON.stringify({ why, at: new Date().toISOString(), page: location.pathname })); } catch {} };
+const markNoGpu = (why: string) => { sessionStorage.setItem("oj.nogpu", why); sessionStorage.setItem("oj.nogpuN", String(nogpuN + 1)); noteGpuFallback(why); };
+let gpuInitFail = "";   // worker 内の WebGPU 初期化失敗（adapter 無し等）→ その起動は WebGL2。チップを出す（旧は黙って GL2）
 const gpuBackend: GlobeScope["gpuBackend"] = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!sealGpuForOverlay && !nogpuMark && nogpuN < 2));
 // 描画の質（#46）：大気散乱・PBR と環境光・AO の旗＝ell と同じ作法で **既定は全端末で 0**・URL の ?atmosphere=1／?pbr=1／?ao=1 で点ける（本人裁定 2026-09-26）。
 // opts.render.<name>:true は組み込みの口。WebGPU だけが読む（GL2 は実装を持たない）。boot/tier.js renderFx＝純関数。
@@ -997,7 +1006,7 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 // 手前の建物が足元へ細長く伸びた（#954）。WebGPU・GL2 とも既定 20（Galaxy 実機と Mac で確認済み・?clipk=0 で戻す）
 const clipKQ = /[?&]clipk=(\d+)/.exec(location.search);
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
-renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, lazyPipes: LAZY_PIPES, warmPipes: WARM_PIPES, warmPar: WARM_PAR, gintWarm: GINT_WARM, terrCoarse: TERR_COARSE, terrCoarseAlways: TERR_COARSE_ALWAYS, flatVec: FLAT_VEC, lineElev: LINE_ELEV, lineElevMove: LINE_ELEV_MOVE, gndHold: GND_HOLD, gndMipSep: GND_MIP_SEP, meshDrain: MESH_DRAIN, perf: perfLog, resFix: Number((/[?&]res=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphMs: Number((/[?&]glyphms=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphDb: /[?&]glyphdb=1/.test(location.search), mem: hudOn, lowMem: LOW_MEM, meshChunk: /[?&]meshchunk=1/.test(location.search), meshLod: qNum(/[?&]meshlod=([\d.]+)/, LOW_MEM ? 2 : 0), meshLodZ: qNum(/[?&]meshlodz=([\d.]+)/, 0), meshLodZ0: qNum(/[?&]paz=([\d.]+)/, 15), meshRange: qNum(/[?&]meshrange=([\d.]+)/, LOW_MEM ? 2 : 0), meshShed: qNum(/[?&]meshshed=(\d)/, 1), meshShedMax: qNum(/[?&]meshshedmax=(\d+)/, 0), meshShedMs: qNum(/[?&]meshshedms=(\d+)/, 0), meshCull: qNum(/[?&]meshcull=(\d)/, 0), meshSort: qNum(/[?&]meshsort=(\d)/, 0), resMin: qNum(/[?&]resmin=([\d.]+)/, 0), meshLiteMove: qNum(/[?&]meshlitemove=([\d.]+)/, 4), meshLiteFs: qNum(/[?&]meshlitefs=(\d)/, 1), meshFast: !/[?&]meshfast=0/.test(location.search), meshFastCull: qNum(/[?&]meshfastcull=(\d)/, 1), elevCheap: /[?&]elevcheap=1/.test(location.search) || (LOW_MEM && !/[?&]elevcheap=0/.test(location.search)), bakeLift: /[?&]bakelift=1/.test(location.search), nearClip: Number((/[?&]nearclip=([\d.]+)/.exec(location.search) || [])[1]) || 0, clipK: clipKQ ? +clipKQ[1] : 20, clipKGl: clipKQ ? +clipKQ[1] : 20, noMixed: noMixedR01, noFarTerr, noNearTerr, r01Zoom: R01_ZOOM, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), depthRZ: !/[?&]depth=log/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, shedFoot: SHEDFOOT, terrSync: TERRSYNC, fontWarm: FONTWARM, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, lazyPipes: LAZY_PIPES, warmPipes: WARM_PIPES, warmPar: WARM_PAR, gintWarm: GINT_WARM, terrCoarse: TERR_COARSE, terrCoarseAlways: TERR_COARSE_ALWAYS, flatVec: FLAT_VEC, lineElev: LINE_ELEV, lineElevMove: LINE_ELEV_MOVE, gndHold: GND_HOLD, gndMipSep: GND_MIP_SEP, meshDrain: MESH_DRAIN, perf: perfLog, resFix: Number((/[?&]res=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphMs: Number((/[?&]glyphms=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphDb: /[?&]glyphdb=1/.test(location.search), mem: hudOn, lowMem: LOW_MEM, meshChunk: /[?&]meshchunk=1/.test(location.search), meshLod: qNum(/[?&]meshlod=([\d.]+)/, LOW_MEM ? 2 : 0), meshLodZ: qNum(/[?&]meshlodz=([\d.]+)/, 0), meshLodZ0: qNum(/[?&]paz=([\d.]+)/, 15), meshRange: qNum(/[?&]meshrange=([\d.]+)/, LOW_MEM ? 2 : 0), meshShed: qNum(/[?&]meshshed=(\d)/, 1), meshShedMax: qNum(/[?&]meshshedmax=(\d+)/, 0), meshShedMs: qNum(/[?&]meshshedms=(\d+)/, 0), meshCull: qNum(/[?&]meshcull=(\d)/, 0), meshSort: qNum(/[?&]meshsort=(\d)/, 0), resMin: qNum(/[?&]resmin=([\d.]+)/, 0), meshLiteMove: qNum(/[?&]meshlitemove=([\d.]+)/, 4), meshLiteFs: qNum(/[?&]meshlitefs=(\d)/, 1), meshFast: !/[?&]meshfast=0/.test(location.search), meshFastCull: qNum(/[?&]meshfastcull=(\d)/, 1), elevCheap: /[?&]elevcheap=1/.test(location.search) || (LOW_MEM && !/[?&]elevcheap=0/.test(location.search)), bakeLift: /[?&]bakelift=1/.test(location.search), nearClip: Number((/[?&]nearclip=([\d.]+)/.exec(location.search) || [])[1]) || 0, clipK: clipKQ ? +clipKQ[1] : 20, clipKGl: clipKQ ? +clipKQ[1] : 20, noMixed: noMixedR01, noFarTerr, noNearTerr, r01Zoom: R01_ZOOM, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, gpuKnown, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), depthRZ: !/[?&]depth=log/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, shedFoot: SHEDFOOT, terrSync: TERRSYNC, fontWarm: FONTWARM, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
 fontsReadySend = () => wPost({ type: "fontsReady" });   // 書体の温めが済んだ合図（init の後＝ctrlPort が生きている）
 if (fontsReadyDue) fontsReadySend();
 BOOT.init = performance.now();
@@ -1032,15 +1041,26 @@ let bootT: number | null = setTimeout(() => {
 // 16秒@400kbps を考慮した余裕。present 沈黙故障と対で、実験フラグがどう転んでも WebGL2 の絵に必ず着地させる）。
 // ★destroy() で必ず clearTimeout（旧＝生成後 20 秒以内に destroy すると __backend が消えた後に番犬が起き、**ホストページごと reload**＝
 //   SDK ドッグフード 2026-09-10 で発覚。埋め込み先の SPA がタブ切替で destroy する典型で踏む）
-let gpuWatchT: ReturnType<typeof setTimeout> | null = null;
-if (gpuBackend) gpuWatchT = setTimeout(() => {
-	gpuWatchT = null;
-	if (!dbgHost.__backend && !/[?&]stay=1/.test(location.search)) {
-		console.error("[boot] gpu=1: no frame1 in 20s -> restarting as WebGL2");
-		markNoGpu("frame1-20s");
-		location.reload();
-	}
-}, 20000);
+// 【見えている時間だけ数える・2026-11-12】旧＝壁時計の 20 秒。裏タブで開いた頁（デスクトップの中クリック・Ctrl+クリック）は worker の rAF が止まり
+// frame1 が来ない＝WebGPU は健全なのに 20 秒で GL2 へ落ちていた（「デスクトップでも無駄に GL2」の最有力）。document.hidden の間は数えない
+let gpuWatchT: ReturnType<typeof setInterval> | null = null;
+if (gpuBackend) {
+	let seen = 0, last = performance.now();
+	gpuWatchT = setInterval(() => {
+		const now = performance.now();
+		if (!document.hidden) seen += Math.min(now - last, 2000);   // 一度に足すのは 2 秒まで（スリープ明けの大跳びを数えない）
+		last = now;
+		if (dbgHost.__backend) { clearInterval(gpuWatchT!); gpuWatchT = null; return; }
+		if (seen < 20000) return;
+		clearInterval(gpuWatchT!); gpuWatchT = null;
+		if (!/[?&]stay=1/.test(location.search)) {
+			if (gpuKnown) { forgetGpuOk("no frame1 in 20s"); noteGpuFallback("frame1-20s (known WebGPU device: not restarted)"); return; }
+			console.error("[boot] gpu=1: no frame1 in 20s (visible time) -> restarting as WebGL2");
+			markNoGpu("frame1-20s");
+			location.reload();
+		}
+	}, 500);
+}
 // 印刷（平面図）撮影中の抑止フラグ：autoMesh/settle保存を止める。描画は noTerrain にしない＝
 // 標高アトラスは生かす（真俯瞰 pitch0 なので elevScaleEff=0＝地形サーフェス/陰影/変位は自然に消え、
 // 等高線(ベクタ)だけが敷かれた厳密な正射平面図になる）。noTerrain にすると等高線もアトラスごと消えるので不可。
@@ -1090,6 +1110,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "overlayPickResult") { const f = pickWait.get(d.seq); pickWait.delete(d.seq); f?.(d.hits || []); return; }   // 統一 picking（PR-1）の答え
 	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
 	if (d.type === "overlayStage") { ((dbgHost.__overlay ??= {}) as Record<string, unknown>)[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
+	if (d.type === "gpuFallback") { gpuInitFail = d.why || "init"; dbgHost.__gpuFallback = gpuInitFail; noteGpuFallback(gpuInitFail); console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${gpuInitFail}, this boot only = retry on next reload)`); diagHud && diagHud("gpu fallback", gpuInitFail); return; }
 	if (d.type === "bootMark") { BOOT["w:" + d.k] = d.t - performance.timeOrigin; return; }   // 起動の時間割の遅れて来た印（frame1 の後に届いた最初のタイルなど）
 	if (d.type === "frame1") {
 		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; paintTable = !!d.pt; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
@@ -1103,7 +1124,7 @@ renderWorker.onmessage = e => {
 		diagHud && diagHud("frame1", `received ✓ backend=${dbgHost.__backend}`);
 		// フォールバック GL2 の画面表示（柔らか鍵の③）：黙って重いモードで走らない。タップ＝印を全消しして
 		// WebGPU 再試行（CNG フリートで端末を覗いた瞬間に状態が分かる・観客の端末でも1タップで復帰を試せる）。
-		if (dbgHost.__backend !== "webgpu" && gl2Fallback) {
+		if (dbgHost.__backend !== "webgpu" && (gl2Fallback || (gpuInitFail && (gpuKnown || !/adapter unavailable/.test(gpuInitFail))))) {   // 以前 WebGPU で描けた端末なら異常＝出す。adapter が毎回 null＝その環境に WebGPU が無い（Linux Chrome 等）＝設計どおりの GL2＝チップは出さない（/check/ には残す）
 			// 左下ドックへ搭載（2026-09-03 被り総括）：旧・body直下の position:fixed は #pos（座標計器）と真被り＝
 			// ドックなら座標計器やトーストの上へ積まれる。destroy の replaceChildren でも一緒に畳まれる（旧はbodyに残った）
 			const chip = document.createElement("div");
@@ -1119,24 +1140,32 @@ renderWorker.onmessage = e => {
 		// 回す時機（2026-11-05）：旧＝frame1 の 1.5 秒後の固定。drawImage は GPU の同期＝起動直後の重い仕事（注記の字の焼き・タイルの転送）の最中に
 		// 掛けると main が止まる（Galaxy/Mali-G615 の実測＝この setTimeout が 3.1 秒の長い仕事）。地図が一度 idle になってから（最短 1.5 秒・最長 8 秒）rAF で回す。
 		if (dbgHost.__backend === "webgpu") {
-			const t0 = performance.now(); let done = false;
+			const t0 = performance.now(); let done = false, tries = 0;
+			// 【偽の失敗を減らす・2026-11-12】デスクトップで WebGPU が健全なのに GL2 へ落ちる型を潰す：①裏タブ（document.hidden）の間は読まない＝見えるまで待つ
+			// ②一度の空振り（全画素ゼロ／読み取り例外）では落とさず 1 秒後にもう一度＝2 回続けて駄目なら本物（iOS の沈黙故障は毎回ゼロ）
+			// ③地図の箱が 0 寸法（非表示の埋め込み）の間も読まない ④透明な背景（clearColor に透明）の地図は 32×32 で読む（小さく映る地球を 16×16 の縮小で取りこぼさない）
 			const verifyPresent = () => {
+				if (document.hidden) { document.addEventListener("visibilitychange", () => requestAnimationFrame(verifyPresent), { once: true, signal: ac.signal }); return; }
+				if (!canvas.offsetWidth || !canvas.offsetHeight) { if (!ac.signal.aborted) setTimeout(() => requestAnimationFrame(verifyPresent), 2000); return; }   // 地図の箱が表示されていない（display:none のタブ内に埋め込み等）＝読めない＝表示されるまで待つ
 				const tv = performance.now();
 				const stay = /[?&]stay=1/.test(location.search);   // 診断閲覧モード＝フォールバックせず留まる（白画面のままエラー行を読む）
 				const bail = (why: string) => {
+					if (++tries < 2) { console.warn(`[boot] WebGPU present check missed once (${why}) = rechecking in 1s`); setTimeout(() => requestAnimationFrame(verifyPresent), 1000); return; }
 					if (stay) { console.error(`[boot] WebGPU present verification failed (${why}). stay=1 = fallback suppressed; inspect the diag lines`); diagHud && diagHud("present", `failed ✗ (${why})`); return; }
 					console.error(`[boot] WebGPU present verification failed (${why}) -> restarting as WebGL2 in 3s (waiting for GPU diagnostics)`);
+					if (gpuKnown) { forgetGpuOk("present: " + why); noteGpuFallback("present:" + why + " (known WebGPU device: not restarted)"); return; }
 					markNoGpu("present:" + why);
 					setTimeout(() => location.reload(), 3000);
 			};
 			try {
-				const t = document.createElement("canvas"); t.width = 16; t.height = 16;
+				const S = clearAlpha ? 32 : 16;
+				const t = document.createElement("canvas"); t.width = S; t.height = S;
 				const g = t.getContext("2d", { willReadFrequently: true })!;
-				g.drawImage(canvas, 0, 0, 16, 16);
-				const px = g.getImageData(0, 0, 16, 16).data;
+				g.drawImage(canvas, 0, 0, S, S);
+				const px = g.getImageData(0, 0, S, S).data;
 				let nz = 0; for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
 				if (nz === 0) bail("no pixels reached the canvas");
-				else { console.log(`[boot] WebGPU present verified (pixels ${nz}/256, ${(performance.now() - tv) | 0} ms, ${(tv - t0) | 0} ms after frame1)`); diagHud && diagHud("present", `OK ✓ pixels ${nz}/256`); sessionStorage.removeItem("oj.nogpuN"); BOOT.present = performance.now(); bootReport("present"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
+				else { console.log(`[boot] WebGPU present verified (pixels ${nz}/${S * S}, ${(performance.now() - tv) | 0} ms, ${(tv - t0) | 0} ms after frame1)`); diagHud && diagHud("present", `OK ✓ pixels ${nz}/${S * S}`); sessionStorage.removeItem("oj.nogpuN"); try { localStorage.setItem("oj.gpuOk", JSON.stringify({ ua: navigator.userAgent, at: new Date().toISOString() })); } catch {} BOOT.present = performance.now(); bootReport("present"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
 			} catch (e) { bail("exception during verification: " + (e && (e as Error).message)); }
 			};
 			const verify = () => { if (done) return; done = true; requestAnimationFrame(verifyPresent); };
@@ -2757,7 +2786,7 @@ function destroy() {
 	flightCtl.cancel();
 	ac.abort();                                  // window/document のリスナー一括解除（offline/online/hashchange/検索の外側クリック）
 	ro.disconnect();
-	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearTimeout(gpuWatchT); sky.terminate();   // gpuWatchT＝WebGPU frame1 番犬（残すとホストページを reload する）
+	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearInterval(gpuWatchT!); sky.terminate();   // gpuWatchT＝WebGPU frame1 番犬（残すとホストページを reload する）
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate();
 	for (const h of overlays.values()) h.el.remove();   // 同一フレームのオーバーレイ canvas（worker は上で terminate 済み）
