@@ -55,3 +55,33 @@ export async function nlftpCatalog(q: screenLogger, { Bucket, apiUrl }: NativeBu
 	}
 	q.log(`${plan.from} → ${plan.to} を差し替えた（${plan.from}.json は残す＝旧リンク用）`);
 }
+
+// PLATEAU の焼き（apps/japan-map/scripts/bake-plateau.mjs → bake-out/plateau・目録 index.json）→ GIS/plateau/（2026-11-12）。
+// 横浜の LOD1 13 区を R2 に置く（通信なしの保存が 1.13 GB → 約 73 MB・本人「縮退した plateau を R2 に置くのはアリ」）。全国の焼きにも使える。
+// 置き方は焼きスクリプトの --upload と同じ＝本体（b*.plq）を先に、manifest.json を最後に（manifest が見えた時には本体が揃っている＝エンジンの 404 → 生経路の判定に矛盾を作らない）。
+// R2 に manifest が既にある焼きは飛ばす（焼きスクリプトの --upload と同じ＝置いた物は差し替えない・途中で止まってもやり直しが効く）。取れなかったタイル（unbaked）を持つ焼きは上げない（エンジンは焼きを正として欠けたまま描く）＝--redo-unbaked で焼き直してから。
+export async function plateauBake(q: screenLogger, { Bucket, apiUrl }: NativeBucket & { apiUrl: string }) {
+	q.clear(); q.title("PLATEAU の焼き（bake-out/plateau）→ GIS/plateau/");
+	devOnly();
+	const read = (rel: string) => readLocal(`plateau/${rel}`);   // 無ければ「先に焼きスクリプトを回す」＝node apps/japan-map/scripts/bake-plateau.mjs --only=…
+	const rels: string[] = await (await read("index.json")).json();
+	if (!rels.length) throw new Error("bake-out/plateau に焼きが無い");
+	const bucket = await Bucket("GIS/plateau", { silent: true, lazy: true });
+	if (!bucket) throw new Error("Bucket(GIS/plateau) に到達できない");
+	let up = 0, same = 0, holes = 0, bytes = 0;
+	for (const rel of rels) {
+		const man: { ward: string; ts: number; batches: { f: string }[]; unbaked?: number[] } = await (await read(rel + "manifest.json")).json();
+		if (man.unbaked?.length) { holes++; q.warn(`${man.ward}（${rel}）：取れなかったタイル ${man.unbaked.length} 枚＝上げない（--redo-unbaked で焼き直す）`); continue; }
+		const remote = await fetch(`${apiUrl}/bucket/GIS/plateau/${rel}manifest.json`, { cache: "no-store" }).then(r => r.ok).catch(() => false);
+		if (remote) { same++; continue; }
+		let b = 0;
+		for (const { f } of man.batches) {
+			const body = await (await read(rel + f)).blob();
+			await bucket.put(new File([body], rel + f, { type: "application/octet-stream" })); b += body.size;
+		}
+		await bucket.put(new File([JSON.stringify(man)], rel + "manifest.json", { type: "application/json" }));
+		up++; bytes += b;
+		q.success(`↑ GIS/plateau/${rel}（${man.ward}・${man.batches.length} 束・${(b / 1e6).toFixed(1)}MB）`);
+	}
+	q.log(`上げた ${up} 件（${(bytes / 1e6).toFixed(1)}MB）・R2 に既にある ${same} 件・欠けありで止めた ${holes} 件`);
+}

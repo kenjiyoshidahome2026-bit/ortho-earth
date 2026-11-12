@@ -7,7 +7,7 @@
 //
 //   node scripts/bake-plateau.mjs [--only=名前や base の部分文字列] [--out=DIR] [--batch=32] [--shard=i/n]
 //                                 [--force] [--redo-unbaked] [--reverse] [--repack] [--stats] [--verify-upload] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
-//   --out       既定 plateau-bake-out/（gitignore 済）。セットごとに {slug}/manifest.json + b{k}.plq（球）と {slug}/ell/…（楕円体）
+//   --out       既定 repo 直下の bake-out/plateau/（オランダは apps/japan-map/3dbag-bake-out/・どちらも gitignore 済＝uploader の「PLATEAU の焼き」ボタンが bake-out/plateau を R2 へ・2026-11-12。それより前の焼きは apps/japan-map/plateau-bake-out/ に残っている＝--out で指せば続きから）。セットごとに {slug}/manifest.json + b{k}.plq（球）と {slug}/ell/…（楕円体）
 //   --shard=i/n カタログを n 分割して i 番目だけ（Threadripper で並列に走らせる用。実測は回線律速＝hpc で計 10MB/s）
 //   再実行は完了済み（manifest あり）をスキップ＝走査失敗（✗）のセットだけ拾い直す。--redo-unbaked＝unbaked（取れなかった
 //   タイル）を持つセットも焼き直し対象にする（回線が空いた後の仕上げ用）
@@ -29,7 +29,7 @@ const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };
 const REGION = arg("region", "jp");
 if (REGION !== "jp" && REGION !== "nl") { console.error(`--region は jp か nl（${REGION}）`); process.exit(2); }
-const ONLY = arg("only"), OUT = arg("out", join(APP, REGION === "nl" ? "3dbag-bake-out" : "plateau-bake-out")), BATCH = +arg("batch", 32) || 32;
+const ONLY = arg("only"), OUT = arg("out", REGION === "nl" ? join(APP, "3dbag-bake-out") : join(APP, "../../bake-out/plateau")), BATCH = +arg("batch", 32) || 32;
 const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), REPACK = !!arg("repack") || !!arg("reweld"), STATS = !!arg("stats"), VERIFY_UPLOAD = !!arg("verify-upload"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
 const MODES = arg("sphere-only") ? [false] : arg("ell-only") ? [true] : [false, true];
 const [SHARD_I, SHARD_N] = String(arg("shard", "0/1")).split("/").map(Number);
@@ -254,6 +254,13 @@ if (agg.sets) {
 	}
 	writeFileSync(join(OUT, "stats.json"), JSON.stringify({ ts: Date.now(), ...agg }, null, 1));
 	console.log(`  → ${join(OUT, "stats.json")}`);
+}
+// 目録＝OUT にある焼き（manifest のあるモードの置き場）の一覧＝uploader の「PLATEAU の焼き → GIS/plateau」ボタンが読む（R2 へ出すのは uploader・本人 2026-09-30）
+{
+	const rels = [];
+	for (const v of existsSync(OUT) ? readdirSync(OUT).filter(n => /^v\d+$/.test(n)) : []) for (const slug of readdirSync(join(OUT, v))) for (const sub of ["", "ell/"]) if (existsSync(join(OUT, v, slug, sub, "manifest.json"))) rels.push(`${v}/${slug}/${sub}`);
+	writeFileSync(join(OUT, "index.json"), JSON.stringify(rels));
+	console.log(`目録 ${rels.length} 件 → ${join(OUT, "index.json")}（R2 へは uploader の「PLATEAU の焼き」ボタン）`);
 }
 console.log(`\n完了: ok=${ok} skip=${skip} err=${err}`);
 process.exit(err ? 1 : 0);

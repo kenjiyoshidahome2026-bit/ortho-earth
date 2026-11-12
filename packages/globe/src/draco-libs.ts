@@ -25,5 +25,9 @@ const load = () => lib ??= (async () => {
 /** loaders.gl の modules.draco3d の形（createDecoderModule）。wasm は options を通さず直に渡す（loaders.gl の options の合成は ArrayBuffer を空にする） */
 export const draco3d = { createDecoderModule: (o: Record<string, unknown> = {}) => load().then(([f, wasm]) => f({ ...o, wasmBinary: wasm })) };
 
-/** loadParse に混ぜる選択肢＝Draco をこの worker の中で同梱の復号器で解く（CDN の worker を作らない） */
-export const DRACO_OPTS = { core: { worker: false }, modules: { draco3d } } as const;
+/** Node（焼きスクリプト bake-plateau.mjs・試験）＝頁でも worker でもない。Node は ?url の import が wasm を ES モジュールとして読みに行って倒れる
+ *  （Mac 2026-11-12：横浜の焼きが全タイル「Cannot find package 'a' imported from …draco_decoder.wasm」）＝呼び手が setLoaderOptions で注入した draco3d（npm）に任せる */
+const IS_NODE = typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === "string";
+
+/** loadParse に混ぜる選択肢＝Draco をこの worker の中で同梱の復号器で解く（CDN の worker を作らない）。Node では何も足さない（従来どおり） */
+export const DRACO_OPTS: Record<string, unknown> = IS_NODE ? {} : { core: { worker: false }, modules: { draco3d } };

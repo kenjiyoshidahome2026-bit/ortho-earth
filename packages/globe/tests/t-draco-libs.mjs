@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parse } from "@loaders.gl/core";
 import { DracoLoader } from "@loaders.gl/draco";
-import { dracoFactory } from "../src/draco-libs.ts";
+import { dracoFactory, DRACO_OPTS } from "../src/draco-libs.ts";
 
 const V = new URL("../src/vendor/draco/", import.meta.url);
 const f = dracoFactory(readFileSync(new URL("draco_wasm_wrapper.js", V), "utf8"));
@@ -30,3 +30,7 @@ for (const [file, n] of [["meshdecode.ts", 2], ["tiles3d-decode.ts", 1]]) {
 	assert.equal(hits, n, `${file}：DRACO_OPTS を混ぜる loadParse が ${hits} 件（期待 ${n}）`);
 }
 console.log("  ✓ 復号の呼び手 3 か所とも同梱の復号器を使う");
+// ③ Node（焼きスクリプト）では何も足さない＝bake-plateau.mjs が setLoaderOptions で注入した draco3d（npm）を上書きしない
+//   （上書きすると ?url の import が Node で wasm を ES モジュールとして読み、全タイルが落ちた・Mac 2026-11-12）
+assert.deepEqual(DRACO_OPTS, {}, "Node で DRACO_OPTS が空でない＝焼きの draco3d を上書きする");
+console.log("  ✓ Node では同梱の復号器を挟まない（焼きの draco3d を使う）");
