@@ -10,6 +10,7 @@
 let _loaders: Promise<typeof import("./mesh-loaders.ts")> | null = null;
 const loaders = () => _loaders ??= import("./mesh-loaders.ts");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
 import { weldMesh } from "./meshq.ts";
+import { fetchOrPack } from "./packfetch.ts";   // 通信なしは端末の束から（worker は頁の SW の外）
 import { primitiveOutline } from "./outline.ts";
 import { gltfMeta, rawGltfJson } from "./gltf-meta.ts";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
 import { rigFromGltf, skinsFromGltf, jointMatrices, skinVertices, I4, m4mul, m4trs } from "./gltf-anim.ts";
@@ -116,7 +117,7 @@ export interface FetchOpts { headers?: Record<string, string> | null; credential
 export const fetchFor = (baseUri: string | null | undefined, o: FetchOpts | null | undefined): typeof fetch => {
 	const origin = (() => { try { return baseUri ? new URL(baseUri, self.location?.href).origin : null; } catch { return null; } })();
 	const same = (u: RequestInfo | URL) => { try { return !!origin && new URL(typeof u === "string" ? u : u instanceof URL ? u : u.url, baseUri!).origin === origin; } catch { return false; } };
-	return (u, init) => fetch(u, { credentials: "omit", ...init, ...(o && same(u) ? { ...(o.credentials && { credentials: o.credentials }), ...(o.headers && { headers: { ...(init?.headers as Record<string, string> | undefined), ...o.headers } }) } : {}) });
+	return (u, init) => (typeof u === "string" ? fetchOrPack : fetch)(u as string, { credentials: "omit", ...init, ...(o && same(u) ? { ...(o.credentials && { credentials: o.credentials }), ...(o.headers && { headers: { ...(init?.headers as Record<string, string> | undefined), ...o.headers } }) } : {}) });
 };
 /** 模型の束の断片（プリミティブ 1 つ分） */
 interface ModelSeg { geo: Float64Array; nrm: Int8Array; idx: Uint32Array; uv: Float32Array; col: Uint8Array; fid: Uint32Array | null; tbl: number | null; skin?: Omit<SkinSeg, "start" | "n"> | null; mc?: Float32Array | null; uvm?: Float32Array | null }
@@ -235,7 +236,7 @@ async function fetchBody<T>(url: string, read: (r: Response) => Promise<T>, ms =
 	for (let a = 0; ; a++) {
 		const ac = new AbortController();
 		const tm = setTimeout(() => ac.abort(), ms);
-		try { const r = await fetch(url, { signal: ac.signal }); return await read(r); }
+		try { const r = await fetchOrPack(url, { signal: ac.signal }); return await read(r); }
 		catch (e) { if (a >= retries) throw e; }
 		finally { clearTimeout(tm); }
 	}

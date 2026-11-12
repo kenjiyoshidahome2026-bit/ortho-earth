@@ -790,18 +790,22 @@ function autoMesh(settled = false) {
 		let free = slotsFree() - meshNeighborPre.size;
 		if (free > 0) {
 			const pd = (s: MeshSet) => { const dx = Math.max(s.bbox[0] - view[2], 0, view[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - view[3], 0, view[1] - s.bbox[3]); return dx * dx + dy * dy; };
-			const cand = SETS.filter(s => !hitNames.has(s.name) && !meshLoading.has(s.name) && !meshActive.has(s.name) && !meshResident.has(s.name) && !meshDead(s.name) && !meshPreDone.has(s.name) && pd(s) < NEAR_PRE * NEAR_PRE)
+			const now = performance.now();
+			const cand = SETS.filter(s => !hitNames.has(s.name) && !meshLoading.has(s.name) && !meshActive.has(s.name) && !meshResident.has(s.name) && !meshDead(s.name) && !meshPreDone.has(s.name) && !(now - (meshPreFail.get(s.name) ?? -Infinity) < MESH_RETRY_MS) && pd(s) < NEAR_PRE * NEAR_PRE)
 				.sort((x, y) => pd(x) - pd(y));
 			for (const s of cand.slice(0, free)) {
 				meshNeighborPre.add(s.name);
 				console.log("[mesh] neighbor prefetch (IDB only) ->", s.name);
-				meshPreload(s).then(ok => { if (ok) meshPreDone.add(s.name); }).finally(() => { meshNeighborPre.delete(s.name); if (!env.moving && !env.flying) autoMesh(true); });
+				meshPreload(s).then(ok => { if (ok === true) meshPreDone.add(s.name); else meshPreFail.set(s.name, performance.now()); }).finally(() => { meshNeighborPre.delete(s.name); if (!env.moving && !env.flying) autoMesh(true); });
 			}
 		}
 	}
 }
 const meshRestarted = new Set<string>();        // 見張りで一度打ち切った区（同じロードで二度はしない＝ループ防止。finally で解除）
 const meshNeighborPre = new Set<string>();      // 隣接区の先読み中（枠に数える）
+// 隣接区の先読みに失敗した時刻＝MESH_RETRY_MS は選び直さない。旧＝失敗→finally の autoMesh→同じ区を即また先読み、の空回り
+//（通信なしの横浜で 1 分に 17 万回の取りと 8.8 万行のログ・Mac 2026-11-12）。表示の候補（meshDead）には触れない＝見えたら普通に読む
+const meshPreFail = new Map<string, number>();
 const meshPreDone = new Set<string>();          // このセッションで先読み済（同じ区を何度も IDB 確認しない＝存在確認は worker 側で即返るが往復は省く）
 // 静止中の見張り：ロード中が居る間は10秒毎に再選抜＝fast枠ローテーション・枠空き補充・退避復帰を
 // カメラ操作なしでも回す（onMove/settle が来ない「静止して待つ」シーンでの飢餓/取りこぼし対策）。

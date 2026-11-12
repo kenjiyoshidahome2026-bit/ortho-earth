@@ -5,6 +5,7 @@
 // main.js 側は複数のこの worker をプールし、base URL のハッシュで固定ルーティング（同じ地区は常に同じ worker＝内部cacheが効く）。
 import { decodeBatch, setDecodeEnv, resolveUrl, collectLeafTiles, MASK_N, maskNOf, DECODE_VER } from "./meshdecode.ts";
 import { liteIndex, liteReorder } from "./meshlite.ts";
+import { fetchOrPack } from "./packfetch.ts";   // 通信なしは端末の束から（worker は頁の SW の外・完全オフライン 2026-11-12）
 import { windToNormals } from "./meshwind.ts";   // 軽量 index（?meshlite=A＝面積 A m² 未満の三角形を落とす）＝焼き・写し・生経路の全部が通る sendBatch で 1 回   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝meshdecode 側へ（2026-09-07）
 import { PLQ_VER, bakeDir, unpackPLQ } from "./meshq.ts";
 import { Cache } from "native-bucket";
@@ -652,7 +653,7 @@ async function bakeBytes(url: string) {
 	let ab: ArrayBuffer | null = null;
 	for (let a = 0; a < 3 && !ab; a++) {   // 12s×3（旧 fetchAB＝25s×2）＝遅い往復（実測 5〜20s）から早く逃げる
 		const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 12000);
-		try { const r = await fetch(url, { signal: ac.signal }); if (!r.ok) throw new Error("HTTP " + r.status); ab = await r.arrayBuffer(); }
+		try { const r = await fetchOrPack(url, { signal: ac.signal }); if (!r.ok) throw new Error("HTTP " + r.status); ab = await r.arrayBuffer(); }
 		catch (e) { if (a === 2) throw e; }
 		finally { clearTimeout(tm); }
 	}

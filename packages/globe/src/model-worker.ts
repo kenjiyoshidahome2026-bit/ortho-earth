@@ -5,6 +5,7 @@
 // kind:"extrude"＝任意ポリゴンの押し出し（extrude.js・2026-09-21）。返す形は模型と同じ（バッチ 1 本・テクスチャ無し）。
 import { decodeModel, setDecodeEnv, setTextureTranscoders } from "./meshdecode.ts";
 import { extrudeMesh } from "./extrude.ts";
+import { fetchOrPack } from "./packfetch.ts";   // 通信なしは端末の束から（worker は頁の SW の外・完全オフライン 2026-11-12）
 import { decodeTile3D } from "./tiles3d-decode.ts";   // 3D Tiles のタイル（#41）＝kind:"tile3d"
 import { i3sOpen, i3sNodes, i3sContent } from "./i3s-decode.ts";
 import { computeSunShadow, computeViewshed } from "./sunshadow.ts";   // 日影・可視域・見通し線（#44）＝kind:"sunshadow"/"viewshed"   // I3S（#48）＝kind:"i3sOpen"/"i3sNodes"/"i3sContent"（loaders.gl の i3s は最初に使う時だけ読む）
@@ -78,7 +79,7 @@ async function work(e: MessageEvent<ModelJob>) {
 			const { url, transform, baseH, groundMode, headers, credentials } = e.data;
 			let buf: ArrayBuffer | undefined = e.data.ab;   // 独自スキーム（addProtocol）＝main が取った本体（#37）
 			if (!buf) {
-				const res = await fetch(url!, { credentials: credentials || "omit", ...(headers ? { headers } : {}), signal: AbortSignal.timeout(30000) });   // headers/credentials＝transformRequest
+				const res = await fetchOrPack(url!, { credentials: credentials || "omit", ...(headers ? { headers } : {}), signal: AbortSignal.timeout(30000) });   // headers/credentials＝transformRequest
 				if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
 				buf = await res.arrayBuffer();
 			}
