@@ -4,7 +4,7 @@
 // ortho-data/japan/yokohama/ に置く（GitHub Pages・DATA.md）。年代の航空写真（旧「時間」）は継ぎ目と色むらが目立つので外した（本人 2026-10-21）。
 
 export interface Ward { code: string; /** 日本語の名（住所の照合に使う） */ name: string; /** 訳の鍵（i18n/pages/yokohama.json） */ en: string; lon: number; lat: number; zoom: number }
-export interface Spot { id: string; /** ja.wikipedia の記事名（写真の出どころ） */ wiki: string; name: string; ward: string; lon: number; lat: number; zoom: number; tilt: number; bearing: number; note: string }
+export interface Spot { id: string; /** ja.wikipedia の記事名（写真の出どころ） */ wiki: string; name: string; ward: string; lon: number; lat: number; zoom: number; tilt: number; bearing: number; note: string; /** 止まった時に地図に立てる名札（三塔のキング・クイーン・ジャックなど） */ marks?: { name: string; lon: number; lat: number }[] }
 export interface Legend { color: string; label: string; /** 画素の照合だけに使う、同じ帯のほかの色（凡例には出さない） */ match?: string[] }
 export interface Hazard { id: string; name: string; urls: string[]; maxZoom: number; legend: Legend[]; note: string }
 export interface TwinState { tab: Tab; ward: string; hz: string[]; spot: string; tr: string[] }
@@ -43,6 +43,8 @@ export const SPOTS: Spot[] = [
 	{ id: "yokohama-st", wiki: "横浜駅", name: "Yokohama Station", ward: "14103", lon: 139.6223, lat: 35.4657, zoom: 17.0, tilt: 58, bearing: 30, note: "Gateway to Yokohama, served by six railway companies. Office towers cluster on both sides of the station." },
 	{ id: "mm21", wiki: "みなとみらい21", name: "Minato Mirai 21", ward: "14103", lon: 139.6315, lat: 35.4546, zoom: 16.4, tilt: 62, bearing: -20, note: "A new city center built on former shipyard and rail yard sites. Home to Yokohama Landmark Tower (296 m, opened 1993)." },
 	{ id: "akarenga", wiki: "横浜赤レンガ倉庫", name: "Yokohama Red Brick Warehouse", ward: "14104", lon: 139.6425, lat: 35.4529, zoom: 17.6, tilt: 60, bearing: 20, note: "Bonded warehouses built by the national government in the late Meiji and early Taisho eras, now a shopping and cultural venue." },
+	{ id: "santo", wiki: "横浜三塔", name: "The Three Towers of Yokohama", ward: "14104", lon: 139.6422, lat: 35.4483, zoom: 17.3, tilt: 60, bearing: 235, note: "Three historic towers nicknamed after playing cards: the King (Kanagawa Prefectural Government Office, 1928), the Queen (Yokohama Customs, 1934) and the Jack (Port Opening Memorial Hall, 1917), all within a short walk.",
+		marks: [{ name: "King · Kanagawa Prefectural Office", lon: 139.64233, lat: 35.4475 }, { name: "Queen · Yokohama Customs", lon: 139.64244, lat: 35.44917 }, { name: "Jack · Port Opening Memorial Hall", lon: 139.64136, lat: 35.44765 }] },
 	{ id: "osanbashi", wiki: "横浜港大さん橋国際客船ターミナル", name: "Osanbashi Pier", ward: "14104", lon: 139.6475, lat: 35.4513, zoom: 17.2, tilt: 60, bearing: 140, note: "International passenger terminal for large cruise ships. Its rooftop is an open plaza anyone can walk on." },
 	{ id: "yamashita", wiki: "山下公園", name: "Yamashita Park", ward: "14104", lon: 139.6505, lat: 35.4460, zoom: 17.2, tilt: 60, bearing: 60, note: "Waterfront park built on land reclaimed with rubble from the Great Kanto Earthquake (opened 1930)." },
 	{ id: "chinatown", wiki: "横浜中華街", name: "Yokohama Chinatown", ward: "14104", lon: 139.6460, lat: 35.4425, zoom: 17.6, tilt: 62, bearing: 45, note: "One of Japan's largest Chinatowns, which grew up after the port opened." },
@@ -209,7 +211,7 @@ export const SEA_VIEWS = [
 ];
 
 /** ツアー＝全景から始めて名所を巡り全景へ戻る（SPOTS の id の並び） */
-export const TOUR = ["yokohama-st", "mm21", "akarenga", "osanbashi", "yamashita", "chinatown", "baybridge", "shin-yokohama", "center-kita", "sankeien"];
+export const TOUR = ["yokohama-st", "mm21", "akarenga", "osanbashi", "santo", "yamashita", "chinatown", "baybridge", "shin-yokohama", "center-kita", "sankeien"];
 
 /** 浸水深の凡例（重ねるハザードマップの共通の色・洪水／高潮／津波）。タイルには細かい帯の色（0.3m 未満 #ffffb3・0.5〜1m #f8e1a6）も混じる＝match で同じ帯に寄せる（2026-10-21 タイル実測） */
 export const DEPTH: Legend[] = [

@@ -357,10 +357,21 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		<figcaption><a href="${esc(ph.file)}" target="_blank" rel="noopener">${esc(t("Photo: $1", (ph.artist || "Wikimedia Commons") + (ph.license ? ` / ${ph.license}` : "")))}</a></figcaption></figure>` : "";
 	const spotNote = $<HTMLElement>(".spot-note");
 	// brief＝名所ツアーの間（札だけ選ぶ・説明欄は伏せる）＝写真と説明は画面下のツアーの札が出す。両方に出すと同じ写真が 2 枚並ぶ（本人 2026-11-13）
+	// 名所の名札（三塔＝キング・クイーン・ジャック）＝灰色の街並みの中でどの塔か分かるように（本人 2026-11-13・ツアーでも札でも出す・名所を離れたら消す）
+	const spotPins: Marker[] = [];
+	function spotMarks(s: Spot | null) {
+		spotPins.splice(0).forEach(m => m.remove());
+		for (const k of s?.marks || []) {
+			const el = document.createElement("div"); el.className = "yk-dest yk-mark";
+			el.innerHTML = `<span>${esc(t(k.name))}</span><i></i>`;
+			spotPins.push(new ML.Marker({ element: el, anchor: "bottom" }).setLngLat([k.lon, k.lat]).addTo(map));
+		}
+	}
 	async function showSpot(s: Spot | null, brief = false) {
 		st.spot = s?.id || ""; save();
 		$$<HTMLButtonElement>("[data-spot]").forEach(b => b.classList.toggle("on", b.dataset.spot === st.spot));
 		spotNote.hidden = !s || brief;
+		spotMarks(s);
 		if (brief) return;
 		if (!s) { spotNote.innerHTML = ""; return; }
 		const head = `<b>${esc(t(s.name))}</b><span>${esc(wardName(s.ward))}</span><p>${esc(t(s.note))}</p>`;
@@ -1503,6 +1514,7 @@ const CSS = `
 .yk-dest{display:flex;flex-direction:column;align-items:center;pointer-events:none}
 .yk-dest span{order:-1;margin-bottom:3px;padding:3px 8px;border-radius:6px;background:#0288d1;color:#fff;font:600 13px/1.25 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .yk-dest i{width:14px;height:14px;border-radius:50%;background:#0288d1;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.yk-mark span{background:#102536}.yk-mark i{background:#b4491c}
 /* スマホ：左のボタン列は 9 個で下のシートに重なっていた＝解析の面にもある道具（全画面・QR・日影・計測・断面）は隠す（市民ファースト 2026-10-25） */
 /* 左上の「層と主題」（エンジンの表示チップ）は使わない＝横浜の層は案内板で出し入れする（本人 2026-10-26「レイヤーアイコン不要」） */
 .oe-panel-host #chips{display:none!important}
