@@ -13,8 +13,8 @@ import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネル�
 import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「暮らし」の面を開いた時に遅延 import
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
-import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
+import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 import { OFFLINE_MB, searchPlaces, type PlaceRow } from "./data.ts";
 import * as Offline from "./offline.ts";   // 通信なしで使う束（完全オフライン・本人 2026-11-12）
@@ -43,7 +43,6 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const HINAN_ATTR = t("Designated emergency evacuation site data (GSI)");
 	// nc＝国土数値情報の使用許諾が「非商用」の物（P17 消防署・P18 警察署・P27 文化施設・P28 国の機関）＝出典に書き添える（本人 2026-10-21：今は非商用で良い・横浜市が使う時に一緒に詰める）
 	const KSJ_ATTR = (what: string, nc = false) => `<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">${esc(t("National Land Numerical Information ($1)", t(what)))}</a>${nc ? (lang === "ja" ? `（${esc(t("non-commercial use"))}）` : ` (${esc(t("non-commercial use"))})`) : ""}`;
-	const LOD1_ATTR = t("MLIT PLATEAU (LOD1 buildings)");
 	const num = (n: number) => n.toLocaleString(lang);
 	document.title = t("Yokohama Digital Twin");
 	// 住所の頭の「横浜市」は出さない（区から始める・本人 2026-10-26）
@@ -519,13 +518,9 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	}
 	$$("[data-area]").forEach(inp => inp.onchange = () => setArea(inp.dataset.area as AreaId, inp.checked));
 
-	// ── 建物：18 区（LOD2 の 5 区はエンジン・残り 13 区の LOD1 はここで PLATEAU の 3D Tiles を直に・z が BUILDINGS_MIN_ZOOM 以上の時だけ）──
-	const lod1: Tiles3DHandle[] = [];
-	const lod1Ready = Promise.all(LOD1_WARDS.map(w => map.gadget.tiles3d(lod1Url(w.code), { id: `yk-lod1-${w.code}`, ground: "terrain", textures: false, fit: false, pickable: false, attribution: LOD1_ATTR,
-		style: { color: "color('#8d96a3')" } })   // 箱は白地の基図に白では埋もれる（Mac 実測）＝LOD2 の建物と同じ灰で立てる。文字列は Cesium の式として読まれる＝素の "#rrggbb" は字句で落ちて 13 区とも出なかった＝color() で包む
-		.catch(e => { console.warn("[yokohama] lod1", w.name, e); return null; })))
-		.then(hs => { for (const h of hs) if (h) { h.setVisible(lod1Shown); lod1.push(h); } return lod1; });
-	// LOD1 は z で出し入れ（BUILDINGS_MIN_ZOOM 未満＝全部隠す・傾きは見ない）＝粗い段だけの枠が四角く抜けるまだらを出さない。隠している間は取りにも行かない
+	// ── 建物：18 区ともエンジンが描く（PLATEAU の登録簿＝LOD2 の 5 区・LOD1 の 13 区・橋梁＝R2 の焼きを先に読む）・z が BUILDINGS_MIN_ZOOM 以上の時だけ ──
+	// 2026-11-12 まで LOD1 の 13 区はこの頁が 3D Tiles を直に足していた＝#1052 からエンジンも同じ区を描いていて二重だった（通信なしの保存も 1.13 GB 余計）
+	// 建物は z で出し入れ（BUILDINGS_MIN_ZOOM 未満＝全部隠す・傾きは見ない）＝区ごとに「有る／無い」のまだらを出さない
 	let lod1Shown = map.getZoom() >= BUILDINGS_MIN_ZOOM;
 	// 基図の押し出し（building-extrusion＝PLATEAU の無い所の大きな建物だけ）と LOD2 の 5 区のメッシュ（map.setMeshVisible）も同じしきいで伏せる＝しきい未満は 18 区とも建物なし（本人「ないところがあるなら、全部ない方がいい」）
 	function holdBuildings(v: { lon: number; lat: number; zoom: number }) { const h = { lon: v.lon, lat: v.lat, zoom: v.zoom, armed: false }; bldHold = h; lod1Gate(); return h; }   // 飛ぶ前に立て始める（着いた時に読み終わっているように）・着いたら armed
@@ -535,7 +530,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// 飛んでいる間（armed 前）は距離を見ない＝飛ぶ前の中心は名所から遠い（Mac 実測：飛ぶ前に外れて一度も効かなかった）
 	let bldHold: { lon: number; lat: number; zoom: number; armed: boolean } | null = null;
 	const held = () => { if (!bldHold) return false; if (!bldHold.armed) return true; const c = map.getCenter(); if (map.getZoom() >= bldHold.zoom - 0.6 && distM([c.lng, c.lat], [bldHold.lon, bldHold.lat]) < 2000) return true; bldHold = null; return false; };
-	const lod1Gate = () => { const on = held() || map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; for (const h of lod1) h.setVisible(on); extrusion(on); };
+	const lod1Gate = () => { const on = held() || map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; extrusion(on); };
 	extrusion(lod1Shown);
 	map.on("move", lod1Gate);
 
@@ -1228,7 +1223,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	$(".profile").onclick = () => { profile.open?.(); };
 
 	// ── 通信なしで使う（完全オフライン・本人 2026-11-12）：一気に詰める・続きから・「更新」＝台帳と写真を取り直す・消す ──
-	const STAGE_NAMES: Record<Offline.Stage, string> = { app: "App", data: "Data and photos", map: "Base map", hazard: "Hazard maps", terrain: "Terrain", bld1: "Buildings", bld2: "3D buildings" };
+	const STAGE_NAMES: Record<Offline.Stage, string> = { app: "App", data: "Data and photos", map: "Base map", hazard: "Hazard maps", terrain: "Terrain", bld: "3D buildings" };
 	const fmtMB = (b: number) => b >= 1e9 ? `${num(+(b / 1e9).toFixed(2))} GB` : `${num(Math.round(b / 1e6))} MB`;
 	let offAc: AbortController | null = null, offNote = false;   // offNote＝最後の保存が「保存できなかった物がある」で終わった（止めたのでなく）
 	const offIntro = $<HTMLElement>(".off-msg").textContent || "";
@@ -1315,8 +1310,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const nameOf = (r: PlaceRow) => lang === "ja" ? r.ja : r.loc || r.en || r.ja;
 	const offlineSearch = async (q: string) => searchPlaces(await loadPlaceRows(), q).map(r => ({ text: nameOf(r), place_name: [nameOf(r), r.note].filter(Boolean).join(", "), center: r.c, bbox: r.bbox }));
 
-	return { offlineSearch, state: st, setTab, setWard, setHazard, setHinan, setTransit, setFac, tour, stopTour, lod1Ready,
-		get shelters() { return shelters; }, get lod1() { return lod1; }, get facilities() { return fac; }, get bus() { return bus; }, get subwayMarkers() { return subMarks; } };
+	return { offlineSearch, state: st, setTab, setWard, setHazard, setHinan, setTransit, setFac, tour, stopTour,
+		get shelters() { return shelters; }, get facilities() { return fac; }, get bus() { return bus; }, get subwayMarkers() { return subMarks; } };
 }
 
 // ── 意匠（quiet-mono のトークン＝#map の変数・choju の案内板と同じ黒地白文字）──
