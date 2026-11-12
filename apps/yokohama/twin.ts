@@ -16,7 +16,7 @@ import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.j
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, Tiles3DHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
 import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD1_WARDS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, lod1Url, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
-import { OFFLINE_MB } from "./data.ts";
+import { OFFLINE_MB, searchPlaces, type PlaceRow } from "./data.ts";
 import * as Offline from "./offline.ts";   // 通信なしで使う束（完全オフライン・本人 2026-11-12）
 
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -1278,7 +1278,29 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	loadWards();   // 市の外の覆いと区の線は最初から
 	map.prefetchBuildings({ names: LOD2_PREFETCH }).catch(e => console.warn("[yokohama] prefetch", e));   // PLATEAU の LOD2（5 区＋橋梁）を起動直後から IDB へ先読み＝寄った時にすぐ立つ（本人 2026-10-26）
 
-	return { state: st, setTab, setWard, setHazard, setHinan, setTransit, setFac, tour, stopTour, lod1Ready,
+	// 通信なしの地名検索（地理院の検索は通信が要る＝main.ts の検索窓が通信の無い時だけここを引く）：名所・駅・施設・町丁目・区
+	let placeRows: Promise<PlaceRow[]> | null = null;
+	const loadPlaceRows = () => placeRows ??= (async () => {
+		const out: PlaceRow[] = WARDS.map(w => ({ ja: w.name, en: w.en, note: "", c: [w.lon, w.lat] as [number, number] }));
+		const wardName = (code: string) => { const w = WARDS.find(x => x.code === code); return w ? (lang === "ja" ? w.name : t(w.en)) : ""; };
+		for (const s of SPOTS) out.push({ ja: s.wiki, en: t(s.name), note: wardName(s.ward), c: [s.lon, s.lat] });
+		const [pl, fc] = await Promise.all([ledger<{ rows: [number, number, string, string, number][] }>("places.json"), ledger<{ rows: FacilityRow[] }>("facilities.json"), enP]);
+		for (const r of pl?.rows || []) out.push({ ja: r[2], en: r[3], note: "", c: [r[0], r[1]] });
+		for (const r of fc?.rows || []) { const en = EN?.rows?.[`${r[2]}|${r[4]}`]; out.push({ ja: r[2], en: en?.[0] || "", note: lang === "ja" ? r[4] : en?.[1] || r[4], c: [r[0], r[1]] }); }
+		await Promise.all(WARDS.map(async w => {
+			const fcw = await ledger<SmallFC>(`census/${w.code}.json`);
+			for (const f of fcw?.features || []) {
+				const p = f.properties as { n?: string; en?: string }, b = [180, 90, -180, -90];
+				const walk = (c: unknown): void => { if (typeof (c as number[])[0] === "number") { const [x, y] = c as number[]; b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y); } else for (const k of c as unknown[]) walk(k); };
+				walk((f.geometry as { coordinates: unknown }).coordinates);
+				if (p.n && b[0] <= b[2]) out.push({ ja: p.n, en: p.en || "", note: wardName(w.code), bbox: b as [number, number, number, number] });
+			}
+		}));
+		return out;
+	})();
+	const offlineSearch = async (q: string) => searchPlaces(await loadPlaceRows(), q).map(r => ({ text: lang === "ja" ? r.ja : r.en || r.ja, place_name: [lang === "ja" ? r.ja : r.en || r.ja, r.note].filter(Boolean).join(", "), center: r.c, bbox: r.bbox }));
+
+	return { offlineSearch, state: st, setTab, setWard, setHazard, setHinan, setTransit, setFac, tour, stopTour, lod1Ready,
 		get shelters() { return shelters; }, get lod1() { return lod1; }, get facilities() { return fac; }, get bus() { return bus; }, get subwayMarkers() { return subMarks; } };
 }
 

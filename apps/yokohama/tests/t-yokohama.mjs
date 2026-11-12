@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
 import { makeEn, romaji } from "../scripts/en-names.mjs";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn, tileBox, tilesIn, cityTileMask, tileKids, fillTpl, tilesetRefs } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn, tileBox, tilesIn, cityTileMask, tileKids, fillTpl, tilesetRefs, slimTile, searchPlaces } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -126,6 +126,31 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 	t("オフライン：子の 4 枚と型紙", tileKids(10, 3, 5).map(k => k.join("/")).join() === "11/6/10,11/7/10,11/6/11,11/7/11" && fillTpl("https://a/{z}/{x}/{y}.png", 1, 2, 3) === "https://a/1/2/3.png");
 	const r = tilesetRefs({ root: { content: { uri: "a.b3dm" }, children: [{ content: { uri: "sub/tileset.json" } }, { contents: [{ url: "../c.glb?v=1" }] }] } }, "https://h/x/tileset.json");
 	t("オフライン：tileset.json の中身と子の tileset", r.contents.join() === "https://h/x/a.b3dm,https://h/c.glb?v=1" && r.children.join() === "https://h/x/sub/tileset.json", JSON.stringify(r));
+}
+{	// LOD1 の中身からテクスチャ画像を抜く（b3dm の中の GLB）
+	const bin = new Uint8Array(32); bin.set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 0); bin.fill(0xee, 12, 22); bin.set([21, 22, 23, 24, 25, 26], 24);
+	const gl = { asset: { version: "2.0" }, buffers: [{ byteLength: 30 }], bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 12 }, { buffer: 0, byteOffset: 12, byteLength: 10 }, { buffer: 0, byteOffset: 24, byteLength: 6 }],
+		images: [{ bufferView: 1, mimeType: "image/jpeg" }], textures: [{ source: 0 }], materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0 }, baseColorFactor: [1, 1, 1, 1] } }], accessors: [{ bufferView: 2, componentType: 5123, count: 3, type: "SCALAR" }] };
+	const glb = (j, b) => { let js = new TextEncoder().encode(JSON.stringify(j)); const jp = (4 - js.length % 4) % 4; const n = 12 + 8 + js.length + jp + 8 + b.length; const u = new Uint8Array(n), d = new DataView(u.buffer);
+		d.setUint32(0, 0x46546c67, true); d.setUint32(4, 2, true); d.setUint32(8, n, true); d.setUint32(12, js.length + jp, true); d.setUint32(16, 0x4e4f534a, true); u.set(js, 20); u.fill(32, 20 + js.length, 20 + js.length + jp);
+		let p = 20 + js.length + jp; d.setUint32(p, b.length, true); d.setUint32(p + 4, 0x004e4942, true); u.set(b, p + 8); return u; };
+	const g = glb(gl, bin), ft = new TextEncoder().encode('{"BATCH_LENGTH":3}  '), bt = new TextEncoder().encode('{"gml_id":["a","b","c"],"attributes":["{}","{}","{}"]}'.padEnd(64)), b3 = new Uint8Array(28 + ft.length + bt.length + g.length), h = new DataView(b3.buffer);
+	b3.set(new TextEncoder().encode("b3dm")); h.setUint32(4, 1, true); h.setUint32(8, b3.length, true); h.setUint32(12, ft.length, true); h.setUint32(20, bt.length, true); b3.set(ft, 28); b3.set(bt, 28 + ft.length); b3.set(g, 28 + ft.length + bt.length);
+	const out = new Uint8Array(slimTile(b3.buffer)), od = new DataView(out.buffer), g0 = 28 + ft.length;
+	const jl = od.getUint32(g0 + 12, true), j2 = JSON.parse(new TextDecoder().decode(out.subarray(g0 + 20, g0 + 20 + jl))), b2 = out.subarray(g0 + 28 + jl);
+	const v2 = j2.bufferViews[2];
+	t("オフライン：b3dm を軽く（batch table を外す・画像・テクスチャ・材質の参照が消え、後ろの bufferView が中身ごと前へ詰まる・長さの頭が合う）",
+		od.getUint32(20, true) === 0 && od.getUint32(24, true) === 0 && new TextDecoder().decode(out.subarray(28, 28 + ft.length)).startsWith('{"BATCH_LENGTH":3}') &&
+		!j2.images && !j2.textures && !j2.materials[0].pbrMetallicRoughness.baseColorTexture && j2.materials[0].pbrMetallicRoughness.baseColorFactor.length === 4
+		&& v2.byteOffset === 16 && [...b2.subarray(16, 22)].join() === "21,22,23,24,25,26" && [...b2.subarray(0, 12)].join() === "1,2,3,4,5,6,7,8,9,10,11,12"
+		&& od.getUint32(8, true) === out.length && od.getUint32(g0 + 8, true) === out.length - g0 && out.length < b3.length, JSON.stringify(j2.bufferViews));
+	t("オフライン：画像の無い物・b3dm でない物はそのまま", slimTile(glb({ ...gl, images: [], textures: [] }, bin).buffer).byteLength === glb({ ...gl, images: [], textures: [] }, bin).length && slimTile(new Uint8Array([1, 2, 3, 4]).buffer).byteLength === 4);
+}
+{	// 通信なしの地名検索
+	const rows = [{ ja: "綱島東", en: "Tsunashimahigashi", note: "港北区", c: [139.64, 35.54] }, { ja: "綱島駅", en: "Tsunashima Station", note: "", c: [139.63, 35.54] }, { ja: "新綱島駅", en: "Shin-Tsunashima Station", note: "", c: [139.64, 35.54] }, { ja: "保土ケ谷区", en: "Hodogaya Ward", note: "", c: [139.59, 35.45] }];
+	t("通信なしの検索：前方一致が先・英語でも・ヶ/ケ と大小・ハイフンを問わない・1 文字は引かない",
+		searchPlaces(rows, "綱島").map(r => r.ja).join() === "綱島東,綱島駅,新綱島駅" && searchPlaces(rows, "shintsunashima")[0]?.ja === "新綱島駅"
+		&& searchPlaces(rows, "保土ヶ谷")[0]?.ja === "保土ケ谷区" && searchPlaces(rows, "綱").length === 0);
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

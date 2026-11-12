@@ -10,7 +10,7 @@
 //   ⑥ 建物 LOD1（13 区の 3D Tiles 全部）… 同上の Cache・⑦ 建物 LOD2（5 区＋橋梁）… エンジンの IDB/OPFS（map.prefetchBuildings）
 // 配るのは共有の Service Worker（packages/globe/scripts/lib/sw.js）＝名前が oj-pack で始まる置き場にある URL は通信なしで返す。
 // 束の版＝offline.json の build（アプリとエンジンのファイル名の要約）。通信のある起動で版が変わっていたら、変わったファイルだけ黙って詰め直す
-import { CITY_BBOX, HAZARDS, LOD1_WARDS, LOD2_PREFETCH, HINAN_URL, lod1Url, inGeometry, tilesIn, tileKids, fillTpl, cityTileMask, tilesetRefs } from "./data.ts";
+import { CITY_BBOX, MASK_BOX, HAZARDS, LOD1_WARDS, LOD2_PREFETCH, HINAN_URL, lod1Url, inGeometry, tilesIn, tileKids, fillTpl, cityTileMask, tilesetRefs, slimTile } from "./data.ts";
 import type { GlobeMap } from "@ortho-earth/globe";
 
 export const PACK = "oj-pack-yokohama";
@@ -52,7 +52,7 @@ export async function remove(): Promise<void> {
 type Deps = { map: GlobeMap; dataBase: string; onProgress?: (p: Progress) => void; signal?: AbortSignal };
 
 /** URL の列を置き場へ（有る物は飛ばす＝続きから・fresh＝有っても取り直す）。404/204＝「無い」と分かる応答として残す（通信なしでも同じ答え） */
-async function putAll(cache: Cache, urls: string[], stage: Stage, d: Deps, o: { fresh?: boolean; conc?: number; have?: Set<string>; opaque?: boolean } = {}) {
+async function putAll(cache: Cache, urls: string[], stage: Stage, d: Deps, o: { fresh?: boolean; conc?: number; have?: Set<string>; opaque?: boolean; slim?: (u: string, b: ArrayBuffer) => ArrayBuffer } = {}) {
 	const p: Progress = { stage, done: 0, total: urls.length, bytes: 0, failed: 0 };
 	const have = o.fresh ? new Set<string>() : o.have ?? new Set((await cache.keys()).map(r => r.url));
 	let i = 0;
@@ -63,6 +63,10 @@ async function putAll(cache: Cache, urls: string[], stage: Stage, d: Deps, o: { 
 		const res = o.opaque ? await get("cors").catch(e => { if (d.signal?.aborted) throw e; return get("no-cors"); }) : await get("cors");
 		if (res.type === "opaque") { await cache.put(u, res); return; }
 		if (res.status === 206 || (!res.ok && res.status !== 404 && res.status !== 204)) { p.failed++; return; }
+		if (res.ok && o.slim) {   // 詰める前に軽くする（LOD1 の画像を抜く）＝同じ URL に軽い中身を置く
+			const body = o.slim(u, await res.arrayBuffer()), h = new Headers(res.headers); h.delete("content-length"); h.delete("content-encoding");
+			await cache.put(u, new Response(body, { status: res.status, statusText: res.statusText, headers: h })); p.bytes += body.byteLength; return;
+		}
 		const b = res.ok ? (await res.clone().arrayBuffer()).byteLength : 0;
 		await cache.put(u, res); p.bytes += b;
 	};
@@ -143,12 +147,14 @@ export async function run(d: Deps, o: { refresh?: boolean } = {}): Promise<Offli
 	await step("map", async () => {
 		const b = d.map.getBasemapTiles(); if (!b) return;
 		const urls: string[] = [];
-		for (let z = b.minZoom; z <= BASEMAP_ZMAX; z++) for (const t of tilesIn(CITY_BBOX, z)) if (keep(...t)) urls.push(fillTpl(b.template, ...t));
+		// z12 までは市のまわり（覆いの外枠＝川崎・東京湾・鎌倉まで）も＝引いた眺めが通信のある時と同じ。z13 からは市の形の中だけ
+		for (let z = b.minZoom; z <= BASEMAP_ZMAX; z++) for (const t of tilesIn(z < MASK_FROM ? MASK_BOX : CITY_BBOX, z)) if (keep(...t)) urls.push(fillTpl(b.template, ...t));
 		return putAll(cache, urls, "map", d, { conc: 8 });
 	});
 	await step("hazard", () => putHazards(cache, d, keep));
 	await step("terrain", async () => { const r = await d.map.prefetchTerrain({ bbox: CITY_BBOX, zmax: BASEMAP_ZMAX, signal: d.signal, onProgress: (done, total) => d.onProgress?.({ stage: "terrain", done, total, bytes: 0, failed: 0 }) }); return { failed: r.failed + r.empty }; });   // 横浜の標高セル（R10・R01 各 1）は必ず中身がある＝空は取れなかった
-	await step("bld1", async () => putAll(cache, await lod1Urls(d), "bld1", d, { conc: 8 }));
+	// LOD1 は textures:false・pickable:false・単色で描く＝地物の属性（batch table＝b3dm の 6 割）と画像は使わない。抜いてから詰める（Mac 実測：13 区 2.9 GB → 約 1.2 GB）
+	await step("bld1", async () => putAll(cache, await lod1Urls(d), "bld1", d, { conc: 8, slim: (u, b) => /\.json(\?|$)/.test(u) ? b : slimTile(b) }));
 	await step("bld2", async () => {
 		const got = await d.map.prefetchBuildings({ names: LOD2_PREFETCH, onProgress: (done, total) => d.onProgress?.({ stage: "bld2", done, total, bytes: 0, failed: 0 }) });
 		return { failed: LOD2_PREFETCH.length - got.length };
