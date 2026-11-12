@@ -1228,20 +1228,23 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// ── 通信なしで使う（完全オフライン・本人 2026-11-12）：一気に詰める・続きから・「更新」＝台帳と写真を取り直す・消す ──
 	const STAGE_NAMES: Record<Offline.Stage, string> = { app: "App", data: "Data and photos", map: "Base map", hazard: "Hazard maps", terrain: "Terrain", bld1: "Buildings", bld2: "3D buildings" };
 	const fmtMB = (b: number) => b >= 1e9 ? `${num(+(b / 1e9).toFixed(2))} GB` : `${num(Math.round(b / 1e6))} MB`;
-	let offAc: AbortController | null = null;
+	let offAc: AbortController | null = null, offNote = false;   // offNote＝最後の保存が「保存できなかった物がある」で終わった（止めたのでなく）
+	const offIntro = $<HTMLElement>(".off-msg").textContent || "";
 	const offPaint = async () => {
 		const ok = Offline.canPack(), rec = ok ? await Offline.status() : null, busy = !!offAc;
 		$(".off-run").hidden = busy || !!rec?.done || !ok;   // 途中まで＝もう一度押すと続きから
 		$<HTMLElement>(".off-saved").hidden = busy || !rec;
-		if (rec) $<HTMLElement>(".off-when").textContent = rec.done ? t("Saved on this device: $1 · $2", new Date(rec.ts).toLocaleDateString(lang), fmtMB(rec.bytes)) : t("Stopped. Press again to continue from where it stopped.");
+		// 途中までの束＝説明は上の一行（止めた／保存できなかった物がある）に一つだけ出す（二つ並んでいた・Mac 本番 2026-11-12）
+		if (rec) $<HTMLElement>(".off-when").textContent = rec.done ? t("Saved on this device: $1 · $2", new Date(rec.ts).toLocaleDateString(lang), fmtMB(rec.bytes)) : fmtMB(rec.bytes);
 		$<HTMLElement>(".off-bar").hidden = $<HTMLElement>(".off-prog").hidden = !busy;
 		const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 		$<HTMLElement>(".off-ios").hidden = !(rec && ios && !matchMedia("(display-mode: standalone)").matches);
-		if (!ok) $<HTMLElement>(".off-msg").textContent = t("This browser cannot save the app for offline use.");
+		$<HTMLElement>(".off-msg").textContent = !ok ? t("This browser cannot save the app for offline use.")
+			: rec && !rec.done && !busy ? (offNote ? t("Finished, but some items could not be saved. Press Update to try again.") : t("Stopped. Press again to continue from where it stopped.")) : offIntro;
 	};
 	const offRun = async (refresh = false) => {
 		if (offAc) return;
-		offAc = new AbortController(); offPaint();
+		offAc = new AbortController(); offNote = false; offPaint();
 		const bar = $<HTMLElement>(".off-bar i"), msg = $<HTMLElement>(".off-prog small");
 		msg.textContent = t("Saving… keep this page open.");
 		let rec: Offline.OfflineRec | null = null, err = "";
@@ -1253,9 +1256,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			} }, { refresh });
 		} catch (e) { err = String((e as Error)?.message || e); console.warn("[yokohama] offline", e); }
 		const stopped = offAc.signal.aborted; offAc = null;
+		offNote = !stopped && (!!err || !rec?.done);
 		await offPaint();
-		const note = $<HTMLElement>(".off-msg");
-		if (!stopped && (err || !rec?.done)) note.textContent = t("Finished, but some items could not be saved. Press Update to try again.");
 	};
 	$(".off-run").onclick = () => offRun();
 	$(".off-upd").onclick = () => offRun(true);

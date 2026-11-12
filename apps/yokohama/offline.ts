@@ -14,6 +14,13 @@ import { CITY_BBOX, MASK_BOX, HAZARDS, LOD1_WARDS, LOD2_PREFETCH, HINAN_URL, lod
 import type { GlobeMap } from "@ortho-earth/globe";
 
 export const PACK = "oj-pack-yokohama";
+// 置き場は 3 つに分ける（名前はどれも oj-pack で始まる＝共有 SW がどれからでも返す）。Chrome は大きな Cache の keys() を
+// 「Operation too large」で投げる（Mac 本番 2026-11-12：基図と災害の想定を詰めた所で建物の段の前に保存が止まった）＝
+// 大きい置き場は数え上げない（有る無しは 1 本ずつ match）。数え上げる（古い版の掃除）のは小さいアプリの置き場だけ
+/** 基図・災害の想定のタイル */
+const PACK_TILES = PACK + "-tiles";
+/** 建物 LOD1 の 3D Tiles */
+const PACK_BLD = PACK + "-bld";
 const REC_KEY = "yk-offline";
 /** 段（進捗の見出しと、どこまで済んだかの記録） */
 export type Stage = "app" | "data" | "map" | "hazard" | "terrain" | "bld1" | "bld2";
@@ -45,20 +52,28 @@ export async function status(): Promise<OfflineRec | null> {
 
 /** 束を消す（建物と地形はエンジンの置き場＝普段の閲覧でも使う物なので残す） */
 export async function remove(): Promise<void> {
-	if (typeof caches !== "undefined") await caches.delete(PACK).catch(() => false);
+	if (typeof caches !== "undefined") for (const n of await caches.keys().catch(() => [] as string[])) if (n === PACK || n.startsWith(PACK + "-")) await caches.delete(n).catch(() => false);
 	writeRec(null); swNotify();
 }
 
 type Deps = { map: GlobeMap; dataBase: string; onProgress?: (p: Progress) => void; signal?: AbortSignal };
+/** 1 本の取りの時間切れ（ms）＝応答も中身も。返らない 1 本で保存全体が止まらないように（Mac 本番 2026-11-12：建物の手前で 60 分止まった） */
+const FETCH_MS = 60000;
+/** 止める合図＋時間切れ（AbortSignal.any の無い古い端末は止める合図だけ） */
+const sigOf = (d: Deps, ms = FETCH_MS): AbortSignal | undefined => {
+	const t = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(ms) : undefined;
+	if (!d.signal) return t;
+	return t && typeof AbortSignal.any === "function" ? AbortSignal.any([d.signal, t]) : d.signal;
+};
 
 /** URL の列を置き場へ（有る物は飛ばす＝続きから・fresh＝有っても取り直す）。404/204＝「無い」と分かる応答として残す（通信なしでも同じ答え） */
 async function putAll(cache: Cache, urls: string[], stage: Stage, d: Deps, o: { fresh?: boolean; conc?: number; have?: Set<string>; opaque?: boolean; slim?: (u: string, b: ArrayBuffer) => ArrayBuffer } = {}) {
 	const p: Progress = { stage, done: 0, total: urls.length, bytes: 0, failed: 0 };
-	const have = o.fresh ? new Set<string>() : o.have ?? new Set((await cache.keys()).map(r => r.url));
 	let i = 0;
 	const one = async (u: string) => {
-		if (have.has(u)) return;
-		const get = (mode: RequestMode) => fetch(u, { mode, credentials: "omit", cache: o.fresh ? "reload" : "default", signal: d.signal });
+		if (!o.fresh && (o.have?.has(u) || await cache.match(u, { ignoreVary: true }))) return;   // 有る物は飛ばす（続きから）。keys() は大きな置き場で投げる＝1 本ずつ
+		const sg = sigOf(d);   // 応答と中身の読みの両方に掛かる
+		const get = (mode: RequestMode) => fetch(u, { mode, credentials: "omit", cache: o.fresh ? "reload" : "default", signal: sg });
 		// 写真＝<img> で見せるだけ。CORS を開けていない置き場は不透明な応答のまま残す（<img> にはそれで足りる）
 		const res = o.opaque ? await get("cors").catch(e => { if (d.signal?.aborted) throw e; return get("no-cors"); }) : await get("cors");
 		if (res.type === "opaque") { await cache.put(u, res); return; }
@@ -79,13 +94,12 @@ async function putAll(cache: Cache, urls: string[], stage: Stage, d: Deps, o: { 
 /** 災害の想定：粗い段から降り、想定のある枡（200）の子だけを取りに行く（404＝その下にも想定なし）。市の外の細かい段は取らない */
 async function putHazards(cache: Cache, d: Deps, keep: (z: number, x: number, y: number) => boolean) {
 	const tpls = HAZARDS.flatMap(h => h.urls);
-	const have = new Set((await cache.keys()).map(r => r.url));
 	const p: Progress = { stage: "hazard", done: 0, total: 0, bytes: 0, failed: 0 };
 	let queue: { tpl: string; t: [number, number, number] }[] = tpls.flatMap(tpl => tilesIn(CITY_BBOX, HAZARD_ZMIN).map(t => ({ tpl, t })));
 	const one = async ({ tpl, t }: (typeof queue)[number]): Promise<boolean> => {   // 戻り＝想定がある（子へ降りる）
 		const u = fillTpl(tpl, ...t);
-		if (have.has(u)) { const r = await cache.match(u); return !!r?.ok; }
-		const res = await fetch(u, { credentials: "omit", signal: d.signal });
+		const had = await cache.match(u, { ignoreVary: true }); if (had) return had.ok;   // 有る物は飛ばす（keys() は大きな置き場で投げる＝1 本ずつ）
+		const res = await fetch(u, { credentials: "omit", signal: sigOf(d) });
 		if (!res.ok && res.status !== 404 && res.status !== 204) { p.failed++; return false; }
 		if (res.ok) p.bytes += (await res.clone().arrayBuffer()).byteLength;
 		await cache.put(u, res);
@@ -102,25 +116,37 @@ async function putHazards(cache: Cache, d: Deps, keep: (z: number, x: number, y:
 	return p;
 }
 
-/** 3D Tiles（LOD1 の 13 区）：tileset.json を辿って中身を全部 */
-async function lod1Urls(d: Deps): Promise<string[]> {
-	const out = new Set<string>();
-	const walk = async (u: string): Promise<void> => {
-		if (out.has(u) || d.signal?.aborted) return; out.add(u);
-		const j = await (await fetch(u, { credentials: "omit", signal: d.signal })).json();
-		const { contents, children } = tilesetRefs(j, u);
-		for (const c of contents) out.add(c);
-		for (const c of children) await walk(c);
+/** 3D Tiles（LOD1 の 13 区）：tileset.json を辿って中身を全部。子の tileset.json は並べて取る（直列だと往復の数だけ待つ）。
+ *  辿っている間も進み（読んだ tileset の数）を出す＝止まって見えない。読めなかった tileset は failed（その区は「保存できなかった物」） */
+async function lod1Urls(d: Deps): Promise<{ urls: string[]; failed: number }> {
+	const out = new Set<string>(), queue = LOD1_WARDS.map(w => lod1Url(w.code));
+	const p: Progress = { stage: "bld1", done: 0, total: queue.length, bytes: 0, failed: 0 };
+	for (const u of queue) out.add(u);
+	let i = 0;
+	const worker = async () => {
+		while (i < queue.length && !d.signal?.aborted) {
+			const u = queue[i++];
+			try {
+				const r = await fetch(u, { credentials: "omit", signal: sigOf(d) });
+				if (!r.ok) throw new Error(String(r.status));
+				const { contents, children } = tilesetRefs(await r.json(), u);
+				for (const c of contents) out.add(c);
+				for (const c of children) if (!out.has(c)) { out.add(c); queue.push(c); p.total++; }
+			} catch (e) { if (d.signal?.aborted) return; p.failed++; console.warn("[offline] lod1 tileset", u, e); }
+			p.done++; if (p.done % 8 === 0 || p.done === p.total) d.onProgress?.({ ...p });
+		}
 	};
-	await Promise.all(LOD1_WARDS.map(w => walk(lod1Url(w.code)).catch(e => console.warn("[offline] lod1", w.code, e))));
-	return [...out];
+	d.onProgress?.({ ...p });
+	// queue は辿るほど伸びる＝先に手が空いた worker が抜けないよう、伸びが止まるまで回し直す
+	while (i < queue.length && !d.signal?.aborted) await Promise.all(Array.from({ length: 8 }, worker));
+	return { urls: [...out], failed: p.failed };
 }
 
 /** 一気に詰める（もう一度＝続きから・refresh＝台帳と写真を取り直す＝「データベースを更新」） */
 export async function run(d: Deps, o: { refresh?: boolean } = {}): Promise<OfflineRec> {
 	navigator.storage?.persist?.().catch(() => false);   // ブラウザ都合で消されないように（拒否でも動きは同じ）
 	const man = await manifest(); if (!man) throw new Error("offline.json");
-	const cache = await caches.open(PACK); swNotify();
+	const [cache, tiles, bld] = await Promise.all([PACK, PACK_TILES, PACK_BLD].map(n => caches.open(n))); swNotify();
 	const prev = readRec();
 	// 済んだ段は飛ばす（続きから）。アプリは版が変わったら・台帳と写真は「更新」で取り直す
 	const rec: OfflineRec = { v: 1, ts: Date.now(), build: man.build, bytes: prev?.bytes ?? 0, done: false, stages: { ...(prev?.stages || {}), app: prev?.build === man.build && !!prev.stages.app, ...(o.refresh ? { data: false } : {}) } };
@@ -149,12 +175,16 @@ export async function run(d: Deps, o: { refresh?: boolean } = {}): Promise<Offli
 		const urls: string[] = [];
 		// z12 までは市のまわり（覆いの外枠＝川崎・東京湾・鎌倉まで）も＝引いた眺めが通信のある時と同じ。z13 からは市の形の中だけ
 		for (let z = b.minZoom; z <= BASEMAP_ZMAX; z++) for (const t of tilesIn(z < MASK_FROM ? MASK_BOX : CITY_BBOX, z)) if (keep(...t)) urls.push(fillTpl(b.template, ...t));
-		return putAll(cache, urls, "map", d, { conc: 8 });
+		return putAll(tiles, urls, "map", d, { conc: 8 });
 	});
-	await step("hazard", () => putHazards(cache, d, keep));
+	await step("hazard", () => putHazards(tiles, d, keep));
 	await step("terrain", async () => { const r = await d.map.prefetchTerrain({ bbox: CITY_BBOX, zmax: BASEMAP_ZMAX, signal: d.signal, onProgress: (done, total) => d.onProgress?.({ stage: "terrain", done, total, bytes: 0, failed: 0 }) }); return { failed: r.failed + r.empty }; });   // 横浜の標高セル（R10・R01 各 1）は必ず中身がある＝空は取れなかった
 	// LOD1 は textures:false・pickable:false・単色で描く＝地物の属性（batch table＝b3dm の 6 割）と画像は使わない。抜いてから詰める（Mac 実測：13 区 2.9 GB → 約 1.2 GB）
-	await step("bld1", async () => putAll(cache, await lod1Urls(d), "bld1", d, { conc: 8, slim: (u, b) => /\.json(\?|$)/.test(u) ? b : slimTile(b) }));
+	await step("bld1", async () => {
+		const l = await lod1Urls(d); if (d.signal?.aborted) return;
+		const r = await putAll(bld, l.urls, "bld1", d, { conc: 8, slim: (u, b) => /\.json(\?|$)/.test(u) ? b : slimTile(b) });
+		return { bytes: r.bytes, failed: r.failed + l.failed };
+	});
 	await step("bld2", async () => {
 		const got = await d.map.prefetchBuildings({ names: LOD2_PREFETCH, onProgress: (done, total) => d.onProgress?.({ stage: "bld2", done, total, bytes: 0, failed: 0 }) });
 		return { failed: LOD2_PREFETCH.length - got.length };
@@ -177,7 +207,9 @@ async function putApp(cache: Cache, man: OfflineManifest, d: Deps) {
 	const mf = await fetch(man.base + "offline.json", { cache: "no-cache" }); if (mf.ok) await cache.put(new URL(man.base + "offline.json", location.origin).href, mf);
 	// 掃除：このビルドとこのエンジンに無い、同じオリジンのアプリ・エンジンのファイル
 	const keepSet = new Set([...want, page, new URL(man.base + "offline.json", location.origin).href]);
-	for (const k of await cache.keys()) { const u = new URL(k.url); if (u.origin === location.origin && !keepSet.has(k.url) && (u.pathname.startsWith(man.base) || u.pathname.startsWith("/globe/engine/"))) await cache.delete(k); }
+	// 掃除は付け足し（失敗しても束は揃っている）＝この置き場が大きい時（タイルを同じ置き場に詰めていた 11/12 の版の束）keys() が投げても保存は止めない
+	try { for (const k of await cache.keys()) { const u = new URL(k.url); if (u.origin === location.origin && !keepSet.has(k.url) && (u.pathname.startsWith(man.base) || u.pathname.startsWith("/globe/engine/"))) await cache.delete(k); } }
+	catch (e) { console.warn("[offline] sweep skipped", e); }
 	return r;
 }
 
