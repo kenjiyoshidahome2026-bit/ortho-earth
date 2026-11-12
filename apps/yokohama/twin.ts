@@ -884,6 +884,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// 地図を見せるために畳む＝操作方法カード（#hint）も閉じる（畳むと出てきて地図の上半分を覆っていた・Mac 390px 2026-10-26。閉じた選択は記憶＝以後は「?」）
 	const foldForMap = () => { if (!narrow()) return; P.setFold(true); const h = mapEl.querySelector<HTMLElement>("#hint"); if (h && h.style.display !== "none") h.querySelector<HTMLElement>("#hint-close")?.click(); };
 	$(".probe").onclick = () => { setProbing(!(probing && !probeHome)); if (probing) foldForMap(); };
+	// 操作方法カード（#hint）は最初の操作で畳む＝タブを選ぶ・地図に触れる（本番チェック 2026-11-12：スマホでタブを選ぶまで画面中央を覆い、PC でも残っていた）。
+	// 閉じた選択は記憶＝以後は「?」から（foldForMap と同じ）。カード自身と「?」を押した時は畳まない
+	const hintOff = (e: PointerEvent) => {
+		if ((e.target as Element | null)?.closest?.("#hint, #hint-btn")) return;
+		removeEventListener("pointerdown", hintOff, true);
+		const h = mapEl.querySelector<HTMLElement>("#hint"); if (h && h.style.display !== "none") h.querySelector<HTMLElement>("#hint-close")?.click();
+	};
+	addEventListener("pointerdown", hintOff, true);
 	async function samplePx(url: string, lon: number, lat: number, legend: typeof DEPTH): Promise<number> {
 		const z = 17, p = tilePixel(lon, lat, z);
 		try {
