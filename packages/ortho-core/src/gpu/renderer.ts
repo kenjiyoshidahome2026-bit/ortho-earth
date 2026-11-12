@@ -79,7 +79,7 @@ import type { GintFrame, GintDepthCtx, GintClipInfo } from "./gint.ts";
 /** createRendererGPU の起動の旗（renderworker が渡す） */
 export interface RendererGPUOptions {
 	/** 既定 "high-performance"（外付け GPU のあるノート PC で速い方を頼む・gpupower.ts）。"low-power"／"default" で戻せる */
-	powerPreference?: GpuPowerPreference; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
+	powerPreference?: GpuPowerPreference; adapterTries?: number; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
 	/** パイプラインを初回使用時に作る（?lazypipe=1）。既定＝起動時に全部（従来）。2026-11-06 Galaxy：GPU プロセスの直列コンパイル 9.6 秒の切り分け・短縮 */
 	lazyPipes?: boolean;
 	/** lazyPipes の束のうち最初のフレームに要る 10 本を起動時に先に作る（?warmpipe=1＝同期・2＝createRenderPipelineAsync で並列）。2026-11-06 Galaxy のトレース：
@@ -390,9 +390,10 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const aOpts = gpuAdapterOptions(rOpts.powerPreference ?? powerPreference());
 	const reqA = (o?: GPURequestAdapterOptions) => navigator.gpu.requestAdapter(o).catch((e: unknown) => { console.warn("[gpu] requestAdapter threw:", (e as Error)?.message || e); return null; });
 	let adapter = await reqA(aOpts);
-	if (!adapter) { console.warn("[gpu] requestAdapter returned null = retrying in 300 ms"); await new Promise(r => setTimeout(r, 300)); adapter = await reqA(aOpts); }
+	// 試行回数 adapterTries（既定 2）。以前 WebGPU で描けた端末（globe の oj.gpuOk）は 6 回＝間隔を 300 ms から倍々に（合計 ~9 秒）粘る
+	for (let i = 1, wait = 300; !adapter && i < (rOpts.adapterTries || 2); i++, wait *= 2) { console.warn(`[gpu] requestAdapter returned null = retrying in ${wait} ms`); await new Promise(r => setTimeout(r, wait)); adapter = await reqA(aOpts); }
 	if (!adapter && aOpts && Object.keys(aOpts).length) { console.warn("[gpu] still no adapter = retrying without powerPreference"); adapter = await reqA(); }
-	if (!adapter) throw new Error("WebGPU adapter unavailable (requestAdapter returned null 3 times)");
+	if (!adapter) throw new Error("WebGPU adapter unavailable (requestAdapter kept returning null)");
 	const tAdapter = performance.now();
 	// A/B 計測用の GPU 識別（WebGL の WEBGL_debug_renderer_info 相当）。info は環境で空の事があるので緩く。
 	const ai: Partial<GPUAdapterInfo> = adapter.info || {};

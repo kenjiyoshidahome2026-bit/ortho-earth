@@ -874,6 +874,12 @@ const sealGpuForOverlay = !!opts.glOverlay && IS_WEBKIT;
 // 新方式＝①印は起動時に消費（このブートだけ GL2・次のリロードは WebGPU 再試行）②累積 oj.nogpuN が
 // 2 回に達したら本物の故障とみなしタブセッション固定 ③フォールバック中は画面チップで明示＋タップで
 // 印を全部消して再試行（CNG フリートの見回り診断）。WebGPU の present 検証が通ったら累積もリセット。
+// 【一度 WebGPU で描けた端末は落とさない・2026-11-12 本人裁定】present 検証が通った端末を localStorage oj.gpuOk に覚える（UA ごと＝ブラウザ更新で
+// 一度だけ確かめ直す）。覚えた端末では ①失敗印 oj.nogpu を読まない ②20 秒番犬・present 検証の失敗でも GL2 へ読み直さない（印を外すだけ＝次の読み込みは
+// 通常の網に戻る＝ドライバ更新等で本当に壊れた時の出口）③adapter 取得は粘る（worker へ gpuKnown）。手動の逃げ道 ?gl2=1 はそのまま
+const gpuKnown = (() => { try { const v = JSON.parse(localStorage.getItem("oj.gpuOk") || "null"); return !!v && v.ua === navigator.userAgent; } catch { return false; } })();
+const forgetGpuOk = (why: string) => { try { localStorage.removeItem("oj.gpuOk"); } catch {} console.error(`[boot] WebGPU trouble on a device known to run WebGPU (${why}) = staying on WebGPU (no WebGL2 restart); the next load uses the normal fallback checks`); };
+if (gpuKnown) { sessionStorage.removeItem("oj.nogpu"); sessionStorage.removeItem("oj.nogpuN"); }
 const nogpuN = +(sessionStorage.getItem("oj.nogpuN") || 0);
 const nogpuMark = sessionStorage.getItem("oj.nogpu");
 if (nogpuMark && nogpuN < 2) sessionStorage.removeItem("oj.nogpu");   // 一発分を消費＝次のリロードで WebGPU 再試行
@@ -1000,7 +1006,7 @@ const wPost: GlobeScope["wPost"] = (msg, transfer) => {
 // 手前の建物が足元へ細長く伸びた（#954）。WebGPU・GL2 とも既定 20（Galaxy 実機と Mac で確認済み・?clipk=0 で戻す）
 const clipKQ = /[?&]clipk=(\d+)/.exec(location.search);
 const flatParam = /[?&]flat=([\d.]+)(?:,([\d.]+))?/.exec(location.search), lineFlatPx = !flatParam ? undefined : +flatParam[1] > 0 ? [+flatParam[1], Math.max(+flatParam[1], +(flatParam[2] ?? +flatParam[1] + 1))] : null;
-renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, lazyPipes: LAZY_PIPES, warmPipes: WARM_PIPES, warmPar: WARM_PAR, gintWarm: GINT_WARM, terrCoarse: TERR_COARSE, terrCoarseAlways: TERR_COARSE_ALWAYS, flatVec: FLAT_VEC, lineElev: LINE_ELEV, lineElevMove: LINE_ELEV_MOVE, gndHold: GND_HOLD, gndMipSep: GND_MIP_SEP, meshDrain: MESH_DRAIN, perf: perfLog, resFix: Number((/[?&]res=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphMs: Number((/[?&]glyphms=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphDb: /[?&]glyphdb=1/.test(location.search), mem: hudOn, lowMem: LOW_MEM, meshChunk: /[?&]meshchunk=1/.test(location.search), meshLod: qNum(/[?&]meshlod=([\d.]+)/, LOW_MEM ? 2 : 0), meshLodZ: qNum(/[?&]meshlodz=([\d.]+)/, 0), meshLodZ0: qNum(/[?&]paz=([\d.]+)/, 15), meshRange: qNum(/[?&]meshrange=([\d.]+)/, LOW_MEM ? 2 : 0), meshShed: qNum(/[?&]meshshed=(\d)/, 1), meshShedMax: qNum(/[?&]meshshedmax=(\d+)/, 0), meshShedMs: qNum(/[?&]meshshedms=(\d+)/, 0), meshCull: qNum(/[?&]meshcull=(\d)/, 0), meshSort: qNum(/[?&]meshsort=(\d)/, 0), resMin: qNum(/[?&]resmin=([\d.]+)/, 0), meshLiteMove: qNum(/[?&]meshlitemove=([\d.]+)/, 4), meshLiteFs: qNum(/[?&]meshlitefs=(\d)/, 1), meshFast: !/[?&]meshfast=0/.test(location.search), meshFastCull: qNum(/[?&]meshfastcull=(\d)/, 1), elevCheap: /[?&]elevcheap=1/.test(location.search) || (LOW_MEM && !/[?&]elevcheap=0/.test(location.search)), bakeLift: /[?&]bakelift=1/.test(location.search), nearClip: Number((/[?&]nearclip=([\d.]+)/.exec(location.search) || [])[1]) || 0, clipK: clipKQ ? +clipKQ[1] : 20, clipKGl: clipKQ ? +clipKQ[1] : 20, noMixed: noMixedR01, noFarTerr, noNearTerr, r01Zoom: R01_ZOOM, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), depthRZ: !/[?&]depth=log/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, shedFoot: SHEDFOOT, terrSync: TERRSYNC, fontWarm: FONTWARM, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
+renderWorker.postMessage({ type: "init", lineFlatPx, ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, ...(labelGpuOffscreen ? { labelGpuCanvas: labelGpuOffscreen } : {}), elevBase: 1 / EARTH_M, terrainExag: 1, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, lazyPipes: LAZY_PIPES, warmPipes: WARM_PIPES, warmPar: WARM_PAR, gintWarm: GINT_WARM, terrCoarse: TERR_COARSE, terrCoarseAlways: TERR_COARSE_ALWAYS, flatVec: FLAT_VEC, lineElev: LINE_ELEV, lineElevMove: LINE_ELEV_MOVE, gndHold: GND_HOLD, gndMipSep: GND_MIP_SEP, meshDrain: MESH_DRAIN, perf: perfLog, resFix: Number((/[?&]res=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphMs: Number((/[?&]glyphms=([\d.]+)/.exec(location.search) || [])[1]) || 0, glyphDb: /[?&]glyphdb=1/.test(location.search), mem: hudOn, lowMem: LOW_MEM, meshChunk: /[?&]meshchunk=1/.test(location.search), meshLod: qNum(/[?&]meshlod=([\d.]+)/, LOW_MEM ? 2 : 0), meshLodZ: qNum(/[?&]meshlodz=([\d.]+)/, 0), meshLodZ0: qNum(/[?&]paz=([\d.]+)/, 15), meshRange: qNum(/[?&]meshrange=([\d.]+)/, LOW_MEM ? 2 : 0), meshShed: qNum(/[?&]meshshed=(\d)/, 1), meshShedMax: qNum(/[?&]meshshedmax=(\d+)/, 0), meshShedMs: qNum(/[?&]meshshedms=(\d+)/, 0), meshCull: qNum(/[?&]meshcull=(\d)/, 0), meshSort: qNum(/[?&]meshsort=(\d)/, 0), resMin: qNum(/[?&]resmin=([\d.]+)/, 0), meshLiteMove: qNum(/[?&]meshlitemove=([\d.]+)/, 4), meshLiteFs: qNum(/[?&]meshlitefs=(\d)/, 1), meshFast: !/[?&]meshfast=0/.test(location.search), meshFastCull: qNum(/[?&]meshfastcull=(\d)/, 1), elevCheap: /[?&]elevcheap=1/.test(location.search) || (LOW_MEM && !/[?&]elevcheap=0/.test(location.search)), bakeLift: /[?&]bakelift=1/.test(location.search), nearClip: Number((/[?&]nearclip=([\d.]+)/.exec(location.search) || [])[1]) || 0, clipK: clipKQ ? +clipKQ[1] : 20, clipKGl: clipKQ ? +clipKQ[1] : 20, noMixed: noMixedR01, noFarTerr, noNearTerr, r01Zoom: R01_ZOOM, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, gpuKnown, power: POWER_PREF, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), depthRZ: !/[?&]depth=log/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, noLx: /[?&]nolx=1/.test(location.search), noPt: /[?&]pt=0/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, shedFoot: SHEDFOOT, terrSync: TERRSYNC, fontWarm: FONTWARM, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2, ...(labelGpuOffscreen ? [labelGpuOffscreen] : [])]);
 fontsReadySend = () => wPost({ type: "fontsReady" });   // 書体の温めが済んだ合図（init の後＝ctrlPort が生きている）
 if (fontsReadyDue) fontsReadySend();
 BOOT.init = performance.now();
@@ -1048,6 +1054,7 @@ if (gpuBackend) {
 		if (seen < 20000) return;
 		clearInterval(gpuWatchT!); gpuWatchT = null;
 		if (!/[?&]stay=1/.test(location.search)) {
+			if (gpuKnown) { forgetGpuOk("no frame1 in 20s"); noteGpuFallback("frame1-20s (known WebGPU device: not restarted)"); return; }
 			console.error("[boot] gpu=1: no frame1 in 20s (visible time) -> restarting as WebGL2");
 			markNoGpu("frame1-20s");
 			location.reload();
@@ -1117,7 +1124,7 @@ renderWorker.onmessage = e => {
 		diagHud && diagHud("frame1", `received ✓ backend=${dbgHost.__backend}`);
 		// フォールバック GL2 の画面表示（柔らか鍵の③）：黙って重いモードで走らない。タップ＝印を全消しして
 		// WebGPU 再試行（CNG フリートで端末を覗いた瞬間に状態が分かる・観客の端末でも1タップで復帰を試せる）。
-		if (dbgHost.__backend !== "webgpu" && (gl2Fallback || (gpuInitFail && !/adapter unavailable/.test(gpuInitFail)))) {   // adapter が 3 回とも null＝その環境に WebGPU が無い（Linux Chrome 等）＝設計どおりの GL2＝チップは出さない（/check/ には残す）
+		if (dbgHost.__backend !== "webgpu" && (gl2Fallback || (gpuInitFail && (gpuKnown || !/adapter unavailable/.test(gpuInitFail))))) {   // 以前 WebGPU で描けた端末なら異常＝出す。adapter が毎回 null＝その環境に WebGPU が無い（Linux Chrome 等）＝設計どおりの GL2＝チップは出さない（/check/ には残す）
 			// 左下ドックへ搭載（2026-09-03 被り総括）：旧・body直下の position:fixed は #pos（座標計器）と真被り＝
 			// ドックなら座標計器やトーストの上へ積まれる。destroy の replaceChildren でも一緒に畳まれる（旧はbodyに残った）
 			const chip = document.createElement("div");
@@ -1146,6 +1153,7 @@ renderWorker.onmessage = e => {
 					if (++tries < 2) { console.warn(`[boot] WebGPU present check missed once (${why}) = rechecking in 1s`); setTimeout(() => requestAnimationFrame(verifyPresent), 1000); return; }
 					if (stay) { console.error(`[boot] WebGPU present verification failed (${why}). stay=1 = fallback suppressed; inspect the diag lines`); diagHud && diagHud("present", `failed ✗ (${why})`); return; }
 					console.error(`[boot] WebGPU present verification failed (${why}) -> restarting as WebGL2 in 3s (waiting for GPU diagnostics)`);
+					if (gpuKnown) { forgetGpuOk("present: " + why); noteGpuFallback("present:" + why + " (known WebGPU device: not restarted)"); return; }
 					markNoGpu("present:" + why);
 					setTimeout(() => location.reload(), 3000);
 			};
@@ -1157,7 +1165,7 @@ renderWorker.onmessage = e => {
 				const px = g.getImageData(0, 0, S, S).data;
 				let nz = 0; for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
 				if (nz === 0) bail("no pixels reached the canvas");
-				else { console.log(`[boot] WebGPU present verified (pixels ${nz}/${S * S}, ${(performance.now() - tv) | 0} ms, ${(tv - t0) | 0} ms after frame1)`); diagHud && diagHud("present", `OK ✓ pixels ${nz}/${S * S}`); sessionStorage.removeItem("oj.nogpuN"); BOOT.present = performance.now(); bootReport("present"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
+				else { console.log(`[boot] WebGPU present verified (pixels ${nz}/${S * S}, ${(performance.now() - tv) | 0} ms, ${(tv - t0) | 0} ms after frame1)`); diagHud && diagHud("present", `OK ✓ pixels ${nz}/${S * S}`); sessionStorage.removeItem("oj.nogpuN"); try { localStorage.setItem("oj.gpuOk", JSON.stringify({ ua: navigator.userAgent, at: new Date().toISOString() })); } catch {} BOOT.present = performance.now(); bootReport("present"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
 			} catch (e) { bail("exception during verification: " + (e && (e as Error).message)); }
 			};
 			const verify = () => { if (done) return; done = true; requestAnimationFrame(verifyPresent); };
