@@ -569,6 +569,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (rest.length) p.then(() => map.prefetchBuildings({ names: rest })).catch(e => console.warn("[yokohama] tour prefetch", e));
 		return p;
 	}
+	// ツアーでは各名所に一段寄る（本人 2026-11-13「各シーンでちょっと近づいた方がいい」）。名所の一覧のボタンで飛ぶ時の見え方は今のまま
+	const TOUR_CLOSER = 0.5;
 	async function tour() {
 		if (touring) { stopTour(); return; }
 		const run = touring = Date.now();
@@ -584,7 +586,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			if (touring !== run) return;
 			say(`${photoHTML(ph?.[s.id], "cph")}<div class="ct"><small>${i + 1} / ${stops.length} · ${esc(wardName(s.ward))}</small><b>${esc(t(s.name))}</b><p>${esc(t(s.note))}</p></div>`);
 			showSpot(s, true);
-			await flySpot(s);
+			await flySpot({ ...s, zoom: s.zoom + TOUR_CLOSER });
 			if (touring !== run) return;
 			await map.easeTo({ bearing: s.bearing + 40, duration: 6000 });   // ゆっくり回り込む
 		}
