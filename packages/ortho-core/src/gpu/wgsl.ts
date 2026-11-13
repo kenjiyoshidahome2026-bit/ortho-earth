@@ -2134,8 +2134,14 @@ export const MESH_TEX_CAST_WGSL = deriveWgsl(MESH_TEX_WGSL, [
 }
 `;
 // 地形も影を落とす（#112 段 2・影の窓の中だけ）＝本体の頂点計算そのまま（同じ窓・同じ距離フェード＝画面の地形と同じ形）・対数深度だけ外す。頂点だけのパイプライン
+// 落とす側の地形は SH_TERR_SINK_M だけ沈める（2026-11-14・横浜の動画で本人が見つけた「影を点けると河口の水面に斑点が出て、視点を動かすとちらつく」）：
+// 画面の地形は海〜低地（標高 1m 未満〜帯の上端＝最小 2m）を透かして海抜 0 の床（球の床と塗り）に任せるが、落とす側は透かさない＝床は「見えない地形」の
+// 0〜2m 下にあり、標高が余白（0.1m＋texel×cot(高度)）を越える所だけ自分の地形の影に入った。河口や内港の DEM は 0〜1m で揺れる＝細かい斑点になり、
+// 段の窓が視点に付いて動くたびに模様が変わった。沈めるのは落とす側だけ＝受け手の地形・建物の影の位置は変わらない（地形の影の先が 2.5m×cot(高度) 縮むだけ）。
+// 負の標高をそのまま描く DEM（elevP.w＝低地フェード無し＝床は見えない）は沈めない
+export const SH_TERR_SINK_M = 2.5;
 export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
-	["\tp.z = logDepthZ(p.w);\n\to.pos = p;", "\to.pos = p;"],
+	["\tvar p = F.clipT + F.mvp * vec4f(relW, 0.0);\n\tp.z = logDepthZ(p.w);\n\to.pos = p;", `\tvar p = F.clipT + F.mvp * vec4f(relW - (select(${SH_TERR_SINK_M.toFixed(1)}, 0.0, F.elevP.w > 0.5) * F.elevP.x) * liftDir(a_ll, dir), 0.0);   // 落とす側だけ沈める（SH_TERR_SINK_M）\n\to.pos = p;`],
 ], "TERRAIN_CAST_WGSL");
 // 地形の落とす側を画面と同じ分担で描く版（2026-11-10・Cesium 例 shadows の左の余計な影）：主メッシュ（粗い格子）は近景層の窓の内側、近景メッシュは
 // 足元層の窓の内側を discard＝本体 fs と同じ判定。旧＝主メッシュだけを窓ごと落とした＝粗い三角形の平面が細かい地面（近景・足元メッシュ）より
