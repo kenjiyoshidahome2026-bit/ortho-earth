@@ -14,7 +14,7 @@ import type { BigTable } from "common/bigtable";   // 施設の検索の表（�
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, yokohamaShelters, HINAN_URL, railLinesEn, RAIL_LINES_EN, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, sampleLine, climb, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, yokohamaShelters, HINAN_URL, railLinesEn, RAIL_LINES_EN, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, sampleLine, climb, shiftInto, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 import { OFFLINE_MB, searchPlaces, type PlaceRow } from "./data.ts";
 import * as Offline from "./offline.ts";   // 通信なしで使う束（完全オフライン・本人 2026-11-12）
@@ -969,7 +969,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		}, () => { msg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
 	}
 	// 調べた地点へ寄る（家・現在地の共用）。スマホ：印が下のシートに隠れない所へ
-	const flyNear = (ll: LonLat) => { setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); }); };
+	const flyNear = (ll: LonLat) => { setFlat(false); return map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); }); };
 	$(".probe-gps").onclick = () => locateMe($<HTMLElement>(".probe-msg"), ll => {
 		setProbing(false);
 		flyNear(ll);
@@ -1150,9 +1150,10 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		return p;
 	};
 	// 道順の線（押した行の行き先まで）
-	let routeOn = false, destMark: Marker | null = null;
+	let routeOn = false, routeShown = -1, destMark: Marker | null = null;
 	const routes: [number, number][][] = [], routeTo: string[] = [];   // routeTo＝行き先の名（終点のピンに出す）
 	async function showRoute(k: number) {
+		routeShown = k;
 		destMark?.remove(); destMark = null;
 		const line = routes[k];
 		if (line?.length) {   // 行き先のピン＋名（動画で「どこへ向かう線か」が分かるように・Mac の試し撮り 2026-10-26）
@@ -1168,6 +1169,31 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		} else map.getSource("yk-route")?.setData?.(fc);
 		homeOut.querySelectorAll<HTMLElement>(".wroute").forEach(b => b.classList.toggle("on", +b.dataset.k! === k));
 		paintProfile(k);
+	}
+	// 線を画面に収める（引いても建物を残す＝z 16.5 未満でも道順のまわりは立てたまま・観光と同じ hold・Mac の試し撮り 2026-10-26）
+	const fitRoute = (line: [number, number][], o: { padding: ReturnType<typeof padRoute>; pitch: number; bearing: number; maxZoom: number }) => {
+		const xs = line.map(p => p[0]), ys = line.map(p => p[1]), bb: [number, number, number, number] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+		const cam = map.cameraForBounds(bb, o), h = cam ? holdBuildings({ lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2, zoom: cam.zoom }) : null;
+		return map.fitBounds(bb, o).finally(() => { if (h) h.armed = true; });
+	};
+	// カードを開いた時に引く最寄り駅の道＝視点は基本動かさない。線の一部が板・グラフの下や画面の外になる時だけ、見える所へずらす
+	// （本人 2026-11-14「ルートが全部見えない」＝押した家の側の端が、下に出る高低差のグラフに隠れていた・Mac の撮り直しで英語の場面と都筑区の家）。
+	// ずらすだけで入らない長さの線は、いまの向き・傾きのまま寄らずに引いて収める。空きが狭すぎる画面（スマホで板を開いたまま）では何もしない
+	async function revealRoute(k: number, at: [number, number], settled?: Promise<unknown>) {
+		try { await settled; } catch { /* 飛べなくても測る */ }
+		await new Promise(r => setTimeout(r, 150));   // スマホ＝押した点を板の上へずらす動き（revealAbovePanel）が始まるのを待つ
+		for (let i = 0; i < 30 && map.isMoving?.(); i++) await new Promise(r => setTimeout(r, 100));   // 動いている間は測らない
+		const line = routes[k];
+		if (homeNow !== at || routeShown !== k || !line?.length) return;   // 別の地点・別の道順に変わった
+		const p = padRoute(), W = mapEl.clientWidth, H = mapEl.clientHeight, slack = Math.max(0, Math.min(W, H) * 0.05 - 12);   // 測る枠＝板とグラフの分＋12px（収める時の 5% の余白までは求めない）
+		const free: [number, number, number, number] = [p.left - slack, p.top - slack, W - p.right + slack, H - p.bottom + slack];
+		if (free[2] - free[0] < 140 || free[3] - free[1] < 140) return;
+		const q = line.map(ll => map.project(ll)), xs = q.map(v => v.x), ys = q.map(v => v.y);
+		if (!xs.every(Number.isFinite) || !ys.every(Number.isFinite)) return;
+		const d = shiftInto([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], free);
+		if (d && !d.dx && !d.dy) return;   // 全部見えている
+		if (d) { const c = map.unproject([W / 2 + d.dx, H / 2 + d.dy]); if (c) map.easeTo({ center: [c.lng, c.lat], duration: 400 }); return; }
+		fitRoute(line, { padding: p, pitch: map.getPitch(), bearing: map.getBearing(), maxZoom: map.getZoom() });
 	}
 	const clearHome = () => { homeOut.hidden = true; homeNow = null; homeMark?.remove(); homeMark = null; routes.length = 0; routeTo.length = 0; if (routeOn) showRoute(-1); else { destMark?.remove(); destMark = null; } profRun++; prof.hidden = true; };
 	// 保存した地点＝自宅・実家・職場など名前を付けて 3 か所まで。押せばその地点のカードへ（この端末だけ＝localStorage・Kenji 2026-10-27「2〜3 点登録できると便利」）
@@ -1189,8 +1215,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			: `<form class="hm-svf"><input type="text" class="fq" maxlength="${PLACE_NAME_MAX}" placeholder="${esc(t("Name (e.g. Home, Parents, Work)"))}" aria-label="${esc(t("Place name"))}" enterkeyhint="done"><button type="submit" class="act">${esc(t("Save this place"))}</button></form>`;
 	}
 	const goHome = (ll: LonLat) => {
-		flyNear(ll);
-		homeAt(ll);
+		homeAt(ll, flyNear(ll));
 	};
 	savedEl.addEventListener("click", e => {
 		const el = e.target as HTMLElement, go = el.closest<HTMLElement>(".pl-go"), del = el.closest<HTMLElement>(".pl-del");
@@ -1206,7 +1231,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		places.push({ n, at: homeNow }); putPlaces();
 	});
 	paintPlaces();
-	async function homeAt(ll: LonLat) {
+	async function homeAt(ll: LonLat, settled?: Promise<unknown>) {
 		const at: [number, number] = [ll[0], ll[1]];
 		homeNow = null;
 		closePop(); homeMark?.remove();
@@ -1280,17 +1305,13 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		out.push(`<p class="sub flat">${esc(t(net ? "Distances follow streets and footpaths (OpenStreetMap); walking time assumes 80 m per minute." : "Straight-line distance; walking time assumes 80 m per minute."))}</p>`);
 		homeOut.innerHTML = out.join("");
 		homeNow = at; paintSave(at);
-		if (sta[0]?.w.k >= 0) showRoute(sta[0].w.k); else if (routeOn) showRoute(-1);   // 最寄り駅までの道順は最初から引く
+		if (sta[0]?.w.k >= 0) { showRoute(sta[0].w.k); revealRoute(sta[0].w.k, at, settled); } else if (routeOn) showRoute(-1);   // 最寄り駅までの道順は最初から引く（隠れる時だけ見える所へずらす）
 		homeOut.scrollIntoView({ block: "nearest", behavior: "smooth" });
 	}
 	homeOut.addEventListener("click", e => { const el = e.target as HTMLElement, r = el.closest<HTMLElement>(".wroute");
 		if (r) {   // 押した道順は線ごと画面に収める（最初に引く最寄り駅の線は視点を動かさない）
 			const k = +r.dataset.k!, line = routes[k]; showRoute(k); foldForMap();
-			if (line?.length) {   // 引いても建物を残す（z 16.5 未満でも道順のまわりは立てたまま＝観光と同じ hold・Mac の試し撮り 2026-10-26）
-				const xs = line.map(p => p[0]), ys = line.map(p => p[1]), bb: [number, number, number, number] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], o = { padding: padRoute(), pitch: 0, bearing: 0, maxZoom: 17 };
-				const cam = map.cameraForBounds(bb, o), h = cam ? holdBuildings({ lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2, zoom: cam.zoom }) : null;
-				map.fitBounds(bb, o).finally(() => { if (h) h.armed = true; });
-			}
+			if (line?.length) fitRoute(line, { padding: padRoute(), pitch: 0, bearing: 0, maxZoom: 17 });
 			return; }
 		if (el.closest(".x")) clearHome(); });
 	$(".hm-tap").onclick = () => { setProbing(!(probing && probeHome), true); if (probing) foldForMap(); };
