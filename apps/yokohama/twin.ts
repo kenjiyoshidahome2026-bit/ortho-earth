@@ -1410,6 +1410,7 @@ const CSS = `
 .yk-panel .yk-offline[hidden]{display:none}
 /* 「オフライン」の札が出ている間は見出しを少し小さく＝スマホ 390px で「横浜市デジタルツイン」が 1 字はみ出して 2 行になった（本人 2026-11-13）。言語の切替は残す＝通信なしの海外の人が使う（26 言語の辞書は束に入っている） */
 .yk-panel .oe-panel-head:has(.yk-offline:not([hidden])) h1{font-size:17px;letter-spacing:0}
+@media (min-width:641px){ .yk-panel:has(.yk-offline:not([hidden])){--oe-panel-w:360px} }   /* PC のパネルは 320px＝札と並ぶと 17px でも 2 行＝札が出ている間だけ少し広げる（2026-11-13・動画のオフライン場面） */
 .yk-panel .msel{display:flex;flex-direction:column;gap:3px;margin-top:8px;font-size:12px;color:var(--qm-text-dim)}
 .yk-panel select,.yk-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:5px 6px;min-width:0}
 .yk-panel input[type=range]{width:100%;accent-color:#4fc3f7}
