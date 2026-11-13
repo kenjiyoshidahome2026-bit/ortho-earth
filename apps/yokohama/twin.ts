@@ -391,12 +391,12 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	const lineShort = (k: string) => /^横浜市 [134]号線/.test(k) ? t(RAIL_LINES_EN[k]) : lang !== "ja" ? RAIL_LINES_EN[k] || k : /^(東日本|東海)旅客鉄道 /.test(k) ? "JR" + k.replace(/^\S+ /, "") : k.replace(/^\S+ /, "");
 	async function spotStations(s: Spot): Promise<string> {
 		if (/駅$/.test(s.wiki)) return "";   // 駅そのもの（横浜駅・新横浜）は要らない
-		const at: [number, number] = [s.lon, s.lat];
+		const at: [number, number] = s.near || [s.lon, s.lat];
 		const [rail, net] = await Promise.all([loadRail(), walkNet(at).catch(e => { console.warn("[yokohama] walk", e); return null; })]);
 		if (!rail) return "";
 		// 並べる物差し＝道のり。道に乗らない駅は直線×1.3（徒歩の見積もりと同じ）で比べる＝直線のまま比べると丘の向こうの駅が勝つ（三溪園で元町・中華街が根岸より上に出た・Mac 実測 2026-11-13）
 		const cands = nearestRows(rail.stations, at, 16).map(({ row }) => { const r = net && walkTo(net.g, net.from, [row[0], row[1]]), m = r ? r.m : distM(at, [row[0], row[1]]);
-			return { row, m, road: !!r, key: r ? m : m * 1.3 }; }).sort((a, b) => (s.stations?.includes(b.row[2]) ? 1 : 0) - (s.stations?.includes(a.row[2]) ? 1 : 0) || a.key - b.key);
+			return { row, m, road: !!r, key: r ? m : m * 1.3 }; }).sort((a, b) => a.key - b.key);
 		const pick: typeof cands = [];
 		for (const c of cands) { if (!pick.some(p => p.row[2] === c.row[2])) pick.push(c); if (pick.length >= 2) break; }
 		if (!pick.length) return "";

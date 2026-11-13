@@ -4,7 +4,7 @@
 // ortho-data/japan/yokohama/ に置く（GitHub Pages・DATA.md）。年代の航空写真（旧「時間」）は継ぎ目と色むらが目立つので外した（本人 2026-10-21）。
 
 export interface Ward { code: string; /** 日本語の名（住所の照合に使う） */ name: string; /** 訳の鍵（i18n/pages/yokohama.json） */ en: string; lon: number; lat: number; zoom: number }
-export interface Spot { id: string; /** ja.wikipedia の記事名（写真の出どころ） */ wiki: string; name: string; ward: string; lon: number; lat: number; zoom: number; tilt: number; bearing: number; note: string; /** 止まった時に地図に立てる名札（三塔のキング・クイーン・ジャックなど） */ marks?: { name: string; lon: number; lat: number }[]; /** 最寄り駅として必ず先に出す駅（台帳の駅名）＝名所の点が広い街の端にあって、街の名の駅が 3 番目に落ちる時（中華街＝元町・中華街） */ stations?: string[] }
+export interface Spot { id: string; /** ja.wikipedia の記事名（写真の出どころ） */ wiki: string; name: string; ward: string; lon: number; lat: number; zoom: number; tilt: number; bearing: number; note: string; /** 止まった時に地図に立てる名札（三塔のキング・クイーン・ジャックなど） */ marks?: { name: string; lon: number; lat: number }[]; /** 最寄り駅を測る点（無い＝lon/lat）＝カメラの点が広い街の端にある時に街の真ん中から測る（中華街＝カメラは西寄り・元町・中華街駅が 3 番目に落ち、道のりも大回りになった・Mac 実測 2026-11-13） */ near?: [number, number] }
 export interface Legend { color: string; label: string; /** 画素の照合だけに使う、同じ帯のほかの色（凡例には出さない） */ match?: string[] }
 export interface Hazard { id: string; name: string; urls: string[]; maxZoom: number; legend: Legend[]; note: string }
 export interface TwinState { tab: Tab; ward: string; hz: string[]; spot: string; tr: string[] }
@@ -47,7 +47,7 @@ export const SPOTS: Spot[] = [
 		marks: [{ name: "King · Kanagawa Prefectural Office", lon: 139.64233, lat: 35.4475 }, { name: "Queen · Yokohama Customs", lon: 139.64244, lat: 35.44917 }, { name: "Jack · Port Opening Memorial Hall", lon: 139.64136, lat: 35.44765 }] },
 	{ id: "osanbashi", wiki: "横浜港大さん橋国際客船ターミナル", name: "Osanbashi Pier", ward: "14104", lon: 139.6475, lat: 35.4513, zoom: 17.2, tilt: 60, bearing: 140, note: "International passenger terminal for large cruise ships. Its rooftop is an open plaza anyone can walk on." },
 	{ id: "yamashita", wiki: "山下公園", name: "Yamashita Park", ward: "14104", lon: 139.6505, lat: 35.4460, zoom: 17.2, tilt: 60, bearing: 60, note: "Waterfront park built on land reclaimed with rubble from the Great Kanto Earthquake (opened 1930)." },
-	{ id: "chinatown", wiki: "横浜中華街", name: "Yokohama Chinatown", ward: "14104", lon: 139.6460, lat: 35.4425, zoom: 17.6, tilt: 62, bearing: 45, note: "One of Japan's largest Chinatowns, which grew up after the port opened.", stations: ["元町・中華街"] },
+	{ id: "chinatown", wiki: "横浜中華街", name: "Yokohama Chinatown", ward: "14104", lon: 139.6460, lat: 35.4425, zoom: 17.6, tilt: 62, bearing: 45, note: "One of Japan's largest Chinatowns, which grew up after the port opened.", near: [139.6478, 35.4430] },
 	{ id: "marine-tower", wiki: "横浜マリンタワー", name: "Yokohama Marine Tower", ward: "14104", lon: 139.6506, lat: 35.4437, zoom: 17.8, tilt: 55, bearing: -30, note: "Harbor tower opened in 1961." },
 	{ id: "stadium", wiki: "横浜スタジアム", name: "Yokohama Stadium", ward: "14104", lon: 139.6400, lat: 35.4433, zoom: 17.6, tilt: 58, bearing: 0, note: "Baseball stadium inside Yokohama Park." },
 	{ id: "city-hall", wiki: "横浜市役所", name: "Yokohama City Hall", ward: "14104", lon: 139.6330, lat: 35.4513, zoom: 17.6, tilt: 58, bearing: 200, note: "City hall, which moved to a new building in Kitanakadori in 2020." },
