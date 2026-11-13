@@ -984,6 +984,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			<h3>${esc(t("Nearest evacuation sites"))}</h3>
 			<ol class="near">${near.map(({ row, m }, i) => `<li data-i="${i}"><b>${esc(shName(row))}</b><small>${esc(t("$1 m · about $2 min on foot", num(Math.round(m)), walkMin(m)))}</small><small class="el"></small></li>`).join("")}</ol>
 			<p class="sub flat">${esc(t("Straight-line distance; walking time assumes 80 m per minute."))}</p>`;
+		if (narrow()) probeOut.scrollIntoView({ block: "start", behavior: "smooth" });   // スマホ：深さと避難場所がシートの下に隠れない（Mac 390px 2026-11-13）
 		// 最寄りへ線を引く（直線）
 		const n0 = near[0]?.row;
 		const fc = { type: "FeatureCollection" as const, features: n0 ? [{ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: [[lon, lat], [n0[0], n0[1]]] } }] : [] };
