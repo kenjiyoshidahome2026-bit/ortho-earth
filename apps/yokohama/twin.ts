@@ -14,7 +14,7 @@ import type { BigTable } from "common/bigtable";   // 施設の検索の表（�
 import { tr, getLang } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（頁の辞書＝i18n/pages/yokohama.json・main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, yokohamaShelters, HINAN_URL, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, sampleLine, climb, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_VIEW, CITY_BBOX, HINAN_FLAGS, LOD2_PREFETCH, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, MASK_BOX, insideBox, SUBWAY, TRANSIT, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, yokohamaShelters, HINAN_URL, railLinesEn, RAIL_LINES_EN, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, siteName, walkMin, distM, PORT_STORY, SEA_VIEWS, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, sampleLine, climb, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom } from "./data.ts";
 import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow } from "./data.ts";
 import { OFFLINE_MB, searchPlaces, type PlaceRow } from "./data.ts";
 import * as Offline from "./offline.ts";   // 通信なしで使う束（完全オフライン・本人 2026-11-12）
@@ -368,6 +368,45 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			spotPins.push(new ML.Marker({ element: el, anchor: "bottom" }).setLngLat([k.lon, k.lat]).addTo(map));
 		}
 	}
+	// 名所の「どこ」＝区（市の中の位置を小さな地図で）と最寄り駅 2 つ（道のり・徒歩の分・乗れる線）。地元でない人・外国の人に（本人 2026-11-13「横浜のどこにあるのか、最寄駅はどこなのかが分からない（地元の人には分かるけどね）」）
+	// 区の地図＝wards.json（起動時に読む・通信なしの束にもある）を間引いて小さな SVG に。道のり＝歩ける道（OSM）・繋がらない名所（埠頭・橋）は直線と書く（わが家のまわりと同じ見積もり）
+	let locBase: { d: Map<string, string>; w: number; h: number; xy: (p: LonLat) => [number, number] } | null = null;
+	function locator(fc: WardFC | null, code: string, at: LonLat): string {
+		if (!fc?.features?.length) return "";
+		if (!locBase) {
+			const b = fc.features.reduce((a, f) => [Math.min(a[0], f.properties.bbox[0]), Math.min(a[1], f.properties.bbox[1]), Math.max(a[2], f.properties.bbox[2]), Math.max(a[3], f.properties.bbox[3])], [180, 90, -180, -90]);
+			const kx = Math.cos((b[1] + b[3]) / 2 * Math.PI / 180), W = 84, sc = W / ((b[2] - b[0]) * kx), H = Math.round((b[3] - b[1]) * sc);
+			const xy = (p: LonLat): [number, number] => [(p[0] - b[0]) * kx * sc, (b[3] - p[1]) * sc];
+			const ringD = (r: LonLat[]) => { const k = Math.max(1, Math.floor(r.length / 48)); const q = r.filter((_, i) => i % k === 0); return q.length < 3 ? "" : "M" + q.map(p => xy(p).map(v => v.toFixed(1)).join(",")).join("L") + "Z"; };
+			const d = new Map<string, string>();
+			for (const f of fc.features) { const g = f.geometry as { type: string; coordinates: unknown } | null; if (!g) continue;
+				const polys = (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []) as LonLat[][][];
+				d.set(f.properties.code, polys.map(pl => ringD(pl[0] || [])).join("")); }
+			locBase = { d, w: W, h: H, xy };
+		}
+		const [x, y] = locBase.xy(at);
+		return `<svg class="loc" viewBox="-2 -2 ${locBase.w + 4} ${locBase.h + 4}" width="${locBase.w + 4}" height="${locBase.h + 4}" aria-hidden="true">${[...locBase.d].map(([c, d]) => `<path d="${d}"${c === code ? ' class="on"' : ""}/>`).join("")}<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2"/></svg>`;
+	}
+	// 乗れる線（短く）：地下鉄＝ブルー／グリーンライン、JR＝「JR」＋線名、他社＝線名（日本語以外は英語名）
+	const lineShort = (k: string) => /^横浜市 [134]号線/.test(k) ? t(RAIL_LINES_EN[k]) : lang !== "ja" ? RAIL_LINES_EN[k] || k : /^(東日本|東海)旅客鉄道 /.test(k) ? "JR" + k.replace(/^\S+ /, "") : k.replace(/^\S+ /, "");
+	async function spotStations(s: Spot): Promise<string> {
+		if (/駅$/.test(s.wiki)) return "";   // 駅そのもの（横浜駅・新横浜）は要らない
+		const at: [number, number] = s.near || [s.lon, s.lat];
+		const [rail, net] = await Promise.all([loadRail(), walkNet(at).catch(e => { console.warn("[yokohama] walk", e); return null; })]);
+		if (!rail) return "";
+		// 並べる物差し＝道のり。道に乗らない駅は直線×1.3（徒歩の見積もりと同じ）で比べる＝直線のまま比べると丘の向こうの駅が勝つ（三溪園で元町・中華街が根岸より上に出た・Mac 実測 2026-11-13）
+		const cands = nearestRows(rail.stations, at, 16).map(({ row }) => { const r = net && walkTo(net.g, net.from, [row[0], row[1]]), m = r ? r.m : distM(at, [row[0], row[1]]);
+			return { row, m, road: !!r, key: r ? m : m * 1.3 }; }).sort((a, b) => a.key - b.key);
+		const pick: typeof cands = [];
+		for (const c of cands) { if (!pick.some(p => p.row[2] === c.row[2])) pick.push(c); if (pick.length >= 2) break; }
+		if (!pick.length) return "";
+		const li = pick.map(({ row, m, road }) => {
+			const lines = [...new Set(rail.stations.filter(r => r[2] === row[2] && distM([r[0], r[1]], [row[0], row[1]]) < 800).flatMap(r => r[3].split("・")).filter(Boolean).map(lineShort))];
+			const how = road ? t("$1 m · about $2 min on foot", num(Math.round(m)), Math.max(1, Math.round(m / 80))) : t("Straight line $1 m · about $2 min on foot", num(Math.round(m)), walkMin(m));
+			return `<li><b>${esc(t("$1 Station", staName(row[2])))}</b> <small>${esc(how)}</small>${lines.length ? `<br><small class="ln">${esc(lines.join(" · "))}</small>` : ""}</li>`;
+		});
+		return `<h4>${esc(t("Nearest stations"))}</h4><ul>${li.join("")}</ul>`;
+	}
 	async function showSpot(s: Spot | null, brief = false) {
 		st.spot = s?.id || ""; save();
 		$$<HTMLButtonElement>("[data-spot]").forEach(b => b.classList.toggle("on", b.dataset.spot === st.spot));
@@ -375,10 +414,14 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		spotMarks(s);
 		if (brief) return;
 		if (!s) { spotNote.innerHTML = ""; return; }
-		const head = `<b>${esc(t(s.name))}</b><span>${esc(wardName(s.ward))}</span><p>${esc(t(s.note))}</p>`;
-		spotNote.innerHTML = head;
-		const ph = (await photos())?.[s.id];
-		if (st.spot === s.id && ph) spotNote.innerHTML = photoHTML(ph) + head;
+		const head = `<b>${esc(t(s.name))}</b><p>${esc(t(s.note))}</p>`;
+		let ph = "", map1 = "", sta = /駅$/.test(s.wiki) ? "" : `<p class="ld">${esc(t("Loading…"))}</p>`;
+		const paint = () => { if (st.spot === s.id && !spotNote.hidden) spotNote.innerHTML = ph + head
+			+ `<div class="sw">${map1}<div><div class="wd">${esc(wardName(s.ward))}<small>${esc(t("Yokohama City"))}</small></div>${sta}</div></div>`; };
+		paint();
+		photos().then(p => { ph = photoHTML(p?.[s.id]); paint(); });
+		loadWards().then(fc => { map1 = locator(fc, s.ward, [s.lon, s.lat]); paint(); });
+		sta = await spotStations(s).catch(e => { console.warn("[yokohama] spot stations", e); return ""; }); paint();
 	}
 	$$<HTMLButtonElement>("[data-spot]").forEach(b => b.onclick = () => { const s = SPOTS.find(x => x.id === b.dataset.spot)!; showSpot(s); flySpot(s); });
 
@@ -1440,6 +1483,21 @@ const CSS = `
 .yk-panel .spot-note b{color:var(--qm-ink);font-size:14px}
 .yk-panel .spot-note span{margin-left:8px;color:var(--qm-text-faint);font-size:12px}
 .yk-panel .spot-note p{margin:4px 0 0;color:var(--qm-text-dim)}
+.yk-panel .spot-note .sw{display:flex;gap:10px;align-items:flex-start;margin-top:8px;padding-top:8px;border-top:1px solid var(--qm-border-soft)}
+.yk-panel .spot-note .sw>div{flex:1;min-width:0}
+.yk-panel .spot-note .loc{flex:none}
+.yk-panel .spot-note .loc path{fill:rgba(255,255,255,.08);stroke:rgba(255,255,255,.35);stroke-width:.6}
+.yk-panel .spot-note .loc path.on{fill:rgba(79,195,247,.55);stroke:#4fc3f7}
+.yk-panel .spot-note .loc circle{fill:#ff5252;stroke:#fff;stroke-width:1.2}
+.yk-panel .spot-note .wd{color:var(--qm-ink);font-size:14px;font-weight:600}
+.yk-panel .spot-note .wd small{display:block;font-weight:400;font-size:11px;color:var(--qm-text-faint)}
+.yk-panel .spot-note h4{margin:6px 0 2px;font-size:11.5px;font-weight:600;color:var(--qm-text-faint)}
+.yk-panel .spot-note ul{margin:0;padding:0;list-style:none}
+.yk-panel .spot-note li{margin:2px 0;line-height:1.35}
+.yk-panel .spot-note li b{font-size:13px}
+.yk-panel .spot-note li small{color:var(--qm-text-dim);font-size:12px}
+.yk-panel .spot-note li small.ln{color:var(--qm-text-faint);font-size:11px}
+.yk-panel .spot-note .ld{font-size:11.5px;color:var(--qm-text-faint)}
 .yk-panel .ph{margin:0 0 8px}
 .yk-panel .ph img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:6px;background:#222}
 .yk-panel .ph figcaption,.yk-cap figcaption{font-size:10.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

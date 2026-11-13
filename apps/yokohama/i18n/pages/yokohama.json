@@ -8558,6 +8558,33 @@
 			"fa": "سرباز · تالار یادبود بندر",
 			"ur": "غلام · بندرگاہ یادگار ہال",
 			"he": "נסיך · אולם הזיכרון לנמל"
+		},
+		"Nearest stations": {
+			"ja": "最寄り駅",
+			"zh": "最近的车站",
+			"ko": "가까운 역",
+			"fr": "Gares les plus proches",
+			"de": "Nächste Bahnhöfe",
+			"es": "Estaciones más cercanas",
+			"pt": "Estações mais próximas",
+			"it": "Stazioni più vicine",
+			"nl": "Dichtstbijzijnde stations",
+			"pl": "Najbliższe stacje",
+			"ru": "Ближайшие станции",
+			"uk": "Найближчі станції",
+			"hu": "Legközelebbi állomások",
+			"sv": "Närmaste stationer",
+			"tr": "En yakın istasyonlar",
+			"el": "Πλησιέστεροι σταθμοί",
+			"id": "Stasiun terdekat",
+			"vi": "Ga gần nhất",
+			"th": "สถานีที่ใกล้ที่สุด",
+			"bn": "নিকটতম স্টেশন",
+			"hi": "निकटतम स्टेशन",
+			"ar": "أقرب المحطات",
+			"fa": "نزدیک‌ترین ایستگاه‌ها",
+			"ur": "قریب ترین اسٹیشن",
+			"he": "התחנות הקרובות"
 		}
 	}
 }
