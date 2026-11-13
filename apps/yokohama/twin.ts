@@ -923,12 +923,18 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			done(ll);
 		}, () => { msg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
 	}
+	// 調べた地点へ寄る（家・現在地の共用）。スマホ：印が下のシートに隠れない所へ
+	const flyNear = (ll: LonLat) => { setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); }); };
 	$(".probe-gps").onclick = () => locateMe($<HTMLElement>(".probe-msg"), ll => {
 		setProbing(false);
-		setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); });
+		flyNear(ll);
+		probeHere(ll);
+	});
+	// 地点を調べる（地図を押した・現在地の共用）＝前に閉じて隠した最寄りへの線を出し直す
+	function probeHere(ll: LonLat) {
 		if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible");
 		probe(ll);
-	});
+	}
 	// 操作方法カード（#hint）は最初の操作で畳む＝タブを選ぶ・地図に触れる（本番チェック 2026-11-12：スマホでタブを選ぶまで画面中央を覆い、PC でも残っていた）。
 	// 閉じた選択は記憶＝以後は「?」から（foldForMap と同じ）。カード自身と「?」を押した時は畳まない
 	const hintOff = (e: PointerEvent) => {
@@ -1033,7 +1039,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const home = probeHome; probedAt = Date.now(); setProbing(false);
 		if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); }
 		if (home) { homeAt(e.lngLat); return; }
-		if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat);
+		probeHere(e.lngLat);
 	});
 
 	// ── 暮らし：わが家のまわり＝押した所（か現在地）の区・小／中学校区・最寄り駅とバス停・想定浸水と土砂・最寄りの避難場所・用途地域・近くの施設・大きな病院を 1 枚に（市民ファースト・本人 2026-10-25）──
@@ -1128,7 +1134,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			: `<form class="hm-svf"><input type="text" class="fq" maxlength="${PLACE_NAME_MAX}" placeholder="${esc(t("Name (e.g. Home, Parents, Work)"))}" aria-label="${esc(t("Place name"))}" enterkeyhint="done"><button type="submit" class="act">${esc(t("Save this place"))}</button></form>`;
 	}
 	const goHome = (ll: LonLat) => {
-		setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); });   // スマホ：家の印が下のシートに隠れない所へ
+		flyNear(ll);
 		homeAt(ll);
 	};
 	savedEl.addEventListener("click", e => {
