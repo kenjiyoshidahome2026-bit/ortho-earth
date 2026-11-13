@@ -368,6 +368,13 @@ export function climb(h: number[], thr = 1): { up: number; down: number; min: nu
 	for (const x of v) { if (x - r >= thr) { up += x - r; r = x; } else if (r - x >= thr) { down += r - x; r = x; } }
 	return { up, down, min: Math.min(...v), max: Math.max(...v) };
 }
+/** 画面上の線の枠 box を、空いている枠 free に入れるためのずらし量（px・地図の中心をこの分だけ動かす）。
+ * もう入っている＝{0,0}・ずらしても入らない大きさ＝null（引いて収める側へ）。枠＝[x0, y0, x1, y1] */
+export function shiftInto(box: [number, number, number, number], free: [number, number, number, number]): { dx: number; dy: number } | null {
+	if (box[2] - box[0] > free[2] - free[0] || box[3] - box[1] > free[3] - free[1]) return null;
+	const d = (a0: number, a1: number, f0: number, f1: number) => a0 < f0 ? a0 - f0 : a1 > f1 ? a1 - f1 : 0;
+	return { dx: d(box[0], box[2], free[0], free[2]), dy: d(box[1], box[3], free[1], free[3]) };
+}
 /** 近い順に k 件（避難場所の行・直線距離） */
 export function nearestRows<T extends [number, number, ...unknown[]]>(rows: T[], at: [number, number], k: number): { row: T; m: number }[] {
 	return rows.map(row => ({ row, m: distM(at, [row[0], row[1]]) })).sort((a, b) => a.m - b.m).slice(0, k);

@@ -2,7 +2,7 @@
 // data.ts の常設検定（Node だけ・外部網なし）＝区と名所の台帳・ツアーの並び・地下鉄の駅番号・ハザードの URL の形・避難場所の選び方・URL の状態の往復。
 import { readFileSync } from "node:fs";
 import { makeEn, romaji } from "../scripts/en-names.mjs";
-import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn, tileBox, tilesIn, cityTileMask, tileKids, fillTpl, searchPlaces, BLD_SETS, sampleLine, climb } from "../data.ts";
+import { WARDS, SPOTS, TOUR, HAZARDS, CITY_BBOX, HINAN_FLAGS, SUBWAY, FACILITY_CATS, TRANSIT, subwayCodes, yokohamaShelters, wardOfAddress, flagsOf, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, parsePlaces, samePlace, PLACES_MAX, distM, nearestRows, nearestSites, siteName, walkMin, WALK_RINGS, walkRadius, circleRing, countRings, PORT_STORY, SEA_VIEWS, FACILITY_SUBS, subOf, facilityIndex, normJa, ZONES, AREAS , BUILDINGS_MIN_ZOOM, LOD1_WARDS, MASK_BOX, insideBox, SUBWAY_MIN_ZOOM, CITY_VIEW, TABS, inGeometry, featureAt, MAJOR_HOSPITALS, majorHospital, HOLIDAY_CLINICS, clinicHours, NIGHT_CENTERS, walkKind, encodeWalk, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, WALK_Q, railLinesEn, tileBox, tilesIn, cityTileMask, tileKids, fillTpl, searchPlaces, BLD_SETS, sampleLine, climb, shiftInto } from "../data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 const inCity = (lon, lat) => lon >= CITY_BBOX[0] && lon <= CITY_BBOX[2] && lat >= CITY_BBOX[1] && lat <= CITY_BBOX[3];
@@ -150,6 +150,15 @@ t("建物：LOD1 を出すズームの下限は地区の平面（区の zoom）�
 	const c = climb([5, 5.4, 4.8, 12, 30, 28, 29.5, 10, NaN, 8]);
 	t("高低差：上り 26.5 m・下り 23.5 m（1 m 未満の揺れは数えない）・最高 30・最低 4.8", c.up === 26.5 && c.down === 23.5 && c.max === 30 && c.min === 4.8, JSON.stringify(c));
 	t("高低差：標高が取れない＝0 と NaN", climb([NaN]).up === 0 && Number.isNaN(climb([]).max));
+}
+{	// 最寄り駅の道が板やグラフに隠れる時のずらし量
+	const free = [100, 50, 900, 500];
+	const eq = (d, x, y) => !!d && d.dx === x && d.dy === y;
+	t("道のずらし：もう見えている＝動かさない", eq(shiftInto([200, 100, 400, 480], free), 0, 0));
+	t("道のずらし：下にはみ出す（グラフの下）＝はみ出した分だけ", eq(shiftInto([200, 300, 400, 640], free), 0, 140));
+	t("道のずらし：左上にはみ出す＝両方向", eq(shiftInto([40, 10, 300, 200], free), -60, -40));
+	t("道のずらし：右にはみ出す（板の下）", eq(shiftInto([700, 100, 960, 300], free), 60, 0));
+	t("道のずらし：枠より大きい線＝ずらしでは入らない（null）", shiftInto([0, 0, 900, 200], free) === null && shiftInto([200, 0, 400, 500], free) === null);
 }
 console.log(`\n${ng ? "✗" : "✓"} yokohama: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);
