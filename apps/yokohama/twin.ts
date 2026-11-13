@@ -160,7 +160,8 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 				<p class="sub flat off-ios" hidden>${esc(t("On iPhone and iPad, add this page to the Home Screen to keep the saved data."))}</p>
 				</div>
 				<h2>${esc(t("Check a location"))}</h2>
-				<button type="button" class="act probe">${esc(t("Tap the map to check a location"))}</button>
+				<div class="hm-btns"><button type="button" class="act probe">${esc(t("Tap the map to check a location"))}</button><button type="button" class="act probe-gps">${esc(t("Use my current location"))}</button></div>
+				<p class="sub flat probe-msg"></p>
 				<div class="detail probe-out" hidden></div>
 				<h2>${esc(t("Overlay hazard scenarios"))}</h2>
 				${HAZARDS.map(h => `<label class="grp"><input type="checkbox" data-hz="${h.id}"><b>${esc(t(h.name))}</b></label><p class="sub" data-hznote="${h.id}" hidden>${esc(t(h.note))}</p>`).join("")}
@@ -911,6 +912,29 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 	// 地図を見せるために畳む＝操作方法カード（#hint）も閉じる（畳むと出てきて地図の上半分を覆っていた・Mac 390px 2026-10-26。閉じた選択は記憶＝以後は「?」）
 	const foldForMap = () => { if (!narrow()) return; P.setFold(true); const h = mapEl.querySelector<HTMLElement>("#hint"); if (h && h.style.display !== "none") h.querySelector<HTMLElement>("#hint-close")?.click(); };
 	$(".probe").onclick = () => { setProbing(!(probing && !probeHome)); if (probing) foldForMap(); };
+	// 現在地＝GPS（通信なしでも取れる）。災害は家にいる時とは限らない＝防災の「地点を調べる」と暮らしの「わが家のまわり」の両方から（本人 2026-11-13）
+	function locateMe(msg: HTMLElement, done: (ll: LonLat) => void) {
+		if (!navigator.geolocation) { msg.textContent = t("Could not get your location."); return; }
+		msg.textContent = t("Loading…");
+		navigator.geolocation.getCurrentPosition(p => {
+			const ll: LonLat = [p.coords.longitude, p.coords.latitude];
+			msg.textContent = "";
+			if (ll[0] < CITY_BBOX[0] || ll[0] > CITY_BBOX[2] || ll[1] < CITY_BBOX[1] || ll[1] > CITY_BBOX[3]) { msg.textContent = t("Outside Yokohama City."); return; }
+			done(ll);
+		}, () => { msg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+	}
+	// 調べた地点へ寄る（家・現在地の共用）。スマホ：印が下のシートに隠れない所へ
+	const flyNear = (ll: LonLat) => { setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); }); };
+	$(".probe-gps").onclick = () => locateMe($<HTMLElement>(".probe-msg"), ll => {
+		setProbing(false);
+		flyNear(ll);
+		probeHere(ll);
+	});
+	// 地点を調べる（地図を押した・現在地の共用）＝前に閉じて隠した最寄りへの線を出し直す
+	function probeHere(ll: LonLat) {
+		if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible");
+		probe(ll);
+	}
 	// 操作方法カード（#hint）は最初の操作で畳む＝タブを選ぶ・地図に触れる（本番チェック 2026-11-12：スマホでタブを選ぶまで画面中央を覆い、PC でも残っていた）。
 	// 閉じた選択は記憶＝以後は「?」から（foldForMap と同じ）。カード自身と「?」を押した時は畳まない
 	const hintOff = (e: PointerEvent) => {
@@ -960,6 +984,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			<h3>${esc(t("Nearest evacuation sites"))}</h3>
 			<ol class="near">${near.map(({ row, m }, i) => `<li data-i="${i}"><b>${esc(shName(row))}</b><small>${esc(t("$1 m · about $2 min on foot", num(Math.round(m)), walkMin(m)))}</small><small class="el"></small></li>`).join("")}</ol>
 			<p class="sub flat">${esc(t("Straight-line distance; walking time assumes 80 m per minute."))}</p>`;
+		if (narrow()) probeOut.scrollIntoView({ block: "start", behavior: "smooth" });   // スマホ：深さと避難場所がシートの下に隠れない（Mac 390px 2026-11-13）
 		// 最寄りへ線を引く（直線）
 		const n0 = near[0]?.row;
 		const fc = { type: "FeatureCollection" as const, features: n0 ? [{ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: [[lon, lat], [n0[0], n0[1]]] } }] : [] };
@@ -1015,7 +1040,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		const home = probeHome; probedAt = Date.now(); setProbing(false);
 		if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); }
 		if (home) { homeAt(e.lngLat); return; }
-		if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible"); probe(e.lngLat);
+		probeHere(e.lngLat);
 	});
 
 	// ── 暮らし：わが家のまわり＝押した所（か現在地）の区・小／中学校区・最寄り駅とバス停・想定浸水と土砂・最寄りの避難場所・用途地域・近くの施設・大きな病院を 1 枚に（市民ファースト・本人 2026-10-25）──
@@ -1110,7 +1135,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			: `<form class="hm-svf"><input type="text" class="fq" maxlength="${PLACE_NAME_MAX}" placeholder="${esc(t("Name (e.g. Home, Parents, Work)"))}" aria-label="${esc(t("Place name"))}" enterkeyhint="done"><button type="submit" class="act">${esc(t("Save this place"))}</button></form>`;
 	}
 	const goHome = (ll: LonLat) => {
-		setFlat(false); map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); });   // スマホ：家の印が下のシートに隠れない所へ
+		flyNear(ll);
 		homeAt(ll);
 	};
 	savedEl.addEventListener("click", e => {
@@ -1215,16 +1240,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			return; }
 		if (el.closest(".x")) clearHome(); });
 	$(".hm-tap").onclick = () => { setProbing(!(probing && probeHome), true); if (probing) foldForMap(); };
-	$(".hm-gps").onclick = () => {
-		if (!navigator.geolocation) { hmMsg.textContent = t("Could not get your location."); return; }
-		hmMsg.textContent = t("Loading…");
-		navigator.geolocation.getCurrentPosition(p => {
-			const ll: LonLat = [p.coords.longitude, p.coords.latitude];
-			hmMsg.textContent = "";
-			if (ll[0] < CITY_BBOX[0] || ll[0] > CITY_BBOX[2] || ll[1] < CITY_BBOX[1] || ll[1] > CITY_BBOX[3]) { hmMsg.textContent = t("Outside Yokohama City."); return; }
-			goHome(ll);
-		}, () => { hmMsg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
-	};
+	$(".hm-gps").onclick = () => locateMe(hmMsg, goHome);
 
 	// ── 解析：影（WebGPU）と日影図 ──
 	if (gpu) {
