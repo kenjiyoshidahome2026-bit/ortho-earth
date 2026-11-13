@@ -1097,6 +1097,15 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 			+ `<p><span>${esc(t("Up $1 m · down $2 m", num(Math.round(c.up)), num(Math.round(c.down))))}</span><span>${esc(t("Highest $1 m · lowest $2 m", num(Math.round(c.max)), num(Math.round(c.min))))}</span></p>`;
 		prof.hidden = false;
 	}
+	// 道順を画面に収める時の余白＝板の分（pad90）＋高低差のグラフの分（本人 2026-11-14「ルートが全部見えない」＝線の下の方がグラフに隠れていた）。
+	// グラフは広い画面で地図の下端（bottom 44px）・スマホで上端（top 12px）に出る。まだ描かれていない間（標高を読んでいる間）は出た時の高さを見込む
+	const PROF_H = 150;
+	const padRoute = () => {
+		const p = pad90(), top = matchMedia("(max-width:640px)").matches;
+		const h = Math.min((prof.hidden ? PROF_H : prof.offsetHeight || PROF_H) + (top ? 24 : 56), mapEl.clientHeight * 0.4);   // 低い画面では地図の 4 割まで
+		if (top) p.top += h; else p.bottom += h;
+		return p;
+	};
 	// 道順の線（押した行の行き先まで）
 	let routeOn = false, destMark: Marker | null = null;
 	const routes: [number, number][][] = [], routeTo: string[] = [];   // routeTo＝行き先の名（終点のピンに出す）
@@ -1235,7 +1244,7 @@ export async function mountTwin(map: GlobeMap, opts: TwinOptions) {
 		if (r) {   // 押した道順は線ごと画面に収める（最初に引く最寄り駅の線は視点を動かさない）
 			const k = +r.dataset.k!, line = routes[k]; showRoute(k); foldForMap();
 			if (line?.length) {   // 引いても建物を残す（z 16.5 未満でも道順のまわりは立てたまま＝観光と同じ hold・Mac の試し撮り 2026-10-26）
-				const xs = line.map(p => p[0]), ys = line.map(p => p[1]), bb: [number, number, number, number] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], o = { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 17 };
+				const xs = line.map(p => p[0]), ys = line.map(p => p[1]), bb: [number, number, number, number] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], o = { padding: padRoute(), pitch: 0, bearing: 0, maxZoom: 17 };
 				const cam = map.cameraForBounds(bb, o), h = cam ? holdBuildings({ lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2, zoom: cam.zoom }) : null;
 				map.fitBounds(bb, o).finally(() => { if (h) h.armed = true; });
 			}
