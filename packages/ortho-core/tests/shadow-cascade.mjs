@@ -71,5 +71,14 @@ console.log("― 6. 余白 ―");
 const b0 = shadowBias(base), b1 = cas.length ? shadowBias(cas[0]) : b0;
 ok(b1 < b0, `細かい段ほど余白が小さい（${(b1 * base.zRangeM).toFixed(2)}m < ${(b0 * base.zRangeM).toFixed(2)}m）`);
 
+// 7. 落とす側の地形は沈める（2026-11-14）：画面の地形が透かす低地（帯の上端＝最小 2m）の下の床が、見えない地形の影に入らない。
+//    受け手（TERRAIN_SH）と画面（TERRAIN）は沈めない・負の標高をそのまま描く DEM（elevP.w）は沈めない・断面の派生も同じ行を持つ
+const WG = await import("../src/gpu/wgsl.ts");
+const sinkLine = `relW - (select(${WG.SH_TERR_SINK_M.toFixed(1)}, 0.0, F.elevP.w > 0.5) * F.elevP.x) * liftDir(a_ll, dir)`;
+ok(WG.SH_TERR_SINK_M >= 2 && WG.SH_TERR_SINK_M <= 5, `沈める量は帯の最小の上端 2m 以上・5m 以下（${WG.SH_TERR_SINK_M}m）`);
+for (const k of ["TERRAIN_CAST_WGSL", "TERRAIN_CAST_NF_WGSL", "TERRAIN_CAST_CLIP_WGSL"]) ok(WG[k].split(sinkLine).length === 2, `${k}：落とす側だけ沈める`);
+for (const k of ["TERRAIN_WGSL", "TERRAIN_SH_WGSL", "TERRAIN_SH_CLIP_WGSL"]) ok(!WG[k].includes("select(" + WG.SH_TERR_SINK_M.toFixed(1)), `${k}：画面と受け手は沈めない`);
+ok(!/logDepthZ\(p\.w\)/.test(WG.TERRAIN_CAST_WGSL.split("@fragment")[0].split("@vertex")[1] || "x logDepthZ(p.w)"), "落とす側の頂点は対数深度を外したまま");
+
 if (fails) { console.error(`\n✗ ${fails} 件失敗`); process.exit(1); }
 console.log("\n✓ 全部通過");
