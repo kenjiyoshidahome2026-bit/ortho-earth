@@ -1,6 +1,8 @@
 // M0 の確認を端末の上で：PMTiles の頭（127 バイト）を Range で読み、206（Range が効く）・CORS・ヘッダの申告を返す。
 // 読めなければ理由を返す（CORS で落ちた・200＝Range を無視・形式が違う）。地図は待たない（並行）。
-export interface ProbeResult { ok: boolean; status: number | null; range: boolean; reason?: string; minZoom?: number; maxZoom?: number; tileType?: string; bounds?: [number, number, number, number]; ms: number }
+export interface ProbeResult { ok: boolean; status: number | null; range: boolean; reason?: string; minZoom?: number; maxZoom?: number; tileType?: string; bounds?: [number, number, number, number]; ms: number; /** 版の印（core archiveVersion＝ヘッダの大きさの項）＝保存した範囲の版と比べる（M5） */ version?: string }
+
+import { archiveVersion, parseHeader as fullHeader } from "@ortho-earth/core/pmtiles-extract";
 
 const TILE_TYPE: Record<number, string> = { 0: "unknown", 1: "mvt", 2: "png", 3: "jpeg", 4: "webp", 5: "avif", 6: "mlt" };
 
@@ -19,7 +21,7 @@ export async function probe(url: string, fetchFn: typeof fetch = fetch): Promise
 	try { r = await fetchFn(url, { headers: { Range: "bytes=0-126" }, credentials: "omit", signal: AbortSignal.timeout(15000) }); }
 	catch (e) { return { ok: false, status: null, range: false, reason: `network or CORS (${(e as Error).name})`, ms: ms() }; }
 	if (r.status !== 206) { r.body?.cancel().catch(() => {}); return { ok: false, status: r.status, range: false, reason: r.ok ? "Range ignored (200)" : `HTTP ${r.status}`, ms: ms() }; }
-	const h = parseHeader(await r.arrayBuffer());
+	const buf = await r.arrayBuffer(), h = parseHeader(buf);
 	if (!h) return { ok: false, status: 206, range: true, reason: "not a PMTiles v3 archive", ms: ms() };
-	return { ok: true, status: 206, range: true, ...h, ms: ms() };
+	return { ok: true, status: 206, range: true, ...h, ms: ms(), version: archiveVersion(fullHeader(new Uint8Array(buf))) };
 }

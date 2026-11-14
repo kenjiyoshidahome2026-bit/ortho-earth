@@ -2,7 +2,7 @@
 // 1 本ずつ：元（planet / GEL）のヘッダと索引を Range で読む → 計画 → タイルを近い物どうしまとめて読み <名>.part へ → 索引・ヘッダ → 読み直して確かめる → 正式名へ。
 // 覚え（<名>.json）＝仕事の中身＋元の etag＋書き終えたチャンクの数。チャンクごとに書き直す＝電波が切れても・タブを閉じても続きから。
 // 元が更新された（etag が違う）時は最初から書き直す（古い索引と新しい中身を混ぜない）。
-import { openExtractSource, planExtract, writeExtract, idRanges, worldRanges } from "@ortho-earth/core/pmtiles-extract";
+import { openExtractSource, planExtract, writeExtract, idRanges, worldRanges, archiveVersion } from "@ortho-earth/core/pmtiles-extract";
 import type { ExtractSink, ExtractSource, Z8Rect } from "@ortho-earth/core/pmtiles-extract";
 import { indexPlaces, INDEX_ZOOM } from "./places.ts";
 import { LOCAL_DIRS, PLACES_DIR } from "./sources.ts";
@@ -68,7 +68,7 @@ async function runOne(job: SaveJob, index: number, count: number, signal: AbortS
 		};
 		let last = 0;
 		const size = await writeExtract(src, plan, sink, {
-			startChunk: start, signal, metadata: { ...src.metadata, unmap: job.tag },
+			startChunk: start, signal, metadata: { ...src.metadata, unmap: { ...job.tag, part: job.rect, source: job.url, version: archiveVersion(src.header), minZoom: job.minZoom, maxZoom: job.maxZoom } },   // 版（M5）＝元のヘッダの印（archiveVersion）・切り直しに要る物
 			onProgress: async p => {
 				progress(p.chunk === p.chunks ? "finish" : "data", p.bytes, p.total);
 				state.chunk = p.chunk;
@@ -77,6 +77,7 @@ async function runOne(job: SaveJob, index: number, count: number, signal: AbortS
 		});
 		h.close();
 		await finalize(d, part, job.name + ".pmtiles");
+		if (job.dir === LOCAL_DIRS.map) await (await dirOf(PLACES_DIR)).removeEntry(job.name + ".json").catch(() => {});   // 切り直した地図の地名の索引は作り直す（M5）
 		await d.removeEntry(job.name + ".json").catch(() => {});
 		return size;
 	} catch (e) { try { h.flush(); h.close(); } catch { /* 閉じ済み */ } throw e; }

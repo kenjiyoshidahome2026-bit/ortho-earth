@@ -36,7 +36,7 @@ export async function savedBounds(files: LocalFiles): Promise<[number, number, n
 }
 
 /** 範囲の保存（M3）の口：札から開く・書きかけを続ける／捨てる */
-export interface SavePanelHooks { saveHere(): void; choose(): void; pending: { name: string }[]; resume(): void; discard(): void }
+export interface SavePanelHooks { saveHere(): void; choose(): void; pending: { name: string }[]; resume(): void; discard(): void; /** 元が新しくなった保存（M5）＝全部を切り直す */ update?: { count: number; run(): void } | null }
 
 /** 札の「Offline data」の段を組む。el＝入れ物 */
 export async function mountLocalPanel(el: HTMLElement, files: LocalFiles, hooks?: SavePanelHooks): Promise<void> {
@@ -44,8 +44,9 @@ export async function mountLocalPanel(el: HTMLElement, files: LocalFiles, hooks?
 	const st = await storageInfo();
 	const rows = (["map", "terrain"] as const).flatMap(k => files[k].map(f => `<li>${k === "map" ? "🗺" : "⛰"} ${esc(f.name)} · ${mb(f.size)} <button type="button" data-del="${k}" data-name="${esc(f.name)}" aria-label="Delete ${esc(f.name)}">🗑</button></li>`));
 	const pend = hooks?.pending.length ? `<div class="pending">Unfinished save (${hooks.pending.length} file${hooks.pending.length > 1 ? "s" : ""}) <button type="button" class="resume">Resume</button> <button type="button" class="discard">Discard</button></div>` : "";
+	const upd = hooks?.update?.count ? `<div class="pending">Newer map data is available for ${hooks.update.count} saved file${hooks.update.count > 1 ? "s" : ""}. <button type="button" class="update">Update all</button></div>` : "";
 	el.innerHTML = `<div class="sect">Offline data</div>
-		${hooks ? `<div class="save-btns"><button type="button" class="add save-here">📍 Save area around me</button> <button type="button" class="add choose">Choose area on map</button></div>${pend}` : ""}
+		${hooks ? `<div class="save-btns"><button type="button" class="add save-here">📍 Save area around me</button> <button type="button" class="add choose">Choose area on map</button></div>${pend}${upd}` : ""}
 		<ul>${rows.join("") || "<li>No files on this device yet.</li>"}</ul>
 		<label class="add">＋ Add .pmtiles<input type="file" accept=".pmtiles,application/octet-stream" hidden></label>
 		<div class="note">Stored ${mb(st.usage)} of ${mb(st.quota)}${st.persisted ? " · persistent" : ""}</div>
@@ -56,6 +57,7 @@ export async function mountLocalPanel(el: HTMLElement, files: LocalFiles, hooks?
 		el.querySelector(".choose")!.addEventListener("click", () => hooks.choose());
 		el.querySelector(".resume")?.addEventListener("click", () => hooks.resume());
 		el.querySelector(".discard")?.addEventListener("click", () => hooks.discard());
+		el.querySelector(".update")?.addEventListener("click", () => hooks.update?.run());
 	}
 	el.querySelector("input")!.addEventListener("change", async e => {
 		const f = (e.target as HTMLInputElement).files?.[0]; if (!f) return;

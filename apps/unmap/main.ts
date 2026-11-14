@@ -7,6 +7,7 @@
 import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";
 import { archiveUrl, gelTerrain, sourcesFrom } from "./sources.ts";
 import { listLocal, mountLocalPanel, savedBounds } from "./local-data.ts";
+import { requestPersist as requestPersistNow } from "@ortho-earth/core/opfs-store";
 import type { LocalFiles } from "./local-data.ts";
 import { LABEL_LAYERS, NAME_LANGS, NAME_LANG_LABEL, isNameLang, nameExpr, osmStyle } from "./style.ts";
 import type { NameLang } from "./style.ts";
@@ -25,14 +26,16 @@ const line = (name: string, r: ProbeResult) => r.ok
 	? `${name}: <b class="ok">OK</b> · Range 206 · z${r.minZoom}–${r.maxZoom} · ${r.tileType} · ${r.ms} ms`
 	: `${name}: <b class="ng">NG</b> · ${esc(r.reason || "")}`;
 const dataBtn = document.getElementById("data-btn") as HTMLButtonElement | null;
+// 元の頭の確かめ（札の表示・版の比べ M5 に使う）。札が無い頁・?online=0 では null
+const probes: { osm: Promise<ProbeResult | null>; gel: Promise<ProbeResult | null> } = { osm: Promise.resolve(null), gel: Promise.resolve(null) };
 if (card) {
 	card.querySelector(".close")!.addEventListener("click", () => { card.hidden = true; if (dataBtn) dataBtn.hidden = false; });
 	dataBtn?.addEventListener("click", () => { card.hidden = false; dataBtn.hidden = true; });
 	if (SHOW_STATUS) card.hidden = false; else if (dataBtn) dataBtn.hidden = false;
 	paint();
 	if (SRC.online) {
-		probe(SRC.osm).then(r => { rows.osm = line("OSM planet", r); paint(); });
-		probe(SRC.gel).then(r => { rows.gel = line("GEL terrain", r); paint(); });
+		probes.osm = probe(SRC.osm).then(r => { rows.osm = line("OSM planet", r); paint(); return r; });
+		probes.gel = probe(SRC.gel).then(r => { rows.gel = line("GEL terrain", r); paint(); return r; });
 	} else { rows.osm = "OSM planet: off (?online=0)"; rows.gel = "GEL terrain: off (?online=0)"; }
 }
 
@@ -77,8 +80,9 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 	const pick = (start: "here" | "view") => { if (openPicker) openPicker(start); };
 	const { pendingSaves, discardSaves, runSave } = await import("./save-run.ts");
 	const pending = await pendingSaves().catch(() => []);
+	let update: { count: number; run(): void } | null = null;   // 元が新しくなった保存（M5）
 	const mountPanel = () => panel && mountLocalPanel(panel, local, {
-		saveHere: () => pick("here"), choose: () => pick("view"), pending,
+		saveHere: () => pick("here"), choose: () => pick("view"), pending, update,
 		resume: () => {
 			const m = panel.querySelector(".msg") as HTMLElement;
 			void runSave(pending, p => { m.textContent = `Resuming ${p.name} (${p.index + 1}/${p.count})… ${Math.round(p.total ? p.bytes / p.total * 100 : 0)}%`; })
@@ -87,6 +91,19 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 		discard: () => { void discardSaves(pending).then(() => location.reload()); },
 	});
 	void mountPanel();
+	// 版の確かめ（M5）：元の頭の印と保存の印を比べ、違えば「全部切り直す」を札に出す（全部の範囲を同じ版に揃える＝縁で道がずれない）
+	if (SRC.online && (local.map.length || local.terrain.length) && !pending.length) void (async () => {
+		const [{ readSaved, staleOf, recutJobs }, osmP, gelP] = await Promise.all([import("./versions.ts"), probes.osm, probes.gel]);
+		const stale = staleOf(await readSaved(), { map: osmP?.version, terrain: gelP?.version });
+		if (!stale.length) return;
+		update = { count: stale.length, run: () => {
+			const m = panel?.querySelector(".msg") as HTMLElement | null;
+			void requestPersistNow();
+			void runSave(recutJobs(stale, { map: SRC.osm, terrain: SRC.gel }), p => { if (m) m.textContent = p.phase === "index" ? "Indexing place names…" : `Updating ${p.name} (${p.index + 1}/${p.count})… ${Math.round(p.total ? p.bytes / p.total * 100 : 0)}%`; })
+				.then(r => { if (r.ok) location.reload(); else if (m) m.textContent = `Update stopped: ${r.message}. It continues from the Data card.`; });
+		} };
+		void mountPanel();
+	})().catch(e => console.warn("[unmap] version check failed", e));
 	const saveHereBtn = document.getElementById("save-here") as HTMLButtonElement | null;
 	saveHereBtn?.addEventListener("click", () => pick("here"));
 	try {
