@@ -41,6 +41,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	await loadPage(c => import(`../i18n/lang/citytwin/${c}.json`));
 	const t = tr(), lang = getLang();
 	const { wards: WARDS, spots: SPOTS, tour: TOUR, hazards: HAZARDS, view: CITY_VIEW, bbox: CITY_BBOX, maskBox: MASK_BOX, subway: SUBWAY, transit: TRANSIT, railLinesEn: RAIL_LINES_EN } = city;
+	const hasArea = (id: AreaId) => !city.noAreas?.includes(id);   // 市に台帳のある区域か
 	const TAG = `[${city.id}]`;   // console の印
 	const Offline = createOffline(city, opts.appBase);
 	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）
@@ -139,7 +140,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
 				<h3>${esc(t("Zones and districts"))}</h3>
 				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
-				${AREAS.filter(x => !("hide" in x)).map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
+				${AREAS.filter(x => !("hide" in x) && hasArea(x.id)).map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
 				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map((z, i) => `<span data-z="${i}"><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
 				</div>
 			</section>
@@ -184,7 +185,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 				<h2>${esc(t("Around my home"))}</h2>
 				<div class="hm-btns"><button type="button" class="act hm-tap">${esc(t("Tap the map at your home"))}</button><button type="button" class="act hm-gps">${esc(t("Use my current location"))}</button></div>
 				<div class="hm-saved" role="group" aria-label="${esc(t("Saved places"))}" hidden></div>
-				<p class="sub flat hm-msg">${esc(t("One card shows your school districts, nearest stations, flood risk, evacuation site and nearby facilities."))}</p>
+				<p class="sub flat hm-msg">${esc(hasArea("school-e") ? t("One card shows your school districts, nearest stations, flood risk, evacuation site and nearby facilities.") : t("One card shows your nearest stations, flood risk, evacuation site and nearby facilities."))}</p>
 				<div class="detail home-out" hidden></div>
 				<h2>${esc(t("At the center of the screen"))}</h2>
 				<button type="button" class="act vs">${esc(t("Viewshed (1 km radius, eye height 1.6 m)"))}</button>
@@ -1099,6 +1100,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	const homeOut = $<HTMLElement>(".home-out"), hmMsg = $<HTMLElement>(".hm-msg");
 	let homeMark: Marker | null = null;
 	const areaFile = (id: AreaId) => AREAS.find(a => a.id === id)!.file;
+	const areaLedger = (id: AreaId) => hasArea(id) ? ledger<AreaFC>(areaFile(id)) : Promise.resolve(null);   // 市に無い区域は取りに行かない
 	type AreaFC = { features: { geometry: { type: string; coordinates: unknown } | null; properties: { n?: string; a?: string; b?: number; f?: number } }[] };
 	const SUB = (name: string) => FACILITY_SUBS.findIndex(x => x.name === name);
 	const HOME_JURIS = city.homeJuris;   // 警察署・消防署の管轄をカードに出すか（区と一致しない自治体なら true）
@@ -1250,7 +1252,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const run = homeOut.dataset.run = String(Date.now());
 		const water = HAZARDS.filter(h => h.id !== "dosha"), dosha = HAZARDS.find(h => h.id === "dosha")!;
 		const [wards, , se, sj, zn, po, fi, rail, , sh, , here, depths, dz, net] = await Promise.all([
-			loadWards(), enP, ledger<AreaFC>(areaFile("school-e")), ledger<AreaFC>(areaFile("school-j")), ledger<AreaFC>(areaFile("zoning")), HOME_JURIS ? ledger<AreaFC>(areaFile("police")) : null, HOME_JURIS ? ledger<AreaFC>(areaFile("fire")) : null,
+			loadWards(), enP, areaLedger("school-e"), areaLedger("school-j"), areaLedger("zoning"), HOME_JURIS ? ledger<AreaFC>(areaFile("police")) : null, HOME_JURIS ? ledger<AreaFC>(areaFile("fire")) : null,
 			loadRail(), loadBus(), loadShelters(), loadFac(),
 			map.getHeight(at[0], at[1]).catch(() => NaN),
 			Promise.all(water.map(h => samplePx(h.urls[0], at[0], at[1], h.legend))),

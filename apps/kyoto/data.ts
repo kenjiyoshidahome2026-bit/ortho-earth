@@ -168,6 +168,7 @@ export const CITY: CityConfig = {
 		night: { centers: NIGHT_CENTERS, label: "Emergency clinic (nights and holidays)", hours: "Internal medicine and pediatrics · weekday nights 20:00–23:00, Saturdays 14:00–17:00 and from 18:00 overnight, Sundays and holidays 10:00–17:00 and 18:00–23:00. Call ahead to check." },
 		advice: { text: "Unsure whether to call an ambulance? Kyoto emergency advice line, 24 hours:", tel: "#7119" },
 	},
+	noAreas: ["school-e", "school-j"],   // 国土数値情報の小・中学校区（A27・A32）に京都市の面が無い（2016・2021 とも・Mac で確認 2026-11-14）
 	majorHospitals: MAJOR_HOSPITALS,
 	homeJuris: true,   // 京都は警察署・消防署の管轄が区と一致しない所がある＝カードに出す
 	offlineMB: OFFLINE_MB,

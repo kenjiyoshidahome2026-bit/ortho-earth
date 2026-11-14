@@ -502,6 +502,8 @@ export interface CityConfig extends CityWards, CityState {
 		advice?: { text: string; tel: string };
 	};
 	/** 大きな病院（市立・大学・地域中核）＝台帳の名に含まれる語 key → 短い名 */
+	/** その市に台帳の無い区域（京都＝国土数値情報の小・中学校区に京都市の面が無い＝一覧にも、わが家のまわりにも出さない） */
+	noAreas?: readonly AreaId[];
 	majorHospitals: { key: string; name: string }[];
 	/** 警察署・消防署の管轄をわが家のカードに出すか（区と一致しない市なら true） */
 	homeJuris: boolean;

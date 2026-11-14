@@ -6155,6 +6155,33 @@
 			"fa": "نزدیک‌ترین ایستگاه‌ها",
 			"ur": "قریب ترین اسٹیشن",
 			"he": "התחנות הקרובות"
+		},
+		"One card shows your nearest stations, flood risk, evacuation site and nearby facilities.": {
+			"ja": "最寄り駅・浸水の想定・避難場所・近くの施設を 1 枚で見られます。",
+			"zh": "一张卡片显示最近的车站、浸水风险、避难场所和附近设施。",
+			"ko": "가까운 역, 침수 위험, 대피 장소, 주변 시설을 한 장에 보여 줍니다.",
+			"fr": "Une fiche réunit gares les plus proches, risque d’inondation, lieu d’évacuation et équipements voisins.",
+			"de": "Eine Karte zeigt nächste Bahnhöfe, Hochwasserrisiko, Evakuierungsort und Einrichtungen in der Nähe.",
+			"es": "Una ficha muestra estaciones cercanas, riesgo de inundación, lugar de evacuación e instalaciones cercanas.",
+			"pt": "Um cartão mostra estações próximas, risco de inundação, local de evacuação e equipamentos próximos.",
+			"it": "Una scheda mostra stazioni vicine, rischio alluvione, luogo di evacuazione e strutture vicine.",
+			"nl": "Eén kaart toont dichtstbijzijnde stations, overstromingsrisico, evacuatieplek en voorzieningen in de buurt.",
+			"pl": "Jedna karta pokazuje najbliższe stacje, ryzyko powodzi, miejsce ewakuacji i pobliskie obiekty.",
+			"ru": "Одна карточка: ближайшие станции, риск наводнения, место эвакуации и учреждения рядом.",
+			"uk": "Одна картка: найближчі станції, ризик повені, місце евакуації та заклади поруч.",
+			"hu": "Egy kártyán: legközelebbi állomások, árvízkockázat, kiürítési hely és közeli létesítmények.",
+			"sv": "Ett kort visar närmaste stationer, översvämningsrisk, evakueringsplats och anläggningar i närheten.",
+			"tr": "Tek kartta en yakın istasyonlar, sel riski, tahliye alanı ve yakındaki tesisler.",
+			"el": "Μία κάρτα δείχνει κοντινότερους σταθμούς, κίνδυνο πλημμύρας, χώρο εκκένωσης και κοντινές εγκαταστάσεις.",
+			"id": "Satu kartu menampilkan stasiun terdekat, risiko banjir, lokasi evakuasi, dan fasilitas sekitar.",
+			"vi": "Một thẻ cho thấy ga gần nhất, nguy cơ ngập, nơi sơ tán và cơ sở lân cận.",
+			"th": "การ์ดเดียวแสดงสถานีที่ใกล้ที่สุด ความเสี่ยงน้ำท่วม จุดอพยพ และสถานที่ใกล้เคียง",
+			"bn": "একটি কার্ডে নিকটতম স্টেশন, বন্যার ঝুঁকি, আশ্রয়স্থল ও কাছের সুবিধা দেখায়।",
+			"hi": "एक कार्ड में निकटतम स्टेशन, बाढ़ का जोखिम, निकासी स्थल और पास की सुविधाएँ।",
+			"ar": "بطاقة واحدة تعرض أقرب المحطات وخطر الفيضان وموقع الإخلاء والمرافق القريبة.",
+			"fa": "یک کارت: نزدیک‌ترین ایستگاه‌ها، خطر سیل، محل تخلیه و تأسیسات نزدیک.",
+			"ur": "ایک کارڈ میں قریب ترین اسٹیشن، سیلاب کا خطرہ، انخلا کی جگہ اور قریبی سہولیات۔",
+			"he": "כרטיס אחד מציג תחנות קרובות, סיכון הצפה, אתר פינוי ומתקנים סמוכים."
 		}
 	}
 }
