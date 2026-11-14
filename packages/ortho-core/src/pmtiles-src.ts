@@ -15,6 +15,7 @@ import { decodeTile, loadTileFormat } from "./decode.ts";
 import { tileFormatOfPmtilesType } from "./tileformat.ts";
 import { tileOutsideCoverage } from "./tile.ts";
 import { vectorLayersOf } from "./mlstyle.ts";
+import { overzoomTile } from "./overzoom.ts";
 import type { PMTiles, Source } from "pmtiles";
 import type { TileData } from "./tileformat.ts";
 import type { VectorLayerInfo } from "./mlstyle.ts";
@@ -159,12 +160,16 @@ export async function fetchPMTiles(url: string, z: number, x: number, y: number,
 	const src = srcOf(url);
 	const info = await pmtilesInfo(url);
 	if (isRasterTileType(info.tileType)) return { __empty: true };   // ラスタのアーカイブ＝ベクタ配管の領分でない（画像タイル層 raster.js が読む）＝解読器に画像を流さない
-	const t = await rawTile(src, z, x, y, signal);
+	let t = await rawTile(src, z, x, y, signal), d = 0;
+	// 複合でどの構成員にも無い＝一番近い祖先を引き伸ばす（過拡大・overzoom.ts）。端末の範囲の外＝世界の土台・範囲の上限ズームより上＝範囲の最後のズーム
+	if (!t && compositeMembers(src)) for (d = 1; d <= z && !t; d++) t = await rawTile(src, z - d, x >> d, y >> d, signal);
+	if (t && d > 0) d--;   // 抜けた時に 1 つ進んでいる
 	if (!t || isRasterTileType(t.info.tileType)) return { __empty: true };   // 無い＝空タイルとして ready
 	// 形式＝そのタイルを出したアーカイブのヘッダの申告。tileType 0（unknown）は従来どおり MVT として読む（種別を書かない古いアーカイブ）。未登録の形式（mlt のプラグイン無し）＝decodeTile が一度だけ警告して空
 	const enc = t.info.tileType === "unknown" ? "mvt" : t.info.tileType;
 	await loadTileFormat(enc);
-	return decodeTile(t.data, need, enc);
+	const tile = decodeTile(t.data, need, enc);
+	return d > 0 && !(tile as { __empty?: true }).__empty ? overzoomTile(tile as import("./tileformat.ts").DecodedTile, d, x & ((1 << d) - 1), y & ((1 << d) - 1)) : tile;
 }
 
 // ラスタ PMTiles の生タイル（画像のバイト列＝png/jpeg/webp/avif そのまま・pmtiles.js がタイル圧縮を解く）。

@@ -25,6 +25,7 @@ export async function setupAppPack(onState: (s: AppPackState) => void): Promise<
 	let man: Manifest | null = null;
 	try { const r = await fetch(import.meta.env.BASE_URL + "offline.json", { cache: "no-cache" }); man = r.ok ? await r.json() : null; } catch { /* 通信なし */ }
 	if (!man) { if (!packed) onState({ state: "none", message: "dev server (no offline.json)" }); return; }
+	setTimeout(() => void packWorld(), 20000);   // 標準の地球のデータ（起動して 20 秒＝低倍率の描画が取りに行った後）
 	if (packed && man.build === have) return;
 	try { await packApp(man, (done, total) => onState({ state: "saving", done, total })); writeRec(man.build); swNotify(); onState({ state: "saved", build: man.build }); }
 	catch (e) { onState({ state: "error", message: (e as Error).message }); }
@@ -51,4 +52,24 @@ async function packApp(man: Manifest, onProgress: (done: number, total: number) 
 	for (const u of [page, mf]) { const r = await fetch(u, { cache: "no-cache" }); if (!r.ok) throw new Error(`HTTP ${r.status} ${u}`); await cache.put(u, r); }
 	const keep = new Set([...want, page, mf]);
 	for (const k of await cache.keys()) if (!keep.has(k.url)) await cache.delete(k);
+}
+
+// ── 標準の地球（低倍率）のデータ ──
+// エンジンの標準の地球が取りに行く物のうち、エンジン自身が IDB に置かない物（星空＝HTTP キャッシュ任せ）と、念のため段彩の標高・国境（IDB にも置く）を束に詰める。
+// 何を取りに行ったかは頁の資源の記録（performance）から拾う＝エンジンの版が変わっても追従する。?meta= 等の版照会（毎回違う URL）は詰めない
+const WORLD_HOSTS = ["https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/", "https://api.ortho-earth.com/bucket/GIS/"];
+const isWorld = (u: string) => WORLD_HOSTS.some(h => u.startsWith(h)) && !/[?&](meta|_t)=/.test(u);
+async function packWorld(): Promise<void> {
+	if (!canPack() || navigator.onLine === false) return;
+	try {
+		const cache = await caches.open(PACK);
+		const urls = [...new Set(performance.getEntriesByType("resource").map(e => e.name).filter(isWorld))];
+		let added = 0;
+		for (const u of urls) {
+			if (await cache.match(u)) continue;
+			const r = await fetch(u, { mode: "cors" }).catch(() => null);
+			if (r?.ok) { await cache.put(u, r); added++; }
+		}
+		if (added) swNotify();
+	} catch { /* 詰められない＝次の起動で */ }
 }

@@ -29,6 +29,10 @@ export const nameExpr = (lang: NameLang): unknown[] => lang === "local" ? ["get"
 /** 地名を描く層の id（言語を切り替える時に text-field を差し替える層） */
 export const LABEL_LAYERS = ["place-country", "place-region", "place-locality", "place-neighbourhood"];
 
+/** この z（MapLibre の z）より下は OSM を描かない＝エンジンの標準の地球（全球の段彩・国境・湖・海岸線・星空＝本人 2026-11-14「低倍率では globe の ortho のデフォルトで地球を描いて」）。
+ *  エンジンの世界帯の上限 BASEMAP_MINZOOM 6.5（エンジンの z）＝MapLibre の 5.5 と揃える＝境で継ぎ目なく切り替わる */
+export const OSM_MINZOOM = 5.5;
+
 export function osmStyle(osmUrl: string, lang: NameLang = "local"): Record<string, unknown> {
 	const NAME = nameExpr(lang);
 	const C = COLORS;
@@ -77,6 +81,7 @@ export function osmStyle(osmUrl: string, lang: NameLang = "local"): Record<strin
 			layout: { "text-field": NAME, "text-size": 11 },
 			paint: { "text-color": "#5d5a63", "text-halo-color": C.halo, "text-halo-width": 1.2 } },
 	];
+	for (const L of layers) L.minzoom = Math.max(OSM_MINZOOM, (L.minzoom as number | undefined) ?? 0);   // 低倍率は標準の地球に任せる
 	return {
 		version: 8, name: "UNMAP prototype (OSM)",
 		sources: { osm: { type: "vector", url: osmUrl.startsWith("pmtiles://") ? osmUrl : "pmtiles://" + osmUrl, attribution: OSM_ATTRIBUTION, maxzoom: 15 } },
