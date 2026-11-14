@@ -54,6 +54,8 @@ export { pmtilesInfo, isRasterTileType, fetchPMTilesRaw, opfsPMTilesUrl, composi
 export type { PMTilesInfo } from "./pmtiles-src.ts";
 export { importPMTiles, listPMTiles, removePMTiles, readPMTilesHeader, safePMTilesName, storageInfo, requestPersist } from "./opfs-store.ts";   // 端末の OPFS に置く PMTiles の出し入れ（UNMAP オフライン版 M2）
 export type { StoredPMTiles, PMTilesHeaderInfo } from "./opfs-store.ts";
+export { openExtractSource, planExtract, writeExtract, trimPlan, maxZoomWithin, idRanges, worldRanges, splitZ8Rect, z8Around, z8OfBbox, z8Bbox, z8Count } from "./pmtiles-extract.ts";   // 大きな PMTiles から z8 矩形を Range で切り出す（UNMAP オフライン版 M3）
+export type { ExtractPlan, ExtractSource, ExtractSink, Z8Rect, PMEntry, PMHeader } from "./pmtiles-extract.ts";
 export { createRaster } from "./raster.ts";   // 画像タイル層（メルカトル XYZ ラスタ・render worker 常駐）
 export type { Raster, RasterOptions } from "./raster.ts";
 export { createRasterSource, expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities } from "./raster-src.ts";   // z/x/y→ImageBitmap のプロバイダ契約（xyz/pmtiles/port）
