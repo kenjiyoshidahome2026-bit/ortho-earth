@@ -31,8 +31,8 @@
 		#status .ng{color:#b3261e}
 		#save-here{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:10;font:600 15px system-ui,sans-serif;padding:10px 18px;min-height:44px;border-radius:22px;border:0;background:#1f4e79;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
 		#status .save-btns{margin:4px 0}
-		#status .save-btns .add{border:0;font:inherit;margin-right:4px}
-		#status .choose{background:#fff;color:#1f4e79;outline:1px solid #1f4e79}
+		#status .save-btns .add{border:0;font:inherit;margin-right:4px;padding:4px 10px;background:#1f4e79;color:#fff}   /* .local button（背景なし）より強く＝無いと字が地図に透ける（iPhone 2026-11-14） */
+		#status .save-btns .choose{background:#fff;color:#1f4e79;outline:1px solid #1f4e79}
 		#status .pending{margin:4px 0;color:#7a4b00}
 		#status .pending button{border:1px solid #bbb;border-radius:4px;background:#fff;padding:2px 8px}
 		.area-picker{position:absolute;inset:0;z-index:30;opacity:0;transition:opacity .25s;background:#0b1021}
@@ -50,6 +50,7 @@
 		.ap-sheet .ap-msg{color:#7a4b00;font-weight:600}
 		.ap-sheet .ap-est{color:#333}
 		.ap-sheet .ng{color:#b3261e}
+		.ap-sheet .ok{color:#1b7a3a}
 		.ap-sheet progress{width:100%}
 		#names{position:fixed;left:8px;bottom:calc(44px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 6px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
 	</style>
