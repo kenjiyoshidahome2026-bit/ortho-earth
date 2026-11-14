@@ -22,7 +22,7 @@
 | police-areas | 警察署の管轄（横浜市内の 21 署）{ n 署名 } | P18-12 の PoliceStationJurisdiction・**2012 年度**（その後の署の新設・管轄の変更は入っていない） | 非商用 |
 | fire-areas | 消防署の管轄（横浜市消防局の 18 署）{ n 署名 } | P17-12 の FireStationJurisdiction・**2012 年度** | 非商用（有償刊行物から作成） |
 
-組む・置く：組む＝`node apps/yokohama/scripts/bake-yokohama.mjs`（外部網が要る＝手元の Mac・`--inspect` で KSJ の列名を確かめる）、
+組む・置く：組む＝`node apps/yokohama/scripts/bake-yokohama.mjs`（中身は共通の packages/citytwin/scripts/bake-city.mjs）（外部網が要る＝手元の Mac・`--inspect` で KSJ の列名を確かめる）、
 置く＝`npm run publish:pages -w world-data -- --scope=japan --only=yokohama --write`。dev は手元の正本を読む。
 
 URL：`?tab=life|transit|sight|risk|tools`（既定 life＝暮らし）・`&ward=14101〜14118`・`&spot=<名所の id>`（data.ts）・`&hz=flood,hightide,tsunami,dosha`・`&tr=subway,bus,rail`（既定 subway）。旧 `tab=city|time|area` は観光・解析・暮らしへ読み替える。

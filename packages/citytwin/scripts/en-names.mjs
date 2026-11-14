@@ -123,19 +123,21 @@ export const EN_FIX = {
 // 領事館＝「◯◯共和国名誉領事館」→ Honorary Consulate of Bulgaria in Yokohama
 const COUNTRY = [["大韓民国", "the Republic of Korea"], ["韓国", "the Republic of Korea"], ["ブルガリア", "Bulgaria"], ["エルサルバドル", "El Salvador"], ["ベネズエラ", "Venezuela"], ["ルーマニア", "Romania"], ["フィジー", "Fiji"],
 	["中華人民共和国", "the People's Republic of China"], ["アメリカ", "the United States"], ["イギリス", "the United Kingdom"], ["フランス", "France"], ["ドイツ", "Germany"], ["イタリア", "Italy"], ["スペイン", "Spain"]];
-function consulate(s) {
+function consulate(s, cityEn) {
 	if (!s.includes("領事館")) return null;
 	const c = COUNTRY.find(([k]) => s.includes(k)); if (!c) return null;
-	return `${s.includes("名誉") ? "Honorary " : ""}Consulate${s.includes("総領事館") ? " General" : ""} of ${c[1]} in Yokohama`;
+	return `${s.includes("名誉") ? "Honorary " : ""}Consulate${s.includes("総領事館") ? " General" : ""} of ${c[1]} in ${cityEn}`;
 }
 // 駅の名で読みの決まりから外れる物（公式のローマ字）
 const STATION_EN = { "新横浜": "Shin-Yokohama", "元町・中華街": "Motomachi-Chukagai", "日本大通り": "Nihon-odori", "みなとみらい": "Minatomirai", "センター南": "Center-Minami", "センター北": "Center-Kita", "港南中央": "Konan-Chuo", "市大医学部": "Shidai-Igakubu", "海の公園南口": "Uminokoen-Minamiguchi", "海の公園柴口": "Uminokoen-Shibaguchi",
 	"北新横浜": "Kita-Shin-Yokohama", "青物横丁": "Aomono-yokocho", "矢口渡": "Yaguchinowatashi", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
 	"三ツ沢上町": "Mitsuzawa-kamicho", "三ツ沢下町": "Mitsuzawa-shimocho", "伊勢佐木長者町": "Isezakichojamachi", "弘明寺": "Gumyoji", "蒔田": "Maita", "八景島": "Hakkeijima", "金沢八景": "Kanazawa-hakkei" };
 const STOP_EN = { "日本大通り駅県庁前": "Nihon-odori Station / Prefectural Office", "東急住宅前": "Tokyu Jutaku-mae" };
-/** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま） */
-export function makeEn({ towns, wards, tokenize }) {
-	const W = [["横浜", "Yokohama"], ...wards, ...wards.map(([k, r]) => [k + "区", r + " Ward"])];   // 名の中の「旭区」＝Asahi Ward
+/** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま）
+ *  city＝市の語 { ja: "横浜", en: "Yokohama", pref: "神奈川" }（市の名・県の名を住所と施設の名から外す） */
+export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yokohama", pref: "神奈川" } }) {
+	const CJ = city.ja, PJ = city.pref, re = (src) => new RegExp(src.replace(/@C/g, CJ).replace(/@P/g, PJ));
+	const W = [[CJ, city.en], ...wards, ...wards.map(([k, r]) => [k + "区", r + " Ward"])];   // 名の中の「旭区」＝Asahi Ward
 	// 町名は「町」抜きでも引く（施設の名は「菅田消防出張所」＝菅田町の菅田）
 	const T0 = towns.map(([k, r]) => [normJp(k), toKata(r)]);
 	for (const [k, r] of [...T0]) { const m = k.endsWith("町") && r.match(/(チョウ|マチ)$/); if (m && k.length > 1 && !T0.some(([x]) => x === k.slice(0, -1))) T0.push([k.slice(0, -1), r.slice(0, -m[1].length)]); }
@@ -181,7 +183,7 @@ export function makeEn({ towns, wards, tokenize }) {
 	const name0 = (ja, cat) => {
 		if (EN_EXACT[ja]) return EN_EXACT[ja];
 		for (const [k, v] of Object.entries(EN_FIX)) if (ja.includes(k)) return v;
-		const cons = consulate(normJp(ja)); if (cons) return cons;
+		const cons = consulate(normJp(ja), city.en); if (cons) return cons;
 		let s = normJp(ja).replace(/\([^)]*\)/g, "");   // 括弧の中（愛称）は落とす
 		const sp = s.lastIndexOf(" "); if (sp > 0 && /法人/.test(s.slice(0, sp))) s = s.slice(sp + 1);   // 「医療法人社団◯◯会 金沢病院」＝法人の名は落とす
 		// 空きの無い法人の名（「医療法人社団恵生会竹山病院」）＝法人の種類の後の最初の「会」「団」まで落とす
@@ -189,7 +191,7 @@ export function makeEn({ towns, wards, tokenize }) {
 		const coop = s.indexOf("生活協同組合"); if (coop > 0 && coop + 6 < s.length) s = s.slice(coop + 6);   // 「医療生協かながわ生活協同組合戸塚病院」→ 戸塚病院
 		if (corp) { const rest = s.slice(corp.length), e = [...rest.slice(0, 9)].findIndex(c => c === "会" || c === "団"); s = e >= 0 && e + 1 < rest.length ? rest.slice(e + 1) : rest; }
 		const kai = s.indexOf("会"); if (kai > 0 && kai <= 4 && s.endsWith("病院") && s.length - kai > 4) s = s.slice(kai + 1);   // 「康心会汐見台病院」＝医療法人の名（〜会）は落とす
-		s = s.replace(/^東京国税局/, "").replace(/^横浜地方検察庁(?=.)/, "").replace(/^東京管区気象台(?=.)/, "").replace(/^神奈川県(?!立)/, "神奈川").replace(/^(横浜市立|横浜市|神奈川県立|市立|県立)/, "").replace(/^消防局/, "").replace(/\s+/g, "");
+		s = s.replace(/^東京国税局/, "").replace(re("^@C地方検察庁(?=.)"), "").replace(/^東京管区気象台(?=.)/, "").replace(re("^@P[県府都](?!立)"), PJ).replace(re("^(@C市立|@C市|@P[県府都]立|市立|[県府都]立)"), "").replace(/^消防局/, "").replace(/\s+/g, "");
 		const fs = s.indexOf("消防署"); if (fs > 0 && s.endsWith("出張所") && s.length > fs + 6) s = s.slice(fs + 3);   // 「神奈川消防署菅田消防出張所」→ 菅田
 		// 警察署の中の交番＝「港北警察署下田交番」→ Shimoda Police Box
 		const ps = s.indexOf("警察署"); if (ps > 0 && ["交番", "駐在所", "派出所"].some(k => s.endsWith(k)) && s.length > ps + 5) s = s.slice(ps + 3);
@@ -210,7 +212,7 @@ export function makeEn({ towns, wards, tokenize }) {
 	};
 	/** 住所（「横浜市港北区菊名7-8-27」）→「7-8-27 Kikuna, Kohoku-ku」（横浜市は書かない） */
 	const addr = (ja, wardEn) => {
-		let s = normJp(ja).replace(/^神奈川県/, "").replace(/^横浜市/, "").replace(/^\S+?区/, "");
+		let s = normJp(ja).replace(re("^@P[県府都]"), "").replace(re("^@C市"), "").replace(/^\S+?区/, "");
 		s = s.replace(/([一二三四五六七八九十]+)丁目/, (_, n) => kanjiNum(n) + "-").replace(/番地?の?/g, "-").replace(/号/g, "").replace(/-+$/, "").replace(/-{2,}/g, "-");
 		const m = s.match(/^(\D*?)(\d[\d-]*)(.*)$/);
 		const town = proper(m ? m[1] : s).replace(/oodoori$/, "odori").replace(/doori$/, "dori"), nums = m ? m[2] : "", rest = m ? m[3].trim() : "";

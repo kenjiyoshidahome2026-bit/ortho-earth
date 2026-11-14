@@ -1,0 +1,23 @@
+{
+	"name": "@ortho-earth/citytwin",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "市のデジタルツインの共通の芯（案内板・暮らし／交通／観光／防災／解析の面・わが家のまわり・歩ける道・通信なしの束）＝横浜市（/yokohama/）と京都市（/kyoto/）が共に読む。本番は共有エンジンの入口 /globe/engine/<版>/citytwin/*.js（2026-11-14）",
+	"exports": {
+		".": "./src/twin.ts",
+		"./core": "./src/core.ts",
+		"./boot": "./src/boot.ts",
+		"./offline": "./src/offline.ts"
+	},
+	"scripts": {
+		"test": "node tests/t-core.mjs",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"common": "*",
+		"@ortho-earth/globe": "*"
+	}
+}
