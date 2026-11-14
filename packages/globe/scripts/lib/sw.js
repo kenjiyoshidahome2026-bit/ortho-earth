@@ -70,9 +70,12 @@ self.addEventListener("fetch", e => {
 	if (url.origin !== location.origin) {
 		if (packOn === false || req.cache === "reload" || req.cache === "no-store") return;   // パック無し＝素通し（照会もしない）・reload＝束を詰め直す取得（パックを見ずに網へ）
 		e.respondWith((async () => {
-			if (!(await hasPack())) return fetch(req);
+			// 網の失敗（通信なし・束に無い URL）は Response.error() で返す＝頁には同じ「取得の失敗」・SW の中に捕まえていない拒否を残さない
+			// （旧＝束に無い URL を通信なしで引くたびに「Uncaught (in promise) TypeError: Failed to fetch」が SW に積もった・2026-11-14 unmap のタブレット）
+			const net = () => fetch(req).catch(() => Response.error());
+			if (!(await hasPack())) return net();
 			const hit = await fromPack(req.url);
-			return hit ? (req.mode === "no-cors" ? corp(hit) : hit) : fetch(req);
+			return hit ? (req.mode === "no-cors" ? corp(hit) : hit) : net();
 		})());
 		return;
 	}
