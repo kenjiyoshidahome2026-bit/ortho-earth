@@ -7,7 +7,7 @@
 //   node apps/<市>/scripts/bake-<市>.mjs --only=wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en,places,stawiki,census
 //
 // 市の設定（BAKE）：
-//   city      … 頁の CityConfig（id・wards・spots・story・bbox・addrPrefix・hinanUrl・cityName）
+//   city      … 頁の CityConfig（id・wards・spots・story・bbox・addrPrefix＝日本語の市名・hinanUrl）
 //   pref      … 都道府県コード（"14"）・prefName（"神奈川県"）・cityCode（"14100"）
 //   wardRe    … 区のコード（市＋区）を選ぶ式（/^141(00|0\d|1[0-8])$/）・wardOnlyRe（区だけ）
 //   busOp     … 市営バスの事業者（P11_002）の式・busMin（停留所の数の下限）
@@ -42,6 +42,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { createRequire } from "node:module";
+import net from "node:net";
 import { WALK_CELL, WALK_Q, walkKind, encodeWalk, wardOfAddress as wardOfAddr, normJa, sheltersIn } from "../src/core.ts";
 import { makeEn } from "./en-names.mjs";
 
@@ -54,6 +55,8 @@ const args = process.argv.slice(2);
 const INSPECT = args.includes("--inspect"), REFRESH = args.includes("--refresh");
 const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en,places,stawiki,census").split(",");
 const KSJ = "https://nlftp.mlit.go.jp/ksj/gml/data/";
+// 接続の待ち＝IPv6／IPv4 を順に試す 1 回の待ちが既定 250ms だと、遠い Overpass（ドイツ）へ繋がらず fetch failed が続く（2026-11-14 京都の walk）＝2.5 秒に
+net.setDefaultAutoSelectFamilyAttemptTimeout?.(2500);
 
 // 市の外接矩形に少し余白（市境をまたぐ線と駅を切らない）＝BOX（bakeCity で決める）
 const M = 0.02;
@@ -390,7 +393,7 @@ async function census() {
 	const ages = {};
 	for (const r of rows) {
 		const code = String(r[7] ?? "").trim().slice(0, 5), sex = String(r[1] ?? "").match(/^\s*([12])(?![0-9])|^(男|女)/);
-		if (!B.wardRe.test(code) || !sex || !/総数|^\s*0/.test(String(r[0] ?? ""))) continue;
+		if (!B.wardRe.test(code) || !sex || !/総数|^\s*0/.test(String(r[0] ?? "")) || /旧：/.test(String(r[8] ?? ""))) continue;   // 「（旧：京北町）」等＝2000 年の市町村に組み替えた行（同じ 2025 年のコードを持つ）は採らない（2026-11-14 京都の右京区）
 		const v = [...Array.from({ length: 15 }, (_, i) => num(r[10 + i])), [25, 26, 27, 28, 29, 30].reduce((a, c) => a + num(r[c]), 0)];
 		const k = (sex[1] || (sex[2] === "男" ? "1" : "2")) === "1" ? 0 : 16;
 		(ages[code] ??= Array(32).fill(0)).splice(k, 16, ...v);
@@ -597,7 +600,7 @@ async function en() {
 	const st = {}, stop = {}, school = {}, hinan = {};
 	for (const s of rail.stations) st[s[2]] ??= E.station(s[2]);
 	for (const r of bus.stops) for (const n of [r[2], ...String(r[3] || "").split(/[・〜]/)]) if (n) stop[n] ??= E.stop(n);
-	for (const f of ["school-e", "school-j"]) for (const x of JSON.parse(fs.readFileSync(path.join(OUT, `${f}.json`), "utf8")).features) { const { n, a } = x.properties || {}; if (n) school[`${n}|${a || ""}`] ??= [E.name(n, 2), a ? E.addr(a, wardOfAddress(normJa(a))?.en) : ""]; }
+	for (const f of ["school-e", "school-j"].filter(f => !B.skip?.includes(f === "school-e" ? "eschool" : "jschool"))) for (const x of JSON.parse(fs.readFileSync(path.join(OUT, `${f}.json`), "utf8")).features) { const { n, a } = x.properties || {}; if (n) school[`${n}|${a || ""}`] ??= [E.name(n, 2), a ? E.addr(a, wardOfAddress(normJa(a))?.en) : ""]; }
 	for (const r of sheltersIn(JSON.parse((b => b[0] === 0x1f && b[1] === 0x8b ? zlib.gunzipSync(b) : b)(await getBuf(CITY.hinanUrl)).toString("utf8")), CITY.addrPrefix)) hinan[`${r[2]}|${r[3]}`] ??= [E.shelter(r[2]), E.addr(r[3], wardOfAddress(normJa(r[3]))?.en)];
 	console.log(`駅 ${Object.keys(st).length}・停留所 ${Object.keys(stop).length}・学校 ${Object.keys(school).length}・避難場所 ${Object.keys(hinan).length}`);
 	fs.writeFileSync(path.join(CACHE, "en-review-names.tsv"), [...Object.entries(st).map(([k, v]) => `駅\t${k}\t${v}`), ...Object.entries(stop).map(([k, v]) => `停\t${k}\t${v}`),
@@ -610,7 +613,7 @@ async function en() {
 /** 市の台帳を焼く。bake＝市の設定（上の「市の設定」）・cacheDir＝生の zip を置く所（市の頁の scripts/.cache） */
 export async function bakeCity(bake, cacheDir) {
 	B = bake; CITY = bake.city; WARDS = CITY.wards; SPOTS = CITY.spots; STORY = CITY.story?.chapters ?? [];
-	NAME = CITY.cityName; PREF = bake.pref;
+	NAME = CITY.addrPrefix; PREF = bake.pref;   // 日本語の市名（「横浜市」）＝住所の頭。cityName は UI の英語の名
 	OUT = path.join(ROOT, `ortho-data/japan/${CITY.id}`); CACHE = cacheDir;
 	UA = { "User-Agent": `ortho-earth-${CITY.id}/0.1 (https://github.com/kenjiyoshidahome2026-bit/ortho-earth)` };
 	N03_URL = `${KSJ}N03/N03-2025/N03-20250101_${PREF}_GML.zip`;
