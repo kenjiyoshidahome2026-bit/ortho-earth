@@ -1,0 +1,5 @@
+{
+	"pages": {
+		"sapporo": ["data.ts", "main.ts"]
+	}
+}

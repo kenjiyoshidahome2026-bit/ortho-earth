@@ -14,6 +14,7 @@
 //   fireRe    … 市の消防局（P17_005 の頭）・subwayOp（N02_004 の頭＝地下鉄の事業者）
 //   ages      … e-Stat の令和 7 年国勢調査 第 2-7 表（県の表）の statInfId
 //   en        … 英語化の市の語 { ja: "横浜", en: "Yokohama", pref: "神奈川" }・osmStations: true＝駅の英語を OSM の name:en から（places.json）
+//               prefKind／localKind＝県名の後の字・「◯立」の字（既定「県・府・都」・北海道＝pref "北海道"・prefKind ""・localKind "道"）・jo: true＝住所の条丁目（札幌）
 //   min       … 下限の調整 { walk, places, stawiki, towns }
 //   fitBox    … 区と市の「収める枠」に数える範囲 [w,s,e,n]（遠い沖の島を外す・福岡の小呂島）。省くと全部（横浜・京都）
 //
@@ -425,7 +426,7 @@ async function census() {
 			const f = JSON.parse(line), q = f.properties || {}, g = f.geometry && slimPoly(f.geometry);
 			if (!g || q.JINKO == null) continue;
 			const n = String(q.S_NAME || "").trim(), m = n.match(/^(.*?)([一二三四五六七八九十]+)丁目$/);
-			const en = m ? `${E.proper(m[1])} ${kanjiNum(m[2])}-chome` : E.proper(n);
+			const en = (B.en.jo && E.joAddr(n)) || (m ? `${E.proper(m[1])} ${kanjiNum(m[2])}-chome` : E.proper(n));   // 札幌の条丁目（北一条西二丁目＝Kita 1-jo Nishi 2-chome）
 			feats.push({ type: "Feature", properties: { k: String(q.KEY_CODE), n, en: en.replace(/[^\x20-\x7e]/g, "").trim() || n, p: q.JINKO, h: q.SETAI ?? null, a: Math.round((q.AREA || 0) / 1e4) / 100 }, geometry: g });
 		}
 		const tot = feats.reduce((a, f) => a + f.properties.p, 0);
