@@ -234,7 +234,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 
 	// ── 観光：地区＝平面（真上から・北が上）で区の外接矩形を画面の 9 割に収める ──
 	// 区の境界（wards.json）は起動時に読み、市の外の薄い覆い・全区の線・選んだ区の塗りを描く（「全部入り」の地図）。区の名前は基図が出す（重ねると二重になる・Mac 実測）
-	type WardFC = { type: "FeatureCollection"; features: (GeoJSONFeature & { properties: { code: string; name: string; bbox: [number, number, number, number] } })[]; city?: LonLat[][] };
+	type WardFC = { type: "FeatureCollection"; features: (GeoJSONFeature & { properties: { code: string; name: string; bbox: [number, number, number, number] } })[]; city?: LonLat[][]; fit?: [number, number, number, number] };
 	let wardsReady: Promise<WardFC | null> | null = null;
 	const maskOn = () => insideBox(map.getBounds(), MASK_BOX);
 	const loadWards = () => wardsReady ??= ledger<WardFC>("wards.json").then(async fc => {
@@ -264,6 +264,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	};
 	const wardSel = $<HTMLSelectElement>(".ward");
 	const cityBox = (fc: WardFC | null): [number, number, number, number] | null => {
+		if (fc?.fit) return fc.fit;   // 台帳の収める枠（遠い沖の島を外した矩形・福岡）。無い市（横浜・京都）は市の外周から
 		const pts = fc?.city?.flat() ?? fc?.features.flatMap(f => [[f.properties.bbox[0], f.properties.bbox[1]], [f.properties.bbox[2], f.properties.bbox[3]]] as LonLat[]) ?? [];
 		if (!pts.length) return null;
 		const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
@@ -1294,7 +1295,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const hc = ward?.code && em?.holiday ? em.holiday.clinics[ward.code] : undefined;
 		const nc = em?.night?.centers.map(c => ({ c, m: distM(at, [c.lon, c.lat]) })).sort((a, b) => a.m - b.m)[0];
 		if (hc || nc || em?.advice) out.push(`<h3>${esc(t("Sudden illness on holidays or at night"))}</h3><div class="pr">`
-			+ (hc ? row(t("Holiday emergency clinic"), `${esc(t(em!.holiday!.name, wardName(ward!.code!)))}<br><small>${esc(lang === "ja" ? hc.addr : hc.en)}</small><br>${tel(hc.tel)}<br><small>${esc(t(em!.holiday!.hours, em!.holiday!.time(ward!.code!)))}</small>`) : "")
+			+ (hc ? row(t("Holiday emergency clinic"), `${esc(hc.name ? (lang === "ja" ? hc.name : hc.enName || hc.name) : t(em!.holiday!.name, wardName(ward!.code!)))}<br><small>${esc(lang === "ja" ? hc.addr : hc.en)}</small><br>${tel(hc.tel)}<br><small>${esc(t(em!.holiday!.hours, em!.holiday!.time(ward!.code!)))}</small>`) : "")
 			+ (nc ? row(em!.night!.label ? t(em!.night!.label) : t("Night emergency center"), `${esc(lang === "ja" ? nc.c.name : nc.c.enName)}<br><small>${esc(lang === "ja" ? nc.c.addr : nc.c.en)} · ${esc(t("About $1 km", (nc.m / 1000).toFixed(1)))}</small><br>${tel(nc.c.tel)}<br><small>${esc(t(em!.night!.hours))}</small>`) : "")
 			+ `</div>${em?.advice ? `<p class="sub flat">${esc(t(em.advice.text))} <a href="tel:${encodeURIComponent(em.advice.tel)}">${esc(em.advice.tel)}</a></p>` : ""}`);
 		// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。道の網の外で 2 km を超えたら直線の km だけ

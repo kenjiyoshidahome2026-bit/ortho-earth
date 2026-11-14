@@ -499,7 +499,7 @@ export interface CityConfig extends CityWards, CityState {
 	bldNames: (wardCode: string) => string[];
 	/** 救急（わが家のまわり）：区の休日急患診療所・近い夜間急病センター・相談の電話。無い物は出さない */
 	emergency?: {
-		holiday?: { clinics: Readonly<Record<string, { addr: string; tel: string; en: string }>>; /** 名（$1＝区の名）・受付の一言（$1＝time の時間）・区 → 時間 */ name: string; hours: string; time: (wardCode: string) => string };
+		holiday?: { clinics: Readonly<Record<string, { addr: string; tel: string; en: string; /** 実名（あれば name の型より優先・福岡の「博多急患診療所」） */ name?: string; enName?: string }>>; /** 名（$1＝区の名）・受付の一言（$1＝time の時間）・区 → 時間 */ name: string; hours: string; time: (wardCode: string) => string };
 		night?: { centers: Clinic[]; hours: string; /** 行の見出し（無ければ "Night emergency center"） */ label?: string };
 		advice?: { text: string; tel: string };
 	};

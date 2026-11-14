@@ -1,0 +1,15 @@
+{
+	"name": "Fukuoka digital twin — 福岡市デジタルツイン",
+	"short_name": "Fukuoka",
+	"description": "A citizen-first digital twin of Fukuoka that also works without a connection (save it once from the Disasters tab).",
+	"start_url": "/fukuoka/",
+	"scope": "/fukuoka/",
+	"display": "standalone",
+	"background_color": "#f6f6f4",
+	"theme_color": "#f6f6f4",
+	"icons": [
+		{ "src": "/fukuoka/icon-192.png", "sizes": "192x192", "type": "image/png" },
+		{ "src": "/fukuoka/icon-512.png", "sizes": "512x512", "type": "image/png" },
+		{ "src": "/fukuoka/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+	]
+}
