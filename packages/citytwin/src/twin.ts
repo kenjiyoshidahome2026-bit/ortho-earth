@@ -1295,7 +1295,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const hc = ward?.code && em?.holiday ? em.holiday.clinics[ward.code] : undefined;
 		const nc = em?.night?.centers.map(c => ({ c, m: distM(at, [c.lon, c.lat]) })).sort((a, b) => a.m - b.m)[0];
 		if (hc || nc || em?.advice) out.push(`<h3>${esc(t("Sudden illness on holidays or at night"))}</h3><div class="pr">`
-			+ (hc ? row(t("Holiday emergency clinic"), `${esc(t(em!.holiday!.name, wardName(ward!.code!)))}<br><small>${esc(lang === "ja" ? hc.addr : hc.en)}</small><br>${tel(hc.tel)}<br><small>${esc(t(em!.holiday!.hours, em!.holiday!.time(ward!.code!)))}</small>`) : "")
+			+ (hc ? row(t("Holiday emergency clinic"), `${esc(hc.name ? (lang === "ja" ? hc.name : hc.enName || hc.name) : t(em!.holiday!.name, wardName(ward!.code!)))}<br><small>${esc(lang === "ja" ? hc.addr : hc.en)}</small><br>${tel(hc.tel)}<br><small>${esc(t(em!.holiday!.hours, em!.holiday!.time(ward!.code!)))}</small>`) : "")
 			+ (nc ? row(em!.night!.label ? t(em!.night!.label) : t("Night emergency center"), `${esc(lang === "ja" ? nc.c.name : nc.c.enName)}<br><small>${esc(lang === "ja" ? nc.c.addr : nc.c.en)} · ${esc(t("About $1 km", (nc.m / 1000).toFixed(1)))}</small><br>${tel(nc.c.tel)}<br><small>${esc(t(em!.night!.hours))}</small>`) : "")
 			+ `</div>${em?.advice ? `<p class="sub flat">${esc(t(em.advice.text))} <a href="tel:${encodeURIComponent(em.advice.tel)}">${esc(em.advice.tel)}</a></p>` : ""}`);
 		// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。道の網の外で 2 km を超えたら直線の km だけ

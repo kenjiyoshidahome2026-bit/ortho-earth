@@ -372,7 +372,7 @@ async function stawiki() {
 		let title = near.filter(g => re.test(k(g.title))).sort((a, b) => a.dist - b.dist)[0]?.title;
 		if (!title) {   // 座標の無い記事＝題名で引く（曖昧さ回避の頁は採らない）
 			const pg = (await get({ action: "query", titles: `${s[2]}駅`, redirects: "1", prop: "pageprops" })).query?.pages?.[0];
-			if (pg && !pg.missing && !pg.pageprops?.disambiguation) title = pg.title;
+			if (pg && !pg.missing && !(pg.pageprops && "disambiguation" in pg.pageprops))   // formatversion=2 は曖昧さ回避を "" で返す＝in で見る（福岡の「金山」2026-11-15） title = pg.title;
 		}
 		if (!title) { console.warn(`✗ 記事なし：${s[2]}`); continue; }
 		const ll = (await get({ action: "query", titles: title, prop: "langlinks", lllimit: "max" })).query?.pages?.[0]?.langlinks || [];

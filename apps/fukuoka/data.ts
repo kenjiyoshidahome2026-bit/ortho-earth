@@ -75,12 +75,12 @@ export const MAJOR_HOSPITALS: { key: string; name: string }[] = [
 	{ key: "九州がんセンター", name: "国立病院機構九州がんセンター" },
 ];
 /** 区の急患診療所（日曜・祝日 9:00〜16:30）＝東・博多・南・城南・西の 5 か所（中央区・早良区には無い＝夜間と同じ急患診療センターへ）。市の掲載（2026-11 確認）。en＝日本語以外の UI の住所 */
-export const HOLIDAY_CLINICS: Record<string, { addr: string; tel: string; en: string }> = {
-	"40131": { addr: "東区箱崎2-54-27（内科・小児科）", tel: "092-651-3835", en: "2-54-27 Hakozaki, Higashi-ku (internal medicine, pediatrics)" },
-	"40132": { addr: "博多区博多駅前2-8-1（内科）", tel: "092-441-0020", en: "2-8-1 Hakataekimae, Hakata-ku (internal medicine)" },
-	"40134": { addr: "南区塩原3-25-3（内科・小児科）", tel: "092-541-3299", en: "3-25-3 Shiobaru, Minami-ku (internal medicine, pediatrics)" },
-	"40136": { addr: "城南区鳥飼5-2-25（内科）", tel: "092-831-7979", en: "5-2-25 Torikai, Jonan-ku (internal medicine)" },
-	"40135": { addr: "西区内浜1-4-7（内科）", tel: "092-882-3145", en: "1-4-7 Uchihama, Nishi-ku (internal medicine)" },
+export const HOLIDAY_CLINICS: Record<string, { name: string; enName: string; addr: string; tel: string; en: string }> = {
+	"40131": { name: "東急患診療所", enName: "Higashi Emergency Clinic", addr: "東区箱崎2-54-27（内科・小児科）", tel: "092-651-3835", en: "2-54-27 Hakozaki, Higashi-ku (internal medicine, pediatrics)" },
+	"40132": { name: "博多急患診療所", enName: "Hakata Emergency Clinic", addr: "博多区博多駅前2-8-1（内科）", tel: "092-441-0020", en: "2-8-1 Hakataekimae, Hakata-ku (internal medicine)" },
+	"40134": { name: "南急患診療所", enName: "Minami Emergency Clinic", addr: "南区塩原3-25-3（内科・小児科）", tel: "092-541-3299", en: "3-25-3 Shiobaru, Minami-ku (internal medicine, pediatrics)" },
+	"40136": { name: "城南急患診療所", enName: "Jonan Emergency Clinic", addr: "城南区鳥飼5-2-25（内科）", tel: "092-831-7979", en: "5-2-25 Torikai, Jonan-ku (internal medicine)" },
+	"40135": { name: "西急患診療所", enName: "Nishi Emergency Clinic", addr: "西区内浜1-4-7（内科）", tel: "092-882-3145", en: "1-4-7 Uchihama, Nishi-ku (internal medicine)" },
 };
 /** 急病の診療所（夜間・休日）＝福岡市急患診療センター（早良区百道浜・内科と小児科ほか）。位置は地理院の住所検索。
  *  時間は市の掲載（2026-11 確認）＝変わることがあるので「電話で確かめて」を添える */
@@ -95,9 +95,9 @@ export const facilityIndex = (rows: readonly FacilityRow[], ward: string, subs: 
 /** 福岡の歴史の物語＝金印（57）から今までの章。写真は photo（名所の id）か、無ければ章の id で photos.json を引く（bake が両方焼く） */
 export const FUKUOKA_STORY: Chapter[] = [
 	{ id: "fk-57", year: "57", photo: "museum", wiki: "漢委奴国王印", name: "The Gold Seal of the King of Na", ward: "40137", lon: 130.3531, lat: 33.5898, zoom: 16.8, tilt: 58, bearing: 0, note: "In 57 AD the Han emperor of China gave a gold seal to the king of Na, a land around Hakata Bay. Found on Shikanoshima in 1784, it is kept at the Fukuoka City Museum." },
-	{ id: "fk-688", year: "688", wiki: "鴻臚館", name: "A guesthouse for envoys", ward: "40133", lon: 130.3818, lat: 33.5868, zoom: 17.0, tilt: 60, bearing: 0, note: "From the 7th century the Korokan received envoys and traders from China and Korea. Its remains lie inside the Fukuoka Castle grounds." },
+	{ id: "fk-688", year: "688", wiki: "鴻臚館", name: "A guesthouse for envoys", ward: "40133", lon: 130.3854, lat: 33.5860, zoom: 17.0, tilt: 60, bearing: 0, note: "From the 7th century the Korokan received envoys and traders from China and Korea. Its remains lie inside the Fukuoka Castle grounds." },
 	{ id: "fk-1195", year: "1195", photo: "shofukuji", wiki: "聖福寺 (福岡市)", name: "The first Zen temple", ward: "40132", lon: 130.4141, lat: 33.5970, zoom: 17.2, tilt: 58, bearing: 0, note: "Returning from China, the monk Eisai founded Shofuku-ji in Hakata in 1195, the first Zen temple in Japan." },
-	{ id: "fk-1274", year: "1274", wiki: "元寇防塁", name: "The Mongol invasions", ward: "40137", lon: 130.3585, lat: 33.5840, zoom: 16.8, tilt: 60, bearing: 0, note: "Mongol fleets attacked Hakata Bay in 1274 and 1281. A stone wall was built along the shore in between, and parts of it survive today." },
+	{ id: "fk-1274", year: "1274", wiki: "元寇防塁", name: "The Mongol invasions", ward: "40137", lon: 130.3540, lat: 33.5845, zoom: 16.8, tilt: 60, bearing: 0, note: "Mongol fleets attacked Hakata Bay in 1274 and 1281. A stone wall was built along the shore in between, and parts of it survive today." },
 	{ id: "fk-1601", year: "1601", photo: "fukuoka-castle", wiki: "福岡城", name: "A castle town named Fukuoka", ward: "40133", lon: 130.3833, lat: 33.5847, zoom: 16.6, tilt: 58, bearing: 0, note: "Kuroda Nagamasa began Fukuoka Castle in 1601. The samurai town of Fukuoka grew west of the Naka River, facing the merchant town of Hakata." },
 	{ id: "fk-1889", year: "1889", photo: "nakasu", wiki: "福岡市", name: "Fukuoka and Hakata become one city", ward: "40132", lon: 130.4055, lat: 33.5925, zoom: 16.4, tilt: 60, bearing: 0, note: "Fukuoka City was founded in 1889, joining the two towns. The city took the name Fukuoka, while the station that opened that year was named Hakata." },
 	{ id: "fk-1975", year: "1975", photo: "hakata-st", wiki: "博多駅", name: "The Shinkansen arrives", ward: "40132", lon: 130.4207, lat: 33.5897, zoom: 16.6, tilt: 58, bearing: 0, note: "The Sanyo Shinkansen reached Hakata in 1975, linking Fukuoka directly with Osaka and Tokyo." },
@@ -149,7 +149,7 @@ export const writeState = (search: string, st: TwinState): string => write(CITY,
 export const parsePlaces = (raw: string | null) => places(raw, CITY_BBOX);
 
 /** 端末に詰める物のおおよその大きさ（MB）。保存ボタンの説明に出す（Mac の実測で直す） */
-export const OFFLINE_MB = 450;
+export const OFFLINE_MB = 450;   // 実測（MacBook・本番と同じ build を手元で配信・新しいプロフィール 390px・2026-11-15）：保存 243 秒・カード 397 MB・端末の使用量 +451 MB
 
 /** 市の設定（共有モジュールの mountTwin が読む） */
 export const CITY: CityConfig = {
