@@ -510,7 +510,7 @@ export interface CityConfig extends CityWards, CityState {
 	noAreas?: readonly AreaId[];
 	/** true＝注視点を地面の標高に置く（山あいの名所が画面の上へ逃げない）。盆地と山の京都など。無し＝海面（横浜＝従来どおり） */
 	groundCenter?: boolean;
-	majorHospitals: { key: string; name: string }[];
+	majorHospitals: { key: string; name: string; /** 日本語以外の名（無ければ台帳の英語化＝読みの辞書の当て推量・札幌で Sapporo Ika University になった） */ en?: string }[];
 	/** 警察署・消防署の管轄をわが家のカードに出すか（区と一致しない市なら true） */
 	homeJuris: boolean;
 	/** 通信なしの保存のおおよその大きさ（MB） */

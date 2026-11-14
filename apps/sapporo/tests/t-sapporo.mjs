@@ -30,7 +30,7 @@ t("交通の層：地下鉄・鉄道・バス", TRANSIT.map(x => x.id).join() ==
 t("災害：海に面さない札幌＝洪水と土砂だけ", HAZARDS.map(h => h.id).join() === "flood,dosha");
 t("住所 → 区：札幌市中央区… → 中央区・北海道の付いた住所も", wardOfAddress("札幌市中央区北1条西2丁目")?.code === "01101" && wardOfAddress("北海道札幌市厚別区中央1条5丁目")?.code === "01108" && wardOfAddress("京都市中京区x")?.code === undefined);
 t("避難場所：札幌市の行だけ（台帳の住所は「北海道札幌市…」）", sapporoShelters([[141.35, 43.06, "A", "北海道札幌市中央区x", 1], [141.5, 43.1, "B", "北海道江別市y", 1]]).length === 1);
-t("大きな病院：台帳の名に含まれる語で引く・東徳洲会と徳洲会を取り違えない", majorHospital("市立札幌病院") === "市立札幌病院" && majorHospital("札幌東徳洲会病院") === "札幌東徳洲会病院" && majorHospital("某医院") === null && MAJOR_HOSPITALS.length === 8);
+t("大きな病院：台帳の名に含まれる語で引く・東徳洲会と徳洲会を取り違えない", majorHospital("市立札幌病院") === "市立札幌病院" && majorHospital("札幌東徳洲会病院") === "札幌東徳洲会病院" && majorHospital("某医院") === null && MAJOR_HOSPITALS.length === 8 && MAJOR_HOSPITALS.every(h => /^[\x20-\x7e]+$/.test(h.en)));
 t("急病：市のセンター 1 か所・夜間の見出しと時間・#7119", NIGHT_CENTERS.length === 1 && !!CITY.emergency?.night?.label && /Call ahead/.test(CITY.emergency.night.hours) && CITY.emergency.advice?.tel === "#7119" && !CITY.emergency.holiday);
 t("学区：札幌に台帳が無い＝出さない・焼かない", CITY.noAreas?.join() === "school-e,school-j" && BAKE.skip.join() === "eschool,jschool");
 t("建物：10 区・先読みは登録簿の名前", BLD_SETS.length === 10 && LOD2_PREFETCH.every(n => BLD_SETS.includes(n)));
@@ -49,7 +49,7 @@ t("英語の住所：漢数字・番号・条だけの町", E.addr("札幌市西
 t("英語化の既定（横浜・京都）は条丁目を読まない", makeEn({ towns: [], wards: [], tokenize: null }).joAddr("北1条西2丁目") !== undefined && makeEn({ towns: [], wards: [], tokenize: null }).addr("横浜市港北区菊名7-8-27", "Kohoku-ku") === "7-8-27 菊名, Kohoku-ku");
 const dict = JSON.parse(readFileSync(new URL("../i18n/pages/sapporo.json", import.meta.url), "utf8")).ui;
 const keys = [CITY.title, CITY.cityName, CITY.allWards, CITY.outside, CITY.tourIntro, CITY.wholeCityTitle, CITY.flatNote, CITY.zonesTitle, ...WARDS.map(w => w.en), ...SPOTS.flatMap(s => [s.name, s.note]), ...SAPPORO_STORY.flatMap(c => [c.name, c.note]), CITY.story.button, CITY.story.viewsButton, ...CITY.story.viewsCaption,
-	...SUBWAY.map(l => l.name), CITY.subwayName, CITY.subwayNote, ...TRANSIT.filter(x => x.id !== "rail").map(x => x.name), CITY.riskNote, CITY.inland.text, CITY.inland.link, CITY.emergency.night.hours, CITY.emergency.night.label, CITY.emergency.advice.text, "Sapporo Streetcar"];
+	...SUBWAY.map(l => l.name), CITY.subwayName, CITY.subwayNote, ...TRANSIT.map(x => x.name), CITY.riskNote, CITY.inland.text, CITY.inland.link, CITY.emergency.night.hours, CITY.emergency.night.label, CITY.emergency.advice.text, "Sapporo Streetcar"];
 t("26 言語：画面に出る札幌の文は全部辞書にある（ja も）", keys.every(k => dict[k]?.ja), keys.filter(k => !dict[k]?.ja).join(" | "));
 console.log(`\n${ng ? "✗" : "✓"} sapporo: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

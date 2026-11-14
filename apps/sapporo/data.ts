@@ -61,22 +61,22 @@ export const subwayCodes = (name: string) => codesOf(SUBWAY, name);
 /** 交通の層（最初は全部 OFF）。札幌に市営バスは無い（2004 年に民営へ移管）＝路線バスの主な 3 社の停留所（P11：中央バス 1365・JR 北海道バス 605・じょうてつ 189） */
 export const TRANSIT: TransitLayer[] = [
 	{ id: "subway", name: "Sapporo Municipal Subway (Namboku, Tozai, Toho lines)" },
-	RAIL_LAYER,
+	{ ...RAIL_LAYER, name: "JR lines and the Sapporo Streetcar" },   // 市電（札幌市交通事業振興公社）も鉄道の層に入る＝見出しに出す
 	{ id: "bus", name: "Bus stops (Chuo Bus, JR Hokkaido Bus, Jotetsu Bus)" },
 ];
 export const TRANSIT_DEFAULT: string[] = [];   // 横浜・京都と同じ＝最初は何も出さない
 
 /** 市の大きな病院（救命救急センター・大学病院・地域医療支援病院）。key＝台帳（KSJ P04）の名に含まれる語、name＝カードに出す短い名。
  *  横浜・京都と同じく病院の「管轄区域」は無い＝わが家のまわりでは近い順で出す */
-export const MAJOR_HOSPITALS: { key: string; name: string }[] = [
-	{ key: "市立札幌病院", name: "市立札幌病院" },
-	{ key: "北海道大学病院", name: "北海道大学病院" },
-	{ key: "札幌医科大学附属病院", name: "札幌医科大学附属病院" },
-	{ key: "手稲渓仁会病院", name: "手稲渓仁会病院" },
-	{ key: "北海道医療センター", name: "国立病院機構北海道医療センター" },
-	{ key: "札幌東徳洲会病院", name: "札幌東徳洲会病院" },
-	{ key: "ＫＫＲ札幌医療センター", name: "KKR札幌医療センター" },   // 台帳（P04）は全角の ＫＫＲ
-	{ key: "札幌徳洲会病院", name: "札幌徳洲会病院" },
+export const MAJOR_HOSPITALS: { key: string; name: string; en: string }[] = [
+	{ key: "市立札幌病院", name: "市立札幌病院", en: "Sapporo City General Hospital" },
+	{ key: "北海道大学病院", name: "北海道大学病院", en: "Hokkaido University Hospital" },
+	{ key: "札幌医科大学附属病院", name: "札幌医科大学附属病院", en: "Sapporo Medical University Hospital" },
+	{ key: "手稲渓仁会病院", name: "手稲渓仁会病院", en: "Teine Keijinkai Hospital" },
+	{ key: "北海道医療センター", name: "国立病院機構北海道医療センター", en: "NHO Hokkaido Medical Center" },
+	{ key: "札幌東徳洲会病院", name: "札幌東徳洲会病院", en: "Sapporo Higashi Tokushukai Hospital" },
+	{ key: "ＫＫＲ札幌医療センター", name: "KKR札幌医療センター", en: "KKR Sapporo Medical Center" },   // 台帳（P04）は全角の ＫＫＲ
+	{ key: "札幌徳洲会病院", name: "札幌徳洲会病院", en: "Sapporo Tokushukai Hospital" },
 ];
 /** 急病の診療所（夜間・休日）＝札幌市夜間休日急病センター（市内 1 か所・2026-04 に「夜間急病センター」から改称）。区ごとの休日急患診療所は無い
  *  （休日の当番の病院は札幌市医師会の案内）＝holiday は持たない。時間は市の掲載（2026-11-14 Mac で確認）＝変わることがあるので「電話で確かめて」を添える。
