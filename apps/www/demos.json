@@ -346,6 +346,20 @@
 			}
 		},
 		{
+			"id": "fukuoka",
+			"href": "/fukuoka/",
+			"group": "japan",
+			"icon": "🏯",
+			"title": "Fukuoka digital twin",
+			"lang": "26",
+			"desc": "A citizen-first digital twin of Fukuoka on the same core as Yokohama and Kyoto: tap your home for nearest stations, flood, storm-surge and tsunami risk and evacuation sites on one card. Hakata and Tenjin, a history tour from 57 AD and PLATEAU 3D buildings, in 26 languages.",
+			"img": "/thumbs/fukuoka.webp",
+			"shot": {
+				"url": "/fukuoka/?spot=kushida",
+				"wait": 20
+			}
+		},
+		{
 			"id": "tellus",
 			"href": "/japan/tellus",
 			"group": "earth",
