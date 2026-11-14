@@ -22,4 +22,10 @@ ok("湖・海面下の陸は worldFill:false で読まない", () => {
 	const dts = fs.readFileSync(new URL("../globe.d.ts", import.meta.url), "utf8");
 	assert.match(dts, /worldFill\?: boolean;/, "globe.d.ts に worldFill の口");
 });
+ok("worldBelow：外来 style でも低ズームは世界帯（BASEMAP_MINZOOM と style のタイルの下限が同じ z）", () => {
+	assert.match(src, /const EXT_WORLD_Z = WORLD_VT && \(opts\.worldBelow \?\? 0\) > 0 \? Math\.min\(20, opts\.worldBelow! \+ 1\) : 0;/);
+	assert.match(src, /BASEMAP_MINZOOM"\] = EXT \? EXT_WORLD_Z :/);
+	assert.match(src, /tileMinZoom: EXT_WORLD_Z \? null : 0/);
+	assert.match(fs.readFileSync(new URL("../globe.d.ts", import.meta.url), "utf8"), /worldBelow\?: number;/);
+});
 console.log(`world-fill-opts: ${n} 件 OK`);

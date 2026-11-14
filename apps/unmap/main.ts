@@ -10,7 +10,7 @@ import { archiveUrl, gelTerrain, sourcesFrom } from "./sources.ts";
 import { listLocal, mountLocalPanel, savedBounds } from "./local-data.ts";
 import { requestPersist as requestPersistNow } from "@ortho-earth/core/opfs-store";
 import type { LocalFiles } from "./local-data.ts";
-import { LABEL_LAYERS, NAME_LANGS, NAME_LANG_LABEL, isNameLang, nameExpr, osmStyle } from "./style.ts";
+import { LABEL_LAYERS, NAME_LANGS, NAME_LANG_LABEL, OSM_MINZOOM, isNameLang, nameExpr, osmStyle } from "./style.ts";
 import type { NameLang } from "./style.ts";
 import { probe } from "./probe.ts";
 import type { ProbeResult } from "./probe.ts";
@@ -124,6 +124,7 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 			...(osmUrl ? { style: osmStyle(osmUrl, names) } : {}),   // OSM planet（Protomaps v4）・端末の物が先・地名の言語
 			terrain: gelUrl ? gelTerrain(gelUrl) : false,             // GEL（z2–12・mapbox の画素詰め）・端末の物が先
 			zoomMax: 18, chips: false, mesh: false, worldContent: false,
+			worldBelow: OSM_MINZOOM,          // z5.5 より下＝エンジンの標準の地球（段彩・国境・湖）・上＝OSM
 			...(pixelRatio() ? { pixelRatio: pixelRatio()! } : {}),   // メモリの少ない端末は描く解像度を下げる（2026-11-14 Android タブレットの試験）
 			// 低倍率（MapLibre z5.5 より下）はエンジンの標準の地球（段彩・Natural Earth の国境と湖・海岸線・星空・夜面）＝本人 2026-11-14。OSM はその上（style.ts OSM_MINZOOM）。
 			// 標準の地球のデータは初回の起動でエンジンが IDB・HTTP キャッシュに置く＋星空は app-pack が束に詰める＝通信なしでも出る
