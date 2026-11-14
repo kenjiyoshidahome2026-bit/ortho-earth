@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<meta name="color-scheme" content="only light">
-	<!-- 実験（国連職員だけ）＝検索に載せない。#status＝M0 の確認の札（左端 56px はガジェットの列に空ける） -->
+	<!-- 実験（国連職員だけ）＝検索に載せない。#status＝データの札（M0 の確認・M2 の端末のファイル・左端 56px はガジェットの列に空ける）・#data-btn＝閉じた札を開き直す -->
 	<meta name="robots" content="noindex, nofollow">
 	<style>
 		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none}
@@ -13,7 +13,14 @@
 		#status{position:fixed;top:calc(8px + env(safe-area-inset-top));left:56px;right:8px;max-width:420px;margin-left:auto;z-index:10;
 			background:rgba(255,255,255,.92);color:#222;border-radius:8px;padding:8px 32px 8px 10px;font:12px/1.5 system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.25)}
 		#status ul{margin:0;padding:0;list-style:none}
-		#status button{position:absolute;top:4px;right:4px;border:0;background:none;font-size:16px;line-height:1;padding:4px 6px;cursor:pointer;color:#555}
+		#status{max-height:calc(100dvh - 140px);overflow:auto}
+		#status .close{position:absolute;top:4px;right:4px;border:0;background:none;font-size:16px;line-height:1;padding:4px 6px;cursor:pointer;color:#555}
+		#status .local{margin-top:6px;border-top:1px solid #ddd;padding-top:6px}
+		#status .local button{border:0;background:none;cursor:pointer;padding:0 4px}
+		#status .sect{font-weight:600}
+		#status .add{display:inline-block;margin:4px 0;padding:4px 10px;border-radius:6px;background:#1f4e79;color:#fff;cursor:pointer}
+		#status .note{color:#666}
+		#data-btn{position:fixed;left:8px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 10px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
 		#status .ok{color:#1b7a3a}
 		#status .ng{color:#b3261e}
 		#names{position:fixed;left:8px;bottom:calc(44px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 6px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
@@ -25,7 +32,8 @@
 <body>
 	<!-- ortho:boot -->
 	<div id="map"></div>
-	<div id="status" hidden><ul></ul><button type="button" aria-label="Close">×</button></div>
+	<div id="status" hidden><ul class="rows"></ul><div class="local"></div><button type="button" class="close" aria-label="Close">×</button></div>
+	<button type="button" id="data-btn" hidden>Data</button>
 	<select id="names" aria-label="Place names language" hidden></select>
 	<script type="module" src="./main.ts"></script>
 </body>

@@ -1,4 +1,4 @@
 {
 	"extends": "../../tsconfig.app.json",
-	"include": ["main.ts", "sources.ts", "style.ts", "probe.ts", "env.d.ts"]
+	"include": ["main.ts", "sources.ts", "style.ts", "probe.ts", "local-data.ts", "env.d.ts"]
 }
