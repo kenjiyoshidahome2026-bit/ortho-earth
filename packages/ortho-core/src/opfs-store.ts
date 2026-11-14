@@ -27,6 +27,9 @@ export function safePMTilesName(name: string): string {
 	return base + ".pmtiles";
 }
 
+// 道の末尾の / を落とす（正規表現の /\/+$/ は / の長い並びで遅くなる＝CodeQL・素の走査で）
+const joinDir = (dir: string): string => { let e = dir.length; while (e > 0 && dir[e - 1] === "/") e--; return dir.slice(0, e); };
+
 async function dirOf(dir: string, create: boolean): Promise<FileSystemDirectoryHandle> {
 	let d = await navigator.storage.getDirectory();
 	for (const p of dir.split("/").filter(Boolean)) d = await d.getDirectoryHandle(p, { create });
@@ -40,7 +43,7 @@ export async function listPMTiles(dir: string): Promise<StoredPMTiles[]> {
 	const out: StoredPMTiles[] = [];
 	for await (const [name, h] of (d as unknown as AsyncIterable<[string, FileSystemHandle]>)) {
 		if (h.kind !== "file" || !/\.pmtiles$/i.test(name)) continue;
-		out.push({ name, path: `${dir.replace(/\/+$/, "")}/${name}`, size: (await (h as FileSystemFileHandle).getFile()).size });
+		out.push({ name, path: `${joinDir(dir)}/${name}`, size: (await (h as FileSystemFileHandle).getFile()).size });
 	}
 	return out.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -112,5 +115,5 @@ export async function importPMTiles(file: Blob & { name?: string }, dir: string,
 		else await writeViaWorker(dir, fname, src);
 		await d.removeEntry(part).catch(() => {});
 	}
-	return { name: fname, path: `${dir.replace(/\/+$/, "")}/${fname}`, size: file.size, header };
+	return { name: fname, path: `${joinDir(dir)}/${fname}`, size: file.size, header };
 }
