@@ -300,6 +300,9 @@ export interface OrthoJapanOptions {
 	/** このページは map.overlay(...) で WebGL2 のオーバーレイを重ねる、の宣言。WebKit（iPadOS/Safari）では
 	 *  本体が WebGPU だとその 2 枚目が描かれないため、宣言したページだけ WebGL2 を既定にする（?gpu=1 で破れる） */
 	glOverlay?: boolean;
+	/** style を渡した地図でも、この z（MapLibre の z）より下はエンジンの標準の地球（全球の段彩・Natural Earth の国境と湖・罫線）を描き、style はその z から上だけ描く。
+	 *  既定 0＝従来どおり style が全ズーム。標準の地図と同じ切り替え＝5.5（UNMAP オフライン版） */
+	worldBelow?: number;
 	/** 世界ビュー（z<5.5）のホバー国名 tip。false=出さない（自前の tip と重ねないページ向け。既定true） */
 	countryTip?: boolean | "shift";   // "shift"＝Shift を押している間だけ（地物の tip を持つ頁が国名を出し分ける・1.7.x〜）
 	/** 世界帯（低ズーム・地域の基図より手前）に Equal Earth と同じ中身を描く（1.2.1〜）：州境（z≥4）・係争地の線・湖の岸線・

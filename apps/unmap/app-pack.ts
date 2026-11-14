@@ -63,7 +63,9 @@ async function packWorld(): Promise<void> {
 	if (!canPack() || navigator.onLine === false) return;
 	try {
 		const cache = await caches.open(PACK);
-		const urls = [...new Set(performance.getEntriesByType("resource").map(e => e.name).filter(isWorld))];
+		const seen = performance.getEntriesByType("resource").map(e => e.name).filter(isWorld);
+		// 版つき（?v=<etag>）の物は素の URL でも置く＝通信なしでは geopbf が版の照会（?meta=）に失敗して素の URL を取りに行く
+		const urls = [...new Set(seen.flatMap(u => /[?&]v=/.test(u) ? [u, u.replace(/\?.*$/, "")] : [u]))];
 		let added = 0;
 		for (const u of urls) {
 			if (await cache.match(u)) continue;

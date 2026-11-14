@@ -418,6 +418,9 @@ const dbgHost: GlobeScope["dbgHost"] = DEBUG_GLOBALS ? window as unknown as Glob
 // 2026-09-03 本人裁定「湖はNE経由＝B案」で撤去＝出典から © OpenStreetMap が消えた（pmtiles 配管と
 // public/world-z3.pmtiles は 2026-09-14 に撤去済）。タイルは全z で optbv（日本域）のみ。
 const WORLD_VT: GlobeScope["WORLD_VT"] = !/[&?]world=0/.test(location.search);
+// 外来 style の地図でも低ズームは標準の地球（opts.worldBelow＝MapLibre の z・2026-11-14 UNMAP「低倍率では globe の ortho のデフォルトで」）：
+// その z より下＝世界ハイプソ・NE の国境と湖・罫線（地域の基図と同じ世界帯）・上＝style。エンジンの z は MapLibre の z＋1。0／未指定＝従来（style が全ズーム）
+const EXT_WORLD_Z = WORLD_VT && (opts.worldBelow ?? 0) > 0 ? Math.min(20, opts.worldBelow! + 1) : 0;
 // 気候場テクスチャ（全球ハイプソ cross-blend・Köppen-Geiger/Beck et al. CC-BY 720x360 焼き縮め・public 資産）。
 // boot と switchTheme の両方が worldHypso.clim に積む（再送は両レンダラとも取得済みキャッシュで no-op）
 const CLIM_URL = opts.assetBase != null ? new URL("koppen-clim.png", new URL(ASSET_BASE, location.href)).href   // assetBase を指した時は従来どおりそこ（japan の SDK 等）
@@ -486,8 +489,8 @@ const extSourceFields: GlobeScope["extSourceFields"] = ext => {   // BASE_SOURCE
 	const s = ext.src;
 	return { kind: s?.pmtiles ? "pmtiles" : "style", url: s?.pmtiles || s?.tiles?.[0] || ext.url || null, tileUrl: s ? tileUrlOf(s) : () => null,
 		encoding: s?.encoding || "mvt",   // タイルの形式（style の vector source の "encoding"＝mvt｜mlt・#88）。PMTiles はアーカイブのヘッダが決める
-		coverage: null, tileMinZoom: 0, lodFloor: null, minZ: Math.max(0, s?.minzoom ?? 0), info: s && !s.pmtiles ? { maxZoom: s.maxzoom ?? 14, minZoom: s.minzoom ?? 0 } : null,
-		attrHTML: s?.attribution ? sanitizeHTML(String(s.attribution)) : null };
+		coverage: null, tileMinZoom: EXT_WORLD_Z ? null : 0, lodFloor: null, minZ: Math.max(0, s?.minzoom ?? 0), info: s && !s.pmtiles ? { maxZoom: s.maxzoom ?? 14, minZoom: s.minzoom ?? 0 } : null,
+		attrHTML: s?.attribution ? sanitizeHTML(String(s.attribution)) : null };   // tileMinZoom null＝worldBelow の時は世界帯の上から（BASEMAP_MINZOOM）
 };
 // ── 基図ソースの記述子 ───────────────────────────────────────────────────────
 // 「どこから引くか・どこを持つか・どのズームから出すか・LOD の床・出典」を **一つの物** に束ねる。
@@ -1319,7 +1322,7 @@ const ZOOM_MAX: GlobeScope["ZOOM_MAX"] = Math.max(1, Math.min(27, opts.zoomMax ?
 let zoomMaxCur: GlobeLive["zoomMaxCur"] = ZOOM_MAX, camBounds: GlobeLive["camBounds"] = null;   // 実行時の寄りの上限と中心の可動域（map.setMaxZoom / setMaxBounds・#35）＝onMove が毎移動で締める（使う所より前で宣言＝TDZ の轍）
 // 地域の申告が無い器（globe 仕様）＝日本固有の圏そのものが無い＝上限より上に置いて「来ない」ことを表す。
 // 世界ハイプソ・湖・罫線はこの値まで描かれる＝ズーム上限まで世界の色のまま（2026-09-23）。
-const BASEMAP_MINZOOM: GlobeScope["BASEMAP_MINZOOM"] = EXT ? 0 : REGIONLESS ? ZOOM_MAX + 0.8 : WORLD_VT ? 6.5 : 5;   // 外来 style＝全ズームがその基図（世界のハイプソは出さない＝MapLibre と同じ見え方）
+const BASEMAP_MINZOOM: GlobeScope["BASEMAP_MINZOOM"] = EXT ? EXT_WORLD_Z : REGIONLESS ? ZOOM_MAX + 0.8 : WORLD_VT ? 6.5 : 5;   // 外来 style＝全ズームがその基図（世界のハイプソは出さない＝MapLibre と同じ見え方）
 // タイルの門だけを分ける：BASEMAP_MINZOOM は「日本の基図（GSI）を出す圏」の意味も兼ねており、注記・空港マーク・
 // 出典圏の判定にも使われている。?pm= の基図は日本固有ではない＝タイルを出す下限はアーカイブの持ち分に従う
 // （実際の下限は minZoom で、それ未満はエンジンの門が空タイルを返す）。旧・世界タイルの !WORLD_VT 例外と同じ役割。
