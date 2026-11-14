@@ -55,6 +55,7 @@
 		.ap-sheet .ok{color:#1b7a3a}
 		.ap-sheet progress{width:100%}
 		#names{position:fixed;left:8px;bottom:calc(44px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 6px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
+		#place-search input,#names,.ap-sheet select{font-size:16px}   /* 16px 未満の入力欄・選択は iPhone/iPad が触れた瞬間に画面全体を拡大して戻らない（unmap で本人 2026-11-15）＝検索窓・地名の言語・保存の詳細度だけ 16px */
 	</style>
 	<link rel="icon" href="favicon.svg" type="image/svg+xml">
 	<link rel="manifest" href="manifest.webmanifest">
