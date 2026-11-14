@@ -20,6 +20,6 @@ export const BAKE = {
 	fitBox: FIT_BOX,                          // 区と市の「収める枠」＝沖の小呂島（西区）を外す
 	en: { ja: "福岡", en: "Fukuoka", pref: "福岡", osmStations: true },
 	skip: ["eschool", "jschool"],             // A27-21_40 / A32-21_40 に福岡市（40131〜40137）の学校区が無い（北九州市も無い）
-	min: { walk: 30000, places: 300, stawiki: 80, towns: 500 },
+	min: { walk: 30000, places: 300, stawiki: 60, towns: 300 },   // 市内の駅の名は 70（2026-11）・KEN_ALL の福岡市の町名は 369（郵便番号の行が 388 しか無い）
 };
 if (import.meta.url === `file://${process.argv[1]}`) await bakeCity(BAKE, path.join(path.dirname(new URL(import.meta.url).pathname), ".cache"));
