@@ -50,14 +50,14 @@ export const SPOTS: Spot[] = [
 	{ id: "kitano", wiki: "北野天満宮", name: "Kitano Tenmangu Shrine", ward: "26102", lon: 135.7351, lat: 35.0313, zoom: 17.2, tilt: 58, bearing: 0, note: "Shrine to the scholar Sugawara no Michizane, visited by students before exams and known for its plum blossoms." },
 	{ id: "kamigamo", wiki: "賀茂別雷神社", name: "Kamigamo Shrine", ward: "26101", lon: 135.7524, lat: 35.0602, zoom: 17.0, tilt: 60, bearing: 0, note: "One of Kyoto's oldest shrines, at the foot of the northern hills, with two cone-shaped sand mounds before its hall." },
 	{ id: "kurama", wiki: "鞍馬寺", name: "Kurama-dera Temple", ward: "26103", lon: 135.7708, lat: 35.1180, zoom: 16.0, tilt: 62, bearing: 0, note: "Mountain temple in the forests north of the city, reached by the Eizan Railway and a climb up Mount Kurama." },
-	{ id: "kibune", wiki: "貴船神社", name: "Kifune Shrine", ward: "26103", lon: 135.7631, lat: 35.1219, zoom: 16.4, tilt: 62, bearing: 0, note: "Shrine to the god of water in a narrow valley north of the city, with stone steps lined by red lanterns." },
-	{ id: "ohara", wiki: "三千院", name: "Sanzen-in Temple (Ohara)", ward: "26103", lon: 135.8343, lat: 35.1193, zoom: 16.4, tilt: 62, bearing: 0, note: "Temple in the mountain village of Ohara in the far north-east of the city, known for its moss garden." },
-	{ id: "eikando", wiki: "禅林寺", name: "Eikando (Zenrin-ji)", ward: "26103", lon: 135.7943, lat: 35.0145, zoom: 17.0, tilt: 60, bearing: 90, note: "Temple at the foot of Higashiyama, known as Eikando and famous for its autumn leaves." },
+	{ id: "kibune", wiki: "貴船神社", name: "Kifune Shrine", ward: "26103", lon: 135.7631, lat: 35.1219, zoom: 16.6, tilt: 48, bearing: 20, note: "Shrine to the god of water in a narrow valley north of the city, with stone steps lined by red lanterns." },
+	{ id: "ohara", wiki: "三千院", name: "Sanzen-in Temple (Ohara)", ward: "26103", lon: 135.8343, lat: 35.1193, zoom: 16.6, tilt: 55, bearing: 70, note: "Temple in the mountain village of Ohara in the far north-east of the city, known for its moss garden." },
+	{ id: "eikando", wiki: "禅林寺 (京都市)", name: "Eikando (Zenrin-ji)", ward: "26103", lon: 135.7950, lat: 35.0143, zoom: 17.0, tilt: 60, bearing: 90, note: "Temple at the foot of Higashiyama, known as Eikando and famous for its autumn leaves." },
 	{ id: "chionin", wiki: "知恩院", name: "Chion-in Temple", ward: "26105", lon: 135.7834, lat: 35.0054, zoom: 17.0, tilt: 60, bearing: 90, note: "Head temple of the Jodo sect. Its Sanmon gate, built in 1621, is one of the largest wooden gates in Japan." },
 	{ id: "tofukuji", wiki: "東福寺", name: "Tofuku-ji Temple", ward: "26105", lon: 135.7738, lat: 34.9765, zoom: 17.0, tilt: 62, bearing: 90, note: "Zen temple whose Tsutenkyo bridge looks over a valley of maples." },
-	{ id: "daigoji", wiki: "醍醐寺", name: "Daigo-ji Temple", ward: "26109", lon: 135.8196, lat: 34.9512, zoom: 16.8, tilt: 62, bearing: 90, note: "Temple in the south-east of the city. Its five-story pagoda, finished in 951, is the oldest building in Kyoto." },
-	{ id: "bishamondo", wiki: "毘沙門堂 (京都市)", name: "Bishamon-do Temple", ward: "26110", lon: 135.8130, lat: 35.0002, zoom: 17.0, tilt: 62, bearing: 0, note: "Temple on the hillside of Yamashina, known for its approach covered in fallen maple leaves in autumn." },
-	{ id: "katsura", wiki: "桂離宮", name: "Katsura Imperial Villa", ward: "26111", lon: 135.7095, lat: 34.9839, zoom: 16.8, tilt: 60, bearing: 0, note: "Imperial villa of the 17th century beside the Katsura River, a model of Japanese garden design." },
+	{ id: "daigoji", wiki: "醍醐寺", name: "Daigo-ji Temple", ward: "26109", lon: 135.8219, lat: 34.9508, zoom: 16.8, tilt: 62, bearing: 90, note: "Temple in the south-east of the city. Its five-story pagoda, finished in 951, is the oldest building in Kyoto." },
+	{ id: "bishamondo", wiki: "毘沙門堂", name: "Bishamon-do Temple", ward: "26110", lon: 135.8189, lat: 35.0014, zoom: 17.0, tilt: 62, bearing: 0, note: "Temple on the hillside of Yamashina, known for its approach covered in fallen maple leaves in autumn." },
+	{ id: "katsura", wiki: "桂離宮", name: "Katsura Imperial Villa", ward: "26111", lon: 135.7095, lat: 34.9839, zoom: 16.8, tilt: 62, bearing: -80, note: "Imperial villa of the 17th century beside the Katsura River, a model of Japanese garden design." },
 	{ id: "kokedera", wiki: "西芳寺", name: "Saiho-ji (Moss Temple)", ward: "26111", lon: 135.6828, lat: 34.9919, zoom: 17.0, tilt: 62, bearing: -90, note: "Saiho-ji, called the Moss Temple, whose garden is covered in over a hundred kinds of moss." },
 ];
 
@@ -120,7 +120,7 @@ export const HILL_VIEWS: View[] = [
 ];
 
 /** ツアー＝全景から始めて名所を巡り全景へ戻る（SPOTS の id の並び） */
-export const TOUR = ["kyoto-st", "toji", "fushimi-inari", "sanjusangendo", "kiyomizu", "yasaka", "heian", "ginkaku", "gosho", "nijo", "kinkaku", "arashiyama"];
+export const TOUR = ["kyoto-st", "toji", "fushimi-inari", "tofukuji", "sanjusangendo", "kiyomizu", "yasaka", "heian", "eikando", "ginkaku", "gosho", "nijo", "kinkaku", "ryoanji", "arashiyama"];
 
 /** 災害の想定＝海の無い京都は洪水と土砂災害（高潮・津波は持たない） */
 export const HAZARDS: Hazard[] = HAZARD_DEFS.filter(h => h.id === "flood" || h.id === "dosha");
