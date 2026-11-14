@@ -28,7 +28,7 @@ t("災害：海に面した福岡＝4 つとも", HAZARDS.map(h => h.id).join() 
 t("住所 → 区：福岡市博多区… → 博多区", wardOfAddress("福岡市博多区博多駅中央街1-1")?.code === "40132" && wardOfAddress("京都市中京区寺町")?.code === undefined);
 t("避難場所：福岡市の行だけ", fukuokaShelters([[130.4, 33.6, "A", "福岡市東区x", 1], [130.5, 33.5, "B", "春日市y", 1]]).length === 1);
 t("大きな病院：台帳の名に含まれる語で引く", majorHospital("九州大学病院") === "九州大学病院" && majorHospital("独立行政法人国立病院機構九州医療センター") === "国立病院機構九州医療センター" && majorHospital("某医院") === null && MAJOR_HOSPITALS.length === 8);
-t("急病：市の急患診療センター・夜間の見出しと時間・#7119", NIGHT_CENTERS.length === 1 && !!CITY.emergency?.night?.label && /Call ahead/.test(CITY.emergency.night.hours) && CITY.emergency.advice?.tel === "#7119" && !CITY.emergency.holiday);
+t("急病：市の急患診療センター・夜間の見出しと時間・#7119・区の急患診療所 5 か所", NIGHT_CENTERS.length === 1 && !!CITY.emergency?.night?.label && /Call ahead/.test(CITY.emergency.night.hours) && CITY.emergency.advice?.tel === "#7119" && Object.keys(CITY.emergency.holiday?.clinics ?? {}).length === 5 && Object.keys(CITY.emergency.holiday.clinics).every(c => WARDS.some(w => w.code === c)));
 t("建物：7 区・先読みは登録簿の名前", BLD_SETS.length === 7 && LOD2_PREFETCH.every(n => BLD_SETS.includes(n)));
 const sets = JSON.parse(readFileSync(new URL("../../../packages/jp/assets/plateau-sets.json", import.meta.url), "utf8")).map(s => s.name);
 t("建物：登録簿（plateau-sets.json）に全部ある", BLD_SETS.every(n => sets.includes(n)), BLD_SETS.filter(n => !sets.includes(n)).join());
@@ -39,7 +39,7 @@ t("URL の状態：津波も読む・区と名所は読む", st.tab === "risk" &
 t("URL の状態：往復", parseState(writeState("", st)).ward === "40132" && TABS.includes(parseState("?tab=nope").tab));
 t("保存した地点：市の外は捨てる", parsePlaces(JSON.stringify([{ n: "家", at: [130.4, 33.59] }, { n: "京都", at: [135.76, 35.0] }])).length === 1);
 const dict = JSON.parse(readFileSync(new URL("../i18n/pages/fukuoka.json", import.meta.url), "utf8")).ui;
-const keys = [CITY.title, CITY.allWards, CITY.outside, CITY.tourIntro, ...WARDS.map(w => w.en), ...SPOTS.flatMap(s => [s.name, s.note]), ...FUKUOKA_STORY.flatMap(c => [c.name, c.note]), CITY.story.button, ...CITY.story.viewsCaption, CITY.subwayNote, CITY.riskNote, CITY.emergency.night.hours, CITY.emergency.night.label];
+const keys = [CITY.title, CITY.allWards, CITY.outside, CITY.tourIntro, ...WARDS.map(w => w.en), ...SPOTS.flatMap(s => [s.name, s.note]), ...FUKUOKA_STORY.flatMap(c => [c.name, c.note]), CITY.story.button, ...CITY.story.viewsCaption, CITY.subwayNote, CITY.riskNote, CITY.emergency.night.hours, CITY.emergency.night.label, CITY.emergency.holiday.name, CITY.emergency.holiday.hours, CITY.inland.text, CITY.inland.link];
 t("26 言語：画面に出る福岡の文は全部辞書にある（ja も）", keys.every(k => dict[k]?.ja), keys.filter(k => !dict[k]?.ja).join(" | "));
 console.log(`\n${ng ? "✗" : "✓"} fukuoka: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);

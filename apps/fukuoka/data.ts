@@ -27,21 +27,20 @@ export const WARDS: Ward[] = [
 export const SPOTS: Spot[] = [
 	{ id: "hakata-st", wiki: "博多駅", name: "Hakata Station", ward: "40132", lon: 130.4207, lat: 33.5897, zoom: 16.8, tilt: 58, bearing: 0, note: "Fukuoka's main station, the terminus of the Sanyo Shinkansen and the start of the Kyushu Shinkansen. The JR Hakata City building opened in 2011." },
 	{ id: "kushida", wiki: "櫛田神社 (福岡市)", name: "Kushida Shrine", ward: "40132", lon: 130.4106, lat: 33.5929, zoom: 17.4, tilt: 58, bearing: 0, note: "Guardian shrine of Hakata and home of the Hakata Gion Yamakasa festival held every July." },
-	{ id: "canal-city", wiki: "キャナルシティ博多", name: "Canal City Hakata", ward: "40132", lon: 130.4108, lat: 33.5898, zoom: 17.2, tilt: 58, bearing: 90, note: "Shopping and entertainment complex opened in 1996, built around a canal that runs through its center." },
-	{ id: "shofukuji", wiki: "聖福寺 (福岡市)", name: "Shofuku-ji Temple", ward: "40132", lon: 130.4128, lat: 33.5965, zoom: 17.2, tilt: 58, bearing: 0, note: "Founded in 1195 by the monk Eisai as the first Zen temple in Japan." },
-	{ id: "nakasu", wiki: "中洲 (福岡市)", name: "Nakasu", ward: "40132", lon: 130.4055, lat: 33.5925, zoom: 17.0, tilt: 60, bearing: 0, note: "Island between the Naka and Hakata rivers, Kyushu's largest nightlife district, known for its riverside food stalls (yatai)." },
+	{ id: "canal-city", wiki: "キャナルシティ博多", name: "Canal City Hakata", ward: "40132", lon: 130.4106, lat: 33.5911, zoom: 17.2, tilt: 58, bearing: 90, note: "Shopping and entertainment complex opened in 1996, built around a canal that runs through its center." },
+	{ id: "shofukuji", wiki: "聖福寺 (福岡市)", name: "Shofuku-ji Temple", ward: "40132", lon: 130.4141, lat: 33.5970, zoom: 17.2, tilt: 58, bearing: 0, note: "Founded in 1195 by the monk Eisai as the first Zen temple in Japan." },
+	{ id: "nakasu", wiki: "中洲", name: "Nakasu", ward: "40132", lon: 130.4053, lat: 33.5937, zoom: 17.0, tilt: 60, bearing: 0, note: "Island between the Naka and Hakata rivers, Kyushu's largest nightlife district, known for its riverside food stalls (yatai)." },
 	{ id: "city-hall", wiki: "福岡市役所", name: "Fukuoka City Hall", ward: "40133", lon: 130.4017, lat: 33.5902, zoom: 17.4, tilt: 58, bearing: 0, note: "City hall in Tenjin, the heart of downtown Fukuoka." },
 	{ id: "acros", wiki: "アクロス福岡", name: "ACROS Fukuoka", ward: "40133", lon: 130.4019, lat: 33.5913, zoom: 17.4, tilt: 58, bearing: 180, note: "Cultural center opened in 1995, known for its stepped garden terraces that rise from Tenjin Central Park." },
 	{ id: "fukuoka-castle", wiki: "福岡城", name: "Fukuoka Castle ruins", ward: "40133", lon: 130.3833, lat: 33.5847, zoom: 16.6, tilt: 58, bearing: 0, note: "Castle of the Kuroda lords, built from 1601. The stone walls and turrets stand in Maizuru Park." },
 	{ id: "ohori", wiki: "大濠公園", name: "Ohori Park", ward: "40133", lon: 130.3765, lat: 33.5860, zoom: 16.0, tilt: 55, bearing: 0, note: "Park around a large pond that was once part of the castle's outer moat, opened in 1929." },
 	{ id: "dome", wiki: "みずほPayPayドーム福岡", name: "Mizuho PayPay Dome Fukuoka", ward: "40133", lon: 130.3622, lat: 33.5953, zoom: 16.4, tilt: 58, bearing: 0, note: "Japan's first stadium with a retractable roof, opened in 1993. Home of the Fukuoka SoftBank Hawks." },
 	{ id: "fukuoka-tower", wiki: "福岡タワー", name: "Fukuoka Tower", ward: "40137", lon: 130.3515, lat: 33.5933, zoom: 16.8, tilt: 58, bearing: 0, note: "Seaside tower 234 m tall, built in 1989 for the Asia-Pacific Expo, with an observation deck at 123 m." },
-	{ id: "museum", wiki: "福岡市博物館", name: "Fukuoka City Museum", ward: "40137", lon: 130.3530, lat: 33.5885, zoom: 17.0, tilt: 58, bearing: 0, note: "Museum of the city's history, holding the Gold Seal of the King of Na, a national treasure." },
-	{ id: "momochi", wiki: "シーサイドももち海浜公園", name: "Seaside Momochi Beach Park", ward: "40137", lon: 130.3530, lat: 33.5965, zoom: 16.4, tilt: 60, bearing: 180, note: "Man-made beach on reclaimed land at Momochi, facing Hakata Bay." },
+	{ id: "museum", wiki: "福岡市博物館", name: "Fukuoka City Museum", ward: "40137", lon: 130.3531, lat: 33.5898, zoom: 17.0, tilt: 58, bearing: 0, note: "Museum of the city's history, holding the Gold Seal of the King of Na, a national treasure." },
+	{ id: "momochi", wiki: "シーサイドももち海浜公園", name: "Seaside Momochi Beach Park", ward: "40137", lon: 130.3514, lat: 33.5941, zoom: 16.4, tilt: 60, bearing: 180, note: "Man-made beach on reclaimed land at Momochi, facing Hakata Bay." },
 	{ id: "hakozaki", wiki: "筥崎宮", name: "Hakozaki Shrine", ward: "40131", lon: 130.4232, lat: 33.6147, zoom: 17.0, tilt: 58, bearing: 0, note: "One of the three great Hachiman shrines. Its gate bears the words 'Surrender of the enemy', linked to the Mongol invasions." },
-	{ id: "port-tower", wiki: "博多ポートタワー", name: "Hakata Port Tower", ward: "40132", lon: 130.4031, lat: 33.6040, zoom: 16.8, tilt: 60, bearing: 180, note: "Lattice tower 100 m tall built in 1964 beside the Bayside Place ferry terminal." },
-	{ id: "airport", wiki: "福岡空港", name: "Fukuoka Airport", ward: "40132", lon: 130.4510, lat: 33.5859, zoom: 15.0, tilt: 55, bearing: 0, note: "Airport only two subway stops from Hakata Station, one of the busiest in Japan." },
-	{ id: "shikanoshima", wiki: "金印公園", name: "Kin-in Park, Shikanoshima", ward: "40131", lon: 130.3045, lat: 33.6600, zoom: 16.0, tilt: 60, bearing: 0, note: "Park on Shikanoshima island near the spot where the Gold Seal was found by a farmer in 1784." },
+	{ id: "port-tower", wiki: "博多ポートタワー", name: "Hakata Port Tower", ward: "40132", lon: 130.3978, lat: 33.6042, zoom: 16.8, tilt: 60, bearing: 180, note: "Lattice tower 100 m tall built in 1964 beside the Bayside Place ferry terminal." },
+	{ id: "airport", wiki: "福岡空港", name: "Fukuoka Airport", ward: "40132", lon: 130.4517, lat: 33.5844, zoom: 15.0, tilt: 55, bearing: 0, note: "Airport only two subway stops from Hakata Station, one of the busiest in Japan." },
 ];
 
 /** 福岡市地下鉄の路線と駅番号（駅ナンバリング）。地図の駅は N02 の駅名で引き当てて記号を付ける。乗換駅＝中洲川端（K09・H01）・博多（K11・N18）・天神（K08）と天神南（N16）は別の駅 */
@@ -75,10 +74,18 @@ export const MAJOR_HOSPITALS: { key: string; name: string }[] = [
 	{ key: "浜の町病院", name: "浜の町病院" },
 	{ key: "九州がんセンター", name: "国立病院機構九州がんセンター" },
 ];
-/** 急病の診療所（夜間・休日）＝福岡市急患診療センター（早良区百道浜・福岡市医師会館の中・内科と小児科ほか）。
+/** 区の急患診療所（日曜・祝日 9:00〜16:30）＝東・博多・南・城南・西の 5 か所（中央区・早良区には無い＝夜間と同じ急患診療センターへ）。市の掲載（2026-11 確認）。en＝日本語以外の UI の住所 */
+export const HOLIDAY_CLINICS: Record<string, { addr: string; tel: string; en: string }> = {
+	"40131": { addr: "東区箱崎2-54-27（内科・小児科）", tel: "092-651-3835", en: "2-54-27 Hakozaki, Higashi-ku (internal medicine, pediatrics)" },
+	"40132": { addr: "博多区博多駅前2-8-1（内科）", tel: "092-441-0020", en: "2-8-1 Hakataekimae, Hakata-ku (internal medicine)" },
+	"40134": { addr: "南区塩原3-25-3（内科・小児科）", tel: "092-541-3299", en: "3-25-3 Shiobaru, Minami-ku (internal medicine, pediatrics)" },
+	"40136": { addr: "城南区鳥飼5-2-25（内科）", tel: "092-831-7979", en: "5-2-25 Torikai, Jonan-ku (internal medicine)" },
+	"40135": { addr: "西区内浜1-4-7（内科）", tel: "092-882-3145", en: "1-4-7 Uchihama, Nishi-ku (internal medicine)" },
+};
+/** 急病の診療所（夜間・休日）＝福岡市急患診療センター（早良区百道浜・内科と小児科ほか）。位置は地理院の住所検索。
  *  時間は市の掲載（2026-11 確認）＝変わることがあるので「電話で確かめて」を添える */
 export const NIGHT_CENTERS: Clinic[] = [
-	{ name: "福岡市急患診療センター", addr: "早良区百道浜1丁目6-9", tel: "092-847-1099", lon: 130.3555, lat: 33.5862, enName: "Fukuoka City Emergency Medical Center", en: "1-6-9 Momochihama, Sawara-ku" },
+	{ name: "福岡市急患診療センター", addr: "早良区百道浜1丁目6-9", tel: "092-847-1099", lon: 130.3571, lat: 33.5920, enName: "Fukuoka City Emergency Medical Center", en: "1-6-9 Momochihama, Sawara-ku" },
 ];
 /** 台帳の名 → 大きな病院の短い名（でなければ null） */
 export const majorHospital = (name: string): string | null => MAJOR_HOSPITALS.find(h => name.includes(h.key))?.name ?? null;
@@ -87,9 +94,9 @@ export const facilityIndex = (rows: readonly FacilityRow[], ward: string, subs: 
 
 /** 福岡の歴史の物語＝金印（57）から今までの章。写真は photo（名所の id）か、無ければ章の id で photos.json を引く（bake が両方焼く） */
 export const FUKUOKA_STORY: Chapter[] = [
-	{ id: "fk-57", year: "57", photo: "museum", wiki: "漢委奴国王印", name: "The Gold Seal of the King of Na", ward: "40137", lon: 130.3530, lat: 33.5885, zoom: 16.8, tilt: 58, bearing: 0, note: "In 57 AD the Han emperor of China gave a gold seal to the king of Na, a land around Hakata Bay. Found on Shikanoshima in 1784, it is kept at the Fukuoka City Museum." },
+	{ id: "fk-57", year: "57", photo: "museum", wiki: "漢委奴国王印", name: "The Gold Seal of the King of Na", ward: "40137", lon: 130.3531, lat: 33.5898, zoom: 16.8, tilt: 58, bearing: 0, note: "In 57 AD the Han emperor of China gave a gold seal to the king of Na, a land around Hakata Bay. Found on Shikanoshima in 1784, it is kept at the Fukuoka City Museum." },
 	{ id: "fk-688", year: "688", wiki: "鴻臚館", name: "A guesthouse for envoys", ward: "40133", lon: 130.3818, lat: 33.5868, zoom: 17.0, tilt: 60, bearing: 0, note: "From the 7th century the Korokan received envoys and traders from China and Korea. Its remains lie inside the Fukuoka Castle grounds." },
-	{ id: "fk-1195", year: "1195", photo: "shofukuji", wiki: "聖福寺 (福岡市)", name: "The first Zen temple", ward: "40132", lon: 130.4128, lat: 33.5965, zoom: 17.2, tilt: 58, bearing: 0, note: "Returning from China, the monk Eisai founded Shofuku-ji in Hakata in 1195, the first Zen temple in Japan." },
+	{ id: "fk-1195", year: "1195", photo: "shofukuji", wiki: "聖福寺 (福岡市)", name: "The first Zen temple", ward: "40132", lon: 130.4141, lat: 33.5970, zoom: 17.2, tilt: 58, bearing: 0, note: "Returning from China, the monk Eisai founded Shofuku-ji in Hakata in 1195, the first Zen temple in Japan." },
 	{ id: "fk-1274", year: "1274", wiki: "元寇防塁", name: "The Mongol invasions", ward: "40137", lon: 130.3585, lat: 33.5840, zoom: 16.8, tilt: 60, bearing: 0, note: "Mongol fleets attacked Hakata Bay in 1274 and 1281. A stone wall was built along the shore in between, and parts of it survive today." },
 	{ id: "fk-1601", year: "1601", photo: "fukuoka-castle", wiki: "福岡城", name: "A castle town named Fukuoka", ward: "40133", lon: 130.3833, lat: 33.5847, zoom: 16.6, tilt: 58, bearing: 0, note: "Kuroda Nagamasa began Fukuoka Castle in 1601. The samurai town of Fukuoka grew west of the Naka River, facing the merchant town of Hakata." },
 	{ id: "fk-1889", year: "1889", photo: "nakasu", wiki: "福岡市", name: "Fukuoka and Hakata become one city", ward: "40132", lon: 130.4055, lat: 33.5925, zoom: 16.4, tilt: 60, bearing: 0, note: "Fukuoka City was founded in 1889, joining the two towns. The city took the name Fukuoka, while the station that opened that year was named Hakata." },
@@ -148,7 +155,7 @@ export const OFFLINE_MB = 450;
 export const CITY: CityConfig = {
 	id: "fukuoka", key: "fk",
 	title: "Fukuoka Digital Twin", cityName: "Fukuoka City", allWards: "Fukuoka City (7 wards)", outside: "Outside Fukuoka City.",
-	wholeCityTitle: "Show all of Fukuoka City", flatNote: "Shown on the flat district map (choose a district or all of Fukuoka City).", zonesTitle: "Zones and districts of Fukuoka",
+	wholeCityTitle: "Show all of Fukuoka City", flatNote: "Shown on the flat district map (choose a district or all of Fukuoka City).", zonesTitle: "Zoning and jurisdictions",   // 学区は無い（noAreas）
 	addrPrefix: "福岡市", bbox: CITY_BBOX, view: CITY_VIEW, maskBox: MASK_BOX,
 	wards: WARDS, spots: SPOTS, tour: TOUR,
 	tourIntro: "7 wards, about 343 km². From the merchant town of Hakata to the castle town and the bay, a tour through the city in 3D.",
@@ -161,14 +168,16 @@ export const CITY: CityConfig = {
 	transit: TRANSIT, transitDefault: TRANSIT_DEFAULT, railLinesEn: RAIL_LINES_EN,
 	hazards: HAZARDS,
 	riskNote: "Tilt the map to compare flood depths with building heights. Scenarios are official estimates by the national government, Fukuoka Prefecture and others; real disasters can exceed them.",
-	inland: { text: "Inland flooding (rain the sewers cannot drain) is shown on the city's own hazard maps.", link: "Fukuoka City hazard maps", url: "https://www.city.fukuoka.lg.jp/shisei/bousai/" },
+	inland: { text: "Inland flooding (rain the sewers cannot drain) is shown on the city's own inland flood hazard map.", link: "Fukuoka City inland flood hazard map", url: "https://www.city.fukuoka.lg.jp/shimin/b_suishin/bousai/naisuihazardmap.html" },   // 全市版 2026-03・1 時間 153mm の想定
 	hinanUrl: HINAN_URL,
 	lod2Prefetch: LOD2_PREFETCH, bldSets: BLD_SETS,
 	bldNames: code => { const w = WARDS.find(x => x.code === code); return w ? ["福岡" + w.name] : []; },
 	emergency: {
-		night: { centers: NIGHT_CENTERS, label: "Emergency medical center (nights and holidays)", hours: "Internal medicine and pediatrics · weekday nights 19:30 to the next morning, Saturdays from 17:00 (pediatrics) or 19:00 (internal medicine), Sundays and holidays from 9:00. Call ahead to check." },
+		holiday: { clinics: HOLIDAY_CLINICS, name: "$1 Emergency Clinic", hours: "Sundays and holidays, 9:00–16:30. Call ahead to check.", time: () => "" },
+		night: { centers: NIGHT_CENTERS, label: "Emergency medical center (nights and holidays)", hours: "Internal medicine and pediatrics · weekdays 19:30 to 6:30 the next morning; Saturdays from 19:00 (pediatrics from 17:00) and Sundays and holidays from 9:00, until 7:30 the next morning. Call ahead to check." },
 		advice: { text: "Unsure whether to call an ambulance? Fukuoka emergency advice line, 24 hours:", tel: "#7119" },
 	},
+	noAreas: ["school-e", "school-j"],   // 国土数値情報の小・中学校区（A27-21・A32-21）に福岡市（4013x）の面が無い（Mac で確認 2026-11-15）
 	majorHospitals: MAJOR_HOSPITALS,
 	homeJuris: true,   // 福岡は博多臨港署など警察署の管轄が区と一致しない所がある＝カードに出す
 	offlineMB: OFFLINE_MB,
