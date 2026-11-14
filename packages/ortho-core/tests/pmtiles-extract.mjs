@@ -3,7 +3,7 @@
 // node packages/ortho-core/tests/pmtiles-extract.mjs
 import { gzipSync } from "node:zlib";
 import { PMTiles, zxyToTileId, tileIdToZxy } from "pmtiles";
-import { parseHeader, serializeHeader, serializeDir, deserializeDir, tileId, idRanges, worldRanges, splitZ8Rect, z8Around, z8OfBbox, z8Count, z8Bbox, z8Of, openExtractSource, planExtract, writeExtract, chunkPlan, trimPlan, maxZoomWithin, zoomOfId } from "../src/pmtiles-extract.ts";
+import { tileZxy, listEntries, readTileAt, decompressTile, parseHeader, serializeHeader, serializeDir, deserializeDir, tileId, idRanges, worldRanges, splitZ8Rect, z8Around, z8OfBbox, z8Count, z8Bbox, z8Of, openExtractSource, planExtract, writeExtract, chunkPlan, trimPlan, maxZoomWithin, zoomOfId } from "../src/pmtiles-extract.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
@@ -170,6 +170,17 @@ async function checkOut(bytes, ids, label) {
 	const s = await openExtractSource("https://example.test/a.pmtiles");
 	ok("HTTP：etag と全体の大きさを覚える", s.etag === '"v1"' && s.size === SRC.bytes.length);
 	globalThis.fetch = real;
+}
+// 手元のアーカイブを全部たどる（地名の索引作り）
+{
+	let same = true;
+	for (const id of [0, 1, 5, 21, 12345, zxyToTileId(12, 3637, 1612), zxyToTileId(15, 29000, 12000)]) same &&= JSON.stringify(tileZxy(id)) === JSON.stringify(tileIdToZxy(id));
+	ok("tileZxy＝pmtiles.js の tileIdToZxy", same);
+	const all = await listEntries(src);
+	ok("listEntries：根と葉を全部（元の項目数）", all.length === SRC.ents.length && all.every((e, i) => !i || all[i - 1].tileId < e.tileId));
+	const e = all.find(e => tileZxy(e.tileId)[0] === 9);
+	const t = new TextDecoder().decode(await decompressTile(await readTileAt(src, e), 1)).replace(/\.+$/, "");
+	ok("readTileAt：中身", t === want.get(e.tileId));
 }
 if (fail) { console.log(`\n${fail} failed`); process.exit(1); }
 console.log("\nall pass");

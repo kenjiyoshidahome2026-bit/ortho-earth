@@ -93,6 +93,35 @@ export function tileId(z: number, x: number, y: number): number {
 	return ZBASE[z] + d;
 }
 
+/** タイル ID → [z, x, y]（tileId の逆） */
+export function tileZxy(id: number): [number, number, number] {
+	const z = zoomOfId(id), n = 2 ** z; let d = id - ZBASE[z], x = 0, y = 0;
+	for (let s = 1; s < n; s *= 2) {
+		const rx = 1 & (d / 2), ry = 1 & (d ^ rx);
+		if (ry === 0) { if (rx === 1) { x = s - 1 - x; y = s - 1 - y; } const t = x; x = y; y = t; }
+		x += s * rx; y += s * ry; d = Math.floor(d / 4);
+	}
+	return [z, x, y];
+}
+/** アーカイブの全部の索引項目（根と葉を全部たどる・ID 昇順）。手元のファイルの索引作り（地名の索引など）に */
+export async function listEntries(src: ExtractSource, signal?: AbortSignal): Promise<PMEntry[]> {
+	const h = src.header, out: PMEntry[] = [];
+	const walk = async (offset: number, length: number): Promise<void> => {
+		signal?.throwIfAborted();
+		for (const e of deserializeDir(await inflate(await src.read(offset, length, signal), h.internalCompression))) {
+			if (e.runLength === 0) await walk(h.leafOffset + e.offset, e.length); else out.push(e);
+		}
+	};
+	await walk(h.rootOffset, h.rootLength);
+	return out;
+}
+/** 1 枚のタイルの中身（タイル圧縮は解かない＝呼び手が header.tileCompression を見る）。無ければ null */
+export async function readTileAt(src: ExtractSource, e: PMEntry, signal?: AbortSignal): Promise<Uint8Array> {
+	return src.read(src.header.dataOffset + e.offset, e.length, signal);
+}
+/** タイル圧縮（gzip=2）を解く */
+export const decompressTile = (b: Uint8Array, compression: number): Promise<Uint8Array> => inflate(b, compression);
+
 // ── 矩形 ──
 const lon2x = (lon: number, z: number) => Math.floor((lon + 180) / 360 * 2 ** z);
 const lat2y = (lat: number, z: number) => { const r = Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z); };
