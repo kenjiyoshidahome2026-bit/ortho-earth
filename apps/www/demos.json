@@ -360,6 +360,20 @@
 			}
 		},
 		{
+			"id": "sapporo",
+			"href": "/sapporo/",
+			"group": "japan",
+			"icon": "❄️",
+			"title": "Sapporo digital twin",
+			"lang": "26",
+			"desc": "A citizen-first digital twin of Sapporo on the same core as Yokohama and Kyoto: tap your home for nearest stations, flood and landslide risk and evacuation sites on one card. Odori Park, a history tour from 1869 and PLATEAU 3D buildings, in 26 languages.",
+			"img": "/thumbs/sapporo.webp",
+			"shot": {
+				"url": "/sapporo/?spot=odori",
+				"wait": 20
+			}
+		},
+		{
 			"id": "tellus",
 			"href": "/japan/tellus",
 			"group": "earth",
