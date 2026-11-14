@@ -1,5 +1,6 @@
 // UNMAP オフライン版（実験・国連職員だけ）。M1＝地球儀に OSM planet（PMTiles）と GEL の地形をオンラインで重ねる。
 // M2＝端末（OPFS）に取り込んだ .pmtiles を先に読み、オンラインの planet を最後に束ねる（core の複合 Source）＝回線なしでも端末の分は描ける。
+// M4＝アプリ自体も端末へ（app-pack.ts・共有の Service Worker）・回線なしの地名検索（places.ts・search.ts）・ホーム画面に追加（manifest.webmanifest）。
 // M3＝範囲（z8 に揃った四角）を選んで planet と GEL から切り出して端末に保存（area-picker.ts・save-worker.ts）。入口の第一は「現在地周辺を保存」（本人 2026-11-14）。
 // 視点の hash（#z/lat/lon）は URL に書く。?osm=・?gel=＝データの置き場の差し替え（sources.ts）。?online=0＝オンラインを読まない（端末の物だけ）。?status=0＝札を出さない。
 // ?names=local|en|fr|es|ru|zh|ar＝地名の言語（無ければ前回の選択 → UI の言語が UN の 6 公用語ならそれ → 現地語）。
@@ -17,7 +18,7 @@ const SHOW_STATUS = !/[?&]status=0/.test(location.search);
 
 // 確認の札（M0 を端末の上で見る）：OSM と GEL の Range・ヘッダの申告・描き手（WebGPU か WebGL2）
 const card = document.getElementById("status");
-const rows: Record<string, string> = { osm: "OSM planet: …", gel: "GEL terrain: …", local: "On this device: …", gpu: "Renderer: …" };
+const rows: Record<string, string> = { osm: "OSM planet: …", gel: "GEL terrain: …", local: "On this device: …", app: "App offline: …", gpu: "Renderer: …" };
 const paint = () => { if (card) card.querySelector(".rows")!.innerHTML = Object.values(rows).map(t => `<li>${t}</li>`).join(""); };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const line = (name: string, r: ProbeResult) => r.ok
@@ -100,6 +101,22 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 		mountNamePicker(map as never, names);
 		map.gadget.cpos();     // 現在地（GPS）へ＝M3 の「現在地周辺を選ぶ」の入口にもなる（本人 2026-11-14「現在地周辺は絶対入れて」）
 		map.gadget.compass();
+		// 地名の検索（M4）：端末の地図の索引だけを引く。索引の無い地図ファイル（M3 で保存した物）には worker で作って読み直す
+		const searchEl = document.getElementById("place-search");
+		if (searchEl) {
+			const { loadPlaces, mountSearch } = await import("./search.ts");
+			let places = await loadPlaces();
+			const namesSel = document.getElementById("names") as HTMLSelectElement | null;
+			mountSearch(searchEl, () => places, (lon, lat, z) => map.flyTo(lon, lat, z), () => namesSel?.value || names);
+			searchEl.hidden = false;
+			if (local.map.length) void runSave("index", () => {}).then(async r => { if (r.ok) places = await loadPlaces(); });
+		}
+		// アプリ自体を端末へ（M4）
+		void import("./app-pack.ts").then(({ setupAppPack }) => setupAppPack(s => {
+			rows.app = s.state === "saved" ? `App offline: <b class="ok">saved</b> · ${s.build}` : s.state === "saving" ? `App offline: saving… ${s.done}/${s.total}`
+				: s.state === "unsupported" ? "App offline: not on this page (needs https)" : s.state === "error" ? `App offline: <b class="ng">failed</b> · ${esc(s.message || "")}` : `App offline: not saved${s.message ? " · " + esc(s.message) : ""}`;
+			paint();
+		}));
 		// 範囲の保存（M3）：地球儀の上に Equal Earth を重ねて選ぶ
 		const bounds = await savedBounds(local).catch(() => []);
 		openPicker = start => {

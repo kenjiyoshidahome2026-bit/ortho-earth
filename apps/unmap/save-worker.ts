@@ -3,7 +3,9 @@
 // 覚え（<名>.json）＝仕事の中身＋元の etag＋書き終えたチャンクの数。チャンクごとに書き直す＝電波が切れても・タブを閉じても続きから。
 // 元が更新された（etag が違う）時は最初から書き直す（古い索引と新しい中身を混ぜない）。
 import { openExtractSource, planExtract, writeExtract, idRanges, worldRanges } from "@ortho-earth/core/pmtiles-extract";
-import type { ExtractSink, Z8Rect } from "@ortho-earth/core/pmtiles-extract";
+import type { ExtractSink, ExtractSource, Z8Rect } from "@ortho-earth/core/pmtiles-extract";
+import { indexPlaces, INDEX_ZOOM } from "./places.ts";
+import { LOCAL_DIRS, PLACES_DIR } from "./sources.ts";
 
 /** 1 本の仕事（main と同じ形・覚えの JSON にもそのまま入る） */
 export interface SaveJob {
@@ -16,9 +18,9 @@ export interface SaveJob {
 	tag: Record<string, unknown>;
 }
 interface SaveState { job: SaveJob; etag: string | null; chunk: number }
-export type WorkerIn = { type: "run"; jobs: SaveJob[] } | { type: "cancel" };
+export type WorkerIn = { type: "run"; jobs: SaveJob[] } | { type: "index" } | { type: "cancel" };
 export type WorkerOut =
-	| { type: "progress"; index: number; count: number; name: string; phase: "plan" | "data" | "finish"; bytes: number; total: number }
+	| { type: "progress"; index: number; count: number; name: string; phase: "plan" | "data" | "finish" | "index"; bytes: number; total: number }
 	| { type: "done"; index: number; size: number }
 	| { type: "finished" }
 	| { type: "error"; message: string; cancelled?: boolean };
@@ -94,13 +96,36 @@ async function finalize(d: FileSystemDirectoryHandle, part: string, name: string
 	await d.removeEntry(part);
 }
 
+// ── 地名の索引（M4）：端末の地図ファイルのうち索引の無い物に作る（unmap/places/<名>.json）。保存の後と、起動の時（M3 で保存した物の後追い） ──
+async function fileSource(d: FileSystemDirectoryHandle, name: string): Promise<ExtractSource> {
+	const file = await (await d.getFileHandle(name)).getFile();
+	return openExtractSource(async (o, l) => new Uint8Array(await file.slice(o, o + l).arrayBuffer()));
+}
+async function indexMissing(signal: AbortSignal): Promise<number> {
+	const md = await dirOf(LOCAL_DIRS.map), pd = await dirOf(PLACES_DIR);
+	const have = new Set<string>(), maps: string[] = [];
+	for await (const [n] of (pd as unknown as AsyncIterable<[string, FileSystemHandle]>)) have.add(n);
+	for await (const [n, h] of (md as unknown as AsyncIterable<[string, FileSystemHandle]>)) if (h.kind === "file" && n.endsWith(".pmtiles")) maps.push(n);
+	// 索引の残り（地図ファイルを消した後）は掃く
+	for (const n of have) if (n.endsWith(".json") && !maps.includes(n.replace(/\.json$/, ".pmtiles"))) await pd.removeEntry(n).catch(() => {});
+	const todo = maps.filter(n => !have.has(n.replace(/\.pmtiles$/, ".json")));
+	for (let i = 0; i < todo.length; i++) {
+		const name = todo[i];
+		const places = await indexPlaces(await fileSource(md, name), INDEX_ZOOM, { signal, onProgress: (done, total) => post({ type: "progress", index: i, count: todo.length, name, phase: "index", bytes: done, total }) });
+		const h = await openSync(pd, name.replace(/\.pmtiles$/, ".json"));
+		try { const b = new TextEncoder().encode(JSON.stringify(places)); h.truncate(0); h.write(b, { at: 0 }); h.flush(); } finally { h.close(); }
+	}
+	return todo.length;
+}
+
 self.onmessage = async (e: MessageEvent<WorkerIn>) => {
 	const m = e.data;
 	if (m.type === "cancel") { ac?.abort(); return; }
-	if (m.type !== "run" || ac) return;
+	if ((m.type !== "run" && m.type !== "index") || ac) return;
 	ac = new AbortController();
 	try {
-		for (let i = 0; i < m.jobs.length; i++) post({ type: "done", index: i, size: await runOne(m.jobs[i], i, m.jobs.length, ac.signal) });
+		if (m.type === "run") for (let i = 0; i < m.jobs.length; i++) post({ type: "done", index: i, size: await runOne(m.jobs[i], i, m.jobs.length, ac.signal) });
+		await indexMissing(ac.signal);   // 地名の索引（保存した地図ファイルの分）
 		post({ type: "finished" });
 	} catch (err) {
 		const cancelled = ac.signal.aborted;

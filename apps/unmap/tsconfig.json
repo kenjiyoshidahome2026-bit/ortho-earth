@@ -1,4 +1,4 @@
 {
 	"extends": "../../tsconfig.app.json",
-	"include": ["main.ts", "sources.ts", "style.ts", "probe.ts", "local-data.ts", "area-jobs.ts", "area-picker.ts", "save-run.ts", "save-worker.ts", "env.d.ts"]
+	"include": ["main.ts", "sources.ts", "style.ts", "probe.ts", "local-data.ts", "area-jobs.ts", "area-picker.ts", "save-run.ts", "save-worker.ts", "places.ts", "search.ts", "app-pack.ts", "env.d.ts"]
 }

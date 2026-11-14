@@ -242,6 +242,7 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 		const closeBtn = $<HTMLButtonElement>(".ap-close"); closeBtn.textContent = "Stop";
 		const [w, s, , n] = z8Bbox(rect), center = `#9/${((s + n) / 2).toFixed(4)}/${(((w + widthOf(rect) * 360 / N8 / 2) + 540) % 360 - 180).toFixed(4)}`;
 		const res = await runSave(jobs, p => {
+			if (p.phase === "index") { say(`Indexing place names (${p.index + 1}/${p.count})…`); prog.value = p.total ? p.bytes / p.total : 0; return; }
 			const what = p.name === "world" ? "world overview" : p.dir.endsWith("terrain") ? "terrain" : "map";
 			say(p.phase === "plan" ? `Reading the index for the ${what} (${p.index + 1}/${p.count})…` : `Saving ${what} (${p.index + 1}/${p.count}) · ${human(p.bytes)} of ${human(p.total)}`);
 			prog.value = p.total ? (p.index + p.bytes / p.total) / p.count : p.index / p.count;

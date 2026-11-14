@@ -10,6 +10,8 @@ export interface Sources { osm: string; gel: string; online: boolean }
 // 端末に置いた PMTiles（M2）：OPFS の unmap/map/（ベクタ）と unmap/terrain/（標高のラスタ）。読む時は端末の物を先に、オンラインの planet を最後に束ねる（複合）。
 export const LOCAL_DIRS = { map: "unmap/map", terrain: "unmap/terrain" } as const;
 export type LocalKind = keyof typeof LOCAL_DIRS;
+/** 地名の索引（M4）：地図ファイルごとに unmap/places/<名>.json（places.ts） */
+export const PLACES_DIR = "unmap/places";
 /** ヘッダの tileType（1 mvt・6 mlt＝地図／2 png・3 jpeg・4 webp・5 avif＝地形）→ 置き場。どちらでもなければ null */
 export const kindOfTileType = (t: number): LocalKind | null => t === 1 || t === 6 ? "map" : t >= 2 && t <= 5 ? "terrain" : null;
 const pm = (u: string): string => u.startsWith("pmtiles://") ? u : "pmtiles://" + u;

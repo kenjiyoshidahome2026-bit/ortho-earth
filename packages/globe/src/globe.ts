@@ -679,7 +679,8 @@ rotEl.onclick = () => { rotEl.style.display = "none"; };
 mapEl.appendChild(rotEl);
 let tileFails = 0;
 const onTile = (ok: boolean) => {
-	if (ok) { tileFails = 0; if (navigator.onLine !== false) netEl.style.display = "none"; }
+	// 読めた＝消す。回線が無くても（navigator.onLine=false）タイルが読めた＝端末の物（OPFS の PMTiles・オフラインパック）で地図は出ている（UNMAP オフライン版 M4・2026-11-14）
+	if (ok) { tileFails = 0; netEl.style.display = "none"; }
 	else if (++tileFails >= 3) netEl.style.display = "block";   // 3連続失敗＝ネット全滅の疑い（単発404では出さない）
 };
 window.addEventListener("offline", () => { netEl.style.display = "block"; }, { signal: ac.signal });

@@ -48,7 +48,16 @@ Checked in headless Chromium: two files imported through the button, the browser
 - The first save also stores a world overview (`world.pmtiles`, planet z0–5), so the globe is not blank outside your areas when offline.
 - Saved areas show as green boxes in the area map. Extraction code lives in core: `@ortho-earth/core/pmtiles-extract`.
 
+## M4: the app itself works without a connection
+
+- **App on the device**: the page registers the shared service worker (`public/sw.js` → `packages/globe/scripts/lib/sw.js`) and, on a start with a connection, copies every file of this build (listed in `offline.json`, written by `vite.config.js`; about 7.6 MB, the engine is bundled) into Cache `oj-pack-unmap`. With no connection the service worker serves the page and its files from there, also when the URL carries `?osm=…` or `#z/lat/lon`. A new deploy (different `build`) is re-copied quietly on the next online start. The Data card shows "App offline: saved · <build>". Needs https (or localhost); `?nosw=1` skips it.
+- **Add to Home Screen**: `manifest.webmanifest` + icons (standalone, scope `/unmap/`). On iPhone this also keeps Safari from clearing the saved data after 7 days without use.
+- **Place search without a connection**: after saving, a worker reads the saved map files' `places` layer (areas at z12, the world overview at z5) and writes `unmap/places/<file>.json`. The search box at the top looks only in those indexes (prefix matches first, then word and substring matches; countries, regions and towns ranked by population), shows the name in the chosen place-name language, and flies there. Areas saved before M4 get their index on the next start.
+- **No false "check your connection" message**: the engine now hides its network toast as soon as a tile loads, also when the browser is offline (the tile came from the device).
+- The engine's own world elevation (api.ortho-earth.com) is not needed for relief: GEL from the device draws it offline.
+
+Checked in headless Chromium (production build, local Range server, synthetic data): save the area around a set location → browser switched fully offline → page reloaded from the service worker → search "tok" → Tokyo → flew there, map drawn from the device, no network toast.
+
 ## Not yet (later milestones)
 
-- App shell offline via the service worker (M4), hosting behind UN authentication (M5).
-- The engine's "failed to load map data" toast still shows offline even when the device covers the view (M4).
+- Country/region tap to place the box, and re-cutting all areas when the planet version changes (M5). Field tests and user guide (M6).

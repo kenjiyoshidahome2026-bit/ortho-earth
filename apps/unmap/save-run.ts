@@ -2,23 +2,23 @@
 import type { SaveJob, WorkerIn, WorkerOut } from "./save-worker.ts";
 import { LOCAL_DIRS } from "./sources.ts";
 
-export interface SaveProgress { index: number; count: number; name: string; dir: string; phase: "plan" | "data" | "finish"; bytes: number; total: number }
+export interface SaveProgress { index: number; count: number; name: string; dir: string; phase: "plan" | "data" | "finish" | "index"; bytes: number; total: number }
 export type SaveResult = { ok: true } | { ok: false; cancelled: boolean; message: string };
 
-/** 仕事の列を worker で順に書く。onStop＝止める関数を受け取る（「止める」釦に結ぶ） */
-export function runSave(jobs: SaveJob[], onProgress: (p: SaveProgress) => void, onStop?: (stop: () => void) => void): Promise<SaveResult> {
+/** 仕事の列を worker で順に書き、地図ファイルの地名の索引も作る。jobs＝"index"＝索引の無い地図ファイルに作るだけ（M3 で保存した物の後追い）。onStop＝止める関数を受け取る（「止める」釦に結ぶ） */
+export function runSave(jobs: SaveJob[] | "index", onProgress: (p: SaveProgress) => void, onStop?: (stop: () => void) => void): Promise<SaveResult> {
 	return new Promise(resolve => {
 		const w = new Worker(new URL("./save-worker.ts", import.meta.url), { type: "module" });
 		const end = (r: SaveResult) => { w.terminate(); resolve(r); };
 		w.onmessage = (e: MessageEvent<WorkerOut>) => {
 			const m = e.data;
-			if (m.type === "progress") onProgress({ ...m, dir: jobs[m.index].dir });
+			if (m.type === "progress") onProgress({ ...m, dir: m.phase === "index" || jobs === "index" ? LOCAL_DIRS.map : jobs[m.index].dir });
 			else if (m.type === "finished") end({ ok: true });
 			else if (m.type === "error") end({ ok: false, cancelled: !!m.cancelled, message: m.message });
 		};
 		w.onerror = e => end({ ok: false, cancelled: false, message: e.message || "save worker failed" });
 		onStop?.(() => w.postMessage({ type: "cancel" } satisfies WorkerIn));
-		w.postMessage({ type: "run", jobs } satisfies WorkerIn);
+		w.postMessage((jobs === "index" ? { type: "index" } : { type: "run", jobs }) satisfies WorkerIn);
 	});
 }
 
