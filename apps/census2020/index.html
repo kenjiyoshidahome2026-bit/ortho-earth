@@ -3,7 +3,7 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!-- cover＝safe-area-inset を有効化。ピンチ拡大は殺さない（japan と同判断） -->
-	<style>html, body { margin: 0; touch-action: manipulation; overscroll-behavior: none; }</style><!-- ダブルタップ拡大とラバーバンドの抑止（canvas は quiet-mono が touch-action:none） -->
+	<style>html, body { margin: 0; touch-action: pan-x pan-y; overscroll-behavior: none; }</style><!-- ダブルタップ拡大とラバーバンドの抑止（canvas は quiet-mono が touch-action:none） -->
 	<!-- 配色は地図とパネルが自分で決める＝Chrome Android の自動ダークテーマ反転を明示的に断る（japan と同判断） -->
 	<meta name="color-scheme" content="only light">
 	<!-- 起動の critical style：球儀マークの起動画面＋6:4分割の骨格を初回ペイントで確定（レイアウトのガタつきゼロ）。
