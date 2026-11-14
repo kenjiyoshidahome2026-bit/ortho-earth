@@ -1,0 +1,5 @@
+{
+	"pages": {
+		"kyoto": ["data.ts", "main.ts"]
+	}
+}

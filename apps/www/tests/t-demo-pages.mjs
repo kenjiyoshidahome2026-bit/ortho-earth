@@ -24,7 +24,7 @@ const ENTRY = [
 	[/^\/(globe|japan)\/([\w-]+)(?=[#?]|$)/, (m) => { const a = appOf(`/${m[1]}/`, m[2]); return a ? `${a}/${m[2]}.html` : null; }],
 	[/^\/japan\/census2020\//, "census2020/index.html"],
 	[/^\/japan\//, "japan-map/index.html"],
-	[/^\/globe\/quakes\//, "quakes/index.html"], [/^\/yokohama\//, "yokohama/index.html"],
+	[/^\/globe\/quakes\//, "quakes/index.html"], [/^\/yokohama\//, "yokohama/index.html"], [/^\/kyoto\//, "kyoto/index.html"],
 	[/^\/globe\//, "globe-map/index.html"],
 	[/^\/world\//, "world/index.html"], [/^\/equal\//, "equal/index.html"], [/^\/solar\//, "solar/index.html"], [/^\/himekuri\//, "himekuri/index.html"], [/^\/quiz\//, "quiz/index.html"],
 	[/^\/geopbf\//, "geopbf-demo/index.html"], [/^\/maplibre\//, "www/public/maplibre/index.html"], [/^\/sandcastle\//, "www/public/sandcastle/index.html"], [/^\/gishub-jp\//, "gishub-jp/index.html"], [/^\/nl\//, "ortho-nl/index.html"],
@@ -39,6 +39,7 @@ const IMG = [
 	[/^https:\/\/www\.ortho-earth\.com\/japan\/(ogp\.jpg)$/, m => `japan-map/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/globe\/quakes\/(og\.jpg)$/, m => `quakes/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/yokohama\/(og\.jpg)$/, m => `yokohama/public/${m[1]}`],
+	[/^https:\/\/www\.ortho-earth\.com\/kyoto\/(og\.jpg)$/, m => `kyoto/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/solar\/(ogp\.jpg)$/, m => `solar/public/${m[1]}`],
 ];
 const imageFile = url => { for (const [re, to] of IMG) { const m = url.match(re); if (!m) continue; const r = to(m); if (r) return r; } return null; };
