@@ -34,7 +34,7 @@ const srcOf = (url: string): string => url.startsWith(PREFIX) ? url.slice(PREFIX
 const OPFS = "opfs:", COMPOSITE = "composite:", FINAL = "final:";
 /** 複合の構成員に付ける印＝「この範囲はこれで決まり」。その構成員の範囲（ヘッダの bbox・最小ズーム以上）に入るタイルは、
  *  それが持っていなくても後ろの構成員（ネットの planet）へ行かない＝無い（最大ズームより上＝祖先を引き伸ばす・標高は親の段）。
- *  保存した範囲が回線の有無で同じ速さ・同じ絵になる（UNMAP 2026-11-15：回線ありだと保存範囲の中でも z11–12 の標高と z15 の地図をネットへ取りに行き、落ち着くまで 11 秒＝回線なしの 4.6 秒より遅かった） */
+ *  保存した範囲が回線の有無で同じ速さ・同じ絵になる（UNMAP 2026-11-15：回線ありだと保存範囲の中でも z11–12 の標高と z15 の地図をネットへ取りに行っていた。タブレットの東京 z12＝落ち着くまで 2.8 秒・切ると 4.8 秒） */
 export const finalMember = (url: string): string => PREFIX + FINAL + srcOf(url);
 /** OPFS の道（"rects/a.pmtiles"）→ pmtiles://opfs:… */
 export const opfsPMTilesUrl = (path: string): string => PREFIX + OPFS + path.replace(/^\/+/, "");
