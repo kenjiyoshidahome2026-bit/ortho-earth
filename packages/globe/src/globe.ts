@@ -3043,6 +3043,7 @@ map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン
 map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリック横取りスロット（null で解除＝measure/poi と同型）
 map.t = (key, ...args) => t(key, ...args);   // UI 文言の訳（SDK が起動時に読んだ辞書で引く＝器の頁が i18n と辞書をもう一度読まない・1.2.0〜 2026-09-22）
 Object.defineProperty(map, "lang", { get: () => getLang(), enumerable: true });   // 表示言語（ja/en/…）
+map.setWorldLang = (l: string) => worldContentH?.setLang(l) ?? Promise.resolve();   // 世界帯（worldContent）の国名・都市名の言語＝UI の言語と別に替える（unmap の地名の言語・2026-11-14）
 map.requestDraw = requestDraw;  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
 // 後処理（deck.gl の PostProcessEffect 相当・差分 PR-8・2026-10-12）：map.setPostProcess({ bloom: { threshold, strength, radius }, vignette: { strength, radius, softness } } | null)
 //   本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない（順番の裁定＝本体の後・注記の前）。GL2＝深度と同じ FBO の写しの段で合成・WebGPU＝flush の終端
@@ -4275,7 +4276,7 @@ gint.hoverTip = map.gadget.tip();
 // 本人「equal に入れた追加情報は最終的に globe に同じ情報を入れるため」＝まず日本を持たない globe（z8 まで）から。japan（z6.5〜8 は基図と重なる）は後日
 if (opts.worldContent && WORLD_VT) {
 	worldContentH = createWorldContent({ addGint: gint.addGint, geopbf, symbols: symbolsNative, addImage: map.addImage,
-		getZoom: () => cam.zoom, lang: getLang(), worldStyle: () => WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono,
+		getZoom: () => cam.zoom, lang: (typeof opts.worldContent === "object" && opts.worldContent.lang) || getLang(), worldStyle: () => WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono,
 		bandZ: BASEMAP_MINZOOM, lowMem: LOW_MEM, requestDraw: requestDraw, groups: (typeof opts.worldContent === "object" ? opts.worldContent.groups : null) ?? null });
 	map.on("settle", () => { if (!flying) worldContentH!.update(); });   // 止まるたび＝見える帯に入った群だけ取りに行く
 	map.on("load", () => worldContentH!.update());                          // 初回の描画（起動時の視点が確定した後）でも判定＝動かさなくても detail が来る

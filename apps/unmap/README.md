@@ -75,6 +75,7 @@ Checked in headless Chromium (dev server, local Range server, synthetic data): s
 - **Lighter on low-memory devices**: on devices that report 4 GB of memory or less, the app renders at 1.25× instead of the full screen density. `?dpr=<n>` overrides.
 - The star-sky clock moved below the search box.
 - **Country borders and names at low zoom**: the app now turns on the engine's `worldContent` (the same low-zoom content as /globe: borders, country names, cities, state lines, and roads near z5). Without it the engine hides coastlines and borders below z2.5. The data is cached in IndexedDB by the engine and also packed by `packWorld`, which runs again two minutes after start to pick up files read on zoom-in.
+- **Low-zoom names follow the place-name language**: the country and city names drawn by `worldContent` use the language chosen in the names picker (Local shows English there, since the world data has no local-script names). The globe gets a new option `worldContent: { lang }` and a new method `map.setWorldLang(lang)`. `packWorld` also packs world files the engine read from IndexedDB, where only the `?meta=` version check shows in the network log.
 
 ## Not yet (later milestones)
 
