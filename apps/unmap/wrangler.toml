@@ -1,0 +1,17 @@
+# unmap 本番配信：Cloudflare Workers + 静的アセット（www.ortho-earth.com/unmap/）＝UNMAP のオフライン版（実験・国連職員向け）。
+# 本人の裁定 2026-11-15「本番に載せる（リンクなし）」＝どこからもリンクしない・一覧（www の demos）に出さない・検索に載せない
+# （deploy-worker.js が全応答に X-Robots-Tag: noindex を刻む）。URL を知る人は開ける。
+# エンジンは束に焼いてある（共有エンジン /globe/engine/ を使わない）＝この Worker だけで完結。デプロイ手順は package.json の "deploy"。
+name = "ortho-unmap"
+main = "deploy-worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = false   # *.workers.dev には出さない（入口は下の route だけ）
+
+routes = [
+	{ pattern = "www.ortho-earth.com/unmap*", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
+binding = "ASSETS"
+run_worker_first = true   # アセット直返しより先に必ず deploy-worker を通す＝COOP/COEP と noindex を全レスポンスに刻む
