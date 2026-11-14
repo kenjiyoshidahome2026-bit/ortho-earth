@@ -228,7 +228,7 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	const joNum = x => /^\d+$/.test(x) ? +x : kanjiNum(x);
 	const CHO = /^(\D+?)(\d+|[一二三四五六七八九十]+)丁目(.*)$/;
 	const EW = /^(\D+?)(東|西)(\d+|[一二三四五六七八九十]+)(?:丁目)?(?=-|$|\d|[^\d])(.*)$/;
-	const oo = w => w.replace(/^Oodoori$/i, "Odori").replace(/oo/g, "o").replace(/^Oo/, "O").replace(/ou(?=[^aeiou]|$)/g, "o");   // 長音を落とす（Odori・Oyachi）
+	const oo = w => w.replace(/^(Oodoori|Daidori)$/i, "Odori").replace(/oo/g, "o").replace(/^Oo/, "O").replace(/ou(?=[^aeiou]|$)/g, "o");   // 長音を落とす（Odori・Oyachi）
 	const joAddr = s => {
 		const m = s.match(JO);
 		const d = !(m && m[1]) && s.match(EW);
