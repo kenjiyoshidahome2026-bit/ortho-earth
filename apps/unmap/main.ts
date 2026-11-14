@@ -1,11 +1,11 @@
 // UNMAP オフライン版（実験・国連職員だけ）。M1＝地球儀に OSM planet（PMTiles）と GEL の地形をオンラインで重ねる。
 // M2＝端末（OPFS）に取り込んだ .pmtiles を先に読み、オンラインの planet を最後に束ねる（core の複合 Source）＝回線なしでも端末の分は描ける。
-// 次：M3 で矩形の選択と切り出し（planet → OPFS）。
+// M3＝範囲（z8 に揃った四角）を選んで planet と GEL から切り出して端末に保存（area-picker.ts・save-worker.ts）。入口の第一は「現在地周辺を保存」（本人 2026-11-14）。
 // 視点の hash（#z/lat/lon）は URL に書く。?osm=・?gel=＝データの置き場の差し替え（sources.ts）。?online=0＝オンラインを読まない（端末の物だけ）。?status=0＝札を出さない。
 // ?names=local|en|fr|es|ru|zh|ar＝地名の言語（無ければ前回の選択 → UI の言語が UN の 6 公用語ならそれ → 現地語）。
 import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";
 import { archiveUrl, gelTerrain, sourcesFrom } from "./sources.ts";
-import { listLocal, mountLocalPanel } from "./local-data.ts";
+import { listLocal, mountLocalPanel, savedBounds } from "./local-data.ts";
 import type { LocalFiles } from "./local-data.ts";
 import { LABEL_LAYERS, NAME_LANGS, NAME_LANG_LABEL, isNameLang, nameExpr, osmStyle } from "./style.ts";
 import type { NameLang } from "./style.ts";
@@ -67,7 +67,22 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 	const gelUrl = archiveUrl(local.terrain.map(f => f.path), SRC.online ? SRC.gel : null, compositePMTilesUrl);
 	rows.local = `On this device: ${local.map.length} map · ${local.terrain.length} terrain file(s)`; paint();
 	const panel = card?.querySelector(".local") as HTMLElement | null;
-	if (panel) void mountLocalPanel(panel, local);
+	let openPicker: ((start: "here" | "view") => void) | null = null;   // 地球儀ができてから結ぶ
+	const pick = (start: "here" | "view") => { if (openPicker) openPicker(start); };
+	const { pendingSaves, discardSaves, runSave } = await import("./save-run.ts");
+	const pending = await pendingSaves().catch(() => []);
+	const mountPanel = () => panel && mountLocalPanel(panel, local, {
+		saveHere: () => pick("here"), choose: () => pick("view"), pending,
+		resume: () => {
+			const m = panel.querySelector(".msg") as HTMLElement;
+			void runSave(pending, p => { m.textContent = `Resuming ${p.name} (${p.index + 1}/${p.count})… ${Math.round(p.total ? p.bytes / p.total * 100 : 0)}%`; })
+				.then(r => { if (r.ok) { m.textContent = "Saved. Reloading…"; location.reload(); } else m.textContent = `Failed: ${r.message}`; });
+		},
+		discard: () => { void discardSaves(pending).then(() => location.reload()); },
+	});
+	void mountPanel();
+	const saveHereBtn = document.getElementById("save-here") as HTMLButtonElement | null;
+	saveHereBtn?.addEventListener("click", () => pick("here"));
 	try {
 		const { createGlobe } = await import("@ortho-earth/globe");
 		const map = await createGlobe({
@@ -85,6 +100,17 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 		mountNamePicker(map as never, names);
 		map.gadget.cpos();     // 現在地（GPS）へ＝M3 の「現在地周辺を選ぶ」の入口にもなる（本人 2026-11-14「現在地周辺は絶対入れて」）
 		map.gadget.compass();
+		// 範囲の保存（M3）：地球儀の上に Equal Earth を重ねて選ぶ
+		const bounds = await savedBounds(local).catch(() => []);
+		openPicker = start => {
+			void import("./area-picker.ts").then(({ openAreaPicker }) => openAreaPicker({
+				host: map.mapEl as HTMLElement, lang: getLang(), saved: bounds,
+				sources: SRC.online ? { osm: SRC.osm, gel: SRC.gel } : null,
+				needWorld: !local.map.some(f => f.name === "world.pmtiles"),
+				view: () => ({ lon: map.cam.center[0], lat: map.cam.center[1], zoom: map.cam.zoom }),
+			}, start)).catch(e => console.error("[unmap] area picker failed", e));
+		};
+		if (saveHereBtn) saveHereBtn.hidden = false;
 		window.__map = map;   // console 検証用
 		const showGpu = () => { rows.gpu = `Renderer: <b>${map.backend ?? "…"}</b>`; paint(); };
 		showGpu(); setTimeout(showGpu, 3000);   // backend は最初の描画の後に決まる

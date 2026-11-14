@@ -39,11 +39,16 @@ The status card has an **Offline data** section. **＋ Add .pmtiles** copies a P
 
 Checked in headless Chromium: two files imported through the button, the browser switched offline, and the map still drew place names from the device's file and read the terrain height (5999.8 m at the synthetic peak).
 
+## M3: save an area for offline use
+
+- **📍 Save my area** (button at the bottom, also in the Data card) asks for the device location and opens an Equal Earth map with a 3×3 block of zoom-8 tiles (about 450 km square) centred on it. Without location permission it asks you to tap the map instead (no IP lookup). **Choose area on map** starts from the globe's current view.
+- Drag inside the box to move it, drag the round handles (corners and edges) to resize it, tap outside it to move it there. Edges always snap to zoom-8 tiles; up to 24×24 tiles.
+- The sheet shows the exact size before saving: it reads the planet's and GEL's directories by HTTP Range (only the parts that cover the box) and adds up the tile bytes, next to the free space on the device. Defaults: map up to z14, terrain up to z10; if map + terrain would pass 1 GB for one area, the map detail is lowered until it fits.
+- Saving runs in a worker: tiles that sit close together in the planet are fetched in one Range request, written to `unmap/map/area-<id>.pmtiles.part` (and `unmap/terrain/…`) with a SyncAccessHandle, then the new archive's directory is read back and checked before the file gets its final name. Progress is kept in `<name>.json`, so a save that stops (network, closed tab, **Stop**) resumes from the Data card. An area crossing the antimeridian is saved as two files (`-w` / `-e`).
+- The first save also stores a world overview (`world.pmtiles`, planet z0–5), so the globe is not blank outside your areas when offline.
+- Saved areas show as green boxes in the area map. Extraction code lives in core: `@ortho-earth/core/pmtiles-extract`.
+
 ## Not yet (later milestones)
 
-- Rectangle selection and extraction from the planet into OPFS (M3), app shell offline via the service worker (M4), hosting behind UN authentication (M5).
-- A small world base archive (low zooms) so the globe is not blank outside the device's rectangles when offline (M3).
-- The engine shows "Failed to load map data" whenever the browser is offline, even when the device's files cover the view (M4).
-- Offline still depends on engine data fetched from the network: the default world elevation (GEBCO / AW3D30 index), and Natural Earth admin0. These have to be bundled or switched off before the app works fully offline.
-
-License: GPL-3.0-or-later.
+- App shell offline via the service worker (M4), hosting behind UN authentication (M5).
+- The engine's "failed to load map data" toast still shows offline even when the device covers the view (M4).
