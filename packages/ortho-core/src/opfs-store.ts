@@ -106,8 +106,8 @@ export async function importPMTiles(file: Blob & { name?: string }, dir: string,
 	} else await writeViaWorker(dir, part, file, progress);
 	// .part → 正式名（古い同名は先に消す）。move の無い版は正式名へ写し直して .part を消す
 	await d.removeEntry(fname).catch(() => {});
-	const mv = (fh as FileSystemFileHandle & { move?: (name: string) => Promise<void> }).move;
-	if (typeof mv === "function") await mv.call(fh, fname);
+	const mv = (fh as FileSystemFileHandle & { move?: (dir: FileSystemDirectoryHandle, name: string) => Promise<void> }).move;
+	if (typeof mv === "function") await mv.call(fh, d, fname);   // (フォルダ, 名前) の 2 引数＝Safari は名前だけの形が無い（"Not enough arguments"・2026-11-14）
 	else {   // move の無い版：正式名へ写し直して .part を消す（大きいと時間が掛かる＝稀な経路）
 		const src = await fh.getFile();
 		const dst = await d.getFileHandle(fname, { create: true });
