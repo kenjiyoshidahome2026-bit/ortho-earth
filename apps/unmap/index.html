@@ -7,7 +7,7 @@
 	<!-- 実験（国連職員だけ）＝検索に載せない。#status＝データの札（M0 の確認・M2 の端末のファイル・左端 56px はガジェットの列に空ける）・#data-btn＝閉じた札を開き直す・#save-here＝現在地周辺を保存（M3・本人「絶対入れて」）・#place-search＝端末の地名を引く（M4）-->
 	<meta name="robots" content="noindex, nofollow">
 	<style>
-		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none}
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:pan-x pan-y;overscroll-behavior:none}
 		html{background:#0b1021}
 		#map{width:100%;height:100dvh}
 		#map #sky-clock{top:calc(56px + env(safe-area-inset-top));font-size:15px}   /* 夜空の時計（低倍率）は検索窓の下へ（2026-11-14 タブレットで重なった） */

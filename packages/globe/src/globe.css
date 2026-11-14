@@ -121,7 +121,7 @@
   overflow: hidden;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%; /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
-  touch-action: manipulation; /* UI家具のダブルタップ拡大だけ禁止（パン/ピンチは許可＝viewportメタのuser-scalable=no撤去とセット・Lighthouse a11y対応 2026-08-04）。地図面は #c の none が交差で勝つ */
+  touch-action: pan-x pan-y; /* 家具の上もページ拡大させない（ピンチ＝ページ拡大は Android でパネル・カード起点の 2 本指が地図ズームでなく画面全体を拡大した＝Kenji 報告 2026-11-15。pan-x pan-y＝スクロールは残しピンチとダブルタップ拡大だけ封じる。viewport メタは触らない＝端末の「強制的にズーム」設定の人は拡大できる）。地図面は #c の none が交差で勝つ */
 } /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
 #c, #gint, #labels {
   position: absolute;

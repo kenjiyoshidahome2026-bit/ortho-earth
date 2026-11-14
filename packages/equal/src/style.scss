@@ -2,7 +2,7 @@
    ここに残すのは equal だけの道具（パネル内の不透明度行・主題行の見本・凡例の行）。japan の作法（ui-dark・ガラス・ドック）に揃える。 */
 /* .eq＝equal の容れ物の印（createEqual が付ける）。japan の地図の上に div で重ねる時（2026-10-04）は同じ頁に japan の #map.qm が居る＝
    equal 固有の規則は .eq で囲い、持ち主の家具（.qm-panel・#pos・容れ物の container-type）へ漏らさない */
-.eq { color: #cdd; font: 13px/1.5 system-ui, sans-serif; container-type: size; }   /* size＝パネルの高さを部品の高さで測る（埋め込みの小窓で頁の高さを使わない） */
+.eq { touch-action: pan-x pan-y; color: #cdd; font: 13px/1.5 system-ui, sans-serif; container-type: size; }   /* size＝パネルの高さを部品の高さで測る（埋め込みの小窓で頁の高さを使わない） */
 .eq > #c, .eq > #labels { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .eq > #c { touch-action: none; cursor: grab; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }   /* 長押し＝自前のメニュー（iOS の吹き出し・選択を出さない） */
 .eq > #c:active { cursor: grabbing; }
