@@ -15,6 +15,7 @@
 //   ages      … e-Stat の令和 7 年国勢調査 第 2-7 表（県の表）の statInfId
 //   en        … 英語化の市の語 { ja: "横浜", en: "Yokohama", pref: "神奈川" }・osmStations: true＝駅の英語を OSM の name:en から（places.json）
 //   min       … 下限の調整 { walk, places, stawiki, towns }
+//   fitBox    … 区と市の「収める枠」に数える範囲 [w,s,e,n]（遠い沖の島を外す・福岡の小呂島）。省くと全部（横浜・京都）
 //
 //
 // 出す物（座標は経度・緯度の小数 5 桁＝約 1m）：
@@ -211,12 +212,15 @@ async function wards() {
 		}
 		if (!polys.length) throw new Error(`N03: ${w.name}（${w.code}）が無い`);
 		let bb = [180, 90, -180, -90];
-		for (const p of polys) for (const [x, y] of p[0]) bb = [Math.min(bb[0], x), Math.min(bb[1], y), Math.max(bb[2], x), Math.max(bb[3], y)];
+		const inFit = p => !B.fitBox || p[0].some(([x, y]) => x >= B.fitBox[0] && x <= B.fitBox[2] && y >= B.fitBox[1] && y <= B.fitBox[3]);   // fitBox＝収める枠（遠い沖の島を外す・福岡の小呂島）。無い市は全部
+		for (const p of polys.filter(inFit)) for (const [x, y] of p[0]) bb = [Math.min(bb[0], x), Math.min(bb[1], y), Math.max(bb[2], x), Math.max(bb[3], y)];
 		out.push({ type: "Feature", properties: { code: w.code, name: w.name, bbox: bb.map(r5) }, geometry: { type: "MultiPolygon", coordinates: polys } });
 	}
 	const city = outline(rawRings).map(r => dp(r, 0.0001)).filter(r => r.length >= 4);
 	console.log(`区：${out.length}・市の外周の環 ${city.length}`);
-	write("wards.json", { type: "FeatureCollection", features: out, city });
+	// fit＝「市全体」で収める矩形（fitBox のある市だけ・区の矩形を束ねる）。無い市は書かない＝頁は市の外周から求める（横浜・京都は今まで通り）
+	const fit = B.fitBox ? out.reduce((a, f) => { const b = f.properties.bbox; return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]; }, [180, 90, -180, -90]) : null;
+	write("wards.json", { type: "FeatureCollection", features: out, city, ...(fit ? { fit } : {}) });
 }
 
 // ── 2. 鉄道（N02）＝線と駅。市の交通局（事業者「横浜市」「京都市」）＝地下鉄 ──
