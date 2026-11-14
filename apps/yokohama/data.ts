@@ -175,6 +175,7 @@ export const OFFLINE_MB = 750;   // 実測（MacBook 本番・新しいプロフ
 export const CITY: CityConfig = {
 	id: "yokohama", key: "yk",
 	title: "Yokohama Digital Twin", cityName: "Yokohama City", allWards: "Yokohama City (18 wards)", outside: "Outside Yokohama City.",
+	wholeCityTitle: "Show the whole city", flatNote: "Shown on the flat district map (choose a district or the whole city).", zonesTitle: "Zones and districts",
 	addrPrefix: "横浜市", bbox: CITY_BBOX, view: CITY_VIEW, maskBox: MASK_BOX,
 	wards: WARDS, spots: SPOTS, tour: TOUR,
 	tourIntro: "18 wards, about 437 km². From the port to the hillside suburbs, a tour through the city in 3D.",

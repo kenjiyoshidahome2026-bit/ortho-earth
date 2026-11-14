@@ -13,7 +13,7 @@
 //   busOp     … 市営バスの事業者（P11_002）の式・busMin（停留所の数の下限）
 //   fireRe    … 市の消防局（P17_005 の頭）・subwayOp（N02_004 の頭＝地下鉄の事業者）
 //   ages      … e-Stat の令和 7 年国勢調査 第 2-7 表（県の表）の statInfId
-//   en        … 英語化の市の語 { ja: "横浜", en: "Yokohama", pref: "神奈川" }
+//   en        … 英語化の市の語 { ja: "横浜", en: "Yokohama", pref: "神奈川" }・osmStations: true＝駅の英語を OSM の name:en から（places.json）
 //   min       … 下限の調整 { walk, places, stawiki, towns }
 //
 //
@@ -584,7 +584,13 @@ async function makeE() {
 	let tokenize = null;
 	try { const km = createRequire(path.join(process.cwd(), "x.js"))("kuromoji"); const tk = await new Promise((ok, ng) => km.builder({ dicPath: path.join(path.dirname(createRequire(path.join(process.cwd(), "x.js")).resolve("kuromoji")), "../dict") }).build((e, t) => e ? ng(e) : ok(t))); tokenize = s => tk.tokenize(s); }
 	catch (e) { throw new Error(`kuromoji が無い（npm i --no-save kuromoji@0.1.2）：${e.message}`); }
-	return makeEn({ towns: [...towns], wards: WARDS.map(w => [w.name.replace(/区$/, ""), w.en.replace(/-ku$/, "")]), tokenize, city: B.en });
+	// 駅の英語を OSM から（BAKE.en.osmStations）＝places.json の駅の点（name:en）。places が未だなら先に焼く
+	let stations = {};
+	if (B.en.osmStations) {
+		if (!fs.existsSync(path.join(OUT, "places.json"))) await places();
+		for (const r of JSON.parse(fs.readFileSync(path.join(OUT, "places.json"), "utf8")).rows) if (r[4] === 4 && !stations[r[2]]) stations[r[2]] = r[3];
+	}
+	return makeEn({ towns: [...towns], wards: WARDS.map(w => [w.name.replace(/区$/, ""), w.en.replace(/-ku$/, "")]), tokenize, city: B.en, stations });
 }
 async function en() {
 	const E = await makeE();

@@ -99,9 +99,9 @@ export const KYOTO_STORY: Chapter[] = [
 ];
 /** 東山からの眺め＝東の山の中腹に立ったつもりで、盆地の街並みを順に見渡す（中心＝見る先・bearing＝向き＝カメラは中心の反対側に立つ） */
 export const HILL_VIEWS: View[] = [
-	{ lon: 135.7650, lat: 35.0080, zoom: 14.4, tilt: 74, bearing: -90 },    // 東山から西へ＝鴨川と市街地の碁盤の目
-	{ lon: 135.7600, lat: 34.9880, zoom: 14.8, tilt: 74, bearing: -110 },   // 清水寺のあたりから京都駅・京都タワーへ
-	{ lon: 135.7550, lat: 35.0300, zoom: 14.2, tilt: 72, bearing: -120 },   // 大文字山のあたりから御所と北の山へ
+	{ lon: 135.7640, lat: 35.0040, zoom: 15.6, tilt: 75, bearing: -90 },    // 八坂・円山のあたりから西へ＝祇園・四条の街並みの奥に西山（tilt はエンジンの上限 75）
+	{ lon: 135.7620, lat: 34.9900, zoom: 15.6, tilt: 75, bearing: -110 },   // 清水寺の下から京都駅・南区へ
+	{ lon: 135.7650, lat: 35.0230, zoom: 15.2, tilt: 75, bearing: -100 },   // 吉田山・大文字の麓から御所と北の山へ（2026-11-14 実機：z14 台は高すぎて街が地図に見えた）
 ];
 
 /** ツアー＝全景から始めて名所を巡り全景へ戻る（SPOTS の id の並び） */
@@ -148,6 +148,7 @@ export const OFFLINE_MB = 700;
 export const CITY: CityConfig = {
 	id: "kyoto", key: "kt",
 	title: "Kyoto Digital Twin", cityName: "Kyoto City", allWards: "Kyoto City (11 wards)", outside: "Outside Kyoto City.",
+	wholeCityTitle: "Show all of Kyoto City", flatNote: "Shown on the flat district map (choose a district or all of Kyoto City).", zonesTitle: "Zoning and jurisdictions",   // 学区は無い（noAreas）
 	addrPrefix: "京都市", bbox: CITY_BBOX, view: CITY_VIEW, maskBox: MASK_BOX,
 	wards: WARDS, spots: SPOTS, tour: TOUR,
 	tourIntro: "11 wards, about 828 km². From the grid of the old capital to temples on the hills, a tour through the city in 3D.",

@@ -133,9 +133,9 @@ const STATION_EN = { "新横浜": "Shin-Yokohama", "元町・中華街": "Motoma
 	"北新横浜": "Kita-Shin-Yokohama", "青物横丁": "Aomono-yokocho", "矢口渡": "Yaguchinowatashi", "羽沢横浜国大": "Hazawa Yokohama-Kokudai", "新高島": "Shin-Takashima", "馬車道": "Bashamichi", "関内": "Kannai", "桜木町": "Sakuragicho", "石川町": "Ishikawacho",
 	"三ツ沢上町": "Mitsuzawa-kamicho", "三ツ沢下町": "Mitsuzawa-shimocho", "伊勢佐木長者町": "Isezakichojamachi", "弘明寺": "Gumyoji", "蒔田": "Maita", "八景島": "Hakkeijima", "金沢八景": "Kanazawa-hakkei" };
 const STOP_EN = { "日本大通り駅県庁前": "Nihon-odori Station / Prefectural Office", "東急住宅前": "Tokyu Jutaku-mae" };
-/** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま）
+/** 読みの道具：towns＝[漢字, 読み] の表（KEN_ALL・長い順）、wards＝[区の名（区なし）, ローマ字]、tokenize＝kuromoji（無ければ漢字のまま）、stations＝{ 駅名: 英語 }（表に無い駅の英語）
  *  city＝市の語 { ja: "横浜", en: "Yokohama", pref: "神奈川" }（市の名・県の名を住所と施設の名から外す） */
-export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yokohama", pref: "神奈川" } }) {
+export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yokohama", pref: "神奈川" }, stations = {} }) {
 	const CJ = city.ja, PJ = city.pref, re = (src) => new RegExp(src.replace(/@C/g, CJ).replace(/@P/g, PJ));
 	const W = [[CJ, city.en], ...wards, ...wards.map(([k, r]) => [k + "区", r + " Ward"])];   // 名の中の「旭区」＝Asahi Ward
 	// 町名は「町」抜きでも引く（施設の名は「菅田消防出張所」＝菅田町の菅田）
@@ -221,7 +221,7 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	};
 	/** 駅の名（「京急鶴見」）→ Keikyu Tsurumi（「駅」は付けない＝画面が "$1 Station" で付ける） */
 	const ascii = v => v.replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();   // 読めずに残った字は出さない
-	const station = ja => STATION_EN[ja] || ascii(proper(normJp(ja).replace(/駅$/, "")));
+	const station = ja => STATION_EN[ja] || stations[ja] || ascii(proper(normJp(ja).replace(/駅$/, "")));   // stations＝市の設定で渡す駅の英語（京都＝OSM の name:en・読みの辞書は「宝ヶ池」を Takara Kechi にした）
 	/** バス停の名：「鶴見駅西口」→ Tsurumi Station West Exit・「奈良小学校前」→ Nara Elementary School・「最乗寺前」→ Saijoji-mae */
 	const stop = ja => STOP_EN[ja] || ascii(stop0(ja));
 	const stop0 = ja => {

@@ -473,6 +473,8 @@ export interface CityConfig extends CityWards, CityState {
 	key: string;
 	/** 見出し（頁の題）・市の名・区の選びの「全市」・市の外の一言 */
 	title: string; cityName: string; allWards: string; outside: string;
+	/** 「市全体」ボタンの説明・平面の区域の一言・区域の見出し（どれも市の名や学区の有無が入る＝訳に市の名が入る言語がある・2026-11-14 京都で「横浜市全体」が出た） */
+	wholeCityTitle: string; flatNote: string; zonesTitle: string;
 	bbox: [number, number, number, number]; view: View;
 	/** 市の外の覆いの外枠 [w,s,e,n]（枠の縁が画面に入ったら覆いごと消す） */
 	maskBox: [number, number, number, number];

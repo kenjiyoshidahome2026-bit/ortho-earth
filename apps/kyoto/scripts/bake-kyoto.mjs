@@ -18,7 +18,7 @@ export const BAKE = {
 	fireRe: /^京都市消防局/,
 	ages: process.env.KYOTO_AGES || "000040506659",   // e-Stat 令和 7 年国勢調査 人口等基本集計 第 2-7 表＝全国・都道府県・市区町村の 1 本（横浜と同じ表・26100〜26111 の行がある）
 	skip: ["eschool", "jschool"],             // 小・中学校区（A27-21・A32-21）に京都市の面が無い（府の zip は市外の 21 市町だけ・A27-16／A32-16 も同じ・2026-11-14 確認）
-	en: { ja: "京都", en: "Kyoto", pref: "京都" },
+	en: { ja: "京都", en: "Kyoto", pref: "京都", osmStations: true },   // 駅の英語＝OSM（読みの辞書は宝ヶ池＝Takara Kechi・中書島＝Chusho Shima にした・2026-11-14 実機）
 	min: { walk: 30000, places: 300, stawiki: 80, towns: 500 },
 };
 if (import.meta.url === `file://${process.argv[1]}`) await bakeCity(BAKE, path.join(path.dirname(new URL(import.meta.url).pathname), ".cache"));

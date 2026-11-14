@@ -121,7 +121,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			<section data-pane="life">
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 札（地図の表示＝既定・施設の検索）。2026-11-13 に札の並びを「地図の表示」が先へ -->
 				<h2>${esc(t("District"))}</h2>
-				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t("Show the whole city"))}">${esc(t("Whole city"))}</button></div>
+				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(t("Whole city"))}</button></div>
 				<div class="detail stats-out" hidden></div>
 				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="show" aria-selected="true">${esc(t("Map display"))}</button><button type="button" role="tab" data-sub-tab="find" aria-selected="false">${esc(t("Search facilities"))}</button></nav>
 				<!-- 札の並び＝「地図の表示」が先・既定（本人 2026-11-13） -->
@@ -138,8 +138,8 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
 					return `<div class="cg" data-cg="${i}"><label class="grp"><input type="checkbox" data-cat="${i}"><b><i style="background:${c.color}"></i>${esc(t(c.name))}</b><small></small></label>${subs.length > 1 ? `<button type="button" class="tw" data-tw="${i}" aria-expanded="false" aria-label="${esc(t("Types"))}"></button><div class="kds">${subs.map(({ x, j }) => `<label class="grp kd"><input type="checkbox" data-sub="${j}"><b>${esc(t(x.name))}</b><small></small></label>`).join("")}</div>` : ""}</div>`; }).join("")}</div>
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
-				<h3>${esc(t("Zones and districts"))}</h3>
-				<p class="sub flat">${esc(t("Shown on the flat district map (choose a district or the whole city)."))}</p>
+				<h3>${esc(t(city.zonesTitle))}</h3>
+				<p class="sub flat">${esc(t(city.flatNote))}</p>
 				${AREAS.filter(x => !("hide" in x) && hasArea(x.id)).map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
 				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map((z, i) => `<span data-z="${i}"><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
 				</div>
@@ -1311,7 +1311,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		}
 		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
 		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = HOME_JURIS ? featureAt(po, at) : null, f1 = HOME_JURIS ? featureAt(fi, at) : null;
-		if (z || p1 || f1) out.push(`<h3>${esc(t(HOME_JURIS ? "Zones and districts" : "Town planning rules"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(String(p1.n || ""))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(String(f1.n || ""))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
+		if (z || p1 || f1) out.push(`<h3>${esc(t(HOME_JURIS ? city.zonesTitle : "Town planning rules"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(String(p1.n || ""))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(String(f1.n || ""))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
 		out.push(`<p class="sub flat">${esc(t(net ? "Distances follow streets and footpaths (OpenStreetMap); walking time assumes 80 m per minute." : "Straight-line distance; walking time assumes 80 m per minute."))}</p>`);
 		homeOut.innerHTML = out.join("");
 		homeNow = at; paintSave(at);
