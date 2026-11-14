@@ -1,0 +1,5 @@
+{
+	"pages": {
+		"fukuoka": ["data.ts", "main.ts"]
+	}
+}
