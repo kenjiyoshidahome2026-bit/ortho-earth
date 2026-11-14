@@ -18,7 +18,7 @@ export interface Photo { src: string; file: string; artist: string; license: str
 /** 市営地下鉄の路線と駅番号（駅ナンバリング）。地図の駅は N02 の駅名で引き当てて記号を付ける */
 export interface SubwayLine { id: string; name: string; color: string; stations: string[]; /** 駅名のローマ字（日本語以外の UI・stations と同じ並び） */ romaji: string[] }
 /** 駅名 → 駅番号の並び（"B29"・"G04"…）。乗換駅（横浜のセンター南・北・京都の烏丸御池）は 2 つ。名前の揺れ（ヶ・ケ）は畳む */
-const normSta = (n: string) => String(n || "").replace(/ケ/g, "ヶ").replace(/駅$/, "").trim();
+const normSta = (n: string) => String(n || "").normalize("NFKC").replace(/ケ/g, "ヶ").replace(/駅$/, "").trim();
 export function subwayCodes(lines: readonly SubwayLine[], name: string): { code: string; line: SubwayLine }[] {
 	const n = normSta(name), out: { code: string; line: SubwayLine }[] = [];
 	for (const l of lines) { const i = l.stations.findIndex(s => normSta(s) === n); if (i >= 0) out.push({ code: `${l.id}${String(i + 1).padStart(2, "0")}`, line: l }); }
@@ -510,7 +510,7 @@ export interface CityConfig extends CityWards, CityState {
 	noAreas?: readonly AreaId[];
 	/** true＝注視点を地面の標高に置く（山あいの名所が画面の上へ逃げない）。盆地と山の京都など。無し＝海面（横浜＝従来どおり） */
 	groundCenter?: boolean;
-	majorHospitals: { key: string; name: string }[];
+	majorHospitals: { key: string; name: string; /** 日本語以外の名（無ければ台帳の英語化＝読みの辞書の当て推量・札幌で Sapporo Ika University になった） */ en?: string }[];
 	/** 警察署・消防署の管轄をわが家のカードに出すか（区と一致しない市なら true） */
 	homeJuris: boolean;
 	/** 通信なしの保存のおおよその大きさ（MB） */

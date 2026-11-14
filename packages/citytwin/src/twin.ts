@@ -1301,7 +1301,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。道の網の外で 2 km を超えたら直線の km だけ
 		const majorHospital = (name: string): string | null => city.majorHospitals.find(h => name.includes(h.key))?.name ?? null;
 		const big = fac ? best(nearestRows(fac.filter(r => majorHospital(r[2])), at, 4), 2) : [];
-		if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, w }) => { const nm = lang === "ja" ? majorHospital(r[2])! : facName(r); return row(nm, w.k < 0 && w.m > 2000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1))) : walk(w, nm)); }).join("")}</div>`);
+		if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, w }) => { const h = city.majorHospitals.find(x => r[2].includes(x.key)), nm = lang === "ja" ? majorHospital(r[2])! : h?.en ? t(h.en) : facName(r); return row(nm, w.k < 0 && w.m > 2000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1))) : walk(w, nm)); }).join("")}</div>`);
 		// 近くの施設（区役所・図書館・病院・交番・消防署）
 		if (fac) {
 			// 図書館は市立を先に（台帳の「図書館」には大学の図書館も入る＝鶴見で鶴見大学図書館が出た・Mac 実測 2026-10-25）
