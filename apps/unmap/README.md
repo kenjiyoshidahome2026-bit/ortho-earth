@@ -1,6 +1,6 @@
 # unmap
 
-UNMAP offline viewer — **experimental, for UN staff only; not served publicly** (no `servedAt`, so `apps/globe-host` does not gather it).
+UNMAP offline viewer — **experimental, for UN staff**. Served at `www.ortho-earth.com/unmap/` by its own Worker (`ortho-unmap`, `wrangler.toml`), unlisted: no link from the site, not in the demo list, and every response carries `X-Robots-Tag: noindex` (Kenji's decision, 2026-11-15). Anyone who knows the URL can open it. No `servedAt`, so `apps/globe-host` does not gather it; `scripts/deploy-engine.mjs` deploys it with the other apps on a merge to main.
 The goal is a globe that works fully offline on a smartphone: the user picks rectangles on the Equal Earth map, and the device extracts that area from a planet PMTiles archive into its own storage (OPFS).
 Until UNMAP itself is available, the prototype uses an OSM-derived planet archive.
 

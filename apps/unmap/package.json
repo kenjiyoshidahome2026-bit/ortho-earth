@@ -2,13 +2,15 @@
 	"name": "unmap",
 	"version": "0.0.1",
 	"private": true,
-	"description": "UNMAP offline viewer (experimental, UN staff only — not served publicly). OSM planet PMTiles + Smart Maps GEL terrain on the globe; areas saved to the device (OPFS) for offline use.",
+	"description": "UNMAP offline viewer (experimental, for UN staff; served unlisted and noindex at /unmap/). OSM planet PMTiles + Smart Maps GEL terrain on the globe; areas saved to the device (OPFS) for offline use.",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
+		"deploy": "vite build && find dist/site -name .DS_Store -delete && wrangler deploy",
+		"preview:prod": "vite build && wrangler dev",
 		"test": "node tests/t-sources.mjs && node tests/t-style.mjs && node tests/t-areas.mjs && node tests/t-places.mjs && node tests/t-versions.mjs"
 	},
 	"dependencies": {
