@@ -9,7 +9,7 @@ const W = (pairs: number[]): unknown[] => ["interpolate", ["exponential", 1.6], 
 const kindIs = (...k: string[]): unknown[] => k.length === 1 ? ["==", ["get", "kind"], k[0]] : ["in", ["get", "kind"], ["literal", k]];
 
 export const COLORS = {
-	sea: "#c4d7e3", earth: "#f2efe8", water: "#b2cad9",
+	nodata: "#d6d6d6", earth: "#f2efe8", water: "#b2cad9",
 	forest: "#d9e6cf", grass: "#e6ecd6", farmland: "#eceedf", barren: "#ece6dc", glacier: "#f7fafc", urban: "#e8e3dc",
 	park: "#d6e6c8", building: "#dcd6cd",
 	highway: "#e0a66f", major: "#d4c4a6", minor: "#d8d0c3", path: "#ddd6cb", rail: "#a9a2ae",
@@ -33,7 +33,8 @@ export function osmStyle(osmUrl: string, lang: NameLang = "local"): Record<strin
 	const NAME = nameExpr(lang);
 	const C = COLORS;
 	const layers: Layer[] = [
-		{ id: "background", type: "background", paint: { "background-color": C.sea } },
+		// 下地＝「データが無い」の灰色（海ではない）。海は water 層（Protomaps v4 は海も water の面で持つ）。保存範囲の外をオフラインで見た時に陸が海に見えない（2026-11-14 タブレットの試験）
+		{ id: "background", type: "background", paint: { "background-color": C.nodata } },
 		{ id: "earth", type: "fill", source: "osm", "source-layer": "earth", paint: { "fill-color": C.earth } },
 		// 低ズームの土地被覆（v4 は z0–7 だけ持つ）
 		{ id: "landcover-forest", type: "fill", source: "osm", "source-layer": "landcover", filter: kindIs("forest"), paint: { "fill-color": C.forest } },
