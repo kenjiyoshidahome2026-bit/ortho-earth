@@ -74,6 +74,7 @@ Checked in headless Chromium (dev server, local Range server, synthetic data): s
 - **Coarse map outside saved areas**: core's composite PMTiles now overzooms. When no member has a tile, it stretches the nearest ancestor (`overzoomTile` in `@ortho-earth/core`), as MapLibre does past maxzoom. Offline, outside saved areas you see the world overview (z5) stretched; above an area's top zoom (z14), its z14 tiles are stretched.
 - **Lighter on low-memory devices**: on devices that report 4 GB of memory or less, the app renders at 1.25× instead of the full screen density. `?dpr=<n>` overrides.
 - The star-sky clock moved below the search box.
+- **Country borders and names at low zoom**: the app now turns on the engine's `worldContent` (the same low-zoom content as /globe: borders, country names, cities, state lines, and roads near z5). Without it the engine hides coastlines and borders below z2.5. The data is cached in IndexedDB by the engine and also packed by `packWorld`, which runs again two minutes after start to pick up files read on zoom-in.
 
 ## Not yet (later milestones)
 
