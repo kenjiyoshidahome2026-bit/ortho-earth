@@ -44,6 +44,7 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 		if (t && !sp) throw new Error("setTerrain: raster-dem source not found");
 		setExag(t ? exagOf(t.exaggeration) : 1);
 		if (sp?.type === "quantized-mesh") return setDem(qmSpecOf(sp));   // Cesium の地形（#110）＝raster-dem の詰め直しを通さない
+		if (sp && !sp.tiles && typeof sp.url === "string" && sp.url.startsWith("pmtiles://")) sp = { ...sp, tiles: [sp.url] };   // PMTiles の標高（url:"pmtiles://…"＝MapLibre の pmtiles プロトコルと同じ書き方）＝TileJSON を取りに行かない（core の dem-src が索引で引く・2026-11-14）
 		if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, live.EXT?.baseUrl || location.href, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize は TileJSON の申告も（mapterhorn＝terrarium・旧＝捨てて mapbox で解いた＝256m ごとに折り返す鋸歯）
 		if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map((u: string) => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
 		const demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,

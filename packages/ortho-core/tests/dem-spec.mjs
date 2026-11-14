@@ -19,6 +19,9 @@ const warn = console.warn; console.warn = () => {};
 	ok("指定はそのまま（maxzoom 0・redFactor 0 も ?? で残る）", t.encoding === "mapbox" && t.tileSize === 512 && t.minzoom === 2 && t.maxzoom === 0 && t.dtm === true && t.cellZoom === 11 && t.headers.A === "1" && t.credentials === "include" && t.redFactor === 0 && t.baseShift === -5);
 	ok("bounds は写し（元を書き換えても変わらない）", t.bounds.join() === b.join() && t.bounds !== b);
 	ok("bounds が 4 つでなければ null", normalizeDemSpec({ tiles: ["u"], bounds: [1, 2, 3] }).bounds === null);
+	const pm = normalizeDemSpec({ url: "pmtiles://https://a/gel.pmtiles", encoding: "mapbox" });
+	ok("url が pmtiles:// ならアーカイブ 1 つを tiles に（MapLibre の pmtiles プロトコルの書き方）", pm.tiles.length === 1 && pm.tiles[0] === "pmtiles://https://a/gel.pmtiles" && pm.encoding === "mapbox");
+	ok("tiles があれば url より tiles", normalizeDemSpec({ tiles: ["t"], url: "pmtiles://u" }).tiles[0] === "t");
 	ok("tiles も url も無ければ投げる", throws(() => normalizeDemSpec({})) && throws(() => normalizeDemSpec(null)) && throws(() => normalizeDemSpec({ tiles: [] })));
 }
 
