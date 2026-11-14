@@ -78,7 +78,7 @@ export function osmStyle(osmUrl: string, lang: NameLang = "local"): Record<strin
 	];
 	return {
 		version: 8, name: "UNMAP prototype (OSM)",
-		sources: { osm: { type: "vector", url: "pmtiles://" + osmUrl, attribution: OSM_ATTRIBUTION, maxzoom: 15 } },
+		sources: { osm: { type: "vector", url: osmUrl.startsWith("pmtiles://") ? osmUrl : "pmtiles://" + osmUrl, attribution: OSM_ATTRIBUTION, maxzoom: 15 } },
 		layers,
 	};
 }

@@ -50,8 +50,10 @@ export { createTerrain } from "./terrain.ts";
 export type { Terrain, TerrainOptions } from "./terrain.ts";
 export { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius, AUTHALIC_R, WGS84 } from "./geodesic.ts";
 export { WORLD_PAL_DEFAULT } from "./worldpal.ts";
-export { pmtilesInfo, isRasterTileType, fetchPMTilesRaw } from "./pmtiles-src.ts";   // isRasterTileType＝?pm= のアーカイブがラスタ（png/jpeg/webp/avif）か＝画像タイル層へ回す判定   // PMTiles アーカイブの自己申告（bbox/ズーム域/層名）＝範囲制御の正本。消費者が bbox を手で持たないための口
+export { pmtilesInfo, isRasterTileType, fetchPMTilesRaw, opfsPMTilesUrl, compositePMTilesUrl, compositeMembers } from "./pmtiles-src.ts";   // isRasterTileType＝?pm= のアーカイブがラスタ（png/jpeg/webp/avif）か＝画像タイル層へ回す判定   // PMTiles アーカイブの自己申告（bbox/ズーム域/層名）＝範囲制御の正本。消費者が bbox を手で持たないための口
 export type { PMTilesInfo } from "./pmtiles-src.ts";
+export { importPMTiles, listPMTiles, removePMTiles, readPMTilesHeader, safePMTilesName, storageInfo, requestPersist } from "./opfs-store.ts";   // 端末の OPFS に置く PMTiles の出し入れ（UNMAP オフライン版 M2）
+export type { StoredPMTiles, PMTilesHeaderInfo } from "./opfs-store.ts";
 export { createRaster } from "./raster.ts";   // 画像タイル層（メルカトル XYZ ラスタ・render worker 常駐）
 export type { Raster, RasterOptions } from "./raster.ts";
 export { createRasterSource, expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities } from "./raster-src.ts";   // z/x/y→ImageBitmap のプロバイダ契約（xyz/pmtiles/port）

@@ -28,9 +28,22 @@ npm run build -w unmap      # dist/site/unmap/ (the engine is bundled in, not th
 npm test -w unmap
 ```
 
+## M2: files on the device
+
+The status card has an **Offline data** section. **＋ Add .pmtiles** copies a PMTiles v3 file into the browser's private storage (OPFS): vector archives go to `unmap/map/`, raster archives (terrain) to `unmap/terrain/`, decided by the header's tile type. The page then reloads and reads:
+
+- map: the device's files first, then the online OSM planet last, combined into one source (`pmtiles://composite:…` in `packages/ortho-core/src/pmtiles-src.ts`). For each tile the first archive that covers it and has it wins. An archive that can't be read (no network, deleted file) is skipped, so the device's files still draw offline.
+- terrain: the same, with GEL last.
+
+`?online=0` leaves the online archives out, to check what the device alone shows. The card also lists the stored files (🗑 deletes one) and the storage used.
+
+Checked in headless Chromium: two files imported through the button, the browser switched offline, and the map still drew place names from the device's file and read the terrain height (5999.8 m at the synthetic peak).
+
 ## Not yet (later milestones)
 
-- OPFS source and composite source in `pmtiles-src.ts` (M2), rectangle selection and extraction (M3), app shell offline via the service worker (M4), hosting behind UN authentication (M5).
+- Rectangle selection and extraction from the planet into OPFS (M3), app shell offline via the service worker (M4), hosting behind UN authentication (M5).
+- A small world base archive (low zooms) so the globe is not blank outside the device's rectangles when offline (M3).
+- The engine shows "Failed to load map data" whenever the browser is offline, even when the device's files cover the view (M4).
 - Offline still depends on engine data fetched from the network: the default world elevation (GEBCO / AW3D30 index), and Natural Earth admin0. These have to be bundled or switched off before the app works fully offline.
 
 License: GPL-3.0-or-later.

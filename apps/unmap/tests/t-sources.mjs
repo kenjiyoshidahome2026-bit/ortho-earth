@@ -1,5 +1,5 @@
 // 源の置き場（?osm=・?gel= の門）と PMTiles ヘッダの読み（probe）の検定
-import { safeUrl, sourcesFrom, gelTerrain, DEFAULT_OSM, DEFAULT_GEL } from "../sources.ts";
+import { safeUrl, sourcesFrom, gelTerrain, archiveUrl, kindOfTileType, DEFAULT_OSM, DEFAULT_GEL } from "../sources.ts";
 import { parseHeader, probe } from "../probe.ts";
 
 let fail = 0;
@@ -15,6 +15,17 @@ const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ?
 	ok("javascript: は落とす", safeUrl("javascript:alert(1)", "https://x.example/") === null);
 	const g = gelTerrain("https://a/gel.pmtiles").source;
 	ok("GEL の地形＝pmtiles:// のアーカイブ 1 つ・mapbox・z2–12", g.tiles.length === 1 && g.tiles[0] === "pmtiles://https://a/gel.pmtiles" && g.encoding === "mapbox" && g.minzoom === 2 && g.maxzoom === 12);
+}
+
+{
+	ok("既定はオンラインを読む・?online=0 で読まない", sourcesFrom("https://x.example/").online === true && sourcesFrom("https://x.example/?online=0").online === false);
+	const comp = urls => "C[" + urls.join("|") + "]";
+	ok("端末の物なし＝オンラインの 1 本（複合にしない）", archiveUrl([], "https://a/p.pmtiles", comp) === "pmtiles://https://a/p.pmtiles");
+	ok("端末の物が先・オンラインが最後（複合）", archiveUrl(["unmap/map/a.pmtiles", "unmap/map/b.pmtiles"], "https://a/p.pmtiles", comp) === "C[pmtiles://opfs:unmap/map/a.pmtiles|pmtiles://opfs:unmap/map/b.pmtiles|pmtiles://https://a/p.pmtiles]");
+	ok("端末の 1 本だけ（?online=0）＝その 1 本", archiveUrl(["unmap/map/a.pmtiles"], null, comp) === "pmtiles://opfs:unmap/map/a.pmtiles");
+	ok("何も無い＝null", archiveUrl([], null, comp) === null);
+	ok("tileType：mvt/mlt＝地図・png/jpeg/webp/avif＝地形・他＝null", kindOfTileType(1) === "map" && kindOfTileType(6) === "map" && kindOfTileType(4) === "terrain" && kindOfTileType(2) === "terrain" && kindOfTileType(0) === null && kindOfTileType(7) === null);
+	ok("地形：pmtiles:// 付きの URL はそのまま", gelTerrain("pmtiles://composite:x").source.tiles[0] === "pmtiles://composite:x");
 }
 
 // PMTiles v3 のヘッダ（127 バイト）を組んで読む

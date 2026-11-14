@@ -12,6 +12,7 @@
 		"test": "node tests/t-sources.mjs && node tests/t-style.mjs"
 	},
 	"dependencies": {
+		"@ortho-earth/core": "*",
 		"@ortho-earth/globe": "*"
 	}
 }
