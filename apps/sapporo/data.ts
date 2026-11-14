@@ -174,6 +174,7 @@ export const CITY: CityConfig = {
 	},
 	noAreas: ["school-e", "school-j"],   // 国土数値情報の小・中学校区（A27・A32 の -21・-16）に札幌市の面が無い（Mac で確認 2026-11-14）
 	majorHospitals: MAJOR_HOSPITALS,
+	groundCenter: true,   // 西と南を山が囲む（大倉山・藻岩山・手稲山・定山渓）＝注視点を地面に（京都と同じ）
 	homeJuris: false,   // 札幌の警察署・消防署は区ごと（区と同じ）＝カードに出さない（横浜と同じ）
 	offlineMB: OFFLINE_MB,
 };
