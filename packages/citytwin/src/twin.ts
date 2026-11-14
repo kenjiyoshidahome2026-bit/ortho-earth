@@ -115,13 +115,13 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 				${city.story ? `<button class="tour port" type="button">${esc(t(city.story.button))}</button>
 				<button class="act sea" type="button">${esc(t(city.story.viewsButton))}</button>` : ""}
 				<h2>${esc(t("Landmarks"))}</h2>
-				<div class="spots">${SPOTS.map(s => `<button type="button" data-spot="${s.id}">${esc(t(s.name))}</button>`).join("")}</div>
+				<div class="spots">${SPOTS.map(s => `<button type="button" data-spot="${esc(s.id)}">${esc(t(s.name))}</button>`).join("")}</div>
 				<div class="spot-note" hidden></div>
 			</section>
 			<section data-pane="life">
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 札（地図の表示＝既定・施設の検索）。2026-11-13 に札の並びを「地図の表示」が先へ -->
 				<h2>${esc(t("District"))}</h2>
-				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${w.code}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(t("Whole city"))}</button></div>
+				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${esc(w.code)}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(t("Whole city"))}</button></div>
 				<div class="detail stats-out" hidden></div>
 				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="show" aria-selected="true">${esc(t("Map display"))}</button><button type="button" role="tab" data-sub-tab="find" aria-selected="false">${esc(t("Search facilities"))}</button></nav>
 				<!-- 札の並び＝「地図の表示」が先・既定（本人 2026-11-13） -->
@@ -146,11 +146,11 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			</section>
 			<section data-pane="transit" hidden>
 				<h2>${esc(t("Railways and buses"))}</h2>
-				${TRANSIT.map(x => `<label class="grp"><input type="checkbox" data-tr="${x.id}"><b>${esc(t(x.name))}</b><small data-trn="${x.id}"></small></label>`).join("")}
-				<div class="lines">${SUBWAY.map(l => `<span><i class="sw" style="background:${l.color}">${l.id}</i>${esc(t(l.name))} (${esc(t("$1 stations", l.stations.length))})</span>`).join("")}</div>
+				${TRANSIT.map(x => `<label class="grp"><input type="checkbox" data-tr="${esc(x.id)}"><b>${esc(t(x.name))}</b><small data-trn="${esc(x.id)}"></small></label>`).join("")}
+				<div class="lines">${SUBWAY.map(l => `<span><i class="sw" style="background:${esc(l.color)}">${esc(l.id)}</i>${esc(t(l.name))} (${esc(t("$1 stations", l.stations.length))})</span>`).join("")}</div>
 				<p class="sub flat">${esc(t(city.subwayNote))}</p>
 				<h2>${esc(t("Walking distance from a station"))}</h2>
-				<label class="msel"><select class="wsta"><option value="">${esc(t("Choose a station"))}</option>${SUBWAY.map(l => `<optgroup label="${esc(t(l.name))}">${l.stations.map((n, i) => `<option value="${esc(n)}">${l.id}${String(i + 1).padStart(2, "0")} ${esc(staName(n))}</option>`).join("")}</optgroup>`).join("")}</select></label>
+				<label class="msel"><select class="wsta"><option value="">${esc(t("Choose a station"))}</option>${SUBWAY.map(l => `<optgroup label="${esc(t(l.name))}">${l.stations.map((n, i) => `<option value="${esc(n)}">${esc(l.id)}${String(i + 1).padStart(2, "0")} ${esc(staName(n))}</option>`).join("")}</optgroup>`).join("")}</select></label>
 				<p class="sub flat">${esc(t("Or tap any station on the map and choose “Walking distance”."))}</p>
 				<div class="detail walk-out" hidden></div>
 			</section>
@@ -170,7 +170,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 				<p class="sub flat probe-msg"></p>
 				<div class="detail probe-out" hidden></div>
 				<h2>${esc(t("Overlay hazard scenarios"))}</h2>
-				${HAZARDS.map(h => `<label class="grp"><input type="checkbox" data-hz="${h.id}"><b>${esc(t(h.name))}</b></label><p class="sub" data-hznote="${h.id}" hidden>${esc(t(h.note))}</p>`).join("")}
+				${HAZARDS.map(h => `<label class="grp"><input type="checkbox" data-hz="${esc(h.id)}"><b>${esc(t(h.name))}</b></label><p class="sub" data-hznote="${esc(h.id)}" hidden>${esc(t(h.note))}</p>`).join("")}
 				<label class="msel hzop-w" hidden><span>${esc(t("Opacity"))}</span><input type="range" class="hzop" min="0.2" max="1" step="0.05" value="0.7"></label>
 				<div class="legend" hidden></div>
 				${city.inland ? `<p class="sub flat">${esc(t(city.inland.text))} <a href="${esc(city.inland.url)}" target="_blank" rel="noopener">${esc(t(city.inland.link))}</a></p>` : ""}
@@ -675,7 +675,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const say = (html: string) => { if (touring === run) { cap.hidden = false; cap.innerHTML = `${html}<button class="x" type="button" aria-label="${esc(t("Stop"))}">×</button>`; } };
 		for (const c of story.chapters) {
 			if (touring !== run) return;
-			say(`${photoHTML(ph?.[c.photo || c.id], "cph")}<div class="ct"><small class="yr">${c.year}</small><b>${esc(t(c.name))}</b><p>${esc(t(c.note))}</p></div>`);
+			say(`${photoHTML(ph?.[c.photo || c.id], "cph")}<div class="ct"><small class="yr">${esc(c.year)}</small><b>${esc(t(c.name))}</b><p>${esc(t(c.note))}</p></div>`);
 			await flySpot(c);
 			if (touring !== run) return;
 			await map.easeTo({ bearing: c.bearing + 35, duration: 5500 });
@@ -724,10 +724,10 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			const codes = subwayCodes(SUBWAY, s[2]);
 			const el = document.createElement("div");
 			el.className = "yk-sta";
-			el.innerHTML = `<span class="sym">${codes.map(c => `<i style="--c:${c.line.color}">${c.code}</i>`).join("") || "<i>?</i>"}</span><span class="nm">${esc(staName(s[2]))}</span>`;
+			el.innerHTML = `<span class="sym">${codes.map(c => `<i style="--c:${esc(c.line.color)}">${esc(c.code)}</i>`).join("") || "<i>?</i>"}</span><span class="nm">${esc(staName(s[2]))}</span>`;
 			el.title = t("$1 Station", staName(s[2]));
 			el.addEventListener("click", ev => { ev.stopPropagation();
-				openPop([s[0], s[1]], `<div class="pk">${esc(t(city.subwayName))}</div><b>${esc(t("$1 Station", staName(s[2])))}</b><p>${codes.map(c => `${c.code} · ${esc(t(c.line.name))}`).join("<br>") || esc(lang === "ja" ? s[3] : railLinesEn(RAIL_LINES_EN, s[3]))}</p>${walkBtn(s[0], s[1], staName(s[2]), s[2])}`); });
+				openPop([s[0], s[1]], `<div class="pk">${esc(t(city.subwayName))}</div><b>${esc(t("$1 Station", staName(s[2])))}</b><p>${codes.map(c => `${esc(c.code)} · ${esc(t(c.line.name))}`).join("<br>") || esc(lang === "ja" ? s[3] : railLinesEn(RAIL_LINES_EN, s[3]))}</p>${walkBtn(s[0], s[1], staName(s[2]), s[2])}`); });
 			subMarks.push(new ML.Marker({ element: el, anchor: "center" }).setLngLat([s[0], s[1]]));
 		}
 		$<HTMLElement>('[data-trn="subway"]').textContent = t("$1 stations", num(subMarks.length));
@@ -888,7 +888,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		// 浸水深の凡例は洪水・高潮・津波で同じ＝1 回だけ出す
 		const seen = new Set<string>();
 		el.innerHTML = hs.map(h => { const k = h.legend.map(l => l.label).join(); if (seen.has(k)) return ""; seen.add(k);
-			return `<div class="lg"><small>${esc(t(h.id === "dosha" ? "Sediment disasters" : "Flood depth"))}</small>${h.legend.map(l => `<span><i style="background:${l.color}"></i>${esc(t(l.label))}</span>`).join("")}</div>`; }).join("");
+			return `<div class="lg"><small>${esc(t(h.id === "dosha" ? "Sediment disasters" : "Flood depth"))}</small>${h.legend.map(l => `<span><i style="background:${esc(l.color)}"></i>${esc(t(l.label))}</span>`).join("")}</div>`; }).join("");
 	}
 	$$("[data-hz]").forEach(inp => inp.onchange = () => setHazard(inp.dataset.hz!, inp.checked));
 	$(".hzop").oninput = () => { hzOpacity = +$(".hzop").value; for (const id of hzOn) for (const rid of hzIds(id)) map.raster.set(rid, { opacity: hzOpacity }); };
@@ -1026,7 +1026,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const near = rows ? nearestSites(rows, [lon, lat], 3) : [];   // 同じ学校の棟違いは 1 件に
 		const worst = Math.max(...depths);
 		showWater([lon, lat], depthTop(worst));
-		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${legend[i].color}"></i>${esc(t(legend[i].label))}</span>`;
+		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${esc(legend[i].color)}"></i>${esc(t(legend[i].label))}</span>`;
 		probeOut.innerHTML = `<div class="dh"><b>${Number.isFinite(here) ? esc(t("Elevation about $1 m", num(Math.round(here)))) : ""}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
 			<h3>${esc(t("Expected flood depth here"))}</h3>
 			<div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}
@@ -1272,7 +1272,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const best = <T extends [number, number, ...unknown[]]>(cands: { row: T }[], n = 1) => cands.map(c => ({ row: c.row, w: way([c.row[0], c.row[1]]) })).sort((a, b) => a.w.m - b.w.m).slice(0, n);
 		const walk = (w: Way, to: string) => { if (w.k >= 0) routeTo[w.k] = to; return w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
 			: `${esc(t("$1 m · about $2 min on foot", num(Math.round(w.m)), Math.max(1, Math.round(w.m / 80))))} <button type="button" class="wroute" data-k="${w.k}">${esc(t("Route"))}</button>`; };
-		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${legend[i].color}"></i>${esc(t(legend[i].label))}</span>`;
+		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${esc(legend[i].color)}"></i>${esc(t(legend[i].label))}</span>`;
 		const out: string[] = [];
 		out.push(`<div class="dh"><b>${esc(ward?.code ? wardName(ward.code) : "")}${Number.isFinite(here) ? ` · ${esc(t("Elevation about $1 m", num(Math.round(here))))}` : ""}</b>${x}</div>`);
 		out.push(`<div class="hm-sv"></div>`);
