@@ -16,9 +16,18 @@ export const PLACES_DIR = "unmap/places";
 export const kindOfTileType = (t: number): LocalKind | null => t === 1 || t === 6 ? "map" : t >= 2 && t <= 5 ? "terrain" : null;
 const pm = (u: string): string => u.startsWith("pmtiles://") ? u : "pmtiles://" + u;
 /** 読むアーカイブ＝端末の物（OPFS の道）を先に・オンラインを最後に。1 本なら複合にしない。何も無ければ null */
-export function archiveUrl(localPaths: string[], online: string | null, composite: (urls: string[]) => string): string | null {
-	const urls = [...localPaths.map(p => "pmtiles://opfs:" + p.replace(/^\/+/, "")), ...(online ? [pm(online)] : [])];
+export function archiveUrl(localPaths: string[], online: string | null, composite: (urls: string[]) => string, final?: { paths: Set<string>; mark: (url: string) => string }): string | null {
+	const local = (p: string) => { const u = "pmtiles://opfs:" + p.replace(/^\/+/, ""); return online && final?.paths.has(p) ? final.mark(u) : u; };   // 「決まり」の印はオンラインと束ねる時だけ（端末だけなら元から後ろが無い）
+	const urls = [...localPaths.map(local), ...(online ? [pm(online)] : [])];
 	return urls.length === 0 ? null : urls.length === 1 ? urls[0] : composite(urls);
+}
+
+/** 「この範囲はこれで決まり」にする細かさ（保存の既定＝地図 z14・地形 z10 以上）。それより粗く保存した範囲は、回線がある時はネットの細かいタイルで補う */
+export const FINAL_ZOOM = { map: 14, terrain: 10 } as const;
+/** 保存した範囲のうち「決まり」にする物＝既定以上の細かさで、範囲（bbox）を持つ物（世界の土台＝全球は入れない）。
+ *  その範囲の中は回線があってもネットへ取りに行かない＝保存した所は回線の有無で同じ速さ（2026-11-15 タブレットの東京 z12：落ち着くまで 2.8 秒・印なしは 4.8 秒） */
+export function finalPaths(kind: LocalKind, files: { path: string; maxZoom: number; bbox: number[] | null }[]): Set<string> {
+	return new Set(files.filter(f => f.bbox && f.maxZoom >= FINAL_ZOOM[kind]).map(f => f.path));
 }
 
 export const DEFAULT_OSM = "https://data.source.coop/protomaps/openstreetmap/v4.pmtiles";

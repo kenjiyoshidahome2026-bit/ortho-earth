@@ -6,7 +6,7 @@
 // ?dpr=<数>＝描く解像度（無ければメモリ 4 GB 以下の端末だけ 1.25 まで）。
 // ?names=local|en|fr|es|ru|zh|ar＝地名の言語（無ければ前回の選択 → UI の言語が UN の 6 公用語ならそれ → 現地語）。
 import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";
-import { archiveUrl, gelTerrain, sourcesFrom } from "./sources.ts";
+import { archiveUrl, finalPaths, gelTerrain, sourcesFrom } from "./sources.ts";
 import { listLocal, mountLocalPanel, savedBounds } from "./local-data.ts";
 import { requestPersist as requestPersistNow } from "@ortho-earth/core/opfs-store";
 import type { LocalFiles } from "./local-data.ts";
@@ -79,9 +79,15 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 	const names = initialNames(getLang());
 	// 端末に置いた PMTiles（M2）＝先に読む。オンラインの planet は最後（?online=0 なら束ねない）
 	const local: LocalFiles = await listLocal().catch(e => { console.warn("[unmap] cannot list local files", e); return { map: [], terrain: [] }; });
-	const { compositePMTilesUrl } = await import("@ortho-earth/core");
-	const osmUrl = archiveUrl(local.map.map(f => f.path), SRC.online ? SRC.osm : null, compositePMTilesUrl);
-	const gelUrl = archiveUrl(local.terrain.map(f => f.path), SRC.online ? SRC.gel : null, compositePMTilesUrl);
+	const { compositePMTilesUrl, finalMember, pmtilesInfo, opfsPMTilesUrl } = await import("@ortho-earth/core");
+	// 既定以上の細かさで保存した範囲は「決まり」＝回線があってもその中はネットへ行かない（速さ・通信量）。?final=0＝切る（比較用）
+	const finalOf = async (kind: "map" | "terrain") => {
+		if (!SRC.online || /[?&]final=0/.test(location.search)) return undefined;
+		const heads = await Promise.all(local[kind].map(async f => { const i = await pmtilesInfo(opfsPMTilesUrl(f.path)).catch(() => null); return { path: f.path, maxZoom: i?.maxZoom ?? -1, bbox: i?.bbox ?? null }; }));
+		return { paths: finalPaths(kind, heads), mark: finalMember };
+	};
+	const osmUrl = archiveUrl(local.map.map(f => f.path), SRC.online ? SRC.osm : null, compositePMTilesUrl, await finalOf("map"));
+	const gelUrl = archiveUrl(local.terrain.map(f => f.path), SRC.online ? SRC.gel : null, compositePMTilesUrl, await finalOf("terrain"));
 	// 保存の直後（area-picker が印を置いて読み直した）＝成功を札に出す。読み直すだけだと「戻ってきた」としか見えない（本人 2026-11-14）
 	let justSaved: string | null = null;
 	try { justSaved = sessionStorage.getItem("unmap.saved"); sessionStorage.removeItem("unmap.saved"); } catch { /* 出ないだけ */ }

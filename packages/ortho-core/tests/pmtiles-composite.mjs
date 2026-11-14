@@ -2,7 +2,7 @@
 // OPFS は navigator.storage を偽物に替える・HTTP は fetch を偽物に替える（Range を無視して全量＝pmtiles-src のメモリ経路）。
 // 中身はラスタ（png の印 1 バイト）＝fetchPMTilesRaw で生のまま比べる。node packages/ortho-core/tests/pmtiles-composite.mjs
 import { zxyToTileId } from "pmtiles";
-import { fetchPMTilesRaw, pmtilesInfo, opfsPMTilesUrl, compositePMTilesUrl, compositeMembers } from "../src/pmtiles-src.ts";
+import { fetchPMTilesRaw, pmtilesInfo, opfsPMTilesUrl, compositePMTilesUrl, compositeMembers, finalMember } from "../src/pmtiles-src.ts";
 import { readPMTilesHeader, safePMTilesName } from "../src/opfs-store.ts";
 
 let fail = 0;
@@ -37,7 +37,9 @@ const dirH = prefix => ({
 });
 Object.defineProperty(globalThis.navigator, "storage", { value: { getDirectory: async () => dirH("") }, configurable: true });
 let online = true;
-globalThis.fetch = async u => { if (!online) throw new TypeError("Failed to fetch"); return String(u).includes("world") ? new Response(WORLD, { status: 200 }) : new Response("", { status: 404 }); };
+// 範囲の中にもタイルを持つ土台（「決まり」の検定用）：0/0/0・3/4/2（矩形の外）・3/4/4（矩形に掛かる）。印 0xC0・0xC3・0xC4
+const BASE = build([[0, 0, 0, 0xc0], [3, 4, 2, 0xc3], [3, 4, 4, 0xc4]], { maxZoom: 3, layers: ["earth"] });
+globalThis.fetch = async u => { if (!online) throw new TypeError("Failed to fetch"); return String(u).includes("base") ? new Response(BASE, { status: 200 }) : String(u).includes("world") ? new Response(WORLD, { status: 200 }) : new Response("", { status: 404 }); };
 
 const A = opfsPMTilesUrl("/rects/a.pmtiles"), W = "pmtiles://https://example.test/world.pmtiles";
 ok("opfsPMTilesUrl＝pmtiles://opfs:<道>（先頭の / を落とす）", A === "pmtiles://opfs:rects/a.pmtiles");
@@ -74,6 +76,17 @@ const C = compositePMTilesUrl([A, W]);
 	ok("回線なし：複合の申告は読めた構成員だけ", i.minZoom === 2 && i.maxZoom === 6 && i.attribution === "rect");
 	ok("どの構成員も読めない複合は失敗", await pmtilesInfo(compositePMTilesUrl(["https://example.test/w2.pmtiles"])).then(() => false, () => true));
 	online = true;
+}
+{
+	// 「決まり」の構成員（finalMember）：その範囲の中は後ろの構成員へ行かない
+	const B = "pmtiles://https://example.test/base.pmtiles";
+	const N = compositePMTilesUrl([A, B]), F = compositePMTilesUrl([finalMember(A), B]);
+	ok("印なし：範囲の中でも先頭に無ければ後ろ", (await fetchPMTilesRaw(N, 3, 4, 4))?.[0] === 0xc4);
+	ok("決まり：範囲の中は後ろへ行かない（null）", (await fetchPMTilesRaw(F, 3, 4, 4)) === null);
+	ok("決まり：持っているタイルはそのまま", (await fetchPMTilesRaw(F, 6, 37, 31))?.[0] === 0xa6);
+	ok("決まり：範囲の外は後ろ", (await fetchPMTilesRaw(F, 3, 4, 2))?.[0] === 0xc3);
+	ok("決まり：最小ズームより下は後ろ", (await fetchPMTilesRaw(F, 0, 0, 0))?.[0] === 0xc0);
+	ok("決まり：申告は印を外して読む", (await pmtilesInfo(F)).maxZoom === 6);
 }
 {
 	ok("readPMTilesHeader：v3 を読む", readPMTilesHeader(RECT.slice(0, 127).buffer)?.maxZoom === 6 && readPMTilesHeader(RECT.slice(0, 127).buffer)?.tileType === 2);
