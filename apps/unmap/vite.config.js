@@ -4,9 +4,8 @@ import { readdirSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { crossOriginIsolation, noChunkOptimization, engineAliases, bootScreen } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり
 
-// unmap＝UNMAP のオフライン版（実験・国連職員だけ・公開しない＝本人 2026-11-14）。
-// package.json に servedAt を持たない＝globe-host の gather-apps に拾われない＝www.ortho-earth.com/globe/ には出ない。
-// 配る場所（UN の認証の後ろ）は M5 で決める。出力は dist/site/unmap/。
+// unmap＝UNMAP のオフライン版（実験・国連職員向け）。本番は www.ortho-earth.com/unmap/（リンクなし・noindex＝本人 2026-11-15・wrangler.toml）。
+// package.json に servedAt を持たない＝globe-host の gather-apps に拾われない＝/globe/ の下や一覧には出ない。出力は dist/site/unmap/。
 // 共有エンジン（/globe/engine/<版>/・sharedEngine）は使わない＝エンジンをこの束に焼く：オフラインで丸ごと SW に収める・公開の /globe/ に依らない・UN の置き場だけで完結させるため。
 const ROOT = resolve(import.meta.dirname, "../..");
 const OUT = resolve(import.meta.dirname, "dist/site/unmap");
