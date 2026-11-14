@@ -84,8 +84,9 @@ async function runOne(job: SaveJob, index: number, count: number, signal: AbortS
 // .part → 正式名（move の無い版は写して消す）
 async function finalize(d: FileSystemDirectoryHandle, part: string, name: string): Promise<void> {
 	await d.removeEntry(name).catch(() => {});
-	const fh = await d.getFileHandle(part) as FileSystemFileHandle & { move?: (n: string) => Promise<void> };
-	if (typeof fh.move === "function") { await fh.move(name); return; }
+	const fh = await d.getFileHandle(part) as FileSystemFileHandle & { move?: (dir: FileSystemDirectoryHandle, n: string) => Promise<void> };
+	// move は (行き先のフォルダ, 名前) の 2 引数で呼ぶ＝Safari（WebKit）は名前だけの形を持たず "Not enough arguments" で落ちる（本人の iPhone 2026-11-14）。Chrome は両方の形を持つ
+	if (typeof fh.move === "function") { await fh.move(d, name); return; }
 	const src = await openSync(d, part), dst = await openSync(d, name);
 	try {
 		const n = src.getSize(), CH = 8 << 20, b = new Uint8Array(CH);

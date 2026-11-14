@@ -66,7 +66,12 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 	const { compositePMTilesUrl } = await import("@ortho-earth/core");
 	const osmUrl = archiveUrl(local.map.map(f => f.path), SRC.online ? SRC.osm : null, compositePMTilesUrl);
 	const gelUrl = archiveUrl(local.terrain.map(f => f.path), SRC.online ? SRC.gel : null, compositePMTilesUrl);
-	rows.local = `On this device: ${local.map.length} map · ${local.terrain.length} terrain file(s)`; paint();
+	// 保存の直後（area-picker が印を置いて読み直した）＝成功を札に出す。読み直すだけだと「戻ってきた」としか見えない（本人 2026-11-14）
+	let justSaved: string | null = null;
+	try { justSaved = sessionStorage.getItem("unmap.saved"); sessionStorage.removeItem("unmap.saved"); } catch { /* 出ないだけ */ }
+	rows.local = `On this device: ${local.map.length} map · ${local.terrain.length} terrain file(s)` + (justSaved ? ` · <b class="ok">✓ Area saved (${esc(justSaved)} file(s))</b>` : "");
+	if (justSaved && card) { card.hidden = false; if (dataBtn) dataBtn.hidden = true; }
+	paint();
 	const panel = card?.querySelector(".local") as HTMLElement | null;
 	let openPicker: ((start: "here" | "view") => void) | null = null;   // 地球儀ができてから結ぶ
 	const pick = (start: "here" | "view") => { if (openPicker) openPicker(start); };
