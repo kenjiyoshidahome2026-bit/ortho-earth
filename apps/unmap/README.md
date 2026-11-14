@@ -66,6 +66,10 @@ Checked in headless Chromium (production build, local Range server, synthetic da
 
 Checked in headless Chromium (dev server, local Range server, synthetic data): save the area around Tokyo → reopen with the same planet (no prompt) → reopen with a changed planet → "Newer map data is available for 2 saved files" → Update all → both map files carry the new stamp, terrain unchanged, the new place appears in search, no prompt after reload. The country button was not checked in the browser here, because the test machine cannot reach the world data; its box logic is covered by `tests/t-versions.mjs`.
 
+## M6: field-test fixes
+
+- **No data is grey, not sea**: the style's background is now a neutral grey. Sea comes from the `water` layer (Protomaps v4 draws the ocean as water polygons). Offline, outside the saved areas above z5, the map used to look like open sea; now it reads as "no data here". Found on a Galaxy Tab A11+ (Android 16, Chrome 157), 2026-11-14.
+
 ## Not yet (later milestones)
 
 - Field tests on real phones and laptops, minimum device spec, and the user guide (M6).
