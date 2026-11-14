@@ -162,6 +162,7 @@ export const OFFLINE_MB = 550;   // 実測（MacBook・本番と同じ build を
 /** 市の設定（共有モジュールの mountTwin が読む） */
 export const CITY: CityConfig = {
 	id: "kyoto", key: "kt",
+	groundCenter: true,   // 盆地を山が囲む＝注視点を地面に（鞍馬・貴船・大原が画面の上に寄っていた・2026-11-15）
 	title: "Kyoto Digital Twin", cityName: "Kyoto City", allWards: "Kyoto City (11 wards)", outside: "Outside Kyoto City.",
 	wholeCityTitle: "Show all of Kyoto City", flatNote: "Shown on the flat district map (choose a district or all of Kyoto City).", zonesTitle: "Zoning and jurisdictions",   // 学区は無い（noAreas）
 	addrPrefix: "京都市", bbox: CITY_BBOX, view: CITY_VIEW, maskBox: MASK_BOX,

@@ -155,13 +155,15 @@ export const TABS: Tab[] = ["life", "transit", "sight", "risk", "tools"];   // �
 const OLD_TABS: Record<string, Tab> = { city: "sight", time: "tools", area: "life" };   // 旧い共有 URL（city／time＝2026-10-21 より前・area＝2026-10-25 より前の「地域」）
 /** URL の状態を読む物（市の設定のうち区・名所・ハザード・交通） */
 export interface CityState { wards: readonly Ward[]; spots: readonly Spot[]; hazards: readonly Hazard[]; transit: readonly TransitLayer[]; transitDefault: readonly string[] }
+/** 既定の面＝名所があれば観光・無ければ暮らし（TABS[0]）。writeState は既定を書かない＝?spot= だけの短い URL が観光で開く */
+export const defaultTab = (spot: string): Tab => spot ? "sight" : TABS[0];
 export function parseState(city: CityState, search: string): TwinState {
 	const q = new URLSearchParams(search);
 	const t = q.get("tab") || "";
-	const tab = TABS.includes(t as Tab) ? t as Tab : OLD_TABS[t] || TABS[0];
+	const spot = city.spots.some(s => s.id === q.get("spot")) ? q.get("spot")! : "";
+	const tab = TABS.includes(t as Tab) ? t as Tab : OLD_TABS[t] || defaultTab(spot);   // 名所だけの URL（?spot=）＝観光の面で名所の札を見せる（本人 2026-11-15）
 	const hz = (q.get("hz") || "").split(",").filter(id => city.hazards.some(h => h.id === id));
 	const ward = city.wards.some(w => w.code === q.get("ward")) ? q.get("ward")! : "";
-	const spot = city.spots.some(s => s.id === q.get("spot")) ? q.get("spot")! : "";
 	const want = q.has("tr") ? (q.get("tr") || "").split(",") : city.transitDefault;
 	const tr = city.transit.map(x => x.id as string).filter(id => want.includes(id));   // 台帳の並びに揃える（往復で同じ）
 	return { tab, ward, hz: [...new Set(hz)], spot, tr };
@@ -170,7 +172,7 @@ export function parseState(city: CityState, search: string): TwinState {
 export function writeState(city: CityState, search: string, st: TwinState): string {
 	const q = new URLSearchParams(search);
 	const set = (k: string, v: string, def: string) => v && v !== def ? q.set(k, v) : q.delete(k);
-	set("tab", st.tab, TABS[0]); set("hz", st.hz.join(","), ""); set("ward", st.ward, ""); set("spot", st.spot, "");
+	set("tab", st.tab, defaultTab(st.spot)); set("hz", st.hz.join(","), ""); set("ward", st.ward, ""); set("spot", st.spot, "");
 	const tr = city.transit.filter(x => st.tr.includes(x.id)).map(x => x.id).join(",");
 	if (tr === city.transitDefault.join(",")) q.delete("tr"); else q.set("tr", tr);
 	q.delete("era");   // 旧「時間」の鍵
@@ -506,6 +508,8 @@ export interface CityConfig extends CityWards, CityState {
 	/** 大きな病院（市立・大学・地域中核）＝台帳の名に含まれる語 key → 短い名 */
 	/** その市に台帳の無い区域（京都＝国土数値情報の小・中学校区に京都市の面が無い＝一覧にも、わが家のまわりにも出さない） */
 	noAreas?: readonly AreaId[];
+	/** true＝注視点を地面の標高に置く（山あいの名所が画面の上へ逃げない）。盆地と山の京都など。無し＝海面（横浜＝従来どおり） */
+	groundCenter?: boolean;
 	majorHospitals: { key: string; name: string }[];
 	/** 警察署・消防署の管轄をわが家のカードに出すか（区と一致しない市なら true） */
 	homeJuris: boolean;

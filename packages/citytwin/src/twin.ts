@@ -42,6 +42,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	const t = tr(), lang = getLang();
 	const { wards: WARDS, spots: SPOTS, tour: TOUR, hazards: HAZARDS, view: CITY_VIEW, bbox: CITY_BBOX, maskBox: MASK_BOX, subway: SUBWAY, transit: TRANSIT, railLinesEn: RAIL_LINES_EN } = city;
 	const hasArea = (id: AreaId) => !city.noAreas?.includes(id);   // 市に台帳のある区域か
+	if (city.groundCenter) map.setCenterClampedToGround?.(true);   // 山の名所（鞍馬・貴船）が画面の上に寄らない＝注視点を地面に（本人 2026-11-15）
 	const TAG = `[${city.id}]`;   // console の印
 	const Offline = createOffline(city, opts.appBase);
 	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）

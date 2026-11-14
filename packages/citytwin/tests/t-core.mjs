@@ -21,6 +21,7 @@ const s1 = parseState(KT, "?hz=flood,hightide,tsunami,dosha"), s2 = parseState(Y
 t("URL の状態：市の想定に無いハザードは捨てる（京都＝高潮・津波なし）", s1.hz.join() === "flood,dosha" && s2.hz.join() === "flood,hightide,tsunami,dosha");
 t("URL の状態：別の市の区・名所は捨てる", parseState(KT, "?ward=14104&spot=mm21").ward === "" && parseState(YK, "?ward=14104&spot=mm21").spot === "mm21");
 t("URL の状態：既定の面（暮らし）は書かない", !/tab=/.test(writeState(KT, "", { ...parseState(KT, ""), tab: TABS[0] })));
+t("URL の状態：名所だけの URL は観光の面で開く・往復で同じ", (() => { const a = parseState(YK, "?spot=mm21"), w = writeState(YK, "", a), b = parseState(YK, "?tab=life&spot=mm21"); return a.tab === "sight" && w === "?spot=mm21" && b.tab === "life" && /tab=life/.test(writeState(YK, "", b)); })());
 t("地下鉄の駅番号：市の路線表で引く", subwayCodes(YK.subway, "センター南").length === 2 && subwayCodes(KT.subway, "烏丸御池").length === 2 && subwayCodes(KT.subway, "関内").length === 0);
 t("ハザードの型紙：全国の 4 つ", HAZARDS.map(h => h.id).join() === "flood,hightide,tsunami,dosha");
 for (const C of [YK, KT]) {
