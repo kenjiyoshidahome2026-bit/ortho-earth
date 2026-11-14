@@ -227,14 +227,21 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	const DIR = { 北: "Kita", 南: "Minami", 東: "Higashi", 西: "Nishi" };
 	const joNum = x => /^\d+$/.test(x) ? +x : kanjiNum(x);
 	const CHO = /^(\D+?)(\d+|[一二三四五六七八九十]+)丁目(.*)$/;
+	const EW = /^(\D+?)(東|西)(\d+|[一二三四五六七八九十]+)(?:丁目)?(?=-|$|\d|[^\d])(.*)$/;
+	const oo = w => w.replace(/^Oodoori$/i, "Odori").replace(/oo/g, "o").replace(/^Oo/, "O").replace(/ou(?=[^aeiou]|$)/g, "o");   // 長音を落とす（Odori・Oyachi）
 	const joAddr = s => {
 		const m = s.match(JO);
+		const d = !(m && m[1]) && s.match(EW);
+		if (d) {   // 「大通西2丁目9」「大通東11-23」「大谷地東5丁目」＝9 Odori-nishi 2-chome（札幌の東西の丁目）
+			const rest = d[4].replace(/番地?の?/g, "-").replace(/号/g, "").replace(/^-+|-+$/g, "").replace(/-{2,}/g, "-").trim(), n = rest.match(/^\d[\d-]*/)?.[0] || "";
+			return `${n ? n + " " : ""}${oo(proper(d[1]))}-${DIR[d[2]].toLowerCase()} ${joNum(d[3])}-chome`;
+		}
 		if (!m || !m[1]) {   // 条の無い「宮の森2丁目3-5」＝3-5 Miyanomori 2-chome
 			const c = s.match(CHO); if (!c) return null;
 			const rest = c[3].replace(/番地?の?/g, "-").replace(/号/g, "").replace(/^-+|-+$/g, "").replace(/-{2,}/g, "-").trim(), n = rest.match(/^\d[\d-]*/)?.[0] || "";
-			return `${n ? n + " " : ""}${proper(c[1]).replace(/oodoori/i, "Odori").replace(/doori$/, "dori")} ${joNum(c[2])}-chome`;
+			return `${n ? n + " " : ""}${oo(proper(c[1]))} ${joNum(c[2])}-chome`;
 		}
-		const town = DIR[m[1]] || proper(m[1]);
+		const town = DIR[m[1]] || oo(proper(m[1]));
 		const rest = m[5].replace(/番地?の?/g, "-").replace(/号/g, "").replace(/^-+|-+$/g, "").replace(/-{2,}/g, "-").trim(), n = rest.match(/^\d[\d-]*/)?.[0] || "";
 		return `${n ? n + " " : ""}${town} ${joNum(m[2])}-jo${m[3] ? " " + DIR[m[3]] : ""}${m[4] ? ` ${joNum(m[4])}-chome` : ""}`;
 	};

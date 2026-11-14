@@ -13,7 +13,7 @@ export const CITY_VIEW = { lon: 141.36, lat: 43.06, zoom: 11.4, tilt: 35, bearin
 /** 10 区（市区町村コード順）。座標は区の中ほど（南区は北の市街地寄り）・zoom は区がほぼ画面に収まる値 */
 export const WARDS: Ward[] = [
 	{ code: "01101", name: "中央区", en: "Chuo-ku", lon: 141.335, lat: 43.050, zoom: 13.2 },
-	{ code: "01102", name: "北区", en: "Kita-ku", lon: 141.360, lat: 43.120, zoom: 12.6 },
+	{ code: "01102", name: "北区", en: "Kita-ku", lon: 141.335, lat: 43.115, zoom: 12.6 },
 	{ code: "01103", name: "東区", en: "Higashi-ku", lon: 141.395, lat: 43.105, zoom: 12.8 },
 	{ code: "01104", name: "白石区", en: "Shiroishi-ku", lon: 141.420, lat: 43.055, zoom: 13.2 },
 	{ code: "01105", name: "豊平区", en: "Toyohira-ku", lon: 141.385, lat: 43.020, zoom: 13.0 },
@@ -75,7 +75,7 @@ export const MAJOR_HOSPITALS: { key: string; name: string }[] = [
 	{ key: "手稲渓仁会病院", name: "手稲渓仁会病院" },
 	{ key: "北海道医療センター", name: "国立病院機構北海道医療センター" },
 	{ key: "札幌東徳洲会病院", name: "札幌東徳洲会病院" },
-	{ key: "KKR札幌医療センター", name: "KKR札幌医療センター" },
+	{ key: "ＫＫＲ札幌医療センター", name: "KKR札幌医療センター" },   // 台帳（P04）は全角の ＫＫＲ
 	{ key: "札幌徳洲会病院", name: "札幌徳洲会病院" },
 ];
 /** 急病の診療所（夜間・休日）＝札幌市夜間休日急病センター（市内 1 か所・2026-04 に「夜間急病センター」から改称）。区ごとの休日急患診療所は無い
