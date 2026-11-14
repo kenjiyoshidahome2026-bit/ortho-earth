@@ -19,6 +19,7 @@ export const BAKE = {
 	ages: process.env.FUKUOKA_AGES || "000040506659",   // e-Stat 令和 7 年国勢調査 人口等基本集計 第 2-7 表（横浜・京都と同じ 1 本・40131〜40137 の行）
 	fitBox: FIT_BOX,                          // 区と市の「収める枠」＝沖の小呂島（西区）を外す
 	en: { ja: "福岡", en: "Fukuoka", pref: "福岡", osmStations: true },
+	skip: ["eschool", "jschool"],             // A27-21_40 / A32-21_40 に福岡市（40131〜40137）の学校区が無い（北九州市も無い）
 	min: { walk: 30000, places: 300, stawiki: 80, towns: 500 },
 };
 if (import.meta.url === `file://${process.argv[1]}`) await bakeCity(BAKE, path.join(path.dirname(new URL(import.meta.url).pathname), ".cache"));
