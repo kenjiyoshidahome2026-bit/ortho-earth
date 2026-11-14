@@ -77,6 +77,13 @@ Checked in headless Chromium (dev server, local Range server, synthetic data): s
 - **Country borders and names at low zoom**: the app now turns on the engine's `worldContent` (the same low-zoom content as /globe: borders, country names, cities, state lines, and roads near z5). Without it the engine hides coastlines and borders below z2.5. The data is cached in IndexedDB by the engine and also packed by `packWorld`, which runs again two minutes after start to pick up files read on zoom-in.
 - **Low-zoom names follow the place-name language**: the country and city names drawn by `worldContent` use the language chosen in the names picker (Local shows English there, since the world data has no local-script names). The globe gets a new option `worldContent: { lang }` and a new method `map.setWorldLang(lang)`. `packWorld` also packs world files the engine read from IndexedDB, where only the `?meta=` version check shows in the network log.
 
-## Not yet (later milestones)
+- **Touch errors fixed**: after a two-finger gesture, the finger that stayed down threw `TypeError` on every move (core `input.ts`). It now pans the map, as other map apps do.
+- **Quiet offline console**: the shared service worker no longer leaves uncaught "Failed to fetch" rejections for URLs outside the pack while offline.
 
-- Field tests on real phones and laptops, minimum device spec, and the user guide (M6).
+## Known limits
+
+- The first start must be online. The app, the world overview and the low-zoom globe data are stored then; after that everything saved opens without a network.
+- After a redeploy, the new build can take up to a minute to reach devices; reload once more if the old one shows.
+- If the screen sleeps for a long time, the renderer can fail to resume ("WebGPU trouble" in the console). Reopen the page.
+- Minimum device: WebGPU (iOS 26 Safari, Android 12+ Chrome), 4 GB of memory, 2 GB of free storage. Checked on iPhone 16 Pro and Galaxy Tab A11+ (2026-11-14).
+- Low-zoom country and city names come in English and the UN languages; "Local" shows English there.

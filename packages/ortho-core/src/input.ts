@@ -239,7 +239,7 @@ export function createInput({ canvas, cam: cam0, size, dpr, maxPitch, zoomMin = 
 			if (touches.size === 1) {   // 2本→1本：残った指でそのままパン継続（x0=NaN＝ピンチ後の誤クリックを構造的に断つ）
 				pinch = null;
 				const t = [...touches.values()][0];
-				drag = { x: t.x, y: t.y, x0: NaN, y0: NaN, tilt: false };   // TODO(ts): recs が無い＝この後の pointermove（drag.off 偽）で drag.recs.push が TypeError を投げる（元の JS からの潜在バグ・挙動は変えない）
+				drag = { x: t.x, y: t.y, x0: NaN, y0: NaN, tilt: false, off: !H.dragPan, recs: [] };   // 2 本→1 本＝残った指でパンを続ける（x0/y0＝NaN でクリックにはしない）。旧＝recs が無く、次の pointermove／pointerup が TypeError を投げていた（2026-11-14 タブレットの実機で発覚）
 				return;
 			}
 			if (touches.size === 2) { pinch = startPinch(); drag = null; return; }   // 3本→2本＝残った2本で仕切り直し（旧: pinch=null のまま全指を離すまで無反応）

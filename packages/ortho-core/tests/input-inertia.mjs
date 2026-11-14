@@ -39,5 +39,11 @@ const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 // zoomSnap・handler 名
 ok("snapZoom", snapZoom(3.3, 0.5) === 3.5 && snapZoom(3.2, 0.5) === 3 && snapZoom(3.3, 0) === 3.3 && snapZoom(7.49, 1) === 7);
 ok("HANDLER_NAMES（MapLibre の 9＋touchRotate）", HANDLER_NAMES.length === 10 && ["scrollZoom", "dragPan", "dragRotate", "keyboard", "doubleClickZoom", "boxZoom", "touchZoomRotate", "touchRotate", "touchPitch", "cooperativeGestures"].every(n => HANDLER_NAMES.includes(n)));
+// 2 本指 → 1 本指に戻った時の drag は recs を持つ（無いと次の pointermove／pointerup が TypeError・2026-11-14 タブレットの実機）
+{
+	const src = (await import("node:fs")).readFileSync(new URL("../src/input.ts", import.meta.url), "utf8");
+	const all = [...src.matchAll(/drag = \{[^}]*\}/g)].map(m => m[0]);
+	ok("drag を作る所は全部 recs を持つ", all.length >= 2 && all.every(d => /recs: \[\]/.test(d)), `${all.length} か所`);
+}
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ input-inertia 全 PASS");
 process.exit(fail ? 1 : 0);
