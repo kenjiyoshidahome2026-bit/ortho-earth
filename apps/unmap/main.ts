@@ -123,7 +123,8 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 			region: null,                    // 日本の申告なし＝基図は下の style だけ
 			...(osmUrl ? { style: osmStyle(osmUrl, names) } : {}),   // OSM planet（Protomaps v4）・端末の物が先・地名の言語
 			terrain: gelUrl ? gelTerrain(gelUrl) : false,             // GEL（z2–12・mapbox の画素詰め）・端末の物が先
-			zoomMax: 18, chips: false, mesh: false, worldContent: false,
+			zoomMax: 18, chips: false, mesh: false,
+			worldContent: true,               // 低倍率に標準の地球と同じ中身（国境・国名・都市・州境…＝/globe と同じ・2026-11-14 タブレットで z2 の国境が無かった）
 			worldBelow: OSM_MINZOOM,          // z5.5 より下＝エンジンの標準の地球（段彩・国境・湖）・上＝OSM
 			...(pixelRatio() ? { pixelRatio: pixelRatio()! } : {}),   // メモリの少ない端末は描く解像度を下げる（2026-11-14 Android タブレットの試験）
 			// 低倍率（MapLibre z5.5 より下）はエンジンの標準の地球（段彩・Natural Earth の国境と湖・海岸線・星空・夜面）＝本人 2026-11-14。OSM はその上（style.ts OSM_MINZOOM）。

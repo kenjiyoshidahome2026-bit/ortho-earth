@@ -26,6 +26,7 @@ export async function setupAppPack(onState: (s: AppPackState) => void): Promise<
 	try { const r = await fetch(import.meta.env.BASE_URL + "offline.json", { cache: "no-cache" }); man = r.ok ? await r.json() : null; } catch { /* 通信なし */ }
 	if (!man) { if (!packed) onState({ state: "none", message: "dev server (no offline.json)" }); return; }
 	setTimeout(() => void packWorld(), 20000);   // 標準の地球のデータ（起動して 20 秒＝低倍率の描画が取りに行った後）
+	setTimeout(() => void packWorld(), 120000);  // 寄った時に読む分（国境・都市の細部 ne-cultural-detail ほか）も拾う
 	if (packed && man.build === have) return;
 	try { await packApp(man, (done, total) => onState({ state: "saving", done, total })); writeRec(man.build); swNotify(); onState({ state: "saved", build: man.build }); }
 	catch (e) { onState({ state: "error", message: (e as Error).message }); }
