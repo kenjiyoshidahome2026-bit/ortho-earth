@@ -17,7 +17,20 @@ export const COLORS = {
 	label: "#3b3a40", halo: "#ffffff",
 };
 
-export function osmStyle(osmUrl: string): Record<string, unknown> {
+// 地名の言語（本人 2026-11-14）：UN の 6 公用語か現地語。Protomaps v4 は name:<言語> を持つ＝無い地物は現地語の name へ戻す。
+// 中国語は簡体字（name:zh-Hans）を先に・無ければ name:zh。
+export const NAME_LANGS = ["local", "en", "fr", "es", "ru", "zh", "ar"] as const;
+export type NameLang = typeof NAME_LANGS[number];
+export const NAME_LANG_LABEL: Record<NameLang, string> = { local: "Local", en: "English", fr: "Français", es: "Español", ru: "Русский", zh: "中文", ar: "العربية" };
+const NAME_KEYS: Record<Exclude<NameLang, "local">, string[]> = { en: ["name:en"], fr: ["name:fr"], es: ["name:es"], ru: ["name:ru"], zh: ["name:zh-Hans", "name:zh"], ar: ["name:ar"] };
+export const isNameLang = (v: unknown): v is NameLang => (NAME_LANGS as readonly unknown[]).includes(v);
+/** 地名の式（text-field） */
+export const nameExpr = (lang: NameLang): unknown[] => lang === "local" ? ["get", "name"] : ["coalesce", ...NAME_KEYS[lang].map(k => ["get", k]), ["get", "name"]];
+/** 地名を描く層の id（言語を切り替える時に text-field を差し替える層） */
+export const LABEL_LAYERS = ["place-country", "place-region", "place-locality", "place-neighbourhood"];
+
+export function osmStyle(osmUrl: string, lang: NameLang = "local"): Record<string, unknown> {
+	const NAME = nameExpr(lang);
 	const C = COLORS;
 	const layers: Layer[] = [
 		{ id: "background", type: "background", paint: { "background-color": C.sea } },
@@ -49,18 +62,18 @@ export function osmStyle(osmUrl: string): Record<string, unknown> {
 		{ id: "rail", type: "line", source: "osm", "source-layer": "roads", minzoom: 8, filter: kindIs("rail"), paint: { "line-color": C.rail, "line-width": W([8, 0.4, 14, 1.2, 18, 2.5]) } },
 		{ id: "road-major", type: "line", source: "osm", "source-layer": "roads", minzoom: 7, filter: kindIs("major_road"), paint: { "line-color": C.major, "line-width": W([7, 0.4, 12, 1.5, 16, 5, 18, 12]) } },
 		{ id: "road-highway", type: "line", source: "osm", "source-layer": "roads", minzoom: 4, filter: kindIs("highway"), paint: { "line-color": C.highway, "line-width": W([4, 0.4, 10, 1.6, 14, 4, 18, 14]) } },
-		// 地名（点の注記）。名前は現地語の name（UN の 6 公用語の切替は後で）
+		// 地名（点の注記）。言語は nameExpr（UN の 6 公用語か現地語）
 		{ id: "place-country", type: "symbol", source: "osm", "source-layer": "places", maxzoom: 7, filter: kindIs("country"),
-			layout: { "text-field": ["get", "name"], "text-size": ["interpolate", ["linear"], ["zoom"], 2, 11, 6, 15] },
+			layout: { "text-field": NAME, "text-size": ["interpolate", ["linear"], ["zoom"], 2, 11, 6, 15] },
 			paint: { "text-color": C.label, "text-halo-color": C.halo, "text-halo-width": 1.4 } },
 		{ id: "place-region", type: "symbol", source: "osm", "source-layer": "places", minzoom: 4, maxzoom: 9, filter: kindIs("region"),
-			layout: { "text-field": ["get", "name"], "text-size": 11 },
+			layout: { "text-field": NAME, "text-size": 11 },
 			paint: { "text-color": "#6c6578", "text-halo-color": C.halo, "text-halo-width": 1.2 } },
 		{ id: "place-locality", type: "symbol", source: "osm", "source-layer": "places", minzoom: 3, filter: kindIs("locality"),
-			layout: { "text-field": ["get", "name"], "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 12, 14] },
+			layout: { "text-field": NAME, "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 12, 14] },
 			paint: { "text-color": C.label, "text-halo-color": C.halo, "text-halo-width": 1.2 } },
 		{ id: "place-neighbourhood", type: "symbol", source: "osm", "source-layer": "places", minzoom: 12, filter: kindIs("macrohood", "neighbourhood"),
-			layout: { "text-field": ["get", "name"], "text-size": 11 },
+			layout: { "text-field": NAME, "text-size": 11 },
 			paint: { "text-color": "#5d5a63", "text-halo-color": C.halo, "text-halo-width": 1.2 } },
 	];
 	return {

@@ -16,6 +16,7 @@ The globe with an OSM planet PMTiles basemap and Smart Maps GEL terrain, both re
 URL parameters:
 
 - `?osm=<url>` and `?gel=<url>` point at other copies of the archives (https, or http on localhost / the same origin).
+- `?names=local|en|fr|es|ru|zh|ar` sets the language of place names (the UN official languages, or local names). Without it, the app uses the last choice from the picker at the bottom left, then the UI language if it is one of the six, then local names. A name missing in the chosen language falls back to the local name.
 - `?status=0` hides the check card. The card reads the first 127 bytes of each archive with a Range request and shows whether Range and CORS work and what the header declares, plus the renderer (WebGPU or WebGL2). This is the M0 check, run on the device itself.
 - `?gl2=1` forces WebGL2; `?debug=1` exposes the engine's debug globals.
 
