@@ -36,7 +36,7 @@ export const SPOTS: Spot[] = [
 	{ id: "nakajima", wiki: "中島公園", name: "Nakajima Park", ward: "01101", lon: 141.3543, lat: 43.0450, zoom: 16.6, tilt: 58, bearing: 0, note: "Park with a pond and a concert hall, home to Hoheikan, a Western-style guest house built in 1880." },
 	{ id: "jingu", wiki: "北海道神宮", name: "Hokkaido Shrine", ward: "01101", lon: 141.3075, lat: 43.0544, zoom: 16.8, tilt: 58, bearing: 270, note: "Shrine to the deities of the settlement of Hokkaido, enshrined in 1869, in the forest beside Maruyama Park." },
 	{ id: "maruyama-zoo", wiki: "札幌市円山動物園", name: "Maruyama Zoo", ward: "01101", lon: 141.3035, lat: 43.0515, zoom: 16.8, tilt: 58, bearing: 270, note: "Zoo opened in 1951 at the foot of Mount Maruyama." },
-	{ id: "okurayama", wiki: "大倉山ジャンプ競技場", name: "Okurayama Ski Jump Stadium", ward: "01101", lon: 141.2955, lat: 43.0455, zoom: 16.4, tilt: 62, bearing: 240, note: "Ski jump that hosted the large-hill event of the 1972 Winter Olympics. A lift climbs to a view over the city." },
+	{ id: "okurayama", wiki: "大倉山ジャンプ競技場", name: "Okurayama Ski Jump Stadium", ward: "01101", lon: 141.2863, lat: 43.0507, zoom: 16.4, tilt: 62, bearing: 240, note: "Ski jump that hosted the large-hill event of the 1972 Winter Olympics. A lift climbs to a view over the city." },
 	{ id: "moiwa", wiki: "藻岩山", name: "Mount Moiwa", ward: "01106", lon: 141.3222, lat: 43.0222, zoom: 15.2, tilt: 62, bearing: 30, note: "531 m mountain at the edge of the city. A ropeway and a small cable car climb to a famous night view." },
 	{ id: "beer-museum", wiki: "サッポロビール博物館", name: "Sapporo Beer Museum", ward: "01103", lon: 141.3690, lat: 43.0712, zoom: 17.0, tilt: 58, bearing: 0, note: "Red-brick building of 1890, first a sugar factory and later a malt house, now a museum of beer." },
 	{ id: "moerenuma", wiki: "モエレ沼公園", name: "Moerenuma Park", ward: "01103", lon: 141.4250, lat: 43.1220, zoom: 15.2, tilt: 60, bearing: 0, note: "Park designed by sculptor Isamu Noguchi on a former landfill, completed in 2005, with a glass pyramid and an artificial hill." },
@@ -98,7 +98,7 @@ export const SAPPORO_STORY: Chapter[] = [
 	{ id: "spr-1888", year: "1888", photo: "akarenga", wiki: "北海道庁旧本庁舎", name: "Red brick for the government", ward: "01101", lon: 141.3483, lat: 43.0638, zoom: 17.2, tilt: 58, bearing: 270, note: "The Hokkaido Government Office, built of bricks made in Hokkaido, was completed in 1888 and served until 1968." },
 	{ id: "spr-1950", year: "1950", photo: "odori", wiki: "大通公園", name: "Snow statues in the park", ward: "01101", lon: 141.3480, lat: 43.0597, zoom: 16.4, tilt: 60, bearing: 90, note: "In 1950 local high school students built six snow statues in Odori Park. The Sapporo Snow Festival has grown into a winter event with about two million visitors." },
 	{ id: "spr-1971", year: "1971", wiki: "札幌市営地下鉄", name: "A subway on rubber tyres", ward: "01101", lon: 141.3545, lat: 43.0605, zoom: 16.8, tilt: 58, bearing: 0, note: "The Namboku Line opened in December 1971, ahead of the Winter Olympics. Sapporo's subway runs on rubber tyres, quieter than steel wheels." },
-	{ id: "spr-1972", year: "1972", photo: "okurayama", wiki: "大倉山ジャンプ競技場", name: "The Winter Olympics", ward: "01101", lon: 141.2955, lat: 43.0455, zoom: 16.4, tilt: 62, bearing: 240, note: "In February 1972 Sapporo held the first Winter Olympics in Asia; the large-hill jump was held here at Okurayama. That April Sapporo became a designated city with seven wards." },
+	{ id: "spr-1972", year: "1972", photo: "okurayama", wiki: "大倉山ジャンプ競技場", name: "The Winter Olympics", ward: "01101", lon: 141.2863, lat: 43.0507, zoom: 16.4, tilt: 62, bearing: 240, note: "In February 1972 Sapporo held the first Winter Olympics in Asia; the large-hill jump was held here at Okurayama. That April Sapporo became a designated city with seven wards." },
 	{ id: "spr-2003", year: "2003", photo: "sapporo-st", wiki: "JRタワー", name: "A tower above the station", ward: "01102", lon: 141.3508, lat: 43.0686, zoom: 16.6, tilt: 58, bearing: 180, note: "JR Tower opened above Sapporo Station in 2003. At 173 m it was then the tallest building in Hokkaido." },
 ];
 /** 藻岩山からの眺め＝南西の山の中腹に立ったつもりで、碁盤の目の街並みを順に見渡す（中心＝見る先・bearing＝向き＝カメラは中心の反対側に立つ） */
@@ -145,7 +145,7 @@ export const writeState = (search: string, st: TwinState): string => write(CITY,
 export const parsePlaces = (raw: string | null) => places(raw, CITY_BBOX);
 
 /** 端末に詰める物のおおよその大きさ（MB）。保存ボタンの説明に出す（Mac の実測で直す） */
-export const OFFLINE_MB = 550;
+export const OFFLINE_MB = 580;   // 実測（MacBook・本番と同じ build を手元で配信・新しいプロファイル 390px・2026-11-15）：保存 315 秒・カード 579 MB・端末の使用量 +644 MB（エンジンの置き場を含む）
 
 /** 市の設定（共有モジュールの mountTwin が読む） */
 export const CITY: CityConfig = {
