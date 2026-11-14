@@ -79,6 +79,7 @@ Checked in headless Chromium (dev server, local Range server, synthetic data): s
 
 - **Touch errors fixed**: after a two-finger gesture, the finger that stayed down threw `TypeError` on every move (core `input.ts`). It now pans the map, as other map apps do.
 - **Quiet offline console**: the shared service worker no longer leaves uncaught "Failed to fetch" rejections for URLs outside the pack while offline.
+- **Saved areas never wait for the network**: an area saved at the default detail or better (map z14, terrain z10) is marked final in the composite source (`finalMember` in `@ortho-earth/core`, `finalPaths` in `sources.ts`). Inside it the app no longer asks the online planet for the finer levels (map z15, terrain z11–12), so a saved area draws the same online and offline. Measured on the Galaxy Tab at z12 Osaka before the change: 11.1 s to settle online against 4.6 s offline. Areas saved at a lower detail still get finer tiles from the network when online. `?final=0` turns this off for comparison.
 
 ## Known limits
 

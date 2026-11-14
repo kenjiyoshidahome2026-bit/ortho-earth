@@ -31,11 +31,17 @@ const infos = new Map<string, Promise<PMTilesInfo>>();      // archive url → P
 
 export const isPMTiles = (url: string): boolean => url.startsWith(PREFIX);
 const srcOf = (url: string): string => url.startsWith(PREFIX) ? url.slice(PREFIX.length) : url;
-const OPFS = "opfs:", COMPOSITE = "composite:";
+const OPFS = "opfs:", COMPOSITE = "composite:", FINAL = "final:";
+/** 複合の構成員に付ける印＝「この範囲はこれで決まり」。その構成員の範囲（ヘッダの bbox・最小ズーム以上）に入るタイルは、
+ *  それが持っていなくても後ろの構成員（ネットの planet）へ行かない＝無い（最大ズームより上＝祖先を引き伸ばす・標高は親の段）。
+ *  保存した範囲が回線の有無で同じ速さ・同じ絵になる（UNMAP 2026-11-15：回線ありだと保存範囲の中でも z11–12 の標高と z15 の地図をネットへ取りに行き、落ち着くまで 11 秒＝回線なしの 4.6 秒より遅かった） */
+export const finalMember = (url: string): string => PREFIX + FINAL + srcOf(url);
 /** OPFS の道（"rects/a.pmtiles"）→ pmtiles://opfs:… */
 export const opfsPMTilesUrl = (path: string): string => PREFIX + OPFS + path.replace(/^\/+/, "");
 /** 複数のアーカイブ（pmtiles:// 付きでも無しでも）→ 複合の pmtiles://composite:…（並び＝優先順） */
 export const compositePMTilesUrl = (urls: string[]): string => PREFIX + COMPOSITE + urls.map(u => encodeURIComponent(srcOf(u))).join(",");
+const isFinal = (m: string): boolean => m.startsWith(FINAL);
+const bare = (m: string): string => isFinal(m) ? m.slice(FINAL.length) : m;
 /** 複合の構成員（pmtiles:// を除いた形）。複合でなければ null */
 export const compositeMembers = (url: string): string[] | null => { const s = srcOf(url); return s.startsWith(COMPOSITE) ? s.slice(COMPOSITE.length).split(",").filter(Boolean).map(decodeURIComponent) : null; };
 // 失敗は覚えっぱなしにしない（2026-09-25）：一時的な失敗（オフライン・5xx）でその archive がセッション中ずっと死んでいた。
@@ -124,7 +130,7 @@ export function pmtilesInfo(url: string): Promise<PMTilesInfo> {
 
 // 複合の申告＝読めた構成員の和（bbox の和・ズーム域の和・層名の和・出典を並べる）。形式は先頭の構成員。どれも読めなければ失敗（＝少し後にやり直す）
 async function compositeInfo(members: string[]): Promise<PMTilesInfo> {
-	const got = (await Promise.allSettled(members.map(m => pmtilesInfo(PREFIX + m)))).flatMap(r => r.status === "fulfilled" ? [r.value] : []);
+	const got = (await Promise.allSettled(members.map(m => pmtilesInfo(PREFIX + bare(m))))).flatMap(r => r.status === "fulfilled" ? [r.value] : []);
 	if (!got.length) throw new Error("pmtiles composite: no member could be read");
 	const bbox = got.some(i => !i.bbox) ? null : [Math.min(...got.map(i => i.bbox![0])), Math.min(...got.map(i => i.bbox![1])), Math.max(...got.map(i => i.bbox![2])), Math.max(...got.map(i => i.bbox![3]))];
 	const vl = new Map<string, VectorLayerInfo>(); for (const i of got) for (const l of i.vectorLayers || []) if (!vl.has(l.id)) vl.set(l.id, l);
@@ -140,8 +146,14 @@ async function rawTile(src: string, z: number, x: number, y: number, signal?: Ab
 	const members = compositeMembers(src);
 	if (members) {
 		for (const m of members) {
-			const r = await rawTile(m, z, x, y, signal).catch(e => { if ((e as Error)?.name === "AbortError") throw e; return null; });
+			const r = await rawTile(bare(m), z, x, y, signal).catch(e => { if ((e as Error)?.name === "AbortError") throw e; return null; });
 			if (r) return r;
+			if (isFinal(m)) {   // 「決まり」の構成員の範囲の中＝後ろ（ネット）へ行かない
+				const i = await pmtilesInfo(PREFIX + bare(m)).catch(() => null);
+				// 全球のアーカイブ（bbox なし）は「決まり」にしない（全部を塞ぐ）。縁はヘッダの丸め（1e-7°）で隣のタイルに掛かって見えるので少し内側で見る
+				const b = i?.bbox, e = 1e-5;
+				if (i && b && z >= i.minZoom && !tileOutsideCoverage(x, y, z, [b[0] + e, b[1] + e, b[2] - e, b[3] - e])) return null;
+			}
 		}
 		return null;
 	}

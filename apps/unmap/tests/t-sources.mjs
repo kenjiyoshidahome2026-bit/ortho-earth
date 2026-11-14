@@ -1,5 +1,5 @@
 // 源の置き場（?osm=・?gel= の門）と PMTiles ヘッダの読み（probe）の検定
-import { safeUrl, sourcesFrom, gelTerrain, archiveUrl, kindOfTileType, DEFAULT_OSM, DEFAULT_GEL } from "../sources.ts";
+import { safeUrl, sourcesFrom, gelTerrain, archiveUrl, finalPaths, kindOfTileType, DEFAULT_OSM, DEFAULT_GEL } from "../sources.ts";
 import { parseHeader, probe } from "../probe.ts";
 
 let fail = 0;
@@ -24,6 +24,12 @@ const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ?
 	ok("端末の物が先・オンラインが最後（複合）", archiveUrl(["unmap/map/a.pmtiles", "unmap/map/b.pmtiles"], "https://a/p.pmtiles", comp) === "C[pmtiles://opfs:unmap/map/a.pmtiles|pmtiles://opfs:unmap/map/b.pmtiles|pmtiles://https://a/p.pmtiles]");
 	ok("端末の 1 本だけ（?online=0）＝その 1 本", archiveUrl(["unmap/map/a.pmtiles"], null, comp) === "pmtiles://opfs:unmap/map/a.pmtiles");
 	ok("何も無い＝null", archiveUrl([], null, comp) === null);
+	const fin = { paths: new Set(["unmap/map/a.pmtiles"]), mark: u => "F:" + u };
+	ok("決まりの印＝オンラインと束ねる時だけ・印の付いた物だけ", archiveUrl(["unmap/map/a.pmtiles", "unmap/map/world.pmtiles"], "https://a/p.pmtiles", comp, fin) === "C[F:pmtiles://opfs:unmap/map/a.pmtiles|pmtiles://opfs:unmap/map/world.pmtiles|pmtiles://https://a/p.pmtiles]");
+	ok("端末だけなら印を付けない", archiveUrl(["unmap/map/a.pmtiles"], null, comp, fin) === "pmtiles://opfs:unmap/map/a.pmtiles");
+	const fp = finalPaths("map", [{ path: "a", maxZoom: 14, bbox: [0, 0, 1, 1] }, { path: "coarse", maxZoom: 10, bbox: [0, 0, 1, 1] }, { path: "world", maxZoom: 15, bbox: null }]);
+	ok("決まりにする物＝z14 以上で範囲を持つ物（粗い保存・全球は除く）", fp.has("a") && !fp.has("coarse") && !fp.has("world"));
+	ok("地形は z10 以上", finalPaths("terrain", [{ path: "t", maxZoom: 10, bbox: [0, 0, 1, 1] }, { path: "t8", maxZoom: 8, bbox: [0, 0, 1, 1] }]).size === 1);
 	ok("tileType：mvt/mlt＝地図・png/jpeg/webp/avif＝地形・他＝null", kindOfTileType(1) === "map" && kindOfTileType(6) === "map" && kindOfTileType(4) === "terrain" && kindOfTileType(2) === "terrain" && kindOfTileType(0) === null && kindOfTileType(7) === null);
 	ok("地形：pmtiles:// 付きの URL はそのまま", gelTerrain("pmtiles://composite:x").source.tiles[0] === "pmtiles://composite:x");
 }
