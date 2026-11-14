@@ -41,6 +41,9 @@ export function locate(): Promise<[number, number] | null> {
 	});
 }
 
+/** 保存が終わって読み直した後に「保存しました」を出す印（sessionStorage・値＝書いたファイルの数） */
+export const SAVED_KEY = "unmap.saved";
+
 let open = false;
 /** 開く。start＝"here"（現在地周辺）か "view"（今の視点の中心） */
 export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): Promise<void> {
@@ -246,7 +249,7 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 			say(p.phase === "plan" ? `Reading the index for the ${what} (${p.index + 1}/${p.count})…` : `Saving ${what} (${p.index + 1}/${p.count}) · ${human(p.bytes)} of ${human(p.total)}`);
 			prog.value = p.total ? (p.index + p.bytes / p.total) / p.count : p.index / p.count;
 		}, stop => { closeBtn.onclick = () => { stop(); }; });
-		if (res.ok) { say("Saved. Opening the area…"); location.hash = center; location.reload(); return; }
+		if (res.ok) { say("Saved. Opening the area…"); try { sessionStorage.setItem(SAVED_KEY, String(jobs.length)); } catch { /* 札が出ないだけ */ } location.hash = center; location.reload(); return; }
 		saving = false; closeBtn.textContent = "Close"; closeBtn.onclick = null; prog.hidden = true; mzSel.disabled = false; tzSel.disabled = !o.sources.gel;
 		say(res.cancelled ? "Stopped. You can resume it later from the Data card." : `Saving failed: ${res.message}. Try again — it continues where it stopped.`);
 		changed();
