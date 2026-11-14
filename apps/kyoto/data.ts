@@ -50,8 +50,8 @@ export const SPOTS: Spot[] = [
 	{ id: "kitano", wiki: "北野天満宮", name: "Kitano Tenmangu Shrine", ward: "26102", lon: 135.7351, lat: 35.0313, zoom: 17.2, tilt: 58, bearing: 0, note: "Shrine to the scholar Sugawara no Michizane, visited by students before exams and known for its plum blossoms." },
 	{ id: "kamigamo", wiki: "賀茂別雷神社", name: "Kamigamo Shrine", ward: "26101", lon: 135.7524, lat: 35.0602, zoom: 17.0, tilt: 60, bearing: 0, note: "One of Kyoto's oldest shrines, at the foot of the northern hills, with two cone-shaped sand mounds before its hall." },
 	{ id: "kurama", wiki: "鞍馬寺", name: "Kurama-dera Temple", ward: "26103", lon: 135.7708, lat: 35.1180, zoom: 16.0, tilt: 62, bearing: 0, note: "Mountain temple in the forests north of the city, reached by the Eizan Railway and a climb up Mount Kurama." },
-	{ id: "kibune", wiki: "貴船神社", name: "Kifune Shrine", ward: "26103", lon: 135.7631, lat: 35.1219, zoom: 16.6, tilt: 48, bearing: 20, note: "Shrine to the god of water in a narrow valley north of the city, with stone steps lined by red lanterns." },
-	{ id: "ohara", wiki: "三千院", name: "Sanzen-in Temple (Ohara)", ward: "26103", lon: 135.8343, lat: 35.1193, zoom: 16.6, tilt: 55, bearing: 70, note: "Temple in the mountain village of Ohara in the far north-east of the city, known for its moss garden." },
+	{ id: "kibune", wiki: "貴船神社", name: "Kifune Shrine", ward: "26103", lon: 135.7631, lat: 35.1219, zoom: 16.4, tilt: 58, bearing: 20, note: "Shrine to the god of water in a narrow valley north of the city, with stone steps lined by red lanterns." },
+	{ id: "ohara", wiki: "三千院", name: "Sanzen-in Temple (Ohara)", ward: "26103", lon: 135.8343, lat: 35.1193, zoom: 16.4, tilt: 60, bearing: 70, note: "Temple in the mountain village of Ohara in the far north-east of the city, known for its moss garden." },
 	{ id: "eikando", wiki: "禅林寺 (京都市)", name: "Eikando (Zenrin-ji)", ward: "26103", lon: 135.7950, lat: 35.0143, zoom: 17.0, tilt: 60, bearing: 90, note: "Temple at the foot of Higashiyama, known as Eikando and famous for its autumn leaves." },
 	{ id: "chionin", wiki: "知恩院", name: "Chion-in Temple", ward: "26105", lon: 135.7834, lat: 35.0054, zoom: 17.0, tilt: 60, bearing: 90, note: "Head temple of the Jodo sect. Its Sanmon gate, built in 1621, is one of the largest wooden gates in Japan." },
 	{ id: "tofukuji", wiki: "東福寺", name: "Tofuku-ji Temple", ward: "26105", lon: 135.7738, lat: 34.9765, zoom: 17.0, tilt: 62, bearing: 90, note: "Zen temple whose Tsutenkyo bridge looks over a valley of maples." },
@@ -162,6 +162,7 @@ export const OFFLINE_MB = 550;   // 実測（MacBook・本番と同じ build を
 /** 市の設定（共有モジュールの mountTwin が読む） */
 export const CITY: CityConfig = {
 	id: "kyoto", key: "kt",
+	groundCenter: true,   // 盆地を山が囲む＝注視点を地面に（鞍馬・貴船・大原が画面の上に寄っていた・2026-11-15）
 	title: "Kyoto Digital Twin", cityName: "Kyoto City", allWards: "Kyoto City (11 wards)", outside: "Outside Kyoto City.",
 	wholeCityTitle: "Show all of Kyoto City", flatNote: "Shown on the flat district map (choose a district or all of Kyoto City).", zonesTitle: "Zoning and jurisdictions",   // 学区は無い（noAreas）
 	addrPrefix: "京都市", bbox: CITY_BBOX, view: CITY_VIEW, maskBox: MASK_BOX,

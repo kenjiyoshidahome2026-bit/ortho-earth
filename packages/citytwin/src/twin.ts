@@ -1428,6 +1428,14 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	// ── 起動時の状態（URL）──
 	setTab(st.tab);
 	const s0 = SPOTS.find(s => s.id === st.spot);
+	// 注視点を地面に（city.groundCenter・京都＝山の名所が画面の上へ寄らない・本人 2026-11-15）は、最初の視点へ動き出してから点ける（動いている間に上がる＝ずれが見えない）。
+	// ⚠エンジンの轍（11/19 の後に直す）：起動時に setCenterClampedToGround(true) を呼んだ後の最初の flyTo が始まらない（movestart も出ず Promise も解けない）。
+	//   京都の ?spot=kurama で、起動の頭で点けると新しい Chrome の 4/9 が、地図の idle を待って点けてから飛ぶと 9/9 が市全体のまま止まった（2026-11-15 実測）。
+	//   後から出した flyTo は動き、詰まった飛行を取り消す。着いてから点けると着くが、注視点が 0→400 m 上がって絵が 2 割ほど跳ねる。
+	//   飛び始め（最初の move）で点けると飛行の途中で上がる＝跳ねない。動かない起動（URL に # の視点）・飛ばなかった時は 3 秒で点ける。groundCenter の無い市（横浜）は従来どおり
+	let groundSet = false;
+	const groundOn = () => { if (groundSet || !city.groundCenter || !map.setCenterClampedToGround) return; groundSet = true; map.setCenterClampedToGround(true); };
+	if (city.groundCenter) { map.once("move", groundOn); setTimeout(groundOn, 3000); }
 	if (s0) { showSpot(s0); if (!location.hash) flySpot(s0); }
 	else if (!location.hash) setWard(st.ward);   // 初めて開いた＝「市全体」を押した時と同じ（真上から市を 9 割・基図は全層・本人 2026-10-26）。区つきの URL ならその区
 	// 星座線は最初から点ける（左上の「層と主題」を隠したので、隠れたチップを押して点ける・本人 2026-10-26「星座線はONでいいよ」）
