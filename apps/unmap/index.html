@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light">
+	<!-- 実験（国連職員だけ）＝検索に載せない。#status＝M0 の確認の札（左端 56px はガジェットの列に空ける） -->
+	<meta name="robots" content="noindex, nofollow">
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none}
+		html{background:#0b1021}
+		#map{width:100%;height:100dvh}
+		#status{position:fixed;top:calc(8px + env(safe-area-inset-top));left:56px;right:8px;max-width:420px;margin-left:auto;z-index:10;
+			background:rgba(255,255,255,.92);color:#222;border-radius:8px;padding:8px 32px 8px 10px;font:12px/1.5 system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+		#status ul{margin:0;padding:0;list-style:none}
+		#status button{position:absolute;top:4px;right:4px;border:0;background:none;font-size:16px;line-height:1;padding:4px 6px;cursor:pointer;color:#555}
+		#status .ok{color:#1b7a3a}
+		#status .ng{color:#b3261e}
+		#names{position:fixed;left:8px;bottom:calc(44px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 6px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<title>UNMAP offline (prototype)</title>
+</head>
+<body>
+	<!-- ortho:boot -->
+	<div id="map"></div>
+	<div id="status" hidden><ul></ul><button type="button" aria-label="Close">×</button></div>
+	<select id="names" aria-label="Place names language" hidden></select>
+	<script type="module" src="./main.ts"></script>
+</body>
+</html>

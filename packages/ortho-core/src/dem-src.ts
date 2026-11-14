@@ -47,7 +47,9 @@ export function decodeDEM(rgba: Uint8ClampedArray | Uint8Array, encoding: string
 export function normalizeDemSpec(spec: DemSpecInput | null | undefined): DemSpec {
 	if (!spec?.tiles?.length && !spec?.url) throw new Error("dem: spec needs tiles (or url)");
 	// TODO(ts): url だけの spec は tiles が undefined のまま通り、後の url() で落ちる（元の JS からの潜在バグ・挙動は変えない）
-	return { tiles: spec.tiles as string[], encoding: spec.encoding || "terrarium", tileSize: spec.tileSize || 256, minzoom: spec.minzoom ?? 0, maxzoom: spec.maxzoom ?? 14,
+	// PMTiles の標高（MapLibre の pmtiles プロトコルと同じ書き方＝url:"pmtiles://…"／tiles:["pmtiles://…"]・UNMAP の GEL・2026-11-14）＝型紙ではなくアーカイブ 1 つ。z/x/y は取得の時に索引で引く
+	const tiles = spec.tiles?.length ? spec.tiles : typeof spec.url === "string" && spec.url.startsWith("pmtiles://") ? [spec.url] : spec.tiles;
+	return { tiles: tiles as string[], encoding: spec.encoding || "terrarium", tileSize: spec.tileSize || 256, minzoom: spec.minzoom ?? 0, maxzoom: spec.maxzoom ?? 14,
 		bounds: Array.isArray(spec.bounds) && spec.bounds.length === 4 ? spec.bounds.slice() : null, dtm: !!spec.dtm, cellZoom: spec.cellZoom ?? null, headers: spec.headers || null, credentials: spec.credentials || "omit",
 		redFactor: spec.redFactor ?? 1, greenFactor: spec.greenFactor ?? 1, blueFactor: spec.blueFactor ?? 1, baseShift: spec.baseShift ?? 0 };   // encoding custom の係数（MapLibre の既定 1/1/1/0）
 }
@@ -80,6 +82,12 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 				if (!d) return null;
 				if ("width" in d && "data" in d) return { h: decodeDEM(d.data, spec.encoding, spec), n: d.width };   // 画素のまま（Cesium の互換の口の地形）＝canvas の往復なし
 				body = d instanceof Blob ? d : new Blob([d]);
+			}
+			else if (url(z, x, y).startsWith("pmtiles://")) {   // PMTiles の標高＝Range でアーカイブの索引を引く（pmtiles-src は使う時だけ読む＝XYZ だけの起動で worker に乗せない）
+				const { fetchPMTilesRaw } = await import("./pmtiles-src.ts");
+				const b = await fetchPMTilesRaw(url(z, x, y), z, x, y);
+				if (!b) return null;   // 索引に無い・ズーム域外＝そこに無い（XYZ の 404 と同じ）
+				body = new Blob([b as Uint8Array<ArrayBuffer>]);
 			}
 			else {
 				const r = await fetch(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });

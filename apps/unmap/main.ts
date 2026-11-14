@@ -1,0 +1,77 @@
+// UNMAP オフライン版（実験・国連職員だけ）M1＝地球儀に OSM planet（PMTiles）と GEL の地形をオンラインで重ねる。
+// 計画：M2 で OPFS の源と合成の源（packages/ortho-core/src/pmtiles-src.ts）・M3 で矩形の選択と切り出し。
+// 視点の hash（#z/lat/lon）は URL に書く。?osm=・?gel=＝データの置き場の差し替え（sources.ts）。?status=0＝確認の札を出さない。
+// ?names=local|en|fr|es|ru|zh|ar＝地名の言語（無ければ前回の選択 → UI の言語が UN の 6 公用語ならそれ → 現地語）。
+import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";
+import { gelTerrain, sourcesFrom } from "./sources.ts";
+import { LABEL_LAYERS, NAME_LANGS, NAME_LANG_LABEL, isNameLang, nameExpr, osmStyle } from "./style.ts";
+import type { NameLang } from "./style.ts";
+import { probe } from "./probe.ts";
+import type { ProbeResult } from "./probe.ts";
+
+const SRC = sourcesFrom(location.href);
+const SHOW_STATUS = !/[?&]status=0/.test(location.search);
+
+// 確認の札（M0 を端末の上で見る）：OSM と GEL の Range・ヘッダの申告・描き手（WebGPU か WebGL2）
+const card = SHOW_STATUS ? document.getElementById("status") : null;
+const rows: Record<string, string> = { osm: "OSM planet: …", gel: "GEL terrain: …", gpu: "Renderer: …" };
+const paint = () => { if (card) card.querySelector("ul")!.innerHTML = Object.values(rows).map(t => `<li>${t}</li>`).join(""); };
+const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+const line = (name: string, r: ProbeResult) => r.ok
+	? `${name}: <b class="ok">OK</b> · Range 206 · z${r.minZoom}–${r.maxZoom} · ${r.tileType} · ${r.ms} ms`
+	: `${name}: <b class="ng">NG</b> · ${esc(r.reason || "")}`;
+if (card) {
+	card.hidden = false;
+	card.querySelector("button")!.addEventListener("click", () => { card.hidden = true; });
+	paint();
+	probe(SRC.osm).then(r => { rows.osm = line("OSM planet", r); paint(); });
+	probe(SRC.gel).then(r => { rows.gel = line("GEL terrain", r); paint(); });
+}
+
+// 地名の言語：?names= → 前回の選択（localStorage）→ UI の言語（UN の 6 公用語なら）→ 現地語
+const NAMES_KEY = "unmap.names";
+const savedNames = (): string | null => { try { return localStorage.getItem(NAMES_KEY); } catch { return null; } };
+const initialNames = (uiLang: string): NameLang => {
+	const q = new URLSearchParams(location.search).get("names"), ui = uiLang.slice(0, 2).toLowerCase();
+	return isNameLang(q) ? q : isNameLang(savedNames()) ? savedNames() as NameLang : isNameLang(ui) && ui !== "local" ? ui : "local";
+};
+/** 地名の言語の切替（左下の select）。変えたら地名の層の text-field を差し替え・選択を覚える */
+function mountNamePicker(map: { setLayoutProperty(id: string, name: string, value: unknown): unknown }, cur: NameLang): void {
+	const sel = document.getElementById("names") as HTMLSelectElement | null;
+	if (!sel) return;
+	sel.innerHTML = NAME_LANGS.map(l => `<option value="${l}"${l === cur ? " selected" : ""}>${NAME_LANG_LABEL[l]}</option>`).join("");
+	sel.hidden = false;
+	sel.addEventListener("change", () => {
+		const l = sel.value; if (!isNameLang(l)) return;
+		for (const id of LABEL_LAYERS) map.setLayoutProperty(id, "text-field", nameExpr(l));
+		try { localStorage.setItem(NAMES_KEY, l); } catch { /* 覚えられないだけ */ }
+	});
+}
+
+(async () => {
+	const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
+	await setLang();
+	document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
+	const names = initialNames(getLang());
+	try {
+		const { createGlobe } = await import("@ortho-earth/globe");
+		const map = await createGlobe({
+			target: "#map", view: location.hash || "#2/10/20",
+			region: null,                    // 日本の申告なし＝基図は下の style だけ
+			style: osmStyle(SRC.osm, names), // OSM planet（Protomaps v4）・地名の言語
+			terrain: gelTerrain(SRC.gel),    // GEL（z2–12・mapbox の画素詰め）
+			zoomMax: 18, chips: false, mesh: false, worldContent: false,
+			// 世界帯の自前の中身（Natural Earth の海岸線・国境・河川・湖）と星空・夜面は持たない＝OSM の境界と二重にしない・オフラインで取りに行く物を減らす
+			coastline: false, worldLines: false, worldFill: false, countryTip: false, sky: false, night: false,
+			instruments: ["pos", "attr", "scale"], urlHash: true, persistView: false,
+			debugGlobals: /[?&]debug=1/.test(location.search),
+		});
+		dismissBoot();
+		mountNamePicker(map as never, names);
+		map.gadget.cpos();     // 現在地（GPS）へ＝M3 の「現在地周辺を選ぶ」の入口にもなる（本人 2026-11-14「現在地周辺は絶対入れて」）
+		map.gadget.compass();
+		window.__map = map;   // console 検証用
+		const showGpu = () => { rows.gpu = `Renderer: <b>${map.backend ?? "…"}</b>`; paint(); };
+		showGpu(); setTimeout(showGpu, 3000);   // backend は最初の描画の後に決まる
+	} catch (e) { console.error("[unmap] startup failed", e); dismissBoot(); rows.gpu = `Renderer: <b class="ng">startup failed</b>`; paint(); }
+})();
