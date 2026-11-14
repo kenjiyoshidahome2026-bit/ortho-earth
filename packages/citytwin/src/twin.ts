@@ -1,0 +1,1709 @@
+// 市のデジタルツインの案内板と機能（横浜市 2026-10-18〜 の twin.ts を 2026-11-14 に共有モジュールへ＝京都市と同じ芯）。地図は orthoJapan（PLATEAU の建物・地形・基図はエンジンが持つ）。
+// 市ごとの物（区・名所・地下鉄・救急・物語）は city（CityConfig＝apps/<市>/data.ts）で受ける。文言の訳＝全国で同じ物はこのパッケージの辞書（i18n/pages/citytwin.json）・
+// 市の物は市の頁の辞書。ここが足すのは 5 つの面：
+//   暮らし … 地区を平面で画面の 9 割に収める・区の統計・公共施設（区分ごと・押すと吹き出し）・施設の検索・平面に重ねる区域
+//   交通 … 市営地下鉄（駅番号の記号つき）・市営バスの停留所・JR と私鉄の駅と線路・駅からの徒歩圏
+//   観光 … 名所ツアー・物語（横浜＝港の物語・京都＝千二百年）・名所（写真つき）
+//   防災 … 重ねるハザードマップを 3D の街に重ねる・指定緊急避難場所・地点を調べる・通信なしで使う
+//   解析 … わが家のまわり・可視域・切り取り（断面）・一人称で歩く・距離と面積・断面図・その時刻の建物の影・冬至の日影図
+// 建物＝全区とも常に出す（エンジンの登録簿・切り替えは置かない＝本人 2026-10-21）。区の境界・鉄道・バス停・公共施設・名所の写真＝ortho-data/japan/<市>/ を opts.base から読む。
+// 出典は案内板に書かず、地図の出典の欄（#attr）にまとめる（各 source／raster／tiles3d の attribution・本人 2026-10-21）。写真の作者と使用許諾だけは写真に添える（CC の条件）。
+// 状態は URL の search（?tab=&hz=&ward=&spot=&tr=）に写す＝その画面をそのまま共有できる（core.ts の parseState／writeState）。
+// 選挙・候補者・政策の中身には触れない＝市政の中立な道具として作る（本人 2026-10-18）。
+import { createPanel, PANEL_MOBILE } from "common/panel";   // 案内パネルの枠（共有エンジンの入口）
+import type { BigTable } from "common/bigtable";   // 施設の検索の表（仮想スクロール）＝engine の入口（ortho-japan の温泉の一覧と共用・2026-10-24）・「暮らし」の面を開いた時に遅延 import
+import { tr, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（共通の辞書＝i18n/pages/citytwin.json・市の頁の辞書＝main.ts の startPage が先に読む）。モジュール評価時に t() を呼ばない
+import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
+import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
+import { HINAN_FLAGS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, insideBox, RAIL_LAYER, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, sheltersIn, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, siteName, walkMin, distM, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, sampleLine, climb, shiftInto, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, searchPlaces, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom, type PlaceRow, type CityConfig } from "./core.ts";
+import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow, View } from "./core.ts";
+import { createOffline, type Stage, type OfflineRec } from "./offline.ts";   // 通信なしで使う束（完全オフライン・本人 2026-11-12）
+
+const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
+
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const gunzip = async (buf: ArrayBuffer): Promise<ArrayBuffer> => {
+	const h = new Uint8Array(buf, 0, 2);
+	return h[0] === 0x1f && h[1] === 0x8b ? new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer() : buf;
+};
+// 日本時間の「YYYY-MM-DD」と時（小数）→ Date
+const jst = (ymd: string, h: number) => new Date(`${ymd}T${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}:00+09:00`);
+const todayJST = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+/** 長い列（バスの系統・乗り入れる路線）を吹き出しに収める */
+const clip = (s: string, n: number, t: (k: string, ...a: unknown[]) => string) => { const a = String(s || "").split("・").filter(Boolean); return a.length > n ? t("$1 and $2 more", a.slice(0, n).join("・"), a.length - n) : a.join("・"); };
+
+export interface TwinOptions { /** 台帳の置き場（末尾 /・ortho-data/japan/<市>/） */ base: string; /** アプリの置き場（末尾 /・/yokohama/＝通信なしの束の目録 offline.json の場所） */ appBase: string }
+type MapDom = GlobeMap & { Marker: typeof Marker; Popup: typeof Popup };   // map.Marker／map.Popup（import しなくても使える口・型は globe.d.ts に無い）
+
+export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptions) {
+	// 全国で同じ文言の辞書（このパッケージ）を本体の表に足す＝市の頁の辞書（main.ts の startPage）と並ぶ。UI を組む前に
+	await loadPage(c => import(`../i18n/lang/citytwin/${c}.json`));
+	const t = tr(), lang = getLang();
+	const { wards: WARDS, spots: SPOTS, tour: TOUR, hazards: HAZARDS, view: CITY_VIEW, bbox: CITY_BBOX, maskBox: MASK_BOX, subway: SUBWAY, transit: TRANSIT, railLinesEn: RAIL_LINES_EN } = city;
+	const hasArea = (id: AreaId) => !city.noAreas?.includes(id);   // 市に台帳のある区域か
+	const TAG = `[${city.id}]`;   // console の印
+	const Offline = createOffline(city, opts.appBase);
+	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）
+	const HAZARD_ATTR = `<a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" target="_blank" rel="noopener">${esc(t("Hazard Map Portal Site (MLIT)"))}</a>`;
+	const HINAN_ATTR = t("Designated emergency evacuation site data (GSI)");
+	// nc＝国土数値情報の使用許諾が「非商用」の物（P17 消防署・P18 警察署・P27 文化施設・P28 国の機関）＝出典に書き添える（本人 2026-10-21：今は非商用で良い・横浜市が使う時に一緒に詰める）
+	const KSJ_ATTR = (what: string, nc = false) => `<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank" rel="noopener">${esc(t("National Land Numerical Information ($1)", t(what)))}</a>${nc ? (lang === "ja" ? `（${esc(t("non-commercial use"))}）` : ` (${esc(t("non-commercial use"))})`) : ""}`;
+	const num = (n: number) => n.toLocaleString(lang);
+	document.title = t(city.title);
+	// 住所の頭の「横浜市」は出さない（区から始める・本人 2026-10-26）
+	const shortAddr = (a: string) => a.startsWith(city.addrPrefix) ? a.slice(city.addrPrefix.length) : a;
+	const wardName = (code: string) => { const w = WARDS.find(x => x.code === code); return w ? t(w.en) : ""; };
+	// 固有名（施設・駅・停留所・学校・避難場所）＝日本語以外は英語（facilities-en.json・無い名は日本語のまま・本人 2026-10-26「日本語以外は英語」）
+	type EnNames = { rows?: Record<string, [string, string]>; st?: Record<string, string>; stop?: Record<string, string>; school?: Record<string, [string, string]>; hinan?: Record<string, [string, string]> };
+	let EN: EnNames | null = null;
+	const staName = (ja: string) => { if (lang === "ja") return ja;
+		const c = subwayCodes(SUBWAY, ja)[0]; return c ? c.line.romaji[+c.code.slice(1) - 1] : EN?.st?.[ja] || ja; };
+	const stopName = (ja: string) => lang === "ja" ? ja : EN?.stop?.[ja] || ja;
+	const routesOf = (s: string) => lang === "ja" ? s : s.split("・").map(r => r.split("〜").map(stopName).join(" – ")).join("・");
+	const schoolName = (p: { n?: unknown; a?: unknown }) => EN?.school?.[`${p.n}|${p.a ?? ""}`]?.[0] || String(p.n || "");
+	const shName = (r: HinanRow) => EN?.hinan?.[`${r[2]}|${r[3]}`]?.[0] || r[2];
+	const shAddr = (r: HinanRow) => EN?.hinan?.[`${r[2]}|${r[3]}`]?.[1] || shortAddr(r[3]);
+	const mapEl = map.mapEl;
+	const ML = map as MapDom;
+	const st: TwinState = parseState(city, location.search);
+	// backend は初描画（frame1）で決まる＝それまで null。案内板を組む前に待つ（最長 10 秒）＝待たないと WebGPU でも切り取り・影の口が出なかった（2026-10-21 CDP 実測）
+	for (let i = 0; i < 100 && !map.backend; i++) await sleep(100);
+	const gpu = map.backend === "webgpu";
+	const save = () => { const s = writeState(city, location.search, st); history.replaceState(history.state, "", location.pathname + s + location.hash); };
+	// 台帳（JSON）＝一度だけ取る。無い・壊れた＝null（その機能だけ黙る）
+	const memo = new Map<string, Promise<unknown>>();
+	const ledger = <T>(name: string): Promise<T | null> => (memo.get(name) ?? memo.set(name, fetch(opts.base + name, { credentials: "omit" })
+		.then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+		.catch(e => { console.warn(TAG, name, e); return null; })).get(name)!) as Promise<T | null>;
+	const enP: Promise<unknown> = lang === "ja" ? Promise.resolve() : ledger<EnNames>("facilities-en.json").then(d => { EN = d; });
+
+	// ── カメラ ──
+	// 地区（区・全市）＝平面の地区図：基図はベクターのまま全層（地名・地形・鉄道・道路）を点ける。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の点け方へ戻す（本人 2026-10-21・ラスターには替えない）
+	// 基図の施設名は点けない＝公共施設の点と被る（本人 2026-10-26・main.ts の opts.layers で封印）
+	const ALL_LAYERS = { place: true, terrain: true, rail: true, road: true };
+	// 日本語以外＝基図の地名（日本語の注記）は伏せ、OSM の英語の地名（places.json）を描く（本人 2026-10-26）
+	const OSM_NAMES = lang !== "ja";
+	const baseLayers = (o: Parameters<GlobeMap["setBaseLayers"]>[0]) => map.setBaseLayers(OSM_NAMES ? { ...o, place: false } : o);
+	let layersBefore: ReturnType<GlobeMap["getBaseLayers"]> | undefined;   // undefined＝平面にしていない
+	const setFlat = (on: boolean) => {
+		if (!map.setBaseLayers) { showAreas(on); return; }   // 旧エンジン（setBaseLayers 前）＝区域だけ
+		if (on) { if (layersBefore === undefined) { const now = map.getBaseLayers(); layersBefore = ["place", "terrain", "rail", "road"].every(k => now[k as keyof typeof now]) ? { ...now, terrain: false, rail: false, road: false } : now; } showAreas(true); baseLayers(ALL_LAYERS); }   // 既に全層＝平面の地区図の共有 URL（l= が全層）から開いた＝戻り先は既定（地名だけ）
+		else if (layersBefore !== undefined) { const b = layersBefore; layersBefore = undefined; showAreas(false); baseLayers(b); }
+	};
+	const flyView = (v: { lon: number; lat: number; zoom: number; tilt: number; bearing: number }) => { if (v.tilt > 0) setFlat(false); return map.flyTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing }); };
+	// 着いたら 0.4 秒止まる＝エンジンは視点が止まった時（settle）にだけ新しい区の建物を読み始める。ツアーは着くとすぐ回り込み（easeTo）へ移る＝
+	// 止まる瞬間が無く、まだ読んでいない区は一度も読まれなかった（本人 2026-11-13「名所ツアーで建物が出ない」・Mac 実測で 400ms で立つ）
+	const SETTLE_MS = 400;
+	const flySpot = (s: Spot) => { const h = holdBuildings(s); return flyView(s).finally(() => { h.armed = true; }).then(() => sleep(SETTLE_MS)); };
+
+	// ── 案内板（右上）──
+	// 枠（見出し・副題・折り畳み・PC は右上／スマホは下端のシート）＝共通の器 common/panel（夜の配色）。ここは中身だけ
+	const P = createPanel({ host: mapEl, title: t(city.title), cls: "yk-panel",   // 副題は置かない（本人 2026-10-21）
+		labels: { fold: t("Collapse panel"), unfold: t("Expand panel") } });
+	const panel = P.el;
+	// 言語の切替は案内板の見出しへ（左の列から移す・本人 2026-10-26「言語切り替えはパネルへ」）。畳んだ見出しを押すと開く動きには乗せない
+	const langBtn = mapEl.querySelector<HTMLButtonElement>("#lang-btn");
+	if (langBtn) { P.head.insertBefore(langBtn, P.fold); langBtn.addEventListener("click", e => e.stopPropagation()); }
+	P.body.insertAdjacentHTML("beforebegin", `<style>${CSS}</style>`);
+	P.body.innerHTML = `
+			<nav class="tabs" role="tablist">
+				${TABS.map(k => `<button type="button" role="tab" data-tab="${k}">${esc(t(TAB_NAMES[k]))}</button>`).join("")}
+			</nav>
+			<section data-pane="sight" hidden>
+				<button class="tour" type="button">${esc(t("▶ Landmark tour"))}</button>
+				${city.story ? `<button class="tour port" type="button">${esc(t(city.story.button))}</button>
+				<button class="act sea" type="button">${esc(t(city.story.viewsButton))}</button>` : ""}
+				<h2>${esc(t("Landmarks"))}</h2>
+				<div class="spots">${SPOTS.map(s => `<button type="button" data-spot="${esc(s.id)}">${esc(t(s.name))}</button>`).join("")}</div>
+				<div class="spot-note" hidden></div>
+			</section>
+			<section data-pane="life">
+				<!-- 市民ファースト（本人 2026-10-25）：地区 → 札（地図の表示＝既定・施設の検索）。2026-11-13 に札の並びを「地図の表示」が先へ -->
+				<h2>${esc(t("District"))}</h2>
+				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${esc(w.code)}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(t("Whole city"))}</button></div>
+				<div class="detail stats-out" hidden></div>
+				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="show" aria-selected="true">${esc(t("Map display"))}</button><button type="button" role="tab" data-sub-tab="find" aria-selected="false">${esc(t("Search facilities"))}</button></nav>
+				<!-- 札の並び＝「地図の表示」が先・既定（本人 2026-11-13） -->
+				<div data-sub-pane="find" hidden>
+				<input type="search" class="fq" placeholder="${esc(t("Name, type or address"))}" aria-label="${esc(t("Search facilities"))}" enterkeyhint="search">
+				<div class="fbt"></div>
+				<div class="fbar"><small class="fq-n"></small><button type="button" class="fcsv">${esc(t("Download CSV"))}</button></div>
+				<p class="sub flat">${esc(t("Tap a row to fly there. Lists every public facility in the chosen district."))}</p>
+				</div>
+				<div data-sub-pane="show">
+				<!-- 公共施設＝区分ごとに 1 行（チェック）・種別は ▾ で開く・最初は区役所だけ（本人 2026-10-26「最初から全部出しすぎ・せめて区役所ぐらい」）。出している施設の合計が少ない間（≤ FAC_FAR_MAX 件）は市全体の眺めからも点が出る -->
+				<h3>${esc(t("Types of facilities on the map"))}</h3>
+				<div class="fbar fac-bar"><small class="fac-n"></small><button type="button" class="fac-all">${esc(t("Show all"))}</button><button type="button" class="fac-none">${esc(t("Hide all"))}</button></div>
+				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
+					return `<div class="cg" data-cg="${i}"><label class="grp"><input type="checkbox" data-cat="${i}"><b><i style="background:${c.color}"></i>${esc(t(c.name))}</b><small></small></label>${subs.length > 1 ? `<button type="button" class="tw" data-tw="${i}" aria-expanded="false" aria-label="${esc(t("Types"))}"></button><div class="kds">${subs.map(({ x, j }) => `<label class="grp kd"><input type="checkbox" data-sub="${j}"><b>${esc(t(x.name))}</b><small></small></label>`).join("")}</div>` : ""}</div>`; }).join("")}</div>
+				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
+				<h3>${esc(t(city.zonesTitle))}</h3>
+				<p class="sub flat">${esc(t(city.flatNote))}</p>
+				${AREAS.filter(x => !("hide" in x) && hasArea(x.id)).map(x => `<label class="grp"><input type="checkbox" data-area="${x.id}"><b>${x.color ? `<i class="ar" style="border-color:${x.color}"></i>` : ""}${esc(t(x.name))}</b><small data-arn="${x.id}"></small></label>`).join("")}
+				<div class="lg zlg" hidden><small>${esc(t("Land-use zoning"))}</small>${ZONES.map((z, i) => `<span data-z="${i}"><i style="background:${z.color}"></i>${esc(t(z.name))}</span>`).join("")}</div>
+				</div>
+			</section>
+			<section data-pane="transit" hidden>
+				<h2>${esc(t("Railways and buses"))}</h2>
+				${TRANSIT.map(x => `<label class="grp"><input type="checkbox" data-tr="${esc(x.id)}"><b>${esc(t(x.name))}</b><small data-trn="${esc(x.id)}"></small></label>`).join("")}
+				<div class="lines">${SUBWAY.map(l => `<span><i class="sw" style="background:${esc(l.color)}">${esc(l.id)}</i>${esc(t(l.name))} (${esc(t("$1 stations", l.stations.length))})</span>`).join("")}</div>
+				<p class="sub flat">${esc(t(city.subwayNote))}</p>
+				<h2>${esc(t("Walking distance from a station"))}</h2>
+				<label class="msel"><select class="wsta"><option value="">${esc(t("Choose a station"))}</option>${SUBWAY.map(l => `<optgroup label="${esc(t(l.name))}">${l.stations.map((n, i) => `<option value="${esc(n)}">${esc(l.id)}${String(i + 1).padStart(2, "0")} ${esc(staName(n))}</option>`).join("")}</optgroup>`).join("")}</select></label>
+				<p class="sub flat">${esc(t("Or tap any station on the map and choose “Walking distance”."))}</p>
+				<div class="detail walk-out" hidden></div>
+			</section>
+			<section data-pane="risk" hidden>
+				<!-- 通信なしで使う（本人 2026-11-12「災害時の動作保証・外国人が通信なしで使える」）＝一気に端末へ保存・「更新」で取り直す -->
+				<div class="offl">
+				<h2>${esc(t("Use without a connection"))}</h2>
+				<p class="sub flat off-msg">${esc(t("Save the whole app on this device (about $1) and every feature works without a network, for example in a disaster. Only Wikipedia needs a connection.", city.offlineMB >= 1000 ? `${(city.offlineMB / 1000).toFixed(1)} GB` : `${city.offlineMB} MB`))}</p>
+				<button type="button" class="act off-run">${esc(t("Save for offline use"))}</button>
+				<div class="off-saved" hidden><span class="off-when"></span><span class="off-btns"><button type="button" class="off-upd">${esc(t("Update"))}</button><button type="button" class="off-del">${esc(t("Delete"))}</button></span></div>
+				<div class="off-bar" hidden><i></i></div>
+				<div class="off-prog" hidden><small></small><button type="button" class="off-stop">${esc(t("Stop"))}</button></div>
+				<p class="sub flat off-ios" hidden>${esc(t("On iPhone and iPad, add this page to the Home Screen to keep the saved data."))}</p>
+				</div>
+				<h2>${esc(t("Check a location"))}</h2>
+				<div class="hm-btns"><button type="button" class="act probe">${esc(t("Tap the map to check a location"))}</button><button type="button" class="act probe-gps">${esc(t("Use my current location"))}</button></div>
+				<p class="sub flat probe-msg"></p>
+				<div class="detail probe-out" hidden></div>
+				<h2>${esc(t("Overlay hazard scenarios"))}</h2>
+				${HAZARDS.map(h => `<label class="grp"><input type="checkbox" data-hz="${esc(h.id)}"><b>${esc(t(h.name))}</b></label><p class="sub" data-hznote="${esc(h.id)}" hidden>${esc(t(h.note))}</p>`).join("")}
+				<label class="msel hzop-w" hidden><span>${esc(t("Opacity"))}</span><input type="range" class="hzop" min="0.2" max="1" step="0.05" value="0.7"></label>
+				<div class="legend" hidden></div>
+				${city.inland ? `<p class="sub flat">${esc(t(city.inland.text))} <a href="${esc(city.inland.url)}" target="_blank" rel="noopener">${esc(t(city.inland.link))}</a></p>` : ""}
+				<h2>${esc(t("Designated emergency evacuation sites"))}</h2>
+				<label class="grp"><input type="checkbox" class="hinan"><b>${esc(t("Show evacuation sites"))}</b><small class="hn-n"></small></label>
+				<label class="msel"><span>${esc(t("Disaster type"))}</span><select class="hnf"><option value="-1">${esc(t("All"))}</option>${HINAN_FLAGS.map((f, i) => `<option value="${i}">${esc(t(f))}</option>`).join("")}</select></label>
+				<div class="detail" hidden></div>
+				<p class="note">${esc(t(city.riskNote))}</p>
+			</section>
+			<section data-pane="tools" hidden>
+				<!-- わが家のまわり＝暮らしの面ではかさばるので解析へ（本人 2026-10-26） -->
+				<h2>${esc(t("Around my home"))}</h2>
+				<div class="hm-btns"><button type="button" class="act hm-tap">${esc(t("Tap the map at your home"))}</button><button type="button" class="act hm-gps">${esc(t("Use my current location"))}</button></div>
+				<div class="hm-saved" role="group" aria-label="${esc(t("Saved places"))}" hidden></div>
+				<p class="sub flat hm-msg">${esc(hasArea("school-e") ? t("One card shows your school districts, nearest stations, flood risk, evacuation site and nearby facilities.") : t("One card shows your nearest stations, flood risk, evacuation site and nearby facilities."))}</p>
+				<div class="detail home-out" hidden></div>
+				<h2>${esc(t("At the center of the screen"))}</h2>
+				<button type="button" class="act vs">${esc(t("Viewshed (1 km radius, eye height 1.6 m)"))}</button>
+				<button type="button" class="act vsclear" hidden>${esc(t("Clear the viewshed"))}</button>
+				${gpu ? `<button type="button" class="act clip">${esc(t("Clip (500 m square)"))}</button>` : ""}
+				<button type="button" class="act walk">${esc(t("Walk in first person (Esc to return)"))}</button>
+				<h2>${esc(t("Measure"))}</h2>
+				<button type="button" class="act measure">${esc(t("Distance and area"))}</button>
+				<button type="button" class="act profile">${esc(t("Elevation profile"))}</button>
+				<p class="sub flat toolmsg"></p>
+				<h2>${esc(t("Building shadows"))}</h2>
+				${gpu ? `<label class="grp"><input type="checkbox" class="shadow"><b>${esc(t("Cast shadows for this time"))}</b></label>
+				<div class="dates"><label>${esc(t("Date"))}<input type="date" class="sday"></label><label>${esc(t("Time"))} <output class="shour-o"></output><input type="range" class="shour" min="5" max="19" step="0.25" value="12"></label></div>`
+					: `<p class="sub flat">${esc(t("Real-time shadows need a browser with WebGPU (Chrome, Edge, etc.)."))}</p>`}
+				<button type="button" class="act sunmap">${esc(t("Winter solstice shadow map (8:00–16:00)"))}</button>
+				<button type="button" class="act sunclear" hidden>${esc(t("Clear the shadow map"))}</button>
+				<p class="sub flat sunmsg"></p>
+			</section>
+		`;
+	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());
+	const $ = <T extends HTMLElement = HTMLInputElement>(s: string) => panel.querySelector<T>(s)!;
+	const $$ = <T extends HTMLElement = HTMLInputElement>(s: string) => [...panel.querySelectorAll<T>(s)];
+
+
+	// ── 面の切り替え ──
+	function setTab(k: Tab) {
+		st.tab = k; save(); closePop();
+		$$<HTMLButtonElement>("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === k)));
+		$$<HTMLElement>("[data-pane]").forEach(p => { p.hidden = p.dataset.pane !== k; });
+		if (k === "life") facTable();
+		if (k === "transit") fillStations();
+	}
+	$$<HTMLButtonElement>("[data-tab]").forEach(b => b.onclick = () => setTab(b.dataset.tab as Tab));
+	// 暮らし：「施設を探す」と「地図の表示」を札で分ける（本人 2026-10-26「一覧検索と表示設定をタブに」）
+	function setSubTab(k: string) {
+		$$<HTMLButtonElement>("[data-sub-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.subTab === k)));
+		$$<HTMLElement>("[data-sub-pane]").forEach(p => { p.hidden = p.dataset.subPane !== k; });
+	}
+	$$<HTMLButtonElement>("[data-sub-tab]").forEach(b => b.onclick = () => setSubTab(b.dataset.subTab!));
+
+	// ── 吹き出し（施設・駅・停留所で 1 つを使い回す）──
+	let pop: Popup | null = null;
+	const closePop = () => { pop?.remove(); pop = null; };   // 面・地区を替えたら閉じる
+	// 地点を調べる中（と、その一押しの直後）は吹き出しを出さない＝層のクリックと地図のクリックの順はエンジン任せ（どちらが先でも止める）
+	const openPop = (ll: LonLat, html: string) => { if (probing || Date.now() - probedAt < 600) return; pop?.remove(); pop = new ML.Popup({ closeButton: true, maxWidth: "260px", className: "yk-pop", offset: 10 }).setLngLat(ll).setHTML(html).addTo(map); };
+
+	// ── 観光：地区＝平面（真上から・北が上）で区の外接矩形を画面の 9 割に収める ──
+	// 区の境界（wards.json）は起動時に読み、市の外の薄い覆い・全区の線・選んだ区の塗りを描く（「全部入り」の地図）。区の名前は基図が出す（重ねると二重になる・Mac 実測）
+	type WardFC = { type: "FeatureCollection"; features: (GeoJSONFeature & { properties: { code: string; name: string; bbox: [number, number, number, number] } })[]; city?: LonLat[][] };
+	let wardsReady: Promise<WardFC | null> | null = null;
+	const maskOn = () => insideBox(map.getBounds(), MASK_BOX);
+	const loadWards = () => wardsReady ??= ledger<WardFC>("wards.json").then(async fc => {
+		if (!fc?.features?.length) return null;
+		// 市の外を薄く覆う（本人 2026-10-21）＝周りの大きな矩形に市の外周の環を穴として開ける
+		if (fc.city?.length) {
+			map.addSource("yk-mask", { type: "geojson", data: { type: "FeatureCollection", features: [{ type: "Feature", properties: {},
+				geometry: { type: "Polygon", coordinates: [[[MASK_BOX[0], MASK_BOX[1]], [MASK_BOX[2], MASK_BOX[1]], [MASK_BOX[2], MASK_BOX[3]], [MASK_BOX[0], MASK_BOX[3]], [MASK_BOX[0], MASK_BOX[1]]], ...fc.city] } }] } });
+			await map.addLayer({ id: "yk-mask", type: "fill", source: "yk-mask", layout: { visibility: maskOn() ? "visible" : "none" }, paint: { "fill-color": "#26323f", "fill-opacity": 0.16 } });
+			// 外枠の縁が画面に入ったら覆いごと消す（枠を見せない・本人 2026-10-21）
+			let maskShown = maskOn();
+			map.on("move", () => { const on = maskOn(); if (on !== maskShown) { maskShown = on; map.setLayoutProperty("yk-mask", "visibility", on ? "visible" : "none"); } });
+		}
+		map.addSource("yk-wards", { type: "geojson", data: fc, attribution: KSJ_ATTR("administrative boundaries") });
+		await map.addLayer({ id: "yk-ward-on", type: "fill", source: "yk-wards", filter: ["==", ["get", "code"], ""], paint: { "fill-color": "#1e88e5", "fill-opacity": 0.12 } });
+		await map.addLayer({ id: "yk-ward-line", type: "line", source: "yk-wards", paint: { "line-color": "#78909c", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 15, 1.8], "line-opacity": 0.6 } });   // 周りの基図に馴染む淡い灰青（本人 2026-11-13「区の境界の色のトーンが周りに比べて強すぎる」・旧 #37474f 0.75）
+		return fc;
+	});
+	// 9 割＝縦横とも 5% の余白。PC は右上の案内板の幅を右の余白に足す（板の下に区を隠さない）
+	const pad90 = () => {
+		const w = mapEl.clientWidth, h = mapEl.clientHeight, side = Math.min(w, h) * 0.05;
+		const pr = panel.getBoundingClientRect(), mr = mapEl.getBoundingClientRect();
+		const desk = pr.width < w * 0.6 && !panel.classList.contains("min");
+		const sheet = !desk && !panel.classList.contains("min") && pr.top > mr.top + h * 0.3;   // スマホ＝下端のシート
+		const onLeft = pr.left + pr.width / 2 < mr.left + w / 2;   // RTL（ar・fa・ur・he）は板が左に来る＝余白を足す側を板のある側に
+		return { top: side, left: side + (desk && onLeft ? pr.right - mr.left : 0), right: side + (desk && !onLeft ? mr.right - pr.left : 0), bottom: side + (sheet ? mr.bottom - pr.top : 0) };
+	};
+	const wardSel = $<HTMLSelectElement>(".ward");
+	const cityBox = (fc: WardFC | null): [number, number, number, number] | null => {
+		const pts = fc?.city?.flat() ?? fc?.features.flatMap(f => [[f.properties.bbox[0], f.properties.bbox[1]], [f.properties.bbox[2], f.properties.bbox[3]]] as LonLat[]) ?? [];
+		if (!pts.length) return null;
+		const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+		return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+	};
+	async function setWard(code: string) {
+		st.ward = code; save(); wardSel.value = code; closePop(); facTable();
+		statsBtn.hidden = !code; if (statsOn) code ? showStats(code) : hideStats();   // 統計は区を選んだ時だけ（開いていれば区に付いていく）
+		const w = WARDS.find(x => x.code === code);
+		const fc = await loadWards();
+		if (st.ward !== code) return;   // 読んでいる間に選び直した
+		const f = fc?.features.find(x => x.properties.code === code);
+		const bb = f?.properties.bbox ?? (w ? null : cityBox(fc) ?? CITY_BBOX);   // 全市＝市の境界の外接矩形（読めない時は台帳の矩形）
+		if (fc) map.setFilter("yk-ward-on", ["==", ["get", "code"], code || "-"]);   // 全市＝どの区も塗らない
+		setFlat(true);
+		if (bb) await map.fitBounds(bb, { padding: pad90(), pitch: 0, bearing: 0 });
+		else if (w) await flyView({ lon: w.lon, lat: w.lat, zoom: w.zoom, tilt: 0, bearing: 0 });   // 境界が読めない時＝区の中ほどへ真上から
+	}
+	wardSel.onchange = () => { setWard(wardSel.value); };
+
+	// ── 区の統計（本人 2026-10-26）＝区を選ぶと地区の横に「統計」。2025 年国勢調査の人口・世帯・年齢ピラミッドと、町丁目ごとの人口（2020 年の小地域・地図に密度の塗り）──
+	type CensusWard = { pop: [number, number, number]; hh: number; pop2020: number; ages: number[] };
+	type CensusLedger = { year: number; smallYear: number; wards: Record<string, CensusWard> };
+	type SmallFC = { type: "FeatureCollection"; features: (GeoJSONFeature & { properties: { k: string; n: string; en: string; p: number; h: number | null; a: number } })[] };
+	const statsBtn = $<HTMLButtonElement>(".stb"), statsOut = $<HTMLElement>(".stats-out");
+	let statsOn = false, statsLayer = false, statsRun = 0;
+	const census = () => ledger<CensusLedger>("census.json");
+	const AGE_LABELS = ["0–4", "5–9", "10–14", "15–19", "20–24", "25–29", "30–34", "35–39", "40–44", "45–49", "50–54", "55–59", "60–64", "65–69", "70–74", "75+"];
+	const DENS = [[0, "#f1eef6"], [2000, "#d4b9da"], [5000, "#c994c7"], [10000, "#df65b0"], [15000, "#dd1c77"], [20000, "#980043"]] as const;   // 人/km²
+	function pyramid(a: number[]) {   // 男＝左・女＝右・各階級の割合（%）
+		const tot = a.reduce((x, y) => x + y, 0) || 1, mx = Math.max(...a) / tot * 100, W = 300, mid = W / 2, half = mid - 22, rh = 13, top = 20;
+		const bar = (v: number) => v / tot * 100 / mx * (half - 4);
+		const rows = AGE_LABELS.map((l, i) => { const y = top + (15 - i) * rh, m = bar(a[i]), f = bar(a[16 + i]), c = i >= 13 ? 0.95 : i < 3 ? 0.55 : 0.75;
+			return `<rect x="${(mid - 22 - m).toFixed(1)}" y="${y}" width="${m.toFixed(1)}" height="${rh - 2}" fill="#4f8fe0" fill-opacity="${c}"/><rect x="${mid + 22}" y="${y}" width="${f.toFixed(1)}" height="${rh - 2}" fill="#e0607e" fill-opacity="${c}"/><text class="ag" x="${mid}" y="${y + rh - 3.5}">${l}</text>`; }).join("");
+		const ms = a.slice(0, 16).reduce((x, y) => x + y, 0), fs = tot - ms;
+		return `<svg class="pyr" viewBox="0 0 ${W} ${top + 16 * rh + 4}" role="img" aria-label="${esc(t("Population pyramid"))}"><text x="4" y="13" text-anchor="start" fill="#7fb0f0">${esc(t("Male"))} ${num(ms)}</text><text x="${W - 4}" y="13" text-anchor="end" fill="#f08aa2">${esc(t("Female"))} ${num(fs)}</text>${rows}</svg>`;
+	}
+	const pct = (a: number[], i0: number, i1: number) => { const tot = a.reduce((x, y) => x + y, 0) || 1; let s = 0; for (let i = i0; i < i1; i++) s += a[i] + a[16 + i]; return (s / tot * 100).toFixed(1); };
+	async function showStats(code: string) {
+		statsOn = true; statsBtn.setAttribute("aria-expanded", "true"); statsBtn.classList.add("on");
+		const run = ++statsRun, w = WARDS.find(x => x.code === code);
+		statsOut.hidden = false;
+		const head = `<div class="dh"><b>${esc(t("$1: population", w ? t(w.en) : ""))}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>`;
+		statsOut.innerHTML = head + `<p class="sub flat">${esc(t("Loading…"))}</p>`;
+		const [c, small] = await Promise.all([census(), ledger<SmallFC>(`census/${code}.json`)]);
+		if (run !== statsRun) return;
+		const d = c?.wards[code];
+		if (!d) { statsOut.innerHTML = head + `<p class="sub flat">${esc(t("Could not load the statistics."))}</p>`; return; }
+		const ch = (d.pop[0] / d.pop2020 - 1) * 100;
+		const feats = small?.features ?? [];
+		const list = [...feats].sort((x, y) => y.properties.p - x.properties.p), pmax = list[0]?.properties.p || 1;
+		statsOut.innerHTML = head + `<div class="kv"><span>${esc(t("Population"))}</span><b>${num(d.pop[0])}</b><small>${esc(t("$1% since 2020", (ch >= 0 ? "+" : "") + ch.toFixed(1)))}</small>
+			<span>${esc(t("Households"))}</span><b>${num(d.hh)}</b><small>${esc(t("$1 per household", (d.pop[0] / d.hh).toFixed(2)))}</small>
+			<span>${esc(t("Aged 65 and over"))}</span><b>${pct(d.ages, 13, 16)}%</b><small>${esc(t("Under 15: $1%", pct(d.ages, 0, 3)))}</small></div>
+			<h3>${esc(t("Age pyramid ($1 census)", c!.year))}</h3>${pyramid(d.ages)}
+			${feats.length ? `<h3>${esc(t("Population by neighborhood ($1 census)", c!.smallYear))}</h3>
+			<div class="lg dens">${DENS.map(([v, col], i) => `<span><i style="background:${col}"></i>${i ? num(v) : "0"}${i === DENS.length - 1 ? "+" : ""}</span>`).join("")}<small>${esc(t("people per km²"))}</small></div>
+			<ol class="sa">${list.map((f, i) => `<li data-k="${esc(f.properties.k)}"><span>${esc(lang === "ja" ? f.properties.n : f.properties.en)}</span><b>${num(f.properties.p)}</b><i style="width:${(f.properties.p / pmax * 100).toFixed(1)}%"></i></li>`).join("")}</ol>` : ""}
+			<p class="sub flat">${esc(t("Source: Population Census (Statistics Bureau of Japan). Ages include estimates for unknown ages."))}</p>`;
+		statsOut.scrollIntoView({ block: "nearest", behavior: "smooth" });
+		if (!feats.length) return;
+		const data = { type: "FeatureCollection" as const, features: feats.map(f => ({ ...f, properties: { ...f.properties, d: f.properties.a > 0 ? f.properties.p / f.properties.a : 0 } })) };
+		if (!statsLayer) {
+			statsLayer = true;
+			map.addSource("yk-census", { type: "geojson", data, attribution: t("Population Census (Statistics Bureau of Japan)") });
+			await map.addLayer({ id: "yk-census", type: "fill", source: "yk-census", paint: { "fill-color": ["step", ["get", "d"], ...DENS.flatMap(([v, col], i) => i ? [v, col] : [col])] as StyleExpression, "fill-opacity": 0.55 } });
+			await map.addLayer({ id: "yk-census-line", type: "line", source: "yk-census", paint: { "line-color": "#6a3d6f", "line-width": 0.6, "line-opacity": 0.6 } });
+			map.on("click", "yk-census", e => { const f = e.features?.[0]; if (f) censusPop(f.properties, [e.lngLat!.lng, e.lngLat!.lat]); });
+		} else { map.getSource("yk-census")?.setData?.(data); for (const l of ["yk-census", "yk-census-line"]) map.setLayoutProperty(l, "visibility", "visible"); }
+	}
+	function censusPop(q: Record<string, any>, at: LonLat) {
+		openPop(at, `<div class="pk">${esc(t("Neighborhood"))}</div><b>${esc(lang === "ja" ? q.n : q.en)}</b><p>${esc(t("Population"))} ${num(q.p)}${q.h != null ? ` · ${esc(t("Households"))} ${num(q.h)}` : ""}<br>${esc(t("$1 people per km²", num(Math.round(q.a > 0 ? q.p / q.a : 0))))}</p>`);
+	}
+	function hideStats() {
+		statsOn = false; statsRun++; statsBtn.setAttribute("aria-expanded", "false"); statsBtn.classList.remove("on");
+		statsOut.hidden = true; statsOut.innerHTML = "";
+		if (statsLayer) for (const l of ["yk-census", "yk-census-line"]) map.setLayoutProperty(l, "visibility", "none");
+	}
+	statsBtn.onclick = () => { if (statsOn) hideStats(); else if (st.ward) showStats(st.ward); };
+	statsOut.addEventListener("click", async e => {
+		const el = e.target as HTMLElement;
+		if (el.closest(".x")) { hideStats(); return; }
+		const li = el.closest<HTMLElement>("li[data-k]"); if (!li) return;
+		const f = (await ledger<SmallFC>(`census/${st.ward}.json`))?.features.find(x => x.properties.k === li.dataset.k); if (!f) return;
+		const pts = (f.geometry as { coordinates: number[][][][] }).coordinates.flat(2), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+		const bb = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] as [number, number, number, number];
+		await map.fitBounds(bb, { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 16 });
+		// 吹き出しは面の中の点に（いびつな町は外接矩形の中心が面の外）＝中心から 9×9 の格子で面の中を探す
+		let at: LonLat = [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];
+		if (!inGeometry(f.geometry, at)) { let best: LonLat | null = null, bd = Infinity; for (let i = 1; i < 10; i++) for (let j = 1; j < 10; j++) { const q: LonLat = [bb[0] + (bb[2] - bb[0]) * i / 10, bb[1] + (bb[3] - bb[1]) * j / 10], d = (q[0] - at[0]) ** 2 + (q[1] - at[1]) ** 2; if (d < bd && inGeometry(f.geometry, q)) { best = q; bd = d; } } if (best) at = best; }
+		censusPop(f.properties, at);
+	});
+	$(".fitc").onclick = () => { setWard(""); };   // 全市＝選び直さなくても押せる（セレクタは同じ値を選んでも change が来ない）
+
+	// ── 観光：名所（写真つき）──
+	const photos = () => ledger<Record<string, Photo>>("photos.json");
+	const photoHTML = (ph: Photo | undefined, cls = "ph") => ph ? `<figure class="${cls}"><img src="${esc(ph.src)}" alt="" loading="lazy" referrerpolicy="no-referrer">
+		<figcaption><a href="${esc(ph.file)}" target="_blank" rel="noopener">${esc(t("Photo: $1", (ph.artist || "Wikimedia Commons") + (ph.license ? ` / ${ph.license}` : "")))}</a></figcaption></figure>` : "";
+	const spotNote = $<HTMLElement>(".spot-note");
+	// brief＝名所ツアーの間（札だけ選ぶ・説明欄は伏せる）＝写真と説明は画面下のツアーの札が出す。両方に出すと同じ写真が 2 枚並ぶ（本人 2026-11-13）
+	// 名所の名札（三塔＝キング・クイーン・ジャック）＝灰色の街並みの中でどの塔か分かるように（本人 2026-11-13・ツアーでも札でも出す・名所を離れたら消す）
+	const spotPins: Marker[] = [];
+	function spotMarks(s: Spot | null) {
+		spotPins.splice(0).forEach(m => m.remove());
+		for (const k of s?.marks || []) {
+			const el = document.createElement("div"); el.className = "yk-dest yk-mark";
+			el.innerHTML = `<span>${esc(t(k.name))}</span><i></i>`;
+			spotPins.push(new ML.Marker({ element: el, anchor: "bottom" }).setLngLat([k.lon, k.lat]).addTo(map));
+		}
+	}
+	// 名所の「どこ」＝区（市の中の位置を小さな地図で）と最寄り駅 2 つ（道のり・徒歩の分・乗れる線）。地元でない人・外国の人に（本人 2026-11-13「横浜のどこにあるのか、最寄駅はどこなのかが分からない（地元の人には分かるけどね）」）
+	// 区の地図＝wards.json（起動時に読む・通信なしの束にもある）を間引いて小さな SVG に。道のり＝歩ける道（OSM）・繋がらない名所（埠頭・橋）は直線と書く（わが家のまわりと同じ見積もり）
+	let locBase: { d: Map<string, string>; w: number; h: number; xy: (p: LonLat) => [number, number] } | null = null;
+	function locator(fc: WardFC | null, code: string, at: LonLat): string {
+		if (!fc?.features?.length) return "";
+		if (!locBase) {
+			const b = fc.features.reduce((a, f) => [Math.min(a[0], f.properties.bbox[0]), Math.min(a[1], f.properties.bbox[1]), Math.max(a[2], f.properties.bbox[2]), Math.max(a[3], f.properties.bbox[3])], [180, 90, -180, -90]);
+			const kx = Math.cos((b[1] + b[3]) / 2 * Math.PI / 180), W = 84, sc = W / ((b[2] - b[0]) * kx), H = Math.round((b[3] - b[1]) * sc);
+			const xy = (p: LonLat): [number, number] => [(p[0] - b[0]) * kx * sc, (b[3] - p[1]) * sc];
+			const ringD = (r: LonLat[]) => { const k = Math.max(1, Math.floor(r.length / 48)); const q = r.filter((_, i) => i % k === 0); return q.length < 3 ? "" : "M" + q.map(p => xy(p).map(v => v.toFixed(1)).join(",")).join("L") + "Z"; };
+			const d = new Map<string, string>();
+			for (const f of fc.features) { const g = f.geometry as { type: string; coordinates: unknown } | null; if (!g) continue;
+				const polys = (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []) as LonLat[][][];
+				d.set(f.properties.code, polys.map(pl => ringD(pl[0] || [])).join("")); }
+			locBase = { d, w: W, h: H, xy };
+		}
+		const [x, y] = locBase.xy(at);
+		return `<svg class="loc" viewBox="-2 -2 ${locBase.w + 4} ${locBase.h + 4}" width="${locBase.w + 4}" height="${locBase.h + 4}" aria-hidden="true">${[...locBase.d].map(([c, d]) => `<path d="${d}"${c === code ? ' class="on"' : ""}/>`).join("")}<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2"/></svg>`;
+	}
+	// 乗れる線（短く）：地下鉄＝ブルー／グリーンライン、JR＝「JR」＋線名、他社＝線名（日本語以外は英語名）
+	const lineShort = (k: string) => city.subwayRail.test(k) ? t(RAIL_LINES_EN[k]) : lang !== "ja" ? RAIL_LINES_EN[k] || k : /^(東日本|東海)旅客鉄道 /.test(k) ? "JR" + k.replace(/^\S+ /, "") : k.replace(/^\S+ /, "");
+	async function spotStations(s: Spot): Promise<string> {
+		if (/駅$/.test(s.wiki)) return "";   // 駅そのもの（横浜駅・新横浜）は要らない
+		const at: [number, number] = s.near || [s.lon, s.lat];
+		const [rail, net] = await Promise.all([loadRail(), walkNet(at).catch(e => { console.warn(TAG, "walk", e); return null; })]);
+		if (!rail) return "";
+		// 並べる物差し＝道のり。道に乗らない駅は直線×1.3（徒歩の見積もりと同じ）で比べる＝直線のまま比べると丘の向こうの駅が勝つ（三溪園で元町・中華街が根岸より上に出た・Mac 実測 2026-11-13）
+		const cands = nearestRows(rail.stations, at, 16).map(({ row }) => { const r = net && walkTo(net.g, net.from, [row[0], row[1]]), m = r ? r.m : distM(at, [row[0], row[1]]);
+			return { row, m, road: !!r, key: r ? m : m * 1.3 }; }).sort((a, b) => a.key - b.key);
+		const pick: typeof cands = [];
+		for (const c of cands) { if (!pick.some(p => p.row[2] === c.row[2])) pick.push(c); if (pick.length >= 2) break; }
+		if (!pick.length) return "";
+		const li = pick.map(({ row, m, road }) => {
+			const lines = [...new Set(rail.stations.filter(r => r[2] === row[2] && distM([r[0], r[1]], [row[0], row[1]]) < 800).flatMap(r => r[3].split("・")).filter(Boolean).map(lineShort))];
+			const how = road ? t("$1 m · about $2 min on foot", num(Math.round(m)), Math.max(1, Math.round(m / 80))) : t("Straight line $1 m · about $2 min on foot", num(Math.round(m)), walkMin(m));
+			return `<li><b>${esc(t("$1 Station", staName(row[2])))}</b> <small>${esc(how)}</small>${lines.length ? `<br><small class="ln">${esc(lines.join(" · "))}</small>` : ""}</li>`;
+		});
+		return `<h4>${esc(t("Nearest stations"))}</h4><ul>${li.join("")}</ul>`;
+	}
+	async function showSpot(s: Spot | null, brief = false) {
+		st.spot = s?.id || ""; save();
+		$$<HTMLButtonElement>("[data-spot]").forEach(b => b.classList.toggle("on", b.dataset.spot === st.spot));
+		spotNote.hidden = !s || brief;
+		spotMarks(s);
+		if (brief) return;
+		if (!s) { spotNote.innerHTML = ""; return; }
+		const head = `<b>${esc(t(s.name))}</b><p>${esc(t(s.note))}</p>`;
+		let ph = "", map1 = "", sta = /駅$/.test(s.wiki) ? "" : `<p class="ld">${esc(t("Loading…"))}</p>`;
+		const paint = () => { if (st.spot === s.id && !spotNote.hidden) spotNote.innerHTML = ph + head
+			+ `<div class="sw">${map1}<div><div class="wd">${esc(wardName(s.ward))}<small>${esc(t(city.cityName))}</small></div>${sta}</div></div>`; };
+		paint();
+		photos().then(p => { ph = photoHTML(p?.[s.id]); paint(); });
+		loadWards().then(fc => { map1 = locator(fc, s.ward, [s.lon, s.lat]); paint(); });
+		sta = await spotStations(s).catch(e => { console.warn(TAG, "spot stations", e); return ""; }); paint();
+	}
+	$$<HTMLButtonElement>("[data-spot]").forEach(b => b.onclick = () => { const s = SPOTS.find(x => x.id === b.dataset.spot)!; showSpot(s); flySpot(s); });
+
+	// ── 観光：公共施設（区分ごとに出し入れ・押すと吹き出し）──
+	let fac: FacilityRow[] | null = null, facOn = true;   // facOn＝海からの眺めなどで一時的に隠す用（点の出し入れは subOn）
+	// 施設の名前・住所＝日本語以外は英語（facilities-en.json＝「名称|住所」→ [名, 住所]・無い行は日本語のまま・本人 2026-10-26）
+	const facName = (r: FacilityRow) => EN?.rows?.[`${r[2]}|${r[4]}`]?.[0] || r[2];
+	const facAddr = (r: FacilityRow) => EN?.rows?.[`${r[2]}|${r[4]}`]?.[1] || shortAddr(r[4]);
+	const ALL_SUBS: ReadonlySet<number> = new Set(FACILITY_SUBS.map((_, i) => i)), subOn = new Set([FACILITY_SUBS.findIndex(x => x.kinds.includes("区役所"))]);   // 出している種別（最初は区役所だけ）。区分の行は中の種別をまとめて出し入れ
+	// 全種別＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
+	const facFilter = (): StyleExpression | null => subOn.size === FACILITY_SUBS.length ? null : ["match", ["get", "s"], [...subOn].length ? [...subOn] : [-1], true, false];
+	// 市全体の眺め（z 12.5 未満）でも点を出すのは、出している施設の合計が少ない間だけ（区役所 19・図書館を足して 40 など）。学校を点けた途端に市全体が点で埋まらないように（Mac 実測 2026-10-26：種別ごとの件数で決めると学校 ON で 114 点）
+	const FAC_FAR_MAX = 60, subN: number[] = [];
+	const farFilter = (): StyleExpression => { const js = [...subOn], n = js.reduce((a, j) => a + subN[j], 0); return ["match", ["get", "s"], js.length && n <= FAC_FAR_MAX ? js : [-1], true, false]; };
+	const FAC_LAYERS = ["yk-fac", "yk-fac-far"];
+	let facReady: Promise<void> | null = null;
+	const loadFac = () => facReady ??= (async () => {
+		$<HTMLElement>(".fac-n").textContent = t("Loading…");
+		const [d] = await Promise.all([ledger<{ rows: FacilityRow[] }>("facilities.json"), enP]);
+		if (!d?.rows?.length) { $<HTMLElement>(".fac-n").textContent = t("Could not load"); return; }
+		fac = d.rows;
+		map.addSource("yk-fac", { type: "geojson", attribution: KSJ_ATTR("public facilities, schools, cultural facilities, medical institutions, etc.", true),
+			data: { type: "FeatureCollection", features: fac.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i, c: r[3], s: subOf(r[3], r[5]) } })) } });
+		FACILITY_SUBS.forEach((_, j) => { subN[j] = fac!.filter(r => subOf(r[3], r[5]) === j).length; });
+		const f0 = facFilter(), color: StyleExpression = ["match", ["get", "c"], ...FACILITY_CATS.flatMap((c, i) => [i, c.color]), "#777"];
+		await map.addLayer({ id: "yk-fac", type: "circle", source: "yk-fac", minzoom: 12.5, ...(f0 ? { filter: f0 } : {}),
+			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 12.5, 3, 15, 5.5, 18, 8], "circle-color": color, "circle-stroke-color": "#fff", "circle-stroke-width": 1.3 } });
+		await map.addLayer({ id: "yk-fac-far", type: "circle", source: "yk-fac", minzoom: 9, maxzoom: 12.5, filter: farFilter(),
+			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3.5, 12.5, 4.5], "circle-color": color, "circle-stroke-color": "#fff", "circle-stroke-width": 1.3 } });
+		const tip = map.gadget.tip();
+		const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
+		for (const l of FAC_LAYERS) {
+			map.on("mousemove", l, e => { const f = top(e), r = f && fac![f.properties.i]; tip(r ? `<b>${esc(facName(r))}</b>` : null); });
+			map.on("mouseleave", l, () => tip(null));
+			map.on("click", l, e => { const f = top(e), r = f && fac![f.properties.i]; if (!r) return; tip(null); facPop(r); });
+		}
+		paintChips(true);
+		facTable();
+	})();
+	const facKind = (r: FacilityRow) => lang === "ja" ? r[5] || t(FACILITY_CATS[r[3]]?.name || "") : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
+	const facPop = (r: FacilityRow) => { const c = FACILITY_CATS[r[3]];
+		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(facName(r))}</b>${r[4] ? `<p>${esc(facAddr(r))}</p>` : ""}`); };
+	async function setFac(on: boolean) {
+		facOn = on;
+		if (on) await loadFac();
+		if (fac) for (const l of FAC_LAYERS) map.setLayoutProperty(l, "visibility", facOn ? "visible" : "none");
+	}
+	const catSubs = (i: number) => FACILITY_SUBS.flatMap((x, j) => x.cat === i ? [j] : []);
+	// 行の見た目＝種別はチェック・区分は中の種別が全部 on＝チェック・一部＝半チェック（件数は「出している/全部」）。first＝台帳を読んだ直後：一部だけ点いている区分は開いて見せる
+	const paintChips = (first = false) => {
+		$$<HTMLInputElement>("[data-sub]").forEach(b => { const j = +b.dataset.sub!; b.checked = subOn.has(j); if (fac) b.parentElement!.querySelector("small")!.textContent = num(subN[j]); });
+		$$<HTMLInputElement>("[data-cat]").forEach(b => { const i = +b.dataset.cat!, js = catSubs(i), on = js.filter(j => subOn.has(j)), part = on.length > 0 && on.length < js.length;
+			b.checked = on.length === js.length; b.indeterminate = part;
+			if (fac) { const all = js.reduce((a, j) => a + subN[j], 0); b.parentElement!.querySelector("small")!.textContent = part ? `${num(on.reduce((a, j) => a + subN[j], 0))} / ${num(all)}` : num(all); }
+			if (first && part) openCat(i, true); });
+		if (fac) $<HTMLElement>(".fac-n").textContent = t("$1 places", num(fac.filter(r => subOn.has(subOf(r[3], r[5]))).length));
+	};
+	const openCat = (i: number, on: boolean) => { const cg = $<HTMLElement>(`[data-cg="${i}"]`); cg.classList.toggle("open", on); cg.querySelector(".tw")?.setAttribute("aria-expanded", String(on)); };
+	const applyFac = () => { paintChips(); if (fac) { map.setFilter("yk-fac", facFilter()); map.setFilter("yk-fac-far", farFilter()); } facTable(); if (!facOn) setFac(true); };
+	$$<HTMLInputElement>("[data-cat]").forEach(b => b.onchange = () => { for (const j of catSubs(+b.dataset.cat!)) b.checked ? subOn.add(j) : subOn.delete(j); applyFac(); });   // 区分＝中の種別をまとめて
+	$$<HTMLInputElement>("[data-sub]").forEach(b => b.onchange = () => { const j = +b.dataset.sub!; b.checked ? subOn.add(j) : subOn.delete(j); applyFac(); });
+	$$<HTMLButtonElement>("[data-tw]").forEach(b => b.onclick = () => openCat(+b.dataset.tw!, b.getAttribute("aria-expanded") !== "true"));
+	$(".fac-all").onclick = () => { for (const j of ALL_SUBS) subOn.add(j); applyFac(); };
+	$(".fac-none").onclick = () => { subOn.clear(); applyFac(); };
+	paintChips();
+
+	// ── 暮らし：施設の検索（common/bigtable の表・本人 2026-10-22）──
+	// 行＝選んだ地区（区・全市）× 出している種別（上のチップ）の施設。窓の文字＝名称・種別・区・住所の部分一致（表記の揺れは normJa で揃える）。
+	// 行を押す＝その施設へ飛んで吹き出し。表は「暮らし」の面を開いている時だけ組み直す（開くまで common/bigtable も読まない）
+	const fq = $(".fq"), fqN = $<HTMLElement>(".fq-n");
+	let tableReady: Promise<BigTable> | null = null;
+	const facTableOf = () => tableReady ??= import("common/bigtable").then(({ BigTable }) => new BigTable($<HTMLElement>(".fbt"), {
+		columns: [{ index: 0, label: t("Facility name"), width: 168 }, { index: 1, label: t("Type"), width: 104 }, { index: 2, label: t("Ward"), width: 84 }, { index: 3, label: t("Address"), width: 220 }],
+		rowNumbers: false, theme: "dark", rowHeight: 26,
+		onRowClick: (row, k) => { const r = fac?.[(row as unknown[])[4] as number]; if (!r) return; table?.select(k, { scroll: false }); goFac(r); },
+		onCountChange: c => { fqN.textContent = t("$1 of $2 places", num(c.shown), num(c.total)); },
+	}));
+	let table: BigTable | null = null;
+	async function facTable() {
+		if (!fac || st.tab !== "life") return;
+		const tb = table = await facTableOf();
+		tb.setQuery(normJa(fq.value));
+		tb.setRows(facilityIndex(city, fac, st.ward, ALL_SUBS).map(i => { const r = fac![i]; return [normJa(facName(r)), facKind(r), wardName(wardOfAddress(city, r[4])?.code ?? ""), normJa(facAddr(r)), i]; }));
+	}
+	fq.oninput = () => { table?.setQuery(normJa(fq.value)); };
+	async function goFac(r: FacilityRow) {
+		if (!facOn) await setFac(true);
+		facPop(r);
+		await map.flyTo({ center: [r[0], r[1]], zoom: Math.max(map.getZoom(), 16.5) });   // 点が見える z（minzoom 12.5）の上・建物も立つ（BUILDINGS_MIN_ZOOM）
+	}
+	$(".fcsv").onclick = async () => {
+		if (!fac) return;
+		const tb = await facTableOf(), a = document.createElement("a");
+		a.href = URL.createObjectURL(new Blob([tb.toCSV()], { type: "text/csv;charset=utf-8" }));
+		a.download = `${city.id}-facilities${st.ward ? "-" + st.ward : ""}.csv`;
+		a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+	};
+
+	// ── 観光：平面の地区地図に重ねる区域（用途地域・小／中学校区・警察署／消防署の管轄）＝淡色の平面の時だけ出す（本人 2026-10-21）──
+	const areaOn = new Set<AreaId>(), areaReady = new Map<AreaId, Promise<boolean>>();
+	const POINT_LAYERS = new Set(["yk-fac", "yk-hinan", "yk-bus", "yk-rail-st"]);   // 面より先に答える点の層
+	let flat = false;
+	const zoneOf = (n: string) => ZONES.findIndex(z => z.ja === n);
+	const areaIds = (id: AreaId) => [`yk-area-${id}`, `yk-area-${id}-line`];
+	const loadArea = (id: AreaId) => {
+		let p = areaReady.get(id);
+		if (p) return p;
+		const x = AREAS.find(a => a.id === id)!;
+		p = ledger<{ type: "FeatureCollection"; features: GeoJSONFeature[] }>(x.file).then(async fc => {
+			const n = $<HTMLElement>(`[data-arn="${id}"]`);
+			if (!fc?.features?.length) { n.textContent = t("Could not load"); return false; }
+			n.textContent = "";
+			if (id === "zoning") { const has = new Set(fc.features.map(f => zoneOf(String(f.properties?.n || "")))); $$<HTMLElement>(".zlg [data-z]").forEach(e => e.style.display = has.has(+e.dataset.z!) ? "" : "none"); }   // 凡例は市内にある種だけ（田園住居地域は無い）
+			const [fid, lid] = areaIds(id);
+			const data = id === "zoning" ? { ...fc, features: fc.features.map(f => ({ ...f, properties: { ...f.properties, z: zoneOf(String(f.properties?.n || "")) } })) } : fc;
+			map.addSource(fid, { type: "geojson", data, attribution: KSJ_ATTR(x.name, id === "police" || id === "fire") });
+			await map.addLayer({ id: fid, type: "fill", source: fid, layout: { visibility: "none" },
+				paint: id === "zoning" ? { "fill-color": ["match", ["get", "z"], ...ZONES.flatMap((z, i) => [i, z.color]), "#bbbbbb"], "fill-opacity": 0.5 } : { "fill-color": x.color, "fill-opacity": 0.06 } });
+			await map.addLayer({ id: lid, type: "line", source: fid, layout: { visibility: "none" },
+				paint: id === "zoning" ? { "line-color": "#ffffff", "line-width": 0.6, "line-opacity": 0.8 } : { "line-color": x.color, "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.2, 16, 2.6], "line-opacity": 0.85 } });
+			map.on("click", fid, (e: LayerMouseEvent) => { areaPop(e); });
+			return true;
+		});
+		areaReady.set(id, p);
+		return p;
+	};
+	// 区域の吹き出し＝押した所にある区域（出している物だけ）を 1 つにまとめる（重ねた時に片方しか出なかった・Mac 実測 2026-10-21）。
+	// 1 回の押しで層ごとに呼ばれる＝同じ点の 2 回目からは捨てる。点（施設・避難場所・バス停・駅）を押した時は出さない＝面が点のクリックを奪っていた
+	let areaPopKey = "";
+	async function areaPop(e: LayerMouseEvent) {
+		const ll = e.lngLat, key = `${e.point.x},${e.point.y},${e.originalEvent?.timeStamp ?? ""}`;
+		if (probing || !ll || key === areaPopKey) return;
+		areaPopKey = key;
+		const under = await map.queryRenderedFeatures([e.point.x, e.point.y]).catch(() => [] as RenderedFeature[]);
+		if (under.some(g => POINT_LAYERS.has(String(g.layer?.id)))) return;
+		const rows: string[] = [];
+		for (const x of AREAS) {
+			const f = under.find(g => g.layer?.id === `yk-area-${x.id}`); if (!f) continue;
+			const p = f.properties || {}, z = x.id === "zoning" ? ZONES[zoneOf(String(p.n || ""))] : null;
+			rows.push(`<div class="pk">${esc(t(x.name))}</div><b>${esc(z ? (lang === "ja" ? z.ja : t(z.name)) : x.id.startsWith("school") ? schoolName(p) : String(p.n || ""))}</b>`
+				+ (z && (p.b || p.f) ? `<p>${esc(t("Building coverage $1% · Floor area ratio $2%", p.b ?? "?", p.f ?? "?"))}</p>` : "")
+				+ (p.a ? `<p>${esc(String(p.a))}</p>` : "") + (x.id === "police" || x.id === "fire" ? `<p>${esc(t("Boundaries as of 2012."))}</p>` : ""));
+		}
+		if (rows.length) openPop([ll.lng, ll.lat], rows.join(`<hr class="ys">`));
+	}
+	const areaVis = (id: AreaId) => { if (!areaReady.has(id)) return; areaReady.get(id)!.then(ok => { if (ok) for (const l of areaIds(id)) map.setLayoutProperty(l, "visibility", flat && areaOn.has(id) ? "visible" : "none"); }); };
+	function showAreas(on: boolean) { flat = on; for (const x of AREAS) areaVis(x.id); }
+	async function setArea(id: AreaId, on: boolean) {
+		on ? areaOn.add(id) : areaOn.delete(id);
+		const inp = $$<HTMLInputElement>(`[data-area="${id}"]`)[0]; if (inp) inp.checked = on;   // 警察・消防の管轄は一覧に出していない（本人 2026-10-26）
+		if (on) setSubTab("show");   // 区域が点いた（URL など）＝その札を見せる
+		if (id === "zoning") $<HTMLElement>(".zlg").hidden = !on;
+		if (on) { if (!flat) setWard(st.ward); await loadArea(id); }   // 3D の時に入れた＝平面の地区地図へ移る
+		areaVis(id);
+	}
+	$$("[data-area]").forEach(inp => inp.onchange = () => setArea(inp.dataset.area as AreaId, inp.checked));
+
+	// ── 建物：18 区ともエンジンが描く（PLATEAU の登録簿＝LOD2 の 5 区・LOD1 の 13 区・橋梁＝R2 の焼きを先に読む）・z が BUILDINGS_MIN_ZOOM 以上の時だけ ──
+	// 2026-11-12 まで LOD1 の 13 区はこの頁が 3D Tiles を直に足していた＝#1052 からエンジンも同じ区を描いていて二重だった（通信なしの保存も 1.13 GB 余計）
+	// 建物は z で出し入れ（BUILDINGS_MIN_ZOOM 未満＝全部隠す・傾きは見ない）＝区ごとに「有る／無い」のまだらを出さない
+	let lod1Shown = map.getZoom() >= BUILDINGS_MIN_ZOOM;
+	// 基図の押し出し（building-extrusion＝PLATEAU の無い所の大きな建物だけ）と LOD2 の 5 区のメッシュ（map.setMeshVisible）も同じしきいで伏せる＝しきい未満は 18 区とも建物なし（本人「ないところがあるなら、全部ない方がいい」）
+	function holdBuildings(v: { lon: number; lat: number; zoom: number }) { const h = { lon: v.lon, lat: v.lat, zoom: v.zoom, armed: false }; bldHold = h; lod1Gate(); return h; }   // 飛ぶ前に立て始める（着いた時に読み終わっているように）・着いたら armed
+	const extrusion = (on: boolean) => { map.setMeshVisible(on); try { if (map.getLayer("building-extrusion")) map.setLayoutProperty("building-extrusion", "visibility", on ? "visible" : "none"); } catch (e) { console.warn(TAG, "extrusion", e); } };
+	// 観光の眺め（名所・港の物語・海から）＝その視点のまわりにいる間は z が小さくても建物を立てる（主役が遠くの街並み・本人 2026-10-26「z 値が小さく 3D が立ち上がらない」「観光での z の調整をうまく」）。
+	// 0.6 段より引くか 2 km より離れたら普段の z の決まりへ戻る
+	// 飛んでいる間（armed 前）は距離を見ない＝飛ぶ前の中心は名所から遠い（Mac 実測：飛ぶ前に外れて一度も効かなかった）
+	let bldHold: { lon: number; lat: number; zoom: number; armed: boolean } | null = null;
+	const held = () => { if (!bldHold) return false; if (!bldHold.armed) return true; const c = map.getCenter(); if (map.getZoom() >= bldHold.zoom - 0.6 && distM([c.lng, c.lat], [bldHold.lon, bldHold.lat]) < 2000) return true; bldHold = null; return false; };
+	const lod1Gate = () => { const on = held() || map.getZoom() >= BUILDINGS_MIN_ZOOM; if (on === lod1Shown) return; lod1Shown = on; extrusion(on); };
+	extrusion(lod1Shown);
+	map.on("move", lod1Gate);
+
+	// ── 名所ツアー（画面の下に札・地図に触れたら止まる）──
+	const cap = document.createElement("div");
+	cap.className = "yk-cap"; cap.hidden = true;
+	mapEl.appendChild(cap);
+	let touring = 0;   // ツアーの通し番号（0＝止まっている）
+	const stopTour = () => { if (!touring) return; touring = 0; cap.hidden = true; $(".tour:not(.port)").textContent = t("▶ Landmark tour"); if (city.story) $(".port").textContent = t(city.story.button); };
+	for (const ev of ["pointerdown", "wheel"]) mapEl.addEventListener(ev, e => { if (!panel.contains(e.target as Node) && !cap.contains(e.target as Node)) stopTour(); });
+	cap.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) stopTour(); });
+	// ツアーの先読み（本人 2026-11-13「ツアーを始めるときには Plateau を先読みしたい」）＝止まる区の建物を止まる順に IDB へ焼く。
+	// 戻り＝最初の区が焼けた時（呼び手は全景の間だけ待つ＝着いた時に立っている）。残りの区はその後ろで続けて焼く。中区＝ベイブリッジの橋梁も
+	function preloadStops(stops: readonly { ward?: string }[]): Promise<unknown> {
+		const names = [...new Set(stops.flatMap(s => s.ward ? city.bldNames(s.ward) : []))];
+		const [first, ...rest] = names;
+		const p = first ? map.prefetchBuildings({ names: [first] }).catch(e => console.warn(TAG, "tour prefetch", e)) : Promise.resolve();
+		if (rest.length) p.then(() => map.prefetchBuildings({ names: rest })).catch(e => console.warn(TAG, "tour prefetch", e));
+		return p;
+	}
+	// ツアーでは各名所に一段寄る（本人 2026-11-13「各シーンでちょっと近づいた方がいい」）。名所の一覧のボタンで飛ぶ時の見え方は今のまま
+	const TOUR_CLOSER = 0.5;
+	async function tour() {
+		if (touring) { stopTour(); return; }
+		const run = touring = Date.now();
+		setTab("sight");
+		$(".tour:not(.port)").textContent = t("■ Stop the tour");
+		const stops = TOUR.map(id => SPOTS.find(s => s.id === id)!);
+		const ph = await photos();
+		const say = (html: string) => { if (touring === run) { cap.hidden = false; cap.innerHTML = `${html}<button class="x" type="button" aria-label="${esc(t("Stop"))}">×</button>`; } };
+		say(`<div class="ct"><b>${esc(t(city.cityName))}</b><p>${esc(t(city.tourIntro))}</p></div>`);
+		const pre = preloadStops(stops);
+		await flyView(CITY_VIEW); await Promise.all([sleep(2500), Promise.race([pre, sleep(8000)])]);   // 全景の間に最初の区を焼き終える（最長 8 秒・保存済みの端末は即）
+		for (const [i, s] of stops.entries()) {
+			if (touring !== run) return;
+			say(`${photoHTML(ph?.[s.id], "cph")}<div class="ct"><small>${i + 1} / ${stops.length} · ${esc(wardName(s.ward))}</small><b>${esc(t(s.name))}</b><p>${esc(t(s.note))}</p></div>`);
+			showSpot(s, true);
+			await flySpot({ ...s, zoom: s.zoom + TOUR_CLOSER });
+			if (touring !== run) return;
+			await map.easeTo({ bearing: s.bearing + 40, duration: 6000 });   // ゆっくり回り込む
+		}
+		if (touring !== run) return;
+		await flyView(CITY_VIEW);
+		stopTour();
+	}
+	$(".tour:not(.port)").onclick = () => { tour(); };
+
+	// ── 港の物語（1859 の開港から今まで・章ごとに年と写真）と、海からの眺め＝東京都の頁に無い「横浜の物語」（本人 2026-10-21）──
+	async function seaView(run: number) {
+		// 眺めの間は施設の点を伏せる＝地平線に沿って何千もの丸が帯になり、街並みを隠す（Mac 実測 2026-10-26）
+		const facVis = (on: boolean) => { if (fac) for (const l of FAC_LAYERS) map.setLayoutProperty(l, "visibility", on && facOn ? "visible" : "none"); };
+		facVis(false);
+		try { await seaRun(run); } finally { facVis(true); }
+	}
+	async function seaRun(run: number) {
+		for (const [i, v] of (city.story?.views ?? []).entries()) {
+			if (touring !== run) return;
+			const h = holdBuildings(v);
+			await (i ? map.easeTo({ center: [v.lon, v.lat], zoom: v.zoom, pitch: v.tilt, bearing: v.bearing, duration: 7000 }) : flyView(v));
+			h.armed = true;
+			await sleep(SETTLE_MS);   // 止まって建物を読み始めさせる（flySpot と同じ）
+			if (touring !== run) return;
+			await map.easeTo({ bearing: v.bearing + 25, duration: 5000 });   // 船の上から見渡す
+		}
+	}
+	async function portStory() {
+		if (touring) { stopTour(); return; }
+		const run = touring = Date.now();
+		setTab("sight"); showSpot(null);
+		$(".port").textContent = t("■ Stop the tour");
+		const story = city.story!;
+		const pre = preloadStops(story.chapters);
+		const ph = await photos();
+		await Promise.race([pre, sleep(5000)]);   // 最初の章の区（中区）が焼けるまで（最長 5 秒）
+		const say = (html: string) => { if (touring === run) { cap.hidden = false; cap.innerHTML = `${html}<button class="x" type="button" aria-label="${esc(t("Stop"))}">×</button>`; } };
+		for (const c of story.chapters) {
+			if (touring !== run) return;
+			say(`${photoHTML(ph?.[c.photo || c.id], "cph")}<div class="ct"><small class="yr">${esc(c.year)}</small><b>${esc(t(c.name))}</b><p>${esc(t(c.note))}</p></div>`);
+			await flySpot(c);
+			if (touring !== run) return;
+			await map.easeTo({ bearing: c.bearing + 35, duration: 5500 });
+		}
+		if (touring !== run) return;
+		say(`<div class="ct"><small class="yr">${esc(t("Today"))}</small><b>${esc(t(story.viewsCaption[0]))}</b><p>${esc(t(story.viewsCaption[1]))}</p></div>`);
+		await seaView(run);
+		stopTour();
+	}
+	if (city.story) $(".port").onclick = () => { portStory(); };
+	if (city.story) $(".sea").onclick = async () => {
+		if (touring) stopTour();
+		const run = touring = Date.now();
+		$(".port").textContent = t("■ Stop the tour");
+		await seaView(run);
+		if (touring === run) stopTour();
+	};
+
+	// ── 交通：地下鉄（線＝路線の色・駅＝駅番号の記号）・JR と私鉄・市営バス ──
+	type RailLedger = { lines: { type: "FeatureCollection"; features: GeoJSONFeature[] }; stations: StationRow[] };
+	const trOn = new Set<string>();
+	let railReady: Promise<RailLedger | null> | null = null;
+	const subMarks: Marker[] = [];
+	const lineColor = city.subwayColor;   // N02 の路線名 → 路線の色（横浜＝1・3 号線がブルー／4 号線がグリーン）
+	const loadRail = () => railReady ??= Promise.all([ledger<RailLedger>("rail.json"), enP]).then(async ([d]) => {
+		if (!d?.lines?.features?.length) return null;
+		const sub = d.lines.features.filter(f => f.properties?.subway), other = d.lines.features.filter(f => !f.properties?.subway);
+		map.addSource("yk-rail", { type: "geojson", data: { type: "FeatureCollection", features: other }, attribution: KSJ_ATTR("railways") });
+		await map.addLayer({ id: "yk-rail", type: "line", source: "yk-rail", layout: { visibility: "none" }, paint: { "line-color": "#5d6670", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 16, 3] } });
+		const ost = d.stations.filter(s => !s[4]);
+		map.addSource("yk-rail-st", { type: "geojson", data: { type: "FeatureCollection", features: ost.map((s, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [s[0], s[1]] }, properties: { i } })) } });
+		await map.addLayer({ id: "yk-rail-st", type: "circle", source: "yk-rail-st", layout: { visibility: "none" },
+			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 3, 16, 6], "circle-color": "#fff", "circle-stroke-color": "#37474f", "circle-stroke-width": 2 } });
+		const tip = map.gadget.tip();
+		const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
+		map.on("mousemove", "yk-rail-st", e => { const f = top(e); tip(f ? `<b>${esc(t("$1 Station", staName(ost[f.properties.i][2])))}</b>` : null); });
+		map.on("mouseleave", "yk-rail-st", () => tip(null));
+		map.on("click", "yk-rail-st", e => { const f = top(e), s = f && ost[f.properties.i]; if (!s) return; tip(null);
+			openPop([s[0], s[1]], `<div class="pk">${esc(t("Railway station"))}</div><b>${esc(t("$1 Station", staName(s[2])))}</b><p>${esc(clip(lang === "ja" ? s[3] : railLinesEn(RAIL_LINES_EN, s[3]), 8, t))}</p>${walkBtn(s[0], s[1], staName(s[2]), s[2])}`); });
+		// 地下鉄の線＝路線の色（N02 の路線名で塗り分けを焼く＝式に文字列の部分一致を頼らない）
+		map.addSource("yk-sub", { type: "geojson", data: { type: "FeatureCollection", features: sub.map(f => ({ ...f, properties: { ...f.properties, col: lineColor(String(f.properties?.line || "")) } })) } });
+		await map.addLayer({ id: "yk-sub-case", type: "line", source: "yk-sub", layout: { visibility: "none" }, paint: { "line-color": "#fff", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 4, 16, 9] } });
+		await map.addLayer({ id: "yk-sub", type: "line", source: "yk-sub", layout: { visibility: "none" }, paint: { "line-color": ["get", "col"], "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 16, 6] } });
+		// 地下鉄の駅＝駅番号の記号（DOM の Marker・42 駅）。乗換駅（センター南・北）は記号を 2 つ並べる
+		for (const s of d.stations.filter(s => s[4])) {
+			const codes = subwayCodes(SUBWAY, s[2]);
+			const el = document.createElement("div");
+			el.className = "yk-sta";
+			el.innerHTML = `<span class="sym">${codes.map(c => `<i style="--c:${esc(c.line.color)}">${esc(c.code)}</i>`).join("") || "<i>?</i>"}</span><span class="nm">${esc(staName(s[2]))}</span>`;
+			el.title = t("$1 Station", staName(s[2]));
+			el.addEventListener("click", ev => { ev.stopPropagation();
+				openPop([s[0], s[1]], `<div class="pk">${esc(t(city.subwayName))}</div><b>${esc(t("$1 Station", staName(s[2])))}</b><p>${codes.map(c => `${esc(c.code)} · ${esc(t(c.line.name))}`).join("<br>") || esc(lang === "ja" ? s[3] : railLinesEn(RAIL_LINES_EN, s[3]))}</p>${walkBtn(s[0], s[1], staName(s[2]), s[2])}`); });
+			subMarks.push(new ML.Marker({ element: el, anchor: "center" }).setLngLat([s[0], s[1]]));
+		}
+		$<HTMLElement>('[data-trn="subway"]').textContent = t("$1 stations", num(subMarks.length));
+		$<HTMLElement>('[data-trn="rail"]').textContent = t("$1 stations", num(ost.length));
+		return d;
+	});
+	let bus: BusRow[] | null = null, busReady: Promise<void> | null = null;
+	const loadBus = () => busReady ??= Promise.all([ledger<{ stops: BusRow[] }>("bus.json"), enP]).then(async ([d]) => {
+		if (!d?.stops?.length) { $<HTMLElement>('[data-trn="bus"]').textContent = t("Could not load"); return; }
+		bus = d.stops;
+		map.addSource("yk-bus", { type: "geojson", attribution: KSJ_ATTR("bus stops"), data: { type: "FeatureCollection", features: bus.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i } })) } });
+		await map.addLayer({ id: "yk-bus", type: "circle", source: "yk-bus", minzoom: 12.5, layout: { visibility: "none" },
+			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 12.5, 2, 15, 4, 18, 6.5], "circle-color": "#ef6c00", "circle-stroke-color": "#fff", "circle-stroke-width": 1 } });
+		const tip = map.gadget.tip();
+		const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
+		map.on("mousemove", "yk-bus", e => { const f = top(e); tip(f ? `<b>${esc(stopName(bus![f.properties.i][2]))}</b>` : null); });
+		map.on("mouseleave", "yk-bus", () => tip(null));
+		map.on("click", "yk-bus", e => { const f = top(e), r = f && bus![f.properties.i]; if (!r) return; tip(null);
+			openPop([r[0], r[1]], `<div class="pk">${esc(t(city.busName))}</div><b>${esc(stopName(r[2]))}</b>${r[3] ? `<p>${esc(t("Routes: $1", clip(routesOf(r[3]), 10, t)))}</p>` : ""}`); });
+		$<HTMLElement>('[data-trn="bus"]').textContent = t("$1 places", num(bus.length));
+	});
+	async function setTransit(id: string, on: boolean) {
+		on ? trOn.add(id) : trOn.delete(id);
+		st.tr = TRANSIT.filter(x => trOn.has(x.id)).map(x => x.id); save();
+		$(`[data-tr="${id}"]`).checked = on;
+		const vis = (lid: string, v: boolean) => map.setLayoutProperty(lid, "visibility", v ? "visible" : "none");
+		if (id === "bus") { if (on) await loadBus(); if (bus) vis("yk-bus", trOn.has("bus")); return; }
+		if (on) $<HTMLElement>(`[data-trn="${id}"]`).textContent ||= t("Loading…");
+		const d = await loadRail();
+		if (!d) { $<HTMLElement>(`[data-trn="${id}"]`).textContent = t("Could not load"); return; }
+		const rail = trOn.has("rail");
+		subReady = true; subShown = null; subGate();
+		vis("yk-rail", rail); vis("yk-rail-st", rail);
+	}
+	// 市営地下鉄は SUBWAY_MIN_ZOOM 未満（市より広い縮尺）では線も駅の記号も消す（本人 2026-10-21）
+	let subShown: boolean | null = null, subReady = false;   // subReady＝地下鉄の層と記号ができた（loadRail の後）
+	function subGate() {
+		if (!subReady) return;
+		const on = trOn.has("subway") && map.getZoom() >= SUBWAY_MIN_ZOOM;
+		if (on === subShown) return;
+		subShown = on;
+		for (const l of ["yk-sub-case", "yk-sub"]) map.setLayoutProperty(l, "visibility", on ? "visible" : "none");
+		for (const m of subMarks) on ? m.addTo(map) : m.remove();
+	}
+	map.on("move", subGate);
+	$$("[data-tr]").forEach(inp => inp.onchange = () => setTransit(inp.dataset.tr!, inp.checked));
+	// 地下鉄の駅名は寄った時だけ（引くと記号だけ）
+	const nameGate = () => mapEl.classList.toggle("yk-sta-names", map.getZoom() >= 13.5);
+	map.on("move", nameGate); nameGate();
+
+	// ── 交通：駅からの徒歩圏（5・10・15 分の輪と、輪の中の公共施設・バス停・駅・避難場所の数）＝東京都の頁に無い「暮らしの読み」（本人 2026-10-21）──
+	// 輪は直線の目安（80m/分・道のりは直線の 1.3 倍）。道路網の到達圏ではない＝注記で言う
+	function walkBtn(lon: number, lat: number, name: string, ja: string) { return `<button type="button" class="walkr" data-lon="${lon}" data-lat="${lat}" data-name="${esc(name)}" data-ja="${esc(ja)}">${esc(t("Walking distance"))}</button>`; }
+	const walkOut = $<HTMLElement>(".walk-out");
+	let walkLayer = false; const walkLabels: Marker[] = [];
+	const clearWalk = () => { walkOut.hidden = true; walkLabels.splice(0).forEach(m => m.remove()); if (walkLayer) { map.setLayoutProperty("yk-walk", "visibility", "none"); map.setLayoutProperty("yk-walk-line", "visibility", "none"); } };
+	async function walkFrom(lon: number, lat: number, name: string, ja: string) {   // name＝見出し（表示言語）・ja＝台帳の駅名（同じ名の駅を数えない）
+		closePop(); clearWalk();
+		if (st.tab !== "transit") setTab("transit");
+		if (narrow()) P.setFold(false);
+		const at: [number, number] = [lon, lat];
+		const fc = { type: "FeatureCollection" as const, features: [...WALK_RINGS].reverse().map(m => ({ type: "Feature" as const, properties: { m }, geometry: { type: "Polygon" as const, coordinates: [circleRing(at, walkRadius(m))] } })) };
+		if (!walkLayer) {
+			walkLayer = true;
+			map.addSource("yk-walk", { type: "geojson", data: fc });
+			await map.addLayer({ id: "yk-walk", type: "fill", source: "yk-walk", paint: { "fill-color": "#1f6fc5", "fill-opacity": ["match", ["get", "m"], 5, 0.16, 10, 0.1, 0.06] } });
+			await map.addLayer({ id: "yk-walk-line", type: "line", source: "yk-walk", paint: { "line-color": "#1f6fc5", "line-width": 1.6, "line-opacity": 0.8 } });
+		} else { map.getSource("yk-walk")?.setData?.(fc); map.setLayoutProperty("yk-walk", "visibility", "visible"); map.setLayoutProperty("yk-walk-line", "visibility", "visible"); }
+		for (const m of WALK_RINGS) {
+			const el = document.createElement("div"); el.className = "yk-wlab"; el.textContent = t("$1 min", m);
+			walkLabels.push(new ML.Marker({ element: el, anchor: "bottom" }).setLngLat(circleRing(at, walkRadius(m), 4)[0]).addTo(map));
+		}
+		const r = circleRing(at, walkRadius(WALK_RINGS[WALK_RINGS.length - 1]), 4);
+		map.fitBounds([[r[3][0], r[2][1]], [r[1][0], r[0][1]]], { padding: pad90(), pitch: 0, bearing: 0 });
+		walkOut.hidden = false;
+		const head = `<div class="dh"><b>${esc(t("Walking distance from $1", t("$1 Station", name)))}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>`;
+		walkOut.innerHTML = head + `<p class="sub flat">${esc(t("Loading…"))}</p>`;
+		const run = walkOut.dataset.run = String(Date.now());
+		const [, rail, , sh] = await Promise.all([loadFac(), loadRail(), loadBus(), loadShelters()]);
+		if (walkOut.dataset.run !== run) return;
+		const rows: [string, string, number[]][] = [];
+		if (fac) FACILITY_CATS.forEach((c, i) => { const n = countRings(fac!, at, r => r[3] === i); if (n[n.length - 1]) rows.push([c.color, t(c.name), n]); });
+		if (sh) { const seen = new Set<string>(); rows.push(["#1f9d55", t("Evacuation sites"), countRings(sh.filter(r => !seen.has(siteName(r[2])) && !!seen.add(siteName(r[2]))), at)]); }   // 棟ごとの行を 1 か所に
+		if (bus) rows.push(["#ef6c00", t("Bus stops"), countRings(bus, at)]);
+		if (rail) rows.push(["#37474f", t("Railway stations"), countRings(rail.stations.filter(s => distM(at, [s[0], s[1]]) > 30 && s[2] !== ja), at)]);   // 自分の駅（他社の同じ名の駅も）は数えない
+		walkOut.innerHTML = head + `<table class="wt"><thead><tr><th></th>${WALK_RINGS.map(m => `<th>${esc(t("$1 min", m))}</th>`).join("")}</tr></thead>
+			<tbody>${rows.map(([c, n, v]) => `<tr><td><i style="background:${c}"></i>${esc(n)}</td>${v.map(x => `<td>${num(x)}</td>`).join("")}</tr>`).join("")}</tbody></table>
+			<p class="sub flat">${esc(t("Rings are rough estimates: 80 m per minute, with routes 1.3 times the straight line."))}</p>`;
+		if (ja) stationWiki(ja, run);
+		walkOut.scrollIntoView({ block: "nearest", behavior: "smooth" });   // スマホ：表が板の下に隠れないよう（板の中を送る）
+	}
+	walkOut.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) { clearWalk(); $<HTMLSelectElement>(".wsta").value = ""; } });
+	$<HTMLSelectElement>(".wsta").onchange = async () => {
+		const n = $<HTMLSelectElement>(".wsta").value; if (!n) { clearWalk(); return; }
+		const d = await loadRail();
+		const s = n.startsWith("#") ? d?.stations[+n.slice(1)] : d?.stations.find(x => x[4] && subwayCodes(SUBWAY, x[2]).some(c => c.line.stations[+c.code.slice(1) - 1] === n));   // "#i"＝JR・私鉄の駅（台帳の行）
+		if (s) walkFrom(s[0], s[1], staName(s[2]), s[2]);
+	};
+	// 駅を選ぶ一覧に市内の JR・私鉄の駅も足す（本人 2026-10-26）＝路線ごとの組・線に沿った順（駅の散らばりの長い向きに並べる）。市内＝区の境界の中
+	let stationsFilled = false;
+	function fillStations() {
+		if (stationsFilled) return; stationsFilled = true;
+		Promise.all([loadRail(), loadWards()]).then(([d, fc]) => {
+			if (!d) { stationsFilled = false; return; }
+			const groups = new Map<string, number[]>();
+			d.stations.forEach((s, i) => {
+				if (s[4] || (fc && !featureAt(fc, [s[0], s[1]]))) return;
+				for (const ln of s[3].split("・")) if (ln) (groups.get(ln) ?? groups.set(ln, []).get(ln)!).push(i);
+			});
+			const along = (ix: number[]) => {   // 主軸（共分散の長い向き）への射影で並べる
+				const p = ix.map(i => [d.stations[i][0] * 0.82, d.stations[i][1]]), mx = p.reduce((a, q) => a + q[0], 0) / p.length, my = p.reduce((a, q) => a + q[1], 0) / p.length;
+				let xx = 0, xy = 0, yy = 0; for (const [x, y] of p) { xx += (x - mx) ** 2; xy += (x - mx) * (y - my); yy += (y - my) ** 2; }
+				const a = 0.5 * Math.atan2(2 * xy, xx - yy), c = Math.cos(a), sn = Math.sin(a);
+				return ix.map((i, k) => [i, (p[k][0] - mx) * c + (p[k][1] - my) * sn] as const).sort((u, v) => u[1] - v[1]).map(u => u[0]);
+			};
+			const jr = (k: string) => /^(東日本|東海)旅客鉄道/.test(k) ? 0 : 1;
+			const keys = [...groups.keys()].sort((a, b) => jr(a) - jr(b) || a.localeCompare(b, "ja"));
+			$<HTMLSelectElement>(".wsta").insertAdjacentHTML("beforeend", keys.map(k => `<optgroup label="${esc(lang === "ja" ? k.replace(/^\S+ /, "") + `（${k.split(" ")[0]}）` : railLinesEn(RAIL_LINES_EN, k))}">${along(groups.get(k)!).map(i => `<option value="#${i}">${esc(staName(d.stations[i][2]))}</option>`).join("")}</optgroup>`).join(""));
+		});
+	}
+	// 駅の Wikipedia の冒頭（徒歩圏の下）＝ja の記事名を座標で決めて焼いた台帳（station-wiki.json）→ 表示言語・英語・日本語の順で最初にある記事
+	const wikiFrame = createWikiFrame({ host: mapEl, className: "yk-wiki", labels: { newTab: t("Open in a new tab"), close: t("Close") } });
+	const staWiki = () => ledger<Record<string, Record<string, string>>>("station-wiki.json");
+	async function stationWiki(ja: string, run: string) {
+		const titles = (await staWiki())?.[ja]; if (!titles) return;
+		const s = await summaryIn(titles, lang === "ja" ? ["ja"] : langChain(lang, ["en", "ja"])).catch(() => null);
+		if (walkOut.dataset.run !== run) return;
+		if (!s && !navigator.onLine) { const box = document.createElement("div"); box.className = "wsum off"; box.textContent = t("Wikipedia cannot be shown offline."); walkOut.append(box); return; }   // 例外は Wikipedia だけ（本人 2026-11-12）
+		if (!s?.extract) return;
+		const box = document.createElement("div"); box.className = "wsum";
+		// 本文は端末に残っていれば通信なしでも出す。写真（Wikimedia）は通信なしでは出ない＝壊れた絵を出さない（Mac 本番 2026-11-12）
+		box.innerHTML = `${s.thumbnail && navigator.onLine ? `<img src="${esc(s.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<p>${esc(s.extract.length > 320 ? s.extract.slice(0, 300).replace(/[^。.！？!?]*$/, "") || s.extract.slice(0, 300) + "…" : s.extract)}</p><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(t("Read on Wikipedia"))}</a>`;
+		box.querySelector("img")?.addEventListener("error", e => (e.currentTarget as HTMLElement).remove());
+		wikiFrame.link(box.querySelector("a")!, s.url, s.title);
+		walkOut.append(box);
+	}
+	document.addEventListener("click", e => { const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".walkr"); if (b) walkFrom(+b.dataset.lon!, +b.dataset.lat!, b.dataset.name!, b.dataset.ja || ""); });
+
+	// ── 防災：ハザードの画像タイル ──
+	const hzOn = new Set<string>();
+	let hzOpacity = 0.7;
+	const hzIds = (id: string) => HAZARDS.find(h => h.id === id)!.urls.map((_, i) => `yk-hz-${id}-${i}`);
+	async function setHazard(id: string, on: boolean) {
+		const h = HAZARDS.find(x => x.id === id); if (!h) return;
+		on ? hzOn.add(id) : hzOn.delete(id);
+		st.hz = HAZARDS.filter(x => hzOn.has(x.id)).map(x => x.id); save();
+		$(`[data-hz="${id}"]`).checked = on;
+		$<HTMLElement>(`[data-hznote="${id}"]`).hidden = !on;
+		renderLegend();
+		if (!on) { for (const rid of hzIds(id)) map.raster.remove(rid); return; }
+		await Promise.all(h.urls.map((url, i) => map.raster.add(`yk-hz-${id}-${i}`, { url, minZoom: 2, maxZoom: h.maxZoom, bbox: JAPAN_BBOX, attribution: HAZARD_ATTR, name: t(h.name) }, { order: "over", opacity: hzOpacity })
+			.catch(e => console.warn(TAG, "hazard", id, e))));
+	}
+	function renderLegend() {
+		const el = $<HTMLElement>(".legend");
+		const hs = HAZARDS.filter(h => hzOn.has(h.id));
+		el.hidden = !hs.length; $<HTMLElement>(".hzop-w").hidden = !hs.length;
+		// 浸水深の凡例は洪水・高潮・津波で同じ＝1 回だけ出す
+		const seen = new Set<string>();
+		el.innerHTML = hs.map(h => { const k = h.legend.map(l => l.label).join(); if (seen.has(k)) return ""; seen.add(k);
+			return `<div class="lg"><small>${esc(t(h.id === "dosha" ? "Sediment disasters" : "Flood depth"))}</small>${h.legend.map(l => `<span><i style="background:${esc(l.color)}"></i>${esc(t(l.label))}</span>`).join("")}</div>`; }).join("");
+	}
+	$$("[data-hz]").forEach(inp => inp.onchange = () => setHazard(inp.dataset.hz!, inp.checked));
+	$(".hzop").oninput = () => { hzOpacity = +$(".hzop").value; for (const id of hzOn) for (const rid of hzIds(id)) map.raster.set(rid, { opacity: hzOpacity }); };
+
+	// ── 防災：指定緊急避難場所（点の層・押すと詳細と標高）──
+	let shelters: HinanRow[] | null = null, hinanOn = false;
+	// 「すべて」＝filter なし（null）。定数だけの式 ["==", 1, 1] はエンジンが何も描かない（Mac 実測 2026-10-18）＝絞らない時は filter を外す
+	const hnFilter = (): StyleExpression | null => { const f = +$<HTMLSelectElement>(".hnf").value; return f < 0 ? null : ["==", ["get", `f${f}`], 1]; };
+	// 避難場所の台帳（読むだけ・層は隠して足す）＝防災の点・地点を調べる・駅の徒歩圏で使い回す
+	let shReady: Promise<HinanRow[] | null> | null = null;
+	const loadShelters = () => shReady ??= (async () => {
+		$<HTMLElement>(".hn-n").textContent = t("Loading…");
+		try {
+			const [r] = await Promise.all([fetch(city.hinanUrl, { credentials: "omit" }), enP]);
+			if (!r.ok) throw new Error(`HTTP ${r.status}`);
+			shelters = sheltersIn(JSON.parse(new TextDecoder().decode(await gunzip(await r.arrayBuffer()))), city.addrPrefix);
+		} catch (e) { console.warn(TAG, "hinan", e); $<HTMLElement>(".hn-n").textContent = t("Could not load"); shReady = null; return null; }
+		const feats: GeoJSONFeature[] = shelters.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] },
+			properties: { i, ...Object.fromEntries(HINAN_FLAGS.map((_, b) => [`f${b}`, r[4] & (1 << b) ? 1 : 0])) } }));
+		map.addSource("yk-hinan", { type: "geojson", data: { type: "FeatureCollection", features: feats }, attribution: HINAN_ATTR });
+		const f0 = hnFilter();
+		await map.addLayer({ id: "yk-hinan", type: "circle", source: "yk-hinan", ...(f0 ? { filter: f0 } : {}), layout: { visibility: "none" },
+			paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5, 18, 8], "circle-color": "#1f9d55", "circle-stroke-color": "#fff", "circle-stroke-width": 1.2 } });
+		const tip = map.gadget.tip();
+		const top = (e: LayerMouseEvent) => (e.features || []).find(f => f.properties?.i != null);
+		map.on("mousemove", "yk-hinan", e => { const f = top(e), r = f && shelters![f.properties.i]; tip(r ? [`<b>${esc(shName(r))}</b>`, esc(flagsOf(r[4]).map(f => t(f)).join(" · ") || t("No disaster types listed"))] : null); });
+		map.on("mouseleave", "yk-hinan", () => tip(null));
+		map.on("click", "yk-hinan", e => { const f = top(e); if (f) showShelter(shelters![f.properties.i]); });
+		countShelters();
+		return shelters;
+	})();
+	async function setHinan(on: boolean) {
+		hinanOn = on; $(".hinan").checked = on;
+		if (!on) { if (shelters) map.setLayoutProperty("yk-hinan", "visibility", "none"); $<HTMLElement>(".detail").hidden = true; return; }
+		if (!await loadShelters()) { hinanOn = false; $(".hinan").checked = false; return; }
+		if (!hinanOn) return;   // 読んでいる間に外した
+		map.setLayoutProperty("yk-hinan", "visibility", "visible");
+		countShelters();
+	}
+	function countShelters() {
+		if (!shelters) return;
+		const f = +$<HTMLSelectElement>(".hnf").value;
+		$<HTMLElement>(".hn-n").textContent = t("$1 places", num(shelters.filter(r => f < 0 || r[4] & (1 << f)).length));
+	}
+	async function showShelter(r: HinanRow) {
+		const el = $<HTMLElement>(".detail");
+		el.hidden = false;
+		el.innerHTML = `<div class="dh"><b>${esc(shName(r))}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
+			<p>${esc(shAddr(r))}</p>
+			<div class="badges">${flagsOf(r[4]).map(f => `<span>${esc(t(f))}</span>`).join("") || `<small>${esc(t("No disaster types listed"))}</small>`}</div>
+			<p class="elev">${esc(t("Elevation …"))}</p>`;
+		el.querySelector<HTMLButtonElement>(".x")!.onclick = () => { el.hidden = true; };
+		const h = await map.getHeight(r[0], r[1]).catch(() => NaN);   // 標高＝高台へ逃げるか（水平避難）の読みどころ
+		const ev = el.querySelector(".elev");
+		if (ev?.isConnected) ev.textContent = Number.isFinite(h) ? t("Elevation about $1 m", num(Math.round(h))) : "";
+	}
+	$(".hinan").onchange = () => setHinan($(".hinan").checked);
+	$<HTMLSelectElement>(".hnf").onchange = () => { if (shelters) map.setFilter("yk-hinan", hnFilter()); countShelters(); };
+
+	// ── 防災：地点を調べる（押した所の想定浸水の深さ・土砂の区域・最寄りの避難場所 3 か所の距離・徒歩・標高差）＝東京都の頁に無い「自分ごと」の読み（本人 2026-10-21）──
+	// 浸水の深さ＝重ねるハザードマップの PNG（z17）の 1 画素を凡例の色に当てる（ブラウザが直に取る・ACAO *）。標高＝map.getHeight。距離＝直線・徒歩＝80m/分×道のり 1.3 倍
+	const probeOut = $<HTMLElement>(".probe-out");
+	let probing = false, probeHome = false, probedAt = 0, probeMark: Marker | null = null, probeLine = false, waterOn = false;
+	// 地図を押して調べる口は 2 つ＝防災の「地点を調べる」と暮らしの「わが家のまわり」（home）。どちらも同じ押し待ち（吹き出しを止める）
+	const setProbing = (on: boolean, home = false) => {
+		probing = on; probeHome = on && home;
+		$(".probe").textContent = t(on && !home ? "Tap a point on the map." : "Tap the map to check a location"); $(".probe").classList.toggle("on", on && !home);
+		$(".hm-tap").textContent = t(on && home ? "Tap a point on the map." : "Tap the map at your home"); $(".hm-tap").classList.toggle("on", on && home);
+		mapEl.classList.toggle("yk-probing", on);
+	};
+	// スマホ：地図を押す間はパネルを畳み、結果が出たら開く（下からのパネルが地図を隠すため）
+	const narrow = () => matchMedia(`(max-width:${PANEL_MOBILE}px)`).matches;
+	// 地図を見せるために畳む＝操作方法カード（#hint）も閉じる（畳むと出てきて地図の上半分を覆っていた・Mac 390px 2026-10-26。閉じた選択は記憶＝以後は「?」）
+	const foldForMap = () => { if (!narrow()) return; P.setFold(true); const h = mapEl.querySelector<HTMLElement>("#hint"); if (h && h.style.display !== "none") h.querySelector<HTMLElement>("#hint-close")?.click(); };
+	$(".probe").onclick = () => { setProbing(!(probing && !probeHome)); if (probing) foldForMap(); };
+	// 現在地＝GPS（通信なしでも取れる）。災害は家にいる時とは限らない＝防災の「地点を調べる」と暮らしの「わが家のまわり」の両方から（本人 2026-11-13）
+	function locateMe(msg: HTMLElement, done: (ll: LonLat) => void) {
+		if (!navigator.geolocation) { msg.textContent = t("Could not get your location."); return; }
+		msg.textContent = t("Loading…");
+		navigator.geolocation.getCurrentPosition(p => {
+			const ll: LonLat = [p.coords.longitude, p.coords.latitude];
+			msg.textContent = "";
+			if (ll[0] < CITY_BBOX[0] || ll[0] > CITY_BBOX[2] || ll[1] < CITY_BBOX[1] || ll[1] > CITY_BBOX[3]) { msg.textContent = t(city.outside); return; }
+			done(ll);
+		}, () => { msg.textContent = t("Could not get your location."); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+	}
+	// 調べた地点へ寄る（家・現在地の共用）。スマホ：印が下のシートに隠れない所へ
+	const flyNear = (ll: LonLat) => { setFlat(false); return map.flyTo({ center: ll, zoom: 16.5, pitch: 0, bearing: 0 }).then(() => { if (narrow()) revealAbovePanel(ll); }); };
+	$(".probe-gps").onclick = () => locateMe($<HTMLElement>(".probe-msg"), ll => {
+		setProbing(false);
+		flyNear(ll);
+		probeHere(ll);
+	});
+	// 地点を調べる（地図を押した・現在地の共用）＝前に閉じて隠した最寄りへの線を出し直す
+	function probeHere(ll: LonLat) {
+		if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "visible");
+		probe(ll);
+	}
+	// 操作方法カード（#hint）は最初の操作で畳む＝タブを選ぶ・地図に触れる（本番チェック 2026-11-12：スマホでタブを選ぶまで画面中央を覆い、PC でも残っていた）。
+	// 閉じた選択は記憶＝以後は「?」から（foldForMap と同じ）。カード自身と「?」を押した時は畳まない
+	const hintOff = (e: PointerEvent) => {
+		if ((e.target as Element | null)?.closest?.("#hint, #hint-btn")) return;
+		removeEventListener("pointerdown", hintOff, true);
+		const h = mapEl.querySelector<HTMLElement>("#hint"); if (h && h.style.display !== "none") h.querySelector<HTMLElement>("#hint-close")?.click();
+	};
+	addEventListener("pointerdown", hintOff, true);
+	async function samplePx(url: string, lon: number, lat: number, legend: typeof DEPTH): Promise<number> {
+		const z = 17, p = tilePixel(lon, lat, z);
+		try {
+			const r = await fetch(url.replace("{z}", String(z)).replace("{x}", String(p.x)).replace("{y}", String(p.y)), { credentials: "omit" });
+			if (!r.ok) return -1;   // 404＝その枡に想定なし
+			const bmp = await createImageBitmap(await r.blob());
+			const cv = new OffscreenCanvas(1, 1), cx = cv.getContext("2d")!;
+			cx.drawImage(bmp, p.px, p.py, 1, 1, 0, 0, 1, 1);
+			const d = cx.getImageData(0, 0, 1, 1).data;
+			return legendIndex(legend, d[0], d[1], d[2], d[3]);
+		} catch { return -1; }
+	}
+	async function probe(ll: LonLat) {
+		const [lon, lat] = ll;
+		probeMark?.remove();
+		const el = document.createElement("div"); el.className = "yk-probe";
+		probeMark = new ML.Marker({ element: el, anchor: "center" }).setLngLat(ll).addTo(map);
+		probeOut.hidden = false;
+		probeOut.innerHTML = `<div class="dh"><b>${esc(t("Loading…"))}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>`;
+		const run = probeOut.dataset.run = String(Date.now());
+		const water = HAZARDS.filter(h => h.id !== "dosha"), dosha = HAZARDS.find(h => h.id === "dosha")!;
+		const [here, depths, dz, rows] = await Promise.all([
+			map.getHeight(lon, lat).catch(() => NaN),
+			Promise.all(water.map(h => samplePx(h.urls[0], lon, lat, h.legend))),
+			Promise.all(dosha.urls.map(u => samplePx(u, lon, lat, dosha.legend))).then(a => Math.max(...a)),
+			(shelters ? Promise.resolve(shelters) : setHinan(true).then(() => shelters)),
+		]);
+		if (probeOut.dataset.run !== run) return;
+		const near = rows ? nearestSites(rows, [lon, lat], 3) : [];   // 同じ学校の棟違いは 1 件に
+		const worst = Math.max(...depths);
+		showWater([lon, lat], depthTop(worst));
+		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${esc(legend[i].color)}"></i>${esc(t(legend[i].label))}</span>`;
+		probeOut.innerHTML = `<div class="dh"><b>${Number.isFinite(here) ? esc(t("Elevation about $1 m", num(Math.round(here)))) : ""}</b><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
+			<h3>${esc(t("Expected flood depth here"))}</h3>
+			<div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}
+				<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div></div>
+			${floorsOfDepth(worst) ? `<p class="warn">${esc(t("Water could reach floor $1 (3 m per floor).", floorsOfDepth(worst) >= 7 ? "7+" : floorsOfDepth(worst)))}</p>` : ""}
+			${worst >= 0 ? `<button class="wv" type="button">${esc(t("See the water level in 3D"))}</button>` : ""}
+			<h3>${esc(t("Nearest evacuation sites"))}</h3>
+			<ol class="near">${near.map(({ row, m }, i) => `<li data-i="${i}"><b>${esc(shName(row))}</b><small>${esc(t("$1 m · about $2 min on foot", num(Math.round(m)), walkMin(m)))}</small><small class="el"></small></li>`).join("")}</ol>
+			<p class="sub flat">${esc(t("Straight-line distance; walking time assumes 80 m per minute."))}</p>`;
+		if (narrow()) probeOut.scrollIntoView({ block: "start", behavior: "smooth" });   // スマホ：深さと避難場所がシートの下に隠れない（Mac 390px 2026-11-13）
+		// 最寄りへ線を引く（直線）
+		const n0 = near[0]?.row;
+		const fc = { type: "FeatureCollection" as const, features: n0 ? [{ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: [[lon, lat], [n0[0], n0[1]]] } }] : [] };
+		if (!probeLine) { probeLine = true; map.addSource("yk-probe", { type: "geojson", data: fc }); await map.addLayer({ id: "yk-probe", type: "line", source: "yk-probe", paint: { "line-color": "#e65100", "line-width": 3 } }); }
+		else map.getSource("yk-probe")?.setData?.(fc);
+		// 避難場所の標高と、ここからの差（高台へ逃げるか）
+		near.forEach(async ({ row }, i) => {
+			const h = await map.getHeight(row[0], row[1]).catch(() => NaN);
+			const li = probeOut.querySelector(`[data-i="${i}"] .el`);
+			if (li && probeOut.dataset.run === run && Number.isFinite(h)) li.textContent = t("Elevation about $1 m ($2 m from here)", num(Math.round(h)), Number.isFinite(here) ? (h - here >= 0 ? "+" : "") + Math.round(h - here) : "?");
+		});
+	}
+	// 想定の深さの水面＝押した地点のまわり半径 WATER_R の半透明の柱（地面から帯の上端まで）。建物の何階まで来るかを絵で見せる（「水の深さを建物の高さで」・動画の試し撮り 2026-10-26）
+	// 押し出しは頂点ごとに地表へ接地する＝坂でも地面から同じ深さ。浸水の面そのものではなく「この地点の想定」の目安（範囲外＝出さない）
+	// 見た目（Mac 2026-10-26）：0.45 は淡く「青い円盤」にしか見えなかった＝0.6＋上端に濃い帯（水面の線）。半径 90m は街区の壁を覆った＝50m で「この家の壁のここまで」
+	const WATER_R = 50, WATER_LINE = 0.25;
+	let waterAt: [number, number] | null = null;
+	async function showWater(at: [number, number] | null, top = 0) {
+		waterAt = top > 0 ? at : null;
+		const ring = waterAt ? circleRing(waterAt, WATER_R, 48) : [];
+		const fc = { type: "FeatureCollection" as const, features: waterAt ? [
+			{ type: "Feature" as const, properties: { h: top, b: 0, c: "#1e88e5", o: 0 }, geometry: { type: "Polygon" as const, coordinates: [ring] } },
+			{ type: "Feature" as const, properties: { h: top + 0.02, b: Math.max(0, top - WATER_LINE), c: "#0d47a1", o: 1 }, geometry: { type: "Polygon" as const, coordinates: [ring, circleRing(waterAt, WATER_R - 1.5, 48).reverse()] } },   // 上端の帯＝縁だけの輪（中は抜く）
+		] : [] };
+		if (!waterOn) {
+			if (!waterAt) return;
+			waterOn = true; map.addSource("yk-water", { type: "geojson", data: fc });
+			await map.addLayer({ id: "yk-water", type: "fill-extrusion", source: "yk-water", paint: { "fill-extrusion-color": ["get", "c"], "fill-extrusion-opacity": 0.6, "fill-extrusion-height": ["get", "h"], "fill-extrusion-base": ["get", "b"] } });
+		} else map.getSource("yk-water")?.setData?.(fc);
+	}
+	// 「水の高さを立体で見る」＝その地点へ寄って低く傾ける（人の目の高さに近い＝壁のどこまでかが分かる）。スマホはシートを畳む
+	const seeWater = () => {
+		if (!waterAt) return;
+		foldForMap();
+		const v = { lon: waterAt[0], lat: waterAt[1], zoom: 18.3, tilt: 70, bearing: map.getBearing?.() ?? 0 };
+		const h = holdBuildings(v); flyView(v).finally(() => { h.armed = true; });
+	};
+	probeOut.addEventListener("click", e => {
+		const el = e.target as HTMLElement;
+		if (el.closest(".wv")) { seeWater(); return; }
+		if (el.closest(".x")) { probeOut.hidden = true; probeMark?.remove(); showWater(null); if (probeLine) map.setLayoutProperty("yk-probe", "visibility", "none"); }
+	});
+	// スマホ：開いた板（下からのシート）に押した点と最寄りへの線が隠れる＝点が板の上の見える所の中ほどに来るよう地図をずらす
+	const revealAbovePanel = (ll: LonLat) => requestAnimationFrame(() => {
+		const pr = panel.getBoundingClientRect(), mr = mapEl.getBoundingClientRect(), top = pr.top - mr.top;
+		const p = map.project(ll), want = top / 2;
+		if (top <= 0 || p.y < top - 24) return;   // もう見えている
+		const c = map.unproject([mapEl.clientWidth / 2, mapEl.clientHeight / 2 + (p.y - want)]);
+		if (c) map.easeTo({ center: [c.lng, c.lat], duration: 400 });
+	});
+	map.on("click", (e: { lngLat: LonLat | null }) => {
+		if (!probing || !e.lngLat) return;
+		const home = probeHome; probedAt = Date.now(); setProbing(false);
+		if (narrow()) { P.setFold(false); revealAbovePanel(e.lngLat); }
+		if (home) { homeAt(e.lngLat); return; }
+		probeHere(e.lngLat);
+	});
+
+	// ── 暮らし：わが家のまわり＝押した所（か現在地）の区・小／中学校区・最寄り駅とバス停・想定浸水と土砂・最寄りの避難場所・用途地域・近くの施設・大きな病院を 1 枚に（市民ファースト・本人 2026-10-25）──
+	// 東京都の頁は層を重ねて読む＝専門家の道具。ここは「自分の家」から引く＝答えが 1 枚で出る。台帳はどれも既にある物（読むだけ・層は足さない）
+	const homeOut = $<HTMLElement>(".home-out"), hmMsg = $<HTMLElement>(".hm-msg");
+	let homeMark: Marker | null = null;
+	const areaFile = (id: AreaId) => AREAS.find(a => a.id === id)!.file;
+	const areaLedger = (id: AreaId) => hasArea(id) ? ledger<AreaFC>(areaFile(id)) : Promise.resolve(null);   // 市に無い区域は取りに行かない
+	type AreaFC = { features: { geometry: { type: string; coordinates: unknown } | null; properties: { n?: string; a?: string; b?: number; f?: number } }[] };
+	const SUB = (name: string) => FACILITY_SUBS.findIndex(x => x.name === name);
+	const HOME_JURIS = city.homeJuris;   // 警察署・消防署の管轄をカードに出すか（区と一致しない自治体なら true）
+	const HOME_NEAR = ["Ward offices", "Libraries", "Hospitals", "Police boxes", "Fire stations and headquarters"].map(n => ({ n, i: SUB(n) }));
+	// 歩ける道（OSM）＝家のまわり 2.5km の区画だけ取る（一度だけ・無い区画＝空）。道の網は家ごとに組み、家から 1 度だけ探す（Mac の試作で 2km 四方 0.1 秒弱）
+	const WALK_R = 2500, OSM_ATTR = `<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>`;
+	// 地図の地名（英語）＝OSM の区・町・丁目・小字・駅。z で段を分ける（区 10・駅と小字 13・町 12.5・丁目 14.5）
+	async function osmNames() {
+		const d = await ledger<{ rows: [number, number, string, string, number][] }>("places.json");
+		if (!d?.rows?.length) { map.setBaseLayers?.({ place: true }); return; }   // 無い＝基図の日本語の地名に戻す
+		map.addSource("yk-places", { type: "geojson", attribution: OSM_ATTR, data: { type: "FeatureCollection", features: d.rows.map(r => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { en: r[4] === 4 ? t("$1 Station", r[3]) : r[3], k: r[4], o: [0, 2, 3, 4, 1][r[4]] ?? 5 } })) } });
+		await map.addLayer({ id: "yk-places", type: "symbol", source: "yk-places", filter: [">=", ["zoom"], ["match", ["get", "k"], 0, 10, 1, 12.5, 2, 14.5, 13]],
+			layout: { "text-field": ["get", "en"], "text-size": ["match", ["get", "k"], 0, 15, 1, 13, 4, 12.5, 11.5], "text-max-width": 16, "symbol-sort-key": ["get", "o"] },   // 先に置く順＝区 → 駅 → 町 → 丁目 → 小字（駅が丁目に負けて消えていた・Mac 実測 2026-10-26）
+			paint: { "text-color": ["match", ["get", "k"], 0, "#263238", 4, "#37474f", "#455a64"], "text-halo-color": "rgba(255,255,255,.92)", "text-halo-width": 1.6 } });
+	}
+	const walkBins = new Map<string, Promise<WalkLine[]>>();
+	const walkBin = (k: string) => walkBins.get(k) ?? walkBins.set(k, fetch(`${opts.base}walk/${k}.bin`, { credentials: "omit" })
+		.then(r => r.ok ? r.arrayBuffer() : null).then(b => { const [cx, cy] = k.split("_").map(Number); return b ? decodeWalk(new Uint8Array(b), cx, cy) : []; })
+		.catch(() => [] as WalkLine[])).get(k)!;
+	async function walkNet(at: [number, number]): Promise<{ g: WalkGraph; from: WalkFrom } | null> {
+		const lines = (await Promise.all(walkCells(at, WALK_R).map(walkBin))).flat();
+		if (!lines.length) return null;
+		const g = buildWalkGraph(lines), snaps = walkSnap(g, at);
+		return snaps.length && snaps[0].m <= 150 ? { g, from: walkSearch(g, at, snaps) } : null;
+	}
+	// 道順の高低差（本人 2026-11-13「ルート案内のときに標高差のグラフも」）＝地図の下に小さなグラフ。坂の多い横浜で「上りが何 m か」を道順と一緒に見せる。
+	// 標高＝map.getHeight（DEM の最大ズーム＝通信なしの束にもある）。名所めぐりの札が出ている間は札を優先（CSS で伏せる）
+	const prof = document.createElement("div");
+	prof.className = "yk-prof"; prof.hidden = true;
+	mapEl.appendChild(prof);
+	prof.addEventListener("click", e => { if ((e.target as HTMLElement).closest(".x")) prof.hidden = true; });
+	let profRun = 0;
+	async function paintProfile(k: number) {
+		const run = ++profRun, line = routes[k];
+		if (!line || line.length < 2) { prof.hidden = true; return; }
+		const pts = sampleLine(line), h = await Promise.all(pts.map(p => map.getHeight(p.at[0], p.at[1]).catch(() => NaN)));
+		if (run !== profRun) return;
+		const c = climb(h);
+		if (!Number.isFinite(c.max)) { prof.hidden = true; return; }
+		const W = 360, H = 84, total = pts[pts.length - 1].d || 1, span = Math.max(10, c.max - c.min), lo = (c.max + c.min - span) / 2;   // 10 m より平らな道は平らに・高さの中ほどに見せる（縦を伸ばしすぎない・底に張り付けない＝Mac 実測 2026-11-13）
+		const xy = pts.flatMap((p, i) => Number.isFinite(h[i]) ? [`${(p.d / total * W).toFixed(1)},${(H - 4 - (h[i] - lo) / span * (H - 12)).toFixed(1)}`] : []);
+		prof.innerHTML = `<button class="x" type="button" aria-label="${esc(t("Close"))}">×</button>`
+			+ `<b>${esc(t("Elevation along this route"))}${routeTo[k] ? ` <small>→ ${esc(routeTo[k])}</small>` : ""}</b>`
+			+ `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path class="a" d="M${xy[0].split(",")[0]},${H} L${xy.join(" L")} L${xy[xy.length - 1].split(",")[0]},${H} Z"/><path class="l" d="M${xy.join(" L")}"/></svg>`
+			+ `<p><span>${esc(t("Up $1 m · down $2 m", num(Math.round(c.up)), num(Math.round(c.down))))}</span><span>${esc(t("Highest $1 m · lowest $2 m", num(Math.round(c.max)), num(Math.round(c.min))))}</span></p>`;
+		prof.hidden = false;
+	}
+	// 道順を画面に収める時の余白＝板の分（pad90）＋高低差のグラフの分（本人 2026-11-14「ルートが全部見えない」＝線の下の方がグラフに隠れていた）。
+	// グラフは広い画面で地図の下端（bottom 44px）・スマホで上端（top 12px）に出る。まだ描かれていない間（標高を読んでいる間）は出た時の高さを見込む
+	const PROF_H = 150;
+	const padRoute = () => {
+		const p = pad90(), top = matchMedia("(max-width:640px)").matches;
+		const h = Math.min((prof.hidden ? PROF_H : prof.offsetHeight || PROF_H) + (top ? 24 : 56), mapEl.clientHeight * 0.4);   // 低い画面では地図の 4 割まで
+		if (top) p.top += h; else p.bottom += h;
+		return p;
+	};
+	// 道順の線（押した行の行き先まで）
+	let routeOn = false, routeShown = -1, destMark: Marker | null = null;
+	const routes: [number, number][][] = [], routeTo: string[] = [];   // routeTo＝行き先の名（終点のピンに出す）
+	async function showRoute(k: number) {
+		routeShown = k;
+		destMark?.remove(); destMark = null;
+		const line = routes[k];
+		if (line?.length) {   // 行き先のピン＋名（動画で「どこへ向かう線か」が分かるように・Mac の試し撮り 2026-10-26）
+			const el = document.createElement("div"); el.className = "yk-dest";
+			el.innerHTML = `<i></i>${routeTo[k] ? `<span>${esc(routeTo[k])}</span>` : ""}`;
+			destMark = new ML.Marker({ element: el, anchor: "bottom" }).setLngLat(line[line.length - 1]).addTo(map);
+		}
+		const fc = { type: "FeatureCollection" as const, features: routes[k] ? [{ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: routes[k] } }] : [] };
+		if (!routeOn) {
+			routeOn = true; map.addSource("yk-route", { type: "geojson", data: fc, attribution: OSM_ATTR });
+			await map.addLayer({ id: "yk-route-case", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 10 } });
+			await map.addLayer({ id: "yk-route", type: "line", source: "yk-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0288d1", "line-width": 6 } });   // 太め・濃いめ＝明るい基図の上でも傾けても見える（Mac の試し撮り 2026-10-26）
+		} else map.getSource("yk-route")?.setData?.(fc);
+		homeOut.querySelectorAll<HTMLElement>(".wroute").forEach(b => b.classList.toggle("on", +b.dataset.k! === k));
+		paintProfile(k);
+	}
+	// 線を画面に収める（引いても建物を残す＝z 16.5 未満でも道順のまわりは立てたまま・観光と同じ hold・Mac の試し撮り 2026-10-26）
+	const fitRoute = (line: [number, number][], o: { padding: ReturnType<typeof padRoute>; pitch: number; bearing: number; maxZoom: number }) => {
+		const xs = line.map(p => p[0]), ys = line.map(p => p[1]), bb: [number, number, number, number] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+		const cam = map.cameraForBounds(bb, o), h = cam ? holdBuildings({ lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2, zoom: cam.zoom }) : null;
+		return map.fitBounds(bb, o).finally(() => { if (h) h.armed = true; });
+	};
+	// カードを開いた時に引く最寄り駅の道＝視点は基本動かさない。線の一部が板・グラフの下や画面の外になる時だけ、見える所へずらす
+	// （本人 2026-11-14「ルートが全部見えない」＝押した家の側の端が、下に出る高低差のグラフに隠れていた・Mac の撮り直しで英語の場面と都筑区の家）。
+	// ずらすだけで入らない長さの線は、いまの向き・傾きのまま寄らずに引いて収める。空きが狭すぎる画面（スマホで板を開いたまま）では何もしない
+	async function revealRoute(k: number, at: [number, number], settled?: Promise<unknown>) {
+		try { await settled; } catch { /* 飛べなくても測る */ }
+		await new Promise(r => setTimeout(r, 150));   // スマホ＝押した点を板の上へずらす動き（revealAbovePanel）が始まるのを待つ
+		for (let i = 0; i < 30 && map.isMoving?.(); i++) await new Promise(r => setTimeout(r, 100));   // 動いている間は測らない
+		const line = routes[k];
+		if (homeNow !== at || routeShown !== k || !line?.length) return;   // 別の地点・別の道順に変わった
+		const p = padRoute(), W = mapEl.clientWidth, H = mapEl.clientHeight, slack = Math.max(0, Math.min(W, H) * 0.05 - 12);   // 測る枠＝板とグラフの分＋12px（収める時の 5% の余白までは求めない）
+		const free: [number, number, number, number] = [p.left - slack, p.top - slack, W - p.right + slack, H - p.bottom + slack];
+		if (free[2] - free[0] < 140 || free[3] - free[1] < 140) return;
+		const q = line.map(ll => map.project(ll)), xs = q.map(v => v.x), ys = q.map(v => v.y);
+		if (!xs.every(Number.isFinite) || !ys.every(Number.isFinite)) return;
+		const d = shiftInto([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], free);
+		if (d && !d.dx && !d.dy) return;   // 全部見えている
+		if (d) { const c = map.unproject([W / 2 + d.dx, H / 2 + d.dy]); if (c) map.easeTo({ center: [c.lng, c.lat], duration: 400 }); return; }
+		fitRoute(line, { padding: p, pitch: map.getPitch(), bearing: map.getBearing(), maxZoom: map.getZoom() });
+	}
+	const clearHome = () => { homeOut.hidden = true; homeNow = null; homeMark?.remove(); homeMark = null; routes.length = 0; routeTo.length = 0; if (routeOn) showRoute(-1); else { destMark?.remove(); destMark = null; } profRun++; prof.hidden = true; };
+	// 保存した地点＝自宅・実家・職場など名前を付けて 3 か所まで。押せばその地点のカードへ（この端末だけ＝localStorage・Kenji 2026-10-27「2〜3 点登録できると便利」）
+	const PLACES_KEY = `${city.key}-places`, savedEl = $<HTMLElement>(".hm-saved");
+	let places: SavedPlace[] = [], homeNow: [number, number] | null = null;
+	try { places = parsePlaces(localStorage.getItem(PLACES_KEY), CITY_BBOX); } catch { /* 読めない端末＝空 */ }
+	const paintPlaces = () => {
+		savedEl.hidden = !places.length;
+		savedEl.innerHTML = places.map((p, i) => `<span class="pl"><button type="button" class="pl-go" data-i="${i}">${esc(p.n)}</button><button type="button" class="pl-del" data-i="${i}" aria-label="${esc(t("Remove $1", p.n))}">×</button></span>`).join("");
+	};
+	const putPlaces = () => { try { localStorage.setItem(PLACES_KEY, JSON.stringify(places)); } catch { /* 保存できない端末＝この回だけ */ } paintPlaces(); if (homeNow) paintSave(homeNow); };
+	// カードの「この地点を保存」＝保存済みなら名前、3 か所埋まっていれば一言、それ以外は名前の欄と保存ボタン
+	function paintSave(at: [number, number]) {
+		const slot = homeOut.querySelector<HTMLElement>(".hm-sv");
+		if (!slot) return;
+		const p = places.find(q => samePlace(q.at, at));
+		slot.innerHTML = p ? `<p class="hm-is">★ ${esc(p.n)}</p>`
+			: places.length >= PLACES_MAX ? `<p class="sub flat">${esc(t("You can save up to $1 places. Remove one to add another.", PLACES_MAX))}</p>`
+			: `<form class="hm-svf"><input type="text" class="fq" maxlength="${PLACE_NAME_MAX}" placeholder="${esc(t("Name (e.g. Home, Parents, Work)"))}" aria-label="${esc(t("Place name"))}" enterkeyhint="done"><button type="submit" class="act">${esc(t("Save this place"))}</button></form>`;
+	}
+	const goHome = (ll: LonLat) => {
+		homeAt(ll, flyNear(ll));
+	};
+	savedEl.addEventListener("click", e => {
+		const el = e.target as HTMLElement, go = el.closest<HTMLElement>(".pl-go"), del = el.closest<HTMLElement>(".pl-del");
+		if (go) { const p = places[+go.dataset.i!]; if (p) { hmMsg.textContent = ""; goHome(p.at); } }
+		else if (del) { places.splice(+del.dataset.i!, 1); putPlaces(); }
+	});
+	homeOut.addEventListener("submit", e => {
+		const f = (e.target as HTMLElement).closest<HTMLFormElement>(".hm-svf");
+		if (!f || !homeNow) return;
+		e.preventDefault();
+		if (places.length >= PLACES_MAX || places.some(q => samePlace(q.at, homeNow!))) return;
+		const n = (f.querySelector("input")!.value.trim() || t("Place $1", places.length + 1)).slice(0, PLACE_NAME_MAX);
+		places.push({ n, at: homeNow }); putPlaces();
+	});
+	paintPlaces();
+	async function homeAt(ll: LonLat, settled?: Promise<unknown>) {
+		const at: [number, number] = [ll[0], ll[1]];
+		homeNow = null;
+		closePop(); homeMark?.remove();
+		const el = document.createElement("div"); el.className = "yk-probe yk-home";
+		homeMark = new ML.Marker({ element: el, anchor: "center" }).setLngLat(ll).addTo(map);
+		if (st.tab !== "tools") setTab("tools");
+		homeOut.hidden = false;
+		const x = `<button class="x" type="button" aria-label="${esc(t("Close"))}">×</button>`;
+		homeOut.innerHTML = `<div class="dh"><b>${esc(t("Loading…"))}</b>${x}</div>`;
+		const run = homeOut.dataset.run = String(Date.now());
+		const water = HAZARDS.filter(h => h.id !== "dosha"), dosha = HAZARDS.find(h => h.id === "dosha")!;
+		const [wards, , se, sj, zn, po, fi, rail, , sh, , here, depths, dz, net] = await Promise.all([
+			loadWards(), enP, areaLedger("school-e"), areaLedger("school-j"), areaLedger("zoning"), HOME_JURIS ? ledger<AreaFC>(areaFile("police")) : null, HOME_JURIS ? ledger<AreaFC>(areaFile("fire")) : null,
+			loadRail(), loadBus(), loadShelters(), loadFac(),
+			map.getHeight(at[0], at[1]).catch(() => NaN),
+			Promise.all(water.map(h => samplePx(h.urls[0], at[0], at[1], h.legend))),
+			Promise.all(dosha.urls.map(u => samplePx(u, at[0], at[1], dosha.legend))).then(a => Math.max(...a)),
+			walkNet(at).catch(e => { console.warn(TAG, "walk", e); return null; }),
+		]);
+		if (homeOut.dataset.run !== run) return;
+		const ward = featureAt(wards as unknown as { features: { geometry: { type: string; coordinates: unknown } | null; properties: { code?: string } }[] } | null, at);
+		if (wards && !ward?.code) { homeOut.innerHTML = `<div class="dh"><b>${esc(t(city.outside))}</b>${x}</div>`; return; }
+		const row = (k: string, v: string) => `<div><small>${esc(k)}</small><span>${v}</span></div>`;
+		// 道のり＝歩ける道（OSM）で。網の外・繋がらない＝直線（「直線」と書く・徒歩は 1.3 倍で見積もる）。cands は直線で近い順の候補＝道のりで並べ直す
+		routes.length = 0; routeTo.length = 0;
+		type Way = { m: number; k: number };   // k＝道順の番号（-1＝直線）
+		const way = (to: [number, number]): Way => { const r = net && walkTo(net.g, net.from, to);
+			if (!r) return { m: distM(at, to), k: -1 };
+			routes.push(r.path); return { m: r.m, k: routes.length - 1 }; };
+		const best = <T extends [number, number, ...unknown[]]>(cands: { row: T }[], n = 1) => cands.map(c => ({ row: c.row, w: way([c.row[0], c.row[1]]) })).sort((a, b) => a.w.m - b.w.m).slice(0, n);
+		const walk = (w: Way, to: string) => { if (w.k >= 0) routeTo[w.k] = to; return w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
+			: `${esc(t("$1 m · about $2 min on foot", num(Math.round(w.m)), Math.max(1, Math.round(w.m / 80))))} <button type="button" class="wroute" data-k="${w.k}">${esc(t("Route"))}</button>`; };
+		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${esc(legend[i].color)}"></i>${esc(t(legend[i].label))}</span>`;
+		const out: string[] = [];
+		out.push(`<div class="dh"><b>${esc(ward?.code ? wardName(ward.code) : "")}${Number.isFinite(here) ? ` · ${esc(t("Elevation about $1 m", num(Math.round(here))))}` : ""}</b>${x}</div>`);
+		out.push(`<div class="hm-sv"></div>`);
+		// 学区
+		const e1 = featureAt(se, at), j1 = featureAt(sj, at);
+		if (e1 || j1) out.push(`<h3>${esc(t("School districts"))}</h3><div class="pr">${e1 ? row(t("Elementary schools"), esc(schoolName(e1))) : ""}${j1 ? row(t("Junior high schools"), esc(schoolName(j1))) : ""}</div>`);
+		// 交通＝最寄りの駅 2 つ（同じ名の駅は 1 つに）・バス停 1 つ
+		const sta: { row: StationRow; w: Way }[] = [];
+		if (rail) for (const r of best(nearestRows(rail.stations, at, 8), 8)) { if (!sta.some(s => s.row[2] === r.row[2])) sta.push(r); if (sta.length >= 2) break; }
+		const bs = bus ? best(nearestRows(bus, at, 4))[0] : null;
+		if (sta.length || bs) out.push(`<h3>${esc(t("Getting around"))}</h3><div class="pr">${sta.map(({ row: r, w }) => row(t("$1 Station", staName(r[2])), walk(w, t("$1 Station", staName(r[2]))))).join("")}${bs ? row(t("Bus stops"), `${esc(stopName(bs.row[2]))}<br><small>${walk(bs.w, stopName(bs.row[2]))}</small>`) : ""}</div>${sta[0] ? `<button type="button" class="walkr" data-lon="${sta[0].row[0]}" data-lat="${sta[0].row[1]}" data-name="${esc(staName(sta[0].row[2]))}" data-ja="${esc(sta[0].row[2])}">${esc(t("Walking distance from $1", t("$1 Station", staName(sta[0].row[2]))))}</button>` : ""}`);
+		// 防災＝想定浸水（3 つの想定）・土砂・水が届く階・最寄りの避難場所
+		const worst = Math.max(...depths), ev = sh ? best(nearestSites(sh, at, 4))[0] : null;
+		out.push(`<h3>${esc(t("Disasters"))}</h3><div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div>${ev ? row(t("Nearest evacuation sites"), `${esc(shName(ev.row))}<br><small>${walk(ev.w, shName(ev.row))}</small>`) : ""}</div>`
+			+ (floorsOfDepth(worst) ? `<p class="warn">${esc(t("Water could reach floor $1 (3 m per floor).", floorsOfDepth(worst) >= 7 ? "7+" : floorsOfDepth(worst)))}</p>` : ""));
+		// 休日・夜間の急病＝区の休日急患診療所（区で決まる）・近い夜間急病センター・#7119（本人「休日急患診療所は絶対必要！」2026-10-26）。電話は押せばかかる
+		const tel = (n: string) => `<a href="tel:${n.replace(/-/g, "")}">${esc(n)}</a>`;
+		const em = city.emergency;
+		const hc = ward?.code && em?.holiday ? em.holiday.clinics[ward.code] : undefined;
+		const nc = em?.night?.centers.map(c => ({ c, m: distM(at, [c.lon, c.lat]) })).sort((a, b) => a.m - b.m)[0];
+		if (hc || nc || em?.advice) out.push(`<h3>${esc(t("Sudden illness on holidays or at night"))}</h3><div class="pr">`
+			+ (hc ? row(t("Holiday emergency clinic"), `${esc(t(em!.holiday!.name, wardName(ward!.code!)))}<br><small>${esc(lang === "ja" ? hc.addr : hc.en)}</small><br>${tel(hc.tel)}<br><small>${esc(t(em!.holiday!.hours, em!.holiday!.time(ward!.code!)))}</small>`) : "")
+			+ (nc ? row(em!.night!.label ? t(em!.night!.label) : t("Night emergency center"), `${esc(lang === "ja" ? nc.c.name : nc.c.enName)}<br><small>${esc(lang === "ja" ? nc.c.addr : nc.c.en)} · ${esc(t("About $1 km", (nc.m / 1000).toFixed(1)))}</small><br>${tel(nc.c.tel)}<br><small>${esc(t(em!.night!.hours))}</small>`) : "")
+			+ `</div>${em?.advice ? `<p class="sub flat">${esc(t(em.advice.text))} <a href="tel:${encodeURIComponent(em.advice.tel)}">${esc(em.advice.tel)}</a></p>` : ""}`);
+		// 大きな病院＝市立・市大・地域中核の近い 2 つ（病院の管轄の代わり・本人 2026-10-25）。道の網の外で 2 km を超えたら直線の km だけ
+		const majorHospital = (name: string): string | null => city.majorHospitals.find(h => name.includes(h.key))?.name ?? null;
+		const big = fac ? best(nearestRows(fac.filter(r => majorHospital(r[2])), at, 4), 2) : [];
+		if (big.length) out.push(`<h3>${esc(t("Major hospitals"))}</h3><div class="pr">${big.map(({ row: r, w }) => { const nm = lang === "ja" ? majorHospital(r[2])! : facName(r); return row(nm, w.k < 0 && w.m > 2000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1))) : walk(w, nm)); }).join("")}</div>`);
+		// 近くの施設（区役所・図書館・病院・交番・消防署）
+		if (fac) {
+			// 図書館は市立を先に（台帳の「図書館」には大学の図書館も入る＝鶴見で鶴見大学図書館が出た・Mac 実測 2026-10-25）
+			const pick = (n: string, i: number) => { const rows = fac!.filter(r => subOf(r[3], r[5]) === i), cityLib = n === "Libraries" ? rows.filter(r => r[2].startsWith(city.addrPrefix)) : [];
+				return best(nearestRows(cityLib.length ? cityLib : rows, at, 3))[0]; };
+			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: pick(n, i) })).filter(x => x.r);
+			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w, facName(r!.row))}</small>`)).join("")}</div>`);
+		}
+		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
+		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = HOME_JURIS ? featureAt(po, at) : null, f1 = HOME_JURIS ? featureAt(fi, at) : null;
+		if (z || p1 || f1) out.push(`<h3>${esc(t(HOME_JURIS ? city.zonesTitle : "Town planning rules"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(String(p1.n || ""))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(String(f1.n || ""))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
+		out.push(`<p class="sub flat">${esc(t(net ? "Distances follow streets and footpaths (OpenStreetMap); walking time assumes 80 m per minute." : "Straight-line distance; walking time assumes 80 m per minute."))}</p>`);
+		homeOut.innerHTML = out.join("");
+		homeNow = at; paintSave(at);
+		if (sta[0]?.w.k >= 0) { showRoute(sta[0].w.k); revealRoute(sta[0].w.k, at, settled); } else if (routeOn) showRoute(-1);   // 最寄り駅までの道順は最初から引く（隠れる時だけ見える所へずらす）
+		homeOut.scrollIntoView({ block: "nearest", behavior: "smooth" });
+	}
+	homeOut.addEventListener("click", e => { const el = e.target as HTMLElement, r = el.closest<HTMLElement>(".wroute");
+		if (r) {   // 押した道順は線ごと画面に収める（最初に引く最寄り駅の線は視点を動かさない）
+			const k = +r.dataset.k!, line = routes[k]; showRoute(k); foldForMap();
+			if (line?.length) fitRoute(line, { padding: padRoute(), pitch: 0, bearing: 0, maxZoom: 17 });
+			return; }
+		if (el.closest(".x")) clearHome(); });
+	$(".hm-tap").onclick = () => { setProbing(!(probing && probeHome), true); if (probing) foldForMap(); };
+	$(".hm-gps").onclick = () => locateMe(hmMsg, goHome);
+
+	// ── 解析：影（WebGPU）と日影図 ──
+	if (gpu) {
+		const day = $(".sday"), hour = $(".shour"), out = $<HTMLOutputElement>(".shour-o");
+		day.value = todayJST();
+		const apply = () => {
+			const h = +hour.value; out.textContent = `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
+			map.setShadows($(".shadow").checked ? { on: true, time: jst(day.value || todayJST(), h) } : false);
+		};
+		$(".shadow").onchange = apply; hour.oninput = apply; day.onchange = apply;
+		apply();
+	}
+	const sunMsg = $<HTMLElement>(".sunmsg");
+	$(".sunmap").onclick = async () => {
+		if (map.getZoom() < 14.5) { sunMsg.textContent = t("Zoom in to street-block level (zoom 14.5 or more), then press again."); return; }
+		sunMsg.textContent = t("Computing…");
+		try {
+			const r = await map.sunShadow({ mode: "duration" });
+			sunMsg.textContent = t("Computed from $1 building faces. Darker areas stay in shade longer (up to $2 hours).", num(r.triangles), r.maxHours.toFixed(1));
+			$<HTMLElement>(".sunclear").hidden = false;
+		} catch (e) { sunMsg.textContent = t("Could not compute."); console.warn(TAG, "sunShadow", e); }
+	};
+	$(".sunclear").onclick = () => { map.raster.remove("sunshadow"); $<HTMLElement>(".sunclear").hidden = true; sunMsg.textContent = ""; };
+
+	// ── 解析：可視域・切り取り・歩く・測る ──
+	const toolMsg = $<HTMLElement>(".toolmsg");
+	const center = (): LonLat => { const c = map.getCenter(); return [c.lng, c.lat]; };
+	$(".vs").onclick = async () => {
+		toolMsg.textContent = t("Computing the viewshed…");
+		try {
+			const r = await map.viewshed({ observer: center(), radius: 1000, eyeH: 1.6 });
+			toolMsg.textContent = t("Green areas are visible ($1% of the 1 km radius). Areas hidden by buildings and terrain stay uncolored.", Math.round(r.visibleRatio * 100));
+			$<HTMLElement>(".vsclear").hidden = false;
+		} catch (e) { toolMsg.textContent = t("Could not compute."); console.warn(TAG, "viewshed", e); }
+	};
+	$(".vsclear").onclick = async () => { await map.clearViewshed(); $<HTMLElement>(".vsclear").hidden = true; toolMsg.textContent = ""; };
+	if (gpu) {
+		let clipped = false;
+		$(".clip").onclick = () => {
+			clipped = !clipped;
+			map.setClipping(clipped ? { box: { center: center(), size: [500, 500] } } : false);
+			$(".clip").textContent = t(clipped ? "Stop clipping" : "Clip (500 m square)");
+		};
+	}
+	let walker: WalkHandle | null = null;
+	$(".walk").onclick = () => { walker ??= map.walk(); if (map.getZoom() < 15) toolMsg.textContent = t("Zoom in before walking to see the streets."); walker.start(); };
+	const measure = map.gadget.measure(), profile = map.gadget.profile();
+	$(".measure").onclick = () => { measure.open?.(); };
+	$(".profile").onclick = () => { profile.open?.(); };
+
+	// ── 通信なしで使う（完全オフライン・本人 2026-11-12）：一気に詰める・続きから・「更新」＝台帳と写真を取り直す・消す ──
+	const STAGE_NAMES: Record<Stage, string> = { app: "App", data: "Data and photos", map: "Base map", hazard: "Hazard maps", terrain: "Terrain", bld: "3D buildings" };
+	const fmtMB = (b: number) => b >= 1e9 ? `${num(+(b / 1e9).toFixed(2))} GB` : `${num(Math.round(b / 1e6))} MB`;
+	let offAc: AbortController | null = null, offNote = false;   // offNote＝最後の保存が「保存できなかった物がある」で終わった（止めたのでなく）
+	const offIntro = $<HTMLElement>(".off-msg").textContent || "";
+	const offPaint = async () => {
+		const ok = Offline.canPack(), rec = ok ? await Offline.status() : null, busy = !!offAc;
+		mapEl.classList.toggle("yk-packed", !!rec);   // 端末に束がある＝通信なしは想定どおり＝エンジンの「取得に失敗」の帯は出さない（見出しの「オフライン」の札で足りる）
+		$(".off-run").hidden = busy || !!rec?.done || !ok;   // 途中まで＝もう一度押すと続きから
+		$<HTMLElement>(".off-saved").hidden = busy || !rec;
+		// 途中までの束＝説明は上の一行（止めた／保存できなかった物がある）に一つだけ出す（二つ並んでいた・Mac 本番 2026-11-12）
+		if (rec) $<HTMLElement>(".off-when").textContent = rec.done ? t("Saved on this device: $1 · $2", new Date(rec.ts).toLocaleDateString(lang), fmtMB(rec.bytes)) : fmtMB(rec.bytes);
+		$<HTMLElement>(".off-bar").hidden = $<HTMLElement>(".off-prog").hidden = !busy;
+		const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+		$<HTMLElement>(".off-ios").hidden = !(rec && ios && !matchMedia("(display-mode: standalone)").matches);
+		$<HTMLElement>(".off-msg").textContent = !ok ? t("This browser cannot save the app for offline use.")
+			: rec && !rec.done && !busy ? (offNote ? t("Finished, but some items could not be saved. Press Update to try again.") : t("Stopped. Press again to continue from where it stopped.")) : offIntro;
+	};
+	const offRun = async (refresh = false) => {
+		if (offAc) return;
+		offAc = new AbortController(); offNote = false; offPaint();
+		const bar = $<HTMLElement>(".off-bar i"), msg = $<HTMLElement>(".off-prog small");
+		msg.textContent = t("Saving… keep this page open.");
+		let rec: OfflineRec | null = null, err = "";
+		try {
+			rec = await Offline.run({ map, dataBase: opts.base, signal: offAc.signal, onProgress: p => {
+				const i = Offline.STAGES.indexOf(p.stage), f = p.total ? p.done / p.total : 0;
+				bar.style.width = `${(100 * (i + f) / Offline.STAGES.length).toFixed(1)}%`;
+				msg.textContent = `${t(STAGE_NAMES[p.stage])} ${num(p.done)} / ${num(p.total)}${p.bytes ? " · " + fmtMB(p.bytes) : ""}`;
+			} }, { refresh });
+		} catch (e) { err = String((e as Error)?.message || e); console.warn(TAG, "offline", e); }
+		const stopped = offAc.signal.aborted; offAc = null; msg.textContent = ""; bar.style.width = "0";   // 進みの行は畳む（終わった後に「立体の建物 6 / 6」が残っていた）
+		offNote = !stopped && (!!err || !rec?.done);
+		await offPaint();
+	};
+	$(".off-run").onclick = () => offRun();
+	$(".off-upd").onclick = () => offRun(true);
+	$(".off-stop").onclick = () => offAc?.abort();
+	$(".off-del").onclick = async () => { if (!confirm(t("Delete the data saved on this device?"))) return; await Offline.remove(); offPaint(); };
+	// 通信の有無＝見出しに「オフライン」の札
+	const offChip = document.createElement("span"); offChip.className = "yk-offline"; offChip.textContent = t("Offline");
+	P.head.insertBefore(offChip, P.fold);
+	const onNet = () => { offChip.hidden = navigator.onLine; };
+	addEventListener("online", onNet); addEventListener("offline", onNet); onNet();
+	offPaint();
+	// 通信のある起動で：束があって新しいデプロイが出ていたら、アプリとエンジンだけ黙って詰め直す（通信なしで開いた時に頁と資産が揃う）
+	if (Offline.canPack()) setTimeout(() => Offline.syncApp({ map, dataBase: opts.base }).then(n => { if (n) offPaint(); }).catch(e => console.warn(TAG, "offline sync", e)), 20000);
+
+	// ── 起動時の状態（URL）──
+	setTab(st.tab);
+	const s0 = SPOTS.find(s => s.id === st.spot);
+	if (s0) { showSpot(s0); if (!location.hash) flySpot(s0); }
+	else if (!location.hash) setWard(st.ward);   // 初めて開いた＝「市全体」を押した時と同じ（真上から市を 9 割・基図は全層・本人 2026-10-26）。区つきの URL ならその区
+	// 星座線は最初から点ける（左上の「層と主題」を隠したので、隠れたチップを押して点ける・本人 2026-10-26「星座線はONでいいよ」）
+	const skyChip = map.mapEl.querySelector<HTMLButtonElement>("#chip-sky");
+	if (skyChip && skyChip.getAttribute("aria-pressed") !== "true") skyChip.click();
+	if (OSM_NAMES && map.setBaseLayers) { map.setBaseLayers({ place: false }); osmNames().catch(e => console.warn(TAG, "places", e)); }
+	else if (st.ward) wardSel.value = st.ward;
+	for (const id of st.hz) setHazard(id, true);
+	for (const id of st.tr) setTransit(id, true);
+	setFac(true);   // 施設の台帳＝最初から（区役所の点・わが家のまわり・検索）
+	loadWards();   // 市の外の覆いと区の線は最初から
+	map.prefetchBuildings({ names: city.lod2Prefetch }).catch(e => console.warn(TAG, "prefetch", e));   // PLATEAU の LOD2（5 区＋橋梁）を起動直後から IDB へ先読み＝寄った時にすぐ立つ（本人 2026-10-26）
+
+	// 通信なしの地名検索（地理院の検索は通信が要る＝main.ts の検索窓が通信の無い時だけここを引く）：名所・駅・施設・町丁目・区
+	let placeRows: Promise<PlaceRow[]> | null = null;
+	const loadPlaceRows = () => placeRows ??= (async () => {
+		// en は英語のまま（英語で引ける＝日本語表示の時も「Yokohama Stadium」で当たる）・loc＝今の言語の表示名
+		const out: PlaceRow[] = WARDS.map(w => ({ ja: w.name, en: w.en, loc: t(w.en), note: "", c: [w.lon, w.lat] as [number, number] }));
+		const wardName = (code: string) => { const w = WARDS.find(x => x.code === code); return w ? (lang === "ja" ? w.name : t(w.en)) : ""; };
+		for (const s of SPOTS) out.push({ ja: s.wiki, en: s.name, loc: t(s.name), note: wardName(s.ward), c: [s.lon, s.lat] });
+		const [pl, fc] = await Promise.all([ledger<{ rows: [number, number, string, string, number][] }>("places.json"), ledger<{ rows: FacilityRow[] }>("facilities.json"), enP]);
+		for (const r of pl?.rows || []) out.push({ ja: r[2], en: r[3], note: "", c: [r[0], r[1]] });
+		for (const r of fc?.rows || []) { const en = EN?.rows?.[`${r[2]}|${r[4]}`]; out.push({ ja: r[2], en: en?.[0] || "", note: lang === "ja" ? r[4] : en?.[1] || r[4], c: [r[0], r[1]] }); }
+		await Promise.all(WARDS.map(async w => {
+			const fcw = await ledger<SmallFC>(`census/${w.code}.json`);
+			for (const f of fcw?.features || []) {
+				const p = f.properties as { n?: string; en?: string }, b = [180, 90, -180, -90];
+				const walk = (c: unknown): void => { if (typeof (c as number[])[0] === "number") { const [x, y] = c as number[]; b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y); } else for (const k of c as unknown[]) walk(k); };
+				walk((f.geometry as { coordinates: unknown }).coordinates);
+				if (p.n && b[0] <= b[2]) out.push({ ja: p.n, en: p.en || "", note: wardName(w.code), bbox: b as [number, number, number, number] });
+			}
+		}));
+		return out;
+	})();
+	const nameOf = (r: PlaceRow) => lang === "ja" ? r.ja : r.loc || r.en || r.ja;
+	const offlineSearch = async (q: string) => searchPlaces(await loadPlaceRows(), q).map(r => ({ text: nameOf(r), place_name: [nameOf(r), r.note].filter(Boolean).join(", "), center: r.c, bbox: r.bbox }));
+
+	return { offlineSearch, state: st, setTab, setWard, setHazard, setHinan, setTransit, setFac, tour, stopTour,
+		get shelters() { return shelters; }, get facilities() { return fac; }, get bus() { return bus; }, get subwayMarkers() { return subMarks; } };
+}
+
+// ── 意匠（quiet-mono のトークン＝#map の変数・choju の案内板と同じ黒地白文字）──
+const CSS = `
+.yk-panel .oe-panel-head h1{font-size:19px;letter-spacing:.04em}
+.yk-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
+.yk-panel .tour.port{background:linear-gradient(90deg,#0b3d6b,#1565c0);margin-top:6px}
+.yk-cap .yr{font-weight:700;letter-spacing:.04em}
+.yk-panel .tour{width:100%;margin:10px 0 2px;padding:9px 10px;border:0;border-radius:var(--qm-r-m);background:linear-gradient(90deg,#1565c0,#0d8bb0);color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.yk-panel .tabs{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 8px}
+.yk-panel .tabs button{flex:1 1 0;min-width:max-content;font:inherit;padding:6px 8px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);cursor:pointer}
+.yk-panel .tabs button[aria-selected=true]{background:#fff;color:#0b1220;border-color:#fff;font-weight:700}
+.yk-panel .subtabs{display:flex;margin:12px 0 8px;border-bottom:1px solid var(--qm-border-soft)}
+.yk-panel .subtabs button{flex:1 1 0;font:inherit;font-size:13px;padding:7px 6px;background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--qm-text-dim);cursor:pointer}
+.yk-panel .subtabs button[aria-selected=true]{color:var(--qm-text);border-bottom-color:#4fc3f7;font-weight:700}
+.yk-panel [data-sub-pane] h3{margin:12px 0 4px;font-size:12.5px;font-weight:600;color:var(--qm-text-dim)}
+.yk-panel h2{font-size:12px;margin:12px 0 4px;color:var(--qm-text-dim);font-weight:600}
+.yk-panel .offl{margin:0 0 4px;padding:2px 10px 8px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:rgba(79,195,247,.07)}
+.yk-panel .off-saved,.yk-panel .off-prog{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px;font-size:12.5px}
+.yk-panel .off-saved[hidden],.yk-panel .off-prog[hidden],.yk-panel .off-bar[hidden]{display:none}
+.yk-panel .off-btns{display:flex;gap:6px;flex:none}
+.yk-panel .off-saved button,.yk-panel .off-prog button{font:inherit;font-size:12px;padding:4px 10px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
+.yk-panel .off-bar{height:4px;margin-top:8px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
+.yk-panel .off-bar i{display:block;height:100%;width:0;background:#4fc3f7;transition:width .3s}
+.yk-packed #net-toast{display:none!important}
+.yk-panel .yk-offline{flex:none;margin-left:auto;margin-right:6px;padding:2px 8px;border-radius:10px;background:#ffb300;color:#000;font-size:11.5px;font-weight:700}
+.yk-panel .yk-offline[hidden]{display:none}
+/* 「オフライン」の札が出ている間は見出しを少し小さく＝スマホ 390px で「横浜市デジタルツイン」が 1 字はみ出して 2 行になった（本人 2026-11-13）。言語の切替は残す＝通信なしの海外の人が使う（26 言語の辞書は束に入っている） */
+.yk-panel .oe-panel-head:has(.yk-offline:not([hidden])) h1{font-size:17px;letter-spacing:0}
+@media (min-width:641px){ .yk-panel:has(.yk-offline:not([hidden])){--oe-panel-w:360px} }   /* PC のパネルは 320px＝札と並ぶと 17px でも 2 行＝札が出ている間だけ少し広げる（2026-11-13・動画のオフライン場面） */
+.yk-panel .msel{display:flex;flex-direction:column;gap:3px;margin-top:8px;font-size:12px;color:var(--qm-text-dim)}
+.yk-panel select,.yk-panel input[type=date]{font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:5px 6px;min-width:0}
+.yk-panel input[type=range]{width:100%;accent-color:#4fc3f7}
+.yk-panel .spots,.yk-panel .cats{display:flex;flex-wrap:wrap;gap:5px}
+.yk-panel .spots button,.yk-panel .cats button{font:inherit;font-size:12px;padding:3px 8px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
+.yk-panel .spots button.on{background:#4fc3f7;border-color:#4fc3f7;color:#06121f}
+.yk-panel .cats{display:block}
+.yk-panel .cats .cg{display:grid;grid-template-columns:1fr auto;align-items:center;border-top:1px solid var(--qm-border-soft)}
+.yk-panel .cats .cg:first-child{border-top:0}
+.yk-panel .cats .cg .grp{min-width:0}
+.yk-panel .cats .cg .grp b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.yk-panel .cats .tw{width:32px;height:32px;border:0;background:transparent;color:var(--qm-text-dim);cursor:pointer;font-size:0;position:relative}
+.yk-panel .cats .tw::after{content:"";position:absolute;left:12px;top:11px;width:7px;height:7px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg);transition:transform .15s}
+.yk-panel .cats .cg.open .tw::after{transform:rotate(225deg);top:14px}
+.yk-panel .cats .kds{display:none;grid-column:1/-1;padding:0 0 4px 26px}
+.yk-panel .cats .cg.open .kds{display:block}
+.yk-panel .cats .kd{padding:1px 0;font-size:12px}
+.yk-panel .cats .kd b{font-weight:500;color:var(--qm-text)}
+.yk-panel .fac-bar{margin:0 0 4px}
+.yk-panel .fac-bar small{margin-right:auto}
+.yk-panel .fac-all,.yk-panel .fac-none{font:inherit;font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
+.yk-panel .cats i,.yk-panel .lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.yk-panel .cats small{margin-left:5px;color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
+.yk-panel .spot-note{margin-top:8px;padding:8px 10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
+.yk-panel .spot-note b{color:var(--qm-ink);font-size:14px}
+.yk-panel .spot-note span{margin-left:8px;color:var(--qm-text-faint);font-size:12px}
+.yk-panel .spot-note p{margin:4px 0 0;color:var(--qm-text-dim)}
+.yk-panel .spot-note .sw{display:flex;gap:10px;align-items:flex-start;margin-top:8px;padding-top:8px;border-top:1px solid var(--qm-border-soft)}
+.yk-panel .spot-note .sw>div{flex:1;min-width:0}
+.yk-panel .spot-note .loc{flex:none}
+.yk-panel .spot-note .loc path{fill:rgba(255,255,255,.08);stroke:rgba(255,255,255,.35);stroke-width:.6}
+.yk-panel .spot-note .loc path.on{fill:rgba(79,195,247,.55);stroke:#4fc3f7}
+.yk-panel .spot-note .loc circle{fill:#ff5252;stroke:#fff;stroke-width:1.2}
+.yk-panel .spot-note .wd{color:var(--qm-ink);font-size:14px;font-weight:600}
+.yk-panel .spot-note .wd small{display:block;font-weight:400;font-size:11px;color:var(--qm-text-faint)}
+.yk-panel .spot-note h4{margin:6px 0 2px;font-size:11.5px;font-weight:600;color:var(--qm-text-faint)}
+.yk-panel .spot-note ul{margin:0;padding:0;list-style:none}
+.yk-panel .spot-note li{margin:2px 0;line-height:1.35}
+.yk-panel .spot-note li b{font-size:13px}
+.yk-panel .spot-note li small{color:var(--qm-text-dim);font-size:12px}
+.yk-panel .spot-note li small.ln{color:var(--qm-text-faint);font-size:11px}
+.yk-panel .spot-note .ld{font-size:11.5px;color:var(--qm-text-faint)}
+.yk-panel .ph{margin:0 0 8px}
+.yk-panel .ph img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:6px;background:#222}
+.yk-panel .ph figcaption,.yk-cap figcaption{font-size:10.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.yk-panel .ph a,.yk-cap figcaption a{color:var(--qm-text-faint);text-decoration:none}
+.yk-panel .grp{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer}
+.yk-panel .grp b{font-weight:600;color:var(--qm-ink)}
+.yk-panel .grp small{margin-left:auto;color:var(--qm-text-faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+.yk-panel .sub{margin:0 0 4px 24px;color:var(--qm-text-dim);font-size:12px}
+.yk-panel .sub.flat{margin:6px 0 4px}
+.yk-panel [hidden]{display:none!important}
+.yk-panel input.fq{width:100%;box-sizing:border-box;font:inherit;font-size:12.5px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:#1b1f26;color:var(--qm-text);padding:6px 8px;margin:2px 0 6px}
+.yk-panel .fbt{height:232px;border-radius:var(--qm-r-m);overflow:hidden}
+.yk-panel .fbt.oe-bt{--oe-bt-font:12px/1.4 var(--qm-font);--oe-bt-bg:#15181d;--oe-bt-odd:#1b1f26;--oe-bt-line:rgba(255,255,255,.08);--oe-bt-head:#22262e}
+.yk-panel .fbt .oe-bt-row{cursor:pointer}
+.yk-panel .fbar{display:flex;align-items:center;gap:8px;margin-top:4px}
+.yk-panel .fbar small{color:var(--qm-text-faint);font-variant-numeric:tabular-nums}
+.yk-panel .fcsv{margin-left:auto;font:inherit;font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text);cursor:pointer}
+@media (max-width:640px){ .yk-panel .fbt{height:180px} }
+.yk-panel .wrow{display:flex;gap:6px;margin-top:2px}
+.yk-panel .wrow select{flex:1 1 auto;min-width:0}
+.yk-panel .stb{flex:none;font:inherit;font-size:12.5px;padding:5px 10px;border-radius:var(--qm-r-m);border:1px solid #4fc3f7;background:transparent;color:#4fc3f7;cursor:pointer;white-space:nowrap}
+.yk-panel .stb.on{background:#4fc3f7;color:#0b1a24}
+.yk-panel .stats-out .kv{display:grid;grid-template-columns:auto auto 1fr;gap:3px 10px;align-items:baseline;font-size:12.5px;margin:6px 0}
+.yk-panel .stats-out .kv span{color:var(--qm-text-dim)}
+.yk-panel .stats-out .kv b{text-align:end;font-variant-numeric:tabular-nums}
+.yk-panel .stats-out .kv small{color:var(--qm-text-faint)}
+.yk-panel .stats-out h3{margin:12px 0 4px;font-size:12.5px;font-weight:600;color:var(--qm-text-dim)}
+.yk-panel .pyr{width:100%;height:auto;display:block}
+.yk-panel .pyr text{font-size:11px;font-weight:600}
+.yk-panel .pyr text.ag{font-size:9px;font-weight:400;fill:var(--qm-text-dim);text-anchor:middle}
+.yk-panel .dens{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:11px;color:var(--qm-text-dim);align-items:center}
+.yk-panel .dens i{display:inline-block;width:12px;height:9px;margin-inline-end:3px;vertical-align:-1px}
+.yk-panel ol.sa{list-style:none;margin:6px 0 4px;padding:0;max-height:260px;overflow:auto;font-size:12.5px}
+.yk-panel ol.sa li{position:relative;display:flex;justify-content:space-between;gap:8px;padding:4px 6px;cursor:pointer;border-radius:4px}
+.yk-panel ol.sa li:hover{background:rgba(255,255,255,.06)}
+.yk-panel ol.sa li i{position:absolute;inset-inline-start:0;bottom:1px;height:2px;background:#df65b0;opacity:.7}
+.yk-panel ol.sa li b{font-variant-numeric:tabular-nums;font-weight:600}
+.yk-panel .fitc{flex:none;font:inherit;font-size:12.5px;padding:5px 10px;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:rgba(255,255,255,.05);color:var(--qm-text);cursor:pointer;white-space:nowrap}
+.yk-panel details.fold{margin-top:6px;border-top:1px solid var(--qm-border-soft);padding-top:4px}
+.yk-panel details.fold>summary{cursor:pointer;padding:6px 0;font-size:12.5px;font-weight:600;color:var(--qm-text-dim);list-style:none;display:flex;align-items:center;gap:6px}
+.yk-panel details.fold>summary::-webkit-details-marker{display:none}
+.yk-panel details.fold>summary::before{content:"▸";font-size:11px;transition:transform .15s}
+.yk-panel details.fold[open]>summary::before{transform:rotate(90deg)}
+/* 指で押す画面（スマホ・タブレット）＝押す所を 40px 前後に（市民ファースト・本人 2026-10-25「スマホ画面は特に重要」） */
+@media (pointer:coarse){
+	.yk-panel .tabs button{min-height:40px}
+	.yk-panel select,.yk-panel input.fq,.yk-panel .fitc,.yk-panel .stb{min-height:40px;font-size:16px}   /* 16px 未満の入力は iOS が勝手に拡大する */
+	.yk-panel .act,.yk-panel .tour{min-height:44px}
+	.yk-panel .grp{min-height:36px}
+	.yk-panel .grp input{width:20px;height:20px}
+	.yk-panel .spots button{min-height:32px;font-size:13px}
+	.yk-panel .cats .tw{width:40px;height:40px}
+	.yk-panel .cats .tw::after{left:15px;top:14px}
+	.yk-panel .cats .cg.open .tw::after{top:18px}
+	.yk-panel .fac-all,.yk-panel .fac-none{min-height:32px}
+	.yk-panel details.fold>summary{min-height:36px;font-size:14px}
+	.yk-panel .fcsv{min-height:32px}
+}
+.yk-panel .lines{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 0 24px;font-size:12px;color:var(--qm-text-dim)}
+.yk-panel .sw{display:inline-block;font-style:normal;font-weight:700;font-size:10px;color:#fff;border-radius:3px;padding:0 4px;margin-right:5px}
+.yk-panel .legend{margin-top:8px}
+.yk-panel .zlg{margin-top:6px}
+.yk-panel i.ar{display:inline-block;width:12px;height:9px;border:2px solid;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.yk-panel .lg{display:flex;flex-wrap:wrap;gap:4px 10px;margin-bottom:4px;font-size:11.5px;color:var(--qm-text-dim)}
+.yk-panel .lg small{width:100%;color:var(--qm-text-faint)}
+.yk-panel .lg i{border-radius:3px;width:12px;height:12px;margin-right:4px;vertical-align:-2px}
+.yk-panel .dates{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:4px 0 6px}
+.yk-panel .dates label{display:flex;flex-direction:column;gap:2px;font-size:11.5px;color:var(--qm-text-dim)}
+.yk-panel .act{display:block;width:100%;margin:5px 0 0;padding:7px 10px;text-align:left;font:inherit;border-radius:var(--qm-r-m);border:1px solid var(--qm-border-soft);background:rgba(255,255,255,.05);color:var(--qm-text);cursor:pointer}
+.yk-panel .act:hover,.yk-panel .spots button:hover,.yk-panel .fac-bar button:hover,.yk-panel .tabs button:hover{border-color:rgba(255,255,255,.5)}
+.yk-panel .detail{margin:8px 0 2px;padding:10px;border-radius:var(--qm-r-m);background:rgba(255,255,255,.06);border:1px solid var(--qm-border-soft)}
+.yk-panel .detail .dh{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.yk-panel .detail .dh b{color:var(--qm-ink);font-size:14px}
+.yk-panel .detail p{margin:4px 0;color:var(--qm-text-dim)}
+.yk-panel .badges{display:flex;flex-wrap:wrap;gap:4px}
+.yk-panel .badges span{border:1px solid rgba(143,211,154,.6);color:#bfe8c6;border-radius:4px;padding:0 5px;font-size:11.5px}
+.yk-panel .note{color:var(--qm-text-dim);font-size:12px;margin:10px 0 0}
+.yk-panel .act.on{border-color:#ffb74d;background:rgba(255,183,77,.15)}
+.yk-panel .detail h3{font-size:11.5px;margin:8px 0 3px;color:var(--qm-text-faint);font-weight:600}
+.yk-panel .pr{display:grid;gap:2px}
+.yk-panel .pr div{display:flex;justify-content:space-between;gap:8px;font-size:12px}
+.yk-panel .pr small{color:var(--qm-text-dim)}
+.yk-panel .pr span{color:var(--qm-ink);white-space:nowrap}
+.yk-panel .pr span.out{color:var(--qm-text-faint)}
+.yk-panel .pr i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.yk-panel .warn{margin:6px 0 0;padding:5px 8px;border-radius:6px;background:rgba(229,57,53,.18);color:#ffcdd2;font-size:12px}
+.yk-panel .near{margin:0;padding-left:18px}
+.yk-panel .near li{margin:3px 0}
+.yk-panel .near b{display:block;color:var(--qm-ink);font-size:12.5px}
+.yk-panel .near small{display:block;color:var(--qm-text-dim);font-size:11.5px}
+.yk-probing canvas{cursor:crosshair}
+.yk-home{background:#1f6fc5}
+.yk-dest{display:flex;flex-direction:column;align-items:center;pointer-events:none}
+.yk-dest span{order:-1;margin-bottom:3px;padding:3px 8px;border-radius:6px;background:#0288d1;color:#fff;font:600 13px/1.25 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.yk-dest i{width:14px;height:14px;border-radius:50%;background:#0288d1;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.yk-mark span{background:#102536}.yk-mark i{background:#b4491c}
+/* スマホ：左のボタン列は 9 個で下のシートに重なっていた＝解析の面にもある道具（全画面・QR・日影・計測・断面）は隠す（市民ファースト 2026-10-25） */
+/* 左上の「層と主題」（エンジンの表示チップ）は使わない＝横浜の層は案内板で出し入れする（本人 2026-10-26「レイヤーアイコン不要」） */
+.oe-panel-host #chips{display:none!important}
+/* 影・計測・断面は解析の面にあるので左の列には出さない（どの幅でも・本人 2026-10-26「重複するので不要」） */
+.oe-panel-host #sunshadow-btn,.oe-panel-host #measure-btn,.oe-panel-host #profile-btn{display:none!important}
+@media (max-width:640px){ .oe-panel-host #full,.oe-panel-host #qr-btn{display:none!important} }
+.yk-panel .oe-panel-head #lang-btn{flex:none;width:28px;height:28px;display:grid;place-items:center;padding:0;border-radius:8px;border:1px solid var(--qm-border-soft);background:transparent;box-shadow:none;cursor:pointer}
+.yk-panel .oe-panel-head #lang-btn svg{stroke:var(--qm-text-dim)}
+.yk-panel .hm-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.yk-panel .hm-btns .act{margin:0;text-align:center}
+.yk-panel .hm-saved{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.yk-panel .hm-saved .pl{display:inline-flex;align-items:stretch;border:1px solid #4fc3f7;border-radius:999px;overflow:hidden}
+.yk-panel .hm-saved button{border:0;background:transparent;color:#4fc3f7;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;padding:4px 10px}
+.yk-panel .hm-saved .pl-go::before{content:"★ "}
+.yk-panel .hm-saved .pl-del{padding:4px 9px 4px 6px;color:var(--qm-text-dim);border-left:1px solid rgba(79,195,247,.4)}
+.yk-panel .hm-svf{display:flex;gap:6px;align-items:center;margin:4px 0 6px}
+.yk-panel .hm-svf input.fq{flex:1;margin:0}
+.yk-panel .hm-svf .act{margin:0;white-space:nowrap;width:auto}
+.yk-panel .hm-is{margin:2px 0 6px;color:#4fc3f7;font-weight:600}
+@media (pointer:coarse){.yk-panel .hm-saved button{min-height:36px}}
+.yk-panel .home-out .wroute{margin-left:4px;padding:1px 8px;border-radius:999px;border:1px solid #4fc3f7;background:transparent;color:#4fc3f7;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;vertical-align:1px}
+.yk-panel .home-out .wroute.on{background:#4fc3f7;color:#0b1a24}
+@media (pointer:coarse){.yk-panel .home-out .wroute{padding:4px 10px;min-height:28px}}
+.yk-panel .home-out .walkr{margin-top:8px;padding:6px 12px;border-radius:999px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;min-height:34px}
+.yk-panel .home-out .pr span small{color:var(--qm-text-dim)}
+.yk-panel .home-out .pr span{text-align:end;white-space:normal}
+.wv{display:block;width:100%;margin:6px 0 2px;padding:7px 10px;border:1px solid #1e88e5;border-radius:8px;background:#e3f2fd;color:#0d47a1;font:600 13px/1.3 system-ui,sans-serif;cursor:pointer}
+.yk-probe{pointer-events:none;width:16px;height:16px;border-radius:50%;background:#e65100;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.yk-pop .oe-popup-body{padding:9px 26px 9px 11px}
+.yk-pop b{font-size:14px}
+.yk-pop p{margin:3px 0 0;font-size:12px;opacity:.8}
+.yk-pop hr.ys{border:0;border-top:1px solid rgba(127,127,127,.3);margin:6px 0}
+.yk-pop .pk{font-size:11px;opacity:.7;margin-bottom:1px}
+.yk-pop .walkr{margin-top:7px;padding:5px 10px;border-radius:6px;border:1px solid #1f6fc5;background:#1f6fc5;color:#fff;font:600 12px/1.2 system-ui,sans-serif;cursor:pointer;min-height:32px}
+.yk-wlab{padding:1px 6px;border-radius:9px;background:#1f6fc5;color:#fff;font:600 11px/1.4 system-ui,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.3);pointer-events:none;white-space:nowrap}
+.yk-panel .wt{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+.yk-panel .wt th{font-weight:600;color:var(--qm-text-faint);text-align:right;padding:2px 4px;white-space:nowrap}
+.yk-panel .wt td{padding:3px 4px;text-align:right;color:var(--qm-ink);font-variant-numeric:tabular-nums}
+.yk-panel .wt td:first-child{text-align:start;color:var(--qm-text-dim)}
+.yk-panel .wt td i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-inline-end:5px}
+.yk-panel .wsum{margin-top:10px;padding-top:8px;border-top:1px solid var(--qm-border-soft);font-size:12.5px;line-height:1.55;color:var(--qm-text)}
+.yk-panel .wsum img{float:inline-end;width:84px;height:84px;object-fit:cover;border-radius:var(--qm-r-m);margin:2px 0 4px 8px}
+.yk-panel .wsum p{margin:0 0 4px}
+.yk-panel .wsum a{color:var(--qm-accent,#4fc3f7)}
+.oe-wiki.yk-wiki{left:12px;top:12px;bottom:calc(40px + var(--qm-safe-b));width:min(560px,calc(100% - 380px));z-index:31}
+@media (max-width:640px){.oe-wiki.yk-wiki{left:8px;right:8px;top:8px;width:auto}}
+.yk-pop .pk i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
+.yk-sta{display:flex;flex-direction:column;align-items:center;transform:translateY(25%)}
+.yk-sta .sym{display:flex;gap:1px}
+.yk-sta .sym i{font:700 10px/1 system-ui,sans-serif;font-style:normal;color:#fff;background:var(--c,#555);border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.yk-sta .nm{display:none;margin-top:1px;font:600 11px/1.2 system-ui,sans-serif;color:#1d2733;text-shadow:0 0 2px #fff,0 0 2px #fff,0 0 3px #fff;white-space:nowrap}
+.yk-sta-names .yk-sta .nm{display:block}
+.yk-cap{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);z-index:31;width:min(600px,calc(100% - 24px));box-sizing:border-box;padding:12px 44px 12px 12px;display:flex;gap:12px;align-items:flex-start;
+	border-radius:var(--qm-r-l);background:rgba(8,14,26,.88);color:#f1f3f6;font:13px/1.5 var(--qm-font);box-shadow:var(--qm-shadow-pop);backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur))}
+.yk-cap[hidden]{display:none}
+.yk-cap .cph{flex:none;width:168px;margin:0}
+.yk-cap .cph img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;background:#222}
+.yk-cap .ct{min-width:0}
+.yk-cap small{display:block;color:rgba(255,255,255,.55);font-size:11.5px}
+.yk-cap b{font-size:18px;color:#fff}
+.yk-cap p{margin:3px 0 0;color:rgba(255,255,255,.8)}
+.yk-cap .x{position:absolute;top:10px;right:10px;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:rgba(255,255,255,.75);cursor:pointer}
+.yk-prof{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);z-index:30;width:min(400px,calc(100% - 24px));box-sizing:border-box;padding:10px 40px 8px 12px;
+	border-radius:var(--qm-r-l);background:rgba(8,14,26,.88);color:#f1f3f6;font:13px/1.45 var(--qm-font);box-shadow:var(--qm-shadow-pop);backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur))}
+.yk-prof[hidden],.yk-cap:not([hidden])~.yk-prof{display:none}
+.yk-prof b{display:block;font-size:13.5px;color:#fff}
+.yk-prof b small{font-weight:400;color:rgba(255,255,255,.7)}
+.yk-prof svg{display:block;width:100%;height:84px;margin:6px 0 4px}
+.yk-prof .a{fill:rgba(79,195,247,.28)}
+.yk-prof .l{fill:none;stroke:#4fc3f7;stroke-width:2;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.yk-prof p{margin:0;display:flex;justify-content:space-between;gap:4px 12px;flex-wrap:wrap;color:rgba(255,255,255,.85)}
+.yk-prof .x{position:absolute;top:8px;right:8px;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.25);background:transparent;color:rgba(255,255,255,.75);cursor:pointer}
+@media (max-width:640px){ .yk-cap{bottom:auto;top:12px} .yk-cap .cph{width:96px} .yk-prof{bottom:auto;top:12px;left:56px;right:12px;width:auto;transform:none} }`;

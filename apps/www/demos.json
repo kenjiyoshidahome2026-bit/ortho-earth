@@ -332,6 +332,20 @@
 			}
 		},
 		{
+			"id": "kyoto",
+			"href": "/kyoto/",
+			"group": "japan",
+			"icon": "⛩️",
+			"title": "Kyoto digital twin",
+			"lang": "26",
+			"desc": "A citizen-first digital twin of Kyoto on the same core as Yokohama: tap your home for nearest stations, flood and landslide risk and evacuation sites on one card. Temples, a history tour from 794 and PLATEAU 3D buildings, in 26 languages.",
+			"img": "/thumbs/kyoto.webp",
+			"shot": {
+				"url": "/kyoto/?spot=kiyomizu",
+				"wait": 20
+			}
+		},
+		{
 			"id": "tellus",
 			"href": "/japan/tellus",
 			"group": "earth",

@@ -24,7 +24,7 @@ const ENTRY = [
 	[/^\/(globe|japan)\/([\w-]+)(?=[#?]|$)/, (m) => { const a = appOf(`/${m[1]}/`, m[2]); return a ? `${a}/${m[2]}.html` : null; }],
 	[/^\/japan\/census2020\//, "census2020/index.html"],
 	[/^\/japan\//, "japan-map/index.html"],
-	[/^\/globe\/quakes\//, "quakes/index.html"], [/^\/yokohama\//, "yokohama/index.html"],
+	[/^\/globe\/quakes\//, "quakes/index.html"], [/^\/yokohama\//, "yokohama/index.html"], [/^\/kyoto\//, "kyoto/index.html"],
 	[/^\/globe\//, "globe-map/index.html"],
 	[/^\/world\//, "world/index.html"], [/^\/equal\//, "equal/index.html"], [/^\/solar\//, "solar/index.html"], [/^\/himekuri\//, "himekuri/index.html"], [/^\/quiz\//, "quiz/index.html"],
 	[/^\/geopbf\//, "geopbf-demo/index.html"], [/^\/maplibre\//, "www/public/maplibre/index.html"], [/^\/sandcastle\//, "www/public/sandcastle/index.html"], [/^\/gishub-jp\//, "gishub-jp/index.html"], [/^\/nl\//, "ortho-nl/index.html"],
@@ -39,6 +39,7 @@ const IMG = [
 	[/^https:\/\/www\.ortho-earth\.com\/japan\/(ogp\.jpg)$/, m => `japan-map/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/globe\/quakes\/(og\.jpg)$/, m => `quakes/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/yokohama\/(og\.jpg)$/, m => `yokohama/public/${m[1]}`],
+	[/^https:\/\/www\.ortho-earth\.com\/kyoto\/(og\.jpg)$/, m => `kyoto/public/${m[1]}`],
 	[/^https:\/\/www\.ortho-earth\.com\/solar\/(ogp\.jpg)$/, m => `solar/public/${m[1]}`],
 ];
 const imageFile = url => { for (const [re, to] of IMG) { const m = url.match(re); if (!m) continue; const r = to(m); if (r) return r; } return null; };
@@ -50,8 +51,8 @@ const name = (html, n) => meta(html, new RegExp(`<meta\\s+name="${n}"\\s+content
 const pages = new Map();   // 入口 HTML → それを使うデモ（同じ頁を複数のカードが指す＝japan の 5 枚）
 for (const d of demos) { const e = entryOf(d.href); assert.ok(e, `demos.json: no entry page for ${d.id} (${d.href}) — add a rule to ENTRY`); (pages.get(e) ?? pages.set(e, []).get(e)).push(d); }
 
-test("demos.json の全カードが入口 HTML に辿り着く（32 枚・16 頁以上）", () => {
-	assert.equal(demos.length, 32);
+test("demos.json の全カードが入口 HTML に辿り着く（33 枚・16 頁以上）", () => {
+	assert.equal(demos.length, 33);
 	assert.ok(pages.size >= 16, `${pages.size} pages`);
 	for (const e of pages.keys()) assert.ok(existsSync(path.join(APPS, e)), `${e} missing`);
 });

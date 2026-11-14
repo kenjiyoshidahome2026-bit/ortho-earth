@@ -155,7 +155,7 @@ function htmlRoots(html, appDir) {
 const ENTRY = {
 	"/": "apps/www/index.html", "/quiz/": "apps/quiz/index.html", "/world/": "apps/world/index.html", "/solar/": "apps/solar/index.html",
 	"/himekuri/": "apps/himekuri/index.html", "/geopbf/": "apps/geopbf-demo/index.html", "/maplibre/": fs.existsSync(path.join(ROOT, "apps/engine/src/maplibre.ts")) ? "apps/engine/src/maplibre.ts" : "apps/ortho-globe/engine/maplibre.js",
-	"/gishub-jp/": "apps/gishub-jp/index.html", "/japan/census2020/": "apps/census2020/index.html", "/nl/": "apps/ortho-nl/index.html", "/globe/quakes/": "apps/quakes/index.html", "/yokohama/": "apps/yokohama/index.html",
+	"/gishub-jp/": "apps/gishub-jp/index.html", "/japan/census2020/": "apps/census2020/index.html", "/nl/": "apps/ortho-nl/index.html", "/globe/quakes/": "apps/quakes/index.html", "/yokohama/": "apps/yokohama/index.html", "/kyoto/": "apps/kyoto/index.html",
 };
 const SERVED = fs.readdirSync(path.join(ROOT, "apps")).flatMap(d => { try { const at = JSON.parse(fs.readFileSync(path.join(ROOT, "apps", d, "package.json"), "utf8")).servedAt; return at ? [[d, at]] : []; } catch { return []; } });
 const entryOf = href => {

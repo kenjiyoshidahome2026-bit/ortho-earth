@@ -1,0 +1,633 @@
+#!/usr/bin/env node
+// 市のデジタルツインの台帳を組む（共通の焼き・横浜と京都が使う）。外部網が要る＝手元の Mac で走らせる → リポの根の ortho-data/japan/<市>/*.json（git で追う・DATA.md）。
+// 走らせ方＝各市の頁の scripts/bake-<市>.mjs（市の設定 BAKE を渡して bakeCity を呼ぶ）。置く＝`npm run publish:pages -w world-data -- --scope=japan --only=<市> --write`。
+//
+//   node apps/<市>/scripts/bake-<市>.mjs            # 全部
+//   node apps/<市>/scripts/bake-<市>.mjs --inspect  # 各 zip の属性の鍵と見本 3 行だけ出す（KSJ の列名を確かめる）
+//   node apps/<市>/scripts/bake-<市>.mjs --only=wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en,places,stawiki,census
+//
+// 市の設定（BAKE）：
+//   city      … 頁の CityConfig（id・wards・spots・story・bbox・addrPrefix＝日本語の市名・hinanUrl）
+//   pref      … 都道府県コード（"14"）・prefName（"神奈川県"）・cityCode（"14100"）
+//   wardRe    … 区のコード（市＋区）を選ぶ式（/^141(00|0\d|1[0-8])$/）・wardOnlyRe（区だけ）
+//   busOp     … 市営バスの事業者（P11_002）の式・busMin（停留所の数の下限）
+//   fireRe    … 市の消防局（P17_005 の頭）・subwayOp（N02_004 の頭＝地下鉄の事業者）
+//   ages      … e-Stat の令和 7 年国勢調査 第 2-7 表（県の表）の statInfId
+//   en        … 英語化の市の語 { ja: "横浜", en: "Yokohama", pref: "神奈川" }・osmStations: true＝駅の英語を OSM の name:en から（places.json）
+//   min       … 下限の調整 { walk, places, stawiki, towns }
+//
+//
+// 出す物（座標は経度・緯度の小数 5 桁＝約 1m）：
+//   wards.json      … 18 区の境界（N03）{ type:"FeatureCollection", features:[{ properties:{ code, name, bbox:[w,s,e,n] }, geometry }], city:[[[lon,lat]…]…] }（間引き 約 10m）
+//                     city＝市の外周の環（区の境で接する辺を消して繋ぐ）＝頁が市の外を薄く覆う覆いの穴
+//   rail.json       … 鉄道（N02）{ lines: FeatureCollection（properties { line, op, subway:0|1 }）, stations: [[lon, lat, 駅名, "事業者 路線・…", subway:0|1]] }
+//   bus.json        … 横浜市営バスの停留所（P11-22）{ stops: [[lon, lat, 停留所名, "系統・…"]] }
+//   facilities.json … 公共施設（KSJ の P05・P29・P27・P28・P17・P18・P04）{ cats: [名…], rows: [[lon, lat, 名称, 区分の番号, 住所, 種別]] }
+//   photos.json     … 名所の写真（Wikipedia の記事の代表画像＝Wikimedia Commons）{ [名所 id]: { src, file, artist, license, page } }
+//   zoning.json     … 用途地域（A29-19＝2019 年度・横浜市の分）FeatureCollection（properties { n: 用途地域の名, b: 建ぺい率 %, f: 容積率 % }）
+//   school-e.json   … 小学校区（A27-21＝2021 年度・横浜市立）FeatureCollection（properties { n: 学校名, a: 所在地 }）
+//   school-j.json   … 中学校区（A32-21＝2021 年度・横浜市立）FeatureCollection（properties { n: 学校名, a: 所在地 }）
+//   police-areas.json … 警察署の管轄区域（P18-12＝2012 年度・横浜市内の署）FeatureCollection（properties { n: 署名 }）＝同じ署の面は 1 つに束ねる
+//   fire-areas.json   … 消防署の管轄区域（P17-12＝2012 年度・横浜市消防局の署）FeatureCollection（properties { n: 署名 }）
+//   ＊police-areas・fire-areas は properties に { lic: "非商用", src, y: 2012 }・FeatureCollection に license／source を付記（KSJ の使用許諾が非商用）
+//   面はどれも Douglas–Peucker で約 4m に間引き（環ごと・穴は残す）
+//   walk/<cx>_<cy>.bin … 歩ける道（OpenStreetMap・ODbL）＝わが家のまわりの道のりと道順（2026-10-26）。0.02° 四方の区画ごと（cx＝floor(経度/0.02)）。
+//                     中身＝data.ts の decodeWalk（区画の南西の角から 1e-5° 単位の差分を zigzag varint で詰めた折れ線の列・種別 0 道路／1 歩行者の道／2 階段）。
+//   station-wiki.json … 市内の駅の Wikipedia の題名 { 駅名: { ja, en, … } }（ja の記事を座標の近さで決め、言語間リンクで 26 言語・--only=stawiki・rail と wards の後）
+//   facilities-en.json … 施設の名前・住所の英語（日本語以外の UI）{ rows: { "名称|住所": [英語の名, 英語の住所] }, guessed: [読みの辞書で当てた名…] }（--only=en）
+//                     読み＝郵便番号データ（KEN_ALL）の町名 → 区の名 → kuromoji（先に `npm i --no-save kuromoji@0.1.2`）。種類の語は scripts/en-names.mjs の表で英訳
+//                     線は区画の境で切る（切った点は両方の区画に入る＝頁は同じ座標を 1 つの点に束ねて繋ぐ）。取得は Overpass（.cache/osm-walk/ に置く・--only=walk）
+// 生の zip は .cache/（git に入れない）に置き、2 回目からはそれを読む（--refresh で取り直し）。
+import fs from "node:fs";
+import path from "node:path";
+import zlib from "node:zlib";
+import { createRequire } from "node:module";
+import net from "node:net";
+import { WALK_CELL, WALK_Q, walkKind, encodeWalk, wardOfAddress as wardOfAddr, normJa, sheltersIn } from "../src/core.ts";
+import { makeEn } from "./en-names.mjs";
+
+const HERE = path.dirname(new URL(import.meta.url).pathname);
+const ROOT = path.resolve(HERE, "../../..");   // packages/citytwin/scripts → リポの根
+// 市の設定（bakeCity で入れる）
+let B, CITY, WARDS, SPOTS, STORY, OUT, CACHE, N03_URL, BOX, NAME, PREF, UA;
+const wardOfAddress = a => wardOfAddr(CITY, a);
+const args = process.argv.slice(2);
+const INSPECT = args.includes("--inspect"), REFRESH = args.includes("--refresh");
+const ONLY = (args.find(a => a.startsWith("--only="))?.slice(7) || "wards,rail,bus,facilities,photos,zoning,eschool,jschool,police,fire,walk,en,places,stawiki,census").split(",");
+const KSJ = "https://nlftp.mlit.go.jp/ksj/gml/data/";
+// 接続の待ち＝IPv6／IPv4 を順に試す 1 回の待ちが既定 250ms だと、遠い Overpass（ドイツ）へ繋がらず fetch failed が続く（2026-11-14 京都の walk）＝2.5 秒に
+net.setDefaultAutoSelectFamilyAttemptTimeout?.(2500);
+
+// 市の外接矩形に少し余白（市境をまたぐ線と駅を切らない）＝BOX（bakeCity で決める）
+const M = 0.02;
+const inBox = ([x, y]) => x >= BOX[0] && x <= BOX[2] && y >= BOX[1] && y <= BOX[3];
+const r5 = v => Math.round(v * 1e5) / 1e5;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ── 取得（キャッシュ）──
+async function getBuf(url) {
+	const file = path.join(CACHE, url.replace(/^https?:\/\//, "").replace(/[^\w.-]+/g, "_"));
+	if (!REFRESH && fs.existsSync(file)) return fs.readFileSync(file);
+	for (let i = 0; ; i++) {
+		const r = await fetch(url, { headers: UA }).catch(e => ({ ok: false, status: String(e) }));
+		if (r.ok) { const b = Buffer.from(await r.arrayBuffer()); fs.writeFileSync(file, b); return b; }
+		if (i >= 3 || r.status === 404) throw new Error(`${url}: HTTP ${r.status}`);
+		await sleep(2000 * 2 ** i);
+	}
+}
+
+// ── zip（中央ディレクトリを読むだけ・deflate／無圧縮）──
+function unzip(buf) {
+	let eocd = buf.length - 22;
+	while (eocd >= 0 && buf.readUInt32LE(eocd) !== 0x06054b50) eocd--;
+	if (eocd < 0) throw new Error("zip: EOCD なし");
+	const n = buf.readUInt16LE(eocd + 10);
+	let p = buf.readUInt32LE(eocd + 16);
+	const out = new Map();
+	for (let i = 0; i < n; i++) {
+		const method = buf.readUInt16LE(p + 10), csize = buf.readUInt32LE(p + 20), nl = buf.readUInt16LE(p + 28), xl = buf.readUInt16LE(p + 30), cl = buf.readUInt16LE(p + 32);
+		const flags = buf.readUInt16LE(p + 8), off = buf.readUInt32LE(p + 42);
+		const raw = buf.subarray(p + 46, p + 46 + nl);
+		const name = flags & 0x800 ? raw.toString("utf8") : new TextDecoder("shift_jis").decode(raw);
+		p += 46 + nl + xl + cl;
+		out.set(name, () => {
+			const lo = off + 30 + buf.readUInt16LE(off + 26) + buf.readUInt16LE(off + 28);
+			const data = buf.subarray(lo, lo + csize);
+			return method === 8 ? zlib.inflateRawSync(data) : Buffer.from(data);
+		});
+	}
+	return out;
+}
+const pick = (zip, re) => [...zip.keys()].find(k => re.test(k.split("/").pop()));
+
+// ── shapefile（点・線・面）＋ dbf（Shift_JIS／UTF-8）＝geojson の無い古い KSJ 用 ──
+function readDbf(b, enc) {
+	const n = b.readUInt32LE(4), hl = b.readUInt16LE(8), rl = b.readUInt16LE(10);
+	const dec = new TextDecoder(enc);
+	const fields = [];
+	for (let o = 32; b[o] !== 0x0d; o += 32) fields.push({ name: b.subarray(o, o + 11).toString("latin1").replace(/\0.*$/, ""), len: b[o + 16] });
+	const rows = [];
+	for (let i = 0; i < n; i++) {
+		let o = hl + i * rl + 1; const row = {};
+		for (const f of fields) { row[f.name] = dec.decode(b.subarray(o, o + f.len)).trim(); o += f.len; }
+		rows.push(row);
+	}
+	return rows;
+}
+// shp の面＝外周は時計回り・穴は反時計回り（ESRI の仕様）。穴は、それを含む外周に付ける（含む外周が無い＝向きの乱れ＝外周として扱う）
+const ringArea = r => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return a / 2; };   // 正＝時計回り（経度を x・緯度を y）
+const inRing = ([x, y], r) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+function shpPolygons(rings) {
+	const polys = [], holes = [];
+	for (const r of rings) (ringArea(r) >= 0 ? polys.push([r]) : holes.push(r));
+	for (const h of holes) { const p = polys.find(p => inRing(h[0], p[0])); p ? p.push(h) : polys.push([h]); }
+	return polys;
+}
+function readShp(b) {
+	const geoms = [];
+	for (let o = 100; o + 8 <= b.length;) {
+		const len = b.readInt32BE(o + 4) * 2, t = b.readInt32LE(o + 8), c = o + 8;
+		if (t === 1) geoms.push({ type: "Point", coordinates: [b.readDoubleLE(c + 4), b.readDoubleLE(c + 12)] });
+		else if (t === 3 || t === 5) {
+			const np = b.readInt32LE(c + 36), nn = b.readInt32LE(c + 40), parts = [];
+			for (let i = 0; i < np; i++) parts.push(b.readInt32LE(c + 44 + i * 4));
+			const pts = c + 44 + np * 4, rings = [];
+			for (let i = 0; i < np; i++) { const ring = []; for (let k = parts[i]; k < (parts[i + 1] ?? nn); k++) ring.push([b.readDoubleLE(pts + k * 16), b.readDoubleLE(pts + k * 16 + 8)]); rings.push(ring); }
+			geoms.push(t === 3 ? { type: "MultiLineString", coordinates: rings } : { type: "MultiPolygon", coordinates: shpPolygons(rings) });
+		} else geoms.push(null);
+		o += 8 + len;
+	}
+	return geoms;
+}
+/** KSJ の zip → 地物の配列。名前が re に合う .geojson を優先、無ければ .shp＋.dbf */
+async function ksjFeatures(url, re) {
+	const zip = unzip(await getBuf(url));
+	const gj = pick(zip, new RegExp(re.source + "\\.geojson$", "i"));
+	if (gj) return JSON.parse(zip.get(gj)().toString("utf8")).features;
+	const shp = pick(zip, new RegExp(re.source + "\\.shp$", "i")), dbf = shp && pick(zip, new RegExp(re.source + "\\.dbf$", "i"));
+	if (!shp || !dbf) throw new Error(`${url}: ${re} の geojson も shp も無い。中身＝${[...zip.keys()].join(", ")}`);
+	const cpg = pick(zip, new RegExp(re.source + "\\.cpg$", "i"));
+	const enc = cpg && /utf/i.test(zip.get(cpg)().toString()) ? "utf-8" : "shift_jis";
+	const g = readShp(zip.get(shp)()), rows = readDbf(zip.get(dbf)(), enc);
+	return rows.map((properties, i) => ({ type: "Feature", properties, geometry: g[i] }));
+}
+const firstPt = g => { let c = g?.coordinates; while (Array.isArray(c?.[0])) c = c[0]; return c; };
+const inspect = (label, feats) => {
+	console.log(`\n■ ${label}: ${feats.length} 件  鍵＝${Object.keys(feats[0]?.properties || {}).join(" ")}`);
+	for (const f of feats.filter(f => inBox(firstPt(f.geometry) || [0, 0])).slice(0, 3)) console.log("  ", JSON.stringify(f.properties), f.geometry?.type);
+};
+const write = (name, obj) => { const s = JSON.stringify(obj); fs.writeFileSync(path.join(OUT, name), s); console.log(`→ ortho-data/japan/${B.city.id}/${name}  ${(s.length / 1024).toFixed(0)} KB`); };
+
+// ── 間引き（Douglas–Peucker・度のまま＝横浜の範囲なら十分）──
+function dp(pts, tol) {
+	if (pts.length < 4) return pts;
+	const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+	const st = [[0, pts.length - 1]];
+	while (st.length) {
+		const [a, b] = st.pop(); let md = 0, mi = -1;
+		const [ax, ay] = pts[a], [bx, by] = pts[b], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy || 1e-18;
+		for (let i = a + 1; i < b; i++) { const t = Math.max(0, Math.min(1, ((pts[i][0] - ax) * dx + (pts[i][1] - ay) * dy) / L)); const d = Math.hypot(pts[i][0] - ax - t * dx, pts[i][1] - ay - t * dy); if (d > md) { md = d; mi = i; } }
+		if (md > tol) { keep[mi] = 1; st.push([a, mi], [mi, b]); }
+	}
+	return pts.filter((_, i) => keep[i]).map(([x, y]) => [r5(x), r5(y)]);
+}
+
+// 市の外周＝全区の環の辺のうち、2 区で共有される辺（N03 は隣の区と同じ頂点を持つ）を消し、残った辺を繋いで環にする
+function outline(rings) {
+	const pk = p => `${p[0]},${p[1]}`, ek = (a, b) => pk(a) < pk(b) ? `${pk(a)}|${pk(b)}` : `${pk(b)}|${pk(a)}`;   // 向きを問わない辺の鍵
+	const cnt = new Map();
+	for (const r of rings) for (let i = 0; i + 1 < r.length; i++) { const k = ek(r[i], r[i + 1]); cnt.set(k, (cnt.get(k) || 0) + 1); }
+	const next = new Map();   // 外周の辺だけ：始点 → 終点
+	for (const r of rings) for (let i = 0; i + 1 < r.length; i++) {
+		const a = r[i], b = r[i + 1];
+		if (cnt.get(ek(a, b)) > 1) continue;
+		if (!next.has(pk(a))) next.set(pk(a), []);
+		next.get(pk(a)).push(b);
+	}
+	const out = [];
+	for (const [k0, ends] of next) while (ends.length) {
+		const ring = [k0.split(",").map(Number)]; let cur = ends.pop();
+		for (let g = 0; g < 1e6; g++) {
+			ring.push(cur);
+			const k = pk(cur); if (k === k0) break;
+			const nx = next.get(k); if (!nx?.length) break;
+			cur = nx.pop();
+		}
+		if (ring.length >= 4 && `${ring.at(-1)}` === `${ring[0]}`) out.push(ring);
+	}
+	return out;
+}
+
+// ── 1. 区の境界（N03）──
+async function wards() {
+	const feats = await ksjFeatures(N03_URL, /N03-\d+_\d\d/);
+	if (INSPECT) return inspect("N03", feats);
+	const out = [], rawRings = [];
+	for (const w of WARDS) {
+		const polys = [];
+		for (const f of feats) if (f.properties.N03_007 === w.code) {
+			const g = f.geometry; const ps = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
+			for (const p of ps) { rawRings.push(p[0]); const ring = dp(p[0], 0.0001); if (ring.length >= 4) polys.push([ring]); }   // 0.0001°＝約 10m・穴は持たない（区に穴は無い）
+		}
+		if (!polys.length) throw new Error(`N03: ${w.name}（${w.code}）が無い`);
+		let bb = [180, 90, -180, -90];
+		for (const p of polys) for (const [x, y] of p[0]) bb = [Math.min(bb[0], x), Math.min(bb[1], y), Math.max(bb[2], x), Math.max(bb[3], y)];
+		out.push({ type: "Feature", properties: { code: w.code, name: w.name, bbox: bb.map(r5) }, geometry: { type: "MultiPolygon", coordinates: polys } });
+	}
+	const city = outline(rawRings).map(r => dp(r, 0.0001)).filter(r => r.length >= 4);
+	console.log(`区：${out.length}・市の外周の環 ${city.length}`);
+	write("wards.json", { type: "FeatureCollection", features: out, city });
+}
+
+// ── 2. 鉄道（N02）＝線と駅。市の交通局（事業者「横浜市」「京都市」）＝地下鉄 ──
+async function rail() {
+	const zipUrl = `${KSJ}N02/N02-25/N02-25_GML.zip`;
+	const lines = await ksjFeatures(zipUrl, /N02-\d+_RailroadSection/), st = await ksjFeatures(zipUrl, /N02-\d+_Station/);
+	if (INSPECT) { inspect("N02 RailroadSection", lines); return inspect("N02 Station", st); }
+	const isSub = p => B.subwayOp.test(p.N02_004 || "");
+	const ln = [];
+	for (const f of lines) {
+		const g = f.geometry; const parts = g.type === "LineString" ? [g.coordinates] : g.coordinates;
+		const keep = parts.filter(c => c.some(inBox)).map(c => dp(c, 0.00003));
+		if (keep.length) ln.push({ type: "Feature", properties: { line: f.properties.N02_003, op: f.properties.N02_004, subway: isSub(f.properties) ? 1 : 0 }, geometry: { type: "MultiLineString", coordinates: keep } });
+	}
+	// 駅＝N02 は駅のホームの線＝中点を代表点に。同じ名前で 400m 以内（乗換駅）は 1 点に畳み、乗り入れる路線を並べる。地下鉄は地下鉄だけで畳む（記号を付けるため）
+	const raw = [];
+	for (const f of st) {
+		const c = (f.geometry.type === "LineString" ? f.geometry.coordinates : f.geometry.coordinates.flat());
+		const m = c[Math.floor(c.length / 2)];
+		if (inBox(m)) raw.push({ x: m[0], y: m[1], name: f.properties.N02_005, line: `${f.properties.N02_004} ${f.properties.N02_003}`, subway: isSub(f.properties) ? 1 : 0 });
+	}
+	const groups = [];
+	for (const s of raw) {
+		const g = groups.find(g => g.name === s.name && g.subway === s.subway && Math.hypot((g.x / g.n - s.x) * 0.82, g.y / g.n - s.y) < 0.004);
+		if (g) { g.x += s.x; g.y += s.y; g.n++; g.lines.add(s.line); } else groups.push({ ...s, n: 1, lines: new Set([s.line]) });
+	}
+	const stations = groups.map(g => [r5(g.x / g.n), r5(g.y / g.n), g.name, [...g.lines].join("・"), g.subway]);
+	console.log(`鉄道：線 ${ln.length}・駅 ${stations.length}（地下鉄 ${stations.filter(s => s[4]).length}）`);
+	write("rail.json", { lines: { type: "FeatureCollection", features: ln }, stations });
+}
+
+// ── 3. 市営バスの停留所（P11・令和 4 年）＝事業者（P11_002）が「横浜市」（交通局）の停留所。系統は P11_003_01〜35（1 つの欄に「,」区切りで複数もある）──
+async function bus() {
+	const feats = await ksjFeatures(`${KSJ}P11/P11-22/P11-22_${PREF}_SHP.zip`, /P11-\d+_\d\d/);   // GML の zip は XML だけ＝shp の zip を読む
+	if (INSPECT) return inspect("P11", feats);
+	const vals = (p, re) => Object.keys(p).filter(k => re.test(k)).flatMap(k => String(p[k] ?? "").split(",")).map(v => v.trim()).filter(v => v && v !== "null" && v !== "None");
+	const stops = [];
+	for (const f of feats) {
+		const p = f.properties, c = firstPt(f.geometry);
+		if (!c || !inBox(c) || !B.busOp.test(String(p.P11_002 || "").trim())) continue;
+		stops.push([r5(c[0]), r5(c[1]), p.P11_001, [...new Set(vals(p, /^P11_003_/))].join("・")]);
+	}
+	if (stops.length < (B.busMin ?? 1000)) throw new Error(`P11: 市営バスの停留所が ${stops.length} 件しか無い（列名を --inspect で確かめる）`);
+	console.log(`市営バス：停留所 ${stops.length}`);
+	write("bus.json", { stops });
+}
+
+// ── 4. 公共施設（KSJ の点データを束ねる）。cat＝頁の区分（data.ts の FACILITY_CATS と同じ並び）──
+// name・addr・kind＝属性の鍵。keep＝この行を採るか（公立だけ等）。kind は区分の中の種別（「小学校」等）＝吹き出しに出す。
+// 市内かどうかは住所でなく N03 の区の面で決める（P27・P04 の住所には市名が無い）＝区も分かるので住所の頭に「横浜市◯◯区」を補う
+const CATS = ["区役所・行政", "地区センター・集会", "学校", "図書館・文化", "消防", "警察", "病院"];
+const SRC = () => [
+	{ url: `P05/P05-22/P05-22_${PREF}_GML.zip`, re: /P05-\d+_\d\d/, label: "P05 市町村役場等・公的集会施設",   // 施設分類 1 本庁・2 支所等・3 他の行政窓口・4 公民館・5 集会施設
+		cat: p => +p.P05_002 <= 3 ? 0 : 1, name: "P05_003", addr: "P05_004", kind: p => ({ 1: "区役所", 2: "支所・出張所", 3: "行政サービス窓口", 4: "公民館", 5: "集会施設" })[p.P05_002] || "" },
+	{ url: `P29/P29-21/P29-21_${PREF}_GML.zip`, re: /P29-\d+_\d\d/, label: "P29 学校",
+		cat: () => 2, name: "P29_004", addr: "P29_005", keep: p => [1, 2, 3].includes(+p.P29_006) && +p.P29_007 !== 2,   // 管理者＝国・都道府県・市区町村（公立）だけ・休校中は除く
+		kind: p => ({ 16001: "小学校", 16002: "中学校", 16003: "中等教育学校", 16004: "高等学校", 16005: "高等専門学校", 16006: "短期大学", 16007: "大学", 16011: "幼稚園", 16012: "特別支援学校", 16013: "幼保連携型認定こども園", 16014: "義務教育学校", 16015: "各種学校", 16016: "専修学校" })[p.P29_003] || "" },
+	{ url: `P27/P27-13/P27-13_${PREF}.zip`, re: /P27-\d+_\d\d/, label: "P27 文化施設", cat: () => 3, name: "P27_005", addr: "P27_006",
+		keep: p => /^0300[1-5]$/.test(p.P27_004),   // 文化（美術館・博物館・図書館・水族館・動植物園）だけ＝運動施設（0310x〜）は採らない
+		kind: p => ({ "03001": "美術館", "03002": "博物館・資料館", "03003": "図書館", "03004": "水族館", "03005": "動植物園" })[p.P27_004] || "" },
+	{ url: `P28/P28-22/P28-22_${PREF}.zip`, re: /P28-\d+_\d\d/, label: "P28 国・都道府県の機関", cat: p => /^03/.test(p.P28_002) ? 3 : 0, name: "P28_003", addr: "P28_004",
+		kind: p => ({ "03001": "美術館", "03002": "博物館・資料館", "03003": "図書館", "03004": "水族館", "03005": "動植物園" })[p.P28_002] || ({ 1: "国の機関", 2: "県の機関" })[+p.P28_005] || "国・県の機関" },
+	{ url: `P17/P17-12/P17-12_${PREF}_GML.zip`, re: /P17-\d+_\d\d_FireStation/, label: "P17 消防署", cat: () => 4, name: "P17_001", addr: "P17_004", kind: p => ({ 1: "消防本部", 2: "消防署", 3: "出張所" })[p.P17_003] || "" },
+	{ url: `P18/P18-12/P18-12_${PREF}_GML.zip`, re: /P18-\d+_\d\d_PoliceStation/, label: "P18 警察署", cat: () => 5, name: "P18_001", addr: "P18_004",
+		kind: p => ({ 1: "警察本部", 2: "警察署", 3: "分庁舎", 4: "交番", 5: "駐在所", 6: "派出所", 7: "警察学校", 8: "地域安全センター" })[p.P18_003] || "" },
+	{ url: `P04/P04-20/P04-20_${PREF}_GML.zip`, re: /P04-\d+_\d\d/, label: "P04 医療機関", cat: () => 6, name: "P04_002", addr: "P04_003", keep: p => +p.P04_001 === 1, kind: () => "病院" },   // 病院だけ（診療所・歯科は採らない）
+];
+// 区の面（N03・間引き前）＝点がどの区にあるか。外接矩形で先に篩う
+let wardPolys;
+async function wardOf([x, y]) {
+	if (!wardPolys) {
+		wardPolys = [];
+		for (const f of await ksjFeatures(N03_URL, /N03-\d+_\d\d/)) {
+			const w = WARDS.find(w => w.code === f.properties.N03_007); if (!w) continue;
+			const g = f.geometry; for (const p of g.type === "Polygon" ? [g.coordinates] : g.coordinates) {
+				let bb = [180, 90, -180, -90]; for (const [a, b] of p[0]) bb = [Math.min(bb[0], a), Math.min(bb[1], b), Math.max(bb[2], a), Math.max(bb[3], b)];
+				wardPolys.push({ w, ring: p[0], bb });
+			}
+		}
+	}
+	for (const { w, ring, bb } of wardPolys) {
+		if (x < bb[0] || x > bb[2] || y < bb[1] || y > bb[3]) continue;
+		let inside = false;
+		for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside; }
+		if (inside) return w;
+	}
+	return null;
+}
+/** 住所を「横浜市◯◯区…」に揃える（県名は落とし、市名・区名が無ければ補う） */
+const fullAddr = (addr, w) => { const a = addr.startsWith(B.prefName) ? addr.slice(B.prefName.length) : addr; return a.startsWith(NAME) ? a : a.startsWith(w.name) ? NAME + a : a ? `${NAME}${w.name}${a}` : ""; };
+async function facilities() {
+	const rows = [];
+	for (const s of SRC()) {
+		let feats;
+		try { feats = await ksjFeatures(KSJ + s.url, s.re); } catch (e) { console.warn(`✗ ${s.label}: ${e.message}`); if (!INSPECT) throw e; continue; }
+		if (INSPECT) { inspect(s.label, feats); continue; }
+		let n = 0;
+		const seen = new Set();
+		for (const f of feats) {
+			const p = f.properties, c = firstPt(f.geometry);
+			if (!c || !inBox(c) || (s.keep && !s.keep(p))) continue;
+			const w = await wardOf(c); if (!w) continue;   // 市外（川崎・鎌倉…）は落とす
+			const name = String(p[s.name] ?? "").trim();
+			if (!name) continue;
+			const k = `${name}|${r5(c[0])}|${r5(c[1])}`; if (seen.has(k)) continue; seen.add(k);
+			rows.push([r5(c[0]), r5(c[1]), name, s.cat(p), fullAddr(String(p[s.addr] ?? "").trim(), w), s.kind(p)]); n++;
+		}
+		console.log(`${s.label}: ${n} 件`);
+		if (!n) throw new Error(`${s.label}: 0 件（列名を --inspect で確かめる）`);
+	}
+	if (INSPECT) return;
+	for (let i = 0; i < CATS.length; i++) console.log(`  ${CATS[i]}: ${rows.filter(r => r[3] === i).length}`);
+	// 非商用の出どころ（P27・P28・P17・P18＝KSJ の使用許諾「非商用」）＝区分の番号で付記（行の並びは変えない＝頁の FacilityRow のまま）
+	write("facilities.json", { cats: CATS, rows, license: { "非商用": ["P27 文化施設（図書館・文化の一部）", "P28 国・都道府県の機関", "P17 消防署", "P18 警察署"], note: `国土数値情報の使用許諾が非商用の出どころを含む（${NAME}が使うと決めた時に詰める）` } });
+}
+
+// ── 5. 名所の写真（ja.wikipedia の代表画像 → Commons の作者と使用許諾）──
+async function photos() {
+	const api = "https://ja.wikipedia.org/w/api.php", commons = "https://commons.wikimedia.org/w/api.php";
+	const get = async (base, q) => { await sleep(1500); const r = await fetch(`${base}?${new URLSearchParams({ format: "json", formatversion: "2", origin: "*", ...q })}`, { headers: UA }); if (!r.ok) throw new Error(`${base}: HTTP ${r.status}`); return r.json(); };
+	const out = {};
+	for (const s of [...SPOTS, ...STORY.filter(c => !c.photo)]) {   // 物語の章は、名所の写真を借りない章だけ焼く
+		const d = await get(api, { action: "query", prop: "pageimages", piprop: "thumbnail|name", pithumbsize: "640", titles: s.wiki, redirects: "1" });
+		const pg = d.query?.pages?.[0];
+		if (!pg?.pageimage || !pg.thumbnail) { console.warn(`✗ 写真なし：${s.name}（${s.wiki}）`); continue; }
+		const ii = (await get(commons, { action: "query", prop: "imageinfo", iiprop: "extmetadata", titles: `File:${pg.pageimage}` })).query?.pages?.[0]?.imageinfo?.[0]?.extmetadata;
+		if (!ii) { console.warn(`✗ Commons に無い（ja だけの画像）：${s.name}`); continue; }
+		const text = v => String(v?.value ?? "").replace(/<[^>]*>/g, " ").replace(/[<>]/g, "").replace(/\s+/g, " ").trim();   // 札を外した後に残る < > も落とす（入れ子・閉じない札）。頁では文字として出す
+		out[s.id] = { src: pg.thumbnail.source, file: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(pg.pageimage)}`, artist: text(ii.Artist).slice(0, 80), license: text(ii.LicenseShortName), page: `https://ja.wikipedia.org/wiki/${encodeURIComponent(pg.title)}` };
+		console.log(`写真：${s.name} ← ${pg.pageimage}（${out[s.id].license}）`);
+	}
+	write("photos.json", out);
+}
+
+// ── 5b. 駅の Wikipedia（市内の駅＝鉄道の台帳 × 市の外周）＝ja の記事名を座標の近さで決め（同名の駅の曖昧さ回避）、言語間リンクで 26 言語の題名 ──
+//   station-wiki.json … { 駅名: { ja: "日吉駅 (神奈川県)", en: "Hiyoshi Station (Kanagawa)", … } }（頁は summaryIn で表示言語→英語→日本語の順に冒頭を出す）
+const WIKI_LANGS = new Set("en ja zh ko ar bn de el es fa fr he hi hu id it nl pl pt ru sv th tr uk ur vi".split(" "));
+async function stawiki() {
+	const api = "https://ja.wikipedia.org/w/api.php";
+	const get = async q => { await sleep(300); const r = await fetch(`${api}?${new URLSearchParams({ format: "json", formatversion: "2", ...q })}`, { headers: UA }); if (!r.ok) throw new Error(`wiki: HTTP ${r.status}`); return r.json(); };
+	const rail = JSON.parse(fs.readFileSync(path.join(OUT, "rail.json"), "utf8")), city = JSON.parse(fs.readFileSync(path.join(OUT, "wards.json"), "utf8")).city || [];
+	const inCity = ([x, y]) => { let n = false; for (const r of city) for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) n = !n; return n; };
+	const k = s => s.replace(/ヶ/g, "ケ");
+	const out = {};
+	for (const s of rail.stations) {
+		if (out[s[2]] || !inCity([s[0], s[1]])) continue;
+		const re = new RegExp(`^${k(s[2]).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}駅( \\(.+\\))?$`);
+		const near = (await get({ action: "query", list: "geosearch", gscoord: `${s[1]}|${s[0]}`, gsradius: "1500", gslimit: "100" })).query?.geosearch || [];
+		let title = near.filter(g => re.test(k(g.title))).sort((a, b) => a.dist - b.dist)[0]?.title;
+		if (!title) {   // 座標の無い記事＝題名で引く（曖昧さ回避の頁は採らない）
+			const pg = (await get({ action: "query", titles: `${s[2]}駅`, redirects: "1", prop: "pageprops" })).query?.pages?.[0];
+			if (pg && !pg.missing && !pg.pageprops?.disambiguation) title = pg.title;
+		}
+		if (!title) { console.warn(`✗ 記事なし：${s[2]}`); continue; }
+		const ll = (await get({ action: "query", titles: title, prop: "langlinks", lllimit: "max" })).query?.pages?.[0]?.langlinks || [];
+		out[s[2]] = { ja: title };
+		for (const l of ll) if (WIKI_LANGS.has(l.lang) && l.title) out[s[2]][l.lang] = l.title;
+		console.log(`駅の記事：${s[2]} → ${title}（${Object.keys(out[s[2]]).length} 言語）`);
+	}
+	if (Object.keys(out).length < (B.min?.stawiki ?? 100)) throw new Error(`駅の記事が少ない：${Object.keys(out).length}`);
+	write("station-wiki.json", out);
+}
+
+// ── 5c. 区の統計（本人 2026-10-26「区を選ぶと統計ボタン・年齢ピラミッドと各小地域の人口」）──
+//   census.json        … { year, src, wards: { 区コード（14100＝市）: { pop: [総数, 男, 女], hh, pop2020, ages: [男 16 階級, 女 16 階級] } } }
+//                        年齢＝令和 7 年国勢調査 人口等基本集計 第 2-7 表の【不詳補完値】（年齢不詳を配分済み＝合計が総人口と合う）。0-4 … 70-74・75+（75 歳以上を合算）
+//                        人口＝年齢の合計（基本集計の総人口と一致）・世帯と 2020 年の人口＝packages/jp/census/2025-pop.json
+//   census/<区>.json   … 小地域（町丁・字）の人口＝令和 2 年国勢調査の小地域集計（2025 年の小地域はまだ公表前・2026-10-26 確認）。
+//                        FeatureCollection { k: KEY_CODE, n: 名, en: 英語名, p: 人口, h: 世帯, a: 面積 km² }・面は約 4m に間引き
+async function census() {
+	const { readXLSXRows } = await import("../../geopbf/src/convert/table.ts");
+	const { rows } = await readXLSXRows(new Uint8Array(await getBuf(`https://www.e-stat.go.jp/stat-search/file-download?statInfId=${B.ages}&fileKind=0`)));
+	const num = v => { const n = Number(String(v ?? "").replace(/,/g, "")); return Number.isFinite(n) ? n : 0; };
+	const ages = {};
+	for (const r of rows) {
+		const code = String(r[7] ?? "").trim().slice(0, 5), sex = String(r[1] ?? "").match(/^\s*([12])(?![0-9])|^(男|女)/);
+		if (!B.wardRe.test(code) || !sex || !/総数|^\s*0/.test(String(r[0] ?? "")) || /旧：/.test(String(r[8] ?? ""))) continue;   // 「（旧：京北町）」等＝2000 年の市町村に組み替えた行（同じ 2025 年のコードを持つ）は採らない（2026-11-14 京都の右京区）
+		const v = [...Array.from({ length: 15 }, (_, i) => num(r[10 + i])), [25, 26, 27, 28, 29, 30].reduce((a, c) => a + num(r[c]), 0)];
+		const k = (sex[1] || (sex[2] === "男" ? "1" : "2")) === "1" ? 0 : 16;
+		(ages[code] ??= Array(32).fill(0)).splice(k, 16, ...v);
+	}
+	const pop = JSON.parse(fs.readFileSync(path.join(ROOT, "packages/jp/census/2025-pop.json"), "utf8"));
+	const wards = {};
+	for (const code of [B.cityCode, ...WARDS.map(w => w.code)]) {
+		const a = ages[code], p = pop[code];
+		if (!a || !p) throw new Error(`統計が無い：${code}（年齢 ${!!a}・人口 ${!!p}）`);
+		const sum = a.reduce((x, y) => x + y, 0);
+		console.log(`統計：${code} 年齢の合計 ${sum}（速報の人口 ${p.pop[0]}）`);
+		const ms = a.slice(0, 16).reduce((x, y) => x + y, 0);
+		wards[code] = { pop: [sum, ms, sum - ms], hh: p.hh, pop2020: p.pop2020, ages: a };   // 人口＝基本集計（不詳補完値の年齢の合計＝総人口）。速報（2025-pop.json）とは少し違う
+	}
+	write("census.json", { year: 2025, src: { ages: "令和7年国勢調査 人口等基本集計 第2-7表（不詳補完値）", pop: "令和7年国勢調査", small: "令和2年国勢調査 小地域集計" }, smallYear: 2020, wards });
+	// 小地域（2020）＝エンジンの bucket の e-Stat 境界（census2020 と同じ焼き・JINKO/SETAI 入り）
+	const E = await makeE();
+	fs.mkdirSync(path.join(OUT, "census"), { recursive: true });
+	for (const w of WARDS) {
+		const buf = await getBuf(`https://api.ortho-earth.com/bucket/estat/2020/${w.code}.geojsonl`);
+		const text = (buf[0] === 0x1f && buf[1] === 0x8b ? zlib.gunzipSync(buf) : buf).toString("utf8");
+		const feats = [];
+		for (const line of text.split("\n")) {
+			if (!line.trim()) continue;
+			const f = JSON.parse(line), q = f.properties || {}, g = f.geometry && slimPoly(f.geometry);
+			if (!g || q.JINKO == null) continue;
+			const n = String(q.S_NAME || "").trim(), m = n.match(/^(.*?)([一二三四五六七八九十]+)丁目$/);
+			const en = m ? `${E.proper(m[1])} ${kanjiNum(m[2])}-chome` : E.proper(n);
+			feats.push({ type: "Feature", properties: { k: String(q.KEY_CODE), n, en: en.replace(/[^\x20-\x7e]/g, "").trim() || n, p: q.JINKO, h: q.SETAI ?? null, a: Math.round((q.AREA || 0) / 1e4) / 100 }, geometry: g });
+		}
+		const tot = feats.reduce((a, f) => a + f.properties.p, 0);
+		console.log(`小地域：${w.name} ${feats.length} 面・人口 ${tot}`);
+		if (feats.length < 20) throw new Error(`小地域が少ない：${w.name}`);
+		write(`census/${w.code}.json`, fc(feats));
+	}
+}
+const kanjiNum = s => { const d = "〇一二三四五六七八九"; if (s === "十") return 10; const m = s.match(/^([二三四五六七八九]?)十([一二三四五六七八九]?)$/); return m ? (m[1] ? d.indexOf(m[1]) : 1) * 10 + (m[2] ? d.indexOf(m[2]) : 0) : +[...s].map(c => d.indexOf(c)).join(""); };
+
+// ── 6. 平面の地図に重ねる面（用途地域・校区・警察／消防の管轄）──
+const AREA_TOL = 0.00004;   // 約 4m（1 本 2MB を超えるなら強める）
+/** 面の geometry → 間引いた MultiPolygon（環が潰れた物は落とす・外周が潰れたら面ごと落とす） */
+function slimPoly(g, tol = AREA_TOL) {
+	const ps = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+	const out = [];
+	for (const p of ps) { const outer = dp(p[0], tol); if (outer.length < 4) continue; out.push([outer, ...p.slice(1).map(r => dp(r, tol)).filter(r => r.length >= 4)]); }
+	return out.length ? { type: "MultiPolygon", coordinates: out } : null;
+}
+/** 同じ名の面を 1 つの MultiPolygon に束ねる（並びは最初に出た順） */
+function mergeByName(feats) {
+	const m = new Map();
+	for (const f of feats) { const k = f.properties.n, g = m.get(k); if (g) g.geometry.coordinates.push(...f.geometry.coordinates); else m.set(k, { type: "Feature", properties: { ...f.properties }, geometry: { type: "MultiPolygon", coordinates: [...f.geometry.coordinates] } }); }
+	return [...m.values()];
+}
+const fc = features => ({ type: "FeatureCollection", features });
+// 国土数値情報の使用許諾が「非商用」の台帳は、属性に付記する（本人 2026-10-21「今の時点では非商用と考え、属性にその旨付記」・横浜市が使うと決めた時に一緒に詰める）
+const NC = src => ({ lic: "非商用", src: `国土数値情報 ${src}`, y: 2012 });
+const areaReport = (label, feats) => { const n = new Map(); for (const f of feats) n.set(f.properties.n, (n.get(f.properties.n) || 0) + 1); console.log(`${label}：${feats.length} 面（名 ${n.size}）`); return n; };
+
+async function zoning() {
+	const feats = await ksjFeatures(`${KSJ}A29/A29-19/A29-19_${PREF}_GML.zip`, new RegExp(`A29-19_${B.cityCode}`));   // 県の zip の中に市町村ごとの shp＝14100 が横浜市
+	if (INSPECT) return inspect(`A29 用途地域（${B.cityCode}）`, feats);
+	const out = [];
+	for (const f of feats) { const p = f.properties, g = f.geometry && slimPoly(f.geometry); if (!g || !p.A29_005) continue; out.push({ type: "Feature", properties: { n: String(p.A29_005).trim(), b: +p.A29_006 || null, f: +p.A29_007 || null }, geometry: g }); }
+	const n = areaReport("用途地域", out);
+	for (const [k, v] of [...n].sort((a, b) => b[1] - a[1])) console.log(`  ${k} ${v}`);
+	write("zoning.json", fc(out));
+}
+async function schoolAreas(label, url, re, pre, file) {
+	const feats = await ksjFeatures(url, re);
+	if (INSPECT) return inspect(label, feats);
+	const out = [];
+	for (const f of feats) { const p = f.properties, g = f.geometry && slimPoly(f.geometry);
+		if (!g || p[pre + "_001"] !== B.cityCode || !String(p[pre + "_002"] || "").startsWith(NAME)) continue;   // 市（14100）の市立だけ
+		out.push({ type: "Feature", properties: { n: String(p[pre + "_004"] || "").trim(), a: String(p[pre + "_005"] || "").trim() }, geometry: g }); }
+	areaReport(label, out);
+	write(file, fc(out));
+}
+const eschool = () => schoolAreas("小学校区", `${KSJ}A27/A27-21/A27-21_${PREF}_GML.zip`, /A27-21_\d\d/, "A27", "school-e.json");
+const jschool = () => schoolAreas("中学校区", `${KSJ}A32/A32-21/A32-21_${PREF}_GML.zip`, /A32-21_\d\d/, "A32", "school-j.json");
+async function police() {
+	const zipUrl = `${KSJ}P18/P18-12/P18-12_${PREF}_GML.zip`;
+	const areas = await ksjFeatures(zipUrl, /P18-\d+_\d\d_PoliceStationJurisdiction/);
+	if (INSPECT) return inspect("P18 警察署の管轄", areas);
+	// 横浜市内の署＝点（PoliceStation）の行政区域が横浜市の区（14101〜14118＝1413x の川崎・1415x の相模原を拾わない）の警察署。管轄の面はその署の名で選ぶ
+	const st = await ksjFeatures(zipUrl, /P18-\d+_\d\d_PoliceStation/);   // 先に並ぶ PoliceStation.shp が当たる（Jurisdiction より前）
+	const names = new Set(st.filter(f => B.wardOnlyRe.test(String(f.properties.P18_002)) && String(f.properties.P18_003) === "2").map(f => String(f.properties.P18_001).trim()));
+	const out = mergeByName(areas.filter(f => names.has(String(f.properties.P18_005).trim())).map(f => ({ properties: { n: String(f.properties.P18_005).trim() }, geometry: slimPoly(f.geometry) })).filter(f => f.geometry));
+	areaReport(`警察署の管轄（${NAME}内の署 ${names.size}）`, out);
+	const miss = [...names].filter(n => !out.some(f => f.properties.n === n)); if (miss.length) console.warn(`  管轄の面が無い署：${miss.join("・")}`);
+	for (const f of out) Object.assign(f.properties, NC("P18-12"));
+	write("police-areas.json", { ...fc(out), license: NC("P18-12").lic, source: "国土数値情報 P18-12（警察署・管轄区域・2012 年度）" });
+}
+async function fire() {
+	const areas = await ksjFeatures(`${KSJ}P17/P17-12/P17-12_${PREF}_GML.zip`, /P17-\d+_\d\d_FireStationJurisdiction/);
+	if (INSPECT) return inspect("P17 消防署の管轄", areas);
+	const out = mergeByName(areas.filter(f => B.fireRe.test(String(f.properties.P17_005))).map(f => ({ properties: { n: String(f.properties.P17_005).replace(B.fireRe, "").trim() }, geometry: slimPoly(f.geometry) })).filter(f => f.geometry));
+	areaReport(`消防署の管轄（${NAME}消防局）`, out);
+	for (const f of out) Object.assign(f.properties, NC("P17-12"));
+	write("fire-areas.json", { ...fc(out), license: NC("P17-12").lic, source: "国土数値情報 P17-12（消防署・管轄区域・2012 年度）" });
+}
+
+// ── 7. 歩ける道（OpenStreetMap）──
+// Overpass を 0.04° 四方ずつ（区画 2×2）引く。同じ道（way id）は 1 度だけ。種別と除外は data.ts の walkKind（頁のテストと同じ規則）
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+async function overpass(q, file) {
+	if (!REFRESH && fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
+	for (let i = 0; ; i++) {
+		const url = OVERPASS[i % OVERPASS.length];
+		const r = await fetch(url, { method: "POST", headers: { ...UA, "Content-Type": "application/x-www-form-urlencoded" }, body: "data=" + encodeURIComponent(q) }).catch(e => ({ ok: false, status: String(e) }));
+		if (r.ok) { const t = await r.text(); if (t.startsWith("{")) { fs.writeFileSync(file, t); return JSON.parse(t); } }
+		if (i >= 7) throw new Error(`Overpass: HTTP ${r.status}`);
+		await sleep(5000 * 2 ** Math.min(i, 4));
+	}
+}
+// 地図の地名（日本語以外の画面で基図の日本語の注記の代わりに描く・本人 2026-10-26「OSM から横浜の地名を日英で」）
+// OSM の place（区・町・丁目・小字）と駅の点 → places.json { rows: [経度, 緯度, 日本語, 英語, 種別] }＝種別 0 区・1 町・2 丁目・3 小字・4 駅。英語の無い点は載せない
+// OSM の英語名の揺れを揃える：長音の記号（Ōfuna）は外す＝施設の英語と同じ書き方・「・」は " / "。OSM の誤り（東大井＝Minami-Ōi）は直す
+const PLACE_FIX = { "東大井": "Higashi-Oi" };
+const plainEn = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s*・\s*/g, " / ").replace(/[^\x20-\x7e]/g, "").trim();
+async function places() {
+	const q = `[out:json][timeout:180];(node["place"~"^(suburb|quarter|neighbourhood|locality)$"](${BOX[1]},${BOX[0]},${BOX[3]},${BOX[2]});node["railway"="station"](${BOX[1]},${BOX[0]},${BOX[3]},${BOX[2]}););out;`;
+	const d = await overpass(q, path.join(CACHE, "osm-places.json"));
+	const K = { suburb: 0, quarter: 1, neighbourhood: 2, locality: 3 };
+	const rows = [], seen = new Set();
+	for (const e of d.elements || []) {
+		const t = e.tags || {}, ja = t.name || t["name:ja"], en = t["name:en"] || t["name:ja-Latn"] || t["name:ja_rm"], k = t.railway === "station" ? 4 : K[t.place];
+		if (!ja || !en || k == null || !inBox([e.lon, e.lat])) continue;
+		const key = `${k}|${ja}|${Math.round(e.lon * 200)}|${Math.round(e.lat * 200)}`; if (seen.has(key)) continue; seen.add(key);   // 同じ駅の別の点（事業者ごと）を 1 つに
+		rows.push([r5(e.lon), r5(e.lat), ja, PLACE_FIX[ja] || plainEn(en).replace(/ Station$/, "").replace(/ ward$/, " Ward"), k]);
+	}
+	console.log(`地名：${rows.length} 点（${[0, 1, 2, 3, 4].map(k => rows.filter(r => r[4] === k).length).join("・")}＝区・町・丁目・小字・駅）`);
+	if (rows.length < (B.min?.places ?? 500)) throw new Error("OSM の地名が少なすぎる（Overpass の答えを確かめる）");
+	write("places.json", { rows });
+}
+
+async function walk() {
+	const dir = path.join(CACHE, "osm-walk"), out = path.join(OUT, "walk");
+	fs.mkdirSync(dir, { recursive: true }); fs.rmSync(out, { recursive: true, force: true }); fs.mkdirSync(out, { recursive: true });
+	const Q = WALK_CELL * 2, seen = new Set(), cells = new Map();   // "cx_cy" → [{ kind, pts:[x,y,…] (1e-5° の整数) }]
+	const cx0 = Math.floor(BOX[0] / WALK_CELL), cy0 = Math.floor(BOX[1] / WALK_CELL), cx1 = Math.floor(BOX[2] / WALK_CELL), cy1 = Math.floor(BOX[3] / WALK_CELL);
+	let ways = 0, t0 = Date.now();
+	for (let x = BOX[0]; x < BOX[2]; x += Q) for (let y = BOX[1]; y < BOX[3]; y += Q) {
+		const bb = [y, x, Math.min(y + Q, BOX[3]), Math.min(x + Q, BOX[2])].map(v => v.toFixed(4));
+		const q = `[out:json][timeout:180];way["highway"](${bb.join(",")});out tags geom;`;
+		const d = await overpass(q, path.join(dir, `${bb.join("_")}.json`));
+		for (const w of d.elements || []) {
+			if (w.type !== "way" || seen.has(w.id) || !w.geometry) continue;
+			seen.add(w.id);
+			const kind = walkKind(w.tags || {}); if (kind < 0) continue;
+			ways++;
+			// 区画の境で切る＝線分の中点が入る区画ごとに続きを束ねる（境の点は両方に入る）
+			const P = w.geometry.map(g => [Math.round(g.lon / WALK_Q), Math.round(g.lat / WALK_Q)]);
+			let cur = null, key = "";
+			for (let i = 1; i < P.length; i++) {
+				const k = `${Math.floor((P[i - 1][0] + P[i][0]) / 2 * WALK_Q / WALK_CELL)}_${Math.floor((P[i - 1][1] + P[i][1]) / 2 * WALK_Q / WALK_CELL)}`;
+				if (k !== key) { key = k; cur = { kind, pts: [...P[i - 1]] }; (cells.get(k) ?? cells.set(k, []).get(k)).push(cur); }
+				cur.pts.push(...P[i]);
+			}
+		}
+		process.stdout.write(`\r歩ける道：${seen.size} 本を見た・採った ${ways} 本・${((Date.now() - t0) / 1000).toFixed(0)} 秒`);
+		await sleep(1500);
+	}
+	console.log("");
+	let bytes = 0;
+	for (const [k, lines] of cells) {
+		const [cx, cy] = k.split("_").map(Number);
+		if (cx < cx0 || cx > cx1 || cy < cy0 || cy > cy1) continue;   // 余白の外へはみ出た道の切れ端は置かない
+		const b = encodeWalk(lines, cx, cy); bytes += b.length;
+		fs.writeFileSync(path.join(out, `${k}.bin`), b);
+	}
+	console.log(`→ ortho-data/japan/${B.city.id}/walk/  ${cells.size} 区画・${(bytes / 1024 / 1024).toFixed(2)} MB`);
+	if (ways < (B.min?.walk ?? 50000)) throw new Error(`歩ける道が ${ways} 本しか無い（Overpass の返事を確かめる）`);
+}
+
+// ── 8. 施設の英語（facilities.json の後に焼く）──
+async function makeE() {
+	const zip = unzip(await getBuf("https://www.post.japanpost.jp/service/search/zipcode/download/utf/zip/utf_ken_all.zip"));
+	const csv = zip.get(pick(zip, /\.csv$/i))().toString("utf8");
+	const towns = new Map();
+	for (const line of csv.split(/\r?\n/)) {
+		const f = line.split(",").map(x => x.replace(/^"|"$/g, ""));
+		if (!f[7]?.startsWith(NAME) || !f[8] || f[8].startsWith("以下に掲載がない")) continue;
+		const k = f[8].replace(/（.*$/, ""), r = f[5].normalize("NFKC").replace(/\(.*$/, "");
+		if (k && r && !towns.has(k)) towns.set(k, r);
+	}
+	console.log(`郵便番号データ：${NAME}の町名 ${towns.size}`);
+	if (towns.size < (B.min?.towns ?? 500)) throw new Error(`KEN_ALL の${NAME}の町名が少なすぎる（列の並びを確かめる）`);
+	let tokenize = null;
+	try { const km = createRequire(path.join(process.cwd(), "x.js"))("kuromoji"); const tk = await new Promise((ok, ng) => km.builder({ dicPath: path.join(path.dirname(createRequire(path.join(process.cwd(), "x.js")).resolve("kuromoji")), "../dict") }).build((e, t) => e ? ng(e) : ok(t))); tokenize = s => tk.tokenize(s); }
+	catch (e) { throw new Error(`kuromoji が無い（npm i --no-save kuromoji@0.1.2）：${e.message}`); }
+	// 駅の英語を OSM から（BAKE.en.osmStations）＝places.json の駅の点（name:en）。places が未だなら先に焼く
+	let stations = {};
+	if (B.en.osmStations) {
+		if (!fs.existsSync(path.join(OUT, "places.json"))) await places();
+		for (const r of JSON.parse(fs.readFileSync(path.join(OUT, "places.json"), "utf8")).rows) if (r[4] === 4 && !stations[r[2]]) stations[r[2]] = r[3];
+	}
+	return makeEn({ towns: [...towns], wards: WARDS.map(w => [w.name.replace(/区$/, ""), w.en.replace(/-ku$/, "")]), tokenize, city: B.en, stations });
+}
+async function en() {
+	const E = await makeE();
+	const fac = JSON.parse(fs.readFileSync(path.join(OUT, "facilities.json"), "utf8"));
+	const rows = {}, guessed = [];
+	for (const r of fac.rows) {
+		const g0 = E.guessed(), n = E.name(r[2], r[3]), g1 = E.guessed();
+		rows[`${r[2]}|${r[4]}`] = [n, E.addr(r[4], wardOfAddress(normJa(r[4]))?.en)];
+		if (g1 > g0) guessed.push(`${r[2]} → ${n}`);
+	}
+	// 駅・バス停（路線の「〜」区切りの停留所も）・学区の学校・避難場所（2026-10-26）
+	const rail = JSON.parse(fs.readFileSync(path.join(OUT, "rail.json"), "utf8")), bus = JSON.parse(fs.readFileSync(path.join(OUT, "bus.json"), "utf8"));
+	const st = {}, stop = {}, school = {}, hinan = {};
+	for (const s of rail.stations) st[s[2]] ??= E.station(s[2]);
+	for (const r of bus.stops) for (const n of [r[2], ...String(r[3] || "").split(/[・〜]/)]) if (n) stop[n] ??= E.stop(n);
+	for (const f of ["school-e", "school-j"].filter(f => !B.skip?.includes(f === "school-e" ? "eschool" : "jschool"))) for (const x of JSON.parse(fs.readFileSync(path.join(OUT, `${f}.json`), "utf8")).features) { const { n, a } = x.properties || {}; if (n) school[`${n}|${a || ""}`] ??= [E.name(n, 2), a ? E.addr(a, wardOfAddress(normJa(a))?.en) : ""]; }
+	for (const r of sheltersIn(JSON.parse((b => b[0] === 0x1f && b[1] === 0x8b ? zlib.gunzipSync(b) : b)(await getBuf(CITY.hinanUrl)).toString("utf8")), CITY.addrPrefix)) hinan[`${r[2]}|${r[3]}`] ??= [E.shelter(r[2]), E.addr(r[3], wardOfAddress(normJa(r[3]))?.en)];
+	console.log(`駅 ${Object.keys(st).length}・停留所 ${Object.keys(stop).length}・学校 ${Object.keys(school).length}・避難場所 ${Object.keys(hinan).length}`);
+	fs.writeFileSync(path.join(CACHE, "en-review-names.tsv"), [...Object.entries(st).map(([k, v]) => `駅\t${k}\t${v}`), ...Object.entries(stop).map(([k, v]) => `停\t${k}\t${v}`),
+		...Object.entries(school).map(([k, v]) => `学校\t${k}\t${v.join("\t")}`), ...Object.entries(hinan).map(([k, v]) => `避難\t${k}\t${v.join("\t")}`)].join("\n"));
+	fs.writeFileSync(path.join(CACHE, "en-review.tsv"), fac.rows.map(r => [r[2], ...rows[`${r[2]}|${r[4]}`], r[4]].join("\t")).join("\n"));
+	console.log(`施設の英語：${fac.rows.length} 件（うち読みの辞書で当てた名 ${guessed.length}）・見直し用＝scripts/.cache/en-review.tsv`);
+	write("facilities-en.json", { rows, st, stop, school, hinan, guessed });
+}
+
+/** 市の台帳を焼く。bake＝市の設定（上の「市の設定」）・cacheDir＝生の zip を置く所（市の頁の scripts/.cache） */
+export async function bakeCity(bake, cacheDir) {
+	B = bake; CITY = bake.city; WARDS = CITY.wards; SPOTS = CITY.spots; STORY = CITY.story?.chapters ?? [];
+	NAME = CITY.addrPrefix; PREF = bake.pref;   // 日本語の市名（「横浜市」）＝住所の頭。cityName は UI の英語の名
+	OUT = path.join(ROOT, `ortho-data/japan/${CITY.id}`); CACHE = cacheDir;
+	UA = { "User-Agent": `ortho-earth-${CITY.id}/0.1 (https://github.com/kenjiyoshidahome2026-bit/ortho-earth)` };
+	N03_URL = `${KSJ}N03/N03-2025/N03-20250101_${PREF}_GML.zip`;
+	BOX = [CITY.bbox[0] - M, CITY.bbox[1] - M, CITY.bbox[2] + M, CITY.bbox[3] + M];
+	fs.mkdirSync(CACHE, { recursive: true }); fs.mkdirSync(OUT, { recursive: true });
+	for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en, places, stawiki, census })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) {
+		if (bake.skip?.includes(k)) { console.log(`（${k} はこの市では焼かない）`); continue; }
+		await fn();
+	}
+	console.log(INSPECT ? "\n（--inspect：何も書いていない）" : `\n✓ 出来た。置く＝npm run publish:pages -w world-data -- --scope=japan --only=${CITY.id} --write`);
+}

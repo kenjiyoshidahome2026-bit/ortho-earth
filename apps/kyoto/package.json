@@ -1,0 +1,23 @@
+{
+	"name": "kyoto",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "京都市デジタルツイン：3D 都市モデル（PLATEAU）の京都に暮らし・交通・観光・防災・解析を重ねる頁（/kyoto/）。芯は横浜と共有（@ortho-earth/citytwin）",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"test": "node tests/t-kyoto.mjs",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"deploy": "vite build && find dist/site -name .DS_Store -delete && node ../../packages/globe/scripts/check-engine-live.mjs && wrangler deploy",
+		"preview:prod": "vite build && wrangler dev"
+	},
+	"dependencies": {
+		"common": "*",
+		"@ortho-earth/citytwin": "*",
+		"@ortho-earth/jp": "*",
+		"@ortho-earth/regions": "*"
+	}
+}
