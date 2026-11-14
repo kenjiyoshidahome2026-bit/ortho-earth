@@ -191,6 +191,9 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 		const cache = caches.get(url) ?? new Map(); caches.set(url, cache);
 		return planExtract(await srcOf(url), idRanges(r, minZoom, maxZoom), { minZoom, maxZoom, bbox: z8Bbox(r), cache, signal });
 	};
+	// 同じ範囲を二度保存しない（端末の範囲のヘッダの箱と、割った各部の箱が一致＝保存済み・ヘッダは 1e-7 度刻み）
+	const sameBox = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]) < 1e-5);
+	const isSaved = (r: Z8Rect) => splitZ8Rect(r).every(p => o.saved.some(b => sameBox(b, z8Bbox(p))));
 	let worldBytes: Promise<number> | null = null;
 	let estAc: AbortController | null = null, estT = 0, chosenMapZoom = MAP_ZOOM, ready = false;
 	function changed(): void {
@@ -198,6 +201,7 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 		const [a, b] = areaKm(rect); km.textContent = `≈ ${Math.round(a)} × ${Math.round(b)} km`;
 		sheet.querySelectorAll<HTMLButtonElement>("[data-n]").forEach(btn => btn.classList.toggle("on", +btn.dataset.n! === widthOf(rect!) && +btn.dataset.n! === rect!.y1 - rect!.y0 + 1));
 		ready = false; saveBtn.disabled = true;
+		if (isSaved(rect)) { est.innerHTML = `<b class="ok">✓ This area is already saved on this device.</b> Move or resize it to save another.`; return; }
 		if (!o.sources) { est.textContent = "Saving needs the online map sources (open without ?online=0)."; return; }
 		est.textContent = "Estimating size…";
 		clearTimeout(estT); estAc?.abort();
