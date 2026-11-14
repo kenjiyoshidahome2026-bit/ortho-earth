@@ -56,8 +56,10 @@ const initialNames = (uiLang: string): NameLang => {
 	const q = new URLSearchParams(location.search).get("names"), ui = uiLang.slice(0, 2).toLowerCase();
 	return isNameLang(q) ? q : isNameLang(savedNames()) ? savedNames() as NameLang : isNameLang(ui) && ui !== "local" ? ui : "local";
 };
-/** 地名の言語の切替（左下の select）。変えたら地名の層の text-field を差し替え・選択を覚える */
-function mountNamePicker(map: { setLayoutProperty(id: string, name: string, value: unknown): unknown }, cur: NameLang): void {
+/** 低倍率（エンジンの世界帯）の国名・都市名の言語＝地名の言語に揃える。現地語は世界帯に無い＝英語 */
+const worldLang = (l: NameLang): string => l === "local" ? "en" : l;
+/** 地名の言語の切替（左下の select）。変えたら地名の層の text-field を差し替え・世界帯の国名も・選択を覚える */
+function mountNamePicker(map: { setLayoutProperty(id: string, name: string, value: unknown): unknown; setWorldLang?(lang: string): Promise<void> }, cur: NameLang): void {
 	const sel = document.getElementById("names") as HTMLSelectElement | null;
 	if (!sel) return;
 	sel.innerHTML = NAME_LANGS.map(l => `<option value="${l}"${l === cur ? " selected" : ""}>${NAME_LANG_LABEL[l]}</option>`).join("");
@@ -65,6 +67,7 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 	sel.addEventListener("change", () => {
 		const l = sel.value; if (!isNameLang(l)) return;
 		for (const id of LABEL_LAYERS) map.setLayoutProperty(id, "text-field", nameExpr(l));
+		void map.setWorldLang?.(worldLang(l));
 		try { localStorage.setItem(NAMES_KEY, l); } catch { /* 覚えられないだけ */ }
 	});
 }
@@ -124,7 +127,7 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 			...(osmUrl ? { style: osmStyle(osmUrl, names) } : {}),   // OSM planet（Protomaps v4）・端末の物が先・地名の言語
 			terrain: gelUrl ? gelTerrain(gelUrl) : false,             // GEL（z2–12・mapbox の画素詰め）・端末の物が先
 			zoomMax: 18, chips: false, mesh: false,
-			worldContent: true,               // 低倍率に標準の地球と同じ中身（国境・国名・都市・州境…＝/globe と同じ・2026-11-14 タブレットで z2 の国境が無かった）
+			worldContent: { lang: worldLang(names) },               // 低倍率に標準の地球と同じ中身（国境・国名・都市・州境…＝/globe と同じ・2026-11-14 タブレットで z2 の国境が無かった）
 			worldBelow: OSM_MINZOOM,          // z5.5 より下＝エンジンの標準の地球（段彩・国境・湖）・上＝OSM
 			...(pixelRatio() ? { pixelRatio: pixelRatio()! } : {}),   // メモリの少ない端末は描く解像度を下げる（2026-11-14 Android タブレットの試験）
 			// 低倍率（MapLibre z5.5 より下）はエンジンの標準の地球（段彩・Natural Earth の国境と湖・海岸線・星空・夜面）＝本人 2026-11-14。OSM はその上（style.ts OSM_MINZOOM）。

@@ -32,17 +32,17 @@ export interface WorldContentDeps {
 	getZoom(): number; lang?: string; worldStyle(): WorldStyleTheme; bandZ: number; lowMem?: boolean; requestDraw?: () => void; groups?: string[] | null;
 }
 /** createWorldContent の戻り */
-export interface WorldContent { update(): void; repaint(): Promise<void>; state(): Record<string, number | boolean> }
+export interface WorldContent { update(): void; repaint(): Promise<void>; setLang(lang: string): Promise<void>; state(): Record<string, number | boolean> }
 type NamesBundle = { world: Awaited<ReturnType<typeof loadNations>>; i18n: Awaited<ReturnType<typeof loadI18n>> | null; ne: Awaited<ReturnType<typeof loadNeCities>> };
 
 const LABEL_ID = "world-content-labels", AIR_ID = "world-content-airports";
 
-export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom, lang = "en", worldStyle, bandZ, lowMem = false, requestDraw = () => {}, groups = null }: WorldContentDeps): WorldContent {
+export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom, lang: lang0 = "en", worldStyle, bandZ, lowMem = false, requestDraw = () => {}, groups = null }: WorldContentDeps): WorldContent {
 	const want = (g: string) => !groups || groups.includes(g);   // groups＝読む群の限定（計測の切り分け・既定＝全部）
 	const H: Record<string, WorldGintHandle> = {};            // group → addGint の手綱（base / detail / lakes）
 	const held: Record<string, GeoPBF> = {};         // group → GeoPBF（注記の材料）
 	const state: Record<string, number> = {};        // group → 0 未 / 1 読込中 / 2 済 / 3 失敗
-	let names: Promise<NamesBundle | null> | null = null, labelsOn = false, imagesAdded = false;
+	let names: Promise<NamesBundle | null> | null = null, labelsOn = false, imagesAdded = false, lang = lang0;   // lang＝国名・都市名の言語（setLang で替わる）
 	const T = () => worldStyle();
 
 	// 線と面の色・出し分け（式）。色は正本 worldstyle から毎回引く＝テーマ切替は repaint() が setPaint し直す
@@ -210,6 +210,12 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			if (imagesAdded) await images();
 			if (labelsOn) await labels();
 			if (held.detail) await airports();
+		},
+		/** 国名・都市名の言語を替える（名前の辞書を読み直して注記を作り直す） */
+		async setLang(l: string) {
+			if (!l || l === lang) return;
+			lang = l; names = null;
+			if (labelsOn) await labels();
 		},
 		state: () => ({ ...state, labels: labelsOn }),
 	};

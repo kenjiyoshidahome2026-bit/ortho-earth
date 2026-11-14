@@ -131,6 +131,8 @@ export interface GlobeCoreApi {
 	/** 表示言語コード（ja/en/…・1.2.0〜） */
 	readonly lang: string;   // globe.js:2486
 	/** 次フレームの描画を1回点火（オーバレイ更新後に） */
+	/** 世界帯（opts.worldContent）の国名・都市名の言語を替える（UI の言語とは別・worldContent が無ければ何もしない） */
+	setWorldLang(lang: string): Promise<void>;
 	requestDraw(): void;   // globe.js:2487
 	// ── post-processing
 	/** 後処理の鎖（F3・2026-10-12）＝順番つきの pass。描くのは bloom・vignette・fxaa・tonemap・lut（W1・掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。ssr は WebGPU で描く（2026-11-01）。smaa/dof は保つだけ。知らない type は投げる（plugin は registry.postEffects に足す）。null＝全部外す */

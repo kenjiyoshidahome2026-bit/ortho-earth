@@ -60,11 +60,14 @@ async function packApp(man: Manifest, onProgress: (done: number, total: number) 
 // 何を取りに行ったかは頁の資源の記録（performance）から拾う＝エンジンの版が変わっても追従する。?meta= 等の版照会（毎回違う URL）は詰めない
 const WORLD_HOSTS = ["https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/", "https://api.ortho-earth.com/bucket/GIS/"];
 const isWorld = (u: string) => WORLD_HOSTS.some(h => u.startsWith(h)) && !/[?&](meta|_t)=/.test(u);
+// 版の照会（?meta=1）だけが見える物＝本体はエンジンの IDB から出ていて fetch されていない＝素の URL を取りに行って束にも置く
+const isWorldMeta = (u: string) => WORLD_HOSTS.some(h => u.startsWith(h)) && /[?&]meta=/.test(u);
 async function packWorld(): Promise<void> {
 	if (!canPack() || navigator.onLine === false) return;
 	try {
 		const cache = await caches.open(PACK);
-		const seen = performance.getEntriesByType("resource").map(e => e.name).filter(isWorld);
+		const names = performance.getEntriesByType("resource").map(e => e.name);
+		const seen = [...names.filter(isWorld), ...names.filter(isWorldMeta).map(u => u.replace(/\?.*$/, ""))];
 		// 版つき（?v=<etag>）の物は素の URL でも置く＝通信なしでは geopbf が版の照会（?meta=）に失敗して素の URL を取りに行く
 		const urls = [...new Set(seen.flatMap(u => /[?&]v=/.test(u) ? [u, u.replace(/\?.*$/, "")] : [u]))];
 		let added = 0;
