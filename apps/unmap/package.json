@@ -9,7 +9,7 @@
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
-		"test": "node tests/t-sources.mjs && node tests/t-style.mjs && node tests/t-areas.mjs && node tests/t-places.mjs"
+		"test": "node tests/t-sources.mjs && node tests/t-style.mjs && node tests/t-areas.mjs && node tests/t-places.mjs && node tests/t-versions.mjs"
 	},
 	"dependencies": {
 		"@ortho-earth/core": "*",

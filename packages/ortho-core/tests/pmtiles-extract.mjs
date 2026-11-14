@@ -3,7 +3,7 @@
 // node packages/ortho-core/tests/pmtiles-extract.mjs
 import { gzipSync } from "node:zlib";
 import { PMTiles, zxyToTileId, tileIdToZxy } from "pmtiles";
-import { tileZxy, listEntries, readTileAt, decompressTile, parseHeader, serializeHeader, serializeDir, deserializeDir, tileId, idRanges, worldRanges, splitZ8Rect, z8Around, z8OfBbox, z8Count, z8Bbox, z8Of, openExtractSource, planExtract, writeExtract, chunkPlan, trimPlan, maxZoomWithin, zoomOfId } from "../src/pmtiles-extract.ts";
+import { tileZxy, listEntries, readTileAt, decompressTile, parseHeader, serializeHeader, serializeDir, deserializeDir, tileId, idRanges, worldRanges, splitZ8Rect, z8Around, z8OfBbox, z8Count, z8Bbox, z8Of, openExtractSource, planExtract, writeExtract, chunkPlan, trimPlan, maxZoomWithin, zoomOfId, archiveVersion } from "../src/pmtiles-extract.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
@@ -181,6 +181,12 @@ async function checkOut(bytes, ids, label) {
 	const e = all.find(e => tileZxy(e.tileId)[0] === 9);
 	const t = new TextDecoder().decode(await decompressTile(await readTileAt(src, e), 1)).replace(/\.+$/, "");
 	ok("readTileAt：中身", t === want.get(e.tileId));
+}
+// 版の印（M5）：同じ元＝同じ印・中身の大きさが変われば違う印（host・etag に依らない）
+{
+	const h = parseHeader(serializeHeader(src.header));
+	ok("archiveVersion：同じヘッダ＝同じ印", archiveVersion(h) === archiveVersion(src.header));
+	ok("archiveVersion：中身の大きさが変わる＝違う印", archiveVersion({ ...h, dataLength: h.dataLength + 1 }) !== archiveVersion(h) && archiveVersion({ ...h, tileEntries: h.tileEntries + 1 }) !== archiveVersion(h));
 }
 if (fail) { console.log(`\n${fail} failed`); process.exit(1); }
 console.log("\nall pass");

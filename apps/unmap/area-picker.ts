@@ -5,10 +5,10 @@
 // 見積もり：planet と GEL の索引（根＋要る葉だけ）を Range で読んで正確なバイト数を足す（core planExtract）＝端末の空きと並べる。1 範囲 1 GB を越える時は地図の上限ズームを下げる。
 // 保存は worker（save-worker.ts）＝閉じても覚え（.json）が残り、次に開いた時に続きから。
 import { kOfLat, yOfLat, pxPerUnit, unproject } from "@ortho-earth/equal/equalearth";
-import { openExtractSource, planExtract, idRanges, worldRanges, splitZ8Rect, z8Around, z8Bbox, RECT_ZOOM } from "@ortho-earth/core/pmtiles-extract";
+import { openExtractSource, planExtract, idRanges, worldRanges, splitZ8Rect, z8Around, z8Bbox, z8OfBbox, RECT_ZOOM } from "@ortho-earth/core/pmtiles-extract";
 import type { ExtractPlan, ExtractSource, Z8Rect } from "@ortho-earth/core/pmtiles-extract";
 import { requestPersist, storageInfo } from "@ortho-earth/core/opfs-store";
-import { AREA_CAP, MAP_ZOOM, MAX_SIDE, TERRAIN_ZOOM, WORLD_ZOOM, GEL_MIN, areaId, areaKm, fitZoom, human, jobsFor } from "./area-jobs.ts";
+import { AREA_CAP, MAP_ZOOM, MAX_SIDE, TERRAIN_ZOOM, WORLD_ZOOM, GEL_MIN, areaId, areaKm, countryRect, fitZoom, human, jobsFor } from "./area-jobs.ts";
 import type { AreaSources } from "./area-jobs.ts";
 import { runSave } from "./save-run.ts";
 
@@ -55,7 +55,7 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 	const sheet = document.createElement("div");
 	sheet.className = "ap-sheet";
 	sheet.innerHTML = `<div class="ap-msg" role="status"></div>
-		<div class="ap-row"><span class="ap-k">Area</span><button type="button" data-n="1">1×1</button><button type="button" data-n="3">3×3</button><button type="button" data-n="5">5×5</button><span class="ap-km"></span></div>
+		<div class="ap-row"><span class="ap-k">Area</span><button type="button" data-n="1">1×1</button><button type="button" data-n="3">3×3</button><button type="button" data-n="5">5×5</button><span class="ap-km"></span><button type="button" class="ap-fit" hidden></button></div>
 		<div class="ap-row"><label><span class="ap-k">Map detail</span> <select class="ap-mz"></select></label> <label><span class="ap-k">Terrain</span> <select class="ap-tz"></select></label></div>
 		<div class="ap-est"></div>
 		<progress class="ap-prog" max="1" value="0" hidden></progress>
@@ -179,10 +179,38 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 		if (!(e.target as HTMLElement).closest?.(".ap-eq canvas")) return;
 		const ll = llAt(e.clientX, e.clientY); if (!ll || insideRect(ll[0], ll[1])) return;
 		place(ll[0], ll[1], rect ? Math.max(widthOf(rect), rect.y1 - rect.y0 + 1) : side); say("");
+		void offerCountry(e.clientX, e.clientY, ll);
 		if (Math.max(widthOf(rect!), rect!.y1 - rect!.y0 + 1) * 256 * 2 ** (app.view.zoom - RECT_ZOOM) < 120) fitView(rect!);   // 小さすぎて角を掴めない＝寄る
 	};
 	addEventListener("pointerup", up, { capture: true, signal });
 	addEventListener("pointercancel", () => { drag = null; tap = null; }, { capture: true, signal });
+
+	// ── 国に合わせる（M5）：タップした所の国（Equal Earth の国 ID）→ 世界の検索の索引の国の箱 → z8 の四角。MAX_SIDE を越える国はタップの周りを切り取る ──
+	const fitBtn = $<HTMLButtonElement>(".ap-fit");
+	let fitFor: { name: string; box: [number, number, number, number]; at: [number, number] } | null = null, fitSeq = 0;
+	async function offerCountry(cx: number, cy: number, at: [number, number]): Promise<void> {
+		const seq = ++fitSeq; fitBtn.hidden = true; fitFor = null;
+		try {
+			const r = eqBox.getBoundingClientRect(), fid = await app.fidAt(cx - r.left, cy - r.top);
+			const nation = fid >= 0 ? app.world?.items[fid] : null, name = nation?.name?.en;
+			if (!name || seq !== fitSeq) return;
+			const { createWorldSearch } = await import("@ortho-earth/globe/worldsearch.js");
+			const hits = await createWorldSearch({ lang: "en", limit: 20 }).query(name);
+			const hit = hits.find(h => h.kind === "country" && h.bbox && (nation.qid ? h.id === "Q" + String(nation.qid).replace(/^Q/, "") : h.title === name))
+				?? hits.find(h => h.kind === "country" && h.bbox && h.title === name);
+			if (!hit?.bbox || seq !== fitSeq || closed) return;
+			fitFor = { name, box: hit.bbox, at };
+			fitBtn.textContent = `Fit to ${name}`; fitBtn.hidden = false;
+		} catch { /* 索引に届かない（通信なし）＝出さない */ }
+	}
+	fitBtn.addEventListener("click", () => {
+		if (!fitFor || saving) return;
+		const { name, box: [w, s, e, n], at } = fitFor;
+		const c = countryRect(z8OfBbox(w, s, e, n), Math.floor(tileX(at[0])) % N8, Math.max(0, Math.min(N8 - 1, Math.floor(tileY(at[1])))));
+		rect = c.rect; side = Math.max(widthOf(rect), rect.y1 - rect.y0 + 1); fitBtn.hidden = true; fitFor = null;
+		say(c.clipped ? `${name} is larger than one saved area (up to ${MAX_SIDE}×${MAX_SIDE} tiles). The box covers the part around where you tapped — drag the handles to adjust, and save the rest as another area.` : "");
+		changed(); fitView(rect);
+	});
 
 	// ── 見積もり ──
 	const sources = new Map<string, Promise<ExtractSource>>(), caches = new Map<string, Map<number, import("@ortho-earth/core/pmtiles-extract").PMEntry[]>>();

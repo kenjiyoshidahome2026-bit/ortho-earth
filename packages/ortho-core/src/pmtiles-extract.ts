@@ -51,6 +51,9 @@ export function serializeHeader(h: PMHeader): Uint8Array {
 	return b;
 }
 
+/** アーカイブの版の印（ヘッダの大きさの項から）＝置き場（URL）や ETag が変わっても同じ planet なら同じ・作り直せば変わる。保存した範囲の版の比べ（UNMAP M5） */
+export const archiveVersion = (h: PMHeader): string => [h.rootLength, h.metadataLength, h.leafLength, h.dataLength, h.addressedTiles, h.tileEntries, h.tileContents].map(n => n.toString(36)).join(".");
+
 // ── 索引（varint の列：数・ID の差・runLength・length・offset（0＝直前の続き・他は +1）） ──
 export function deserializeDir(b: Uint8Array): PMEntry[] {
 	let p = 0;
@@ -188,7 +191,7 @@ export function httpRange(url: string, info?: { etag?: string | null; size?: num
 		const r = await fetch(url, { headers: { Range: `bytes=${offset}-${offset + length - 1}` }, signal, cache: "no-store" });
 		if (r.status !== 206) { await r.body?.cancel().catch(() => {}); throw new Error(r.ok ? "server ignored the Range header" : `HTTP ${r.status}`); }
 		if (info) {
-			info.etag ??= r.headers.get("etag");
+			info.etag ??= r.headers.get("etag") ?? r.headers.get("last-modified");   // 版の印＝ETag（無い置き場は Last-Modified）
 			const cr = r.headers.get("content-range"); const tot = cr && /\/(\d+)$/.exec(cr); if (tot) info.size ??= +tot[1];
 		}
 		const b = new Uint8Array(await r.arrayBuffer());

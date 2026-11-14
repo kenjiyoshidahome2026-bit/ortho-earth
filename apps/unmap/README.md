@@ -58,6 +58,14 @@ Checked in headless Chromium: two files imported through the button, the browser
 
 Checked in headless Chromium (production build, local Range server, synthetic data): save the area around a set location → browser switched fully offline → page reloaded from the service worker → search "tok" → Tokyo → flew there, map drawn from the device, no network toast.
 
+## M5: fit to a country, and keep every area on the same data version
+
+- **Fit to a country**: in the area picker, tap a country. A "Fit to <country>" button appears; it sets the box to that country's bounding box (from the world search index), snapped to z8 tiles. A country bigger than one area (24×24 z8 tiles) is cut to 24×24 around where you tapped, with a note; drag the handles to trim, and save the rest as another area. Needs a connection (like saving).
+- **Version stamp**: every saved file records in its PMTiles metadata (`unmap`) the source URL, the exact z8 box (`part`), the zooms and a version stamp of the source (`archiveVersion` in `@ortho-earth/core/pmtiles-extract`, made from the source header's sizes, so it does not depend on the host or ETag).
+- **Update all saved areas**: on an online start the app compares the stamps with the current planet and GEL. If a source changed, the Data card says "Newer map data is available for N saved files" with an **Update all** button. It re-cuts every outdated file (and the world overview) with the same box and zooms, rebuilds their place-name index, and reloads. All areas then come from one version, so roads meet at the edges. Areas saved before M5 (no stamp) are included when any stamped file is outdated. The update resumes from the Data card if it stops.
+
+Checked in headless Chromium (dev server, local Range server, synthetic data): save the area around Tokyo → reopen with the same planet (no prompt) → reopen with a changed planet → "Newer map data is available for 2 saved files" → Update all → both map files carry the new stamp, terrain unchanged, the new place appears in search, no prompt after reload. The country button was not checked in the browser here, because the test machine cannot reach the world data; its box logic is covered by `tests/t-versions.mjs`.
+
 ## Not yet (later milestones)
 
-- Country/region tap to place the box, and re-cutting all areas when the planet version changes (M5). Field tests and user guide (M6).
+- Field tests on real phones and laptops, minimum device spec, and the user guide (M6).
