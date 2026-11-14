@@ -142,7 +142,7 @@ export const writeState = (search: string, st: TwinState): string => write(CITY,
 export const parsePlaces = (raw: string | null) => places(raw, CITY_BBOX);
 
 /** 端末に詰める物のおおよその大きさ（MB）。保存ボタンの説明に出す（Mac の実測で直す） */
-export const OFFLINE_MB = 700;
+export const OFFLINE_MB = 550;   // 実測（MacBook・本番と同じ build を手元で配信・新しいプロファイル 390px・2026-11-14）：保存 220 秒・カード 549 MB・端末の使用量 +616 MB（エンジンの置き場を含む）
 
 /** 市の設定（共有モジュールの mountTwin が読む） */
 export const CITY: CityConfig = {
