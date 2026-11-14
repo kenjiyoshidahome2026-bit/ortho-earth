@@ -3,6 +3,7 @@
 // SW は名前が oj-pack で始まる置き場にある URL を通信なしで返す（ナビは ?query を無視して頁を返す）＝?osm= などを付けて開いても同じ頁。
 // 詰めるのは通信のある起動で黙って：版（offline.json の build）が変わった時だけ、無いファイルを足して古いファイルを掃く。
 // 端末の HTTP 頁（localhost 以外）では SW が動かない＝何もしない。?nosw=1＝登録しない（切り分け用）。
+import { culturalUrl } from "@ortho-earth/core/worldcontent";
 
 export const PACK = "oj-pack-unmap";
 const REC_KEY = "unmap.app-pack";
@@ -62,12 +63,14 @@ const WORLD_HOSTS = ["https://kenjiyoshidahome2026-bit.github.io/ortho-data/glob
 const isWorld = (u: string) => WORLD_HOSTS.some(h => u.startsWith(h)) && !/[?&](meta|_t)=/.test(u);
 // 版の照会（?meta=1）だけが見える物＝本体はエンジンの IDB から出ていて fetch されていない＝素の URL を取りに行って束にも置く
 const isWorldMeta = (u: string) => WORLD_HOSTS.some(h => u.startsWith(h)) && /[?&]meta=/.test(u);
+// 通信の記録に何も残らない物＝エンジンが IDB から直に出す（版の照会も無い）。低倍率の国境・国名・都市（ne-cultural-base・8.5 MB）
+const WORLD_FIXED = [culturalUrl("base")];
 async function packWorld(): Promise<void> {
 	if (!canPack() || navigator.onLine === false) return;
 	try {
 		const cache = await caches.open(PACK);
 		const names = performance.getEntriesByType("resource").map(e => e.name);
-		const seen = [...names.filter(isWorld), ...names.filter(isWorldMeta).map(u => u.replace(/\?.*$/, ""))];
+		const seen = [...names.filter(isWorld), ...names.filter(isWorldMeta).map(u => u.replace(/\?.*$/, "")), ...WORLD_FIXED];
 		// 版つき（?v=<etag>）の物は素の URL でも置く＝通信なしでは geopbf が版の照会（?meta=）に失敗して素の URL を取りに行く
 		const urls = [...new Set(seen.flatMap(u => /[?&]v=/.test(u) ? [u, u.replace(/\?.*$/, "")] : [u]))];
 		let added = 0;
