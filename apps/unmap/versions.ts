@@ -64,3 +64,50 @@ export function recutJobs(stale: SavedFile[], src: Record<LocalKind, string | nu
 	const rank = (j: SaveJob) => (j.rect ? 1 : 0) + (j.dir === LOCAL_DIRS.terrain ? 2 : 0);
 	return out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
+
+// ── 札の一覧（2026-11-16・本人「保存されている場所が記号でどこか分かりません」）：ファイル名（area-<36 進の時刻>）ではなく、範囲ごとに 1 行＝場所の名前・大きさ・細かさ・日付 ──
+/** 一覧の 1 行＝1 つの範囲（地図と地形・跨ぐ範囲の東西 2 本をまとめる） */
+export interface SavedArea { id: string; bounds: [number, number, number, number]; savedAt: string | null; mapZoom: number | null; terrainZoom: number | null; bytes: number; files: { kind: LocalKind; name: string }[] }
+export interface SavedGroups { areas: SavedArea[]; world: { kind: LocalKind; name: string; bytes: number } | null; tagged: Set<string> }
+
+/** 保存の印から範囲ごとにまとめる。sizeOf＝ファイルの大きさ（kind/name → バイト）。新しい順 */
+export function groupSaved(saved: SavedFile[], sizeOf: (kind: LocalKind, name: string) => number): SavedGroups {
+	const by = new Map<string, SavedArea>(), tagged = new Set<string>();
+	let world: SavedGroups["world"] = null;
+	for (const s of saved) {
+		tagged.add(`${s.kind}/${s.name}`);
+		if (s.tag.world) { world = { kind: s.kind, name: s.name, bytes: sizeOf(s.kind, s.name) }; continue; }
+		const id = s.tag.area; if (!id) continue;
+		let a = by.get(id);
+		if (!a) { a = { id, bounds: [...s.bounds], savedAt: s.tag.savedAt ?? null, mapZoom: null, terrainZoom: null, bytes: 0, files: [] }; by.set(id, a); }
+		else {   // 東西 2 本（日付変更線を跨ぐ）＝箱を足す：西の本の西端〜東の本の東端（w > e のまま持つ＝跨ぐ印）
+			const [w, so, e, n] = s.bounds, b = a.bounds;
+			if (s.kind === "map" || !a.files.some(f => f.kind === "map")) {
+				if (/-w\.pmtiles$/.test(s.name)) b[0] = w; else if (/-e\.pmtiles$/.test(s.name)) b[2] = e; else { b[0] = Math.min(b[0], w); b[2] = Math.max(b[2], e); }
+				b[1] = Math.min(b[1], so); b[3] = Math.max(b[3], n);
+			}
+		}
+		if (s.kind === "map") a.mapZoom = Math.max(a.mapZoom ?? 0, s.maxZoom); else a.terrainZoom = Math.max(a.terrainZoom ?? 0, s.maxZoom);
+		a.bytes += sizeOf(s.kind, s.name); a.files.push({ kind: s.kind, name: s.name });
+	}
+	return { areas: [...by.values()].sort((x, y) => (y.savedAt ?? "").localeCompare(x.savedAt ?? "") || y.id.localeCompare(x.id)), world, tagged };
+}
+
+/** 箱の中か（w > e＝日付変更線を跨ぐ箱） */
+const inBox = (lon: number, lat: number, [w, s, e, n]: [number, number, number, number]) => lat >= s && lat <= n && (w <= e ? lon >= w && lon <= e : lon >= w || lon <= e);
+/** 範囲の呼び名：箱の中でいちばん大きい町（population_rank）の名前。無ければ地方・国、それも無ければ中心の経緯度 */
+export function areaLabel(bounds: [number, number, number, number], places: { name: string; names?: Record<string, string>; kind: string; rank: number; lon: number; lat: number }[], lang = "local"): string {
+	const nameOf = (p: { name: string; names?: Record<string, string> }) => (lang !== "local" && p.names?.[lang]) || p.name;
+	let best: typeof places[number] | null = null;
+	for (const kind of ["locality", "region", "country"]) {
+		for (const p of places) if (p.kind === kind && inBox(p.lon, p.lat, bounds) && (!best || p.rank > best.rank)) best = p;
+		if (best) return nameOf(best);
+	}
+	const [w, s, e, n] = bounds, lat = (s + n) / 2, lon = w <= e ? (w + e) / 2 : ((w + e + 360) / 2 + 540) % 360 - 180;
+	return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
+}
+/** 箱の大きさ（km・中心の緯度で）：[東西, 南北] */
+export function boundsKm([w, s, e, n]: [number, number, number, number]): [number, number] {
+	const dlon = ((e - w) % 360 + 360) % 360 || 360;
+	return [dlon * 111.32 * Math.cos((s + n) / 2 * Math.PI / 180), (n - s) * 110.57];
+}
