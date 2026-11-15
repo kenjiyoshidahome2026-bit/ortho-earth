@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!-- cover＝safe-area-inset を有効化（下辺UIの浮かせとセット）。maximum-scale=1/user-scalable=no は撤去（2026-08-04）＝Lighthouse a11y「ピンチ拡大を殺すな」を取りに行く。地図面のジェスチャは #c{touch-action:none}+app.jsのgesture抑止が本丸＝メタ無しでも堅い。メタは拡大可のまま（端末の強制ズーム設定の人の逃げ道）だが、家具の上のピンチも #map と html の touch-action:pan-x pan-y で封じる（Android でパネル起点のピンチが画面全体を拡大した・2026-11-15）。ダブルタップ誤爆も同じ pan-x pan-y・入力フォーカス自動ズームは検索16pxで防御 -->
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"><!-- cover＝safe-area-inset を有効化（下辺UIの浮かせとセット）。maximum-scale=1/user-scalable=no を復活（2026-11-15 本人裁定＝連続ピンチで画面全体が拡大された・08-04 の Lighthouse 対応の撤去を戻す）。地図面のジェスチャは #c{touch-action:none}+app.jsのgesture抑止が本丸＝メタ無しでも堅い。家具の上のピンチも #map と html の touch-action:pan-x pan-y で封じる（Android でパネル起点のピンチが画面全体を拡大した・2026-11-15）。ダブルタップ誤爆も同じ pan-x pan-y・入力フォーカス自動ズームは検索16pxで防御 -->
 	<style>html, body { touch-action: pan-x pan-y; overscroll-behavior: none; }</style><!-- ダブルタップ拡大とラバーバンド/引っ張り更新の抑止（canvas は quiet-mono が touch-action:none） -->
 	<!-- 配色は地図が自分で決める（テーマ c=）＝ブラウザの自動反転は要らない。Chrome Android の
 	     「ウェブコンテンツの自動ダークテーマ」は color-scheme 未宣言のページを機械的に色反転し、

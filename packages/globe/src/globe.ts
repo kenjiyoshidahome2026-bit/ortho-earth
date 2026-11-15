@@ -848,6 +848,10 @@ const R01_ZOOM = qNum(/[?&]r01z=([\d.]+)/, 0);
 // user-scalable=no を無視するため gesture 系 preventDefault が本丸（canvas の touch-action:none は
 // canvas 起点タッチのみ＝UI 跨ぎピンチやダブルタップは素通りする。Kenji 指示 2026-08-02）。
 for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(t, e => e.preventDefault(), { passive: false, signal: ac.signal });   // signal＝destroy で外す（#173 段 3・旧は取り残し）
+// 2 本指の touchmove を止める＝ブラウザのページ拡大の最後の網（2026-11-15 本人：unmap で「ピンチした直後にまたピンチ」すると画面全体が拡大）。
+// touch-action（html/#map の pan-x pan-y・#c の none）は合成器が指の置き場で判断する＝描画中で当たり判定が古い瞬間などに漏れうる。
+// 地図自身のピンチは pointer 系で読む＝touchmove の preventDefault では止まらない。失うのはパネルの 2 本指スクロールだけ
+document.addEventListener("touchmove", e => { if (e.touches.length > 1 && e.cancelable) e.preventDefault(); }, { passive: false, signal: ac.signal });
 // 【既定化 2026-08-02】WebGPU を既定へ（本人裁定「デフォルトgpu」）。根拠＝同日の実機実測：メモリが構造的に軽く
 // （mdプール不在）、3GB機(iPad Air3)の走行距離が伸びる。navigator.gpu の無い環境（iOS≤18=XS級・旧ブラウザ）は
 // 最初から WebGL2 直結＝dynamic import もリレー迂回も発生しない＝従来と完全同一。落ち先の網は3枚：
