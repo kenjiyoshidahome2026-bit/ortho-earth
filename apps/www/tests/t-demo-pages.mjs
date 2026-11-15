@@ -73,11 +73,14 @@ for (const [entry, ds] of pages) {
 		assert.ok(name(html, "description"), "meta description");
 		const vp = name(html, "viewport") ?? "";
 		assert.ok(/width=device-width/.test(vp), "viewport width=device-width");
-		assert.ok(!/user-scalable=no|maximum-scale=1(\.0)?\b/.test(vp), "viewport must not block pinch zoom (a11y)");
 		// 地図の頁は html/body で「ページのピンチ拡大」を封じる（Android でパネル起点の 2 本指が地図でなく画面全体を拡大した・2026-11-15）。
 		// manipulation はピンチを通す＝pan-x pan-y（スクロールは残る）。html/body に touch-action を書いた頁だけ見る（gishub-jp 等の読み物の頁は対象外）
 		const ta = html.match(/html, ?body ?\{[^}]*touch-action: ?([^;}]+)/)?.[1]?.trim();
 		if (ta) assert.ok(!/manipulation|auto|pinch-zoom/.test(ta), `html/body touch-action "${ta}" lets a pinch zoom the whole page (use pan-x pan-y)`);
+		// 地図の頁はブラウザのページ拡大そのものも止める（本人 2026-11-15「ベースに持っているピンチの機能は殺せないのか」＝連続ピンチで touch-action が漏れた）。
+		// 読み物の頁（html/body に touch-action が無い）は拡大可のまま（a11y）
+		if (ta) assert.ok(/user-scalable=no/.test(vp) && /maximum-scale=1\b/.test(vp), "map page: viewport must block page zoom (maximum-scale=1, user-scalable=no)");
+		else assert.ok(!/user-scalable=no|maximum-scale=1(\.0)?\b/.test(vp), "reading page: viewport must not block pinch zoom (a11y)");
 		assert.ok(name(html, "theme-color"), "theme-color");
 		assert.ok(/<link rel="canonical" href="https:\/\/www\.ortho-earth\.com\/[^"]*">/.test(html), "canonical");
 		assert.ok(/<link rel="icon"[^>]*favicon\.svg|<link rel="icon" type="image\/svg\+xml" href="[^"]*favicon\.svg"/.test(html), "favicon");
