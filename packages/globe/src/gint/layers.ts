@@ -115,7 +115,7 @@ export interface GintLayersEnv {
 	wPost(msg: Record<string, unknown>, transfer?: Transferable[]): void;
 	dbgHost: DebugHost; ASSET_BASE?: string;
 	WORLD_VT: boolean; LOW_MEM: boolean; noGint: boolean; ZOOM_MIN: number; ZOOM_MAX: number; cam: { readonly zoom: number };
-	worldContent?: boolean; worldLines?: boolean | string[]; coastline?: boolean; worldBandZ?: number;
+	worldContent?: boolean; worldLines?: boolean | string[]; coastline?: boolean; worldBandZ?: number; /** 世界の海岸線・国境（NE admin0）の上限（エンジンの z・既定 9）。外来 style の基図が出る所で退場させる（UNMAP・2026-11-16） */ admin0MaxZ?: number;
 	readonly theme: { coastLine: ArrayLike<number> }; readonly worldStyle: WorldStyleTheme;
 	layers: { map: Map<string, GintLayerH>; active: string | null; nextId(): number };
 	smallAreaHover?: boolean;
@@ -679,7 +679,8 @@ let admin0Layer: GintLayerH | null = null;   // 独立層ハンドル
 let admin0Vis = true;     // 独立層の表示台帳（変更時だけ post＝毎フレーム送らない）
 const USER_GINT_MINZ = 7;
 const WORLD_BAND_Z = env.worldBandZ ?? 6.5;   // 世界帯の上限＝湖・海面下の陸が見える範囲（app.js BASEMAP_MINZOOM と同値＝地域の申告が無い器は上限まで）
-const ADMIN0_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
+const ADMIN0_Z = Math.min(9, env.admin0MaxZ ?? 9);   // 外来 style＋worldBelow の器は基図の出る z まで（基図の国境・海岸線と二重に見えない・本人 2026-11-16「国境線は基図タイルが出た時点で不要」）
+// 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
 // 世界の線（河川・海洋境界線）の上限＝世界帯と海岸線の上限の低い方。地域の申告が無い器は世界帯が上限まで（20.8）伸びるが、NE 10m の線は
 // 海岸線（z9）より寄って見せる精度が無い＝海岸線と一緒に退場する。旧＝世界帯のまま z12〜14 でも全球の線を描き続け、自前の DEM の地形が
 // 組み上がるまで（SwiftShader で 40 秒超）画面が海の色のままだった（#670）
@@ -809,7 +810,7 @@ const admin0Duck = (): GintSource => ({ unPackGint: admin0Gint, length: admin0Pb
 function ensureAdmin0Layer() {
 	if (admin0Layer || !admin0Gint || !admin0Pbf || env.coastline === false) return;   // opts.coastline＝false（MapLibre の口・公式例の門）＝世界の海岸線の層を持たない
 	admin0Layer = addGint(admin0Duck(),
-	{ order: -10, interactive: false, minZoom: WORLD_VT ? ADMIN0_MINZ_EFF : null, maxZoom: 9, style: admin0DrawStyle(), _internal: true });   // _internal＝照会に出さない（国名は admin0Pbf を直に引く）
+	{ order: -10, interactive: false, minZoom: WORLD_VT ? ADMIN0_MINZ_EFF : null, maxZoom: ADMIN0_Z, style: admin0DrawStyle(), _internal: true });   // _internal＝照会に出さない（国名は admin0Pbf を直に引く）
 	admin0Vis = true;
 }
 function syncAdmin0Vis() {   // 飛行中抑制（suppressAdmin0）だけが層の表示を折る（ズーム域はエンジンが裁く）
@@ -902,7 +903,7 @@ async function loadAdmin0Now(res = "50m") {
 		arcBuffer: g.arcBuffer, arcMeta: g.arcMeta,
 		polyStream: g.polyStream, lineStream: g.lineStream,
 		pointBuffer: g.pointBuffer, point: g.point,
-		maxZoom: 9,
+		maxZoom: ADMIN0_Z,
 		fillMaxEdges: 0,   // fillOff 強制＝国ポリゴンはアウトライン専用（低ズームのベタ塗り切替に入れない。塗りはハイプソの領分）
 	};
 	if (admin0Layer) { admin0Layer.setData(admin0Duck()); console.log(`[admin0] upgraded to ${res}`); return; }
