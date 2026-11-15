@@ -89,7 +89,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		// geometry の直送路（2026-11-04）：tile worker → scene worker を MessageChannel で直結＝main は op の木を受け取らない（Android タブレットで main が 250〜1000ms 止まった＝大きな荷の解読と詰め直しと GC）
 		const ch = new MessageChannel();
 		sceneWorker.postMessage({ type: "tilePort", port: ch.port1 } satisfies SceneRequest, [ch.port1]);
-		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search), scenePort: ch.port2, bldMinZ } satisfies TileRequest, [ch.port2]);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
+		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search), rangeCache: typeof location !== "undefined" && /[?&]tilecache=1/.test(location.search), scenePort: ch.port2, bldMinZ } satisfies TileRequest, [ch.port2]);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
 		tileWorkers.push(w);
 	}
 	// 発送＝worker slot に 1 枚頼む（キュー経由でも即時でも同じ道）

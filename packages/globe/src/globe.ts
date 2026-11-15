@@ -814,7 +814,7 @@ let memFrames = 0, memAt = 0;   // render worker の実描画枚数の累計と�
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memMeshDraw: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
 // 計器 e／f（`docs/notes/vt-perf-plan.md` §2・Phase 0）：e＝基図のタイルが「選抜で必要になった→main のシーンに載った」の遅れ（tiles.shown が ack 時に返す・主層だけ）・
 // f＝main merge の要求 1 回あたりの「変わった枚数／全枚数」（P2 が消す仕事の量）。どちらも直近 512 件の環＝ベンチ台（t-perfbench）が at で窓を切る（dbgHost.__vtLog）。__perf には直近 10 秒の要約
-interface VtLatRec { at: number; key: string; z: number; total: number; ready: number; wait: number; fetch: number; build: number }
+interface VtLatRec { at: number; key: string; z: number; total: number; ready: number; wait: number; fetch: number; build: number; decode: number; kb: number }
 interface VtMergeRec { at: number; add: number; del: number; n: number }
 const vtLat: VtLatRec[] = [], vtMerge: VtMergeRec[] = [];
 const vtPush = <T,>(a: T[], v: T): void => { a.push(v); if (a.length > 512) a.shift(); };
@@ -830,7 +830,7 @@ dbgHost.__vtLog = () => ({ lat: vtLat.slice(), merge: vtMerge.slice() });
 // wait＝ready までのうち worker の外（キュー待ち＋境界の転送）・total＝必要→画面（merge の待ちを含む）。tiles 69 枚の後の沈黙が「取得／組み立て／結合待ち」のどれかが一目で分かる
 const tileLatSnap = (): HudSnapshot["tileLat"] => {
 	const q = (a: number[], f: number) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(f * (s.length - 1)))]; };
-	const agg = (L: VtLatRec[]) => { const f = (k: keyof VtLatRec) => { const a = L.map(r => r[k] as number); return [q(a, 0.5), q(a, 0.9), q(a, 1)] as [number, number, number]; }; return { n: L.length, total: f("total"), ready: f("ready"), wait: f("wait"), fetch: f("fetch"), build: f("build") }; };
+	const agg = (L: VtLatRec[]) => { const f = (k: keyof VtLatRec) => { const a = L.map(r => r[k] as number); return [q(a, 0.5), q(a, 0.9), q(a, 1)] as [number, number, number]; }; return { n: L.length, total: f("total"), ready: f("ready"), wait: f("wait"), fetch: f("fetch"), build: f("build"), decode: f("decode"), kb: f("kb") }; };
 	const t0 = performance.now() - 15000;
 	return { all: agg(vtLat), recent: agg(vtLat.filter(r => r.at >= t0)), merges: mergeLog.slice(-6).map(m => ({ n: m.n, reqAt: m.reqAt, ms: m.ackAt ? m.ackAt - m.reqAt : -1 })) };
 };
@@ -1676,7 +1676,7 @@ function onSceneApplied(slot: string, sig: string) {
 		// tiles.shown も同じ Set を読む＝計器 e が近い枠（役なし）しか数えていなかった（同ログ「since boot: 13 tiles」＝旧 123）
 		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean).map(k => { const i = k.indexOf(":"); return i < 0 ? k : k.slice(0, i); })); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
 		const lat = tiles.shown(readyKeys), at = performance.now();   // 計器 e＝この ack で初めて画面に載った主層タイルの「必要になった→画面」
-		for (const r of lat) vtPush(vtLat, { at, key: r.key, z: r.z, total: r.total, ready: r.ready, wait: r.wait, fetch: r.t?.fetch ?? 0, build: r.t?.build ?? 0 });
+		for (const r of lat) vtPush(vtLat, { at, key: r.key, z: r.z, total: r.total, ready: r.ready, wait: r.wait, fetch: r.t?.fetch ?? 0, build: r.t?.build ?? 0, decode: r.t?.decode ?? 0, kb: r.t?.kb ?? 0 });
 		if (perfLog && lat.length) { const v = vtSummary(1e9).lat; console.log(`[vt] shown +${lat.length} tiles  need→screen med ${vtSummary().lat.med.toFixed(0)}ms p90 ${vtSummary().lat.p90.toFixed(0)}ms (10s)  all: med ${v.med.toFixed(0)} p90 ${v.p90.toFixed(0)}  wait ${v.wait.toFixed(0)} fetch ${v.fetch.toFixed(0)} build ${v.build.toFixed(1)}`); }
 		const z = mergePendingZoom.get(sig);
 		if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }

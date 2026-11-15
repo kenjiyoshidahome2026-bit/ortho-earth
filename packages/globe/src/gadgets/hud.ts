@@ -38,7 +38,7 @@ export interface HudSnapshot {
 	transient: { bytes: number; cache: number; live: number };
 	tier?: { active: number; residentGB: number; workers: number } | null;
 }
-export interface TileLatQ { n: number; total: [number, number, number]; ready: [number, number, number]; wait: [number, number, number]; fetch: [number, number, number]; build: [number, number, number] }
+export interface TileLatQ { n: number; total: [number, number, number]; ready: [number, number, number]; wait: [number, number, number]; fetch: [number, number, number]; build: [number, number, number]; decode?: [number, number, number]; kb?: [number, number, number] }
 /** HUD の手綱 */
 export interface HudHandle { open(): void; close(): void; toggle(): void; el: HTMLDivElement }
 
@@ -243,8 +243,8 @@ export function hud(this: GlobeMap, opts: { snapshot?: () => HudSnapshot | null;
 	function tileLatLines(t: HudSnapshot["tileLat"]): string[] {
 		if (!t || (!t.all.n && !t.merges.length)) return [];
 		const tri = (v: [number, number, number]) => `${v[0].toFixed(0)}/${v[1].toFixed(0)}/${v[2].toFixed(0)}`;
-		const row = (name: string, qv: TileLatQ) => `  ${name}: ${qv.n} tiles · need→screen ${tri(qv.total)} · need→built ${tri(qv.ready)} · wait ${tri(qv.wait)} · fetch ${tri(qv.fetch)} · build ${tri(qv.build)}`;
-		return ["basemap tiles (ms, med/p90/max; wait = queue + transfer outside the worker):", row("since boot", t.all), row("last 15 s", t.recent),
+		const row = (name: string, qv: TileLatQ) => `  ${name}: ${qv.n} tiles · need→screen ${tri(qv.total)} · need→built ${tri(qv.ready)} · wait ${tri(qv.wait)} · fetch ${tri(qv.fetch)}${qv.decode ? ` (of which decode ${tri(qv.decode)})` : ""} · build ${tri(qv.build)}${qv.kb ? ` · decoded kB ${tri(qv.kb)}` : ""}`;
+		return ["basemap tiles (ms, med/p90/max; wait = queue + transfer outside the worker; fetch = network + unpack + decode):", row("since boot", t.all), row("last 15 s", t.recent),
 			`  main merges (req→ack ms, oldest first): ${t.merges.map(m => `${m.n} tiles @${(m.reqAt / 1000).toFixed(1)}s ${m.ms < 0 ? "pending" : m.ms + " ms"}`).join(" · ") || "none"}`];
 	}
 	// 起動の履歴（localStorage oj.boothist）：この起動を含む直近 10 回・古い順。gap＝前の起動からの分（大きい＝冷えた端末）。q＝その起動の URL の ?以降
