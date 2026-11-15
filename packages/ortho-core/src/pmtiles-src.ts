@@ -77,44 +77,61 @@ export function opfsSource(path: string, open: (path: string) => Promise<Blob> =
 	return { getKey: () => OPFS + path, getBytes: async (offset, length) => ({ data: await read(offset, length, true) }) };
 }
 
-// Range の端末キャッシュ（`?tilecache=1`・2026-11-16・既定は切）：HTTP のアーカイブから読んだ範囲（索引の枝・タイル本体）を Cache API に残し、
-// 同じ範囲の 2 回目は回線へ行かない。遠い置き場の大きなアーカイブ（UNMAP の planet＝1 枚の取得が数秒）で、一度見た場所が次から即出る。
+// Range の端末キャッシュ（2026-11-16・既定で入・`?tilecache=0` で切）：HTTP のアーカイブから読んだ範囲（索引の枝・タイル本体）を Cache API に残し、
+// 同じ範囲の 2 回目は回線へ行かない。遠い置き場の大きなアーカイブ（UNMAP の planet＝1 枚の取得が数秒）で、一度見た場所が次から即出る
+// （4 GB タブレットの実測：取得 4262→105 ms・必要→画面 8264→261 ms）。
 // 鍵＝アーカイブの URL＋範囲。版の印＝先頭（ヘッダ＋根の索引）の中身のハッシュ＋ETag＝残した時の印が今の印と違えば使わない（アーカイブが差し替わった）。
-// ETag を当てにしない＝別オリジンの置き場は ETag を JS に見せないことがある。先頭は毎回回線＝差し替えに気づく口。回線が無い時だけ残した先頭を使う。
+// ETag を当てにしない＝別オリジンの置き場は ETag を JS に見せないことがある。
+// 先頭＝残した分があればそれですぐ開き、裏で回線の先頭と見比べる（同じなら何もしない）。残していない範囲を回線へ取りに行くのは見比べが済んでから
+// ＝差し替わっていたら pmtiles.js の「版が合わない」（EtagMismatch）を投げて、新しい先頭で開き直させる（古い索引で新しいファイルを読まない）。
 // 数は RC_MAX で頭打ち（古い順に捨てる）
-let rangeCache = false;
-export const setRangeCache = (on: boolean): void => { rangeCache = on; };
+import { rangeCacheFlag } from "./rangecache-flag.ts";
+export const setRangeCache = (on: boolean): void => { rangeCacheFlag.on = on; };
 const RC_NAME = "oj-range-v1", RC_MAX = 1500, RC_TRIM_EVERY = 100;
 /** 残す先（Cache API の要る分だけ）。試験は偽物を渡す */
 export interface RangeStore { match(key: string): Promise<Response | undefined>; put(key: string, res: Response): Promise<void>; keys(): Promise<readonly Request[] | readonly string[]>; delete(key: string | Request): Promise<boolean> }
 const openRangeStore = async (): Promise<RangeStore | null> => { try { return typeof caches === "undefined" ? null : await caches.open(RC_NAME) as unknown as RangeStore; } catch { return null; } };
 const fnv = (buf: ArrayBuffer): string => { const u = new Uint8Array(buf); let h = 0x811c9dc5; for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 0x01000193); return (h >>> 0).toString(16); };
-export function cachingSource(src: string, inner: Source, open: () => Promise<RangeStore | null> = openRangeStore): Source {
+const rcKey = (src: string, tail: string): string => `https://range-cache.invalid/${encodeURIComponent(src)}/${tail}`;
+type RangeBytes = { data: ArrayBuffer; etag?: string };
+/** mismatch＝「版が合わない」の誤り（pmtiles.js の EtagMismatch）を作る口＝投げると pmtiles.js が先頭を読み直す */
+export function cachingSource(src: string, inner: Source, open: () => Promise<RangeStore | null> = openRangeStore, mismatch: () => Error = () => new Error("pmtiles: archive changed")): Source {
 	let store: Promise<RangeStore | null> | null = null, puts = 0, ver = "";   // ver＝今の版の印（先頭を読むたびに決まる）
-	const key = (o: number, l: number): string => `https://range-cache.invalid/${encodeURIComponent(src)}/${o}-${l}`;
-	const stamp = (data: ArrayBuffer, etag?: string): string => `${fnv(data)}:${etag || ""}`;
+	let checking: Promise<boolean> | null = null, fresh: RangeBytes | null = null;   // checking＝裏の見比べ（true＝差し替わっていた）・fresh＝その時に回線から来た先頭
+	const stamp = (r: RangeBytes): string => `${fnv(r.data)}:${r.etag || ""}`;
+	const keep = (c: RangeStore | null, k: string, r: RangeBytes): void => {
+		if (!c || !ver) return;
+		c.put(k, new Response(r.data.slice(0), { headers: { "x-ver": ver, ...(r.etag ? { "x-etag": r.etag } : {}) } })).catch(() => {});
+		if (++puts % RC_TRIM_EVERY === 0) (async () => { const ks = await c.keys(); for (let i = 0; i < ks.length - RC_MAX; i++) await c.delete(ks[i]); })().catch(() => {});
+	};
 	return {
 		getKey: () => src,
 		getBytes: async (offset, length, signal, etag) => {
-			const c = await (store ??= open()), k = key(offset, length), head = offset === 0;
-			if (c && !head && ver) {
+			const c = await (store ??= open()), k = rcKey(src, `${offset}-${length}`);
+			if (offset === 0) {
+				if (fresh) { const r = fresh; fresh = null; return r; }   // 差し替わりに気づいた直後の読み直し＝もう手元にある
+				const h = c ? await c.match(k).catch(() => undefined) : undefined;
+				if (h) {   // 残した先頭ですぐ開く・裏で見比べる
+					const old: RangeBytes = { data: await h.arrayBuffer(), etag: h.headers.get("x-etag") || undefined };
+					ver = stamp(old);
+					checking = inner.getBytes(offset, length).then(r => {
+						if (stamp(r) === ver) return false;
+						ver = stamp(r); fresh = r; keep(c, k, r);
+						return true;
+					}, () => false);   // 回線なし＝残した分で続ける
+					return old;
+				}
+				const r = await inner.getBytes(offset, length, signal, etag);
+				ver = stamp(r); keep(c, k, r);
+				return r;
+			}
+			if (c && ver) {
 				const h = await c.match(k).catch(() => undefined);
 				if (h && h.headers.get("x-ver") === ver) return { data: await h.arrayBuffer(), etag };
 			}
-			let r;
-			try { r = await inner.getBytes(offset, length, signal, etag); }
-			catch (e) {
-				const h = c && head && (e as Error)?.name !== "AbortError" ? await c.match(k).catch(() => undefined) : undefined;   // 回線なし＝残した先頭で開く
-				if (!h) throw e;
-				const data = await h.arrayBuffer(), et = h.headers.get("x-etag") || undefined;
-				ver = stamp(data, et);
-				return { data, etag: et };
-			}
-			if (head) ver = stamp(r.data, r.etag);
-			if (c && ver) {
-				c.put(k, new Response(r.data.slice(0), { headers: { "x-ver": ver, ...(r.etag ? { "x-etag": r.etag } : {}) } })).catch(() => {});
-				if (++puts % RC_TRIM_EVERY === 0) (async () => { const ks = await c.keys(); for (let i = 0; i < ks.length - RC_MAX; i++) await c.delete(ks[i]); })().catch(() => {});
-			}
+			if (checking && await checking) { checking = null; throw mismatch(); }   // 古い索引のまま新しいファイルを読まない
+			const r = await inner.getBytes(offset, length, signal, etag);
+			keep(c, k, r);
 			return r;
 		},
 	};
@@ -123,6 +140,10 @@ export function cachingSource(src: string, inner: Source, open: () => Promise<Ra
 async function openArchive(src: string): Promise<PMTiles> {
 	const m = await import("pmtiles");
 	if (src.startsWith(OPFS)) return new m.PMTiles(opfsSource(src.slice(OPFS.length)));
+	// Range で読める置き場だと一度分かったら、次の起動からは探りの 1 往復を省く（端末キャッシュが入の時だけ）
+	const store = rangeCacheFlag.on ? await openRangeStore() : null, probeKey = rcKey(src, "range-ok");
+	const ranged = (): PMTiles => new m.PMTiles(rangeCacheFlag.on ? cachingSource(src, new m.FetchSource(src), async () => store, () => new m.EtagMismatch("archive changed")) : src);
+	if (store && await store.match(probeKey).catch(() => undefined)) return ranged();
 	try {
 		const res = await fetch(src, { headers: { Range: "bytes=0-0" } });
 		if (res.ok && res.status !== 206) {   // Range 無視＝全量が来ている＝そのまま丸呑み
@@ -134,8 +155,9 @@ async function openArchive(src: string): Promise<PMTiles> {
 			return new m.PMTiles(source);
 		}
 		res.body?.cancel?.().catch?.(() => {});   // 206＝プローブの1バイトは捨ててレンジ直読へ
+		if (res.status === 206) store?.put(probeKey, new Response("1")).catch(() => {});
 	} catch { /* プローブ失敗＝従来経路に任せる（オフライン等は getZxy 側で失敗が見える） */ }
-	return new m.PMTiles(rangeCache ? cachingSource(src, new m.FetchSource(src)) : src);
+	return ranged();
 }
 
 // アーカイブの自己申告（ヘッダの bbox とズーム域・metadata の層名/出典）。**範囲制御の正本はここ**＝
