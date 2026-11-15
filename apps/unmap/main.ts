@@ -62,7 +62,7 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 	const sel = document.getElementById("names") as HTMLSelectElement | null;
 	if (!sel) return;
 	sel.innerHTML = NAME_LANGS.map(l => `<option value="${l}"${l === cur ? " selected" : ""}>${NAME_LANG_LABEL[l]}</option>`).join("");
-	sel.hidden = false;
+	sel.hidden = false; if (sel.parentElement?.id === "names-btn") sel.parentElement.hidden = false;
 	sel.addEventListener("change", () => {
 		const l = sel.value; if (!isNameLang(l)) return;
 		for (const id of LABEL_LAYERS) map.setLayoutProperty(id, "text-field", nameExpr(l));
