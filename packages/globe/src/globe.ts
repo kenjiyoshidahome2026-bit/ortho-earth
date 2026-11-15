@@ -755,7 +755,9 @@ const perfLog = /[?&]perf=1/.test(location.search);
 // ?hud=0 はボタンのみ（畳んだ状態で搭載＝落ちそうな時だけ開く）／無指定は非搭載（ボタンもテレメトリも無し）。どちらの値でも render/plateau
 // worker へテレメトリ送出を要求し、本体 gadgets/hud.js は hud= 指定時だけ遅延 import＝通常ユーザーの初期バンドルには一切乗らない。
 const hudParam = /[?&]hud=([01])/.exec(location.search);
-const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボタン＋テレメトリを載せる（1でも0でも）・hudOpenInit＝パネルの初期表示（1=開く/0=畳む）
+// ?bench=N＝端末の上の自動計測（boot/bench.ts）：診断ノブを順に付けて読み直し、同じ旋回のコマ数を N 巡（既定 2）測って表にする。テレメトリが要る＝HUD を畳んで載せる
+const benchOn = /[?&]bench=\d/.test(location.search);
+const hudOn = !!hudParam || benchOn, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボタン＋テレメトリを載せる（1でも0でも）・hudOpenInit＝パネルの初期表示（1=開く/0=畳む）
 // ?drawhud=1 ＝描画実績HUD（実機用の計器）。「背景が黒くなる」瞬間に、塗りが何枚描かれたか・退場フラグ・
 // フェード進行・PLATEAUバッチ数を画面へ出す。塗り0枚なら CPU/状態側（シーンが空・退場）、
 // 枚数が出ているのに黒なら GPU 側＝二分の起点になる（Android 実機の反転 2026-08-03・USB接続なしで読める）。
@@ -808,6 +810,7 @@ const mainLongTop = () => {
 	return [...agg.entries()].sort((a, b) => b[1].ms - a[1].ms).slice(0, 5).map(([key, a]) => ({ key, ms: a.ms, n: a.n }));
 };
 let memLab: unknown = null;   // 注記の計器（テキスト GPU 化 T-P0）＝{ ms, collideMs, labels, glyphs }＝labels2d の draw の EMA・衝突判定・描いた数（t-perfbench の lab 列）
+let memFrames = 0, memAt = 0;   // render worker の実描画枚数の累計とその時刻（worker の時計・ms）＝?bench
 let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch: unknown = null, memTerr: unknown = null, memMeshDraw: unknown = null, memGpuShadow = 0, memShadow: Omit<NonNullable<HudSnapshot["shadow"]>, "gpuMs"> | null = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
 // 計器 e／f（`docs/notes/vt-perf-plan.md` §2・Phase 0）：e＝基図のタイルが「選抜で必要になった→main のシーンに載った」の遅れ（tiles.shown が ack 時に返す・主層だけ）・
 // f＝main merge の要求 1 回あたりの「変わった枚数／全枚数」（P2 が消す仕事の量）。どちらも直近 512 件の環＝ベンチ台（t-perfbench）が at で窓を切る（dbgHost.__vtLog）。__perf には直近 10 秒の要約
@@ -1232,7 +1235,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; rasterFading = !!d.fading; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memShed = d.shed ?? memShed; memLite = !!d.lite; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memMeshDraw = d.meshDraw || memMeshDraw; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; memMeshRx = d.meshRx ?? memMeshRx; memSlow = d.slow ?? memSlow; memPipes = d.pipes ?? memPipes; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrames = d.frames ?? memFrames; memAt = d.at ?? memAt; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memShed = d.shed ?? memShed; memLite = !!d.lite; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memMeshDraw = d.meshDraw || memMeshDraw; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; memMeshRx = d.meshRx ?? memMeshRx; memSlow = d.slow ?? memSlow; memPipes = d.pipes ?? memPipes; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -2701,6 +2704,11 @@ if (hudOn) import("./gadgets/hud.ts").then(({ hud }) => {
 	registerGadget("hud", (m, opts) => { return hud.call(m, { snapshot: hudSnapshot as () => HudSnapshot, open: hudOpenInit, signal: ac.signal, ...opts }); });
 	map.gadget.hud!();
 }).catch(e => console.error("[hud] failed to load module", e));
+if (benchOn) import("./boot/bench.ts").then(({ runBench }) => runBench({
+	host: mapEl, jumpTo: o => { map.jumpTo(o); }, bearing: () => map.getBearing(), onIdle: cb => { map.on("idle", cb); },
+	perf: () => ({ frames: memFrames, at: memAt, gpuMap: memGpuMap, res: memRes, shed: memShed, backend: (dbgHost.__backend as string | undefined) || memBackend || "", gpu: memGpuName || "" }),
+	tier: LOW_MEM ? "low-mem" : MID_TIER ? "mid" : HI_TIER ? "hi" : "normal",
+})).catch(e => console.error("[bench] failed to load module", e));
 // 初期 overlay なし（全球 land は検証用。__loadOverlay(name) で任意に。__tokyo() は日本の install が生やす）
 
 let clockLastT = performance.now(), clockUrlAt = 0;
