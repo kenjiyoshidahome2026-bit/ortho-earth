@@ -12,7 +12,7 @@
 //                                             タイルごとに先頭から「範囲とズーム域に入り、索引に在る」最初のアーカイブを使う＝並びが優先順。
 //                                             読めない構成員（回線なしの HTTP・消えたファイル）は飛ばす＝端末の矩形＋オンラインの planet を束ねても、機内モードで矩形だけ描ける
 import { decodeTile, loadTileFormat } from "./decode.ts";
-import { tileFormatOfPmtilesType } from "./tileformat.ts";
+import { tileFormatOfPmtilesType, carryDecodeCost } from "./tileformat.ts";
 import { tileOutsideCoverage } from "./tile.ts";
 import { vectorLayersOf } from "./mlstyle.ts";
 import { overzoomTile } from "./overzoom.ts";
@@ -181,7 +181,10 @@ export async function fetchPMTiles(url: string, z: number, x: number, y: number,
 	const enc = t.info.tileType === "unknown" ? "mvt" : t.info.tileType;
 	await loadTileFormat(enc);
 	const tile = decodeTile(t.data, need, enc);
-	return d > 0 && !(tile as { __empty?: true }).__empty ? overzoomTile(tile as import("./tileformat.ts").DecodedTile, d, x & ((1 << d) - 1), y & ((1 << d) - 1)) : tile;
+	if (!(d > 0) || (tile as { __empty?: true }).__empty) return tile;
+	const oz = overzoomTile(tile as import("./tileformat.ts").DecodedTile, d, x & ((1 << d) - 1), y & ((1 << d) - 1));
+	carryDecodeCost(tile, oz);
+	return oz;
 }
 
 // ラスタ PMTiles の生タイル（画像のバイト列＝png/jpeg/webp/avif そのまま・pmtiles.js がタイル圧縮を解く）。

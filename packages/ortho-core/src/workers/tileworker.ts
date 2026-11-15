@@ -9,6 +9,7 @@ import { fetchMVT, neededSourceLayers } from "../decode.ts";
 const pmSrc = () => import("../pmtiles-src.ts");
 import { buildTilePayload, opBuffers } from "../tilepayload.ts";   // 組み立て（drawlist・水域・ラベル・建物）は main の既定経路と共通
 import { tileOutsideCoverage } from "../tile.ts";
+import { decodeCostOf } from "../tileformat.ts";
 import { setEllipsoid } from "../camera.ts";
 import type { Style } from "../build.ts";
 import type { TileData } from "../decode.ts";
@@ -36,7 +37,8 @@ self.onmessage = async (e: MessageEvent<TileRequest>) => {
 			: tileOutsideCoverage(x, y, z, coverage) ? { __empty: true } : await fetchMVT(url, ac.signal, need, init, null, encoding);
 		const t1 = performance.now();
 		const { origin, dl, labels, buildings, bytes } = buildTilePayload(layers, { z, x, y }, style!, { drape, bldMinZ });   // bytes＝scene worker が保持する geometry の実バイト
-		const t = { fetch: t1 - t0, build: performance.now() - t1 };
+		const dc = decodeCostOf(layers);
+		const t = { fetch: t1 - t0, build: performance.now() - t1, decode: dc?.ms ?? 0, kb: dc ? dc.bytes / 1024 : 0 };
 		const lab = noLabels ? [] : labels;
 		if (geomPort) {   // 直送：geometry は scene worker へ、main にはメタ＋ラベルだけ（main が id→key を commit する）。geom を先に出す＝普通は commit より先に着く
 			geomPort.postMessage({ type: "geom", id, ops: dl.ops, buildings } satisfies TileGeomMessage, opBuffers(dl.ops, buildings) as ArrayBuffer[]);

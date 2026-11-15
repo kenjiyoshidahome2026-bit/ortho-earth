@@ -21,7 +21,7 @@ export interface TileAbortRequest { type: "abort"; id: number }
 export interface TileBuildRequest { type?: undefined; id: number; url: string; z: number; x: number; y: number; init?: FetchInit; bytes?: ArrayBuffer | null }
 export type TileRequest = TileInitRequest | TileSetStyleRequest | TileAbortRequest | TileBuildRequest;
 /** タイル 1 枚の worker 内の時間（ms・計器 e＝`docs/notes/vt-perf-plan.md` §2）：fetch＝取得＋復号（fetchMVT）・build＝組み立て（buildTilePayload）。main が要求→応答の往復から待ち時間を引き算する */
-export interface TileTimings { fetch: number; build: number }
+export interface TileTimings { fetch: number; build: number; /** fetch のうち解読の分（ms） */ decode?: number; /** 解読器に渡した大きさ（kB・PMTiles は展開後） */ kb?: number }
 /** tile worker → main：成功＝描画の荷（op 列・建物の typed array は transfer）。t＝worker 内の時間（計器 e） */
 /** dl・buildings＝scenePort の無い旧経路だけ main に来る。direct＝geometry は scenePort で scene worker へ直送済み（main は commit を送るだけ・2026-11-04） */
 export interface TileOkResponse extends Omit<TilePayload, "dl" | "buildings"> { id: number; ok: true; error?: undefined; t?: TileTimings; dl?: TilePayload["dl"]; buildings?: BuildingsGeom | null; direct?: boolean }

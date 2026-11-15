@@ -86,5 +86,12 @@ export function decodeTile(bytes: Uint8Array, need?: Set<string> | null, encodin
 	const f = formats.get(encoding);
 	if (!f) { warnOnce(encoding); return {}; }
 	if (!f.decode) throw new Error(`tile format "${encoding}" is not loaded yet — await loadTileFormat("${encoding}") first`);
-	return f.decode(bytes, need);
+	const t0 = performance.now(), tile = f.decode(bytes, need);
+	decodeCost.set(tile, { ms: performance.now() - t0, bytes: bytes.byteLength });
+	return tile;
 }
+// 解読の計器（2026-11-16）：タイル 1 枚の解読にかかった時間と、解読器に渡したバイト数（PMTiles は展開後）。HUD の「fetch」が通信と解読を足した数だったので分ける
+const decodeCost = new WeakMap<object, { ms: number; bytes: number }>();
+export const decodeCostOf = (tile: object): { ms: number; bytes: number } | undefined => decodeCost.get(tile);
+/** 写し替えた先（過拡大）へ計器を引き継ぐ */
+export const carryDecodeCost = (from: object, to: object): void => { const c = decodeCost.get(from); if (c) decodeCost.set(to, c); };
