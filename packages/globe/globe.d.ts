@@ -869,7 +869,9 @@ export type MapLibreSource =
 	/** ベクタタイル（MVT・1.3.0〜）＝今は fill-extrusion の層だけが読む（fill/line/circle/symbol は名前を挙げて投げる）。url＝TileJSON か pmtiles://・tiles＝型紙（{quadkey} 可・独自スキームは addProtocol）。
 	 *  promoteId＝feature の id にする属性（文字列か source-layer ごとの object）。既定値は MapLibre どおり（minzoom 0・maxzoom 22）。
 	 *  encoding＝タイルの形式（MapLibre と同じ "mvt"（既定）｜"mlt"＝MapLibre Tile・1.4.0〜）。"mlt" はプラグイン @ortho-earth/tile-formats を "#tile-formats" に alias したビルドで描ける（無ければ空＋警告 1 回）。PMTiles はヘッダの tileType が決める */
-	| { type: "vector"; url?: string; tiles?: string[]; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms"; promoteId?: string | Record<string, string>; encoding?: "mvt" | "mlt" };
+	| { type: "vector"; url?: string; tiles?: string[]; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms"; promoteId?: string | Record<string, string>; encoding?: "mvt" | "mlt" }
+	/** 標高タイル（hillshade・color-relief の層と setTerrain が読む）。tiles／url は pmtiles://（アーカイブ 1 つ・複合も可）でもよい */
+	| ({ type: "raster-dem" } & RasterDemSource);
 /** type "hillshade"（1.5.0〜）・"color-relief"（1.8.0〜・#114）＝raster-dem の source から画像タイルを作る層（基図の上・注記の下）。
  *  color-relief：paint "color-relief-color"＝["interpolate", …, ["elevation"], 標高, 色, …]（MapLibre と同じ意味＝段の標高で色を引き、段の間は事前乗算の線形・範囲の外は端の色・
  *  step／match／定数色は透明）・"color-relief-opacity"（既定 1・タイルを作り直さない）。resampling は読まない。組み込みの段彩の上に重なる */

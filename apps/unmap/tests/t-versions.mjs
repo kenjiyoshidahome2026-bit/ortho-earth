@@ -55,5 +55,29 @@ const S = (kind, name, tag, rect = tokyo, z = [0, 14]) => ({ kind, dir: `unmap/$
 	const f = countryRect(fiji, fiji.x0, fiji.y0);
 	ok("跨ぐ国＝跨いだまま（保存で東西に割る）", !f.clipped && f.rect.x0 > f.rect.x1);
 }
+// 札の一覧（2026-11-16）：範囲ごとに 1 行・呼び名は箱の中のいちばん大きい町
+{
+	const { groupSaved, areaLabel, boundsKm } = await import("../versions.ts");
+	const f = (kind, name, bounds, maxZoom, tag) => ({ kind, dir: "", name, minZoom: 0, maxZoom, bounds, tag });
+	const saved = [
+		f("map", "world.pmtiles", [-180, -85, 180, 85], 5, { world: true }),
+		f("map", "area-a1.pmtiles", [137.8, 34.3, 142, 37.7], 14, { area: "a1", savedAt: "2026-11-14T03:00:00Z" }),
+		f("terrain", "area-a1.pmtiles", [137.8, 34.3, 142, 37.7], 10, { area: "a1", savedAt: "2026-11-14T03:00:00Z" }),
+		f("map", "area-b2-w.pmtiles", [177, -21, 180, -12], 13, { area: "b2", savedAt: "2026-11-15T03:00:00Z" }),
+		f("map", "area-b2-e.pmtiles", [-180, -21, -178, -12], 13, { area: "b2", savedAt: "2026-11-15T03:00:00Z" }),
+	];
+	const g = groupSaved(saved, (k, n) => k === "map" ? 100 : 10);
+	ok("範囲ごとに 1 行・新しい順", g.areas.length === 2 && g.areas[0].id === "b2" && g.areas[1].id === "a1");
+	ok("地図と地形をまとめる（細かさ・大きさ・ファイル）", g.areas[1].mapZoom === 14 && g.areas[1].terrainZoom === 10 && g.areas[1].bytes === 110 && g.areas[1].files.length === 2);
+	ok("跨ぐ範囲＝西の本の西端〜東の本の東端", g.areas[0].bounds[0] === 177 && g.areas[0].bounds[2] === -178 && g.areas[0].files.length === 2, g.areas[0].bounds.join(","));
+	ok("世界の土台は別・印のある物を覚える", g.world?.name === "world.pmtiles" && g.tagged.has("terrain/area-a1.pmtiles") && g.tagged.size === 5);
+	const places = [{ name: "東京", names: { en: "Tokyo" }, kind: "locality", rank: 14, lon: 139.7, lat: 35.7 }, { name: "横浜", kind: "locality", rank: 12, lon: 139.6, lat: 35.4 }, { name: "大阪", names: { en: "Osaka" }, kind: "locality", rank: 13, lon: 135.5, lat: 34.7 }, { name: "Suva", kind: "locality", rank: 8, lon: 178.4, lat: -18.1 }, { name: "Kantō", kind: "region", rank: 0, lon: 139.5, lat: 36 }];
+	ok("呼び名＝箱の中のいちばん大きい町（選んだ言語）", areaLabel(g.areas[1].bounds, places, "en") === "Tokyo" && areaLabel(g.areas[1].bounds, places, "local") === "Tokyo" && areaLabel(g.areas[1].bounds, places, "fr") === "東京");
+	ok("跨ぐ箱の中の町", areaLabel(g.areas[0].bounds, places) === "Suva");
+	ok("町が無ければ地方", areaLabel([139, 35.9, 140, 36.1], places) === "Kantō");
+	ok("索引が無ければ中心の経緯度", areaLabel([10, -20, 12, -18], []) === "19.0°S 11.0°E" && areaLabel(g.areas[0].bounds, []) === "16.5°S 179.5°E", areaLabel(g.areas[0].bounds, []));
+	const [ew, ns] = boundsKm(g.areas[1].bounds);
+	ok("大きさ（km）", Math.abs(ew - 378) < 5 && Math.abs(ns - 376) < 5, `${ew.toFixed(0)}×${ns.toFixed(0)}`);
+}
 if (fail) { console.log(`\n${fail} failed`); process.exit(1); }
 console.log("\nall pass");

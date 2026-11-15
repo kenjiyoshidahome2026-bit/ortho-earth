@@ -23,12 +23,20 @@
 		#status ul{margin:0;padding:0;list-style:none}
 		#status{max-height:calc(100dvh - 140px);overflow:auto}
 		#status .close{position:absolute;top:4px;right:4px;border:0;background:none;font-size:16px;line-height:1;padding:4px 6px;cursor:pointer;color:#555}
-		#status .local{margin-top:6px;border-top:1px solid #ddd;padding-top:6px}
+		#status{font-size:13px}
+		#status .tech{margin-top:6px;border-top:1px solid #ddd;padding-top:4px;color:#555}
+		#status .tech summary{cursor:pointer;min-height:28px;line-height:28px}
+		#status .area{margin:6px 0;padding:6px 8px;border:1px solid #d5dbe3;border-radius:8px;background:#fff}
+		#status .area-name{font-weight:600;font-size:14px}
+		#status .area-act{margin-top:4px;display:flex;gap:6px}
+		#status .local .area-act button{border:1px solid #bbb;border-radius:6px;background:#fff;color:#1f4e79;padding:4px 10px;min-height:32px;font:inherit}
+		#status .local .area-act .del{color:#8a1c14;margin-left:auto}
+		#status .add.file{background:none;color:#1f4e79;padding:4px 0;text-decoration:underline}
 		#status .local button{border:0;background:none;cursor:pointer;padding:0 4px}
 		#status .sect{font-weight:600}
 		#status .add{display:inline-block;margin:4px 0;padding:4px 10px;border-radius:6px;background:#1f4e79;color:#fff;cursor:pointer}
 		#status .note{color:#666}
-		#data-btn{position:fixed;left:8px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 10px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
+		#data-btn{position:fixed;left:8px;bottom:calc(92px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 10px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
 		#status .ok{color:#1b7a3a}
 		#status .ng{color:#b3261e}
 		#save-here{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:10;font:600 15px system-ui,sans-serif;padding:10px 18px;min-height:44px;border-radius:22px;border:0;background:#1f4e79;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
@@ -40,6 +48,7 @@
 		.area-picker{position:absolute;inset:0;z-index:30;opacity:0;transition:opacity .25s;background:#0b1021}
 		.area-picker.on{opacity:1}
 		.area-picker .ap-eq{position:absolute;inset:0}
+		.area-picker .qm-chips:has(#choro-btn){display:none}   /* 範囲を選ぶだけの画面＝Equal Earth のコロプレス（統計の塗り分け）は要らない（本人 2026-11-16） */
 		.area-picker .ap-draw{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
 		.ap-sheet{position:absolute;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto;z-index:40;
 			background:rgba(255,255,255,.96);color:#222;border-radius:10px;padding:10px 12px;font:13px/1.5 system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.35)}
@@ -54,7 +63,16 @@
 		.ap-sheet .ng{color:#b3261e}
 		.ap-sheet .ok{color:#1b7a3a}
 		.ap-sheet progress{width:100%}
-		#names{position:fixed;left:8px;bottom:calc(44px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 6px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
+		.ap-sheet .ap-min{display:inline-flex;align-items:center;justify-content:center;width:40px;padding:0;border-radius:20px}
+		.ap-sheet .ap-sum{display:none;color:#333}
+		.ap-sheet.min{left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:calc(100% - 16px);padding:6px 10px;border-radius:24px}
+		.ap-sheet.min .ap-row:not(.ap-act),.ap-sheet.min .ap-est,.ap-sheet.min .ap-here{display:none}
+		.ap-sheet.min .ap-sum{display:block;text-align:center;font-size:12px}
+		.ap-sheet.min .ap-act{flex-wrap:nowrap;margin:2px 0}
+		/* 地名の言語＝アイコン（文/A）。透明な select を上に重ねる＝押すと OS の選択が開く（本人 2026-11-16「地図の言語選択もアイコン化」） */
+		#names-btn{position:fixed;left:8px;bottom:calc(44px + env(safe-area-inset-bottom));z-index:10;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222;box-sizing:border-box}
+		#names-btn[hidden]{display:none}
+		#names{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;margin:0;padding:0;cursor:pointer}
 		#place-search input,#names,.ap-sheet select{font-size:16px}   /* 16px 未満の入力欄・選択は iPhone/iPad が触れた瞬間に画面全体を拡大して戻らない（unmap で本人 2026-11-15）＝検索窓・地名の言語・保存の詳細度だけ 16px */
 	</style>
 	<link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -68,10 +86,10 @@
 	<!-- ortho:boot -->
 	<div id="map"></div>
 	<div id="place-search" hidden></div>
-	<div id="status" hidden><ul class="rows"></ul><div class="local"></div><button type="button" class="close" aria-label="Close">×</button></div>
+	<div id="status" hidden><div class="local"></div><details class="tech"><summary>Connection and device details</summary><ul class="rows"></ul></details><button type="button" class="close" aria-label="Close">×</button></div>
 	<button type="button" id="data-btn" hidden>Data</button>
 	<button type="button" id="save-here" hidden>📍 Save my area</button>
-	<select id="names" aria-label="Place names language" hidden></select>
+	<label id="names-btn" title="Place names language" hidden><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h9M7.5 3v2M5 5c.6 3.2 2.6 5.6 6 7M10.5 5c-.7 3.4-3 6-6.5 7.5M12.5 20l4-9.5 4 9.500M14 17h5"/></svg><select id="names" aria-label="Place names language" hidden></select></label>
 	<script type="module" src="./main.ts"></script>
 </body>
 </html>

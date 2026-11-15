@@ -4148,7 +4148,7 @@ const demFetch = async (u: string, init: RequestInit = {}) => {
 function demTilesFor(sid: string, ds: UserSource, lid: string) {
 	const key = JSON.stringify([ds.tiles, ds.encoding, ds.tileSize, ds.redFactor, ds.greenFactor, ds.blueFactor, ds.baseShift]);
 	let e = demStores.get(sid);
-	if (!e || e.key !== key) { e = { key, tiles: createDemTiles(ds, { fetchFn: demFetch }), users: new Set() }; demStores.set(sid, e); }
+	if (!e || e.key !== key) { e = { key, tiles: createDemTiles(ds, { fetchFn: demFetch, cap: LOW_MEM ? 48 : 128 }), users: new Set() }   /* 省メモリ端末は在庫を 48 枚に（512² の Float32＝1 枚 1 MB＝128 枚で 128 MB・UNMAP の陰影でタブレットの描画プロセスが約 300 MB 増えた・2026-11-16） */; demStores.set(sid, e); }
 	e.users.add(lid);
 	return e.tiles;
 }

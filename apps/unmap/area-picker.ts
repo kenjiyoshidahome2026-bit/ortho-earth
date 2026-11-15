@@ -53,18 +53,20 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 	o.host.append(box);
 	for (const ev of ["contextmenu", "dragenter", "dragover", "dragleave", "drop"]) box.addEventListener(ev, e => e.stopPropagation());
 	const sheet = document.createElement("div");
-	sheet.className = "ap-sheet";
+	sheet.className = "ap-sheet min";   // 始めは畳んだ姿（アイコン＋要約＋保存）＝地図と四角が広く見える。アイコンで設定を開く（本人 2026-11-16「切り取りエリアのパネルをアイコン化」）
 	sheet.innerHTML = `<div class="ap-msg" role="status"></div>
 		<div class="ap-row"><span class="ap-k">Area</span><button type="button" data-n="1">1×1</button><button type="button" data-n="3">3×3</button><button type="button" data-n="5">5×5</button><span class="ap-km"></span><button type="button" class="ap-fit" hidden></button></div>
 		<div class="ap-row"><label><span class="ap-k">Map detail</span> <select class="ap-mz"></select></label> <label><span class="ap-k">Terrain</span> <select class="ap-tz"></select></label></div>
 		<div class="ap-est"></div>
 		<progress class="ap-prog" max="1" value="0" hidden></progress>
-		<div class="ap-row ap-act"><button type="button" class="ap-save">Save this area</button><button type="button" class="ap-here">📍 My location</button><button type="button" class="ap-close">Close</button></div>`;
+		<div class="ap-sum"></div>
+		<div class="ap-row ap-act"><button type="button" class="ap-min" aria-label="Area settings" aria-expanded="false" title="Area settings"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 2v16h16M2 6h16v16"/></svg></button><button type="button" class="ap-save">Save this area</button><button type="button" class="ap-here">📍 My location</button><button type="button" class="ap-close">Close</button></div>`;
 	const $ = <T extends HTMLElement>(s: string) => sheet.querySelector(s) as T;
-	const msg = $(".ap-msg"), est = $(".ap-est"), km = $(".ap-km"), mzSel = $<HTMLSelectElement>(".ap-mz"), tzSel = $<HTMLSelectElement>(".ap-tz"), saveBtn = $<HTMLButtonElement>(".ap-save"), prog = $<HTMLProgressElement>(".ap-prog");
+	const msg = $(".ap-msg"), est = $(".ap-est"), sum = $(".ap-sum"), minBtn = $<HTMLButtonElement>(".ap-min"), km = $(".ap-km"), mzSel = $<HTMLSelectElement>(".ap-mz"), tzSel = $<HTMLSelectElement>(".ap-tz"), saveBtn = $<HTMLButtonElement>(".ap-save"), prog = $<HTMLProgressElement>(".ap-prog");
 	mzSel.innerHTML = [10, 11, 12, 13, 14, 15].map(z => `<option value="${z}"${z === MAP_ZOOM ? " selected" : ""}>up to z${z}</option>`).join("");
 	tzSel.innerHTML = `<option value="">off</option>` + [8, 9, 10, 11, 12].map(z => `<option value="${z}"${z === TERRAIN_ZOOM ? " selected" : ""}>up to z${z}</option>`).join("");
 	if (!o.sources?.gel) { tzSel.value = ""; tzSel.disabled = true; }
+	minBtn.addEventListener("click", () => { const min = sheet.classList.toggle("min"); minBtn.setAttribute("aria-expanded", String(!min)); minBtn.classList.toggle("on", !min); });
 
 	// ── 状態 ──
 	let rect: Z8Rect | null = null, side = 3, saving = false, closed = false;
@@ -225,11 +227,11 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 	let worldBytes: Promise<number> | null = null;
 	let estAc: AbortController | null = null, estT = 0, chosenMapZoom = MAP_ZOOM, ready = false;
 	function changed(): void {
-		if (!rect) { km.textContent = ""; est.textContent = ""; saveBtn.disabled = true; return; }
-		const [a, b] = areaKm(rect); km.textContent = `≈ ${Math.round(a)} × ${Math.round(b)} km`;
+		if (!rect) { km.textContent = ""; est.textContent = ""; sum.textContent = ""; saveBtn.disabled = true; return; }
+		const [a, b] = areaKm(rect); km.textContent = `≈ ${Math.round(a)} × ${Math.round(b)} km`; sum.textContent = km.textContent;
 		sheet.querySelectorAll<HTMLButtonElement>("[data-n]").forEach(btn => btn.classList.toggle("on", +btn.dataset.n! === widthOf(rect!) && +btn.dataset.n! === rect!.y1 - rect!.y0 + 1));
 		ready = false; saveBtn.disabled = true;
-		if (isSaved(rect)) { est.innerHTML = `<b class="ok">✓ This area is already saved on this device.</b> Move or resize it to save another.`; return; }
+		if (isSaved(rect)) { sum.textContent = `${km.textContent} · ✓ already saved`; est.innerHTML = `<b class="ok">✓ This area is already saved on this device.</b> Move or resize it to save another.`; return; }
 		if (!o.sources) { est.textContent = "Saving needs the online map sources (open without ?online=0)."; return; }
 		est.textContent = "Estimating size…";
 		clearTimeout(estT); estAc?.abort();
@@ -254,10 +256,11 @@ export async function openAreaPicker(o: PickerOptions, start: "here" | "view"): 
 			if (wb) lines.push(`world overview ${human(wb)} (once)`);
 			const fits = free == null || total < free * 0.9;
 			est.innerHTML = `${lines.join(" · ")}<br><b>Total ${human(total)}</b> · free on this device ${human(free)}${fits ? "" : ` · <b class="ng">not enough space</b>`}`;
+			sum.textContent = `${km.textContent} · ${human(total)}${fits ? "" : " · not enough space"}`;
 			ready = fits; saveBtn.disabled = !fits;
 		} catch (e) {
 			if (ac.signal.aborted) return;
-			est.textContent = `Could not read the map sources: ${(e as Error).message}`;
+			est.textContent = `Could not read the map sources: ${(e as Error).message}`; sum.textContent = `${km.textContent} · size unknown (open the settings)`;
 		}
 	}
 	mzSel.addEventListener("change", changed); tzSel.addEventListener("change", changed);

@@ -1,6 +1,6 @@
 // raster-dem のタイルの在庫（#114 段 3・2026-09-29）＝同じ source を読む hillshade と color-relief が 1 つを共有する（層ごとに取らない・HTTP キャッシュ頼みにしない）。
 // tile(z,x,y) → Promise<{ h: Float32Array（標高 m・行は北から）, n }|null>。直近 cap 枚を持つ（同時に来た要求は同じ Promise を返す＝取得は 1 回）。
-import { decodeDEM, normalizeDemSpec } from "@ortho-earth/core";
+import { decodeDEM, fetchPMTilesRaw, normalizeDemSpec } from "@ortho-earth/core";
 import type { DemSpec, DemSpecInput } from "@ortho-earth/core";
 
 /** DEM の 1 タイル（標高 m・行は北から・n×n） */
@@ -23,9 +23,17 @@ export function createDemTiles(dem: DemSpecInput | null | undefined, { fetchFn =
 		const k = `${z}/${x}/${y}`;
 		if (tiles.has(k)) { const v = tiles.get(k)!; tiles.delete(k); tiles.set(k, v); return v; }
 		const pr = (async () => {
-			const r = await fetchFn(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
-			if (!r.ok) return null;
-			const bmp = r.bitmap ? await r.bitmap() : await createImageBitmap(await r.blob!(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });   // bitmap＝独自の読み口が画像で返した物（globe の demFetch）
+			const u = url(z, x, y);
+			let bmp: ImageBitmap;
+			if (u.startsWith("pmtiles://")) {   // PMTiles の標高（型紙ではなくアーカイブ 1 つ・複合も可＝地形の dem-src と同じ読み）＝z/x/y は索引で引く。無い＝null（XYZ の 404 と同じ）
+				const b = await fetchPMTilesRaw(u, z, x, y);
+				if (!b) return null;
+				bmp = await createImageBitmap(new Blob([b as Uint8Array<ArrayBuffer>]), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+			} else {
+				const r = await fetchFn(u, { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
+				if (!r.ok) return null;
+				bmp = r.bitmap ? await r.bitmap() : await createImageBitmap(await r.blob!(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+			}   // bitmap＝独自の読み口が画像で返した物（globe の demFetch）
 			const n = bmp.width;
 			dctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true })!;
 			if (dctx.canvas.width !== n) { dctx.canvas.width = n; dctx.canvas.height = n; }
