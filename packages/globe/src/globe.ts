@@ -1882,6 +1882,7 @@ const gint = createGintLayers({
 	worldContent: !!opts.worldContent,   // 海岸線・国境＝全ズーム＋最初から 10m・河川/海洋境界＝z1.5 から（equal と同じ出し方）
 	worldLines: opts.worldLines,   // false＝世界帯の河川・海洋境界線（NE 10m）を読まない／["rivers"|"maritime"]＝その種類だけ（既定＝全部）
 	coastline: opts.coastline,   // false＝世界の海岸線（NE admin0 の gint 層・z<9）を持たない（MapLibre の口・公式例の門 段 2）
+	...(EXT_WORLD_Z ? { admin0MaxZ: EXT_WORLD_Z } : {}),   // 外来 style＋worldBelow＝世界の国境・海岸線は基図の出る所で退場
 	worldBandZ: BASEMAP_MINZOOM,   // 湖・海面下の陸が見える帯＝世界ハイプソと同じ所で退場（地域の基図が入場する所）
 	get theme() { return theme; },
 	get worldStyle() { return WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono; },   // 世界線（河川・海洋境界線）の色＝ortho-core worldstyle の正本（段階 3）
