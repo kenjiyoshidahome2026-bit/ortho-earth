@@ -27,12 +27,15 @@ const line = (name: string, r: ProbeResult) => r.ok
 	? `${name}: <b class="ok">OK</b> · Range 206 · z${r.minZoom}–${r.maxZoom} · ${r.tileType} · ${r.ms} ms`
 	: `${name}: <b class="ng">NG</b> · ${esc(r.reason || "")}`;
 const dataBtn = document.getElementById("data-btn") as HTMLButtonElement | null;
+/** データの札の出し入れ。アイコン（#data-btn）は常に出ていて、押すたびに開閉（開いている間は .on） */
+const showCard = (on: boolean) => { if (!card) return; card.hidden = !on; dataBtn?.classList.toggle("on", on); dataBtn?.setAttribute("aria-expanded", String(on)); };
 // 元の頭の確かめ（札の表示・版の比べ M5 に使う）。札が無い頁・?online=0 では null
 const probes: { osm: Promise<ProbeResult | null>; gel: Promise<ProbeResult | null> } = { osm: Promise.resolve(null), gel: Promise.resolve(null) };
 if (card) {
-	card.querySelector(".close")!.addEventListener("click", () => { card.hidden = true; if (dataBtn) dataBtn.hidden = false; });
-	dataBtn?.addEventListener("click", () => { card.hidden = false; dataBtn.hidden = true; });
-	if (SHOW_STATUS) card.hidden = false; else if (dataBtn) dataBtn.hidden = false;
+	card.querySelector(".close")!.addEventListener("click", () => showCard(false));
+	dataBtn?.addEventListener("click", () => showCard(!!card.hidden));
+	if (dataBtn) dataBtn.hidden = false;
+	showCard(SHOW_STATUS);
 	paint();
 	if (SRC.online) {
 		probes.osm = probe(SRC.osm).then(r => { rows.osm = line("OSM planet", r); paint(); return r; });
@@ -91,7 +94,7 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 	let justSaved: string | null = null;
 	try { justSaved = sessionStorage.getItem("unmap.saved"); sessionStorage.removeItem("unmap.saved"); } catch { /* 出ないだけ */ }
 	rows.local = `On this device: ${local.map.length} map · ${local.terrain.length} terrain file(s)`;
-	if (justSaved && card) { card.hidden = false; if (dataBtn) dataBtn.hidden = true; }
+	if (justSaved) showCard(true);
 	paint();
 	const panel = card?.querySelector(".local") as HTMLElement | null;
 	let openPicker: ((start: "here" | "view") => void) | null = null;   // 地球儀ができてから結ぶ
@@ -153,6 +156,9 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 		mountNamePicker(map as never, names);
 		map.gadget.cpos();     // 現在地（GPS）へ＝M3 の「現在地周辺を選ぶ」の入口にもなる（本人 2026-11-14「現在地周辺は絶対入れて」）
 		map.gadget.compass();
+		// Data と地名の言語のアイコンを左上のガジェットの列へ（現在地・方位の下・同じ 34px 角）
+		const stack = (map.mapEl as HTMLElement).querySelector("#gadgets");
+		if (stack) for (const id of ["data-btn", "names-btn"]) { const b = document.getElementById(id); if (b) { b.classList.add("qm-panel-btn"); stack.append(b); } }
 		// 地名の検索（M4）：端末の地図の索引だけを引く。索引の無い地図ファイル（M3 で保存した物）には worker で作って読み直す
 		const searchEl = document.getElementById("place-search");
 		if (searchEl) {
@@ -185,7 +191,7 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 			const dlon = ((e - w) % 360 + 360) % 360 || 360, el = map.mapEl as HTMLElement;
 			const z = Math.log2(0.7 * Math.min(el.clientWidth * 360 / dlon, el.clientHeight * 170 / Math.max(0.01, n - s)) / 256);
 			map.flyTo(((w + dlon / 2 + 540) % 360) - 180, (s + n) / 2, Math.max(2, Math.min(15, z)));
-			if (card) { card.hidden = true; if (dataBtn) dataBtn.hidden = false; }
+			showCard(false);
 		};
 		window.__map = map;   // console 検証用
 		const showGpu = () => { rows.gpu = `Renderer: <b>${map.backend ?? "…"}</b>`; paint(); };

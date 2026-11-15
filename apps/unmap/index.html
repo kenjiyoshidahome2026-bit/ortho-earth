@@ -36,7 +36,13 @@
 		#status .sect{font-weight:600}
 		#status .add{display:inline-block;margin:4px 0;padding:4px 10px;border-radius:6px;background:#1f4e79;color:#fff;cursor:pointer}
 		#status .note{color:#666}
-		#data-btn{position:fixed;left:8px;bottom:calc(92px + env(safe-area-inset-bottom));z-index:10;font:13px system-ui,sans-serif;padding:4px 10px;border-radius:6px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222}
+		/* Data と地名の言語＝アイコン。地球儀ができたら左上のガジェットの列（#gadgets・34px 角の qm-panel-btn）へ移す＝現在地・方位と同じ形で縦に並ぶ（本人 2026-11-16「形を揃えて左上」「緯度経度と被ります」）。
+		   起動に失敗した時だけ、この fixed の位置（左上）に残る */
+		#data-btn:not(.qm-panel-btn),#names-btn:not(.qm-panel-btn){position:fixed;left:10px;z-index:10;width:34px;height:34px;display:flex;align-items:center;justify-content:center;padding:0;border-radius:8px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#3f4757;box-sizing:border-box}
+		#data-btn:not(.qm-panel-btn){top:calc(10px + env(safe-area-inset-top))}
+		#names-btn:not(.qm-panel-btn){top:calc(52px + env(safe-area-inset-top))}
+		#data-btn[hidden],#names-btn[hidden]{display:none}
+		#names-btn{position:relative;cursor:pointer;box-sizing:border-box;width:34px;height:34px}
 		#status .ok{color:#1b7a3a}
 		#status .ng{color:#b3261e}
 		#save-here{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:10;font:600 15px system-ui,sans-serif;padding:10px 18px;min-height:44px;border-radius:22px;border:0;background:#1f4e79;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
@@ -70,8 +76,6 @@
 		.ap-sheet.min .ap-sum{display:block;text-align:center;font-size:12px}
 		.ap-sheet.min .ap-act{flex-wrap:nowrap;margin:2px 0}
 		/* 地名の言語＝アイコン（文/A）。透明な select を上に重ねる＝押すと OS の選択が開く（本人 2026-11-16「地図の言語選択もアイコン化」） */
-		#names-btn{position:fixed;left:8px;bottom:calc(44px + env(safe-area-inset-bottom));z-index:10;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#222;box-sizing:border-box}
-		#names-btn[hidden]{display:none}
 		#names{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;margin:0;padding:0;cursor:pointer}
 		#place-search input,#names,.ap-sheet select{font-size:16px}   /* 16px 未満の入力欄・選択は iPhone/iPad が触れた瞬間に画面全体を拡大して戻らない（unmap で本人 2026-11-15）＝検索窓・地名の言語・保存の詳細度だけ 16px */
 	</style>
@@ -87,9 +91,9 @@
 	<div id="map"></div>
 	<div id="place-search" hidden></div>
 	<div id="status" hidden><div class="local"></div><details class="tech"><summary>Connection and device details</summary><ul class="rows"></ul></details><button type="button" class="close" aria-label="Close">×</button></div>
-	<button type="button" id="data-btn" hidden>Data</button>
+	<button type="button" id="data-btn" aria-label="Saved areas and data" title="Saved areas and data" aria-expanded="false" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11M7.5 10l4.500 4.500L16.500 10M4 17v3h16v-3"/></svg></button>
 	<button type="button" id="save-here" hidden>📍 Save my area</button>
-	<label id="names-btn" title="Place names language" hidden><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h9M7.5 3v2M5 5c.6 3.2 2.6 5.6 6 7M10.5 5c-.7 3.4-3 6-6.5 7.5M12.5 20l4-9.5 4 9.500M14 17h5"/></svg><select id="names" aria-label="Place names language" hidden></select></label>
+	<label id="names-btn" title="Place names language" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h9M7.5 3v2M5 5c.6 3.2 2.6 5.6 6 7M10.5 5c-.7 3.4-3 6-6.5 7.5M12.5 20l4-9.5 4 9.500M14 17h5"/></svg><select id="names" aria-label="Place names language" hidden></select></label>
 	<script type="module" src="./main.ts"></script>
 </body>
 </html>
