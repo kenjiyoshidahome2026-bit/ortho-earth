@@ -90,6 +90,7 @@ interface MlState {
 	sq?: SyncQ; customHost?: boolean; anim?: globalThis.Map<string, { img: AnimImage; tick: () => void; stop: () => void }>; placeholder?: HTMLCanvasElement; interactive?: boolean;
 	dbg?: { tileBoundaries?: boolean; padding?: boolean; collision?: boolean; overdraw?: boolean; vertices?: boolean }; repaint?: boolean; anisoPitch?: number;
 	eventedParent?: { parent: unknown; data: unknown } | null;
+	removed?: boolean; abort: AbortController;   // remove() 済み＋容れ物・window に付けた DOM の聞き手を一度に外す鍵
 }
 
 // MapLibre GL JS 6.11.2 の Map の公開の口（型定義から）。ここに実装の無い口は「unsupported を記録して this」を返す
@@ -138,7 +139,7 @@ const fail = (self: object, name: string, e: unknown): void => {
 // エンジンへ渡す。準備前は列に溜めて before を返す。Promise を返す口は待たずに this（失敗は error 事象）
 function ask<R = unknown>(self: object, name: string, args: unknown[], { before, conv, then }: { before?: R; conv?: (r: unknown) => R; then?: () => void } = {}): R {
 	const st = S.get(self)!;
-	if (st.inert) return before as R;
+	if (st.inert || st.removed) return before as R;   // remove() 後の頼み事は列にも積まない
 	const run = (): R => {
 		let r: unknown;
 		try {   // 名前で引く口は関数の時だけ呼ぶ（CodeQL の動的呼び出し＝関数でなければ素の呼び出しと同じ TypeError）
@@ -154,7 +155,7 @@ function ask<R = unknown>(self: object, name: string, args: unknown[], { before,
 	st.queue.push(run);
 	return before as R;
 }
-const onEngine = (st: MlState, fn: (eng: Engine) => void): void => { if (st.engine) fn(st.engine); else st.engineFns.push(fn); };
+const onEngine = (st: MlState, fn: (eng: Engine) => void): void => { if (st.removed) return; if (st.engine) fn(st.engine); else st.engineFns.push(fn); };
 
 // 容れ物の DOM の事象（素の click／mousemove…）＝点は容れ物の左上原点・経緯度は公開の unproject。click はドラッグの後には出さない（3px）
 function domEvent(self: Map, st: MlState, type: string, e: MouseEvent | TouchEvent) {
@@ -169,11 +170,12 @@ function bindDom(self: Map, st: MlState, type: string): void {
 	if (st.dom.has(type)) return;
 	st.dom.add(type);
 	const src = type === "mouseover" ? "mouseenter" : type === "mouseout" ? "mouseleave" : type;
-	if (type === "click" || type === "mousedown") st.container.addEventListener("mousedown", e => { st.down = [e.clientX, e.clientY]; }, true);
+	const signal = st.abort.signal;
+	if (type === "click" || type === "mousedown") st.container.addEventListener("mousedown", e => { st.down = [e.clientX, e.clientY]; }, { capture: true, signal });
 	st.container.addEventListener(src, e => {
 		if (type === "click" && st.down && Math.hypot((e as MouseEvent).clientX - st.down[0], (e as MouseEvent).clientY - st.down[1]) > 3) return;
 		emit(self, type, domEvent(self, st, type, e as MouseEvent));
-	});
+	}, { signal });
 }
 
 // 同期の queryRenderedFeatures の道具（C7）。幾何＝undefined（画面全体）｜{x,y}／[x,y]（点）｜[a, b]（箱）
@@ -203,8 +205,8 @@ function armPrewarm(self: Map, st: MlState): void {
 	st.container.addEventListener("mousemove", e => {
 		const r = st.container.getBoundingClientRect(); last = [e.clientX - r.left, e.clientY - r.top];
 		if (raf) return;
-		raf = requestAnimationFrame(() => { raf = 0; if (st.engine && last) syncKick(st, "", last, {}, camSig(st.engine)); });
-	}, { passive: true });
+		raf = requestAnimationFrame(() => { raf = 0; if (st.engine && !st.removed && last) syncKick(st, "", last, {}, camSig(st.engine)); });
+	}, { passive: true, signal: st.abort.signal });
 }
 
 // エンジンの事象 → MapLibre の事象（move は zoom/rotate/pitch に分け、start/end を付ける＝end はエンジンの settle）
@@ -213,8 +215,8 @@ function wireEngine(self: Map, st: MlState): void {
 	let moving: { from: CamAngles; zoom: boolean; rotate: boolean; pitch: boolean; roll: boolean } | null = null, dragArm = false, dragging = false;
 	// drag 系（MapLibre の dragstart／drag／dragend＝指やマウスで掴んで動かしている間の move）：容れ物の pointerdown で構え、エンジンの move が来たら drag・離したら dragend（deck.gl の MapboxOverlay が購読する・2026-09-30）
 	const dragEnd = (): void => { dragArm = false; if (dragging) { dragging = false; emit(self, "dragend"); } };
-	st.container.addEventListener("pointerdown", e => { if (e.button === 0 || e.pointerType !== "mouse") dragArm = true; }, { passive: true });
-	for (const t of ["pointerup", "pointercancel"]) window.addEventListener(t, dragEnd, { passive: true });
+	st.container.addEventListener("pointerdown", e => { if (e.button === 0 || e.pointerType !== "mouse") dragArm = true; }, { passive: true, signal: st.abort.signal });
+	for (const t of ["pointerup", "pointercancel"]) window.addEventListener(t, dragEnd, { passive: true, signal: st.abort.signal });   // window の聞き手＝remove() で外す（SPA で地図を作り直すたびに溜まらない）
 	eng.on("move", e => {
 		st.idle = false;
 		const c = { zoom: eng.getZoom(), bearing: eng.getBearing(), pitch: eng.getPitch(), roll: eng.getRoll() };
@@ -262,7 +264,7 @@ export class Map {
 		const container = typeof options.container === "string" ? document.getElementById(options.container) : options.container;
 		if (!container) throw new Error(`Container '${options.container}' not found.`);
 		const st: MlState = { options, container, engine: null, loaded: false, idle: false, inert: false, queue: [], engineFns: [], ev: new globalThis.Map(), dom: new Set(),
-			layerSubs: [], sources: new Set(), controls: new globalThis.Map(), corners: null, last: null, raf: 0, projection: (options.style as { projection?: { type?: string } } | undefined)?.projection?.type === "globe" ? "globe" : "mercator",   // style の projection（object の style）も申告に数える
+			layerSubs: [], sources: new Set(), controls: new globalThis.Map(), corners: null, last: null, raf: 0, abort: new AbortController(), projection: (options.style as { projection?: { type?: string } } | undefined)?.projection?.type === "globe" ? "globe" : "mercator",   // style の projection（object の style）も申告に数える
 			init: { center: LngLat.convert(options.center ?? [0, 0]), zoom: options.zoom ?? 0, bearing: options.bearing ?? 0, pitch: options.pitch ?? 0, roll: options.roll ?? 0 } };
 		const self = new Proxy(this, TRAP);
 		S.set(this, st); S.set(self, st);
@@ -302,6 +304,7 @@ export class Map {
 			...options.ortho,   // この地図の起動オプションへの逃げ道（夜面・星空を点ける・時計を止める…）
 		} as GlobeOptions;   // TODO(ts): fog（globe.js が読む）が公開の GlobeOptions に無い＝注釈でなく as
 		st.ready = createGlobe(o).then(async eng => {
+			if (st.removed) { eng.destroy(); return null; }   // 起動中に remove() された＝作り終えたエンジンをすぐ畳む（load も出さない）
 			st.engine = eng;
 			wireEngine(self, st);
 			if (options.cooperativeGestures) {   // MapLibre の協調モードの案内（.maplibregl-cooperative-gesture-screen 相当・修飾キー無しのホイール／1 本指で 1 秒出す）
@@ -322,6 +325,7 @@ export class Map {
 			if (options.maxBounds) eng.setMaxBounds(boundsArr(options.maxBounds));
 			if (options.bounds) eng.fitBounds(boundsArr(options.bounds), { ...options.fitBoundsOptions, animate: false });
 			await eng.once("load");
+			if (st.removed) return null;   // load を待つ間に remove() された（エンジンは remove() が畳んだ）
 			// 視点をコンストラクタで 1 つも変えていない地図だけ style の根の center/zoom/bearing/pitch（MapLibre 6.11.2 と同じ＝transform.unmodified の時だけ
 			// style.load で jumpTo・既定値と同じ値を書いたのは変えていない扱い・bounds は変えた扱い）。style.json は MapLibre の z
 			const c0 = options.center == null ? null : LngLat.convert(options.center);
@@ -373,8 +377,9 @@ export class Map {
 	listens(type: string): boolean { return !!S.get(this)!.ev.get(type)?.size; }
 	fire(ev: string | { type: string; [k: string]: unknown }, props?: object): this { const type = typeof ev === "string" ? ev : ev.type; emit(this, type, { ...(typeof ev === "object" ? ev : {}), ...props }); return this; }
 	_render(st: MlState): void {
-		if (st.raf) return;
-		const tick = (): void => { st.raf = st.ev.get("render")?.size ? requestAnimationFrame(tick) : 0; if (st.loaded) emit(this, "render"); };
+		if (st.raf || st.removed) return;
+		// 毎フレームの render＝聞き手が居る間だけ次を予約する。remove() 後は予約もしない・出さない（remove() が cancelAnimationFrame する）
+		const tick = (): void => { if (st.removed) { st.raf = 0; return; } st.raf = st.ev.get("render")?.size ? requestAnimationFrame(tick) : 0; if (st.loaded) emit(this, "render"); };
 		st.raf = requestAnimationFrame(tick);
 	}
 
@@ -690,12 +695,22 @@ export class Map {
 	triggerRepaint(): void { S.get(this)!.engine?.requestDraw?.(); }
 	redraw(): this { this.triggerRepaint(); return this; }
 	resize(): this { return this; }   // 容れ物の大きさはエンジンが ResizeObserver で追う
+	// MapLibre の remove() と同じく、後は何も出さない・何も回さない地図にする（2 度呼んでも 1 度と同じ）。
+	// 旧＝render の rAF の鎖（on("render") が始める）を止めず聞き手も残した＝壊れたエンジンの地図へ毎フレーム render を出し続け、
+	// deck.gl の MapboxOverlay のように地図を作っては外す SPA で 1 枚ごとに止まらない鎖が 1 本ずつ溜まった（2026-11-16）
 	remove(): void {
-		for (const id of [...(S.get(this)!.anim?.keys() ?? [])]) this._stopAnimated(id);   // 動く記号の毎フレームを止める
 		const st = S.get(this)!;
+		if (st.removed) return;
+		for (const id of [...(st.anim?.keys() ?? [])]) this._stopAnimated(id);   // 動く記号の毎フレームを止める
 		for (const c of [...st.controls.keys()]) this.removeControl(c);
-		if (!st.inert) { liveMaps--; onEngine(st, eng => eng.destroy()); }
+		if (st.raf) { cancelAnimationFrame(st.raf); st.raf = 0; }   // render の鎖を止める
+		st.abort.abort();   // 容れ物・window の DOM の聞き手を外す
+		st.loaded = false; st.idle = false;
+		st.queue.length = 0; st.engineFns.length = 0;   // 起動前に溜めた頼み事は捨てる（壊したエンジンへ流さない）
+		if (!st.inert) { liveMaps--; if (st.engine) st.engine.destroy(); }   // 起動中ならエンジンは出来た所で ready の続きが畳む
+		st.removed = true;   // remove の聞き手の中で on("render") されても鎖は始まらない
 		emit(this, "remove");
+		st.ev.clear();   // 聞き手を空にする（remove の聞き手には上で届けた）
 	}
 	get version(): string { return "ortho-earth"; }
 

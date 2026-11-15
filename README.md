@@ -91,8 +91,8 @@ Design notes and plans for contributors (the fallback ladder, the Gint draw spec
 
 | Package | Version | License | What it is |
 |---|---|---|---|
-| [`@ortho-earth/core`](packages/ortho-core) | 2.4.1 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
-| [`@ortho-earth/globe`](packages/globe) | 2.4.1 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
+| [`@ortho-earth/core`](packages/ortho-core) | 2.4.2 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
+| [`@ortho-earth/globe`](packages/globe) | 2.4.2 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 (private) | GPL-3.0-or-later | Japan region pack |
 | [`@ortho-earth/nl`](packages/nl) | 0.0.1 (private) | GPL-3.0-or-later | Netherlands region pack (3D Basisvoorziening buildings, basemap, elevation) |
 | [`@ortho-earth/regions`](packages/regions) | 0.0.1 (private) | GPL-3.0-or-later | Region switch (`orthoJapan`): the globe plus the region chosen by URL (Japan or the Netherlands) |

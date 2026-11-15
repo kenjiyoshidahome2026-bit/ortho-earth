@@ -20,6 +20,22 @@ https://www.ortho-earth.com/mcp              # remote (Streamable HTTP)
 - Listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/) as
   `io.github.kenjiyoshidahome2026-bit/ortho-earth`. Setup for each client: [packages/mcp](packages/mcp/README.md).
 
+## 2.4.2 — 2026-11-16
+
+**@ortho-earth/globe 2.4.2 · @ortho-earth/core 2.4.2** (core has no changes; the two keep one version).
+
+```
+npm i @ortho-earth/globe@2.4
+```
+
+- **MapLibre shim: `map.remove()` now really stops the map.** A `map.on("render", fn)` listener started a
+  requestAnimationFrame loop that `remove()` never cancelled, so a removed map kept firing `render` every frame, and an
+  app that mounts and unmounts maps (deck.gl's `MapboxOverlay` listens to `render`) gained one endless loop per map.
+  `remove()` now cancels the loop, drops every listener after the `remove` event, detaches the DOM listeners on the
+  container and `window`, and discards queued calls; a map removed while still starting up destroys its engine as soon
+  as it exists and never fires `load`. Calling `remove()` twice is harmless.
+- **Same API as 2.4.1.**
+
 ## 2.4.1 — 2026-11-11
 
 **@ortho-earth/globe 2.4.1 · @ortho-earth/core 2.4.1** (also @ortho-earth/cesium 0.3.1 and @ortho-earth/voxel 0.6.3).
