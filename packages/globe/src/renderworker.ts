@@ -322,6 +322,7 @@ setInterval(() => {
 	if (renderer && performance.now() - lastFrameRun > 100) { pumpTicks++; frame(); }
 }, 33);
 // ?hud=1（init.mem・旧mem=1）＝状態盤テレメトリを main へ~2Hzで送る（terrain LRU＋JSヒープ＋GPU固定＋描画実測）。main が plateau/tiles と合算して HUD 表示。
+let drawX = 1;   // ?bench の負荷倍率（set cmd "drawX"）：1＝通常。N＝本番の 1 回の前に同じ絵を N−1 回余分に描いて submit する
 let memOn = false, memWant = false, memLast = 0, hudFrames = 0, hudTotal = 0, hudGpuName = "";   // hudTotal＝起動からの実描画枚数（?bench の物差し＝2 点の差÷時間）
 // ?hud=1 の CPU 内訳（2026-11-03・Android タブレットで 1 フレーム 100ms 超・解像度を下げても不変＝GPU でなく CPU）。
 // 描いたフレームごとに worker の JS 時間を部位別に測り EMA で HUD へ＝実機の画面だけで「何に食われているか」が分かる計器
@@ -635,6 +636,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			else if (m.cmd === "meshCustom") meshInbox.push({ custom: m.data, name: m.prop });   // 利用者のシェーダの名も同じ列＝バッチの到着の後に効く   // 模型の輪郭線も同じ列
 			else if (m.cmd === "meshCut") meshInbox.push({ cut: m.data, name: m.prop });   // 束の α の切り（MASK）も同じ列   // Cesium の Model.color も同じ列＝バッチの到着の後に効く
 			else if (m.cmd === "meshPos") meshInbox.push({ posData: m.data, name: m.prop });   // skin の頂点の焼き直し（2026-10-28）も同じ列      // 頂点色の書き換え（W7）も同じ列＝バッチの到着より先に効いて捨てられない
+			else if (m.cmd === "drawX") { drawX = Math.max(1, Math.min(64, Number(m.data) | 0 || 1)); dirty = true; }   // ?bench＝1 コマに同じ絵を drawX 回描く（負荷を倍にして画面更新の刻みより細かく測る）
 			else if (m.cmd === "noBld") { noBld = !!m.data; dirty = true; }   // 基図の建物の押し出しを伏せる（層 "building-extrusion" の出し入れ＝?nobld=1 の旗を実行時に・2026-09-27）
 			else if (m.cmd === "rasterAdd") { raster?.add(m.prop!, (m.data as RasterAddMsg).spec, (m.data as RasterAddMsg).opts).catch(() => {}); }   // 画像タイル層の追加（spec＝url/pmtiles/port・失敗は rasterError で main へ）
 			else if (m.cmd === "rasterRemove") { raster?.remove(m.prop!); }
@@ -1273,6 +1275,7 @@ function frame() {
 				catch (e) { depthOff(e); }
 			}
 			let dBegun = false;
+			for (let k = 1; k < drawX; k++) { renderer!.draw(glCam, dOpts); if (gint) gint.draw(glCam, renderer!.gintCtx()); renderer!.flush?.(); }   // ?bench の負荷倍率＝余分の絵（同じカメラ・同じ絵＝最後の 1 回が画面に残る）
 			if (dOutH) { try { dBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
 			// 注記（T-P2）＝層の位置に描く字がある時は地図より先に描く（地図のパスがその字を層の間で draw する）・無ければ今までどおり地図の後
 			let animating: boolean | null = null;
