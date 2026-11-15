@@ -3,7 +3,7 @@
 // M4＝アプリ自体も端末へ（app-pack.ts・共有の Service Worker）・回線なしの地名検索（places.ts・search.ts）・ホーム画面に追加（manifest.webmanifest）。
 // M3＝範囲（z8 に揃った四角）を選んで planet と GEL から切り出して端末に保存（area-picker.ts・save-worker.ts）。入口の第一は「現在地周辺を保存」（本人 2026-11-14）。
 // 視点の hash（#z/lat/lon）は URL に書く。?osm=・?gel=＝データの置き場の差し替え（sources.ts）。?online=0＝オンラインを読まない（端末の物だけ）。?status=0＝札を出さない。
-// ?dpr=<数>＝描く解像度（無ければメモリ 4 GB 以下の端末だけ 1.25 まで）。
+// ?dpr=<数>＝描く解像度（無ければ画面の画素どおり＝エンジンの既定）。
 // ?names=local|en|fr|es|ru|zh|ar＝地名の言語（無ければ前回の選択 → UI の言語が UN の 6 公用語ならそれ → 現地語）。
 import { dismissBoot } from "@ortho-earth/globe/boot/screen.js";
 import { archiveUrl, finalPaths, gelTerrain, sourcesFrom } from "./sources.ts";
