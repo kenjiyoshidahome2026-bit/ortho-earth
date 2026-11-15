@@ -322,7 +322,7 @@ setInterval(() => {
 	if (renderer && performance.now() - lastFrameRun > 100) { pumpTicks++; frame(); }
 }, 33);
 // ?hud=1（init.mem・旧mem=1）＝状態盤テレメトリを main へ~2Hzで送る（terrain LRU＋JSヒープ＋GPU固定＋描画実測）。main が plateau/tiles と合算して HUD 表示。
-let memOn = false, memWant = false, memLast = 0, hudFrames = 0, hudGpuName = "";
+let memOn = false, memWant = false, memLast = 0, hudFrames = 0, hudTotal = 0, hudGpuName = "";   // hudTotal＝起動からの実描画枚数（?bench の物差し＝2 点の差÷時間）
 // ?hud=1 の CPU 内訳（2026-11-03・Android タブレットで 1 フレーム 100ms 超・解像度を下げても不変＝GPU でなく CPU）。
 // 描いたフレームごとに worker の JS 時間を部位別に測り EMA で HUD へ＝実機の画面だけで「何に食われているか」が分かる計器
 const cpuEma = { up: 0, terr: 0, map: 0, gint: 0, lab: 0, ov: 0, total: 0 };
@@ -1349,7 +1349,7 @@ function frame() {
 		cpuEma.total += (tot - cpuEma.total) * k;
 		for (const key of ["up", "terr", "map", "gint", "lab", "ov"] as const) cpuEma[key] += (cpuAcc[key] - cpuEma[key]) * k;
 	}
-	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
+	if (drew) { lastDrewT = nowT; hudFrames++; hudTotal++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
 	if (!drew && (resNoHelp || resProbe) && nowT - lastDrewT > RES_SETTLE_MS) { resNoHelp = false; resProbe = null; }   // 止まった＝次の動きでまた解像度の効き目を確かめる
 	if (!drew && (resIdx > 0 || shedIdx > 0) && nowT - lastDrewT > RES_SETTLE_MS && (!resFixed || shedIdx > 0)) {
 		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。間引きも同時に全部戻す
@@ -1376,7 +1376,7 @@ function frame() {
 		const fps = nowT > memLast ? Math.round(hudFrames * 1000 / (nowT - memLast)) : 0;
 		hudFrames = 0; memLast = nowT;
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
-			fps, frameMs: emaMs, res: RES_STEPS[resIdx], shed: SHED_STEPS[shedIdx], lite: liteMove && shedIdx > 0, backend: backendName, gpuName: hudGpuName,
+			fps, frames: hudTotal, at: nowT, frameMs: emaMs, res: RES_STEPS[resIdx], shed: SHED_STEPS[shedIdx], lite: liteMove && shedIdx > 0, backend: backendName, gpuName: hudGpuName,
 			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null, meshDraw: renderer?.meshStats ? renderer.meshStats() : null,
 			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length }, slow: slowFrames, pipes: pipesLate });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
