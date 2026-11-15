@@ -13,7 +13,7 @@ export const BENCH_VARIANTS: ReadonlyArray<readonly [string, string]> = [
 	["terrain always coarse (1/16)", "terrcoarse=4&terrcoarsealways=1"],
 	["line heights 1 sample", "lineelev=2&elevcheap=1"],
 	["no basemap 3D buildings", "nobld=1"],
-	["no PLATEAU", "paz=30"],
+	["no 3D city mesh", "paz=30"],
 	["no labels", "nolab=1"],
 	["no coast/border layer", "nogint=1"],
 	["half resolution", "res=0.5"],
