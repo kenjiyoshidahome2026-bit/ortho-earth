@@ -97,7 +97,7 @@ export function groupSaved(saved: SavedFile[], sizeOf: (kind: LocalKind, name: s
 const inBox = (lon: number, lat: number, [w, s, e, n]: [number, number, number, number]) => lat >= s && lat <= n && (w <= e ? lon >= w && lon <= e : lon >= w || lon <= e);
 /** 範囲の呼び名：箱の中でいちばん大きい町（population_rank）の名前。無ければ地方・国、それも無ければ中心の経緯度 */
 export function areaLabel(bounds: [number, number, number, number], places: { name: string; names?: Record<string, string>; kind: string; rank: number; lon: number; lat: number }[], lang = "local"): string {
-	const nameOf = (p: { name: string; names?: Record<string, string> }) => (lang !== "local" && p.names?.[lang]) || p.name;
+	const nameOf = (p: { name: string; names?: Record<string, string> }) => p.names?.[lang === "local" ? "en" : lang] || p.name;   // 札は英語の UI＝「現地語」の時は英語名を先に（「東京都 area」より「Tokyo area」）・無ければ現地語
 	let best: typeof places[number] | null = null;
 	for (const kind of ["locality", "region", "country"]) {
 		for (const p of places) if (p.kind === kind && inBox(p.lon, p.lat, bounds) && (!best || p.rank > best.rank)) best = p;

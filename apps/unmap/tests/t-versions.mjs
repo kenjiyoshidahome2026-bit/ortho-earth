@@ -72,7 +72,7 @@ const S = (kind, name, tag, rect = tokyo, z = [0, 14]) => ({ kind, dir: `unmap/$
 	ok("跨ぐ範囲＝西の本の西端〜東の本の東端", g.areas[0].bounds[0] === 177 && g.areas[0].bounds[2] === -178 && g.areas[0].files.length === 2, g.areas[0].bounds.join(","));
 	ok("世界の土台は別・印のある物を覚える", g.world?.name === "world.pmtiles" && g.tagged.has("terrain/area-a1.pmtiles") && g.tagged.size === 5);
 	const places = [{ name: "東京", names: { en: "Tokyo" }, kind: "locality", rank: 14, lon: 139.7, lat: 35.7 }, { name: "横浜", kind: "locality", rank: 12, lon: 139.6, lat: 35.4 }, { name: "大阪", names: { en: "Osaka" }, kind: "locality", rank: 13, lon: 135.5, lat: 34.7 }, { name: "Suva", kind: "locality", rank: 8, lon: 178.4, lat: -18.1 }, { name: "Kantō", kind: "region", rank: 0, lon: 139.5, lat: 36 }];
-	ok("呼び名＝箱の中のいちばん大きい町（選んだ言語）", areaLabel(g.areas[1].bounds, places, "en") === "Tokyo" && areaLabel(g.areas[1].bounds, places, "local") === "東京");
+	ok("呼び名＝箱の中のいちばん大きい町（選んだ言語）", areaLabel(g.areas[1].bounds, places, "en") === "Tokyo" && areaLabel(g.areas[1].bounds, places, "local") === "Tokyo" && areaLabel(g.areas[1].bounds, places, "fr") === "東京");
 	ok("跨ぐ箱の中の町", areaLabel(g.areas[0].bounds, places) === "Suva");
 	ok("町が無ければ地方", areaLabel([139, 35.9, 140, 36.1], places) === "Kantō");
 	ok("索引が無ければ中心の経緯度", areaLabel([10, -20, 12, -18], []) === "19.0°S 11.0°E" && areaLabel(g.areas[0].bounds, []) === "16.5°S 179.5°E", areaLabel(g.areas[0].bounds, []));

@@ -17,9 +17,10 @@ export const COLORS = {
 	label: "#3b3a40", halo: "#ffffff",
 };
 
-/** 標高の陰影（hillshade 層・main.ts）：強さ（hillshade-exaggeration 0..1）と色。影は暖かい灰＝基図の淡い塗りを濁らせない・光は白を薄く */
-export const SHADE = 0.6;
-export const SHADE_COLORS = { shadow: "#4a4238", highlight: "rgba(255,255,255,0.7)", accent: "#3a342c" };
+/** 標高の陰影（hillshade 層・main.ts）：強さ（hillshade-exaggeration 0..1）と色。影は暖かい灰を半透明で＝基図の淡い塗りを濁らせない・光は白を薄く。
+ *  0.6・不透明の影はタブレットで重すぎた（z14 の山の明るさ 237→154＝35% 暗い・森の緑が灰色に沈む・z10 の DEM の引き伸ばしが角張って見える・2026-11-16）＝半分に */
+export const SHADE = 0.3;
+export const SHADE_COLORS = { shadow: "rgba(74,66,56,0.7)", highlight: "rgba(255,255,255,0.4)", accent: "rgba(58,52,44,0.7)" };
 
 // 地名の言語（本人 2026-11-14）：UN の 6 公用語か現地語。Protomaps v4 は name:<言語> を持つ＝無い地物は現地語の name へ戻す。
 // 中国語は簡体字（name:zh-Hans）を先に・無ければ name:zh。
