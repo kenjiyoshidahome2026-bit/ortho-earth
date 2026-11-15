@@ -10,7 +10,7 @@ import { archiveUrl, finalPaths, gelTerrain, sourcesFrom } from "./sources.ts";
 import { listLocal, mountLocalPanel, savedBounds } from "./local-data.ts";
 import { requestPersist as requestPersistNow } from "@ortho-earth/core/opfs-store";
 import type { LocalFiles } from "./local-data.ts";
-import { LABEL_LAYERS, NAME_LANGS, NAME_LANG_LABEL, OSM_MINZOOM, isNameLang, nameExpr, osmStyle } from "./style.ts";
+import { LABEL_LAYERS, NAME_LANGS, NAME_LANG_LABEL, OSM_MINZOOM, SHADE, SHADE_COLORS, isNameLang, nameExpr, osmStyle } from "./style.ts";
 import type { NameLang } from "./style.ts";
 import { probe } from "./probe.ts";
 import type { ProbeResult } from "./probe.ts";
@@ -141,6 +141,12 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 			debugGlobals: /[?&]debug=1/.test(location.search),
 		});
 		dismissBoot();
+		// 標高の陰影（本人 2026-11-15「標高の影が全く描かれていません」）：エンジンの陰影は傾けた地形面だけ＝真俯瞰は平ら。GEL から MapLibre の hillshade 層を作り、基図の塗りの上・注記の下へ重ねる。
+		// 低倍率は標準の地球が自分の陰影を持つ＝OSM の出る z から（addLayer の z はエンジンの目盛り＝MapLibre＋1）。?shade=0 で切る・?shade=<0..1> で強さ
+		const shade = +(new URLSearchParams(location.search).get("shade") ?? SHADE);
+		if (gelUrl && shade > 0) void Promise.resolve().then(() => { map.addSource("relief-dem", gelTerrain(gelUrl).source); return map.addLayer({ id: "relief-shade", type: "hillshade", source: "relief-dem", minzoom: OSM_MINZOOM + 1,
+			paint: { "hillshade-exaggeration": Math.min(1, shade), "hillshade-shadow-color": SHADE_COLORS.shadow, "hillshade-highlight-color": SHADE_COLORS.highlight, "hillshade-accent-color": SHADE_COLORS.accent } }); })
+			.catch(e => console.warn("[unmap] relief shading failed", e));
 		mountNamePicker(map as never, names);
 		map.gadget.cpos();     // 現在地（GPS）へ＝M3 の「現在地周辺を選ぶ」の入口にもなる（本人 2026-11-14「現在地周辺は絶対入れて」）
 		map.gadget.compass();

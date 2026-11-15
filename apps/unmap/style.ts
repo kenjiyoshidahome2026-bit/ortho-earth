@@ -17,6 +17,10 @@ export const COLORS = {
 	label: "#3b3a40", halo: "#ffffff",
 };
 
+/** 標高の陰影（hillshade 層・main.ts）：強さ（hillshade-exaggeration 0..1）と色。影は暖かい灰＝基図の淡い塗りを濁らせない・光は白を薄く */
+export const SHADE = 0.6;
+export const SHADE_COLORS = { shadow: "#4a4238", highlight: "rgba(255,255,255,0.7)", accent: "#3a342c" };
+
 // 地名の言語（本人 2026-11-14）：UN の 6 公用語か現地語。Protomaps v4 は name:<言語> を持つ＝無い地物は現地語の name へ戻す。
 // 中国語は簡体字（name:zh-Hans）を先に・無ければ name:zh。
 export const NAME_LANGS = ["local", "en", "fr", "es", "ru", "zh", "ar"] as const;
