@@ -40,13 +40,12 @@ if (card) {
 	} else { rows.osm = "OSM planet: off (?online=0)"; rows.gel = "GEL terrain: off (?online=0)"; }
 }
 
-// 描く解像度：?dpr=<数> が先。無ければメモリ 4 GB 以下と申告する端末（Chrome の navigator.deviceMemory）だけ 1.25 倍までに抑える＝GPU のメモリと発熱を減らす。
-// それ以外（iPhone・申告なし）は既定（エンジンが devicePixelRatio を 2 までで使う）
+// 描く解像度：?dpr=<数> だけ（無ければ既定＝エンジンが devicePixelRatio を 2 までで使う＝画面の画素どおり）。
+// 旧＝メモリ 4 GB 以下の端末は 1.25 倍に抑えていた（2026-11-14）→ 画面の画素（1.5 倍）へ引き伸ばされて線も文字もにじみ、本人「アンドロイドがあまりにも荒い」（2026-11-16）＝やめた。
+// 遅さの元はメモリ（他のタブ）で、描画そのものは 60 fps 出ていた
 const pixelRatio = (): number | null => {
 	const q = +(new URLSearchParams(location.search).get("dpr") ?? "");
-	if (q > 0) return q;
-	const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-	return mem && mem <= 4 && (window.devicePixelRatio || 1) > 1.25 ? 1.25 : null;
+	return q > 0 ? q : null;
 };
 
 // 地名の言語：?names= → 前回の選択（localStorage）→ UI の言語（UN の 6 公用語なら）→ 現地語
@@ -135,7 +134,7 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 			zoomMax: 18, chips: false, mesh: false,
 			worldContent: { lang: worldLang(names) },               // 低倍率に標準の地球と同じ中身（国境・国名・都市・州境…＝/globe と同じ・2026-11-14 タブレットで z2 の国境が無かった）
 			worldBelow: OSM_MINZOOM,          // z5.5 より下＝エンジンの標準の地球（段彩・国境・湖）・上＝OSM
-			...(pixelRatio() ? { pixelRatio: pixelRatio()! } : {}),   // メモリの少ない端末は描く解像度を下げる（2026-11-14 Android タブレットの試験）
+			...(pixelRatio() ? { pixelRatio: pixelRatio()! } : {}),   // ?dpr= の時だけ（比較・重い端末の逃げ道）
 			// 低倍率（MapLibre z5.5 より下）はエンジンの標準の地球（段彩・Natural Earth の国境と湖・海岸線・星空・夜面）＝本人 2026-11-14。OSM はその上（style.ts OSM_MINZOOM）。
 			// 標準の地球のデータは初回の起動でエンジンが IDB・HTTP キャッシュに置く＋星空は app-pack が束に詰める＝通信なしでも出る
 			instruments: ["pos", "attr", "scale"], urlHash: true, persistView: false,
