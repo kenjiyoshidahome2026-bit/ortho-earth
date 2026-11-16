@@ -7,6 +7,7 @@
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "@ortho-earth/core/labels";
 import { setPowerPreference, powerPreference, type GpuPowerPreference } from "@ortho-earth/core/gpupower";
+import { tierFlag } from "@ortho-earth/core/ginttier-flag";   // ?ginttier=N＝tier を焼く層の下限（bake worker を通らない同期の焼き・途中再開もこの語を読む）
 import { rangeCacheFlag } from "@ortho-earth/core/rangecache-flag";   // PMTiles の端末キャッシュの入切（標高・画像タイルの PMTiles はこの worker で読む）
 import { setMeshShed, setMeshLite } from "@ortho-earth/core/meshcull";   // 動的な間引き（?meshshed=1）＝動的解像度の次の段（両 renderer が同じ module を読む）
 import { createGpuTextSink, createGpuText } from "@ortho-earth/core/textgpu";   // 注記の字（線に沿う・点）を WebGPU で（テキスト GPU 化 T-P1・T-P2・既定＝?text=2d でない時に据える）
@@ -89,7 +90,7 @@ interface GintLayerOps {
 	setVisible(v: unknown): void; activate?(): void; setOrder?(n: unknown): void;
 }
 /** addLayer の層（共通の口＋外す） */
-type GintLayerEngine = GintLayerOps & { remove(): void };
+type GintLayerEngine = GintLayerOps & { remove(): void; stats?(): { edges: number; total: number; tierW: number; tiers: number; subs?: number; rank?: number } };
 /** gint の描き手（ortho-core の createGintLayer／createGintLayerGPU の戻り＝既定層） */
 interface GintEngine extends GintLayerOps {
 	draw(cam: CameraPose, ctx: unknown, repeat?: boolean): void;
@@ -108,7 +109,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; rangeCache?: boolean; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; meshCull?: number; meshSort?: number; resMin?: number; meshLiteMove?: number; meshLiteFs?: number; meshFast?: boolean; meshFastCull?: number; depthRZ?: boolean; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; rangeCache?: boolean; gintTier?: number; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; meshCull?: number; meshSort?: number; resMin?: number; meshLiteMove?: number; meshLiteFs?: number; meshFast?: boolean; meshFastCull?: number; depthRZ?: boolean; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	gpuKnown?: boolean;   // この端末は以前 WebGPU で描けた（main の oj.gpuOk）＝adapter 取得を粘る
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean; shedFoot?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
@@ -279,7 +280,9 @@ let glRef: WebGL2RenderingContext | null = null, sentFrame1 = false, sentCtxLost
 let gint: GintEngine | null = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一GLコンテキストの1パス（1canvas統合。旧・別worker+従属駆動）
 const gintLs = new Map<string | null | undefined, GintLayerEngine>();   // 追加層のレジストリ（layer id → addLayer ハンドル）。既定層＝gint（facade）
 const gTgt = (m: RwMsg) => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
-(self as RwSelf).__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
+(self as RwSelf).__gintStats = () => gint?.stats?.() ?? null;
+// 層ごとの線の実測（HUD の mem・?bench の表）＝「層:描いた辺/全辺 tN rN」（t＝使った束の下限重み・-1＝全辺・-2＝境界・r＝今の LOD 重み）。描いていない層は出さない
+const gintLayerLine = (): string => [[null, gint] as const, ...gintLs].map(([id, h]) => { const s = h?.stats?.(); return s && s.edges > 0 ? `${id ?? "main"}:${s.edges}/${s.total} t${s.tierW} r${Math.round(s.rank ?? -1)}${s.tiers ? ` n${s.tiers}` : ""}${s.subs ? ` s${s.subs}` : ""}` : ""; }).filter(Boolean).join(", ");   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
 let clipPlT: ClipPlane[] | null = null;   // 断面の面（地面＝terrain）：地球の陰で隠す時、その陰の所の地面が切られていれば隠さない（Cesium の cartographicLimitRectangle の奥の線）
 let clipPlW: ClipPlane[] | null = null, clipPlL: ClipPlane[] | null = null, ovPl: ClipPlane[] | null = null;   // 断面の面（#111）＝vector（同一フレームのオーバーレイ）・labels（注記と記号・集約のオーバーレイ）・ovPl＝今呼んでいるオーバーレイの面（レンダラは自前で持つ）
 let terrain: RwTerrain | null = null, pendingLabels: Label2D[] | null = null;
@@ -495,6 +498,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			if (m.ctrlPort) m.ctrlPort.onmessage = ev => dispatch(ev);   // iOS轍：直結postMessageはinit以降消える＝制御は全部このポート経由（同じディスパッチャ＝initQueue順序保証も共通）
 			terrCoarse = m.terrCoarse || 0;
 			rangeCacheFlag.on = m.rangeCache !== false;   // ?tilecache=0
+			if (m.gintTier! > 0) tierFlag.minEdges = m.gintTier!;   // ?ginttier=N
 			setPowerPreference(m.power);   // GPU の選び方（既定 high-performance）＝この worker で作る WebGPU／WebGL も main と同じ希望で
 			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
 			canvas = m.canvas!;                                   // GL/GPU 用 OffscreenCanvas
@@ -1384,7 +1388,7 @@ function frame() {
 		hudFrames = 0; memLast = nowT;
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frames: hudTotal, at: nowT, frameMs: emaMs, res: RES_STEPS[resIdx], shed: SHED_STEPS[shedIdx], lite: liteMove && shedIdx > 0, backend: backendName, gpuName: hudGpuName,
-			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null, meshDraw: renderer?.meshStats ? renderer.meshStats() : null,
+			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, gintL: gintLayerLine(), aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null, meshDraw: renderer?.meshStats ? renderer.meshStats() : null,
 			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length }, slow: slowFrames, pipes: pipesLate });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}

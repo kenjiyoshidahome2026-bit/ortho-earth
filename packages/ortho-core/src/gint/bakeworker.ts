@@ -11,13 +11,14 @@
 // 正規化（リング向き）は clone されたこちらの polyStream に施される＝render worker には正規化済みが届き、
 // main の原本（unPackGint）は素のまま残る（冪等なので万一の同期経路フォールバックでも正しい）。
 
-import { bakeBase, bakeTier, tierPlan, gintDataOf } from './bake.ts';
+import { bakeBase, bakeTier, tierPlan, tierFlag, gintDataOf } from './bake.ts';
 import type { BakedTier } from './bake.ts';
 import type { GintBakeRequest, GintBakeResponse } from '../worker-msg.ts';
 
 onmessage = (e: MessageEvent<GintBakeRequest>) => {
 	const { id, data } = e.data;
 	try {
+		tierFlag.minEdges = e.data.tierMin! > 0 ? e.data.tierMin! : 200_000;   // ?ginttier=N（bake.ts tierFlag）
 		const gintData = gintDataOf(data);
 		const art = bakeBase(gintData);
 		const plan = tierPlan(gintData, art.base.edgeCount, art.weightHist);

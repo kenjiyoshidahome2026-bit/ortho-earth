@@ -70,7 +70,7 @@ export interface HeightRequest { name: string; apiUrl?: string }
 export type HeightResponse = ElevTile | null;
 
 // ── gintbake（gint/bakeworker.ts・globe の worker.js の役 "gintbake"）＝GintBUF のメタ／tier 梯子の全ベイク
-export interface GintBakeRequest { id: number; data: GintPayload }
+export interface GintBakeRequest { id: number; data: GintPayload; /** tier を焼く層の下限（辺数・?ginttier=N・0/未指定＝既定 20 万） */ tierMin?: number }
 /** bakeBase の戻りから下流不要の weightHist を落としたもの */
 export type GintBakeArtifacts = Omit<BakeBaseResult, "weightHist">;
 export type GintBakeResponse =

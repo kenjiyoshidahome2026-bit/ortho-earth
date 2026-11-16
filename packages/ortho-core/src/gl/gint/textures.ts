@@ -5,7 +5,7 @@
 // どちらも s への台帳反映とテクスチャ搭載はここで一元化（applyArtifacts）。
 
 import { uploadTex2D } from './utility.ts';
-import { bakeBase, bakeTier, tierPlan } from '../../gint/bake.ts';
+import { bakeBase, bakeTier, tierPlan, tierFlag } from '../../gint/bake.ts';
 import type { BakeBaseResult, BakedTier, GintData } from '../../gint/bake.ts';
 import type { ArcBuffer, WeightHist } from '../../gint/utility.ts';
 import type { GintGLState, GLTier } from './state.ts';
@@ -158,7 +158,7 @@ export function scheduleTierBuild(s: GintGLState, { weightHist = null }: { weigh
 	const { gl, gintData } = s;
 	const ab = gintData?.arcBuffer;
 	const gen = s.tierGen = (s.tierGen ?? 0) + 1;   // 差し替え/クリア/context復元/再スケジュールで旧スケジュールを無効化
-	if (!ab?.length || s.totalEdges <= 200_000) { s.tiersDone = true; return; }
+	if (!ab?.length || s.totalEdges <= tierFlag.minEdges) { s.tiersDone = true; return; }
 	let plan: number[] | null = null;
 	const buildPlan = (): number[] => {
 		const have = new Set((s.lodTiers ?? []).map(t => t.minW));   // 途中再開＝既存の段は作らない
