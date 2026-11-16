@@ -7,8 +7,9 @@
 // 実データ（nps/coast）は tests/data/ にあれば追加検証（無ければ合成のみ＝CI向き決定的）。
 // 使い方: node packages/ortho-core/tests/gint-bake.mjs
 
-import { bakeBase, bakeTier, tierPlan, tierFlag, CHUNK_EDGES } from '../src/gint/bake.ts';
+import { bakeBase, bakeTier, tierPlan, tierFlag, TIER_MIN_DEFAULT, CHUNK_EDGES } from '../src/gint/bake.ts';
 let smallTiers = 0;
+if (TIER_MIN_DEFAULT !== 20_000 || tierFlag.minEdges !== TIER_MIN_DEFAULT) { console.log('✗ tier の下限の既定が 2 万でない'); process.exit(1); }
 import { buildEdgeMeta, buildBoundaryEdgeMeta, normalizeRingOrientation,
          buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from '../src/gint/utility.ts';
 import { readFileSync, existsSync } from 'node:fs';
@@ -100,12 +101,13 @@ function verify(label, mkA, mkB, arcU32ForHist) {
 	}
 	// ?ginttier（tierFlag.minEdges）＝下限を下げると小さい層にも段が立つ。既定（20 万辺以下）では立てない・立つ段は基準の 0.7 以下で hist と一致
 	if (art.base.edgeCount <= 200_000) {
-		ok(tierPlan(gA, art.base.edgeCount, null).length === 0, `既定＝小さい層（${art.base.edgeCount} 辺）は段なし`);
+		tierFlag.minEdges = 200_000;
+		ok(tierPlan(gA, art.base.edgeCount, null).length === 0, `下限 20 万（旧来）＝小さい層（${art.base.edgeCount} 辺）は段なし`);
 		tierFlag.minEdges = 0;
 		const small = tierPlan(gA, art.base.edgeCount, null);
 		smallTiers += small.length;
 		for (const w of small) { const t = bakeTier(gA, w, art.polyBboxByFid); ok(t.edgeCount === hist[w] - nUsages && t.edgeCount <= art.base.edgeCount * 0.7, `ginttier w${w}: ${t.edgeCount} 辺 ≤ 0.7×${art.base.edgeCount}`); }
-		tierFlag.minEdges = 200_000;
+		tierFlag.minEdges = TIER_MIN_DEFAULT;
 	}
 
 	// 冪等性：もう一度 bakeBase しても polyStream / base が不変（_ringsNormalized フラグ＋正規化の冪等）

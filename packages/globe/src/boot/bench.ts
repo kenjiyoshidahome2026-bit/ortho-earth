@@ -19,7 +19,7 @@ export const BENCH_VARIANTS: ReadonlyArray<readonly [string, string]> = [
 	["no 3D city mesh", "paz=30"],
 	["no labels", "nolab=1"],
 	["no coast/border layer", "nogint=1"],
-	["coast/border: coarse line sets for small layers too", "ginttier=20000"],
+	["coast/border: coarse line sets only for layers over 200k edges (old default)", "ginttier=200000"],
 	["resolution 0.4", "res=0.4"],
 	["resolution 1.0", "res=1"],
 	["no MSAA", "msaa=0"],
@@ -31,8 +31,7 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 		["no coast/border layer", "nogint=1"],
 		["coast/border: pass kept, lines not drawn", "gintdbg=nolines"],
 		["coast/border: lines without terrain depth and heights", "gintdbg=nodepth"],
-		["coast/border: coarse line sets", "ginttier=20000"],
-		["coast/border: coarse line sets, no terrain depth", "ginttier=20000&gintdbg=nodepth"],
+		["coast/border: coarse line sets only for layers over 200k edges (old default)", "ginttier=200000"],
 	],
 };
 /** 外から来た文字（URL・保存した状態）→ 組の名。表にある名だけを、表の側の文字で返す（外の文字を URL や添字へそのまま流さない） */
@@ -99,7 +98,7 @@ export function benchTable(st: BenchState): string {
 	// 海岸線・国境の層が回している間に描いた辺（変種ごとに 1 行・既定と同じ行は省く）
 	const glOf = (v: number) => of(v).map(r => r.gl).filter(Boolean).pop() || "", gl0 = glOf(0);
 	if (gl0) {
-		out.push("", "coast/border layers while spinning (layer:edges drawn/edges held, t = line set used (-1 all edges, -2 shared boundaries), r = detail level asked, n = coarse sets held):", `default: ${gl0}`);
+		out.push("", "coast/border layers while spinning (layer:edges sent to the GPU/edges held, k = edges that survive the detail level over the whole layer, t = line set used (-1 all edges, -2 shared boundaries), r = detail level asked, n = coarse sets held):", `default: ${gl0}`);
 		VS.forEach(([name], v) => { const g = v ? glOf(v) : ""; if (g && g !== gl0) out.push(`${name}: ${g}`); });
 	}
 	out.push("", "ms/draw comes from repeated draws of one frame: it counts what every draw repeats, and leaves out work done once per frame (ground texture refresh, uploads). The 1 draw/frame columns are the plain page: fps is capped by the screen refresh, the gpu times are not.", "lower ms/draw = lighter. failed = the page did not finish that variant in two tries (crash, reload or no frames).", `total ${((Date.now() - st.t0) / 60000).toFixed(1)} min`);

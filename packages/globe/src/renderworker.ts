@@ -80,7 +80,7 @@ interface RenderBackendGPU extends RenderBackend {
 	boot?: { adapterMs: number; deviceMs: number; initMs: number };
 }
 /** gint.stats() の計器 */
-interface GintStats { drawn: number; fbo: number; pickMs: number; rank: number; tierW: number; edges: number; tiers: number; tiersDone: boolean; total: number; runs?: number; chunks?: number; subs?: number; vb?: number[] | null }
+interface GintStats { drawn: number; fbo: number; pickMs: number; rank: number; tierW: number; edges: number; tiers: number; tiersDone: boolean; total: number; runs?: number; chunks?: number; subs?: number; kept?: number; vb?: number[] | null }
 /** gint の層の口（既定層と addLayer の層に共通＝set の cmd が層を指名して呼ぶ） */
 interface GintLayerOps {
 	set(data: unknown, prop?: unknown): void; setSlot(slot: unknown): void; setBaked(data: unknown, prop?: unknown): void;
@@ -90,7 +90,7 @@ interface GintLayerOps {
 	setVisible(v: unknown): void; activate?(): void; setOrder?(n: unknown): void;
 }
 /** addLayer の層（共通の口＋外す） */
-type GintLayerEngine = GintLayerOps & { remove(): void; stats?(): { edges: number; total: number; tierW: number; tiers: number; subs?: number; rank?: number } };
+type GintLayerEngine = GintLayerOps & { remove(): void; stats?(): { edges: number; total: number; tierW: number; tiers: number; subs?: number; rank?: number; kept?: number } };
 /** gint の描き手（ortho-core の createGintLayer／createGintLayerGPU の戻り＝既定層） */
 interface GintEngine extends GintLayerOps {
 	draw(cam: CameraPose, ctx: unknown, repeat?: boolean): void;
@@ -281,8 +281,8 @@ let gint: GintEngine | null = null;   // gint（知性の層＝海岸線/14条�
 const gintLs = new Map<string | null | undefined, GintLayerEngine>();   // 追加層のレジストリ（layer id → addLayer ハンドル）。既定層＝gint（facade）
 const gTgt = (m: RwMsg) => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
 (self as RwSelf).__gintStats = () => gint?.stats?.() ?? null;
-// 層ごとの線の実測（HUD の mem・?bench の表）＝「層:描いた辺/全辺 tN rN」（t＝使った束の下限重み・-1＝全辺・-2＝境界・r＝今の LOD 重み）。描いていない層は出さない
-const gintLayerLine = (): string => [[null, gint] as const, ...gintLs].map(([id, h]) => { const s = h?.stats?.(); return s && s.edges > 0 ? `${id ?? "main"}:${s.edges}/${s.total} t${s.tierW} r${Math.round(s.rank ?? -1)}${s.tiers ? ` n${s.tiers}` : ""}${s.subs ? ` s${s.subs}` : ""}` : ""; }).filter(Boolean).join(", ");   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
+// 層ごとの線の実測（HUD の mem・?bench の表）＝「層:描いた辺/全辺 kN tN rN」（k＝今の LOD 重みで残る辺の数＝層の全域・t＝使った束の下限重み・-1＝全辺・-2＝境界・r＝今の LOD 重み）。描いていない層は出さない
+const gintLayerLine = (): string => [[null, gint] as const, ...gintLs].map(([id, h]) => { const s = h?.stats?.(); return s && s.edges > 0 ? `${id ?? "main"}:${s.edges}/${s.total}${s.kept! >= 0 ? ` k${s.kept}` : ""} t${s.tierW} r${Math.round(s.rank ?? -1)}${s.tiers ? ` n${s.tiers}` : ""}${s.subs ? ` s${s.subs}` : ""}` : ""; }).filter(Boolean).join(", ");   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
 let clipPlT: ClipPlane[] | null = null;   // 断面の面（地面＝terrain）：地球の陰で隠す時、その陰の所の地面が切られていれば隠さない（Cesium の cartographicLimitRectangle の奥の線）
 let clipPlW: ClipPlane[] | null = null, clipPlL: ClipPlane[] | null = null, ovPl: ClipPlane[] | null = null;   // 断面の面（#111）＝vector（同一フレームのオーバーレイ）・labels（注記と記号・集約のオーバーレイ）・ovPl＝今呼んでいるオーバーレイの面（レンダラは自前で持つ）
 let terrain: RwTerrain | null = null, pendingLabels: Label2D[] | null = null;
