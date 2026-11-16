@@ -192,6 +192,13 @@ function mountNamePicker(map: { setLayoutProperty(id: string, name: string, valu
 			const z = Math.log2(0.7 * Math.min(el.clientWidth * 360 / dlon, el.clientHeight * 170 / Math.max(0.01, n - s)) / 256);
 			map.flyTo(((w + dlon / 2 + 540) % 360) - 180, (s + n) / 2, Math.max(2, Math.min(15, z)));
 			showCard(false);
+			// 見せた範囲の矩形（本人 2026-11-16「show area で読み込んでいる矩形を表示」）：次の Show で差し替え。日付変更線またぎは経度を w から続ける
+			try {
+				if (map.getLayer("shown-area")) { map.removeLayer("shown-area"); map.removeSource("shown-area"); }
+				const x1 = w + dlon, ring = [[w, s], [x1, s], [x1, n], [w, n], [w, s]];
+				map.addSource("shown-area", { type: "geojson", data: { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ring } }] } });
+				map.addLayer({ id: "shown-area", type: "line", source: "shown-area", paint: { "line-color": "#1a73e8", "line-width": 2.5, "line-opacity": 0.9 } });
+			} catch (err) { console.warn("[unmap] area outline failed", err); }
 		};
 		window.__map = map;   // console 検証用
 		const showGpu = () => { rows.gpu = `Renderer: <b>${map.backend ?? "…"}</b>`; paint(); };
