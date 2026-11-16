@@ -92,7 +92,7 @@ interface GintLayerOps {
 type GintLayerEngine = GintLayerOps & { remove(): void };
 /** gint の描き手（ortho-core の createGintLayer／createGintLayerGPU の戻り＝既定層） */
 interface GintEngine extends GintLayerOps {
-	draw(cam: CameraPose, ctx: unknown): void;
+	draw(cam: CameraPose, ctx: unknown, repeat?: boolean): void;
 	stats(): GintStats;
 	addLayer?(o: { id: string; order: number | null }): GintLayerEngine;
 	drawn(): void; move(m: unknown): void; leave(): void; click(): void; dispose(): void;
@@ -516,7 +516,9 @@ const dispatch = (e: { data: RwMsg }) => {
 			if (m.meshShedMs! > 0) SHED_MS = m.meshShedMs!;
 			if (m.resMin! > 0 && m.resMin! < RES_STEPS[RES_STEPS.length - 1]) RES_STEPS.push(m.resMin!);   // ?resmin=0.4＝動的解像度の梯子に床の段を足す（塗りが床の端末の切り分け・2026-11-08 Mali-G615：メッシュの 40 ms は画素の塗り）
 			if (typeof m.resFix === "number" && m.resFix > 0) {   // ?res=0.7 等＝動的解像度をその段に固定（実機で「解像度を下げれば滑らかか」を切り分ける計器）
-				let bi = 0; RES_STEPS.forEach((v, i) => { if (Math.abs(v - m.resFix!) < Math.abs(RES_STEPS[bi] - m.resFix!)) bi = i; });
+				const want = Math.max(0.25, Math.min(1, m.resFix));
+				if (!RES_STEPS.some(v => Math.abs(v - want) < 0.01)) RES_STEPS.push(want);   // 梯子に無い値（?res=0.4）は段として足す＝旧＝一番近い段へ丸めて 0.7 になり、?bench の「resolution 0.4」が既定と同じ絵を測っていた（2026-11-16）
+				let bi = 0; RES_STEPS.forEach((v, i) => { if (Math.abs(v - want) < Math.abs(RES_STEPS[bi] - want)) bi = i; });
 				resIdx = bi; resFixed = true; scheduleRes();
 			}
 			stayProbe = m.stay ? 1 : 0;
@@ -1277,7 +1279,7 @@ function frame() {
 				catch (e) { depthOff(e); }
 			}
 			let dBegun = false;
-			for (let k = 1; k < drawX; k++) { renderer!.draw(glCam, dOpts); if (gint) gint.draw(glCam, renderer!.gintCtx()); renderer!.flush?.(); }   // ?bench の負荷倍率＝余分の絵（同じカメラ・同じ絵＝最後の 1 回が画面に残る）
+			for (let k = 1; k < drawX; k++) { renderer!.draw(glCam, dOpts); if (gint) gint.draw(glCam, renderer!.gintCtx(), true); renderer!.flush?.(); }   // ?bench の負荷倍率＝余分の絵（同じカメラ・同じ絵＝最後の 1 回が画面に残る）
 			if (dOutH) { try { dBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
 			// 注記（T-P2）＝層の位置に描く字がある時は地図より先に描く（地図のパスがその字を層の間で draw する）・無ければ今までどおり地図の後
 			let animating: boolean | null = null;

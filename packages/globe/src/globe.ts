@@ -2708,7 +2708,7 @@ if (hudOn) import("./gadgets/hud.ts").then(({ hud }) => {
 if (benchOn) import("./boot/bench.ts").then(({ runBench }) => runBench({
 	host: mapEl, jumpTo: o => { map.jumpTo(o); }, bearing: () => map.getBearing(), onIdle: cb => { map.on("idle", cb); },
 	drawX: n => { wPost({ type: "set", cmd: "drawX", data: n }); requestDraw(); },
-	perf: () => ({ frames: memFrames, at: memAt, cpu: memCpu?.total ?? 0, gpuMap: memGpuMap, res: memRes, shed: memShed, backend: (dbgHost.__backend as string | undefined) || memBackend || "", gpu: memGpuName || "" }),
+	perf: () => ({ frames: memFrames, at: memAt, cpu: memCpu?.total ?? 0, gpuMap: memGpuMap, gpuGint: memGpuGint, res: memRes, shed: memShed, backend: (dbgHost.__backend as string | undefined) || memBackend || "", gpu: memGpuName || "" }),
 	tier: LOW_MEM ? "low-mem" : MID_TIER ? "mid" : HI_TIER ? "hi" : "normal",
 })).catch(e => console.error("[bench] failed to load module", e));
 // 初期 overlay なし（全球 land は検証用。__loadOverlay(name) で任意に。__tokyo() は日本の install が生やす）
