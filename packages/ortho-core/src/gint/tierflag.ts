@@ -10,3 +10,7 @@ export const gintDbg = { noLines: false, noDepth: false, noFrag: false };   // n
 /** 動かしている間だけ LOD の重みを N 段だけ粗くする（?gintlodmove=N・0＝しない・3 段で 1px の許容が 2px）。止まれば元の細かさへ描き直す。
  *  2026-11-16 Galaxy：層の重さ ≈ 35 ns×流した辺 + 150 ns×残った辺＝残る辺を減らすのが効く */
 export const gintLod = { moveBias: 0 };
+/** 地球の裏側の辺を頂点シェーダで捨てる（?gintback=1・既定は切）。両端とも地平線の向こう（zr < -0.02）の辺は、画素シェーダが必ず透明にする
+ *  （地平線のぼかし窓は最大 0.02・その半分より奥は alpha 0）＝絵は 1 画素も変わらない。捨てなければ三角形は画面に乗り、画素ごとに計算してから捨てている。
+ *  2026-11-16 Galaxy：線の層 約 3.3 ms のうち画素が約 2.3 ms＝世界図の眺めでは残る辺のおよそ半分が裏側 */
+export const gintCull = { back: false };

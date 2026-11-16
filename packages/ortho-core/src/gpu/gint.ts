@@ -25,11 +25,11 @@ import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS,
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
 import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns, buildWeightHist } from "../gint/utility.ts";
 import { bakeBase, bakeTier, tierPlan, tierFlag, gintDataOf } from "../gint/bake.ts";
-import { gintDbg, gintLod } from "../gint/tierflag.ts";
+import { gintDbg, gintLod, gintCull } from "../gint/tierflag.ts";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.ts";
 import { clipDistanceM, clipPolygonDistanceM, CLIP_POLY_MAX } from "../clip.ts";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
-import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, withLayerH, quad6WGSL,
+import { GINT_LINE_WGSL, lineBackCull, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, withLayerH, quad6WGSL,
 	GINT_LINE_CLIP_WGSL, GINT_STENCIL_CLIP_WGSL, GINT_POINT_CLIP_WGSL, GINT_IDRESOLVE_CLIP_WGSL } from "./gintwgsl.ts";
 import { createFidExprRunner } from "./gintexprgpu.ts";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 import type { GintSlot } from "../gint/state.ts";
@@ -216,7 +216,9 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	const QW = quad4 ? (c: string) => withLayerH(c, LH) : (c: string) => withLayerH(quad6WGSL(c), LH);
 	const NOFRAG_FROM = "o.pos = vec4f(nd.xy, zc, 1.0);\n\to.frag = qpos;", NOFRAG_TO = "o.pos = vec4f(nd.xy * 1e-6 + vec2f(2.0, 0.0), zc, 1.0);\n\to.frag = qpos;";   // ?gintdbg=nofrag（診断）
 	if (gintDbg.noFrag && !GINT_LINE_WGSL.includes(NOFRAG_FROM)) console.warn("[gint] gintdbg=nofrag: line shader text changed, knob has no effect");
-	const LINE_SRC = QW(gintDbg.noFrag ? GINT_LINE_WGSL.replace(NOFRAG_FROM, NOFRAG_TO) : GINT_LINE_WGSL), POINT_SRC = QW(GINT_POINT_WGSL), STENCIL_SRC = withLayerH(GINT_STENCIL_WGSL, LH);
+	const LINE_BASE = gintCull.back ? lineBackCull(GINT_LINE_WGSL) : GINT_LINE_WGSL;   // ?gintback=1
+	if (gintCull.back && LINE_BASE === GINT_LINE_WGSL) console.warn("[gint] gintback=1: line shader text changed, knob has no effect");
+	const LINE_SRC = QW(gintDbg.noFrag ? LINE_BASE.replace(NOFRAG_FROM, NOFRAG_TO) : LINE_BASE), POINT_SRC = QW(GINT_POINT_WGSL), STENCIL_SRC = withLayerH(GINT_STENCIL_WGSL, LH);
 	const lineMod = mkMod(LINE_SRC, "line");
 	const stencilMod = mkMod(STENCIL_SRC, "stencil");
 	const pointMod = mkMod(POINT_SRC, "point");
