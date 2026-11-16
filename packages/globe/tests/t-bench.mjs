@@ -39,3 +39,12 @@ const t1 = benchTable({ base, rounds: 2, i: 0, tries: 0, t0: Date.now(), head: "
 assert.match(t1.split("\n").find(l => l.startsWith(BENCH_VARIANTS[0][0])), /\| 31\.0 · 13\.0 · 3\.0 \|/);
 assert.match(t1.split("\n").find(l => l.startsWith(BENCH_VARIANTS[1][0])), /\| - · - · - \|/);
 console.log("t-bench OK");
+// 線の層の実測＝既定を 1 行・既定と違う変種だけ足す。無い時は節ごと出さない
+const iTier = BENCH_VARIANTS.findIndex(v => v[1].startsWith("ginttier="));
+assert.ok(iTier > 0);
+const t2 = benchTable({ base, rounds: 1, i: 0, tries: 0, t0: Date.now(), head: "H", x: 5, runs: [run(0, 0, 10, { gl: "a0:90000/100000 t-1 r20" }), run(1, 0, 10, { gl: "a0:90000/100000 t-1 r20" }), run(iTier, 0, 10, { gl: "a0:9000/100000 t20 r20 n5" })] });
+assert.ok(t2.includes("default: a0:90000/100000 t-1 r20"));
+assert.ok(t2.includes(`${BENCH_VARIANTS[iTier][0]}: a0:9000/100000 t20 r20 n5`));
+assert.ok(!t2.includes(`${BENCH_VARIANTS[1][0]}: a0`));
+assert.ok(!t.includes("coast/border layers while spinning"));
+

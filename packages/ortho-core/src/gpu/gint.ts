@@ -24,7 +24,7 @@ import { rzWgsl } from "./wgsl.ts";
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.ts";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
 import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns } from "../gint/utility.ts";
-import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gint/bake.ts";
+import { bakeBase, bakeTier, tierPlan, tierFlag, gintDataOf } from "../gint/bake.ts";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.ts";
 import { clipDistanceM, clipPolygonDistanceM, CLIP_POLY_MAX } from "../clip.ts";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
@@ -507,7 +507,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		const { gintData } = L;
 		const ab = gintData?.arcBuffer;
 		const gen = L.tierGen = (L.tierGen ?? 0) + 1;
-		if (!ab?.length || L.totalEdges <= 200_000) { L.tiersDone = true; return; }
+		if (!ab?.length || L.totalEdges <= tierFlag.minEdges) { L.tiersDone = true; return; }
 		let plan: number[] | null = null;
 		const buildPlan = () => {
 			const have = new Set((L.lodTiers ?? []).map(t => t.minW));

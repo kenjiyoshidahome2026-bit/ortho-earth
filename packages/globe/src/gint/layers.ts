@@ -747,6 +747,7 @@ function ensureBakeWorker(): Worker | false {
 const cancelBake = (key: string) => { for (const p of bakePending.values()) if (p.key === key) p.cancelled = true; };
 // raw（unPackGint 一式）を焼いて key スロットへ搭載。onDone は「render worker に届いた」後の再調停用。
 // clone は bake worker への1回だけ（main の原本は identify の properties 参照用に生存）。
+const GINT_TIER_MIN = +(/[?&]ginttier=(\d+)/.exec(location.search)?.[1] ?? 0);   // ?ginttier=N＝tier を焼く層の下限（0＝既定 20 万辺・ortho-core gint/tierflag.ts）
 function bakeAndSend(key: string, raw: GintPayload, meta: Record<string, unknown>, onDone: (() => void) | null, layer: string | null = null) {
 	const w = ensureBakeWorker();
 	const p = { key, raw, meta, onDone, cancelled: false, layer };
@@ -755,7 +756,7 @@ function bakeAndSend(key: string, raw: GintPayload, meta: Record<string, unknown
 	bakePending.set(id, p);
 	w.postMessage({ id, data: {
 		arcBuffer: raw.arcBuffer, arcMeta: raw.arcMeta, polyStream: raw.polyStream, lineStream: raw.lineStream,
-		pointBuffer: raw.pointBuffer, point: raw.point, fillMaxEdges: raw.fillMaxEdges, lowFill: raw.lowFill } });   // polyCompBbox は読み手が無い＝運ばない（geopbf 1.19 で遅延生成になった台帳を main で組ませない）
+		pointBuffer: raw.pointBuffer, point: raw.point, fillMaxEdges: raw.fillMaxEdges, lowFill: raw.lowFill }, tierMin: GINT_TIER_MIN });   // polyCompBbox は読み手が無い＝運ばない（geopbf 1.19 で遅延生成になった台帳を main で組ませない）
 }
 // 海岸線のベイク発火（初回ロード後と、LOW_MEM で束を破棄した後の再入の両方から）。
 // ユーザー層のベイク発火（applyGintData の初回と、LOW_MEM で束を破棄した後の再入の両方から）。

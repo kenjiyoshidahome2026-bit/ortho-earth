@@ -25,6 +25,7 @@
 		"./gl": "./src/gl/backend.ts",
 		"./gpupower": "./src/gpupower.ts",
 		"./rangecache-flag": "./src/rangecache-flag.ts",
+		"./ginttier-flag": "./src/gint/tierflag.ts",
 		"./meshcull": "./src/meshcull.ts",
 		"./glyphstore": "./src/gpu/glyphstore.ts",
 		"./labels": "./src/labels2d.ts",

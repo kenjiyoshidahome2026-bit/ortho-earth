@@ -19,6 +19,7 @@ export const BENCH_VARIANTS: ReadonlyArray<readonly [string, string]> = [
 	["no 3D city mesh", "paz=30"],
 	["no labels", "nolab=1"],
 	["no coast/border layer", "nogint=1"],
+	["coast/border: coarse line sets for small layers too", "ginttier=20000"],
 	["resolution 0.4", "res=0.4"],
 	["resolution 1.0", "res=1"],
 	["no MSAA", "msaa=0"],
@@ -26,14 +27,14 @@ export const BENCH_VARIANTS: ReadonlyArray<readonly [string, string]> = [
 /** 全変種に付けるノブ＝解像度を固定（動的解像度が変種ごとに違う段へ動くと比べられない）。変種が同じ名を持てば変種が勝つ */
 export const BENCH_COMMON = "res=0.7";
 /** 1 回の計測 */
-export interface BenchRun { v: number; round: number; fps: number; frames: number; secs: number; cpu: number; res: number; shed: number; idleS: number; failed?: boolean; /** 1 コマ 1 回描き（素の頁）で測った分：コマ数/秒・GPU の実時間（地図の本体／海岸線・国境の層・ms） */ fps1?: number; gm1?: number; gg1?: number }
+export interface BenchRun { v: number; round: number; fps: number; frames: number; secs: number; cpu: number; res: number; shed: number; idleS: number; failed?: boolean; /** 1 コマ 1 回描き（素の頁）で測った分：コマ数/秒・GPU の実時間（地図の本体／海岸線・国境の層・ms） */ fps1?: number; gm1?: number; gg1?: number; /** 回している間に描いた線の層（renderworker gintLayerLine） */ gl?: string }
 /** 読み直しをまたぐ状態 */
 export interface BenchState { base: string; rounds: number; i: number; tries: number; runs: BenchRun[]; t0: number; done?: boolean; head?: string; x?: number }   // x＝1 コマに描く回数（最初の変種で決めて全変種に使う）
 /** 頁（globe.ts）が渡す口 */
 export interface BenchHost {
 	host: HTMLElement; jumpTo(o: { bearing: number }): void; bearing(): number; onIdle(cb: () => void): void;
 	drawX(n: number): void;
-	perf(): { frames: number; at: number; cpu: number; gpuMap: number; gpuGint: number; res: number; shed: number; backend: string; gpu: string };
+	perf(): { frames: number; at: number; cpu: number; gpuMap: number; gpuGint: number; gintL?: string; res: number; shed: number; backend: string; gpu: string };
 	tier: string;
 }
 
@@ -76,6 +77,12 @@ export function benchTable(st: BenchState): string {
 			ok.length && base > 0 ? `${med - base >= 0 ? "+" : "−"}${Math.abs(med - base).toFixed(1)} ms (×${(med / base).toFixed(2)})` : "-", `${f1(ok.map(r => r.fps1))} · ${f1(ok.map(r => r.gm1))} · ${f1(ok.map(r => r.gg1))}`, ok.length ? median(ok.map(r => r.cpu)).toFixed(1) : "-",
 			ok.map(r => r.res.toFixed(2)).join("/") || "-", ok.map(r => r.shed).join("/") || "-", ok.map(r => r.idleS.toFixed(0)).join("/") || "-"].join(" | "));
 	});
+	// 海岸線・国境の層が回している間に描いた辺（変種ごとに 1 行・既定と同じ行は省く）
+	const glOf = (v: number) => of(v).map(r => r.gl).filter(Boolean).pop() || "", gl0 = glOf(0);
+	if (gl0) {
+		out.push("", "coast/border layers while spinning (layer:edges drawn/edges held, t = line set used (-1 all edges, -2 shared boundaries), r = detail level asked, n = coarse sets held):", `default: ${gl0}`);
+		BENCH_VARIANTS.forEach(([name], v) => { const g = v ? glOf(v) : ""; if (g && g !== gl0) out.push(`${name}: ${g}`); });
+	}
 	out.push("", "ms/draw comes from repeated draws of one frame: it counts what every draw repeats, and leaves out work done once per frame (ground texture refresh, uploads). The 1 draw/frame columns are the plain page: fps is capped by the screen refresh, the gpu times are not.", "lower ms/draw = lighter. failed = the page did not finish that variant in two tries (crash, reload or no frames).", `total ${((Date.now() - st.t0) / 60000).toFixed(1)} min`);
 	return out.join("\n");
 }
@@ -177,6 +184,7 @@ export function runBench(h: BenchHost): void {
 		h.drawX(1);
 		say(`${tag}\nmeasuring (1 draw per frame)…`);
 		const one = await measure(ONE_S, 1);
+		const gl = h.perf().gintL || "";   // 回している間に描いた線の層（辺の数・使った束）
 		h.drawX(st!.x);
 		say(`${tag}\nmeasuring (×${st!.x} draws per frame)…`);
 		const { gm: _gm, gg: _gg, ...r } = await measure(SPIN_S, SKIP_S);
@@ -184,7 +192,7 @@ export function runBench(h: BenchHost): void {
 		const p = h.perf();
 		if (!st!.head) st!.head = `bench ${new Date().toISOString()} · ${navigator.userAgent.replace(/^Mozilla\/5\.0 /, "")} · RAM ${(navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? "?"} GB · cores ${navigator.hardwareConcurrency || "?"} · ${innerWidth}x${innerHeight}@${devicePixelRatio} · ${p.backend || "?"} · ${p.gpu || "?"} · tier ${h.tier}`;
 		if (r.secs < 2) { location.reload(); return; }   // 標本が着かない＝やり直し（2 回目で failed）
-		st!.runs.push({ v, round, ...r, idleS, fps1: one.fps, gm1: one.gm, gg1: one.gg });
+		st!.runs.push({ v, round, ...r, idleS, fps1: one.fps, gm1: one.gm, gg1: one.gg, gl: gl || undefined });
 		next();
 	})().catch(e => { console.error("[bench]", e); say(`${tag}\nerror: ${String(e)}`); });
 }

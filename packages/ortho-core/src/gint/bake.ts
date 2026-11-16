@@ -10,6 +10,7 @@
 //   comp:     { keys, w, h } | null（ポリゴン辺→塗り扇の鍵。多片地物（1 地物に複数の構成ポリゴン）がある層だけ・無い層は null＝従来どおり fid）
 // tier は bakeTier() で1段ずつ（遅延構築・progressive 送信の単位に合わせる）。
 
+import { tierFlag } from './tierflag.ts';
 import { buildEdgeMeta, buildBoundaryEdgeMeta, normalizeRingOrientation,
          buildPolyBboxByFid, buildPolyCompBbox, deriveOutlineZoom, buildWeightHist } from './utility.ts';
 import type { ArcBuffer, EdgeMeta, BoundaryEdgeMeta, EdgeChunk, WeightHist } from './utility.ts';
@@ -39,6 +40,7 @@ const TIER_COUNT = 9;   // 梯子の最大段数（旧固定表と同数＝構�
 // pickLineTier の過負荷フォールバックは finest×1.5 を閾に基準メタへ倒れる＝finest がこの上限近くにあれば
 // 近接ズームは自然に基準メタ＋カリングで正しく描かれる。
 const TIER_MAX_EDGES = 600_000;
+export { tierFlag };   // tier を焼く層の下限（./tierflag.ts・?ginttier=N）
 // 空間カリング用チャンク粒度（旧65536は筆層でカリングがほぼ効かなかった＝16384で可視1-3チャンクへ）。
 export const CHUNK_EDGES = 16384;
 
@@ -163,7 +165,7 @@ export function bakeBase(gintData: GintData): BakeBaseResult {
 //（scheduleTierBuild は関連度優先、bakeworker は粗い側から）。
 export function tierPlan(gintData: GintData, totalEdges: number, weightHist: WeightHist | null = null, have: Set<number> | null = null): number[] {
 	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
-	if (!ab?.length || totalEdges <= 200_000) return [];
+	if (!ab?.length || totalEdges <= tierFlag.minEdges) return [];
 	const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
 	const { hist, nUsages } = weightHist ?? buildWeightHist(am!, ps, ls, arcU32);
 	const cap = gintData._capMinW ?? 0;
