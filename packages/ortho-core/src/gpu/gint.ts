@@ -25,6 +25,7 @@ import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS,
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
 import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns } from "../gint/utility.ts";
 import { bakeBase, bakeTier, tierPlan, tierFlag, gintDataOf } from "../gint/bake.ts";
+import { gintDbg } from "../gint/tierflag.ts";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.ts";
 import { clipDistanceM, clipPolygonDistanceM, CLIP_POLY_MAX } from "../clip.ts";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
@@ -903,7 +904,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		if (L.totalEdges === 0 && L.totalPoints === 0) { L.lastDrawData = null; L._pfLineEdges = 0; L._pfTierW = -1; return; }
 		L._budgetSkipped = false;
 		const drawData = computeDrawData(V, data) as GintDraw;
-		if (ctx && ctx.terrainDepth && !data.noDepth) drawData.depth = ctx;   // noDepth＝地形深度に参加しない（admin0 世界図＝gl/embed.js と同型）
+		if (ctx && ctx.terrainDepth && !data.noDepth && !gintDbg.noDepth) drawData.depth = ctx;   // noDepth＝地形深度に参加しない（admin0 世界図＝gl/embed.js と同型）
 		if (ctx && ctx.facesInAtlas) drawData.noFaces = true;   // 面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 
 		if (L.visible) renderScene(L, drawData, fr, ctx);
@@ -1031,7 +1032,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		}
 		if (idFill) pass.setBindGroup(3, aux);   // idResolve は別レイアウト＝bind group がリセットされる＝後続の線/点用に group3(aux) を張り直す
 		// ── 線（tier＋可視 run。深度統合時はテストのみ→GREATER 隠線）──
-		if (lnSel) {
+		if (lnSel && !gintDbg.noLines) {   // ?gintdbg=nolines＝pass だけ張る（診断）
 			pass.setBindGroup(0, L.frameBG[lnSel.boundary ? GF_LINE_B : GF_LINE]);
 			pass.setBindGroup(2, texBG(L.sbOn, L.arcTex, lnSel.tex));
 			pass.setPipeline(dep ? P.lineTest : P.line);

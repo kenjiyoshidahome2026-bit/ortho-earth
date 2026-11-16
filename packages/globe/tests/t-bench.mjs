@@ -1,6 +1,6 @@
 // ?bench（boot/bench.ts）の純関数の検定＝URL の組み立て・順番・表。node packages/globe/tests/t-bench.mjs
 import assert from "node:assert/strict";
-import { BENCH_VARIANTS, BENCH_COMMON, benchBase, benchUrl, benchStep, benchTable, benchX } from "../src/boot/bench.ts";
+import { BENCH_VARIANTS, BENCH_SETS, BENCH_COMMON, benchVariants, benchSetName, benchBase, benchUrl, benchStep, benchTable, benchX } from "../src/boot/bench.ts";
 
 const href = "https://example.test/japan/?hud=1&bench=2&lineelev=1#17.8/35.8/139.7/74t";
 const base = benchBase(href);
@@ -47,4 +47,19 @@ assert.ok(t2.includes("default: a0:90000/100000 t-1 r20"));
 assert.ok(t2.includes(`${BENCH_VARIANTS[iTier][0]}: a0:9000/100000 t20 r20 n5`));
 assert.ok(!t2.includes(`${BENCH_VARIANTS[1][0]}: a0`));
 assert.ok(!t.includes("coast/border layers while spinning"));
-
+// 短い組（?benchset=gint）＝URL に組の名が残る・順番と表はその組の変種・知らない名は全部の表
+const G = BENCH_SETS.gint;
+assert.equal(G[0][1], "");
+for (const [name, knobs] of G) { assert.ok(name); for (const kv of knobs.split("&")) if (kv) assert.match(kv, /^[a-z]+=[\w.]+$/); }
+const uG = new URL(benchUrl(base, 2, 2, "gint"));
+assert.equal(uG.searchParams.get("benchset"), "gint");
+assert.equal(uG.searchParams.get(G[2][1].split("=")[0]), G[2][1].split("=")[1]);
+const bG = new URL(benchBase(uG.toString()));   // 素の URL へ戻す時は bench と benchset だけ外す
+assert.ok(!bG.searchParams.has("bench") && !bG.searchParams.has("benchset") && bG.searchParams.get("lineelev") === "1" && bG.searchParams.get("res") === "0.7");
+assert.deepEqual(benchStep(G.length + 1, "gint"), { v: 1, round: 1 });
+assert.equal(benchVariants("nope"), BENCH_VARIANTS);
+assert.ok(!new URL(benchUrl(base, 0, 2, "nope")).searchParams.has("benchset"));
+const t3 = benchTable({ base, rounds: 1, i: 0, tries: 0, t0: Date.now(), head: "H", x: 5, set: "gint", runs: [run(0, 0, 10), run(2, 0, 20)] });
+assert.ok(t3.includes("variant set: gint"));
+assert.ok(t3.split("\n").some(l => l.startsWith(`${G[2][0]} (${G[2][1]})`)));
+assert.equal(benchSetName("gint"), "gint"); assert.equal(benchSetName("constructor"), undefined); assert.equal(benchSetName(null), undefined);
