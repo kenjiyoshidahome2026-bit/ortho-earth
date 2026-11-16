@@ -1105,3 +1105,7 @@ export const GINT_IDRESOLVE_CLIP_WGSL = gintClipWGSL(GINT_IDRESOLVE_WGSL, "resol
 // 最初の 1 か所（vsRender）だけ差し込む＝pick の線（vsPickLine）は触らない。目印が無ければ元の文字列を返す
 const BACK_AT = "\to.zr = select(pb3.zr, pa3.zr, useA);\n";
 export const lineBackCull = (src: string): string => src.replace(BACK_AT, BACK_AT + "\tif (pa3.zr < -0.02 && pb3.zr < -0.02) { return o; }\n");
+
+// ?gintdbg=flatfs（診断）：線の画素シェーダの計算（カプセル SDF・fwidth・破線・地平線のぼかし）を飛ばして色をそのまま返す＝画素の重さが「計算」か「塗る面積・合成」かを分ける。絵は変わる（線が太く角ばる）
+const FLATFS_AT = "\tif (in.zr < -0.05) { discard; }\n\tif (in.color.a == 0.0) { discard; }\n";
+export const lineFlatFs = (src: string): string => src.replace(FLATFS_AT, FLATFS_AT + "\tif (in.zr >= -0.05) { return in.color; }\n");

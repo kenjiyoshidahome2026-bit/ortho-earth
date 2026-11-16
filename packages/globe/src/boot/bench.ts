@@ -32,6 +32,7 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 		["coast/border: pass kept, lines not drawn", "gintdbg=nolines"],
 		["coast/border: vertices computed, no pixels drawn", "gintdbg=nofrag"],
 		["coast/border: far-side edges dropped in the vertex stage", "gintback=1"],
+		["coast/border: pixel shader returns the colour at once", "gintdbg=flatfs"],
 	],
 };
 /** 外から来た文字（URL・保存した状態）→ 組の名。表にある名だけを、表の側の文字で返す（外の文字を URL や添字へそのまま流さない） */

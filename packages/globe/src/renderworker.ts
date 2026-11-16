@@ -499,7 +499,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			terrCoarse = m.terrCoarse || 0;
 			rangeCacheFlag.on = m.rangeCache !== false;   // ?tilecache=0
 			if (m.gintTier! > 0) tierFlag.minEdges = m.gintTier!;   // ?ginttier=N
-			gintCull.back = !!m.gintBack; gintDbg.noLines = m.gintDbg === "nolines"; gintDbg.noDepth = m.gintDbg === "nodepth"; gintDbg.noFrag = m.gintDbg === "nofrag"; gintLod.moveBias = m.gintLodMove! > 0 ? Math.min(20, m.gintLodMove!) : 0;   // ?gintdbg=（診断）
+			gintCull.back = !!m.gintBack; gintDbg.noLines = m.gintDbg === "nolines"; gintDbg.noDepth = m.gintDbg === "nodepth"; gintDbg.noFrag = m.gintDbg === "nofrag"; gintDbg.flatFs = m.gintDbg === "flatfs"; gintLod.moveBias = m.gintLodMove! > 0 ? Math.min(20, m.gintLodMove!) : 0;   // ?gintdbg=（診断）
 			setPowerPreference(m.power);   // GPU の選び方（既定 high-performance）＝この worker で作る WebGPU／WebGL も main と同じ希望で
 			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
 			canvas = m.canvas!;                                   // GL/GPU 用 OffscreenCanvas

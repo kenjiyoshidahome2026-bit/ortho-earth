@@ -2,7 +2,7 @@
 // 守るもの：①深度を書くシェーダ全部で対数深度の式が残らない（残ると rzWgsl が投げる）②clip z は定数（near×K）＝頂点で書くだけで正確（frag_depth を足さない）
 // ③球の床・地形の蓋・gint の線・面の貼り付けの「画素で書く深度」は near／w ④読む側は textureLoad を包むだけ＝後ろの式は原本のまま ⑤原本（対数深度）は不変
 import * as W from "../src/gpu/wgsl.ts";
-import { GINT_LINE_WGSL, lineBackCull } from "../src/gpu/gintwgsl.ts";
+import { GINT_LINE_WGSL, lineBackCull, lineFlatFs } from "../src/gpu/gintwgsl.ts";
 
 let fail = 0;
 const ok = (name, cond) => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}`); };
@@ -27,6 +27,8 @@ ok("gint の線＝near／w・深度オフは最前面（1）", gl.includes(`let 
 	const bc = lineBackCull(GINT_LINE_WGSL), cut = "\tif (pa3.zr < -0.02 && pb3.zr < -0.02) { return o; }\n";
 	ok("gintback＝vsRender に 1 か所だけ差し込む", bc.split(cut).length === 2 && bc.replace(cut, "") === GINT_LINE_WGSL && bc.indexOf(cut) < bc.indexOf("fn vsPickLine") && bc.indexOf(cut) > bc.indexOf("fn vsRender"));
 }
+{ const ff = lineFlatFs(GINT_LINE_WGSL), cut = "\tif (in.zr >= -0.05) { return in.color; }\n";
+	ok("flatfs＝fsRender に 1 か所だけ差し込む", ff.split(cut).length === 2 && ff.indexOf(cut) > ff.indexOf("fn fsRender") && ff.indexOf(cut) < ff.indexOf("fn vsPickLine")); }
 const cls = rzWgsl("\tp.z = log1pS(max(p.w, 1e-30)) * 1.4426950 * u.p.x * 0.5 * p.w;\n\tf.d = clamp(log1pS(max(i.w, 1e-30)) * 1.4426950 * u.p.x * 0.5, 0.0, 1.0);", "classify");
 ok("面の貼り付け＝clip z 定数・画素は near／w", cls === `\tp.z = ${N};\n\tf.d = clamp(clamp(${N} / max(i.w, 1e-30), 0.0, 1.0), 0.0, 1.0);`);
 let t = false; try { rzWgsl("let z = log(1.0 + w) * 1.4426950 * k;", "x"); } catch { t = true; }
