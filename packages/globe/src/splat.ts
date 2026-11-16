@@ -15,10 +15,15 @@ const f32 = (v: unknown, name: string, len: number) => {
 	if (v.length !== len) throw new RangeError(`splat: ${name} length ${v.length} != ${len}`);
 	return v;
 };
+/** 点群の物（PointCloudDump＝{ n, anchor, pts: Float32Array, … }・CloudData＝{ anchor, levels: […] }）か＝SplatData の検めを通さず plugin へ渡す。中身の検めは plugin（sdk/splat の isCloudDump・CloudData の検め） */
+export const isCloudObject = (v: unknown): v is CloudObject => !!v && typeof v === "object" && Array.isArray((v as CloudObject).anchor)
+	&& (((v as { pts?: unknown }).pts instanceof Float32Array && typeof (v as { n?: unknown }).n === "number") || Array.isArray((v as { levels?: unknown }).levels));
+type CloudObject = { anchor: number[] } & Record<string, unknown>;
 // 契約を検めて正規化（URL と bytes（ArrayBuffer／Uint8Array＝opts.format が要る・plugin が読む）はそのまま返す）。sh は任意（長さは n の倍数＝次数は plugin が決める）
-export const normSplat = (data: unknown): string | ArrayBuffer | Uint8Array | (SplatData & { n: number; crs: "lnglat" | "ecef" | "local" }) => {
+export const normSplat = (data: unknown): string | ArrayBuffer | Uint8Array | CloudObject | (SplatData & { n: number; crs: "lnglat" | "ecef" | "local" }) => {
 	if (isSplatUrl(data)) return data;
 	if (data instanceof ArrayBuffer || data instanceof Uint8Array) return data;
+	if (isCloudObject(data)) return data;   // 点群の読んだ点（map.readPointCloud の PointCloudDump）・変換済みの段（CloudData）＝plugin（@ortho-earth/splat）の点群の口へそのまま（2026-11-17・頁の図郭が「positions must be a Float32Array」で止まっていた）
 	if (!data || typeof data !== "object") throw new TypeError("splat: data must be SplatData or a .ply/.splat/.spz/.ksplat/.sog URL");
 	const n = (data as SplatIn).n ?? ((data as SplatIn).positions instanceof Float32Array ? (data as SplatIn).positions!.length / 3 : NaN);
 	if (!Number.isInteger(n) || n < 0) throw new RangeError("splat: n must be a non-negative integer");
