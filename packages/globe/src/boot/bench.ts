@@ -24,12 +24,25 @@ export const BENCH_VARIANTS: ReadonlyArray<readonly [string, string]> = [
 	["resolution 1.0", "res=1"],
 	["no MSAA", "msaa=0"],
 ];
+/** 的を絞った短い組（?benchset=名）。gint＝海岸線・国境の層の GPU 時間を分解する（pass そのもの・地形の深度/標高・辺の数） */
+export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string, string]>>> = {
+	gint: [
+		["default", ""],
+		["no coast/border layer", "nogint=1"],
+		["coast/border: pass kept, lines not drawn", "gintdbg=nolines"],
+		["coast/border: lines without terrain depth and heights", "gintdbg=nodepth"],
+		["coast/border: coarse line sets", "ginttier=20000"],
+		["coast/border: coarse line sets, no terrain depth", "ginttier=20000&gintdbg=nodepth"],
+	],
+};
+/** 組の名 → 変種の表（無い名・未指定＝全部の表） */
+export const benchVariants = (set?: string | null): ReadonlyArray<readonly [string, string]> => (set && BENCH_SETS[set]) || BENCH_VARIANTS;
 /** 全変種に付けるノブ＝解像度を固定（動的解像度が変種ごとに違う段へ動くと比べられない）。変種が同じ名を持てば変種が勝つ */
 export const BENCH_COMMON = "res=0.7";
 /** 1 回の計測 */
 export interface BenchRun { v: number; round: number; fps: number; frames: number; secs: number; cpu: number; res: number; shed: number; idleS: number; failed?: boolean; /** 1 コマ 1 回描き（素の頁）で測った分：コマ数/秒・GPU の実時間（地図の本体／海岸線・国境の層・ms） */ fps1?: number; gm1?: number; gg1?: number; /** 回している間に描いた線の層（renderworker gintLayerLine） */ gl?: string }
 /** 読み直しをまたぐ状態 */
-export interface BenchState { base: string; rounds: number; i: number; tries: number; runs: BenchRun[]; t0: number; done?: boolean; head?: string; x?: number }   // x＝1 コマに描く回数（最初の変種で決めて全変種に使う）
+export interface BenchState { base: string; rounds: number; i: number; tries: number; runs: BenchRun[]; t0: number; done?: boolean; head?: string; x?: number; /** 変種の組（BENCH_SETS の名・無し＝全部） */ set?: string }   // x＝1 コマに描く回数（最初の変種で決めて全変種に使う）
 /** 頁（globe.ts）が渡す口 */
 export interface BenchHost {
 	host: HTMLElement; jumpTo(o: { bearing: number }): void; bearing(): number; onIdle(cb: () => void): void;
@@ -44,21 +57,22 @@ const PRE_S = 3, SPIN_S = 8, SKIP_S = 2, CAL_S = 3, ONE_S = 5, TARGET_FPS = 5, M
 /** URL から計測のノブ（bench と変種のノブ）を外した素の URL。利用者が元から付けていたノブは残す */
 export function benchBase(href: string): string {
 	const u = new URL(href);
-	u.searchParams.delete("bench");
+	u.searchParams.delete("bench"); u.searchParams.delete("benchset");
 	return u.toString();
 }
 /** 変種 v の URL：素の URL に変種のノブ（元の URL に同じ名があれば元を優先）と bench=N を足す */
-export function benchUrl(base: string, v: number, rounds: number): string {
+export function benchUrl(base: string, v: number, rounds: number, set?: string | null): string {
 	const u = new URL(base), own = new Set<string>();
-	for (const kv of BENCH_VARIANTS[v][1].split("&")) { if (!kv) continue; const [k, val] = kv.split("="); own.add(k); if (!u.searchParams.has(k)) u.searchParams.set(k, val); }
+	for (const kv of benchVariants(set)[v][1].split("&")) { if (!kv) continue; const [k, val] = kv.split("="); own.add(k); if (!u.searchParams.has(k)) u.searchParams.set(k, val); }
 	for (const kv of BENCH_COMMON.split("&")) { const [k, val] = kv.split("="); if (!own.has(k) && !u.searchParams.has(k)) u.searchParams.set(k, val); }
 	u.searchParams.set("bench", String(rounds));
+	if (set && BENCH_SETS[set]) u.searchParams.set("benchset", set);
 	return u.toString();
 }
 /** 1 コマに描く回数：1 回描きで fps1 コマ/秒だった端末を、目標のコマ数（画面更新の刻みが 1 割以下になる遅さ）へ落とす倍率 */
 export function benchX(fps1: number): number { return Math.max(1, Math.min(MAX_X, Math.round(fps1 / TARGET_FPS))); }
 /** 順番 i（0 から）の変種と巡：巡ごとに全変種を 1 回ずつ（A B C … A B C＝端末の温まりを変種に偏らせない） */
-export function benchStep(i: number): { v: number; round: number } { const n = BENCH_VARIANTS.length; return { v: i % n, round: Math.floor(i / n) }; }
+export function benchStep(i: number, set?: string | null): { v: number; round: number } { const n = benchVariants(set).length; return { v: i % n, round: Math.floor(i / n) }; }
 const median = (a: number[]): number => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 /** 結果の表（文字・チャットへ貼る用）。倍率＝既定（変種 0）の中央値に対する比 */
 export function benchTable(st: BenchState): string {
@@ -70,7 +84,9 @@ export function benchTable(st: BenchState): string {
 	const base = median(of(0).filter(r => !r.failed).map(r => ms(r.fps)));
 	out.push("variant | ms/draw per round | median | vs default | 1 draw/frame: fps · gpu map ms · gpu coast/border ms | worker cpu ms | res | shed m | idle s");
 	const f1 = (a: (number | undefined)[]): string => { const s = a.filter((n): n is number => typeof n === "number" && n > 0); return s.length ? median(s).toFixed(1) : "-"; };
-	BENCH_VARIANTS.forEach(([name, knobs], v) => {
+	const VS = benchVariants(st.set);
+	if (st.set) out.splice(out.length - 1, 0, `variant set: ${st.set}`);
+	VS.forEach(([name, knobs], v) => {
 		const rs = of(v); if (!rs.length) return;
 		const ok = rs.filter(r => !r.failed && r.fps > 0), med = median(ok.map(r => ms(r.fps)));
 		out.push([`${name}${knobs ? ` (${knobs})` : ""}`, rs.map(r => r.failed || !(r.fps > 0) ? "failed" : ms(r.fps).toFixed(1)).join(" / "), ok.length ? med.toFixed(1) : "-",
@@ -81,7 +97,7 @@ export function benchTable(st: BenchState): string {
 	const glOf = (v: number) => of(v).map(r => r.gl).filter(Boolean).pop() || "", gl0 = glOf(0);
 	if (gl0) {
 		out.push("", "coast/border layers while spinning (layer:edges drawn/edges held, t = line set used (-1 all edges, -2 shared boundaries), r = detail level asked, n = coarse sets held):", `default: ${gl0}`);
-		BENCH_VARIANTS.forEach(([name], v) => { const g = v ? glOf(v) : ""; if (g && g !== gl0) out.push(`${name}: ${g}`); });
+		VS.forEach(([name], v) => { const g = v ? glOf(v) : ""; if (g && g !== gl0) out.push(`${name}: ${g}`); });
 	}
 	out.push("", "ms/draw comes from repeated draws of one frame: it counts what every draw repeats, and leaves out work done once per frame (ground texture refresh, uploads). The 1 draw/frame columns are the plain page: fps is capped by the screen refresh, the gpu times are not.", "lower ms/draw = lighter. failed = the page did not finish that variant in two tries (crash, reload or no frames).", `total ${((Date.now() - st.t0) / 60000).toFixed(1)} min`);
 	return out.join("\n");
@@ -96,7 +112,10 @@ function save(st: BenchState): void { try { localStorage.setItem(KEY, JSON.strin
 export function runBench(h: BenchHost): void {
 	const m = /[?&]bench=(\d+)/.exec(location.search), rounds = Math.max(1, Math.min(5, Number(m?.[1]) || 2));
 	let st = load();
-	const total = () => BENCH_VARIANTS.length * st!.rounds;
+	const setRaw = /[?&]benchset=(\w+)/.exec(location.search)?.[1], setQ = setRaw && BENCH_SETS[setRaw] ? setRaw : undefined;
+	if (st && st.set !== setQ) st = null;   // 別の組の残り（終わった表・途中）は捨てる＝頼まれた組を始める
+	const VS = () => benchVariants(setQ);
+	const total = () => VS().length * st!.rounds;
 	const box = document.createElement("div");
 	box.style.cssText = "position:absolute;left:8px;top:8px;z-index:99;max-width:calc(100% - 16px);max-height:calc(100% - 16px);overflow:auto;background:rgba(20,24,32,.88);color:#fff;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;padding:8px 10px;border-radius:8px;white-space:pre-wrap";
 	h.host.append(box);
@@ -104,7 +123,7 @@ export function runBench(h: BenchHost): void {
 	const btn = (label: string, fn: () => void): HTMLButtonElement => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.style.cssText = "margin:8px 8px 0 0;padding:8px 14px;font:inherit;border-radius:6px;border:0;background:#fff;color:#111"; b.onclick = fn; return b; };
 	// 同じ URL（# だけ違う）への replace は読み直しにならない＝その時は URL を置いてから reload
 	const go = (url: string) => { const u = new URL(url); if (u.pathname === location.pathname && u.search === location.search) { history.replaceState(null, "", url); location.reload(); } else location.replace(url); };
-	const start = () => { st = { base: benchBase(location.href), rounds, i: 0, tries: 0, runs: [], t0: Date.now() }; save(st); go(benchUrl(st.base, 0, rounds)); };
+	const start = () => { st = { base: benchBase(location.href), rounds, i: 0, tries: 0, runs: [], t0: Date.now(), set: setQ }; save(st); go(benchUrl(st.base, 0, rounds, st.set)); };
 	const show = () => {
 		const text = benchTable(st!);
 		say(text);
@@ -116,19 +135,19 @@ export function runBench(h: BenchHost): void {
 		}), btn("run again", start), btn("close", () => { try { localStorage.removeItem(KEY); } catch { /* 無視 */ } go(st!.base); }));
 	};
 	if (!st) {   // 最初の頁＝押して始める（勝手に何分も読み直しを続けない）
-		say(`bench: ${BENCH_VARIANTS.length} variants × ${rounds} round(s), about ${Math.ceil(BENCH_VARIANTS.length * rounds * 0.45)} min.\nThe page reloads by itself. Keep the screen on and do not touch the map.\nSet the view you want to measure first, then press start.`);
+		say(`bench: ${VS().length} variants × ${rounds} round(s), about ${Math.ceil(VS().length * rounds * 0.45)} min.\nThe page reloads by itself. Keep the screen on and do not touch the map.\nSet the view you want to measure first, then press start.`);
 		box.append(document.createElement("br"), btn("start", start));
 		return;
 	}
 	if (st.done) { show(); return; }
-	const next = () => { st!.i++; st!.tries = 0; if (st!.i >= total()) { st!.done = true; save(st!); show(); return; } save(st!); go(benchUrl(st!.base, benchStep(st!.i).v, st!.rounds)); };
-	const { v, round } = benchStep(st.i);
+	const next = () => { st!.i++; st!.tries = 0; if (st!.i >= total()) { st!.done = true; save(st!); show(); return; } save(st!); go(benchUrl(st!.base, benchStep(st!.i, st!.set).v, st!.rounds, st!.set)); };
+	const { v, round } = benchStep(st.i, st.set);
 	if (st.tries >= 2) {   // 2 回始めて結果が無い＝落ちた／描けない＝記して次へ
 		st.runs.push({ v, round, fps: 0, frames: 0, secs: 0, cpu: 0, res: 0, shed: 0, idleS: 0, failed: true });
 		next(); return;
 	}
 	st.tries++; save(st);
-	const tag = `bench ${st.i + 1}/${total()} · ${BENCH_VARIANTS[v][0]}`;
+	const tag = `bench ${st.i + 1}/${total()} · ${VS()[v][0]}`;
 	say(`${tag}\nloading…`);
 	let idleAt = 0;
 	h.onIdle(() => { idleAt = performance.now(); });

@@ -7,7 +7,7 @@
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "@ortho-earth/core/labels";
 import { setPowerPreference, powerPreference, type GpuPowerPreference } from "@ortho-earth/core/gpupower";
-import { tierFlag } from "@ortho-earth/core/ginttier-flag";   // ?ginttier=N＝tier を焼く層の下限（bake worker を通らない同期の焼き・途中再開もこの語を読む）
+import { tierFlag, gintDbg } from "@ortho-earth/core/ginttier-flag";   // ?ginttier=N＝tier を焼く層の下限（bake worker を通らない同期の焼き・途中再開もこの語を読む）
 import { rangeCacheFlag } from "@ortho-earth/core/rangecache-flag";   // PMTiles の端末キャッシュの入切（標高・画像タイルの PMTiles はこの worker で読む）
 import { setMeshShed, setMeshLite } from "@ortho-earth/core/meshcull";   // 動的な間引き（?meshshed=1）＝動的解像度の次の段（両 renderer が同じ module を読む）
 import { createGpuTextSink, createGpuText } from "@ortho-earth/core/textgpu";   // 注記の字（線に沿う・点）を WebGPU で（テキスト GPU 化 T-P1・T-P2・既定＝?text=2d でない時に据える）
@@ -109,7 +109,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; rangeCache?: boolean; gintTier?: number; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; meshCull?: number; meshSort?: number; resMin?: number; meshLiteMove?: number; meshLiteFs?: number; meshFast?: boolean; meshFastCull?: number; depthRZ?: boolean; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; rangeCache?: boolean; gintTier?: number; gintDbg?: string; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; meshCull?: number; meshSort?: number; resMin?: number; meshLiteMove?: number; meshLiteFs?: number; meshFast?: boolean; meshFastCull?: number; depthRZ?: boolean; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	gpuKnown?: boolean;   // この端末は以前 WebGPU で描けた（main の oj.gpuOk）＝adapter 取得を粘る
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean; shedFoot?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
@@ -499,6 +499,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			terrCoarse = m.terrCoarse || 0;
 			rangeCacheFlag.on = m.rangeCache !== false;   // ?tilecache=0
 			if (m.gintTier! > 0) tierFlag.minEdges = m.gintTier!;   // ?ginttier=N
+			gintDbg.noLines = m.gintDbg === "nolines"; gintDbg.noDepth = m.gintDbg === "nodepth";   // ?gintdbg=（診断）
 			setPowerPreference(m.power);   // GPU の選び方（既定 high-performance）＝この worker で作る WebGPU／WebGL も main と同じ希望で
 			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
 			canvas = m.canvas!;                                   // GL/GPU 用 OffscreenCanvas
