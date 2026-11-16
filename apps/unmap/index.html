@@ -7,35 +7,37 @@
 	<!-- 実験（国連職員だけ）＝検索に載せない。#status＝データの札（M0 の確認・M2 の端末のファイル・左端 56px はガジェットの列に空ける）・#data-btn＝閉じた札を開き直す・#save-here＝現在地周辺を保存（M3・本人「絶対入れて」）・#place-search＝端末の地名を引く（M4）-->
 	<meta name="robots" content="noindex, nofollow">
 	<style>
+		/* ortho の標準（Quiet Mono・白い硝子のカード・灰の枠・インク #2b3b57）に揃える＝packages/globe の --qm-* と同じ値（変数は #map の中だけなので写す）。本人 2026-11-16「ダウンロードを押した際の CSS を ortho の標準（白ベース）に」 */
+		:root{--u-ink:#2b3b57;--u-text:#4a5058;--u-dim:#7a8090;--u-panel:rgba(255,255,255,.85);--u-panel-solid:rgba(255,255,255,.96);--u-on:rgba(235,240,248,.92);--u-border:rgba(120,130,150,.45);--u-border-strong:rgba(90,100,120,.7);--u-shadow:0 4px 14px rgba(20,30,50,.12);--u-shadow-btn:0 1px 1px rgba(20,30,50,.1),0 5px 14px rgba(20,30,50,.22)}
 		html,body{margin:0;height:100%;overflow:hidden;touch-action:pan-x pan-y;overscroll-behavior:none}
 		html{background:#0b1021}
 		#map{width:100%;height:100dvh}
 		#map #sky-clock{top:calc(56px + env(safe-area-inset-top));font-size:15px}   /* 夜空の時計（低倍率）は検索窓の下へ（2026-11-14 タブレットで重なった） */
 		body:has(#status:not([hidden])) #sky-clock{display:none}   /* データの札を開いている間は時計を隠す（札と重なる） */
 		#place-search{position:fixed;top:calc(8px + env(safe-area-inset-top));left:56px;right:8px;max-width:420px;margin-left:auto;z-index:11;font:14px system-ui,sans-serif}
-		#place-search input{box-sizing:border-box;width:100%;height:40px;padding:0 12px;border-radius:20px;border:1px solid #bbb;background:rgba(255,255,255,.96);color:#222;font:inherit;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+		#place-search input{box-sizing:border-box;width:100%;height:40px;padding:0 12px;border-radius:20px;border:1px solid var(--u-border);background:var(--u-panel-solid);color:var(--u-text);font:inherit;box-shadow:var(--u-shadow);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 		#place-search .hits{list-style:none;margin:4px 0 0;padding:4px 0;background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.3);max-height:50dvh;overflow:auto}
 		#place-search .hits button{display:block;width:100%;text-align:start;border:0;background:none;padding:8px 12px;font:inherit;color:#222;min-height:40px}
 		#place-search .hits .sub,#place-search .hits .kind{color:#777;font-size:12px}
 		#place-search .hits .none{padding:8px 12px;color:#666}
 		#status{position:fixed;top:calc(56px + env(safe-area-inset-top));left:56px;right:8px;max-width:420px;margin-left:auto;z-index:10;
-			background:rgba(255,255,255,.92);color:#222;border-radius:8px;padding:8px 32px 8px 10px;font:12px/1.5 system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+			background:var(--u-panel);color:var(--u-text);border:1px solid var(--u-border);border-radius:10px;padding:8px 32px 8px 10px;font:12px/1.5 system-ui,sans-serif;box-shadow:var(--u-shadow);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 		#status ul{margin:0;padding:0;list-style:none}
 		#status{max-height:calc(100dvh - 140px);overflow:auto}
-		#status .close{position:absolute;top:4px;right:4px;border:0;background:none;font-size:16px;line-height:1;padding:4px 6px;cursor:pointer;color:#555}
+		#status .close{position:absolute;top:4px;right:4px;border:0;background:none;font-size:16px;line-height:1;padding:4px 6px;cursor:pointer;color:#9aa0ac}
 		#status{font-size:13px}
-		#status .tech{margin-top:6px;border-top:1px solid #ddd;padding-top:4px;color:#555}
+		#status .tech{margin-top:6px;border-top:1px solid rgba(120,130,150,.35);padding-top:4px;color:var(--u-dim)}
 		#status .tech summary{cursor:pointer;min-height:28px;line-height:28px}
-		#status .area{margin:6px 0;padding:6px 8px;border:1px solid #d5dbe3;border-radius:8px;background:#fff}
-		#status .area-name{font-weight:600;font-size:14px}
+		#status .area{margin:6px 0;padding:6px 8px;border:1px solid var(--u-border);border-radius:8px;background:var(--u-panel-solid)}
+		#status .area-name{font-weight:600;font-size:14px;color:var(--u-ink)}
 		#status .area-act{margin-top:4px;display:flex;gap:6px}
-		#status .local .area-act button{border:1px solid #bbb;border-radius:6px;background:#fff;color:#1f4e79;padding:4px 10px;min-height:32px;font:inherit}
+		#status .local .area-act button{border:1px solid var(--u-border);border-radius:6px;background:#fff;color:var(--u-ink);padding:4px 10px;min-height:32px;font:inherit}
 		#status .local .area-act .del{color:#8a1c14;margin-left:auto}
-		#status .add.file{background:none;color:#1f4e79;padding:4px 0;text-decoration:underline}
+		#status .add.file{background:none;color:var(--u-ink);padding:4px 0;text-decoration:underline}
 		#status .local button{border:0;background:none;cursor:pointer;padding:0 4px}
-		#status .sect{font-weight:600}
-		#status .add{display:inline-block;margin:4px 0;padding:4px 10px;border-radius:6px;background:#1f4e79;color:#fff;cursor:pointer}
-		#status .note{color:#666}
+		#status .sect{font-weight:600;color:var(--u-ink)}
+		#status .add{display:inline-block;margin:4px 0;padding:4px 10px;border-radius:6px;background:#fff;color:var(--u-ink);cursor:pointer}
+		#status .note{color:var(--u-dim)}
 		/* Data と地名の言語＝アイコン。地球儀ができたら左上のガジェットの列（#gadgets・34px 角の qm-panel-btn）へ移す＝現在地・方位と同じ形で縦に並ぶ（本人 2026-11-16「形を揃えて左上」「緯度経度と被ります」）。
 		   起動に失敗した時だけ、この fixed の位置（左上）に残る */
 		#data-btn:not(.qm-panel-btn),#names-btn:not(.qm-panel-btn){position:fixed;left:10px;z-index:10;width:34px;height:34px;display:flex;align-items:center;justify-content:center;padding:0;border-radius:8px;border:1px solid #bbb;background:rgba(255,255,255,.92);color:#3f4757;box-sizing:border-box}
@@ -45,32 +47,33 @@
 		#names-btn{position:relative;cursor:pointer;box-sizing:border-box;width:34px;height:34px}
 		#status .ok{color:#1b7a3a}
 		#status .ng{color:#b3261e}
-		#save-here{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:10;font:600 15px system-ui,sans-serif;padding:10px 18px;min-height:44px;border-radius:22px;border:0;background:#1f4e79;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+		#save-here{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:10;font:600 15px system-ui,sans-serif;padding:10px 18px;min-height:44px;border-radius:22px;border:1px solid var(--u-border);background:var(--u-panel);color:var(--u-ink);box-shadow:var(--u-shadow-btn);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
 		#status .save-btns{margin:4px 0}
-		#status .save-btns .add{border:0;font:inherit;margin-right:4px;padding:4px 10px;background:#1f4e79;color:#fff}   /* .local button（背景なし）より強く＝無いと字が地図に透ける（iPhone 2026-11-14） */
-		#status .save-btns .choose{background:#fff;color:#1f4e79;outline:1px solid #1f4e79}
+		#status .save-btns .add{border:1px solid var(--u-border);font:inherit;margin-right:4px;padding:4px 10px;min-height:32px;background:#fff;color:var(--u-ink)}
+		#status .save-btns .save-here{border-color:var(--u-ink);font-weight:600}   /* .local button（背景なし）より強く＝無いと字が地図に透ける（iPhone 2026-11-14） */
+		#status .local button:hover,.ap-sheet button:hover{border-color:var(--u-border-strong)}
 		#status .pending{margin:4px 0;color:#7a4b00}
-		#status .pending button{border:1px solid #bbb;border-radius:4px;background:#fff;padding:2px 8px}
-		.area-picker{position:absolute;inset:0;z-index:30;opacity:0;transition:opacity .25s;background:#0b1021}
+		#status .pending button{border:1px solid var(--u-border);border-radius:4px;background:#fff;padding:2px 8px}
+		.area-picker{position:absolute;inset:0;z-index:30;opacity:0;transition:opacity .25s;background:#f6f6f4}
 		.area-picker.on{opacity:1}
 		.area-picker .ap-eq{position:absolute;inset:0}
 		.area-picker .qm-chips:has(#choro-btn){display:none}   /* 範囲を選ぶだけの画面＝Equal Earth のコロプレス（統計の塗り分け）は要らない（本人 2026-11-16） */
 		.area-picker .ap-draw{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
 		.ap-sheet{position:absolute;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto;z-index:40;
-			background:rgba(255,255,255,.96);color:#222;border-radius:10px;padding:10px 12px;font:13px/1.5 system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+			background:var(--u-panel-solid);color:var(--u-text);border:1px solid var(--u-border);border-radius:10px;padding:10px 12px;font:13px/1.5 system-ui,sans-serif;box-shadow:var(--u-shadow);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 		.ap-sheet .ap-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0}
-		.ap-sheet .ap-k{color:#555;margin-right:2px}
-		.ap-sheet button,.ap-sheet select{font:inherit;min-height:36px;padding:4px 10px;border-radius:6px;border:1px solid #bbb;background:#fff;color:#222}
-		.ap-sheet button.on{background:#1f78dc;color:#fff;border-color:#1f78dc}
-		.ap-sheet .ap-save{background:#1f4e79;color:#fff;border-color:#1f4e79;font-weight:600}
-		.ap-sheet .ap-save:disabled{opacity:.45}
+		.ap-sheet .ap-k{color:var(--u-dim);margin-right:2px}
+		.ap-sheet button,.ap-sheet select{font:inherit;min-height:36px;padding:4px 10px;border-radius:6px;border:1px solid var(--u-border);background:#fff;color:var(--u-ink)}
+		.ap-sheet button.on{background:var(--u-on);color:var(--u-ink);border-color:var(--u-ink);font-weight:600}
+		.ap-sheet .ap-save{background:#fff;color:var(--u-ink);border-color:var(--u-ink);font-weight:600}
+		.ap-sheet .ap-save:disabled{opacity:.45;border-color:var(--u-border)}
 		.ap-sheet .ap-msg{color:#7a4b00;font-weight:600}
-		.ap-sheet .ap-est{color:#333}
+		.ap-sheet .ap-est{color:var(--u-text)}
 		.ap-sheet .ng{color:#b3261e}
 		.ap-sheet .ok{color:#1b7a3a}
 		.ap-sheet progress{width:100%}
 		.ap-sheet .ap-min{display:inline-flex;align-items:center;justify-content:center;width:40px;padding:0;border-radius:20px}
-		.ap-sheet .ap-sum{display:none;color:#333}
+		.ap-sheet .ap-sum{display:none;color:var(--u-text)}
 		.ap-sheet.min{left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:calc(100% - 16px);padding:6px 10px;border-radius:24px}
 		.ap-sheet.min .ap-row:not(.ap-act),.ap-sheet.min .ap-est,.ap-sheet.min .ap-here{display:none}
 		.ap-sheet.min .ap-sum{display:block;text-align:center;font-size:12px}
