@@ -188,7 +188,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		const my = ++wideSeq;
 		wideGs?.remove(); wideGs = null; map.raster.remove("pc-wide-ortho");
 		if (!on) { await map.setTerrain(null).catch(() => {}); return; }
-		map.setTerrain({ source: { type: "raster-dem", tiles: [`pmtiles://${WIDE.dem}`], encoding: "gsi", tileSize: 256, minzoom: 8, maxzoom: 17, bounds: WIDE.bounds } }).catch(e => console.warn("[pointcloud] wide terrain", e));
+		map.setTerrain({ source: { tiles: [`pmtiles://${WIDE.dem}`], encoding: "gsi", tileSize: 256, minzoom: 8, maxzoom: 17, bounds: WIDE.bounds } }).catch(e => console.warn("[pointcloud] wide terrain", e));
 		map.raster.add("pc-wide-ortho", { pmtiles: WIDE.ortho, name: t("Orthophoto 2021"), attribution: ATTR, minZoom: 8, maxZoom: 18 }, { order: "under" }).catch(e => console.warn("[pointcloud] wide ortho", e));
 		try {
 			const h = await map.add3DTiles(WIDE.gs, { id: "pc-wide-gs", fit: false, maxSSE: 16, splat: {}, attribution: ATTR });
