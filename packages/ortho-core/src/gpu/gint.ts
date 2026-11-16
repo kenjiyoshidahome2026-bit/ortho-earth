@@ -23,7 +23,7 @@ import { pipeSet, lbl, named, warmPipes } from "./pipeset.ts";
 import { rzWgsl } from "./wgsl.ts";
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gint/state.ts";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
-import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns } from "../gint/utility.ts";
+import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns, buildWeightHist } from "../gint/utility.ts";
 import { bakeBase, bakeTier, tierPlan, tierFlag, gintDataOf } from "../gint/bake.ts";
 import { gintDbg } from "../gint/tierflag.ts";
 import { findPolygon } from "geopbf/identify";
@@ -1276,8 +1276,18 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		scratchA.clear();
 		dummyU32.destroy(); dummyF32.destroy();
 	}
+	// LOD で残る辺の数（計器）＝今の重み r 以上の頂点だけを繋いだ辺の総数（hist[r]−arc 使用回数・bake の tierPlan と同じ数え方）。画面の外も含む＝
+	// 「GPU に流した辺（edges）のうち VS が捨てずに描く上限」。hist は層のデータごとに 1 回だけ数える（HUD・?bench が読む時だけ・巨大な層は数えない）
+	const keptHist = new WeakMap<object, { hist: Float64Array; nUsages: number } | null>();
+	function keptAt(L: GintLayer): number {
+		const d = L.gintData, ab = d?.arcBuffer, rank = L.lastDrawData?.lodRank;
+		if (!d || !ab?.length || !d.arcMeta || rank == null || L.totalEdges > 3_000_000) return -1;
+		let h = keptHist.get(ab);
+		if (h === undefined) { try { h = buildWeightHist(d.arcMeta, d.polyStream, d.lineStream, new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4)); } catch { h = null; } keptHist.set(ab, h); }
+		return h ? Math.max(0, h.hist[Math.max(0, Math.min(63, Math.round(rank)))] - h.nUsages) : -1;
+	}
 	function statsFor(L: GintLayer) {
-		return { drawn: L._pfDrawn ?? 0, fbo: L._pfFbo ?? 0, pickMs: L._pfPickMs ?? 0, sb: SB ? (L.sbOn ? 1 : 0) : -1, quad4: quad4 ? 1 : 0,
+		return { kept: keptAt(L), drawn: L._pfDrawn ?? 0, fbo: L._pfFbo ?? 0, pickMs: L._pfPickMs ?? 0, sb: SB ? (L.sbOn ? 1 : 0) : -1, quad4: quad4 ? 1 : 0,
 			rank: L.lastDrawData?.lodRank ?? -1, tierW: L._pfTierW ?? -1, edges: L._pfLineEdges ?? 0, dbg: L._dbg ?? null, ring: (L._dbgRing ?? []).slice(-40).join(" "),
 			style: L.drawStyle ? { oz: L.drawStyle.outlineZoom, mb: L.drawStyle.moveBudget, nd: L.drawStyle.noDepth, lw: L.drawStyle.lineWidth } : null,
 			tiers: L.lodTiers?.length ?? 0, tiersDone: !!L.tiersDone, total: L.totalEdges,
