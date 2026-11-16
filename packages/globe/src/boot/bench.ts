@@ -31,7 +31,7 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 		["no coast/border layer", "nogint=1"],
 		["coast/border: pass kept, lines not drawn", "gintdbg=nolines"],
 		["coast/border: vertices computed, no pixels drawn", "gintdbg=nofrag"],
-		["coast/border: far-side edges dropped in the vertex stage", "gintback=1"],
+		["coast/border: far-side edges also sent to the pixel stage (old default)", "gintback=0"],
 		["coast/border: pixel shader returns the colour at once", "gintdbg=flatfs"],
 	],
 };
