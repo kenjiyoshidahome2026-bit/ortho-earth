@@ -1340,6 +1340,10 @@ const STARSKY_Z = 5;                       // 星空劇場（星・星座クリ�
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
 // 閾を越えて割れる＝チルトで「手前だけズームが上がる」（遠景は小さく閾に届かず据置＝奥のPLATEAUと詳細が拮抗）。
 // 移動中は渡さない＝560のまま重くしない。値を下げるほど手前が細かくなる（=負荷↑）＝ここが唯一の調律つまみ。
+// ?tilepx=N（試し・既定 0＝従来）：基図のタイルを割る閾（画面の device px）。従来は動いている間 560・静止の詳細化 384＝1 枚が 280〜560 px に収まるまで割る。
+// 2026-11-17 Galaxy（4GB・Mali・800×1104@1.5）：z12 の東京で 30 枚・線分 50 万本（三角形 100 万）＝1 回の描画 230 ms・4 コマ/秒。MapLibre は同じ眺めを 512〜1024 CSS px のタイルで描く＝約 1.5 段粗い。
+// N を上げると粗いタイルで覆う（1120＝一段粗い＝枚数と頂点がおよそ 1/4）。絵は変わる（細い道が出るズームが一段遅れる）
+const TILE_PX_Q = qNum(/[?&]tilepx=(\d+)/, 0), TILE_PX_FIX = TILE_PX_Q >= 256 ? Math.min(4096, TILE_PX_Q) : 0;
 const IDLE_TILE_PX = 384;   // 静止時の手前詳細化は gpuFast（renderworker の実測格付け）が立つマシンだけ＝M1+dpr2級は
                             // 自動落選（256は dpr=2 で停止毎に~10秒の描き直しラッシュ＋gpuMap 1.5倍＝「モサっと」の実測正体。
                             // 384 は fast マシンなら静止後の連鎖再描画ゼロ）。560=移動中と同値＝詳細化オフの値。
@@ -2563,7 +2567,7 @@ function render() {
 	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-		tu = tiles.update(cam, size.w, size.h, { tilePx: ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), bldRange: BLD_RANGE, maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		tu = tiles.update(cam, size.w, size.h, { tilePx: (TILE_PX_FIX || ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX)) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), bldRange: BLD_RANGE, maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		lastTileOrder = tu.order;   // 描いている基図タイル＝map.queryRenderedFeatures の問い合わせ先
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys!.has(t.key));

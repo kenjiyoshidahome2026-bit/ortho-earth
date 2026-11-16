@@ -30,8 +30,9 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 	draw: [
 		["default, draw commands counted", "drawstat=1"],
 		["no terrain", "noterr=1&drawstat=1"],
-		["no basemap 3D buildings", "nobld=1&drawstat=1"],
-		["no labels", "nolab=1&drawstat=1"],
+		["basemap tiles split at 800 px", "tilepx=800&drawstat=1"],
+		["basemap tiles split at 1120 px (one level coarser)", "tilepx=1120&drawstat=1"],
+		["basemap tiles split at 1600 px", "tilepx=1600&drawstat=1"],
 	],
 	gint: [
 		["default", ""],
