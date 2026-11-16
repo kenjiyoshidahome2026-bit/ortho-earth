@@ -35,8 +35,10 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 		["coast/border: coarse line sets, no terrain depth", "ginttier=20000&gintdbg=nodepth"],
 	],
 };
+/** 外から来た文字（URL・保存した状態）→ 組の名。表にある名だけを、表の側の文字で返す（外の文字を URL や添字へそのまま流さない） */
+export const benchSetName = (s?: string | null): string | undefined => Object.keys(BENCH_SETS).find(k => k === s);
 /** 組の名 → 変種の表（無い名・未指定＝全部の表） */
-export const benchVariants = (set?: string | null): ReadonlyArray<readonly [string, string]> => (set && BENCH_SETS[set]) || BENCH_VARIANTS;
+export const benchVariants = (set?: string | null): ReadonlyArray<readonly [string, string]> => { const k = benchSetName(set); return k ? BENCH_SETS[k] : BENCH_VARIANTS; };
 /** 全変種に付けるノブ＝解像度を固定（動的解像度が変種ごとに違う段へ動くと比べられない）。変種が同じ名を持てば変種が勝つ */
 export const BENCH_COMMON = "res=0.7";
 /** 1 回の計測 */
@@ -66,7 +68,8 @@ export function benchUrl(base: string, v: number, rounds: number, set?: string |
 	for (const kv of benchVariants(set)[v][1].split("&")) { if (!kv) continue; const [k, val] = kv.split("="); own.add(k); if (!u.searchParams.has(k)) u.searchParams.set(k, val); }
 	for (const kv of BENCH_COMMON.split("&")) { const [k, val] = kv.split("="); if (!own.has(k) && !u.searchParams.has(k)) u.searchParams.set(k, val); }
 	u.searchParams.set("bench", String(rounds));
-	if (set && BENCH_SETS[set]) u.searchParams.set("benchset", set);
+	const setK = benchSetName(set);
+	if (setK) u.searchParams.set("benchset", setK);
 	return u.toString();
 }
 /** 1 コマに描く回数：1 回描きで fps1 コマ/秒だった端末を、目標のコマ数（画面更新の刻みが 1 割以下になる遅さ）へ落とす倍率 */
@@ -84,8 +87,8 @@ export function benchTable(st: BenchState): string {
 	const base = median(of(0).filter(r => !r.failed).map(r => ms(r.fps)));
 	out.push("variant | ms/draw per round | median | vs default | 1 draw/frame: fps · gpu map ms · gpu coast/border ms | worker cpu ms | res | shed m | idle s");
 	const f1 = (a: (number | undefined)[]): string => { const s = a.filter((n): n is number => typeof n === "number" && n > 0); return s.length ? median(s).toFixed(1) : "-"; };
-	const VS = benchVariants(st.set);
-	if (st.set) out.splice(out.length - 1, 0, `variant set: ${st.set}`);
+	const VS = benchVariants(st.set), setK = benchSetName(st.set);
+	if (setK) out.splice(out.length - 1, 0, `variant set: ${setK}`);
 	VS.forEach(([name, knobs], v) => {
 		const rs = of(v); if (!rs.length) return;
 		const ok = rs.filter(r => !r.failed && r.fps > 0), med = median(ok.map(r => ms(r.fps)));
@@ -112,8 +115,9 @@ function save(st: BenchState): void { try { localStorage.setItem(KEY, JSON.strin
 export function runBench(h: BenchHost): void {
 	const m = /[?&]bench=(\d+)/.exec(location.search), rounds = Math.max(1, Math.min(5, Number(m?.[1]) || 2));
 	let st = load();
-	const setRaw = /[?&]benchset=(\w+)/.exec(location.search)?.[1], setQ = setRaw && BENCH_SETS[setRaw] ? setRaw : undefined;
-	if (st && st.set !== setQ) st = null;   // 別の組の残り（終わった表・途中）は捨てる＝頼まれた組を始める
+	const setQ = benchSetName(/[?&]benchset=(\w+)/.exec(location.search)?.[1]);
+	if (st && benchSetName(st.set) !== setQ) st = null;
+	if (st) st.set = setQ;   // 別の組の残り（終わった表・途中）は捨てる＝頼まれた組を始める
 	const VS = () => benchVariants(setQ);
 	const total = () => VS().length * st!.rounds;
 	const box = document.createElement("div");
