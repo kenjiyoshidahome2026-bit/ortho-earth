@@ -12,12 +12,12 @@ import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";
 import { splatPlugin, cloudToSpz, spzPlacement, cloudTo3DTiles, zipStore, type SplatHandle, type SplatOptions, type CloudData, type CloudColor } from "@ortho-earth/splat";
 import { toPlane, toLonLat, sheetBox, sheetAt, sheetRing } from "./pointcloud-sheets.ts";
 import { openPcCache, type PcCache } from "./pc-cache.ts";
-import { copcOf, loadCopcIndex, type CopcIndex } from "./pc-copc.ts";   // 前もって COPC に変えた図郭（Hugging Face）＝あればそちらを範囲読み
+import { copcOf, loadCopcIndex, HF_BASE, type CopcIndex } from "./pc-copc.ts";   // 前もって COPC に変えた図郭（Hugging Face）＝あればそちらを範囲読み
 import { pack, unpack, cacheKey } from "./pc-pack.ts";
 import { dumpToPly } from "./pc-ply.ts";   // Unity 向けの PLY（錨からの m・glTF の向き）
 import { dumpToLas } from "./pc-las.ts";   // Unreal 向けの LAS（錨からの m・(E, N, U)・錨は VLR）
 import { CLASS_GROUPS, classKeep, filterClasses, neighborCodes, edgeMargin, edgePoints, withGhosts, type SheetPoints, type EdgePoints } from "./pc-sheet.ts";
-import type { GlobeMap, PointCloudDump, LayerMouseEvent, GeoJSONFeature, Bbox } from "@ortho-earth/globe";
+import type { GlobeMap, PointCloudDump, LayerMouseEvent, GeoJSONFeature, Bbox, Tiles3DHandle } from "@ortho-earth/globe";
 
 const t = tr();
 const S3 = "https://virtual-shizuoka.s3.ap-northeast-1.amazonaws.com/";
@@ -37,6 +37,15 @@ const SETS: Array<{ id: string; year: number; kind: "LP" | "ALB" | "MMS"; part: 
 const DEFAULT_SET = "2020/LP/Ground";   // 熱海（NF）を含む＝見本の周りに区画がすぐ出る
 const KIND: Record<string, string> = { LP: "Airborne laser", ALB: "Airborne bathymetric laser", MMS: "Mobile mapping (vehicle)" };
 const PART: Record<string, string> = { Original: "Original data", Ground: "Ground data" };
+// 静岡市の広域表示（2026-11-17・本人「低ズームは平面の画像と標高まで落とす」）＝前もって作って Hugging Face に置いた 3 つ（図郭をクリックしなくても市全域が出る）
+//   オルソ＝県の 2021/LP/Ortho（0.2 m）→ WebP の PMTiles（z8〜18）・標高＝県の 2021/LP/Grid（0.5 m の地面の標高）→ 地理院形式の PNG の PMTiles（z8〜17・範囲の外は無効値＝既定の地形）
+//   splat＝COPC にした図郭から作った Gaussian splat の 3D Tiles（区画 8 m → 四分 4 m → 図郭 1 m・KHR_gaussian_splatting＋SPZ）。それより寄った所は図郭をクリックして点群から
+const WIDE = {
+	ortho: `${HF_BASE}raster/shizuoka-city-2021-ortho.pmtiles`,
+	dem: `${HF_BASE}raster/shizuoka-city-2021-dem.pmtiles`,
+	gs: `${HF_BASE}gs/2021-LP-Original/tileset.json`,
+	bounds: [138.158, 34.897, 138.637, 35.331] as [number, number, number, number],
+};
 const BIG_MB = 250;   // これより大きい .zip は印を付ける（取るのに時間が掛かる）
 /** 同時に出す図郭の上限（2026-11-07）＝低メモリ端末（≤4GB・iOS）2 枚・他 6 枚（1 枚＝読む点 150 万／400 万・splat の段で GPU に 100 MB 前後）。?lowmem=1/0 はエンジンと同じ上書き */
 const lowMem = (nav: Navigator & { deviceMemory?: number }) => nav.deviceMemory ? nav.deviceMemory <= 4 : nav.maxTouchPoints > 1;   // エンジンの boot/tier.ts の lowMem と同じ目（頁の束にエンジンの源を焼かない＝写し）
@@ -53,6 +62,7 @@ const HOW = [
 	"Several sheets can be shown side by side (two on phones and other low-memory devices). Each sheet borrows a thin strip of points from the neighbouring sheets that are shown, so the splats meet at the sheet edges without a gap; splats made only of borrowed points are dropped.",
 	"Reading keeps at most the point limit in memory: the ZIP is unpacked as it streams in and thinned on the way, so even a large sheet never holds the whole LAS file. Choosing classes (ground, buildings, vegetation…) re-converts the saved points without downloading.",
 	"Fit to terrain compares the ground points (class 2) with the terrain that is drawn and moves the cloud by the median difference. The map's terrain comes from different source data, so a few metres of difference are normal.",
+	"The Shizuoka City overview is prepared in advance and read from Hugging Face: the prefecture's 2021 orthophoto and ground elevation grid as map tiles, and Gaussian splats made from the COPC sheets as 3D Tiles (8 m, 4 m and 1 m levels). Click a sheet to read its points for the closest views.",
 	"Sheets marked COPC were converted in advance to COPC (Cloud Optimized Point Cloud) and are read from Hugging Face: only the octree nodes up to the point limit are fetched, instead of the whole ZIP file.",
 	"This page needs WebGPU (Chrome, Edge, Safari 26 or newer, Firefox 141 or newer). There is no WebGL2 fallback — the conversion runs on the GPU by design.",
 ];
@@ -135,6 +145,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	side.insertAdjacentHTML("beforeend", `
 		<div class="head"><h1>${t("Point clouds of Shizuoka")}<small>${t("Laser surveys of Shizuoka Prefecture (VIRTUAL SHIZUOKA), read straight from the open data")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
 		<h2>${t("Data")}</h2>
+		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Shizuoka City overview (orthophoto, terrain and splats)")}</label>
 		<div class="row"><button class="btn" id="pc-atami">${t("Atami sample (COPC)")}</button></div>
 		<div class="row"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-hint"></div>
@@ -170,6 +181,22 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 
 	// ── 描き手＝@ortho-earth/splat（WebGPU の描き手を指名＝本体が ?gl2=1 で WebGL2 でも自前の device で） ──
 	map.use(splatPlugin({ backend: "webgpu" }));
+
+	// ── 静岡市の広域表示（オルソ・標高・splat の 3D Tiles）＝入／切で足す・外す ──
+	let wideGs: Tiles3DHandle | null = null, wideSeq = 0;
+	const wide = async (on: boolean) => {
+		const my = ++wideSeq;
+		wideGs?.remove(); wideGs = null; map.raster.remove("pc-wide-ortho");
+		if (!on) { await map.setTerrain(null).catch(() => {}); return; }
+		map.setTerrain({ source: { tiles: [`pmtiles://${WIDE.dem}`], encoding: "gsi", tileSize: 256, minzoom: 8, maxzoom: 17, bounds: WIDE.bounds } }).catch(e => console.warn("[pointcloud] wide terrain", e));
+		map.raster.add("pc-wide-ortho", { pmtiles: WIDE.ortho, name: t("Orthophoto 2021"), attribution: ATTR, minZoom: 8, maxZoom: 18 }, { order: "under" }).catch(e => console.warn("[pointcloud] wide ortho", e));
+		try {
+			const h = await map.add3DTiles(WIDE.gs, { id: "pc-wide-gs", fit: false, maxSSE: 16, splat: {}, attribution: ATTR });
+			if (my !== wideSeq) h.remove(); else wideGs = h;
+		} catch (e) { console.warn("[pointcloud] wide splats", e); }
+	};
+	$<HTMLInputElement>("#pc-wide").addEventListener("change", e => { wide((e.target as HTMLInputElement).checked); });
+	wide(true);
 	const cache = await openPcCache();
 	console.info(`[pointcloud] cache: ${cache.kind}`);
 	const showCache = async () => { const { entries, total } = await cache.list(); const el = $("#pc-cache"); el.textContent = cache.kind === "none" ? t("Nothing is saved on this device (storage is unavailable).") : tf(t("Saved on this device: $1 items, $2"), fmtN(entries.length), mb(total)); $<HTMLButtonElement>("#pc-cache-clear").disabled = !entries.length; };
