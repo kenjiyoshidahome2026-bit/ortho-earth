@@ -7,6 +7,7 @@
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "@ortho-earth/core/labels";
 import { setPowerPreference, powerPreference, type GpuPowerPreference } from "@ortho-earth/core/gpupower";
+import { installDrawStat, drawStatLine } from "./drawstat.ts";
 import { tierFlag, gintDbg, gintLod, gintCull } from "@ortho-earth/core/ginttier-flag";   // ?ginttier=N＝tier を焼く層の下限（bake worker を通らない同期の焼き・途中再開もこの語を読む）
 import { rangeCacheFlag } from "@ortho-earth/core/rangecache-flag";   // PMTiles の端末キャッシュの入切（標高・画像タイルの PMTiles はこの worker で読む）
 import { setMeshShed, setMeshLite } from "@ortho-earth/core/meshcull";   // 動的な間引き（?meshshed=1）＝動的解像度の次の段（両 renderer が同じ module を読む）
@@ -109,7 +110,7 @@ type RwOpts = { depth?: boolean; noTerrain?: boolean; terrainGate?: boolean; ski
 interface RwMsg {
 	type: string; cmd?: string; data?: unknown; prop?: string; layer?: string | null; name?: string; id?: number;
 	ctrlPort?: MessagePort; scenePort?: MessagePort; ell?: boolean; canvas?: OffscreenCanvas; labelCanvas?: OffscreenCanvas; labelGpuCanvas?: OffscreenCanvas; elevBase?: number; lineFlatPx?: [number, number] | null;
-	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; rangeCache?: boolean; gintTier?: number; gintBack?: boolean; gintDbg?: string; gintLodMove?: number; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; meshCull?: number; meshSort?: number; resMin?: number; meshLiteMove?: number; meshLiteFs?: number; meshFast?: boolean; meshFastCull?: number; depthRZ?: boolean; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
+	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; rangeCache?: boolean; gintTier?: number; drawStat?: boolean; gintBack?: boolean; gintDbg?: string; gintLodMove?: number; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; meshCull?: number; meshSort?: number; resMin?: number; meshLiteMove?: number; meshLiteFs?: number; meshFast?: boolean; meshFastCull?: number; depthRZ?: boolean; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	gpuKnown?: boolean;   // この端末は以前 WebGPU で描けた（main の oj.gpuOk）＝adapter 取得を粘る
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean; shedFoot?: boolean;
 	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
@@ -499,7 +500,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			terrCoarse = m.terrCoarse || 0;
 			rangeCacheFlag.on = m.rangeCache !== false;   // ?tilecache=0
 			if (m.gintTier! > 0) tierFlag.minEdges = m.gintTier!;   // ?ginttier=N
-			gintCull.back = m.gintBack !== false; gintDbg.noLines = m.gintDbg === "nolines"; gintDbg.noDepth = m.gintDbg === "nodepth"; gintDbg.noFrag = m.gintDbg === "nofrag"; gintDbg.flatFs = m.gintDbg === "flatfs"; gintLod.moveBias = m.gintLodMove! > 0 ? Math.min(20, m.gintLodMove!) : 0;   // ?gintdbg=（診断）
+			if (m.drawStat) installDrawStat(); gintCull.back = m.gintBack !== false; gintDbg.noLines = m.gintDbg === "nolines"; gintDbg.noDepth = m.gintDbg === "nodepth"; gintDbg.noFrag = m.gintDbg === "nofrag"; gintDbg.flatFs = m.gintDbg === "flatfs"; gintLod.moveBias = m.gintLodMove! > 0 ? Math.min(20, m.gintLodMove!) : 0;   // ?gintdbg=（診断）
 			setPowerPreference(m.power);   // GPU の選び方（既定 high-performance）＝この worker で作る WebGPU／WebGL も main と同じ希望で
 			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
 			canvas = m.canvas!;                                   // GL/GPU 用 OffscreenCanvas
@@ -1386,10 +1387,11 @@ function frame() {
 	// 描画実測（fps＝窓内の実描画枚数／frameMs＝emaMs／res＝動的解像度）＋backend/GPU名。plateau/tiles/navigator は main 側が合算。
 	if (memOn && renderer && nowT - memLast > 500) {
 		const fps = nowT > memLast ? Math.round(hudFrames * 1000 / (nowT - memLast)) : 0;
+		const drawL = hudFrames > 0 ? drawStatLine(hudFrames * drawX) : undefined;   // ?drawstat=1＝1 回の描画あたりの描画命令（描かなかった窓は前の値を残す）
 		hudFrames = 0; memLast = nowT;
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: (performance as PerfMem).memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frames: hudTotal, at: nowT, frameMs: emaMs, res: RES_STEPS[resIdx], shed: SHED_STEPS[shedIdx], lite: liteMove && shedIdx > 0, backend: backendName, gpuName: hudGpuName,
-			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, gintL: gintLayerLine(), aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null, meshDraw: renderer?.meshStats ? renderer.meshStats() : null,
+			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, gintL: gintLayerLine(), ...(drawL ? { drawL } : {}), aa: lastAA, hitch: (self as RwSelf).__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null, meshDraw: renderer?.meshStats ? renderer.meshStats() : null,
 			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null, lab: { ms: labEma, collideMs: labCollide, labels: labN, glyphs: labGlyphs, ...(textSink ? textSink.bakeStats() : {}) }, cpu: { ...cpuEma, max: cpuMax }, meshRx: { ...meshRx, inbox: meshInbox.length }, slow: slowFrames, pipes: pipesLate });
 		cpuMax = 0;   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
