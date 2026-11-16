@@ -34,4 +34,8 @@ assert.match(row(1), /10\.0 \/ 10\.0 \| 10\.0 \| −20\.0 ms \(×0\.33\)/);
 assert.match(row(2), /failed \/ failed \| - \| -/);
 assert.ok(!row(3));   // 測っていない変種は出さない
 assert.ok(t.includes("draws the scene 5 time(s)"));
+// 素の頁（1 コマ 1 回描き）の列＝コマ数・GPU の実時間（本体／海岸線・国境の層）の中央値。無い時は -
+const t1 = benchTable({ base, rounds: 2, i: 0, tries: 0, t0: Date.now(), head: "H", x: 5, runs: [run(0, 0, 10, { fps1: 30, gm1: 12, gg1: 3 }), run(0, 1, 10, { fps1: 32, gm1: 14, gg1: 0 }), run(1, 0, 10)] });
+assert.match(t1.split("\n").find(l => l.startsWith(BENCH_VARIANTS[0][0])), /\| 31\.0 · 13\.0 · 3\.0 \|/);
+assert.match(t1.split("\n").find(l => l.startsWith(BENCH_VARIANTS[1][0])), /\| - · - · - \|/);
 console.log("t-bench OK");

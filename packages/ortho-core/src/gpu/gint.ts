@@ -844,7 +844,8 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 
 	// ── 描画（embed.js draw ＋ passes.js renderCleanScene/drawHighlight の統合）──────
 	let fboW = 0, fboH = 0, pickTex: GPUTexture | null = null;
-	function draw(cam: CameraPose, ctx?: GintDepthCtx | null) {
+	/** repeat＝同じフレームの中の余分の絵（?bench の負荷倍率）＝運動／静止の判定を進めない。進めると 4 回目から「止まった」扱いになり、動く間は使わない正表現（全密度・識別の撮り）で描く */
+	function draw(cam: CameraPose, ctx?: GintDepthCtx | null, repeat = false) {
 		const fr = host.frameInfo();
 		if (!fr) { for (const L of layers) mark(L, cam, "noFrame"); return; }
 		V.width = fr.w;
@@ -852,6 +853,7 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		V.dpr = cam.dpr || 1;
 		// カメラ運動の判定＝フレームに1回（旧・層内判定をエンジンへ）。層別の予算ラッチは層側に残る
 		const l = lastSyncCam;
+		if (repeat && l) { for (const L of layers) drawLayer(L, cam, fr, ctx); return; }
 		const moved = !l || l.center[0] !== cam.center[0] || l.center[1] !== cam.center[1]
 			|| l.zoom !== cam.zoom || l.pitch !== cam.pitch || l.bearing !== cam.bearing;
 		lastSyncCam = { center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing };

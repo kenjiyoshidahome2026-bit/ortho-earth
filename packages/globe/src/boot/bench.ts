@@ -26,19 +26,19 @@ export const BENCH_VARIANTS: ReadonlyArray<readonly [string, string]> = [
 /** 全変種に付けるノブ＝解像度を固定（動的解像度が変種ごとに違う段へ動くと比べられない）。変種が同じ名を持てば変種が勝つ */
 export const BENCH_COMMON = "res=0.7";
 /** 1 回の計測 */
-export interface BenchRun { v: number; round: number; fps: number; frames: number; secs: number; cpu: number; res: number; shed: number; idleS: number; failed?: boolean }
+export interface BenchRun { v: number; round: number; fps: number; frames: number; secs: number; cpu: number; res: number; shed: number; idleS: number; failed?: boolean; /** 1 コマ 1 回描き（素の頁）で測った分：コマ数/秒・GPU の実時間（地図の本体／海岸線・国境の層・ms） */ fps1?: number; gm1?: number; gg1?: number }
 /** 読み直しをまたぐ状態 */
 export interface BenchState { base: string; rounds: number; i: number; tries: number; runs: BenchRun[]; t0: number; done?: boolean; head?: string; x?: number }   // x＝1 コマに描く回数（最初の変種で決めて全変種に使う）
 /** 頁（globe.ts）が渡す口 */
 export interface BenchHost {
 	host: HTMLElement; jumpTo(o: { bearing: number }): void; bearing(): number; onIdle(cb: () => void): void;
 	drawX(n: number): void;
-	perf(): { frames: number; at: number; cpu: number; gpuMap: number; res: number; shed: number; backend: string; gpu: string };
+	perf(): { frames: number; at: number; cpu: number; gpuMap: number; gpuGint: number; res: number; shed: number; backend: string; gpu: string };
 	tier: string;
 }
 
 const KEY = "oj.bench", MAX_AGE_MS = 40 * 60000;
-const PRE_S = 3, SPIN_S = 8, SKIP_S = 2, CAL_S = 3, TARGET_FPS = 5, MAX_X = 48, IDLE_MAX_MS = 45000, IDLE2_MAX_MS = 20000;
+const PRE_S = 3, SPIN_S = 8, SKIP_S = 2, CAL_S = 3, ONE_S = 5, TARGET_FPS = 5, MAX_X = 48, IDLE_MAX_MS = 45000, IDLE2_MAX_MS = 20000;
 
 /** URL から計測のノブ（bench と変種のノブ）を外した素の URL。利用者が元から付けていたノブは残す */
 export function benchBase(href: string): string {
@@ -67,15 +67,16 @@ export function benchTable(st: BenchState): string {
 	const of = (v: number) => st.runs.filter(r => r.v === v);
 	const ms = (fps: number) => 1000 / fps / x;
 	const base = median(of(0).filter(r => !r.failed).map(r => ms(r.fps)));
-	out.push("variant | ms/draw per round | median | vs default | worker cpu ms | res | shed m | idle s");
+	out.push("variant | ms/draw per round | median | vs default | 1 draw/frame: fps · gpu map ms · gpu coast/border ms | worker cpu ms | res | shed m | idle s");
+	const f1 = (a: (number | undefined)[]): string => { const s = a.filter((n): n is number => typeof n === "number" && n > 0); return s.length ? median(s).toFixed(1) : "-"; };
 	BENCH_VARIANTS.forEach(([name, knobs], v) => {
 		const rs = of(v); if (!rs.length) return;
 		const ok = rs.filter(r => !r.failed && r.fps > 0), med = median(ok.map(r => ms(r.fps)));
 		out.push([`${name}${knobs ? ` (${knobs})` : ""}`, rs.map(r => r.failed || !(r.fps > 0) ? "failed" : ms(r.fps).toFixed(1)).join(" / "), ok.length ? med.toFixed(1) : "-",
-			ok.length && base > 0 ? `${med - base >= 0 ? "+" : "−"}${Math.abs(med - base).toFixed(1)} ms (×${(med / base).toFixed(2)})` : "-", ok.length ? median(ok.map(r => r.cpu)).toFixed(1) : "-",
+			ok.length && base > 0 ? `${med - base >= 0 ? "+" : "−"}${Math.abs(med - base).toFixed(1)} ms (×${(med / base).toFixed(2)})` : "-", `${f1(ok.map(r => r.fps1))} · ${f1(ok.map(r => r.gm1))} · ${f1(ok.map(r => r.gg1))}`, ok.length ? median(ok.map(r => r.cpu)).toFixed(1) : "-",
 			ok.map(r => r.res.toFixed(2)).join("/") || "-", ok.map(r => r.shed).join("/") || "-", ok.map(r => r.idleS.toFixed(0)).join("/") || "-"].join(" | "));
 	});
-	out.push("", "lower ms/draw = lighter. failed = the page did not finish that variant in two tries (crash, reload or no frames).", `total ${((Date.now() - st.t0) / 60000).toFixed(1)} min`);
+	out.push("", "ms/draw comes from repeated draws of one frame: it counts what every draw repeats, and leaves out work done once per frame (ground texture refresh, uploads). The 1 draw/frame columns are the plain page: fps is capped by the screen refresh, the gpu times are not.", "lower ms/draw = lighter. failed = the page did not finish that variant in two tries (crash, reload or no frames).", `total ${((Date.now() - st.t0) / 60000).toFixed(1)} min`);
 	return out.join("\n");
 }
 
@@ -146,19 +147,19 @@ export function runBench(h: BenchHost): void {
 		await spin(PRE_S);
 		await waitIdle(IDLE2_MAX_MS);
 		// 窓の中に着いた最初と最後の標本（mem は 0.5 秒おき・worker の時計）の差からコマ数/秒
-		const measure = async (secs: number, skip: number): Promise<{ fps: number; frames: number; secs: number; cpu: number; res: number; shed: number }> => {
+		const measure = async (secs: number, skip: number): Promise<{ fps: number; frames: number; secs: number; cpu: number; res: number; shed: number; gm: number; gg: number }> => {
 			let a: { frames: number; at: number } | null = null, b: { frames: number; at: number } | null = null;
-			const cpu: number[] = [];
+			const cpu: number[] = [], gm: number[] = [], gg: number[] = [];
 			let lastAt = -1, res = 1, shed = 0;
 			await spin(secs, t => {
 				if (t < skip) return;
 				const p = h.perf(); if (!p.at || p.at === lastAt) return;
 				lastAt = p.at; if (!a) a = { frames: p.frames, at: p.at }; b = { frames: p.frames, at: p.at };
-				if (p.cpu > 0) cpu.push(p.cpu); res = p.res; shed = Math.max(shed, p.shed);
+				if (p.cpu > 0) cpu.push(p.cpu); if (p.gpuMap > 0) gm.push(p.gpuMap); if (p.gpuGint > 0) gg.push(p.gpuGint); res = p.res; shed = Math.max(shed, p.shed);
 			});
 			const A = a as { frames: number; at: number } | null, B = b as { frames: number; at: number } | null;
 			const dt = A && B ? (B.at - A.at) / 1000 : 0, n = A && B ? B.frames - A.frames : 0;
-			return { fps: dt > 0 ? n / dt : 0, frames: n, secs: dt, cpu: cpu.length ? median(cpu) : 0, res, shed };
+			return { fps: dt > 0 ? n / dt : 0, frames: n, secs: dt, cpu: cpu.length ? median(cpu) : 0, res, shed, gm: gm.length ? median(gm) : 0, gg: gg.length ? median(gg) : 0 };
 		};
 		if (!st!.x) {   // 最初の変種で倍率を決める：コマ数を測り、目標のコマ数まで落とす回数を探す（速い端末は 1 回では足りない＝3 回まで詰める）。全変種に同じ回数を使う
 			let x = 1;
@@ -172,14 +173,18 @@ export function runBench(h: BenchHost): void {
 			}
 			st!.x = x; save(st!);
 		}
+		// 素の頁（1 コマ 1 回描き）＝GPU の実時間は画面更新の刻みに丸まらない。繰り返し描きが数えない「1 コマに 1 回だけの仕事」（地面の絵の焼き直し等）もここには入る
+		h.drawX(1);
+		say(`${tag}\nmeasuring (1 draw per frame)…`);
+		const one = await measure(ONE_S, 1);
 		h.drawX(st!.x);
 		say(`${tag}\nmeasuring (×${st!.x} draws per frame)…`);
-		const r = await measure(SPIN_S, SKIP_S);
+		const { gm: _gm, gg: _gg, ...r } = await measure(SPIN_S, SKIP_S);
 		h.drawX(1);
 		const p = h.perf();
 		if (!st!.head) st!.head = `bench ${new Date().toISOString()} · ${navigator.userAgent.replace(/^Mozilla\/5\.0 /, "")} · RAM ${(navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? "?"} GB · cores ${navigator.hardwareConcurrency || "?"} · ${innerWidth}x${innerHeight}@${devicePixelRatio} · ${p.backend || "?"} · ${p.gpu || "?"} · tier ${h.tier}`;
 		if (r.secs < 2) { location.reload(); return; }   // 標本が着かない＝やり直し（2 回目で failed）
-		st!.runs.push({ v, round, ...r, idleS });
+		st!.runs.push({ v, round, ...r, idleS, fps1: one.fps, gm1: one.gm, gg1: one.gg });
 		next();
 	})().catch(e => { console.error("[bench]", e); say(`${tag}\nerror: ${String(e)}`); });
 }
