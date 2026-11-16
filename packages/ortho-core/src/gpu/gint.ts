@@ -25,7 +25,7 @@ import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS,
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gint/drawdata.ts";
 import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K, visibleRuns as visibleRunsOf, subListRuns, capRuns, buildWeightHist } from "../gint/utility.ts";
 import { bakeBase, bakeTier, tierPlan, tierFlag, gintDataOf } from "../gint/bake.ts";
-import { gintDbg } from "../gint/tierflag.ts";
+import { gintDbg, gintLod } from "../gint/tierflag.ts";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.ts";
 import { clipDistanceM, clipPolygonDistanceM, CLIP_POLY_MAX } from "../clip.ts";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
@@ -214,7 +214,9 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 	// 線・点の VS は原本＝index の 4 頂点（P3）。?quad4=0 は quad6WGSL で旧 6 頂点へ機械変換（二重管理をしない・変換漏れは例外）
 	const LH = (layerH | 0) > 0 ? Math.min(layerH | 0, TEX_LAYER_H) : TEX_LAYER_H;   // 層の高さ（検定で小さくして複数層を踏む）
 	const QW = quad4 ? (c: string) => withLayerH(c, LH) : (c: string) => withLayerH(quad6WGSL(c), LH);
-	const LINE_SRC = QW(GINT_LINE_WGSL), POINT_SRC = QW(GINT_POINT_WGSL), STENCIL_SRC = withLayerH(GINT_STENCIL_WGSL, LH);
+	const NOFRAG_FROM = "o.pos = vec4f(nd.xy, zc, 1.0);\n\to.frag = qpos;", NOFRAG_TO = "o.pos = vec4f(nd.xy * 1e-6 + vec2f(2.0, 0.0), zc, 1.0);\n\to.frag = qpos;";   // ?gintdbg=nofrag（診断）
+	if (gintDbg.noFrag && !GINT_LINE_WGSL.includes(NOFRAG_FROM)) console.warn("[gint] gintdbg=nofrag: line shader text changed, knob has no effect");
+	const LINE_SRC = QW(gintDbg.noFrag ? GINT_LINE_WGSL.replace(NOFRAG_FROM, NOFRAG_TO) : GINT_LINE_WGSL), POINT_SRC = QW(GINT_POINT_WGSL), STENCIL_SRC = withLayerH(GINT_STENCIL_WGSL, LH);
 	const lineMod = mkMod(LINE_SRC, "line");
 	const stencilMod = mkMod(STENCIL_SRC, "stencil");
 	const pointMod = mkMod(POINT_SRC, "point");
@@ -905,6 +907,8 @@ export function createGintLayerGPU(host: GintHost, { requestDraw, noSB, quad4 = 
 		L._budgetSkipped = false;
 		const drawData = computeDrawData(V, data) as GintDraw;
 		if (ctx && ctx.terrainDepth && !data.noDepth && !gintDbg.noDepth) drawData.depth = ctx;   // noDepth＝地形深度に参加しない（admin0 世界図＝gl/embed.js と同型）
+		// ?gintlodmove=N＝動かしている間だけ N 段粗く（止まった 1 枚目は細かい側で描き直す＝自前で次のコマを頼む）
+		if (gintLod.moveBias > 0 && drawData.lodRank != null && (isDrawing || !!ctx?.moving)) { drawData.lodRank = Math.min(63, drawData.lodRank + gintLod.moveBias); requestDraw?.(); }
 		if (ctx && ctx.facesInAtlas) drawData.noFaces = true;   // 面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 
 		if (L.visible) renderScene(L, drawData, fr, ctx);

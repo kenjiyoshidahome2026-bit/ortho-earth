@@ -1,6 +1,6 @@
 // ?bench（boot/bench.ts）の純関数の検定＝URL の組み立て・順番・表。node packages/globe/tests/t-bench.mjs
 import assert from "node:assert/strict";
-import { BENCH_VARIANTS, BENCH_SETS, BENCH_COMMON, benchVariants, benchSetName, benchBase, benchUrl, benchStep, benchTable, benchX } from "../src/boot/bench.ts";
+import { BENCH_VARIANTS, BENCH_SETS, BENCH_COMMON, benchVariants, benchSetName, benchSig, benchBase, benchUrl, benchStep, benchTable, benchX } from "../src/boot/bench.ts";
 
 const href = "https://example.test/japan/?hud=1&bench=2&lineelev=1#17.8/35.8/139.7/74t";
 const base = benchBase(href);
@@ -63,3 +63,4 @@ const t3 = benchTable({ base, rounds: 1, i: 0, tries: 0, t0: Date.now(), head: "
 assert.ok(t3.includes("variant set: gint"));
 assert.ok(t3.split("\n").some(l => l.startsWith(`${G[2][0]} (${G[2][1]})`)));
 assert.equal(benchSetName("gint"), "gint"); assert.equal(benchSetName("constructor"), undefined); assert.equal(benchSetName(null), undefined);
+assert.equal(benchSig("gint"), BENCH_SETS.gint.map(v => v[1]).join("|")); assert.notEqual(benchSig("gint"), benchSig());

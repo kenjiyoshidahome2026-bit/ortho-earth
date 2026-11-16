@@ -30,20 +30,23 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 		["default", ""],
 		["no coast/border layer", "nogint=1"],
 		["coast/border: pass kept, lines not drawn", "gintdbg=nolines"],
-		["coast/border: lines without terrain depth and heights", "gintdbg=nodepth"],
-		["coast/border: coarse line sets only for layers over 200k edges (old default)", "ginttier=200000"],
+		["coast/border: vertices computed, no pixels drawn", "gintdbg=nofrag"],
+		["coast/border: 3 levels coarser while moving", "gintlodmove=3"],
+		["coast/border: 6 levels coarser while moving", "gintlodmove=6"],
 	],
 };
 /** 外から来た文字（URL・保存した状態）→ 組の名。表にある名だけを、表の側の文字で返す（外の文字を URL や添字へそのまま流さない） */
 export const benchSetName = (s?: string | null): string | undefined => Object.keys(BENCH_SETS).find(k => k === s);
 /** 組の名 → 変種の表（無い名・未指定＝全部の表） */
 export const benchVariants = (set?: string | null): ReadonlyArray<readonly [string, string]> => { const k = benchSetName(set); return k ? BENCH_SETS[k] : BENCH_VARIANTS; };
+/** 変種の表の印＝ノブの並び。保存した結果が別の版の表で測ったものなら、今の見出しで出さない（2026-11-16：前の版の結果に新しい版の見出しが付いた） */
+export const benchSig = (set?: string | null): string => benchVariants(set).map(v => v[1]).join("|");
 /** 全変種に付けるノブ＝解像度を固定（動的解像度が変種ごとに違う段へ動くと比べられない）。変種が同じ名を持てば変種が勝つ */
 export const BENCH_COMMON = "res=0.7";
 /** 1 回の計測 */
 export interface BenchRun { v: number; round: number; fps: number; frames: number; secs: number; cpu: number; res: number; shed: number; idleS: number; failed?: boolean; /** 1 コマ 1 回描き（素の頁）で測った分：コマ数/秒・GPU の実時間（地図の本体／海岸線・国境の層・ms） */ fps1?: number; gm1?: number; gg1?: number; /** 回している間に描いた線の層（renderworker gintLayerLine） */ gl?: string }
 /** 読み直しをまたぐ状態 */
-export interface BenchState { base: string; rounds: number; i: number; tries: number; runs: BenchRun[]; t0: number; done?: boolean; head?: string; x?: number; /** 変種の組（BENCH_SETS の名・無し＝全部） */ set?: string }   // x＝1 コマに描く回数（最初の変種で決めて全変種に使う）
+export interface BenchState { base: string; rounds: number; i: number; tries: number; runs: BenchRun[]; t0: number; done?: boolean; head?: string; x?: number; /** 変種の組（BENCH_SETS の名・無し＝全部） */ set?: string; /** 変種の表の印（benchSig）＝版が変わって表が違えば残りの結果は捨てる */ sig?: string }   // x＝1 コマに描く回数（最初の変種で決めて全変種に使う）
 /** 頁（globe.ts）が渡す口 */
 export interface BenchHost {
 	host: HTMLElement; jumpTo(o: { bearing: number }): void; bearing(): number; onIdle(cb: () => void): void;
@@ -115,7 +118,7 @@ export function runBench(h: BenchHost): void {
 	const m = /[?&]bench=(\d+)/.exec(location.search), rounds = Math.max(1, Math.min(5, Number(m?.[1]) || 2));
 	let st = load();
 	const setQ = benchSetName(/[?&]benchset=(\w+)/.exec(location.search)?.[1]);
-	if (st && benchSetName(st.set) !== setQ) st = null;
+	if (st && (benchSetName(st.set) !== setQ || st.sig !== benchSig(setQ))) st = null;   // 別の組・別の版の表の残りは捨てる
 	if (st) st.set = setQ;   // 別の組の残り（終わった表・途中）は捨てる＝頼まれた組を始める
 	const VS = () => benchVariants(setQ);
 	const total = () => VS().length * st!.rounds;
@@ -126,7 +129,7 @@ export function runBench(h: BenchHost): void {
 	const btn = (label: string, fn: () => void): HTMLButtonElement => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.style.cssText = "margin:8px 8px 0 0;padding:8px 14px;font:inherit;border-radius:6px;border:0;background:#fff;color:#111"; b.onclick = fn; return b; };
 	// 同じ URL（# だけ違う）への replace は読み直しにならない＝その時は URL を置いてから reload
 	const go = (url: string) => { const u = new URL(url); if (u.pathname === location.pathname && u.search === location.search) { history.replaceState(null, "", url); location.reload(); } else location.replace(url); };
-	const start = () => { st = { base: benchBase(location.href), rounds, i: 0, tries: 0, runs: [], t0: Date.now(), set: setQ }; save(st); go(benchUrl(st.base, 0, rounds, st.set)); };
+	const start = () => { st = { base: benchBase(location.href), rounds, i: 0, tries: 0, runs: [], t0: Date.now(), set: setQ, sig: benchSig(setQ) }; save(st); go(benchUrl(st.base, 0, rounds, st.set)); };
 	const show = () => {
 		const text = benchTable(st!);
 		say(text);
