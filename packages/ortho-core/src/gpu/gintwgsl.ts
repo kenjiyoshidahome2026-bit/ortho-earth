@@ -1099,3 +1099,9 @@ export const GINT_LINE_CLIP_WGSL = gintClipWGSL(GINT_LINE_WGSL, "line");
 export const GINT_STENCIL_CLIP_WGSL = gintClipWGSL(GINT_STENCIL_WGSL, "stencil");
 export const GINT_POINT_CLIP_WGSL = gintClipWGSL(GINT_POINT_WGSL, "point");
 export const GINT_IDRESOLVE_CLIP_WGSL = gintClipWGSL(GINT_IDRESOLVE_WGSL, "resolve");
+
+// ?gintback=1：描画用の線（vsRender）で、両端とも地平線の向こう（zr < -0.02）の辺は三角形を出さない。
+// fsRender の地平線のぼかしは smoothstep(-win*0.5, win, zr)・win ≤ 0.02＝zr ≤ -0.01 は alpha 0。辺の中の zr は両端の線形補間＝両端が -0.02 より奥なら全画素が透明＝絵は変わらない。
+// 最初の 1 か所（vsRender）だけ差し込む＝pick の線（vsPickLine）は触らない。目印が無ければ元の文字列を返す
+const BACK_AT = "\to.zr = select(pb3.zr, pa3.zr, useA);\n";
+export const lineBackCull = (src: string): string => src.replace(BACK_AT, BACK_AT + "\tif (pa3.zr < -0.02 && pb3.zr < -0.02) { return o; }\n");
