@@ -6,7 +6,7 @@ export const TIER_MIN_DEFAULT = 20_000;   // 2026-11-16 から 2 万（旧 20 �
 export const tierFlag = { minEdges: TIER_MIN_DEFAULT };
 /** 診断（?gintdbg=nolines|nodepth・WebGPU の線の層だけ）：層の GPU 時間を分解する。nolines＝層の render pass は張るが線を描かない（pass そのものの値段）・
  *  nodepth＝線を地形の深度・標高に参加させない（頂点ごとの標高の値段）。2026-11-16 Galaxy：辺を 72% 減らしても層の GPU 時間は 33% しか減らなかった＝辺にも解像度にも依らない塊の正体を測る */
-export const gintDbg = { noLines: false, noDepth: false, noFrag: false };   // noFrag（?gintdbg=nofrag）＝頂点の計算は全部して、三角形を画面の外へ出す（画素の仕事を 0 に＝残る辺 1 本 約 150 ns が頂点か画素かを分ける）
+export const gintDbg = { noLines: false, noDepth: false, noFrag: false, flatFs: false };   // noFrag（?gintdbg=nofrag）＝頂点の計算は全部して、三角形を画面の外へ出す（画素の仕事を 0 に＝残る辺 1 本 約 150 ns が頂点か画素かを分ける）
 /** 動かしている間だけ LOD の重みを N 段だけ粗くする（?gintlodmove=N・0＝しない・3 段で 1px の許容が 2px）。止まれば元の細かさへ描き直す。
  *  2026-11-16 Galaxy：層の重さ ≈ 35 ns×流した辺 + 150 ns×残った辺＝残る辺を減らすのが効く */
 export const gintLod = { moveBias: 0 };
