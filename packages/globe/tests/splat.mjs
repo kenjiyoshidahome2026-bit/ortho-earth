@@ -1,5 +1,5 @@
 // splat の受け口（F8）＝契約の検め。描く段は plugin
-import { normSplat, isSplatUrl, SPLAT_FORMATS } from "../src/splat.ts";
+import { normSplat, isSplatUrl, SPLAT_FORMATS, isCloudObject } from "../src/splat.ts";
 let fail = 0; const ok = (k, c, extra = "") => { console.log((c ? "ok  " : "FAIL ") + k + (extra ? " " + extra : "")); if (!c) fail++; };
 const th = f => { try { f(); return false; } catch (e) { return e.message; } };
 const mk = (n, over = {}) => ({ n, positions: new Float32Array(n * 3), scales: new Float32Array(n * 3), rotations: new Float32Array(n * 4), colors: new Uint8Array(n * 4), ...over });
@@ -21,4 +21,9 @@ ok("localNoXf", /transform/.test(th(() => normSplat(mk(1, { crs: "local" })))) &
 const bytes = new Uint8Array([1, 2, 3]);
 ok("bytesPass", normSplat(bytes) === bytes && normSplat(bytes.buffer) === bytes.buffer);
 ok("notObj", /SplatData/.test(th(() => normSplat(null))) && /SplatData/.test(th(() => normSplat("x.glb"))));
+// 点群の物（PointCloudDump・CloudData）は SplatData の検めを通さず plugin へ（2026-11-17・静岡の点群の頁が positions の検めで止まっていた）
+const dump = { n: 2, anchor: [138.4, 34.97, 50], pts: new Float32Array(6), elev: new Float32Array(2) };
+const cloud = { anchor: [138.4, 34.97, 50], levels: [{ n: 0, ctr: new Float32Array(0) }] };
+ok("cloudPass", normSplat(dump) === dump && normSplat(cloud) === cloud && isCloudObject(dump) && isCloudObject(cloud));
+ok("cloudNot", !isCloudObject({ anchor: [0, 0, 0], pts: [0, 0, 0], n: 1 }) && !isCloudObject({ levels: [] }) && /Float32Array|n must/.test(th(() => normSplat({ n: 1, pts: new Float32Array(3) }))));
 console.log(fail ? `splat: ${fail} FAIL` : "splat: all ok"); process.exit(fail ? 1 : 0);
