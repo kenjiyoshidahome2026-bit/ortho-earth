@@ -1634,7 +1634,7 @@ const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle
 	// 建物を立ち上げ始めるタイルの z（2026-11-04・本人裁定）：4GB 機の GPU は斜めの遠景まで続く建物の頂点で詰まる（実機 Mali-G615＝建物を全部消すと滑らか）。
 	// LOW_MEM は 15＝遠景の z14 のタイルの建物は平ら（足元の塗りは残る）。?bldz=N で上書き（A/B・既定 14）
 	bldMinZ: qNum(/[?&]bldz=(\d+)/, LOW_MEM ? 15 : 14),   // 優先付き共有キュー（vt perf plan §3.1）＝?tileq=0 で旧の round-robin（A/B・計器 e で比べる）
-	lineSub: qNum(/[?&]linesubn=(\d+)/, 0),   // 線の細分をタイルの辺の 1/N より細かくしない（計測のノブ・2026-11-17・0＝700m 固定＝既定）。z7 の眺めは線の三角形の 7 割が細分（Galaxy 4GB＝細分あり 79.5k／無し 23.5k）
+	lineSub: qNum(/[?&]linesubn=(\d+)/, 128),   // 線の細分をタイルの辺の 1/N より細かくしない（既定 128・2026-11-17・?linesubn=0＝従来の 700m 固定）。変わるのは z8 以下のタイルだけ（z9 以上は 700m の方が長い）。Galaxy 4GB の z7：線の三角形 100k → 36k・25 → 58 コマ/秒・斜め視点の絵は見分けが付かない
 	drape: LINESUB || (() => !noTerr),   // 線の細分（vt perf plan §3.2）＝地形を描かない地図（terrain:false・?noterr=1）は細分しない。?linesub=1 で従来どおり常に細分（A/B）。setTerrain で地形が入ったら setPipelineDrape（api/terrain.ts）
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
