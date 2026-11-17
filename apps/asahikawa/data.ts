@@ -20,18 +20,18 @@ const W = WARDS[0].code;
 
 /** 名所（ツアーの止まり先を兼ねる）。note＝止まった時に出す一行（事実だけ） */
 export const SPOTS: Spot[] = [
-	{ id: "asahikawa-st", wiki: "旭川駅", name: "Asahikawa Station", ward: W, lon: 142.3546, lat: 43.7628, zoom: 16.8, tilt: 58, bearing: 0, note: "Main station of northern Hokkaido, where the Hakodate, Soya, Sekihoku and Furano lines meet. The present station building was completed in 2011." },
-	{ id: "kaimono-koen", wiki: "平和通買物公園", name: "Heiwa-dori Shopping Park", ward: W, lon: 142.3590, lat: 43.7680, zoom: 16.8, tilt: 60, bearing: 20, note: "Opened in 1972 as Japan's first permanent pedestrian shopping street, running about 1 km north from the station." },
-	{ id: "tokiwa-koen", wiki: "常磐公園 (旭川市)", name: "Tokiwa Park", ward: W, lon: 142.3633, lat: 43.7777, zoom: 16.4, tilt: 58, bearing: 0, note: "Park by the Ishikari River opened in 1916, with a pond, the Hokkaido Asahikawa Museum of Art and the central library." },
-	{ id: "asahibashi", wiki: "旭橋 (旭川市)", name: "Asahi Bridge", ward: W, lon: 142.3600, lat: 43.7830, zoom: 17.0, tilt: 60, bearing: 330, note: "Steel arch bridge over the Ishikari River, completed in 1932 and a symbol of the city." },
-	{ id: "kawamura-kaneto", wiki: "川村カ子トアイヌ記念館", name: "Kawamura Kaneto Ainu Memorial Museum", ward: W, lon: 142.3253, lat: 43.7856, zoom: 17.2, tilt: 58, bearing: 0, note: "One of the oldest museums of Ainu culture, run by the Kawamura family of Chikabumi." },
-	{ id: "hokuchin", wiki: "北鎮記念館", name: "Hokuchin Memorial Museum", ward: W, lon: 142.3480, lat: 43.8010, zoom: 17.0, tilt: 58, bearing: 0, note: "Museum in the Ground Self-Defense Force camp on the history of the army's Seventh Division, based in Asahikawa from 1901." },
-	{ id: "kamuikotan", wiki: "神居古潭", name: "Kamuikotan", ward: W, lon: 142.2430, lat: 43.7290, zoom: 15.6, tilt: 62, bearing: 60, note: "Gorge where the Ishikari River squeezes between rocks, with a suspension bridge and the preserved Kamuikotan Station building." },
-	{ id: "miura-ayako", wiki: "三浦綾子記念文学館", name: "Ayako Miura Literature Museum", ward: W, lon: 142.3577, lat: 43.7548, zoom: 17.0, tilt: 58, bearing: 180, note: "Museum of the novelist Ayako Miura, in the forest of foreign trees that is the setting of her novel Hyoten (Freezing Point)." },
-	{ id: "science-museum", wiki: "旭川市科学館", name: "Asahikawa City Science Center", ward: W, lon: 142.3800, lat: 43.7478, zoom: 17.0, tilt: 58, bearing: 0, note: "Science museum with a planetarium and a room where you can feel cold of minus 30 degrees." },
+	{ id: "asahikawa-st", wiki: "旭川駅", name: "Asahikawa Station", ward: W, lon: 142.3581, lat: 43.7636, zoom: 16.8, tilt: 58, bearing: 0, note: "Main station of northern Hokkaido, where the Hakodate, Soya, Sekihoku and Furano lines meet. The present station building was completed in 2011." },
+	{ id: "kaimono-koen", wiki: "平和通買物公園", name: "Heiwa-dori Shopping Park", ward: W, lon: 142.3590, lat: 43.7665, zoom: 16.8, tilt: 60, bearing: 20, note: "Opened in 1972 as Japan's first permanent pedestrian shopping street, running about 1 km north from the station." },
+	{ id: "tokiwa-koen", wiki: "常磐公園", name: "Tokiwa Park", ward: W, lon: 142.3572, lat: 43.7750, zoom: 16.4, tilt: 58, bearing: 0, note: "Park by the Ishikari River opened in 1916, with a pond, the Hokkaido Asahikawa Museum of Art and the central library." },
+	{ id: "asahibashi", wiki: "旭橋 (旭川市)", name: "Asahi Bridge", ward: W, lon: 142.3600, lat: 43.7783, zoom: 17.0, tilt: 60, bearing: 330, note: "Steel arch bridge over the Ishikari River, completed in 1932 and a symbol of the city." },
+	{ id: "kawamura-kaneto", wiki: "川村カ子トアイヌ記念館", name: "Kawamura Kaneto Ainu Memorial Museum", ward: W, lon: 142.3435, lat: 43.7873, zoom: 17.2, tilt: 58, bearing: 0, note: "One of the oldest museums of Ainu culture, run by the Kawamura family of Chikabumi." },
+	{ id: "hokuchin", wiki: "北鎮記念館", name: "Hokuchin Memorial Museum", ward: W, lon: 142.3649, lat: 43.7884, zoom: 17.0, tilt: 58, bearing: 0, note: "Museum in the Ground Self-Defense Force camp on the history of the army's Seventh Division, based in Asahikawa from 1901." },
+	{ id: "kamuikotan", wiki: "神居古潭", name: "Kamuikotan", ward: W, lon: 142.2025, lat: 43.7318, zoom: 15.6, tilt: 62, bearing: 60, note: "Gorge where the Ishikari River squeezes between rocks, with a suspension bridge and the preserved Kamuikotan Station building." },
+	{ id: "miura-ayako", wiki: "三浦綾子記念文学館", name: "Ayako Miura Literature Museum", ward: W, lon: 142.3478, lat: 43.7536, zoom: 17.0, tilt: 58, bearing: 180, note: "Museum of the novelist Ayako Miura, in the forest of foreign trees that is the setting of her novel Hyoten (Freezing Point)." },
+	{ id: "science-museum", wiki: "旭川市科学館", name: "Asahikawa City Science Center", ward: W, lon: 142.3705, lat: 43.7563, zoom: 17.0, tilt: 58, bearing: 0, note: "Science museum with a planetarium and a room where you can feel cold of minus 30 degrees." },
 	{ id: "asahiyama-zoo", wiki: "旭川市旭山動物園", name: "Asahiyama Zoo", ward: W, lon: 142.4800, lat: 43.7686, zoom: 16.4, tilt: 60, bearing: 90, note: "Zoo opened in 1967, known for exhibits that show animals' natural behaviour, such as penguins walking through the snow in winter." },
 	{ id: "ueno-farm", wiki: "上野ファーム", name: "Ueno Farm", ward: W, lon: 142.4447, lat: 43.8143, zoom: 16.8, tilt: 58, bearing: 0, note: "English-style garden on a farm, open from spring to autumn." },
-	{ id: "ramen-mura", wiki: "旭川ラーメン村", name: "Asahikawa Ramen Village", ward: W, lon: 142.4140, lat: 43.8098, zoom: 17.2, tilt: 58, bearing: 0, note: "Row of ramen shops in one building. Asahikawa ramen is known for soy sauce soup under a layer of oil that keeps it hot." },
+	{ id: "ramen-mura", wiki: "あさひかわラーメン村", name: "Asahikawa Ramen Village", ward: W, lon: 142.4144, lat: 43.7819, zoom: 17.2, tilt: 58, bearing: 0, note: "Row of ramen shops in one building. Asahikawa ramen is known for soy sauce soup under a layer of oil that keeps it hot." },
 ];
 
 /** 地下鉄は無い（旭川）＝路線なし。駅からの徒歩圏の一覧は JR の駅（芯が rail.json から組む） */
@@ -52,9 +52,10 @@ export const MAJOR_HOSPITALS: { key: string; name: string; en: string }[] = [
 	{ key: "旭川厚生病院", name: "旭川厚生病院", en: "Asahikawa Kosei General Hospital" },
 	{ key: "旭川医療センター", name: "国立病院機構旭川医療センター", en: "NHO Asahikawa Medical Center" },
 ];
-/** 急病の診療所（夜間）＝旭川市夜間急病センター（市内 1 か所）。時間は市の掲載＝変わることがあるので「電話で確かめて」を添える */
+/** 急病の診療所（夜間）＝旭川市夜間急病センター（市立旭川病院の 2 階・市内 1 か所）。休日は当番医（固定の診療所は無い）＝holiday は持たない。
+ *  時間・電話は市の「救急診療体制」の頁（2026-11-17 Mac で確認 https://www.city.asahikawa.hokkaido.jp/kurashi/311/316/p001713.html）＝変わることがあるので「電話で確かめて」を添える */
 export const NIGHT_CENTERS: Clinic[] = [
-	{ name: "旭川市夜間急病センター", addr: "金星町1丁目1-65", tel: "0166-29-0303", lon: 142.3815, lat: 43.7830, enName: "Asahikawa City Night Emergency Center", en: "1-1-65 Kinseicho" },
+	{ name: "旭川市夜間急病センター", addr: "金星町1丁目1-65", tel: "0166-25-0297", lon: 142.3815, lat: 43.7830, enName: "Asahikawa City Night Emergency Center", en: "1-1-65 Kinseicho" },
 ];
 /** 台帳の名 → 大きな病院の短い名（でなければ null） */
 export const majorHospital = (name: string): string | null => MAJOR_HOSPITALS.find(h => name.includes(h.key))?.name ?? null;
@@ -63,16 +64,16 @@ export const facilityIndex = (rows: readonly FacilityRow[], ward: string, subs: 
 
 /** 旭川の歴史の物語＝村ができた 1890 年から今までの章。写真は photo（名所の id）か、無ければ章の id で photos.json を引く（bake が両方焼く） */
 export const ASAHIKAWA_STORY: Chapter[] = [
-	{ id: "ash-1890", year: "1890", photo: "asahibashi", wiki: "旭川市", name: "Villages where rivers meet", ward: W, lon: 142.3600, lat: 43.7830, zoom: 15.6, tilt: 60, bearing: 330, note: "In 1890 the villages of Asahikawa, Nagayama and Kamui were set up in the Kamikawa basin, where the Ishikari, Chubetsu and Biei rivers meet." },
+	{ id: "ash-1890", year: "1890", photo: "asahibashi", wiki: "旭川市", name: "Villages where rivers meet", ward: W, lon: 142.3600, lat: 43.7783, zoom: 15.6, tilt: 60, bearing: 330, note: "In 1890 the villages of Asahikawa, Nagayama and Kamui were set up in the Kamikawa basin, where the Ishikari, Chubetsu and Biei rivers meet." },
 	{ id: "ash-1891", year: "1891", wiki: "屯田兵", name: "Farmer-soldiers in Nagayama", ward: W, lon: 142.4120, lat: 43.8000, zoom: 15.4, tilt: 60, bearing: 0, note: "In 1891 the first tondenhei, soldiers who also cleared and farmed the land, settled in Nagayama, east of today's city centre." },
-	{ id: "ash-1898", year: "1898", photo: "asahikawa-st", wiki: "旭川駅", name: "The railway arrives", ward: W, lon: 142.3546, lat: 43.7628, zoom: 16.4, tilt: 58, bearing: 0, note: "In 1898 the railway reached Asahikawa, linking the basin with Sapporo and the sea." },
-	{ id: "ash-1901", year: "1901", photo: "hokuchin", wiki: "北鎮記念館", name: "A garrison town", ward: W, lon: 142.3480, lat: 43.8010, zoom: 16.0, tilt: 58, bearing: 0, note: "From 1901 the army's Seventh Division moved to Asahikawa, and the town grew around the garrison north of the river." },
-	{ id: "ash-1902", year: "1902", wiki: "旭川地方気象台", name: "Minus 41 degrees", ward: W, lon: 142.3717, lat: 43.7567, zoom: 16.4, tilt: 58, bearing: 0, note: "On 25 January 1902 Asahikawa's weather station recorded minus 41.0 degrees Celsius, still the lowest in Japan's official records." },
+	{ id: "ash-1898", year: "1898", photo: "asahikawa-st", wiki: "旭川駅", name: "The railway arrives", ward: W, lon: 142.3581, lat: 43.7636, zoom: 16.4, tilt: 58, bearing: 0, note: "In 1898 the railway reached Asahikawa, linking the basin with Sapporo and the sea." },
+	{ id: "ash-1901", year: "1901", photo: "hokuchin", wiki: "北鎮記念館", name: "A garrison town", ward: W, lon: 142.3649, lat: 43.7884, zoom: 16.0, tilt: 58, bearing: 0, note: "From 1901 the army's Seventh Division moved to Asahikawa, and the town grew around the garrison north of the river." },
+	{ id: "ash-1902", year: "1902", wiki: "旭川市", name: "Minus 41 degrees", ward: W, lon: 142.3717, lat: 43.7567, zoom: 16.4, tilt: 58, bearing: 0, note: "On 25 January 1902 Asahikawa's weather station recorded minus 41.0 degrees Celsius, still the lowest in Japan's official records." },
 	{ id: "ash-1922", year: "1922", photo: "kaimono-koen", wiki: "旭川市", name: "A city", ward: W, lon: 142.3654, lat: 43.7705, zoom: 16.2, tilt: 58, bearing: 0, note: "In 1922 Asahikawa became a city, one of the first six cities of Hokkaido." },
-	{ id: "ash-1932", year: "1932", photo: "asahibashi", wiki: "旭橋 (旭川市)", name: "The Asahi Bridge", ward: W, lon: 142.3600, lat: 43.7830, zoom: 16.8, tilt: 60, bearing: 330, note: "The steel arch of the Asahi Bridge over the Ishikari River was completed in 1932 and became the symbol of the city." },
+	{ id: "ash-1932", year: "1932", photo: "asahibashi", wiki: "旭橋 (旭川市)", name: "The Asahi Bridge", ward: W, lon: 142.3600, lat: 43.7783, zoom: 16.8, tilt: 60, bearing: 330, note: "The steel arch of the Asahi Bridge over the Ishikari River was completed in 1932 and became the symbol of the city." },
 	{ id: "ash-1967", year: "1967", photo: "asahiyama-zoo", wiki: "旭川市旭山動物園", name: "A zoo on Mount Asahi", ward: W, lon: 142.4800, lat: 43.7686, zoom: 16.2, tilt: 60, bearing: 90, note: "Asahiyama Zoo opened in 1967. Its exhibits that let visitors watch animals move as they do in the wild later drew visitors from all over Japan." },
-	{ id: "ash-1972", year: "1972", photo: "kaimono-koen", wiki: "平和通買物公園", name: "A street without cars", ward: W, lon: 142.3590, lat: 43.7680, zoom: 16.6, tilt: 60, bearing: 20, note: "In 1972 the main street from the station became Japan's first permanent pedestrian shopping street." },
-	{ id: "ash-2011", year: "2011", photo: "asahikawa-st", wiki: "旭川駅", name: "A station facing the river", ward: W, lon: 142.3546, lat: 43.7628, zoom: 16.6, tilt: 58, bearing: 180, note: "The new elevated station building was completed in 2011, opening the city centre to the parks along the Chubetsu River." },
+	{ id: "ash-1972", year: "1972", photo: "kaimono-koen", wiki: "平和通買物公園", name: "A street without cars", ward: W, lon: 142.3590, lat: 43.7665, zoom: 16.6, tilt: 60, bearing: 20, note: "In 1972 the main street from the station became Japan's first permanent pedestrian shopping street." },
+	{ id: "ash-2011", year: "2011", photo: "asahikawa-st", wiki: "旭川駅", name: "A station facing the river", ward: W, lon: 142.3581, lat: 43.7636, zoom: 16.6, tilt: 58, bearing: 180, note: "The new elevated station building was completed in 2011, opening the city centre to the parks along the Chubetsu River." },
 ];
 /** 嵐山からの眺め＝西の丘に立ったつもりで、石狩川の向こうの街並みを順に見渡す（中心＝見る先・bearing＝向き＝カメラは中心の反対側に立つ） */
 export const HILL_VIEWS: View[] = [
@@ -130,11 +131,14 @@ export const CITY: CityConfig = {
 	transit: TRANSIT, transitDefault: TRANSIT_DEFAULT, railLinesEn: RAIL_LINES_EN,
 	hazards: HAZARDS,
 	riskNote: "Tilt the map to compare flood depths with building heights. Scenarios are official estimates by the national government, Hokkaido and others; real disasters can exceed them.",
+	inland: { text: "Inland flooding (rain the sewers cannot drain) is shown on the city's own hazard map.", link: "Asahikawa City hazard map", url: "https://www.city.asahikawa.hokkaido.jp/kurashi/320/kouzui/d065806.html" },   // 地理院のタイルに旭川の内水は無い＝市の「防災これ一冊まとまっぷ」（洪水と内水）
 	hinanUrl: HINAN_URL,
 	lod2Prefetch: LOD2_PREFETCH, bldSets: BLD_SETS,
 	bldNames: () => [],   // PLATEAU の無い市
 	emergency: {
-		night: { centers: NIGHT_CENTERS, hours: "Internal medicine and pediatrics every night 19:00–07:00. Call ahead to check." },
+		night: { centers: NIGHT_CENTERS, hours: "Internal medicine and pediatrics every night 22:00–07:30 (until 08:00 before weekends and holidays), first aid only. Call ahead to check." },
+		// #7119 は札幌とその周りだけ（旭川は対象外）＝市が案内する北海道救急医療情報案内センター（今診てもらえる病院・24 時間）
+		advice: { text: "To find a hospital that can see you now, Hokkaido emergency medical information center, 24 hours:", tel: "0120-20-8699" },
 	},
 	majorHospitals: MAJOR_HOSPITALS,
 	groundCenter: true,   // 盆地を丘と山が囲む（嵐山・神居古潭・旭山）＝注視点を地面に（京都・札幌と同じ）
