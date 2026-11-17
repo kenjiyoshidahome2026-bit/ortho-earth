@@ -224,12 +224,20 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	};
 	/** 札幌の条丁目（city.jo）：「北1条西2丁目3-4」→「3-4 Kita 1-jo Nishi 2-chome」・「発寒五条六丁目」→「Hassamu 5-jo 6-chome」（条の無い住所は null＝普通の読み） */
 	const JO = /^(\D*?)(\d+|[一二三四五六七八九十]+)条(東|西|南|北)?(\d+|[一二三四五六七八九十]+)?(?:丁目)?(.*)$/;
+	// 旭川の「6条通9丁目」（条の後に「通」）＝9-chome 6-jo-dori ではなく「6-jo-dori 9-chome」（2026-11-17）。札幌の住所に「条通」は無い＝札幌の焼きは変わらない
+	const JO_DORI = /^(\D*?)(\d+|[一二三四五六七八九十]+)条通(\d+|[一二三四五六七八九十]+)?(?:丁目)?(.*)$/;
 	const DIR = { 北: "Kita", 南: "Minami", 東: "Higashi", 西: "Nishi" };
 	const joNum = x => /^\d+$/.test(x) ? +x : kanjiNum(x);
 	const CHO = /^(\D+?)(\d+|[一二三四五六七八九十]+)丁目(.*)$/;
 	const EW = /^(\D+?)(東|西)(\d+|[一二三四五六七八九十]+)(?:丁目)?(?=-|$|\d|[^\d])(.*)$/;
 	const oo = w => w.replace(/^(Oodoori|Daidori)$/i, "Odori").replace(/oo/g, "o").replace(/^Oo/, "O").replace(/ou(?=[^aeiou]|$)/g, "o");   // 長音を落とす（Odori・Oyachi）
 	const joAddr = s => {
+		const dr = s.match(JO_DORI);
+		if (dr) {
+			const rest = dr[4].replace(/番地?の?/g, "-").replace(/号/g, "").replace(/^-+|-+$/g, "").replace(/-{2,}/g, "-").trim(), n = rest.match(/^\d[\d-]*/)?.[0] || "";
+			const town = dr[1] ? (DIR[dr[1]] || oo(proper(dr[1]))) + " " : "";
+			return `${n ? n + " " : ""}${town}${joNum(dr[2])}-jo-dori${dr[3] ? ` ${joNum(dr[3])}-chome` : ""}`;
+		}
 		const m = s.match(JO);
 		const d = !(m && m[1]) && s.match(EW);
 		if (d) {   // 「大通西2丁目9」「大通東11-23」「大谷地東5丁目」＝9 Odori-nishi 2-chome（札幌の東西の丁目）

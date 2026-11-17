@@ -42,6 +42,8 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	const t = tr(), lang = getLang();
 	const { wards: WARDS, spots: SPOTS, tour: TOUR, hazards: HAZARDS, view: CITY_VIEW, bbox: CITY_BBOX, maskBox: MASK_BOX, subway: SUBWAY, transit: TRANSIT, railLinesEn: RAIL_LINES_EN } = city;
 	const hasArea = (id: AreaId) => !city.noAreas?.includes(id);   // 市に台帳のある区域か
+	// 区の無い市（旭川 2026-11-17）＝WARDS が市そのもの 1 つ。区の選びは出さず（市の名だけ）、統計は「市全体」のままでも市の物を出す。区のある市は ""＝従来どおり
+	const ONE = WARDS.length === 1 ? WARDS[0].code : "";
 	const TAG = `[${city.id}]`;   // console の印
 	const Offline = createOffline(city, opts.appBase);
 	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）
@@ -121,7 +123,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			<section data-pane="life">
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 札（地図の表示＝既定・施設の検索）。2026-11-13 に札の並びを「地図の表示」が先へ -->
 				<h2>${esc(t("District"))}</h2>
-				<div class="wrow"><select class="ward" aria-label="${esc(t("District"))}"><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${esc(w.code)}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(t("Whole city"))}</button></div>
+				<div class="wrow">${ONE ? `<b class="wone">${esc(t(city.cityName))}</b>` : ""}<select class="ward" aria-label="${esc(t("District"))}"${ONE ? " hidden" : ""}><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${esc(w.code)}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(t("Whole city"))}</button></div>
 				<div class="detail stats-out" hidden></div>
 				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="show" aria-selected="true">${esc(t("Map display"))}</button><button type="button" role="tab" data-sub-tab="find" aria-selected="false">${esc(t("Search facilities"))}</button></nav>
 				<!-- 札の並び＝「地図の表示」が先・既定（本人 2026-11-13） -->
@@ -147,7 +149,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			<section data-pane="transit" hidden>
 				<h2>${esc(t("Railways and buses"))}</h2>
 				${TRANSIT.map(x => `<label class="grp"><input type="checkbox" data-tr="${esc(x.id)}"><b>${esc(t(x.name))}</b><small data-trn="${esc(x.id)}"></small></label>`).join("")}
-				<div class="lines">${SUBWAY.map(l => `<span><i class="sw" style="background:${esc(l.color)}">${esc(l.id)}</i>${esc(t(l.name))} (${esc(t("$1 stations", l.stations.length))})</span>`).join("")}</div>
+				<div class="lines"${SUBWAY.length ? "" : " hidden"}>${SUBWAY.map(l => `<span><i class="sw" style="background:${esc(l.color)}">${esc(l.id)}</i>${esc(t(l.name))} (${esc(t("$1 stations", l.stations.length))})</span>`).join("")}</div>
 				<p class="sub flat">${esc(t(city.subwayNote))}</p>
 				<h2>${esc(t("Walking distance from a station"))}</h2>
 				<label class="msel"><select class="wsta"><option value="">${esc(t("Choose a station"))}</option>${SUBWAY.map(l => `<optgroup label="${esc(t(l.name))}">${l.stations.map((n, i) => `<option value="${esc(n)}">${esc(l.id)}${String(i + 1).padStart(2, "0")} ${esc(staName(n))}</option>`).join("")}</optgroup>`).join("")}</select></label>
@@ -272,7 +274,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	};
 	async function setWard(code: string) {
 		st.ward = code; save(); wardSel.value = code; closePop(); facTable();
-		statsBtn.hidden = !code; if (statsOn) code ? showStats(code) : hideStats();   // 統計は区を選んだ時だけ（開いていれば区に付いていく）
+		statsBtn.hidden = !(code || ONE); if (statsOn) (code || ONE) ? showStats(code || ONE) : hideStats();   // 統計は区を選んだ時だけ（開いていれば区に付いていく）・区の無い市は市の統計をいつでも
 		const w = WARDS.find(x => x.code === code);
 		const fc = await loadWards();
 		if (st.ward !== code) return;   // 読んでいる間に選び直した
@@ -343,12 +345,12 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		statsOut.hidden = true; statsOut.innerHTML = "";
 		if (statsLayer) for (const l of ["yk-census", "yk-census-line"]) map.setLayoutProperty(l, "visibility", "none");
 	}
-	statsBtn.onclick = () => { if (statsOn) hideStats(); else if (st.ward) showStats(st.ward); };
+	statsBtn.onclick = () => { if (statsOn) hideStats(); else if (st.ward || ONE) showStats(st.ward || ONE); };
 	statsOut.addEventListener("click", async e => {
 		const el = e.target as HTMLElement;
 		if (el.closest(".x")) { hideStats(); return; }
 		const li = el.closest<HTMLElement>("li[data-k]"); if (!li) return;
-		const f = (await ledger<SmallFC>(`census/${st.ward}.json`))?.features.find(x => x.properties.k === li.dataset.k); if (!f) return;
+		const f = (await ledger<SmallFC>(`census/${st.ward || ONE}.json`))?.features.find(x => x.properties.k === li.dataset.k); if (!f) return;
 		const pts = (f.geometry as { coordinates: number[][][][] }).coordinates.flat(2), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
 		const bb = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] as [number, number, number, number];
 		await map.fitBounds(bb, { padding: pad90(), pitch: 0, bearing: 0, maxZoom: 16 });
@@ -424,7 +426,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const head = `<b>${esc(t(s.name))}</b><p>${esc(t(s.note))}</p>`;
 		let ph = "", map1 = "", sta = /駅$/.test(s.wiki) ? "" : `<p class="ld">${esc(t("Loading…"))}</p>`;
 		const paint = () => { if (st.spot === s.id && !spotNote.hidden) spotNote.innerHTML = ph + head
-			+ `<div class="sw">${map1}<div><div class="wd">${esc(wardName(s.ward))}<small>${esc(t(city.cityName))}</small></div>${sta}</div></div>`; };
+			+ `<div class="sw">${map1}<div><div class="wd">${ONE ? esc(t(city.cityName)) : `${esc(wardName(s.ward))}<small>${esc(t(city.cityName))}</small>`}</div>${sta}</div></div>`; };
 		paint();
 		photos().then(p => { ph = photoHTML(p?.[s.id]); paint(); });
 		loadWards().then(fc => { map1 = locator(fc, s.ward, [s.lon, s.lat]); paint(); });
@@ -731,7 +733,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 				openPop([s[0], s[1]], `<div class="pk">${esc(t(city.subwayName))}</div><b>${esc(t("$1 Station", staName(s[2])))}</b><p>${codes.map(c => `${esc(c.code)} · ${esc(t(c.line.name))}`).join("<br>") || esc(lang === "ja" ? s[3] : railLinesEn(RAIL_LINES_EN, s[3]))}</p>${walkBtn(s[0], s[1], staName(s[2]), s[2])}`); });
 			subMarks.push(new ML.Marker({ element: el, anchor: "center" }).setLngLat([s[0], s[1]]));
 		}
-		$<HTMLElement>('[data-trn="subway"]').textContent = t("$1 stations", num(subMarks.length));
+		const subN = panel.querySelector<HTMLElement>('[data-trn="subway"]'); if (subN) subN.textContent = t("$1 stations", num(subMarks.length));   // 地下鉄の無い市（旭川）は層が無い
 		$<HTMLElement>('[data-trn="rail"]').textContent = t("$1 stations", num(ost.length));
 		return d;
 	});
@@ -1567,6 +1569,7 @@ const CSS = `
 @media (max-width:640px){ .yk-panel .fbt{height:180px} }
 .yk-panel .wrow{display:flex;gap:6px;margin-top:2px}
 .yk-panel .wrow select{flex:1 1 auto;min-width:0}
+.yk-panel .wrow .wone{flex:1 1 auto;min-width:0;align-self:center}
 .yk-panel .stb{flex:none;font:inherit;font-size:12.5px;padding:5px 10px;border-radius:var(--qm-r-m);border:1px solid #4fc3f7;background:transparent;color:#4fc3f7;cursor:pointer;white-space:nowrap}
 .yk-panel .stb.on{background:#4fc3f7;color:#0b1a24}
 .yk-panel .stats-out .kv{display:grid;grid-template-columns:auto auto 1fr;gap:3px 10px;align-items:baseline;font-size:12.5px;margin:6px 0}

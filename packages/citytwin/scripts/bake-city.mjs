@@ -311,7 +311,7 @@ async function wardOf([x, y]) {
 	return null;
 }
 /** 住所を「横浜市◯◯区…」に揃える（県名は落とし、市名・区名が無ければ補う） */
-const fullAddr = (addr, w) => { const a = addr.startsWith(B.prefName) ? addr.slice(B.prefName.length) : addr; return a.startsWith(NAME) ? a : a.startsWith(w.name) ? NAME + a : a ? `${NAME}${w.name}${a}` : ""; };
+const fullAddr = (addr, w) => { const a = addr.startsWith(B.prefName) ? addr.slice(B.prefName.length) : addr; return a.startsWith(NAME) ? a : a.startsWith(w.name) || (a && w.name === NAME) ? NAME + a : a ? `${NAME}${w.name}${a}` : ""; };   // 区の無い市（旭川）＝区の名が市の名
 async function facilities() {
 	const rows = [];
 	for (const s of SRC()) {
