@@ -10,11 +10,14 @@ from PIL import Image
 from pyproj import Transformer
 SP = os.environ.get("WORK", "work")   # 作業の置き場（中間ファイル）
 MAXZ = {"ortho": 18, "dem": 17}; MINZ = 8; T = 256
-def sheet_of(x, y): return np.floor((x + 160000) / 400).astype(np.int64), np.floor((300000 - y) / 300).astype(np.int64)
-def index():
+# 図郭の格子＝400×300 m（2021・2025）と 1000×750 m（2022 の南アルプス・名前の末尾 k・2026-11-18）。同じ所は 400×300 m を先に（2021 の欠けだけ 2022 で埋める）
+def sheet_of(x, y, big=False):
+    w, h = (1000, 750) if big else (400, 300); return np.floor((x + 160000) / w).astype(np.int64), np.floor((300000 - y) / h).astype(np.int64)
+def index():   # {(big, 列, 行): 図郭}
     idx = {}
     for f in glob.glob(f"{SP}/ortho/*.json"):
-        s = os.path.basename(f)[:8]; m = json.load(open(f)); ci, ri = sheet_of(np.array(m["x0"] + 1), np.array(m["y0"] - 1)); idx[(int(ci), int(ri))] = s
+        s = os.path.basename(f)[:-5]; big = s.endswith("k"); m = json.load(open(f))
+        ci, ri = sheet_of(np.array(m["x0"] + 1), np.array(m["y0"] - 1), big); idx[(big, int(ci), int(ri))] = s
     return idx
 @functools.lru_cache(maxsize=160)
 def load(kind, s):
@@ -48,21 +51,23 @@ def base_one(args):
     kind, out, z, x, y = args
     if TR is None: TR = Transformer.from_crs("EPSG:3857", "EPSG:6676", always_xy=True); IDX = index()
     X, Y = tile_xy(z, x, y); px, py = TR.transform(X.ravel(), Y.ravel())
-    ci, ri = sheet_of(px, py); C = 3 if kind == "ortho" else 1
+    C = 3 if kind == "ortho" else 1
     res = np.zeros((T * T, C), np.float32); valid = np.zeros(T * T, bool)
-    keys = ci * 100000 + ri
-    for k in np.unique(keys):
-        s = IDX.get((int(k // 100000), int(k % 100000)))
-        if not s or (kind == "dem" and not os.path.exists(f"{SP}/grid/{s}.npz")): continue   # Grid が無い図郭（県に無い）は飛ばす
-        m = keys == k; res[m] = sample(kind, s, px[m], py[m]); valid[m] = True
+    for big in (False, True):
+        ci, ri = sheet_of(px, py, big); keys = ci * 100000 + ri
+        for k in np.unique(keys[~valid]):
+            s = IDX.get((big, int(k // 100000), int(k % 100000)))
+            if not s or (kind == "dem" and not os.path.exists(f"{SP}/grid/{s}.npz")): continue   # Grid が無い図郭（県に無い）は飛ばす
+            m = (keys == k) & ~valid; v = sample(kind, s, px[m], py[m]); res[m] = v
+            valid[m] = np.isfinite(v[:, 0]) if kind == "dem" else True
     if kind == "dem": valid &= np.isfinite(res[:, 0])
     if not valid.any(): return 0
     save(kind, out, z, x, y, res.reshape(T, T, C), valid.reshape(T, T)); return 1
 def base(kind, out):
     to = Transformer.from_crs("EPSG:6676", "EPSG:4326", always_xy=True); z = MAXZ[kind]; tiles = set(); n = 2 ** z
-    for (ci, ri), s in index().items():
-        x0, y1 = ci * 400 - 160000, 300000 - ri * 300
-        lon, lat = to.transform([x0, x0 + 400, x0, x0 + 400], [y1, y1, y1 - 300, y1 - 300])
+    for (big, ci, ri), s in index().items():
+        w, h = (1000, 750) if big else (400, 300); x0, y1 = ci * w - 160000, 300000 - ri * h
+        lon, lat = to.transform([x0, x0 + w, x0, x0 + w], [y1, y1, y1 - h, y1 - h])
         tx = [int((l + 180) / 360 * n) for l in lon]; ty = [int((1 - math.asinh(math.tan(math.radians(a))) / math.pi) / 2 * n) for a in lat]
         for tx_ in range(min(tx), max(tx) + 1):
             for ty_ in range(min(ty), max(ty) + 1): tiles.add((tx_, ty_))
@@ -155,7 +160,7 @@ def pack(kind, out, dst):
         W_, E_, N_, S_ = lon(min(xs)), lon(max(xs) + 1), lat(min(ys)), lat(max(ys) + 1)
         w.finalize({"tile_type": TileType.WEBP if kind == "ortho" else TileType.PNG, "tile_compression": Compression.NONE, "min_zoom": min(zs), "max_zoom": max(zs),
                     "min_lon_e7": int(W_ * 1e7), "min_lat_e7": int(S_ * 1e7), "max_lon_e7": int(E_ * 1e7), "max_lat_e7": int(N_ * 1e7), "center_zoom": 12, "center_lon_e7": int((W_ + E_) / 2 * 1e7), "center_lat_e7": int((S_ + N_) / 2 * 1e7)},
-                   {"name": f"shizuoka-city-2021-{kind}", "attribution": "VIRTUAL SHIZUOKA (Shizuoka Prefecture, CC BY 4.0)", **({"encoding": "gsi"} if kind == "dem" else {})})
+                   {"name": f"shizuoka-city-2021-{kind}", "attribution": "VIRTUAL SHIZUOKA (Shizuoka Prefecture, CC BY 4.0; 2022 Southern Alps data used with approval of the Director-General of the Kanto Regional Forest Office, 5関治第142号-1)", **({"encoding": "gsi"} if kind == "dem" else {})})
     print("packed", len(ents), os.path.getsize(dst))
 if __name__ == "__main__":
     cmd, kind, out = sys.argv[1:4]
