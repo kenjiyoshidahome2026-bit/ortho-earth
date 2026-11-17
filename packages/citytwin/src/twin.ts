@@ -1313,8 +1313,10 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w, facName(r!.row))}</small>`)).join("")}</div>`);
 		}
 		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
+		// 管轄の署の名（台帳は日本語だけ）＝日本語以外は施設の台帳の同じ署の英語（「南消防署」→ 旭川市消防本部南消防署の行 → Minami Fire Station）
+		const jurName = (n: string) => { if (lang === "ja" || !n || !fac) return n; const r = fac.find(x => x[2].endsWith(n)); return r ? facName(r) : n; };
 		const z = featureAt(zn, at), zi = z ? zoneOf(String(z.n || "")) : -1, p1 = HOME_JURIS ? featureAt(po, at) : null, f1 = HOME_JURIS ? featureAt(fi, at) : null;
-		if (z || p1 || f1) out.push(`<h3>${esc(t(HOME_JURIS ? city.zonesTitle : "Town planning rules"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(String(p1.n || ""))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(String(f1.n || ""))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
+		if (z || p1 || f1) out.push(`<h3>${esc(t(HOME_JURIS ? city.zonesTitle : "Town planning rules"))}</h3><div class="pr">${z ? row(t("Land-use zoning"), `${esc(zi >= 0 ? (lang === "ja" ? ZONES[zi].ja : t(ZONES[zi].name)) : String(z.n || ""))}${z.b || z.f ? `<br><small>${esc(t("Building coverage $1% · Floor area ratio $2%", z.b ?? "?", z.f ?? "?"))}</small>` : ""}`) : ""}${p1 ? row(t("Police station jurisdictions"), esc(jurName(String(p1.n || "")))) : ""}${f1 ? row(t("Fire station jurisdictions"), esc(jurName(String(f1.n || "")))) : ""}</div>${p1 || f1 ? `<p class="sub flat">${esc(t("Boundaries as of 2012."))}</p>` : ""}`);
 		out.push(`<p class="sub flat">${esc(t(net ? "Distances follow streets and footpaths (OpenStreetMap); walking time assumes 80 m per minute." : "Straight-line distance; walking time assumes 80 m per minute."))}</p>`);
 		homeOut.innerHTML = out.join("");
 		homeNow = at; paintSave(at);

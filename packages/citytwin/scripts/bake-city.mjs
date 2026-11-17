@@ -350,7 +350,7 @@ async function photos() {
 		const ii = (await get(commons, { action: "query", prop: "imageinfo", iiprop: "extmetadata", titles: `File:${pg.pageimage}` })).query?.pages?.[0]?.imageinfo?.[0]?.extmetadata;
 		if (!ii) { console.warn(`✗ Commons に無い（ja だけの画像）：${s.name}`); continue; }
 		const text = v => String(v?.value ?? "").replace(/<[^>]*>/g, " ").replace(/[<>]/g, "").replace(/\s+/g, " ").trim();   // 札を外した後に残る < > も落とす（入れ子・閉じない札）。頁では文字として出す
-		out[s.id] = { src: pg.thumbnail.source, file: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(pg.pageimage)}`, artist: text(ii.Artist).slice(0, 80), license: text(ii.LicenseShortName), page: `https://ja.wikipedia.org/wiki/${encodeURIComponent(pg.title)}` };
+		out[s.id] = { src: pg.thumbnail.source, file: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(pg.pageimage)}`, artist: text(ii.Artist).replace(/^(下記参照|See below|不明|Unknown)\.?$/i, "").slice(0, 80),   /* 作者欄が「下記参照」だけ＝名でない＝空（頁は Wikimedia Commons と書く・旭川の北鎮記念館 2026-11-17） */ license: text(ii.LicenseShortName), page: `https://ja.wikipedia.org/wiki/${encodeURIComponent(pg.title)}` };
 		console.log(`写真：${s.name} ← ${pg.pageimage}（${out[s.id].license}）`);
 	}
 	write("photos.json", out);

@@ -30,7 +30,7 @@ export const SPOTS: Spot[] = [
 	{ id: "miura-ayako", wiki: "三浦綾子記念文学館", name: "Ayako Miura Literature Museum", ward: W, lon: 142.3478, lat: 43.7536, zoom: 17.0, tilt: 58, bearing: 180, note: "Museum of the novelist Ayako Miura, in the forest of foreign trees that is the setting of her novel Hyoten (Freezing Point)." },
 	{ id: "science-museum", wiki: "旭川市科学館", name: "Asahikawa City Science Center", ward: W, lon: 142.3705, lat: 43.7563, zoom: 17.0, tilt: 58, bearing: 0, note: "Science museum with a planetarium and a room where you can feel cold of minus 30 degrees." },
 	{ id: "asahiyama-zoo", wiki: "旭川市旭山動物園", name: "Asahiyama Zoo", ward: W, lon: 142.4800, lat: 43.7686, zoom: 16.4, tilt: 60, bearing: 90, note: "Zoo opened in 1967, known for exhibits that show animals' natural behaviour, such as penguins walking through the snow in winter." },
-	{ id: "ueno-farm", wiki: "上野ファーム", name: "Ueno Farm", ward: W, lon: 142.4447, lat: 43.8143, zoom: 16.8, tilt: 58, bearing: 0, note: "English-style garden on a farm, open from spring to autumn." },
+	{ id: "ueno-farm", wiki: "上野ファーム", name: "Ueno Farm", ward: W, lon: 142.4857, lat: 43.8083, zoom: 16.8, tilt: 58, bearing: 0, note: "English-style garden on a farm, open from spring to autumn." },
 	{ id: "ramen-mura", wiki: "あさひかわラーメン村", name: "Asahikawa Ramen Village", ward: W, lon: 142.4144, lat: 43.7819, zoom: 17.2, tilt: 58, bearing: 0, note: "Row of ramen shops in one building. Asahikawa ramen is known for soy sauce soup under a layer of oil that keeps it hot." },
 ];
 
@@ -55,7 +55,7 @@ export const MAJOR_HOSPITALS: { key: string; name: string; en: string }[] = [
 /** 急病の診療所（夜間）＝旭川市夜間急病センター（市立旭川病院の 2 階・市内 1 か所）。休日は当番医（固定の診療所は無い）＝holiday は持たない。
  *  時間・電話は市の「救急診療体制」の頁（2026-11-17 Mac で確認 https://www.city.asahikawa.hokkaido.jp/kurashi/311/316/p001713.html）＝変わることがあるので「電話で確かめて」を添える */
 export const NIGHT_CENTERS: Clinic[] = [
-	{ name: "旭川市夜間急病センター", addr: "金星町1丁目1-65", tel: "0166-25-0297", lon: 142.3815, lat: 43.7830, enName: "Asahikawa City Night Emergency Center", en: "1-1-65 Kinseicho" },
+	{ name: "旭川市夜間急病センター", addr: "金星町1丁目1-65", tel: "0166-25-0297", lon: 142.3655, lat: 43.7782, enName: "Asahikawa City Night Emergency Center", en: "1-1-65 Kinseicho" },
 ];
 /** 台帳の名 → 大きな病院の短い名（でなければ null） */
 export const majorHospital = (name: string): string | null => MAJOR_HOSPITALS.find(h => name.includes(h.key))?.name ?? null;
@@ -112,7 +112,7 @@ export const writeState = (search: string, st: TwinState): string => write(CITY,
 export const parsePlaces = (raw: string | null) => places(raw, CITY_BBOX);
 
 /** 端末に詰める物のおおよその大きさ（MB）。保存ボタンの説明に出す（Mac の実測で直す） */
-export const OFFLINE_MB = 400;
+export const OFFLINE_MB = 180;   // 実測（MacBook・本番と同じ build を手元で配信・新しいプロファイル 390px・2026-11-17）：保存 370 秒・カード 101 MB・端末の使用量 +172 MB（エンジンの置き場を含む）。地理院の基図の建物は基図のタイルに入っている＝PLATEAU の市より軽い
 
 /** 市の設定（共有モジュールの mountTwin が読む） */
 export const CITY: CityConfig = {
