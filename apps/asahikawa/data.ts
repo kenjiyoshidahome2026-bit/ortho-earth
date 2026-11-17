@@ -20,7 +20,7 @@ const W = WARDS[0].code;
 
 /** 名所（ツアーの止まり先を兼ねる）。note＝止まった時に出す一行（事実だけ） */
 export const SPOTS: Spot[] = [
-	{ id: "asahikawa-st", wiki: "旭川駅", name: "Asahikawa Station", ward: W, lon: 142.3546, lat: 43.7628, zoom: 16.8, tilt: 58, bearing: 0, note: "Main station of northern Hokkaido, where the Hakodate, Soya, Sekihoku and Furano lines meet. The present station building opened in 2011." },
+	{ id: "asahikawa-st", wiki: "旭川駅", name: "Asahikawa Station", ward: W, lon: 142.3546, lat: 43.7628, zoom: 16.8, tilt: 58, bearing: 0, note: "Main station of northern Hokkaido, where the Hakodate, Soya, Sekihoku and Furano lines meet. The present station building was completed in 2011." },
 	{ id: "kaimono-koen", wiki: "平和通買物公園", name: "Heiwa-dori Shopping Park", ward: W, lon: 142.3590, lat: 43.7680, zoom: 16.8, tilt: 60, bearing: 20, note: "Opened in 1972 as Japan's first permanent pedestrian shopping street, running about 1 km north from the station." },
 	{ id: "tokiwa-koen", wiki: "常磐公園 (旭川市)", name: "Tokiwa Park", ward: W, lon: 142.3633, lat: 43.7777, zoom: 16.4, tilt: 58, bearing: 0, note: "Park by the Ishikari River opened in 1916, with a pond, the Hokkaido Asahikawa Museum of Art and the central library." },
 	{ id: "asahibashi", wiki: "旭橋 (旭川市)", name: "Asahi Bridge", ward: W, lon: 142.3600, lat: 43.7830, zoom: 17.0, tilt: 60, bearing: 330, note: "Steel arch bridge over the Ishikari River, completed in 1932 and a symbol of the city." },
@@ -29,7 +29,7 @@ export const SPOTS: Spot[] = [
 	{ id: "kamuikotan", wiki: "神居古潭", name: "Kamuikotan", ward: W, lon: 142.2430, lat: 43.7290, zoom: 15.6, tilt: 62, bearing: 60, note: "Gorge where the Ishikari River squeezes between rocks, with a suspension bridge and the preserved Kamuikotan Station building." },
 	{ id: "miura-ayako", wiki: "三浦綾子記念文学館", name: "Ayako Miura Literature Museum", ward: W, lon: 142.3577, lat: 43.7548, zoom: 17.0, tilt: 58, bearing: 180, note: "Museum of the novelist Ayako Miura, in the forest of foreign trees that is the setting of her novel Hyoten (Freezing Point)." },
 	{ id: "science-museum", wiki: "旭川市科学館", name: "Asahikawa City Science Center", ward: W, lon: 142.3800, lat: 43.7478, zoom: 17.0, tilt: 58, bearing: 0, note: "Science museum with a planetarium and a room where you can feel cold of minus 30 degrees." },
-	{ id: "asahiyama-zoo", wiki: "旭川市旭山動物園", name: "Asahiyama Zoo", ward: W, lon: 142.4800, lat: 43.7686, zoom: 16.4, tilt: 60, bearing: 90, note: "Zoo opened in 1967, known for exhibits that show animals' natural behavior, such as penguins walking through the snow in winter." },
+	{ id: "asahiyama-zoo", wiki: "旭川市旭山動物園", name: "Asahiyama Zoo", ward: W, lon: 142.4800, lat: 43.7686, zoom: 16.4, tilt: 60, bearing: 90, note: "Zoo opened in 1967, known for exhibits that show animals' natural behaviour, such as penguins walking through the snow in winter." },
 	{ id: "ueno-farm", wiki: "上野ファーム", name: "Ueno Farm", ward: W, lon: 142.4447, lat: 43.8143, zoom: 16.8, tilt: 58, bearing: 0, note: "English-style garden on a farm, open from spring to autumn." },
 	{ id: "ramen-mura", wiki: "旭川ラーメン村", name: "Asahikawa Ramen Village", ward: W, lon: 142.4140, lat: 43.8098, zoom: 17.2, tilt: 58, bearing: 0, note: "Row of ramen shops in one building. Asahikawa ramen is known for soy sauce soup under a layer of oil that keeps it hot." },
 ];
@@ -134,7 +134,7 @@ export const CITY: CityConfig = {
 	lod2Prefetch: LOD2_PREFETCH, bldSets: BLD_SETS,
 	bldNames: () => [],   // PLATEAU の無い市
 	emergency: {
-		night: { centers: NIGHT_CENTERS, label: "Night emergency center", hours: "Internal medicine and pediatrics every night 19:00–07:00. Call ahead to check." },
+		night: { centers: NIGHT_CENTERS, hours: "Internal medicine and pediatrics every night 19:00–07:00. Call ahead to check." },
 	},
 	majorHospitals: MAJOR_HOSPITALS,
 	groundCenter: true,   // 盆地を丘と山が囲む（嵐山・神居古潭・旭山）＝注視点を地面に（京都・札幌と同じ）
