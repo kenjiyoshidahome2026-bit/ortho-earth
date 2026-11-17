@@ -28,7 +28,7 @@ import { csViewMat, csPackUniforms, CS_CU_HEAD } from "../csshader.ts";   // Ces
 import type { CsSpec, CsMeta } from "../csshader.ts";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
-import { elevCheapWgsl, FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_LITE_WGSL, MESH_TEX_WGSL, MESH_SIL_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
+import { elevCheapWgsl, lineDbgWgsl, FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_LITE_WGSL, MESH_TEX_WGSL, MESH_SIL_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
 	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL, TERRAIN_CAST_NF_WGSL,
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
@@ -106,6 +106,8 @@ export interface RendererGPUOptions {
 	meshSort?: boolean;
 	/** 建物（基図の押し出し・PLATEAU）の頂点の標高を主アトラス 1 標本で引く（?elevcheap=1・既定オフ） */
 	elevCheap?: boolean;
+	/** ?linedbg=語,語…（診断）＝線の頂点シェーダから仕事を抜く（wgsl.ts lineDbgWgsl・絵は崩れる） */
+	lineDbg?: string;
 	/** 診断：地形は描いたまま、塗り・線・建物・gint の頂点が読む標高だけ平らにする（?flatvec=1）＝「地形を消すと軽い」のうち地形メッシュ以外（頂点ごとの標高テクスチャ読み）の取り分を測る。絵は壊れる（地形に線が埋まる） */
 	flatVec?: boolean;
 	/** 線・overlay 塗りの頂点が引く標高の軽い版（?lineelev）：0＝elevQ（従来・最大 16 標本）、1＝格子量子化のまま 4 隅を 1 標本（4 標本）、2＝1 標本（格子に乗らない） */
@@ -462,6 +464,7 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const FD_LABELS = new Set(["terrain", "building", "mesh", "meshTex", "meshTexFast", "terrainSh", "buildingSh", "meshSh", "meshTexSh", "terrainClip", "buildingClip", "meshClip", "meshTexClip", "terrainShClip", "buildingShClip", "meshShClip", "meshTexShClip"]);
 	const fragDepthOn = rOpts.fragDepth !== false;   // ?fd=0 の逃げ道
 	const mkMod = (code: string, label: string): GPUShaderModule => {
+		if (rOpts.lineDbg) code = lineDbgWgsl(code, rOpts.lineDbg);   // ?linedbg（診断・既定は通さない）
 		if (rOpts.elevCheap === true) code = elevCheapWgsl(code);   // 軽い標高の枝だけ残す（elevQ 側を捨てる）＝Mali のコールドコンパイルを短く（2026-11-07）。desktop は原本のまま
 		if (rOpts.gndFast === false) code = gndMixSlow(code);   // 逃げ道（perf plan P6）＝A/B と切り分け。既定は早期 return の新順序
 		if (RZ) code = rzWgsl(code, label);   // 逆向きの浮動小数深度＝頂点で書くだけ（frag_depth 無し＝early-Z が効く）

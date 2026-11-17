@@ -33,6 +33,16 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 		["lines not simplified (linesimp=0, old default)", "linesimp=0&drawstat=1"],
 		["lines simplified within 8 tile units (linesimp=8)", "linesimp=8&drawstat=1"],
 	],
+	// 線の頂点シェーダの仕事を 1 つずつ抜く（?linedbg・診断・絵は崩れる）＝GPU 時間が頂点の計算に付くのか、三角形の数そのものに付くのかを分ける
+	linevs: [
+		["default", "drawstat=1"],
+		["lines: no vertex elevation", "linedbg=noelev&drawstat=1"],
+		["lines: no depth margin samples", "linedbg=nolift&drawstat=1"],
+		["lines: no ground depth at corners", "linedbg=nogw&drawstat=1"],
+		["lines: no joins", "linedbg=nojoin&drawstat=1"],
+		["lines: all four removed", "linedbg=noelev,nolift,nogw,nojoin&drawstat=1"],
+		["lines: vertices sent but nothing drawn", "linedbg=none&drawstat=1"],
+	],
 	gint: [
 		["default", ""],
 		["no coast/border layer", "nogint=1"],
