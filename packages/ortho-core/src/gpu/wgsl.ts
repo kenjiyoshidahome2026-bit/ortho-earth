@@ -528,6 +528,20 @@ const LINE_DBG: Record<string, [string, string][]> = {
 	joinnb0: [["\tlet la1 = F.origin + q1; let la2 = F.origin + q2;", "\tq0 = q1 + q1 - q2; q3 = q2 + q2 - q1;\n\tlet la1 = F.origin + q1; let la2 = F.origin + q2;"]],
 	joinflag0: [["\tlet la1 = F.origin + q1; let la2 = F.origin + q2;", "\tjf0 = 0u;\n\tlet la1 = F.origin + q1; let la2 = F.origin + q2;"]],
 	joinext0: [["o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev); eA = ra.ext; eB = rb.ext;", "o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev);"]],
+	// joinlin＝継ぎの向きを、継ぎ目の点での「経緯度 1 度あたりの画面の動き」から作る（前後の点を投影し直さない＝三角関数 0 回・行列 4 回）。
+	// 2026-11-17 Galaxy：継ぎの枝に入らなければ 34 → 18 ms、隣の点を読まないだけでは変わらず＝費用は前後の点の球面投影（sin が 1 点 4 回）。
+	// 継ぎ目を共有する 2 本の線分は同じ点・同じ式で向きを作るので切り口は一致する。3D でまっすぐな線分の画面の向きは接線の向きと同じ＝近似は線分内の球面の曲がりだけ
+	// relD＝deltaToRel と同じ値（r）と、その経度・緯度 1 度あたりの変化（e・n）。三角関数は 1 回ずつ。jDir＝点（clip＝c）から経緯度で dq 度だけ動いたときの画面の動き（px・y 下向き＝toScreen と同じ向き）
+	joinlin: [
+		["struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\n", "struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\nstruct RelD { r: vec3f, e: vec3f, n: vec3f };\nfn relD(dDeg: vec2f) -> RelD {\n\tlet da = dDeg.x * D2R; let db = dBeta(dDeg.y * D2R);\n\tlet sda = sinP(da); let sdb = sinP(db);\n\tlet sha = sinP(da * 0.5); let shb = sinP(db * 0.5);\n\tlet cdaM1 = -2.0 * sha * sha; let cdbM1 = -2.0 * shb * shb;\n\tlet cda = 1.0 + cdaM1; let cdb = 1.0 + cdbM1;\n\tlet ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;\n\tlet cLon = F.trig.x; let sLon = F.trig.y; let cLat = F.trig.z; let sLat = F.trig.w;\n\tvar o: RelD;\n\to.r = vec3f(cLat * cLon * ccM1 - cLat * sLon * cdb * sda - sLat * cLon * sdb * cda + sLat * sLon * sdb * sda, sLat * cdbM1 + cLat * sdb, cLat * sLon * ccM1 + cLat * cLon * cdb * sda - sLat * sLon * sdb * cda - sLat * cLon * sdb * sda);\n\to.e = D2R * vec3f(-cLat * cLon * sda * cdb - cLat * sLon * cdb * cda + sLat * cLon * sdb * sda + sLat * sLon * sdb * cda, 0.0, -cLat * sLon * sda * cdb + cLat * cLon * cdb * cda + sLat * sLon * sdb * sda - sLat * cLon * sdb * cda);\n\to.n = D2R * vec3f(-cLat * cLon * cda * sdb + cLat * sLon * sdb * sda - sLat * cLon * cdb * cda + sLat * sLon * cdb * sda, -sLat * sdb + cLat * cdb, -cLat * sLon * cda * sdb - cLat * cLon * sdb * sda - sLat * sLon * cdb * cda - sLat * cLon * cdb * sda);\n\treturn o;\n}\nfn jDir(c: vec4f, R: RelD, dq: vec2f) -> vec2f {\n\tlet dc = F.mvp * vec4f(R.e * dq.x + R.n * dq.y, 0.0);\n\tlet g = (dc.xy * c.w - c.xy * dc.w) / (c.w * c.w);\n\treturn vec2f(g.x * 0.5 * F.viewport.x, -g.y * 0.5 * F.viewport.y);\n}\n"],
+		["fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {", "fn lineEnd(d0in: vec2f, sj: vec2f, d1in: vec2f, hp: f32, start: bool, link: u32) -> LineEnd {"],
+		["\tlet sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);\n\tvar d0 = sj.xy - sx.xy; var d1 = sy.xy - sj.xy;\n", "\tvar d0 = d0in; var d1 = d1in;\n"],
+		["if (sx.z * sj.z * sy.z < 0.5 || l0 < 1e-4 || l1 < 1e-4) { return r; }", "if (l0 < 1e-4 || l1 < 1e-4) { return r; }"],
+		["\tr.j = vec4f(sj.xy, N);\n", "\tr.j = vec4f(sj, N);\n"],
+		["\tlet rela = deltaToRel(q1); let relb = deltaToRel(q2);", "\tlet RA = relD(q1); let RB = relD(q2); let rela = RA.r; let relb = RB.r;"],
+		["let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);", "let ra = lineEnd(jDir(ca, RA, q1 - q0), toScreen(ca), jDir(ca, RA, q2 - q1), hp, true, lA);"],
+		["let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);", "let rb = lineEnd(jDir(cb, RB, q2 - q1), toScreen(cb), jDir(cb, RB, q3 - q2), hp, false, lB);"],
+	],
 	none: [["\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n", "\tif (F.viewport.x > 0.0) { o.front = -1.0; o.pos = vec4f(2.0, 2.0, 2.0, 1.0); return o; }\n\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n"]],
 };
 export function lineDbgWgsl(code: string, words: string): string {
