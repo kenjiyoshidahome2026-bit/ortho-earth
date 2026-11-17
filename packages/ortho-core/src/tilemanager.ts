@@ -39,7 +39,7 @@ export interface OrderItem { key: string; origin: number[] | null; z: number; bl
 /** update の中で使う枠＝TileXYZ＋建物の役（ready() が OrderItem へ写す） */
 interface SelTile extends TileXYZ { bld?: "no" | "only" }
 /** bldRange＝注視点（cam.center）から N km より遠い枠は建物を立てない（bld:"no"・"only" の枠は外す）＝0/無指定＝従来。LOW_MEM の斜め遠景で押し出し建物の頂点が GPU を詰まらせる対策（2026-11-06） */
-export interface UpdateOptions { groundR?: number; zOf?: TileZoomOf | null; tilePx?: number; maxZ?: number | null; keepFine?: number; bldRange?: number }
+export interface UpdateOptions { groundR?: number; zOf?: TileZoomOf | null; tilePx?: number; maxZ?: number | null; keepFine?: number; bldRange?: number; /** 下地の段＝round(zoom) からいくつ下か（既定 4＝タイル z で主層の 3 段下）。大きいほど粗い下地 */ coarseDz?: number }
 export interface UpdateResult { order: OrderItem[]; coarseOrder: OrderItem[]; total: number; sel: number; covered: boolean }
 export interface TileStats { tiles: number; bytes: number; budgetBytes: number; deviceMemoryGB: number; cacheEntries: number; queue?: { queued: number; inflight: number } | null }
 export interface TileManager { update(cam: CameraPose, W: number, H: number, opts?: UpdateOptions | null): UpdateResult; buildScene(order: readonly OrderItem[], opts?: MergeOptions): MergedScene; labels(order: readonly OrderItem[]): Label[]; cache: Map<string, TileEntry>; stats(): TileStats; reset(): void; shown(keys: Iterable<string>): TileLatency[] }
@@ -228,7 +228,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// opts.maxZ＝呼び出し側の上限（全球ビュー＝世界ソースの領分 z≤3 に留める）は下地・毛布にも掛ける：
 		// 主層だけ縛っても下地(z4)に optbv が混ざれば「日本固有はまだ出さない」ゲートが破れる。
 		const capZ = (z: number): number => opts?.maxZ != null ? Math.min(z, opts.maxZ) : z;
-		const coarse = hit ? lod!.coarse : selectLOD(cam, W, H, { maxZ: capZ(Math.max(floorZ || 4, minZ, Math.round(cam.zoom) - 4)), floorZ, groundR, minZ });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
+		const coarse = hit ? lod!.coarse : selectLOD(cam, W, H, { maxZ: capZ(Math.max(floorZ || 4, minZ, Math.round(cam.zoom) - (opts?.coarseDz ?? 4))), floorZ, groundR, minZ });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
 		// 毛布：固定 z4 の床タイル＝フォールバックの終点保証。「zoom-6」の動く目標だと高速ズームアウト中に
 		// 毎段コールドフェッチで間に合わず白が出る。z4 固定なら1枚で22.5°＝数枚で日本全体、初回以降キャッシュ常駐
 		// ＝どんな引き方をしても床が必ず先に居る。W/H×3＝視野の3倍を先回り（外周の白露出も防ぐ）。

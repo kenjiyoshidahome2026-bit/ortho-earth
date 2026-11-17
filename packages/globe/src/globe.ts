@@ -1343,6 +1343,7 @@ const STARSKY_Z = 5;                       // 星空劇場（星・星座クリ�
 // ?tilepx=N（試し・既定 0＝従来）：基図のタイルを割る閾（画面の device px）。従来は動いている間 560・静止の詳細化 384＝1 枚が 280〜560 px に収まるまで割る。
 // 2026-11-17 Galaxy（4GB・Mali・800×1104@1.5）：z12 の東京で 30 枚・線分 50 万本（三角形 100 万）＝1 回の描画 230 ms・4 コマ/秒。MapLibre は同じ眺めを 512〜1024 CSS px のタイルで描く＝約 1.5 段粗い。
 // N を上げると粗いタイルで覆う（1120＝一段粗い＝枚数と頂点がおよそ 1/4）。絵は変わる（細い道が出るズームが一段遅れる）
+const COARSE_DZ = Math.max(4, Math.min(8, qNum(/[?&]basedz=(\d+)/, 4)));   // 下地（動いている間に主層の下へ敷く粗いタイル）の段（計測のノブ・2026-11-17・既定 4＝従来）。Galaxy 4GB の z12：回している間は下地の塗りが 4 命令・約 13 万三角形（主層の塗り 7 万の 2 倍）
 const TILE_PX_Q = qNum(/[?&]tilepx=(\d+)/, 0), TILE_PX_FIX = TILE_PX_Q >= 256 ? Math.min(4096, TILE_PX_Q) : (LOW_MEM || MID_TIER) ? 1120 : 0;
 // 2026-11-17 から LOW_MEM（4GB 級）は既定 1120＝一段粗い。Galaxy 4GB：z12 東京 252 → 43 ms（4 → 22 コマ/秒・三角形 122 万 → 41 万・worker の CPU 153 → 7 ms）・z7 中部日本 131 → 26 ms。
 // 絵＝z12 で細い生活道路が減る・z14 はほぼ同じ・z7 はラベルが主要都市に絞られる。1600 は z7 で基図が出なくなる（不具合）ので使わない。?tilepx=560 で旧来
@@ -2570,7 +2571,7 @@ function render() {
 	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-		tu = tiles.update(cam, size.w, size.h, { tilePx: (TILE_PX_FIX || ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX)) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), bldRange: BLD_RANGE, maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		tu = tiles.update(cam, size.w, size.h, { coarseDz: COARSE_DZ, tilePx: (TILE_PX_FIX || ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX)) * TILE_BIAS, zOf: mlZoomOf(), groundR: groundRNow(), keepFine: ML_COVER ? 0 : keepFineNow(), bldRange: BLD_RANGE, maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		lastTileOrder = tu.order;   // 描いている基図タイル＝map.queryRenderedFeatures の問い合わせ先
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys!.has(t.key));
