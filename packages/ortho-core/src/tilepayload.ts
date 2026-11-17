@@ -24,12 +24,12 @@ export function lineSubLenM(z: number, lat: number, n?: number): number | undefi
 
 /** 組み立ての口：drape＝地形にドレープする（既定 true＝線を 700m ごとに細分）。false＝細分なし（vt perf plan §3.2・terrain の無い地図） */
 /** lineSub＝線の細分をタイルの辺の 1/N より細かくしない（0＝従来どおり 700m 固定・`?linesubn=N`）。低ズームのタイルは 1 枚が数百 km＝700m 刻みは画面の 1px より細かい */
-export interface PayloadOptions { drape?: boolean; bldMinZ?: number; lineSub?: number }   // bldMinZ＝建物を立ち上げ始めるタイルの z（既定 14）
+export interface PayloadOptions { drape?: boolean; bldMinZ?: number; lineSub?: number; /** 線の間引きの許容（タイル単位・0＝間引かない・`?linesimp=N`） */ lineSimp?: number }   // bldMinZ＝建物を立ち上げ始めるタイルの z（既定 14）
 // layers＝decode の結果（{ __empty } を含む）・t＝{ z, x, y }。戻り＝{ origin, dl, labels, buildings, z, bytes }
 export function buildTilePayload(layers: TileData, { z, x, y }: TileXYZ, style: Style, opts?: PayloadOptions): TilePayload {
 	const [w, s, , n] = tileBounds(x, y, z);
 	const origin = [w, n];
-	const dl = buildTileDrawList({ layers, z, x, y, subLenM: opts?.drape === false ? Infinity : lineSubLenM(z, (s + n) / 2, opts?.lineSub) }, style, origin);
+	const dl = buildTileDrawList({ layers, z, x, y, subLenM: opts?.drape === false ? Infinity : lineSubLenM(z, (s + n) / 2, opts?.lineSub), simpTol: opts?.lineSimp || 0 }, style, origin);
 	// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域を敷く（詳細は buildEmptySeaOps。style.emptySea 未設定なら不発）
 	const seaOps = buildEmptySeaOps(layers, { z, x, y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
 	const { labels } = buildLabels({ layers, z, x, y }, style);

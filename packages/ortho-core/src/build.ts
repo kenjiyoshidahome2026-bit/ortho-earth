@@ -19,7 +19,7 @@ export interface Style { layers: StyleLayer[]; emptySea?: string | null; schema?
 /** 地物 → その feature-state（#109） */
 export type StateOf = (f: DecodedFeature) => Record<string, unknown> | null | undefined;
 /** buildTileDrawList の入力＝解読済みの層と タイル座標 */
-export interface BuildTile extends TileXYZ { layers: TileData; subLenM?: number; stateOf?: StateOf | null }
+export interface BuildTile extends TileXYZ { layers: TileData; subLenM?: number; stateOf?: StateOf | null; /** 線の間引きの許容（タイル単位・extent 4096 換算・0＝間引かない） */ simpTol?: number }
 export interface DrawList { ops: DrawOp[] }
 
 // 一番上（pole=1）／下（pole=-1）の行のタイル：上端（py≤0）／下端（py≥extent）に沿う「境界の辺」（1 つの三角形にしか属さない辺）から、極の 1 頂点へ扇を張る。
@@ -86,6 +86,40 @@ let clipA = new Float64Array(1024), clipB = new Float64Array(1024);   // clipToE
 // タイル生成側が余白の縁で切った辺（x＝−buffer／extent＋buffer に沿う縦横の直線）を持ち、描くとタイルの境の両脇に白い二重線が出る（2026-09-30 本人の写し・回転した視点では 45°）。
 // 境をまたぐ線分は丸ごと残す（継ぎ目の join のため）
 const outsideSameSide = (ax: number, ay: number, bx: number, by: number, extent: number): boolean => (ax < 0 && bx < 0) || (ax > extent && bx > extent) || (ay < 0 && by < 0) || (ay > extent && by > extent);
+// 線の間引き（Douglas-Peucker）：環ごとに両端を残し、弦から tol（タイル単位）以内の頂点を落とす。戻り＝新しい coords／ends（落とす点が無ければ元のまま返す）。
+// 基図の線は 1 本 1 本が GPU の 1 プリミティブ＝非力な GPU は線の本数で描画時間が決まる（Galaxy 4GB＝約 0.24 ms／1000 三角形）。画面の 1px 未満の折れは見えない
+export function simplifyRings(coords: ArrayLike<number>, ends: ArrayLike<number>, tol: number): { coords: ArrayLike<number>; ends: ArrayLike<number> } {
+	const t2 = tol * tol, n = coords.length >> 1, keep = new Uint8Array(n), stk: number[] = [];
+	let ls = 0, kept = 0;
+	for (let r = 0; r < ends.length; r++) {
+		const a = ls >> 1, b = (ends[r] >> 1) - 1;
+		if (b - a < 2) { for (let i = a; i <= b; i++) { keep[i] = 1; kept++; } ls = ends[r]; continue; }
+		keep[a] = keep[b] = 1; kept += 2; stk.push(a, b);
+		while (stk.length) {
+			const j = stk.pop()!, i = stk.pop()!;
+			const ax = coords[i * 2], ay = coords[i * 2 + 1], dx = coords[j * 2] - ax, dy = coords[j * 2 + 1] - ay, l2 = dx * dx + dy * dy;
+			let md = 0, mi = -1;
+			for (let k = i + 1; k < j; k++) {
+				const px = coords[k * 2] - ax, py = coords[k * 2 + 1] - ay;
+				let d: number;
+				if (l2 === 0) d = px * px + py * py;
+				else { const t = Math.max(0, Math.min(1, (px * dx + py * dy) / l2)), ex = px - t * dx, ey = py - t * dy; d = ex * ex + ey * ey; }
+				if (d > md) { md = d; mi = k; }
+			}
+			if (mi >= 0 && md > t2) { keep[mi] = 1; kept++; if (mi - i > 1) stk.push(i, mi); if (j - mi > 1) stk.push(mi, j); }
+		}
+		ls = ends[r];
+	}
+	if (kept === n) return { coords, ends };
+	const oc = new Float64Array(kept * 2), oe = new Uint32Array(ends.length);
+	let w = 0; ls = 0;
+	for (let r = 0; r < ends.length; r++) {
+		for (let i = ls >> 1; i < ends[r] >> 1; i++) if (keep[i]) { oc[w++] = coords[i * 2]; oc[w++] = coords[i * 2 + 1]; }
+		oe[r] = w; ls = ends[r];
+	}
+	return { coords: oc, ends: oe };
+}
+
 // 三角形を格子（マス幅 cell・タイル単位）で切り分ける＝MapLibre の subdivideFill と同じ「格子で切る」細分。
 // 旧＝最長辺の二等分：隣の三角形が同じ辺を割らないと T 字の接点ができ、球の上では割った側の中点は球面に乗り・割らない側の辺は弦のまま沈む
 // ＝その差が 45° の白い筋（低ズームの demotiles・2026-09-30 本人の写し）。格子線との交点は辺の向きに依らず同じ式で出す＝隣同士が必ず同じ頂点を共有＝継ぎ目なし
@@ -355,7 +389,7 @@ export function buildTileDrawList(tile: BuildTile, style: Style, origin: readonl
 	try { return buildTileDrawList1(tile, style, origin, pale, B); } finally { bufDepth--; }
 }
 interface FillPart { ll: Float32Array; tris: ArrayLike<number> }
-interface LineSegs { n: number; p1: Float32Array; p2: Float32Array; r: Uint32Array; k: Uint32Array; fl: Uint8Array; d: Float32Array; rs: number[]; re: number[]; pv?: Int32Array; nx?: Int32Array; pg?: Float32Array }
+interface LineSegs { c: ArrayLike<number>; n: number; p1: Float32Array; p2: Float32Array; r: Uint32Array; k: Uint32Array; fl: Uint8Array; d: Float32Array; rs: number[]; re: number[]; pv?: Int32Array; nx?: Int32Array; pg?: Float32Array }
 // 線分の隣（S-P1-1）：同じ環で端点を共有する前・次の線分の添字（無ければ −1＝端）。閉じた環は一周つなぐ。
 // 長さ 0 の線分は飛ばしてつなぐ（自分は −1＝丸でない端なら描かれない）。余白で落とした線分の所は切れる＝端
 function linkSegs(g: LineSegs): void {
@@ -374,7 +408,7 @@ function linkSegs(g: LineSegs): void {
 	close(first, last);
 	g.pv = pv; g.nx = nx;
 }
-function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: BuildTile, style: Style, origin: readonly number[], pale: (c: unknown) => unknown, B: Bufs): DrawList {
+function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null, simpTol = 0 }: BuildTile, style: Style, origin: readonly number[], pale: (c: unknown) => unknown, B: Bufs): DrawList {
 	const [ox, oy] = origin;
 	const ops: DrawOp[] = [];   // { kind:'fill'|'line', li, ... } を style層順に（li=style層index、跨ぎバッチ結合用）
 	// タイルローカル(0..extent) → 経緯度(原点相対) を out[oi],out[oi+1] へ直書き。x,y,n はタイル内で不変なので
@@ -450,8 +484,9 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 	const lineSegs = (geom: DecodedGeom, extent: number, wantPg = false): LineSegs => {
 		let g = lineCache.get(geom);
 		if (g && (!wantPg || g.pg)) return g;
-		const { coords, ends } = geom, p1 = LS.p1, p2 = LS.p2, rr = LS.r, kk = LS.k, fl = LS.fl, dd = LS.d, pg = wantPg ? LS.pg : null, rs: number[] = [], re: number[] = [];
 		const gp = wantPg ? geom.prog : undefined;
+		const sg = simpTol > 0 && !geom.prog ? simplifyRings(geom.coords, geom.ends, simpTol * extent / 4096) : geom;   // 線の間引き（?linesimp）＝環ごとに端点を残して Douglas-Peucker。線の進み（geojson の prog）を持つ線は触らない
+		const { coords, ends } = sg, p1 = LS.p1, p2 = LS.p2, rr = LS.r, kk = LS.k, fl = LS.fl, dd = LS.d, pg = wantPg ? LS.pg : null, rs: number[] = [], re: number[] = [];
 		const sl = isFinite(subLen) ? subLen : fillSub0 ? extent / Math.max(1, 128 >> z) : Infinity;   // ドレープ無し＝z≤6 だけ fill の格子で粗く（弦の沈み）・z≥7 は細分なし
 		p1.n = p2.n = rr.n = kk.n = fl.n = dd.n = 0; if (pg) pg.n = 0;
 		let ls = 0;
@@ -484,7 +519,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 			}
 			ls = le;
 		}
-		g = { n: rr.n, p1: p1.out(), p2: p2.out(), r: rr.out(), k: kk.out(), fl: fl.out(), d: dd.out(), rs, re, ...(pg ? { pg: pg.out() } : {}) };
+		g = { c: coords, n: rr.n, p1: p1.out(), p2: p2.out(), r: rr.out(), k: kk.out(), fl: fl.out(), d: dd.out(), rs, re, ...(pg ? { pg: pg.out() } : {}) };
 		lineCache.set(geom, g);
 		return g;
 	};
@@ -629,7 +664,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }: 
 					for (let j = 0, hn = half.n; j < n; j++) hf[hn++] = hw;
 					P1.n += n * 2; P2.n += n * 2; col.n += n * 4; half.n += n;
 					if (off) {
-						const sl = ow || uOff ? g.rs.map((s0, r) => miterSlides(coords, s0, g.re[r])) : null;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
+						const sl = ow || uOff ? g.rs.map((s0, r) => miterSlides(g.c, s0, g.re[r])) : null;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
 						const o = off.reserve(n * 3); let on = off.n;
 						for (let j = 0; j < n; j++) {
 							const fl = g.fl[j], k = g.k[j], sr = sl ? sl[g.r[j]] : NO_SLIDES;

@@ -12,7 +12,7 @@ export type { MergedScene };   // scene の便り（ScenePortMessage の "scene"
 
 // ── ortho:tile（workers/tileworker.ts）＝fetch→decode→tessellation
 /** main → tile worker：起動（style・配信圏・楕円体・形式・drape＝地形にドレープする＝線を細分する・既定 true・vt perf plan §3.2） */
-export interface TileInitRequest { type: "init"; style: Style; coverage?: number[] | null; ell?: unknown; encoding?: string; drape?: boolean; noLabels?: boolean; /** HTTP の PMTiles から読んだ範囲を端末に残す（既定で入・`?tilecache=0` で切） */ rangeCache?: boolean; scenePort?: MessagePort; bldMinZ?: number; /** 線の細分をタイルの辺の 1/N より細かくしない（0＝700m 固定） */ lineSub?: number }
+export interface TileInitRequest { type: "init"; style: Style; coverage?: number[] | null; ell?: unknown; encoding?: string; drape?: boolean; noLabels?: boolean; /** HTTP の PMTiles から読んだ範囲を端末に残す（既定で入・`?tilecache=0` で切） */ rangeCache?: boolean; scenePort?: MessagePort; bldMinZ?: number; /** 線の細分をタイルの辺の 1/N より細かくしない（0＝700m 固定） */ lineSub?: number; /** 線の間引きの許容（タイル単位・0＝間引かない） */ lineSimp?: number }
 /** main → tile worker：配色テーマ／基図の生き替え（coverage は据置・形式と drape は来た時だけ） */
 export interface TileSetStyleRequest { type: "setStyle"; style: Style; encoding?: string; drape?: boolean }
 /** main → tile worker：視野外の in-flight を中断 */
