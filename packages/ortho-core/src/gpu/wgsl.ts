@@ -495,6 +495,25 @@ const ELEV_CHEAP_IF = /if \(F\.ellP\.z > 0\.5\) \{([^{}]*)\} else \{([^{}]*)\}/g
 export function elevCheapWgsl(code: string): string { return code.replace(ELEV_CHEAP_IF, (_m, a: string) => `{${a}}`); }
 export function elevCheapWgslN(code: string): number { return (code.match(ELEV_CHEAP_IF) || []).length; }
 
+// ?linedbg=語,語…（診断・既定は何もしない）＝線の頂点シェーダから仕事を 1 つずつ抜いて、端末の GPU 時間がどれに付くかを量る（2026-11-17・Mali は線の三角形 1000 個あたり 0.24 ms）。
+// 絵は崩れる＝計測だけに使う。noelev＝頂点の標高を引かない・nolift＝深度の余白（標高 3 標本）を抜く・nogw＝四隅の地面の深さ（lineGroundW）を端点の深さに・
+// nojoin＝端と継ぎの形を丸に倒す・none＝全頂点を画面の外へ（描かない＝頂点を運ぶだけの費用）。線の頂点シェーダを持たないモジュールはそのまま
+const LINE_DBG: Record<string, [string, string][]> = {
+	noelev: [["(elevL(la1) + liftP)", "(liftP)"], ["(elevL(la2) + liftP)", "(liftP)"]],
+	nolift: [["\tif (liftZ > 0.0) {\n", "\tif (false) {\n"]],
+	nogw: [["let wz = select(lineGroundW(relDb, la2, db, cdb, posS - toScreen(cdb)), lineGroundW(relDa, la1, da, cda, posS - toScreen(cda)), corner.x < 0.5);", "let wz = select(cdb.w, cda.w, corner.x < 0.5);"]],
+	nojoin: [["\tif (P.lx.z > 0.5) {\n\t\tlet hp = hw0 * F.params.w;", "\tif (false) {\n\t\tlet hp = hw0 * F.params.w;"]],
+	none: [["\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n", "\tif (F.viewport.x > 0.0) { o.front = -1.0; o.pos = vec4f(2.0, 2.0, 2.0, 1.0); return o; }\n\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n"]],
+};
+export function lineDbgWgsl(code: string, words: string): string {
+	if (!code.includes("fn lineGroundW(") || !code.includes("-> LineOut {")) return code;
+	for (const w of words.split(",")) for (const [a, b] of LINE_DBG[w] || []) {
+		if (!code.includes(a)) console.warn(`[linedbg] ${w}: anchor not found, no effect in this module`);
+		code = code.replace(a, b);
+	}
+	return code;
+}
+
 // 塗り（earcut 三角形・premultiplied）。FILL_VS/FILL_FS の移植：図郭外フォールバック水域（seaGate＝FS標高ゲート）。
 // 直描きは 2D（地形なし）だけ＝3D の塗りは地面アトラスへ焼く（ATLAS_FILL_WGSL・2026-09-21）。かつての標高ドレープ・
 // 水面リフト・水域の厳密対数深度（fsExact）は塗りには不要となり撤去。
