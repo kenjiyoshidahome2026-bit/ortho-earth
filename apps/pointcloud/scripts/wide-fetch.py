@@ -7,7 +7,12 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 SP = os.environ.get("WORK", "work")   # 作業の置き場（中間ファイル）
 S3 = "https://virtual-shizuoka.s3.ap-northeast-1.amazonaws.com/"
-sheets = sorted({r['key'].rsplit('/',1)[1].split('.')[0] for r in csv.DictReader(open(os.environ.get('SHEETS', 'shizuoka-city-files.csv'))) if r['set']=='2021/LP/Original'})
+# 2026-11-18：2021 の欠け（葵区北部）を 2025/LP（400×300 m）と 2022/LP（南アルプス・1000×750 m・名前の末尾に k）で埋める＝CSV の set に 2025/LP/Original・2022/LP/Ground の行も入れる
+YEAR = {}
+for r in csv.DictReader(open(os.environ.get('SHEETS', 'shizuoka-city-files.csv'))):
+    y = {'2021/LP/Original': '2021', '2025/LP/Original': '2025', '2022/LP/Ground': '2022'}.get(r['set'])
+    if y: YEAR[r['key'].rsplit('/',1)[1].split('.')[0] + ('k' if y == '2022' else '')] = y
+sheets = sorted(YEAR)
 def get(url):
     for i in range(6):
         try:
@@ -15,7 +20,7 @@ def get(url):
         except Exception as e:
             if i == 5: raise
             time.sleep(2 * (i + 1))
-def path(kind, s): return f"2021/LP/{kind}/{s[:2]}/{s[2:4]}/{s[4:6]}/{s}.zip"
+def path(kind, s): n = s[:8]; return f"{YEAR[s]}/LP/{kind}/{n[:2]}/{n[2:4]}/{n[4:6]}/{n}.zip"
 def one(s):
     out_o, out_g = f"{SP}/ortho/{s}.jpg", f"{SP}/grid/{s}.npz"
     meta = {}
