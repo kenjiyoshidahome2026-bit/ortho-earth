@@ -96,7 +96,7 @@ const WORDS = [
 	// 駅・停留所・避難場所の見直し（2026-10-26）
 	["荏原", "ebara", 0], ["中延", "nakanobu", 0], ["捜真", "soshin", 0], ["桟橋", "sanbashi", 0], ["貯木場", "chobokujo", 0], ["慶珊寺", "keisanji", 0], ["矢之根", "yanone", 0], ["中ノ谷", "nakanoya", 0],
 	["公園口", "Park Entrance", 1], ["寺尾", "terao", 0], ["大口", "ooguchi", 0], ["東観寺", "tokanji", 0], ["神武寺", "jimmuji", 0], ["鮫洲", "samezu", 0], ["大岡山", "ookayama", 0], ["大森海岸", "omorikaigan", 0],
-	["シーサイド", "Seaside", 1], ["東急", "Tokyu", 1], ["住宅", "jutaku", 0], ["グランド", "Ground", 1], ["日本大通り", "Nihon-odori", 1], ["小学", "Elementary School", 1], ["木材港", "mokuzaiko", 0],
+	["ホテルルートイングランド", "Hotel Route-Inn Grand", 1], ["ホテルルートイン", "Hotel Route-Inn", 1], ["シーサイド", "Seaside", 1], ["東急", "Tokyu", 1], ["住宅", "jutaku", 0], ["グランド", "Ground", 1], ["日本大通り", "Nihon-odori", 1], ["小学", "Elementary School", 1], ["木材港", "mokuzaiko", 0],
 	["綱島", "tsunashima", 0], ["北川", "kitagawa", 0], ["山内", "yamauchi", 0], ["元街", "motomachi", 0], ["南町田", "minami-machida", 0], ["グランベリー", "Grandberry", 1], ["横浜人形の家", "Yokohama Doll Museum", 1],
 	["港の見える丘公園前", "Minato-no-Mieru-Oka Park", 1], ["港の見える丘公園", "Minato-no-Mieru-Oka Park", 1], ["長松寺", "choshoji", 0],
 	["うらしま", "urashima", 0], ["横浜市", "Yokohama", 1], ["スポーツ会館", "Sports Hall", 1], ["万国橋", "bankokubashi", 0], ["六ッ川", "mutsukawa", 0], ["野毛山", "nogeyama", 0],
@@ -143,6 +143,8 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	// 町名は「町」抜きでも引く（施設の名は「菅田消防出張所」＝菅田町の菅田）
 	const T0 = towns.map(([k, r]) => [normJp(k), toKata(r)]);
 	for (const [k, r] of [...T0]) { const m = k.endsWith("町") && r.match(/(チョウ|マチ)$/); if (m && k.length > 1 && !T0.some(([x]) => x === k.slice(0, -1))) T0.push([k.slice(0, -1), r.slice(0, -m[1].length)]); }
+	// 条の町（旭川の「忠和1条」＝チュウワ1ジョウ）は条の前だけでも引く＝「忠和」を読みの辞書（Tadakazu）に回さない（2026-11-17）
+	for (const [k, r] of [...T0]) { const m = k.match(/^(\D+?)\d+条$/), q = r.match(/^(\D+?)\d+ジョウ$/); if (m && q && !T0.some(([x]) => x === m[1])) T0.push([m[1], q[1]]); }
 	const T = T0.sort((a, b) => b[0].length - a[0].length);
 	let guessed = 0;
 	// 頭から一番長く当たる物：区の名・「横浜」（別の語）／決まった語／町名（読み）
@@ -193,7 +195,7 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 		const coop = s.indexOf("生活協同組合"); if (coop > 0 && coop + 6 < s.length) s = s.slice(coop + 6);   // 「医療生協かながわ生活協同組合戸塚病院」→ 戸塚病院
 		if (corp) { const rest = s.slice(corp.length), e = [...rest.slice(0, 9)].findIndex(c => c === "会" || c === "団"); s = e >= 0 && e + 1 < rest.length ? rest.slice(e + 1) : rest; }
 		const kai = s.indexOf("会"); if (kai > 0 && kai <= 4 && s.endsWith("病院") && s.length - kai > 4) s = s.slice(kai + 1);   // 「康心会汐見台病院」＝医療法人の名（〜会）は落とす
-		s = s.replace(/^東京国税局/, "").replace(re("^@C地方検察庁(?=.)"), "").replace(/^東京管区気象台(?=.)/, "").replace(re("^@P@K(?!立)"), PJ).replace(re("^(@C市立|@C市|@P@K立|市立|@L立)"), "").replace(/^消防局/, "").replace(/\s+/g, "");
+		s = s.replace(/^東京国税局/, "").replace(re("^@C地方検察庁(?=.)"), "").replace(/^東京管区気象台(?=.)/, "").replace(re("^@P@K(?!立)"), PJ).replace(re("^(@C市立|@C市|@P@K立|市立|@L立)"), "").replace(/^消防(局|本部)(?=.)/, "").replace(/\s+/g, "");
 		const fs = s.indexOf("消防署"); if (fs > 0 && s.endsWith("出張所") && s.length > fs + 6) s = s.slice(fs + 3);   // 「神奈川消防署菅田消防出張所」→ 菅田
 		// 警察署の中の交番＝「港北警察署下田交番」→ Shimoda Police Box
 		const ps = s.indexOf("警察署"); if (ps > 0 && ["交番", "駐在所", "派出所"].some(k => s.endsWith(k)) && s.length > ps + 5) s = s.slice(ps + 3);
@@ -224,12 +226,20 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	};
 	/** 札幌の条丁目（city.jo）：「北1条西2丁目3-4」→「3-4 Kita 1-jo Nishi 2-chome」・「発寒五条六丁目」→「Hassamu 5-jo 6-chome」（条の無い住所は null＝普通の読み） */
 	const JO = /^(\D*?)(\d+|[一二三四五六七八九十]+)条(東|西|南|北)?(\d+|[一二三四五六七八九十]+)?(?:丁目)?(.*)$/;
+	// 旭川の「6条通9丁目」（条の後に「通」）＝9-chome 6-jo-dori ではなく「6-jo-dori 9-chome」（2026-11-17）。札幌の住所に「条通」は無い＝札幌の焼きは変わらない
+	const JO_DORI = /^(\D*?)(\d+|[一二三四五六七八九十]+)条通(\d+|[一二三四五六七八九十]+)?(?:丁目)?(.*)$/;
 	const DIR = { 北: "Kita", 南: "Minami", 東: "Higashi", 西: "Nishi" };
 	const joNum = x => /^\d+$/.test(x) ? +x : kanjiNum(x);
 	const CHO = /^(\D+?)(\d+|[一二三四五六七八九十]+)丁目(.*)$/;
 	const EW = /^(\D+?)(東|西)(\d+|[一二三四五六七八九十]+)(?:丁目)?(?=-|$|\d|[^\d])(.*)$/;
-	const oo = w => w.replace(/^(Oodoori|Daidori)$/i, "Odori").replace(/oo/g, "o").replace(/^Oo/, "O").replace(/ou(?=[^aeiou]|$)/g, "o");   // 長音を落とす（Odori・Oyachi）
+	const oo = w => w.replace(/^(Oodoori|Daidori)$/i, "Odori").replace(/(?<!y)oo/g, "o").replace(/^Oo/, "O").replace(/ou(?=[^aeiou]|$)/g, "o");   // 長音を落とす（Odori・Oyachi）。「ヨオ」は長音でない＝旭川の豊岡（トヨオカ）＝Toyooka（2026-11-17）
 	const joAddr = s => {
+		const dr = s.match(JO_DORI);
+		if (dr) {
+			const rest = dr[4].replace(/番地?の?/g, "-").replace(/号/g, "").replace(/^-+|-+$/g, "").replace(/-{2,}/g, "-").trim(), n = rest.match(/^\d[\d-]*/)?.[0] || "";
+			const town = dr[1] ? (DIR[dr[1]] || oo(proper(dr[1]))) + " " : "";
+			return `${n ? n + " " : ""}${town}${joNum(dr[2])}-jo-dori${dr[3] ? ` ${joNum(dr[3])}-chome` : ""}`;
+		}
 		const m = s.match(JO);
 		const d = !(m && m[1]) && s.match(EW);
 		if (d) {   // 「大通西2丁目9」「大通東11-23」「大谷地東5丁目」＝9 Odori-nishi 2-chome（札幌の東西の丁目）

@@ -311,7 +311,7 @@ async function wardOf([x, y]) {
 	return null;
 }
 /** 住所を「横浜市◯◯区…」に揃える（県名は落とし、市名・区名が無ければ補う） */
-const fullAddr = (addr, w) => { const a = addr.startsWith(B.prefName) ? addr.slice(B.prefName.length) : addr; return a.startsWith(NAME) ? a : a.startsWith(w.name) ? NAME + a : a ? `${NAME}${w.name}${a}` : ""; };
+const fullAddr = (addr, w) => { const a = addr.startsWith(B.prefName) ? addr.slice(B.prefName.length) : addr; return a.startsWith(NAME) ? a : a.startsWith(w.name) || (a && w.name === NAME) ? NAME + a : a ? `${NAME}${w.name}${a}` : ""; };   // 区の無い市（旭川）＝区の名が市の名
 async function facilities() {
 	const rows = [];
 	for (const s of SRC()) {
@@ -343,14 +343,14 @@ async function photos() {
 	const api = "https://ja.wikipedia.org/w/api.php", commons = "https://commons.wikimedia.org/w/api.php";
 	const get = async (base, q) => { await sleep(1500); const r = await fetch(`${base}?${new URLSearchParams({ format: "json", formatversion: "2", origin: "*", ...q })}`, { headers: UA }); if (!r.ok) throw new Error(`${base}: HTTP ${r.status}`); return r.json(); };
 	const out = {};
-	for (const s of [...SPOTS, ...STORY.filter(c => !c.photo)]) {   // 物語の章は、名所の写真を借りない章だけ焼く
+	for (const s of [...SPOTS, ...STORY.filter(c => !c.photo && c.wiki !== NAME)]) {   // 物語の章は、名所の写真を借りない章だけ焼く。市そのものの記事の代表画像は章と無関係（旭川 1902 年の −41 °C に彫刻美術館 2026-11-17）＝写真なし
 		const d = await get(api, { action: "query", prop: "pageimages", piprop: "thumbnail|name", pithumbsize: "640", titles: s.wiki, redirects: "1" });
 		const pg = d.query?.pages?.[0];
 		if (!pg?.pageimage || !pg.thumbnail) { console.warn(`✗ 写真なし：${s.name}（${s.wiki}）`); continue; }
 		const ii = (await get(commons, { action: "query", prop: "imageinfo", iiprop: "extmetadata", titles: `File:${pg.pageimage}` })).query?.pages?.[0]?.imageinfo?.[0]?.extmetadata;
 		if (!ii) { console.warn(`✗ Commons に無い（ja だけの画像）：${s.name}`); continue; }
 		const text = v => String(v?.value ?? "").replace(/<[^>]*>/g, " ").replace(/[<>]/g, "").replace(/\s+/g, " ").trim();   // 札を外した後に残る < > も落とす（入れ子・閉じない札）。頁では文字として出す
-		out[s.id] = { src: pg.thumbnail.source, file: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(pg.pageimage)}`, artist: text(ii.Artist).slice(0, 80), license: text(ii.LicenseShortName), page: `https://ja.wikipedia.org/wiki/${encodeURIComponent(pg.title)}` };
+		out[s.id] = { src: pg.thumbnail.source, file: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(pg.pageimage)}`, artist: text(ii.Artist).replace(/^(下記参照|See below|不明|Unknown)\.?$/i, "").slice(0, 80),   /* 作者欄が「下記参照」だけ＝名でない＝空（頁は Wikimedia Commons と書く・旭川の北鎮記念館 2026-11-17） */ license: text(ii.LicenseShortName), page: `https://ja.wikipedia.org/wiki/${encodeURIComponent(pg.title)}` };
 		console.log(`写真：${s.name} ← ${pg.pageimage}（${out[s.id].license}）`);
 	}
 	write("photos.json", out);

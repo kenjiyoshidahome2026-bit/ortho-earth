@@ -145,6 +145,7 @@ export const normJa = (s: string) => String(s ?? "").normalize("NFKC").replace(/
 export interface CityWards { wards: readonly Ward[]; addrPrefix: string }
 /** 住所の「横浜市◯◯区」から区を引く */
 export function wardOfAddress(city: CityWards, addr: string): Ward | null {
+	if (city.wards.length === 1) return new RegExp(`^(?:\\S{2,3}?[都道府県])?${city.addrPrefix}`).test(normJa(addr)) ? city.wards[0] : null;   // 区の無い市（旭川）＝（県名の後の）市の名で始まれば市そのもの
 	const m = new RegExp(city.addrPrefix + "(.+?区)").exec(normJa(addr));
 	return m ? city.wards.find(w => w.name === m[1]) ?? null : null;
 }
