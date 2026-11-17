@@ -9,6 +9,12 @@ from pyproj import Transformer
 SRC = sys.argv[1]; OUT = sys.argv[2]; os.makedirs(OUT, exist_ok=True)
 FILL, CAP, GE = 0.35, 4.0, 16
 FINE = os.environ.get("FINE") == "1"
+# MASK=<GeoJSON（EPSG:6676 の多角形）> なら外の点を落とす（2026-11-17・静岡市の境界＝N03 の葵・駿河・清水の和）。要 shapely。図郭が丸ごと外なら作らない
+MASK = None
+if os.environ.get("MASK"):
+    import shapely
+    from shapely.geometry import shape, box as sbox
+    MASK = shapely.union_all([shape(f["geometry"]) for f in json.load(open(os.environ["MASK"]))["features"]]); shapely.prepare(MASK)
 toLL = Transformer.from_crs("EPSG:6676", "EPSG:4326", always_xy=True)
 WA, WE2 = 6378137.0, 6.69437999014e-3
 def ecef(lon, lat, h):
@@ -80,7 +86,10 @@ def tile(L, center, parent_center, uri, ge, children=None):
     if children: t["children"] = children
     return t
 files = sorted(glob.glob(f"{SRC}/*.copc.laz"))[:int(os.environ.get("LIMIT", "100000"))]; byblock = {}
-for f in files: s = os.path.basename(f)[:8]; byblock.setdefault(s[:6], []).append(s)
+for f in files:
+    s = os.path.basename(f)[:8]
+    if MASK is not None and not MASK.intersects(sbox(*sheet_box(s))): continue   # 丸ごと外
+    byblock.setdefault(s[:6], []).append(s)
 roots, t0 = [], time.time(); stats = {}
 for blk, sheets in sorted(byblock.items()):
     bx0, by1, bx1, by0 = sheet_box(blk + "00")[0], sheet_box(blk + "00")[3], sheet_box(blk + "99")[2], sheet_box(blk + "99")[1]
@@ -88,6 +97,9 @@ for blk, sheets in sorted(byblock.items()):
     os.makedirs(f"{OUT}/{blk}", exist_ok=True); jobs = []; quads = {}
     for s in sheets:
         las = laspy.read(f"{SRC}/{s}.copc.laz"); keep = ~np.isin(np.asarray(las.classification), [7, 18])
+        if MASK is not None and not MASK.contains(sbox(*sheet_box(s))):   # 境界にかかる図郭だけ点ごとに判定
+            keep &= shapely.contains_xy(MASK, np.asarray(las.x), np.asarray(las.y))
+        if not keep.any(): continue
         x, y, z = np.asarray(las.x)[keep], np.asarray(las.y)[keep], np.asarray(las.z)[keep]
         lon, lat = toLL.transform(x, y); p = (ecef(lon, lat, z) - O) @ R.T
         rgb = np.stack([np.asarray(las.red), np.asarray(las.green), np.asarray(las.blue)], -1)[keep].astype(np.float64)
@@ -97,6 +109,7 @@ for blk, sheets in sorted(byblock.items()):
         FINE and write_tile(L05, sc, f"{OUT}/{blk}/{s}_05.glb", jobs); write_tile(L1, sc, f"{OUT}/{blk}/{s}_1.glb", jobs)
         q = (int(s[6]) // 5, int(s[7]) // 5); quads.setdefault(q, []).append((s, sc, L05 if FINE else None, L1))
         stats[s] = (len(x), L05.n, L1.n); print(blk, s, len(x), L05.n, L1.n, round(time.time() - t0), flush=True)
+    if not quads: print("block", blk, "empty"); continue
     qtiles, q4s = [], []
     for q, items in sorted(quads.items()):
         L4 = merge(merge(cat([it[3] for it in items]), 2.0), 4.0); qc = L4.ctr.mean(0) * [1, 1, 0] + [0, 0, np.median(L4.ctr[:, 2])]
@@ -113,6 +126,7 @@ for blk, sheets in sorted(byblock.items()):
     json.dump(jobs, open(f"{OUT}/{blk}/jobs.json", "w"))
     subprocess.run(["node", os.path.join(os.path.dirname(os.path.abspath(__file__)), "gs-glb.mjs"), f"{OUT}/{blk}/jobs.json"], check=True); os.remove(f"{OUT}/{blk}/jobs.json")
     print("block", blk, "L8", L8.n, "L4", [l.n for l in q4s], round(time.time() - t0), flush=True)
+if not roots: print("done (nothing inside MASK)"); sys.exit(0)
 # 根＝中身なし・区画の子
 lons, lats = [], []
 for blk in byblock:
