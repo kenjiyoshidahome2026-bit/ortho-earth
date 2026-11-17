@@ -962,6 +962,8 @@ export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => 
  *  低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）の "auto" は頂点・index の写しを持たない（2026-10-20）＝pick と queryRenderedFeatures は当たらないが feature state の色とスタイルは効く。要るなら true で明示。
  *  写しの量は stats.mainMB に出て、gpuMB との和が予算（低メモリ 160 MB・他 512 MB）に数えられる。featureIdSet＝何組目の番号で当てるか（既定 0） */
 export interface Tiles3DOptions { id?: string; /** 画面上の誤差の上限（px・既定 16・低メモリ端末 24）。予算（gpuMB + mainMB）を越えると stats.sseScale 倍に引き上げられる */ maxSSE?: number;
+	/** 画面上の誤差の下限（px・既定なし）：親の受け持ちの無い節点（中身の無い根の子・ADD の子・根）の誤差がこれに満たない時はそのタイルごと（子も）読まず描かない＝引いた視点や遠くでは何も出さない（Cesium に無い・3D Tiles の viewerRequestVolume の代わりに誤差で）。REPLACE の親が中身を持つ子には効かない（穴を開けない） */
+	minSSE?: number;
 	/** 同時に投げるタイル要求の上限（1〜32）。既定＝低メモリ端末（≤4GB・iOS/iPadOS はタッチで一律）3、他 6。複数の tileset で共通の枠で、指定の最大が効く */
 	/** heights＝tileset の高さの基準：既定 "orthometric"＝そのまま（この地図の標高はジオイド基準）。"ellipsoidal"＝WGS84 の楕円体高（Cesium の物・Google の写実 3D Tiles
 	 *  など）＝根の中心の EGM96 の N を引いて載せる（ニューヨークで +33 m・日本で −37 m 前後）。heightOffset はその上に足す */
