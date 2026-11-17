@@ -503,44 +503,19 @@ const LINE_DBG: Record<string, [string, string][]> = {
 	nolift: [["\tif (liftZ > 0.0) {\n", "\tif (false) {\n"]],
 	nogw: [["let wz = select(lineGroundW(relDb, la2, db, cdb, posS - toScreen(cdb)), lineGroundW(relDa, la1, da, cda, posS - toScreen(cda)), corner.x < 0.5);", "let wz = select(cdb.w, cda.w, corner.x < 0.5);"]],
 	nojoin: [["\tif (P.lx.z > 0.5) {\n\t\tlet hp = hw0 * F.params.w;", "\tif (false) {\n\t\tlet hp = hw0 * F.params.w;"]],
-	// 継ぎの投影を減らす試し（絵は変えない狙い・2026-11-17 Galaxy：継ぎを抜くと基図の GPU 33 → 16 ms）。
-	// join4＝継ぎ目そのもの（自分の端点）は計算済みの ca／cb を使う＝線分 1 本あたり投影 6 → 4。
-	// join2＝4 点（前・始点・終点・次）を「高さ 0 の位置」と「高さ 1 あたりの動き」に分けて 1 回ずつ求め、高さ違いは足し算で作る＝球面の三角関数 6 → 4 組・行列 6 → 8 回
-	join4: [
-		["fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {", "fn lineEnd(x: vec2f, sj: vec3f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {"],
-		["\tlet sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);\n", "\tlet sx = jScr(x, h); let sy = jScr(y, h);\n"],
-		["let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);", "let ra = lineEnd(q0, vec3f(toScreen(ca), 1.0), q2, ha, hp, true, lA);"],
-		["let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);", "let rb = lineEnd(q1, vec3f(toScreen(cb), 1.0), q3, hb, hp, false, lB);"],
-	],
-	join2: [
-		["struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\n", "struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\nstruct JBL { b: vec4f, l: vec4f };\nfn jBL(p: vec2f) -> JBL {\n\tlet rel = deltaToRel(p);\n\tvar r: JBL; r.b = F.clipT + F.mvp * vec4f(rel, 0.0); r.l = F.mvp * vec4f(liftDir(F.origin + p, F.originPt + rel), 0.0);\n\treturn r;\n}\nfn jAt(q: JBL, h: f32) -> vec3f { let c = q.b + h * q.l; return vec3f(toScreen(c), select(1.0, 0.0, c.w <= 0.0)); }\n"],
-		["fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {", "fn lineEnd(sx: vec3f, sj: vec3f, sy: vec3f, hp: f32, start: bool, link: u32) -> LineEnd {"],
-		["\tlet sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);\n", ""],
-		["let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);", "let j0 = jBL(q0); let j1 = jBL(q1); let j2 = jBL(q2); let j3 = jBL(q3);\n\t\tlet ra = lineEnd(jAt(j0, ha), jAt(j1, ha), jAt(j2, ha), hp, true, lA);"],
-		["let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);", "let rb = lineEnd(jAt(j1, hb), jAt(j2, hb), jAt(j3, hb), hp, false, lB);"],
-	],
 	// joinfs0＝継ぎの計算は頂点でそのまま行い、画素の側だけ丸（capsule）に倒す＝継ぎの費用が頂点か画素かを分ける（絵は崩れる）
 	joinfs0: [["o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev);", "o.jk = vec4f(0.0, 0.0, ra.bev, rb.bev);"]],
-	// 継ぎの費用の在り処を分ける診断（2026-11-17・join4／join2 は 34 → 30 ms にしかならず、joinfs0 は変わらず＝投影の回数でも画素でもない）。
-	// joinnb0＝前後の点を属性（md は線分プール）から読まず、自分の線分をまっすぐ延ばした点で継ぎを計算する（旗は読む）＝隣の点を読む費用。
-	// joinflag0＝旗を 0 にして継ぎの枝に入らない（計算も読みも文としては残る）＝実行される枝の費用。
-	// joinext0＝継ぎは計算して画素へ渡すが、四角形を伸ばす長さ（頂点の位置）には使わない＝位置が継ぎに依るかどうか（Mali は位置と varying を別々に回す）
-	joinnb0: [["\tlet la1 = F.origin + q1; let la2 = F.origin + q2;", "\tq0 = q1 + q1 - q2; q3 = q2 + q2 - q1;\n\tlet la1 = F.origin + q1; let la2 = F.origin + q2;"]],
+	// joinflag0＝旗を 0 にして継ぎの枝に入らない（診断）。joinold＝継ぎの向きを前後の点の投影から作る旧来の式へ戻す（2026-11-17 までの既定・逃げ道）
 	joinflag0: [["\tlet la1 = F.origin + q1; let la2 = F.origin + q2;", "\tjf0 = 0u;\n\tlet la1 = F.origin + q1; let la2 = F.origin + q2;"]],
-	joinext0: [["o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev); eA = ra.ext; eB = rb.ext;", "o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev);"]],
-	// joinlin＝継ぎの向きを、継ぎ目の点での「経緯度 1 度あたりの画面の動き」から作る（前後の点を投影し直さない＝三角関数 0 回・行列 4 回）。
-	// 2026-11-17 Galaxy：継ぎの枝に入らなければ 34 → 18 ms、隣の点を読まないだけでは変わらず＝費用は前後の点の球面投影（sin が 1 点 4 回）。
-	// 継ぎ目を共有する 2 本の線分は同じ点・同じ式で向きを作るので切り口は一致する。3D でまっすぐな線分の画面の向きは接線の向きと同じ＝近似は線分内の球面の曲がりだけ
-	// relD＝deltaToRel と同じ値（r）と、その経度・緯度 1 度あたりの変化（e・n）。三角関数は 1 回ずつ。jDir＝点（clip＝c）から経緯度で dq 度だけ動いたときの画面の動き（px・y 下向き＝toScreen と同じ向き）
-	joinlin: [
-		["struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\n", "struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\nstruct RelD { r: vec3f, e: vec3f, n: vec3f };\nfn relD(dDeg: vec2f) -> RelD {\n\tlet da = dDeg.x * D2R; let db = dBeta(dDeg.y * D2R);\n\tlet sda = sinP(da); let sdb = sinP(db);\n\tlet sha = sinP(da * 0.5); let shb = sinP(db * 0.5);\n\tlet cdaM1 = -2.0 * sha * sha; let cdbM1 = -2.0 * shb * shb;\n\tlet cda = 1.0 + cdaM1; let cdb = 1.0 + cdbM1;\n\tlet ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;\n\tlet cLon = F.trig.x; let sLon = F.trig.y; let cLat = F.trig.z; let sLat = F.trig.w;\n\tvar o: RelD;\n\to.r = vec3f(cLat * cLon * ccM1 - cLat * sLon * cdb * sda - sLat * cLon * sdb * cda + sLat * sLon * sdb * sda, sLat * cdbM1 + cLat * sdb, cLat * sLon * ccM1 + cLat * cLon * cdb * sda - sLat * sLon * sdb * cda - sLat * cLon * sdb * sda);\n\to.e = D2R * vec3f(-cLat * cLon * sda * cdb - cLat * sLon * cdb * cda + sLat * cLon * sdb * sda + sLat * sLon * sdb * cda, 0.0, -cLat * sLon * sda * cdb + cLat * cLon * cdb * cda + sLat * sLon * sdb * sda - sLat * cLon * sdb * cda);\n\to.n = D2R * vec3f(-cLat * cLon * cda * sdb + cLat * sLon * sdb * sda - sLat * cLon * cdb * cda + sLat * sLon * cdb * sda, -sLat * sdb + cLat * cdb, -cLat * sLon * cda * sdb - cLat * cLon * sdb * sda - sLat * sLon * cdb * cda - sLat * cLon * cdb * sda);\n\treturn o;\n}\nfn jDir(c: vec4f, R: RelD, dq: vec2f) -> vec2f {\n\tlet dc = F.mvp * vec4f(R.e * dq.x + R.n * dq.y, 0.0);\n\tlet g = (dc.xy * c.w - c.xy * dc.w) / (c.w * c.w);\n\treturn vec2f(g.x * 0.5 * F.viewport.x, -g.y * 0.5 * F.viewport.y);\n}\n"],
-		["fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {", "fn lineEnd(d0in: vec2f, sj: vec2f, d1in: vec2f, hp: f32, start: bool, link: u32) -> LineEnd {"],
-		["\tlet sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);\n\tvar d0 = sj.xy - sx.xy; var d1 = sy.xy - sj.xy;\n", "\tvar d0 = d0in; var d1 = d1in;\n"],
-		["if (sx.z * sj.z * sy.z < 0.5 || l0 < 1e-4 || l1 < 1e-4) { return r; }", "if (l0 < 1e-4 || l1 < 1e-4) { return r; }"],
-		["\tr.j = vec4f(sj.xy, N);\n", "\tr.j = vec4f(sj, N);\n"],
-		["\tlet rela = deltaToRel(q1); let relb = deltaToRel(q2);", "\tlet RA = relD(q1); let RB = relD(q2); let rela = RA.r; let relb = RB.r;"],
-		["let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);", "let ra = lineEnd(jDir(ca, RA, q1 - q0), toScreen(ca), jDir(ca, RA, q2 - q1), hp, true, lA);"],
-		["let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);", "let rb = lineEnd(jDir(cb, RB, q2 - q1), toScreen(cb), jDir(cb, RB, q3 - q2), hp, false, lB);"],
+	joinold: [
+		["struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\nstruct RelD { r: vec3f, e: vec3f, n: vec3f };\nfn relD(dDeg: vec2f) -> RelD {\n\tlet da = dDeg.x * D2R; let db = dBeta(dDeg.y * D2R);\n\tlet sda = sinP(da); let sdb = sinP(db);\n\tlet sha = sinP(da * 0.5); let shb = sinP(db * 0.5);\n\tlet cdaM1 = -2.0 * sha * sha; let cdbM1 = -2.0 * shb * shb;\n\tlet cda = 1.0 + cdaM1; let cdb = 1.0 + cdbM1;\n\tlet ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;\n\tlet cLon = F.trig.x; let sLon = F.trig.y; let cLat = F.trig.z; let sLat = F.trig.w;\n\tvar o: RelD;\n\to.r = vec3f(cLat * cLon * ccM1 - cLat * sLon * cdb * sda - sLat * cLon * sdb * cda + sLat * sLon * sdb * sda, sLat * cdbM1 + cLat * sdb, cLat * sLon * ccM1 + cLat * cLon * cdb * sda - sLat * sLon * sdb * cda - sLat * cLon * sdb * sda);\n\to.e = D2R * vec3f(-cLat * cLon * sda * cdb - cLat * sLon * cdb * cda + sLat * cLon * sdb * sda + sLat * sLon * sdb * cda, 0.0, -cLat * sLon * sda * cdb + cLat * cLon * cdb * cda + sLat * sLon * sdb * sda - sLat * cLon * sdb * cda);\n\to.n = D2R * vec3f(-cLat * cLon * cda * sdb + cLat * sLon * sdb * sda - sLat * cLon * cdb * cda + sLat * sLon * cdb * sda, -sLat * sdb + cLat * cdb, -cLat * sLon * cda * sdb - cLat * cLon * sdb * sda - sLat * sLon * cdb * cda - sLat * cLon * cdb * sda);\n\treturn o;\n}\nfn jDir(c: vec4f, R: RelD, dq: vec2f) -> vec2f {\n\tlet dc = F.mvp * vec4f(R.e * dq.x + R.n * dq.y, 0.0);\n\tlet g = (dc.xy * c.w - c.xy * dc.w) / (c.w * c.w);\n\treturn vec2f(g.x * 0.5 * F.viewport.x, -g.y * 0.5 * F.viewport.y);\n}\n", "struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\n"],
+		["fn lineEnd(d0in: vec2f, sj: vec2f, d1in: vec2f, hp: f32, start: bool, link: u32) -> LineEnd {", "fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {"],
+		["\tvar d0 = d0in; var d1 = d1in;\n", "\tlet sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);\n\tvar d0 = sj.xy - sx.xy; var d1 = sy.xy - sj.xy;\n"],
+		["if (l0 < 1e-4 || l1 < 1e-4) { return r; }", "if (sx.z * sj.z * sy.z < 0.5 || l0 < 1e-4 || l1 < 1e-4) { return r; }"],
+		["\tr.j = vec4f(sj, N);\n", "\tr.j = vec4f(sj.xy, N);\n"],
+		["\tlet RA = relD(q1); let RB = relD(q2); let rela = RA.r; let relb = RB.r;", "\tlet rela = deltaToRel(q1); let relb = deltaToRel(q2);"],
+		["let ra = lineEnd(jDir(ca, RA, q1 - q0), toScreen(ca), jDir(ca, RA, q2 - q1), hp, true, lA);", "let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);"],
+		["let rb = lineEnd(jDir(cb, RB, q2 - q1), toScreen(cb), jDir(cb, RB, q3 - q2), hp, false, lB);", "let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);"],
 	],
 	none: [["\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n", "\tif (F.viewport.x > 0.0) { o.front = -1.0; o.pos = vec4f(2.0, 2.0, 2.0, 1.0); return o; }\n\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n"]],
 };
@@ -664,11 +639,35 @@ fn lineGroundW(relW: vec3f, ll: vec2f, dAbs: vec3f, c: vec4f, off: vec2f) -> f32
 	let a = (off.x * d2.y - off.y * d2.x) / det; let b = (d1.x * off.y - d1.y * off.x) / det;
 	return max(c.w + min(a * (c1.w - c.w) + b * (c2.w - c.w), 0.0), c.w * 0.5);
 }
+// 継ぎの向きは、継ぎ目の点での「経緯度 1 度あたりの画面の動き」（投影の微分）から作る（2026-11-17）。前後の点を球面から投影し直すと 1 点あたり sin が 4 回かかり、
+// Galaxy（4GB・Mali）では基図の線の GPU 時間の半分がそれだった（都心 z12：34 → 25 ms・絵は画素比較で同じ）。gl LINE_VARY の lineEnd は旧来の式のまま。?linedbg=joinold で旧来
+// relD＝deltaToRel と同じ値（r）と、その経度・緯度 1 度あたりの変化（e・n）。三角関数は deltaToRel と同じ回数
+// jDir＝点（clip＝c）から経緯度で dq 度だけ動いたときの画面の動き（px・y 下向き＝toScreen と同じ向き）
 struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };
+struct RelD { r: vec3f, e: vec3f, n: vec3f };
+fn relD(dDeg: vec2f) -> RelD {
+	let da = dDeg.x * D2R; let db = dBeta(dDeg.y * D2R);
+	let sda = sinP(da); let sdb = sinP(db);
+	let sha = sinP(da * 0.5); let shb = sinP(db * 0.5);
+	let cdaM1 = -2.0 * sha * sha; let cdbM1 = -2.0 * shb * shb;
+	let cda = 1.0 + cdaM1; let cdb = 1.0 + cdbM1;
+	let ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;
+	let cLon = F.trig.x; let sLon = F.trig.y; let cLat = F.trig.z; let sLat = F.trig.w;
+	var o: RelD;
+	o.r = vec3f(cLat * cLon * ccM1 - cLat * sLon * cdb * sda - sLat * cLon * sdb * cda + sLat * sLon * sdb * sda, sLat * cdbM1 + cLat * sdb, cLat * sLon * ccM1 + cLat * cLon * cdb * sda - sLat * sLon * sdb * cda - sLat * cLon * sdb * sda);
+	o.e = D2R * vec3f(-cLat * cLon * sda * cdb - cLat * sLon * cdb * cda + sLat * cLon * sdb * sda + sLat * sLon * sdb * cda, 0.0, -cLat * sLon * sda * cdb + cLat * cLon * cdb * cda + sLat * sLon * sdb * sda - sLat * cLon * sdb * cda);
+	o.n = D2R * vec3f(-cLat * cLon * cda * sdb + cLat * sLon * sdb * sda - sLat * cLon * cdb * cda + sLat * sLon * cdb * sda, -sLat * sdb + cLat * cdb, -cLat * sLon * cda * sdb - cLat * cLon * sdb * sda - sLat * sLon * cdb * cda - sLat * cLon * cdb * sda);
+	return o;
+}
+fn jDir(c: vec4f, R: RelD, dq: vec2f) -> vec2f {
+	let dc = F.mvp * vec4f(R.e * dq.x + R.n * dq.y, 0.0);
+	let g = (dc.xy * c.w - c.xy * dc.w) / (c.w * c.w);
+	return vec2f(g.x * 0.5 * F.viewport.x, -g.y * 0.5 * F.viewport.y);
+}
 // 端 1 つの形（gl LINE_VARY の lineEnd と同式＝MapLibre の LineBucket と同じ選び方）。x→jt→y＝前の点・この端・次の点（start＝始点の端）。
 // link＝0：端（line-cap）・1：隣と継ぐ・2：閉じた環の継ぎ目（隣が並びの前後に無い＝丸に倒す）。
 // 継ぎは二等分線で切る：j＝切り口（点・線分の側を向く法線）・bev＝bevel の切り線・ext＝四角形を端から伸ばす長さ
-fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {
+fn lineEnd(d0in: vec2f, sj: vec2f, d1in: vec2f, hp: f32, start: bool, link: u32) -> LineEnd {
 	let cj = u32(P.lx.z);
 	let capK = cj & 3u; let joinK = (cj >> 2u) & 3u; let ml = f32(cj >> 4u) / 8.0;
 	var r: LineEnd; r.k = 0.0; r.j = vec4f(0.0); r.bev = 0.0; r.ext = hp + 1.0;
@@ -677,16 +676,15 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 		r.k = select(0.0, 2.0, capK == 2u); return r;
 	}
 	if (link == 2u) { return r; }
-	let sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);
-	var d0 = sj.xy - sx.xy; var d1 = sy.xy - sj.xy;
+	var d0 = d0in; var d1 = d1in;
 	let l0 = length(d0); let l1 = length(d1);
-	if (sx.z * sj.z * sy.z < 0.5 || l0 < 1e-4 || l1 < 1e-4) { return r; }   // カメラの背後・画面で長さ 0＝丸（capsule）に倒す
+	if (l0 < 1e-4 || l1 < 1e-4) { return r; }   // カメラの背後・画面で長さ 0＝丸（capsule）に倒す
 	d0 = d0 / l0; d1 = d1 / l1;
 	let sv = d0 + d1; let ls = length(sv);
 	if (ls < 1e-3) { return r; }   // 折り返し（180°）＝丸に倒す
 	let n = sv / ls;               // 二等分線の法線（前→次の向き）
 	let N = select(-n, n, start);  // 線分の側を向く
-	r.j = vec4f(sj.xy, N);
+	r.j = vec4f(sj, N);
 	if (joinK == 0u) { r.k = 5.0; return r; }
 	let c = dot(n, d1); let mlen = 1.0 / max(c, 1e-6);   // 曲がりの半角の cos・マイターの長さ（半幅の何倍）
 	r.bev = sign(dot(d0 - d1, vec2f(-N.y, N.x))) * hp * c;   // 外の角どうしを結ぶ線＝二等分線の点から外へ hp·c
@@ -709,7 +707,7 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 	var q0 = p1; var q3 = p2; var jf0 = 0u; var dist0 = 0.0;   // LINEX：端と継ぎの相手の点と旗・破線の距離（classic の X 派生と md の派生が差し替える）
 	if (P.tr.z != 0.0) { let tr = trLL(F.origin + q1); q0 += tr; q1 += tr; q2 += tr; q3 += tr; }   // line-translate（S-P1-4/5）＝線分ごとに同じだけ（継ぎの相手も）
 	let la1 = F.origin + q1; let la2 = F.origin + q2;   // elev 参照用の絶対（粗くて可）
-	let rela = deltaToRel(q1); let relb = deltaToRel(q2);
+	let RA = relD(q1); let RB = relD(q2); let rela = RA.r; let relb = RB.r;
 	let da = F.originPt + rela; let db = F.originPt + relb;
 	// 標高変位は地形と同じ距離フェード＝遠景の平ら化に追随（無いと地平線に「漂う点線の鎖」）
 	let dfa = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, da));
@@ -742,8 +740,8 @@ fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u3
 		let hp = hw0 * F.params.w;
 		let lA = select(select(0u, 2u, (jf0 & 4u) != 0u), 1u, (jf0 & 1u) != 0u);   // JF_PREV／JF_RING_PREV（build.ts）
 		let lB = select(select(0u, 2u, (jf0 & 8u) != 0u), 1u, (jf0 & 2u) != 0u);   // JF_NEXT／JF_RING_NEXT
-		let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);
-		let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);
+		let ra = lineEnd(jDir(ca, RA, q1 - q0), toScreen(ca), jDir(ca, RA, q2 - q1), hp, true, lA);
+		let rb = lineEnd(jDir(cb, RB, q2 - q1), toScreen(cb), jDir(cb, RB, q3 - q2), hp, false, lB);
 		o.ja = ra.j; o.jb = rb.j; o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev); eA = ra.ext; eB = rb.ext;
 	}
 	// 破線（S-P1-3）：模様の位相は地面の長さ（z24 の px）を floor(zoom) の px にして線幅で割る＝MapLibre の tileRatio／floorwidth と同じ。
