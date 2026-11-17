@@ -30,8 +30,9 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 	draw: [
 		["default, draw commands counted", "drawstat=1"],
 		["no terrain", "noterr=1&drawstat=1"],
-		["basemap tiles split at 560 px (default on high-tier devices)", "tilepx=560&drawstat=1"],
-		["basemap tiles split at 1120 px (default on low-memory and mid-tier devices)", "tilepx=1120&drawstat=1"],
+		["line subdivision no finer than 1/128 of a tile side (linesubn=128)", "linesubn=128&drawstat=1"],
+		["line subdivision no finer than 1/64 of a tile side (linesubn=64)", "linesubn=64&drawstat=1"],
+		["basemap tiles split at 560 px (old default)", "tilepx=560&drawstat=1"],
 	],
 	gint: [
 		["default", ""],
