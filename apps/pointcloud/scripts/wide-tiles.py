@@ -2,6 +2,7 @@
 #   ortho＝WebP（z8〜18・範囲の縁は α）／dem＝地理院形式の PNG 標高（z8〜17・0.01 m・範囲の外は無効値 2^23＝地図の既定の地形へ）
 #   python3 rtiles.py base <kind> <out_dir>   … 最大ズームのタイル（並列）
 #   python3 rtiles.py pyr <kind> <out_dir>    … 下のズームを 2×2 で作る
+#   MASK=city.geojson python3 rtiles.py mask <kind> <out_dir>   … 最大ズームのタイルを境界の外で切る（ortho＝α 0・dem＝無効値）→ そのあと pyr
 #   python3 rtiles.py pack <kind> <out_dir> <out.pmtiles>
 import sys, os, json, glob, io, math, functools, multiprocessing as mp
 import numpy as np
@@ -98,6 +99,37 @@ def pyr(kind, out):
             if kind == "ortho" and not (W >= 3.9).all():   # 縁は α を割合で
                 Image.fromarray(np.dstack([res.astype(np.uint8), np.clip(W / 4 * 255, 0, 255).astype(np.uint8)])).save(f"{out}/{z}/{x}/{y}.webp", "WEBP", quality=80, method=4)
         print("z", z, len(kids), flush=True)
+def mask(kind, out):   # 境界（GeoJSON の Polygon/MultiPolygon・経緯度）の外を落とす
+    from shapely.geometry import shape, box
+    from shapely.prepared import prep
+    from PIL import ImageDraw
+    g = json.load(open(os.environ["MASK"])); g = shape(g.get("geometry", g)); pg = prep(g); z = MAXZ[kind]; n = 2 ** z
+    def gpx(lon, lat): return (lon + 180) / 360 * n * T, (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n * T
+    def lonlat(x, y): return x / n * 360 - 180, math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    polys = list(g.geoms) if g.geom_type == "MultiPolygon" else [g]
+    rings = [([gpx(*c) for c in p.exterior.coords], [[gpx(*c) for c in r.coords] for r in p.interiors]) for p in polys]
+    keep = drop = cut = 0
+    for xd in glob.glob(f"{out}/{z}/*"):
+        x = int(os.path.basename(xd))
+        for f in os.listdir(xd):
+            y = int(f.split(".")[0]); p = f"{xd}/{f}"; (w_, n_), (e_, s_) = lonlat(x, y), lonlat(x + 1, y + 1); bb = box(w_, s_, e_, n_)
+            if pg.contains(bb): keep += 1; continue
+            if not pg.intersects(bb): os.remove(p); drop += 1; continue
+            im = Image.new("L", (T * 4, T * 4), 0); d = ImageDraw.Draw(im); ox, oy = x * T, y * T
+            for ext, holes in rings:
+                d.polygon([((u - ox) * 4, (v - oy) * 4) for u, v in ext], fill=255)
+                for h in holes: d.polygon([((u - ox) * 4, (v - oy) * 4) for u, v in h], fill=0)
+            m = np.asarray(im.resize((T, T), Image.BILINEAR), dtype=np.float32) / 255
+            if kind == "ortho":
+                a = np.asarray(Image.open(p).convert("RGBA"), dtype=np.float32); al = a[..., 3] * m
+                if not (al > 0).any(): os.remove(p); drop += 1; continue
+                Image.fromarray(np.dstack([a[..., :3], al]).astype(np.uint8)).save(p, "WEBP", quality=80, method=4)
+            else:
+                h = np.load(p); h = np.where(m >= 0.5, h, np.nan).astype(np.float32)
+                if not np.isfinite(h).any(): os.remove(p); drop += 1; continue
+                np.save(p, h)
+            cut += 1
+    print("mask", kind, "keep", keep, "cut", cut, "drop", drop, flush=True)
 def pack(kind, out, dst):
     from pmtiles.writer import Writer
     from pmtiles.tile import zxy_to_tileid, TileType, Compression
@@ -127,4 +159,4 @@ def pack(kind, out, dst):
     print("packed", len(ents), os.path.getsize(dst))
 if __name__ == "__main__":
     cmd, kind, out = sys.argv[1:4]
-    {"base": lambda: base(kind, out), "pyr": lambda: pyr(kind, out), "pack": lambda: pack(kind, out, sys.argv[4])}[cmd]()
+    {"base": lambda: base(kind, out), "pyr": lambda: pyr(kind, out), "mask": lambda: mask(kind, out), "pack": lambda: pack(kind, out, sys.argv[4])}[cmd]()
