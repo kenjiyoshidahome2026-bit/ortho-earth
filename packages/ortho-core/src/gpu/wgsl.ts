@@ -495,7 +495,7 @@ const ELEV_CHEAP_IF = /if \(F\.ellP\.z > 0\.5\) \{([^{}]*)\} else \{([^{}]*)\}/g
 export function elevCheapWgsl(code: string): string { return code.replace(ELEV_CHEAP_IF, (_m, a: string) => `{${a}}`); }
 export function elevCheapWgslN(code: string): number { return (code.match(ELEV_CHEAP_IF) || []).length; }
 
-// ?linedbg=語,語…（診断・既定は何もしない）＝線の頂点シェーダから仕事を 1 つずつ抜いて、端末の GPU 時間がどれに付くかを量る（2026-11-17・Mali は線の三角形 1000 個あたり 0.24 ms）。
+// ?linedbg=語,語…（語の区切りは , か .・診断・既定は何もしない）＝線の頂点シェーダから仕事を 1 つずつ抜いて、端末の GPU 時間がどれに付くかを量る（2026-11-17・Mali は線の三角形 1000 個あたり 0.24 ms）。
 // 絵は崩れる＝計測だけに使う。noelev＝頂点の標高を引かない・nolift＝深度の余白（標高 3 標本）を抜く・nogw＝四隅の地面の深さ（lineGroundW）を端点の深さに・
 // nojoin＝端と継ぎの形を丸に倒す・none＝全頂点を画面の外へ（描かない＝頂点を運ぶだけの費用）。線の頂点シェーダを持たないモジュールはそのまま
 const LINE_DBG: Record<string, [string, string][]> = {
@@ -503,11 +503,29 @@ const LINE_DBG: Record<string, [string, string][]> = {
 	nolift: [["\tif (liftZ > 0.0) {\n", "\tif (false) {\n"]],
 	nogw: [["let wz = select(lineGroundW(relDb, la2, db, cdb, posS - toScreen(cdb)), lineGroundW(relDa, la1, da, cda, posS - toScreen(cda)), corner.x < 0.5);", "let wz = select(cdb.w, cda.w, corner.x < 0.5);"]],
 	nojoin: [["\tif (P.lx.z > 0.5) {\n\t\tlet hp = hw0 * F.params.w;", "\tif (false) {\n\t\tlet hp = hw0 * F.params.w;"]],
+	// 継ぎの投影を減らす試し（絵は変えない狙い・2026-11-17 Galaxy：継ぎを抜くと基図の GPU 33 → 16 ms）。
+	// join4＝継ぎ目そのもの（自分の端点）は計算済みの ca／cb を使う＝線分 1 本あたり投影 6 → 4。
+	// join2＝4 点（前・始点・終点・次）を「高さ 0 の位置」と「高さ 1 あたりの動き」に分けて 1 回ずつ求め、高さ違いは足し算で作る＝球面の三角関数 6 → 4 組・行列 6 → 8 回
+	join4: [
+		["fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {", "fn lineEnd(x: vec2f, sj: vec3f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {"],
+		["\tlet sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);\n", "\tlet sx = jScr(x, h); let sy = jScr(y, h);\n"],
+		["let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);", "let ra = lineEnd(q0, vec3f(toScreen(ca), 1.0), q2, ha, hp, true, lA);"],
+		["let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);", "let rb = lineEnd(q1, vec3f(toScreen(cb), 1.0), q3, hb, hp, false, lB);"],
+	],
+	join2: [
+		["struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\n", "struct LineEnd { k: f32, j: vec4f, bev: f32, ext: f32 };\nstruct JBL { b: vec4f, l: vec4f };\nfn jBL(p: vec2f) -> JBL {\n\tlet rel = deltaToRel(p);\n\tvar r: JBL; r.b = F.clipT + F.mvp * vec4f(rel, 0.0); r.l = F.mvp * vec4f(liftDir(F.origin + p, F.originPt + rel), 0.0);\n\treturn r;\n}\nfn jAt(q: JBL, h: f32) -> vec3f { let c = q.b + h * q.l; return vec3f(toScreen(c), select(1.0, 0.0, c.w <= 0.0)); }\n"],
+		["fn lineEnd(x: vec2f, jt: vec2f, y: vec2f, h: f32, hp: f32, start: bool, link: u32) -> LineEnd {", "fn lineEnd(sx: vec3f, sj: vec3f, sy: vec3f, hp: f32, start: bool, link: u32) -> LineEnd {"],
+		["\tlet sx = jScr(x, h); let sj = jScr(jt, h); let sy = jScr(y, h);\n", ""],
+		["let ra = lineEnd(q0, q1, q2, ha, hp, true, lA);", "let j0 = jBL(q0); let j1 = jBL(q1); let j2 = jBL(q2); let j3 = jBL(q3);\n\t\tlet ra = lineEnd(jAt(j0, ha), jAt(j1, ha), jAt(j2, ha), hp, true, lA);"],
+		["let rb = lineEnd(q1, q2, q3, hb, hp, false, lB);", "let rb = lineEnd(jAt(j1, hb), jAt(j2, hb), jAt(j3, hb), hp, false, lB);"],
+	],
+	// joinfs0＝継ぎの計算は頂点でそのまま行い、画素の側だけ丸（capsule）に倒す＝継ぎの費用が頂点か画素かを分ける（絵は崩れる）
+	joinfs0: [["o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev);", "o.jk = vec4f(0.0, 0.0, ra.bev, rb.bev);"]],
 	none: [["\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n", "\tif (F.viewport.x > 0.0) { o.front = -1.0; o.pos = vec4f(2.0, 2.0, 2.0, 1.0); return o; }\n\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n"]],
 };
 export function lineDbgWgsl(code: string, words: string): string {
 	if (!code.includes("fn lineGroundW(") || !code.includes("-> LineOut {")) return code;
-	for (const w of words.split(",")) for (const [a, b] of LINE_DBG[w] || []) {
+	for (const w of words.split(/[,.]/)) for (const [a, b] of LINE_DBG[w] || []) {
 		if (!code.includes(a)) console.warn(`[linedbg] ${w}: anchor not found, no effect in this module`);
 		code = code.replace(a, b);
 	}
