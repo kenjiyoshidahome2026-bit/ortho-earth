@@ -2,7 +2,7 @@
 // 「データの組（年・計測の種類）を選ぶ → 4 km × 3 km の区画が地図に出る → 区画をクリック → 400 m × 300 m の図郭が出る → 図郭をクリックで点群」。
 // データ＝静岡県が AWS（Open Data on AWS・s3://virtual-shizuoka・CORS 可・範囲読み可）に置く図郭ごとの .zip（中に .las が 1 つ・座標系の書き込み無し＝平面直角 VIII 系・標高）。
 //   一覧は S3 の ListObjectsV2 を頁が直に引く（台帳を焼かない＝県が足した物もそのまま出る）。.zip はエンジン（copc-worker の ZIP の口）が範囲読みで解く。
-//   熱海の見本（COPC・ortho-data の gh-pages）も残す＝節だけ範囲読みの速さを見せる方。
+//   熱海の見本のボタンは 2026-11-17 に外した（本人「不要」）＝起動は静岡市の広域表示。
 // 図郭の番号と VIII 系の換算＝pointcloud-sheets.ts（"08MC4919"＝VIII 系・M 行 C 列・5000 の 4 行 9 列・500 の 1 行 9 列）。
 // 描き方（2026-11-06・本人「Gaussian splat・ブラウザ内・WebGPU・CPU の fallback なし」）＝点をそのまま描かず、エンジンが読んだ点（map.readPointCloud）を @ortho-earth/splat の cloud（render worker の WebGPU compute）が
 //   段つきの Gaussian splat にして描く。読んだ点（points）と変換した段（cloud）は端末に保管（pc-cache.ts＝OPFS → IndexedDB）＝二度目は回線も変換も要らない・色や粗さを変えるのは保管した点から変換し直す（回線なし）。
@@ -22,8 +22,7 @@ import type { GlobeMap, PointCloudDump, LayerMouseEvent, GeoJSONFeature, Bbox, T
 const t = tr();
 const S3 = "https://virtual-shizuoka.s3.ap-northeast-1.amazonaws.com/";
 const ATTR = "VIRTUAL SHIZUOKA (Shizuoka Prefecture, CC BY 4.0)";
-const ATAMI = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/japan/pointcloud/atami-08NF2392.copc.laz";
-export const ATAMI_VIEW = "#17.6/35.1082/139.0816/50t/-20r";   // 見本の視点（頁の既定の視点・www のカード）
+export const DEFAULT_VIEW = "#11.4/35.06/138.40/40t/0r";   // 頁の既定の視点＝静岡市の広域表示
 /** データの組＝S3 の "年/計測/種類"。2019 と 2020 の航空レーザは同じ図郭に同じファイル（2020 が広い）＝2020 だけ出す */
 const SETS: Array<{ id: string; year: number; kind: "LP" | "ALB" | "MMS"; part: "Original" | "Ground" }> = [
 	{ id: "2025/LP/Original", year: 2025, kind: "LP", part: "Original" }, { id: "2025/LP/Ground", year: 2025, kind: "LP", part: "Ground" },
@@ -34,7 +33,7 @@ const SETS: Array<{ id: string; year: number; kind: "LP" | "ALB" | "MMS"; part: 
 	{ id: "2020/LP/Ground", year: 2020, kind: "LP", part: "Ground" }, { id: "2020/ALB/Ground", year: 2020, kind: "ALB", part: "Ground" }, { id: "2020/MMS/Ground", year: 2020, kind: "MMS", part: "Ground" },
 	{ id: "2019/ALB/Ground", year: 2019, kind: "ALB", part: "Ground" }, { id: "2019/MMS/Ground", year: 2019, kind: "MMS", part: "Ground" },
 ];
-const DEFAULT_SET = "2020/LP/Ground";   // 熱海（NF）を含む＝見本の周りに区画がすぐ出る
+const DEFAULT_SET = "2021/LP/Original";   // 静岡市の広域表示と同じ組
 const KIND: Record<string, string> = { LP: "Airborne laser", ALB: "Airborne bathymetric laser", MMS: "Mobile mapping (vehicle)" };
 const PART: Record<string, string> = { Original: "Original data", Ground: "Ground data" };
 // 静岡市の広域表示（2026-11-17・本人「低ズームは平面の画像と標高まで落とす」）＝前もって作って Hugging Face に置いた 3 つ（図郭をクリックしなくても市全域が出る）
@@ -58,11 +57,11 @@ const HOW = [
 	"Clicking a sheet reads just that file's entry in the ZIP by HTTP Range and unpacks it in a worker as it arrives. The points are then turned into Gaussian splats on the GPU (WebGPU compute): one splat per cell, shaped by its neighbours, in several levels of detail — a far view draws a few thousand splats, a close view the finest level.",
 	"The files carry no coordinate system, so the page passes Japan Plane Rectangular CS VIII (EPSG:6676) and treats heights as orthometric (above the geoid), like the map's terrain.",
 	"The points and the converted splats are saved on this device (OPFS, or IndexedDB where OPFS is missing). Opening the same sheet again needs no download and no conversion, and changing the colour or detail re-converts the saved points without downloading.",
-	"The Atami sample is the same survey converted to COPC, read from its shallowest octree nodes first up to the point limit.",
 	"Several sheets can be shown side by side (two on phones and other low-memory devices). Each sheet borrows a thin strip of points from the neighbouring sheets that are shown, so the splats meet at the sheet edges without a gap; splats made only of borrowed points are dropped.",
 	"Reading keeps at most the point limit in memory: the ZIP is unpacked as it streams in and thinned on the way, so even a large sheet never holds the whole LAS file. Choosing classes (ground, buildings, vegetation…) re-converts the saved points without downloading.",
 	"Fit to terrain compares the ground points (class 2) with the terrain that is drawn and moves the cloud by the median difference. The map's terrain comes from different source data, so a few metres of difference are normal.",
 	"The Shizuoka City overview is prepared in advance and read from Hugging Face: the prefecture's 2021 orthophoto and ground elevation grid as map tiles, and Gaussian splats made from the COPC sheets as 3D Tiles (8 m, 4 m and 1 m levels). Click a sheet to read its points for the closest views.",
+	"The overview uses only the data the prefecture has published from its 2021 survey, clipped to the Shizuoka City boundary (MLIT National Land Numerical Information N03, 2025). The mountains in the north of Aoi Ward (Ikawa to the Southern Alps) were not part of that survey and stay empty. The splats cover Suruga Ward and the area around Shizuoka Station so far.",
 	"Sheets marked COPC were converted in advance to COPC (Cloud Optimized Point Cloud) and are read from Hugging Face: only the octree nodes up to the point limit are fetched, instead of the whole ZIP file.",
 	"This page needs WebGPU (Chrome, Edge, Safari 26 or newer, Firefox 141 or newer). There is no WebGL2 fallback — the conversion runs on the GPU by design.",
 ];
@@ -143,10 +142,9 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	document.head.insertAdjacentHTML("beforeend", `<style>${CSS}</style>`);
 
 	side.insertAdjacentHTML("beforeend", `
-		<div class="head"><h1>${t("Point clouds of Shizuoka")}<small>${t("Laser surveys of Shizuoka Prefecture (VIRTUAL SHIZUOKA), read straight from the open data")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
+		<div class="head"><h1>${t("Shizuoka City point cloud data")}<small>${t("Laser surveys of Shizuoka Prefecture (VIRTUAL SHIZUOKA), read straight from the open data")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
 		<h2>${t("Data")}</h2>
 		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Shizuoka City overview (orthophoto, terrain and splats)")}</label>
-		<div class="row"><button class="btn" id="pc-atami">${t("Atami sample (COPC)")}</button></div>
 		<div class="row"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-hint"></div>
 		<div class="sheets" id="pc-sheets"></div>
@@ -382,7 +380,6 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		const name = last(f.key).replace(/\.zip$/i, ""), c = copcOf(copcIx, f.key);
 		toggle(c ? c.url : S3 + f.key, "s3:" + f.key, c ? `${name} (COPC)` : name, { crs: "EPSG:6676", vertical: "orthometric" }, name.replace(/^08/, "").toUpperCase(), force, c ? "hf:" + c.path : "s3:" + f.key);
 	};
-	$("#pc-atami").onclick = () => { toggle(ATAMI, "atami", t("Atami sample (COPC)")); };
 
 	// ── 区画（5000）と図郭（500）を地図に ──
 	const FC = (features: GeoJSONFeature[]) => ({ type: "FeatureCollection" as const, features });
@@ -401,7 +398,6 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	function highlight() {
 		map.getSource("pc-sheet")?.setData(sheetFeats());
 		side.querySelectorAll<HTMLElement>(".sheet").forEach(el => el.classList.toggle("on", items.has("s3:" + el.dataset.key)));
-		$("#pc-atami").classList.toggle("on", items.has("atami"));
 	}
 	// 一覧の知らせは hint の欄（status は読みの知らせ＝並んで走っても上書きし合わない）
 	const listMsg = (s: string, err = false) => { const el = $("#pc-hint"); el.textContent = s; el.classList.toggle("err", err); };
@@ -452,7 +448,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		if (code !== block) { const b = sheetBox(code)!, sw = toLonLat(b[0], b[1]), ne = toLonLat(b[2], b[3]); map.fitBounds([sw[0], sw[1], ne[0], ne[1]] as Bbox, { padding: 40 }); }
 	});
 
-	// ── 起動：?sheet=<S3 の鍵>（「,」で並べて複数）ならその図郭・無ければ熱海の見本 ──
+	// ── 起動：?sheet=<S3 の鍵>（「,」で並べて複数）ならその図郭 ──
 	await chooseSet(DEFAULT_SET);
 	await new Promise<void>(r => { const off = map.onFrame(() => { off(); r(); }); });   // 最初の絵が出てから＝起動の視点合わせが寄り（fitBounds）を上書きしない（エンジンの ?copc= と同じ待ち）
 	const qs = (new URLSearchParams(location.search).get("sheet") ?? "").split(",").filter(q => /^[\w/.-]+\.zip$/i.test(q) && !q.includes("..")).slice(-MAX_SHEETS);
@@ -462,6 +458,6 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		const s = SETS.find(x => q.startsWith(x.id + "/")); if (s && s.id !== set) { $<HTMLSelectElement>("#pc-set").value = s.id; await chooseSet(s.id); }
 		if (b) chooseBlock(code.slice(0, 4));
 		for (const k of qs) openSheet({ key: k, size: 0 }, true);
-	} else toggle(ATAMI, "atami", t("Atami sample (COPC)"));   // 視点は頁の既定（ATAMI_VIEW）か共有 URL の hash
+	}   // 無ければ広域表示だけ（視点は頁の既定 DEFAULT_VIEW か共有 URL の hash）
 	return { open: toggle, openSheet, chooseSet, chooseBlock, cache, items, get idle() { return queue; }, get handle() { return cur(); } };
 }

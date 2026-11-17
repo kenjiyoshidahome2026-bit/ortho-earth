@@ -53,7 +53,7 @@ def base_one(args):
     keys = ci * 100000 + ri
     for k in np.unique(keys):
         s = IDX.get((int(k // 100000), int(k % 100000)))
-        if not s: continue
+        if not s or (kind == "dem" and not os.path.exists(f"{SP}/grid/{s}.npz")): continue   # Grid が無い図郭（県に無い）は飛ばす
         m = keys == k; res[m] = sample(kind, s, px[m], py[m]); valid[m] = True
     if kind == "dem": valid &= np.isfinite(res[:, 0])
     if not valid.any(): return 0
