@@ -521,6 +521,13 @@ const LINE_DBG: Record<string, [string, string][]> = {
 	],
 	// joinfs0＝継ぎの計算は頂点でそのまま行い、画素の側だけ丸（capsule）に倒す＝継ぎの費用が頂点か画素かを分ける（絵は崩れる）
 	joinfs0: [["o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev);", "o.jk = vec4f(0.0, 0.0, ra.bev, rb.bev);"]],
+	// 継ぎの費用の在り処を分ける診断（2026-11-17・join4／join2 は 34 → 30 ms にしかならず、joinfs0 は変わらず＝投影の回数でも画素でもない）。
+	// joinnb0＝前後の点を属性（md は線分プール）から読まず、自分の線分をまっすぐ延ばした点で継ぎを計算する（旗は読む）＝隣の点を読む費用。
+	// joinflag0＝旗を 0 にして継ぎの枝に入らない（計算も読みも文としては残る）＝実行される枝の費用。
+	// joinext0＝継ぎは計算して画素へ渡すが、四角形を伸ばす長さ（頂点の位置）には使わない＝位置が継ぎに依るかどうか（Mali は位置と varying を別々に回す）
+	joinnb0: [["\tlet la1 = F.origin + q1; let la2 = F.origin + q2;", "\tq0 = q1 + q1 - q2; q3 = q2 + q2 - q1;\n\tlet la1 = F.origin + q1; let la2 = F.origin + q2;"]],
+	joinflag0: [["\tlet la1 = F.origin + q1; let la2 = F.origin + q2;", "\tjf0 = 0u;\n\tlet la1 = F.origin + q1; let la2 = F.origin + q2;"]],
+	joinext0: [["o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev); eA = ra.ext; eB = rb.ext;", "o.jk = vec4f(ra.k, rb.k, ra.bev, rb.bev);"]],
 	none: [["\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n", "\tif (F.viewport.x > 0.0) { o.front = -1.0; o.pos = vec4f(2.0, 2.0, 2.0, 1.0); return o; }\n\tvar hw0 = halfPx; var off0 = offT; var q1 = p1; var q2 = p2;\n"]],
 };
 export function lineDbgWgsl(code: string, words: string): string {

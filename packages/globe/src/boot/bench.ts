@@ -37,10 +37,10 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 	linevs: [
 		["default", "drawstat=1"],
 		["lines: joins reuse own end points (join4)", "linedbg=join4&drawstat=1"],
-		["lines: joins from split base/lift (join2)", "linedbg=join2&drawstat=1"],
-		["lines: joins computed, drawn round (joinfs0)", "linedbg=joinfs0&drawstat=1"],
+		["lines: joins without reading neighbour points (joinnb0)", "linedbg=joinnb0&drawstat=1"],
+		["lines: join flags forced to 0 (joinflag0)", "linedbg=joinflag0&drawstat=1"],
+		["lines: joins computed, not used for the quad (joinext0)", "linedbg=joinext0&drawstat=1"],
 		["lines: no joins", "linedbg=nojoin&drawstat=1"],
-		["lines: no joins, elevation, depth margin, ground depth", "linedbg=noelev.nolift.nogw.nojoin&drawstat=1"],
 		["lines: vertices sent but nothing drawn", "linedbg=none&drawstat=1"],
 	],
 	gint: [
