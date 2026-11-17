@@ -2,7 +2,7 @@
 	"name": "pointcloud",
 	"version": "0.0.1",
 	"private": true,
-	"description": "Point clouds of Shizuoka (VIRTUAL SHIZUOKA LAS sheets) and a COPC sample of Atami. Served at www.ortho-earth.com/japan/pointcloud through the ortho-japan Worker.",
+	"description": "Shizuoka City point cloud data (VIRTUAL SHIZUOKA LAS sheets, COPC and a city-wide overview). Served at www.ortho-earth.com/japan/pointcloud through the ortho-japan Worker.",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"servedAt": "/japan/",

@@ -11,7 +11,7 @@ startPage("pointcloud", async () => {
 	// 初期視点＝熱海の見本（共有 URL の hash があればそちら）。点群の描き手（@ortho-earth/splat）は WebGPU＝本体の device を共有（glOverlay の封は要らない）
 	const map = await orthoJapan({ target: "#map", view: location.hash || DEFAULT_VIEW, chips: false, instruments: ["pos", "scale", "attr"], urlHash: true });
 	dismissBoot();
-	if (map.lang === "ja") document.title = "静岡県の点群 — ortho-japan";   // head は英語（共有カード・検索）＝日本語の読者だけ日本語の題名
+	if (map.lang === "ja") document.title = "静岡市の点群データ — ortho-japan";   // head は英語（共有カード・検索）＝日本語の読者だけ日本語の題名
 	window.__map = map;   // console 検証用
 	map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot();
 	window.__pointcloud = await mountPointcloud(map, document.getElementById("side")!);
