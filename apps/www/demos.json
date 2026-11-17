@@ -374,20 +374,6 @@
 			}
 		},
 		{
-			"id": "asahikawa",
-			"href": "/asahikawa/",
-			"group": "japan",
-			"icon": "🐧",
-			"title": "Asahikawa digital twin",
-			"lang": "26",
-			"desc": "A citizen-first digital twin of Asahikawa on the same core as Yokohama and Sapporo: tap your home for nearest stations, flood and landslide risk and evacuation sites on one card. Asahiyama Zoo, a history tour from 1890 and the city in 3D, in 26 languages.",
-			"img": "/thumbs/asahikawa.webp",
-			"shot": {
-				"url": "/asahikawa/?spot=asahibashi",
-				"wait": 20
-			}
-		},
-		{
 			"id": "tellus",
 			"href": "/japan/tellus",
 			"group": "earth",
