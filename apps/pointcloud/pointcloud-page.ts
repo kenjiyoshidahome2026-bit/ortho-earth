@@ -4,12 +4,12 @@
 // WebGPU の無い器＝頁全体をエラー（2026-11-06・本人裁定「頁全体をエラーで大丈夫」）＝点群 → splat の変換は WebGPU compute だけ（CPU の fallback は作らない）。
 import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 startPage("pointcloud", async () => {
-	const [{ default: orthoJapan }, { mountPointcloud, noWebGpu, ATAMI_VIEW }] = await Promise.all([import("@ortho-earth/regions/app"), import("./pointcloud.ts")]);
+	const [{ default: orthoJapan }, { mountPointcloud, noWebGpu, DEFAULT_VIEW }] = await Promise.all([import("@ortho-earth/regions/app"), import("./pointcloud.ts")]);
 	const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
 	const adapter = gpu ? await gpu.requestAdapter().catch(() => null) : null;
 	if (!adapter) { noWebGpu(); return null; }
 	// 初期視点＝熱海の見本（共有 URL の hash があればそちら）。点群の描き手（@ortho-earth/splat）は WebGPU＝本体の device を共有（glOverlay の封は要らない）
-	const map = await orthoJapan({ target: "#map", view: location.hash || ATAMI_VIEW, chips: false, instruments: ["pos", "scale", "attr"], urlHash: true });
+	const map = await orthoJapan({ target: "#map", view: location.hash || DEFAULT_VIEW, chips: false, instruments: ["pos", "scale", "attr"], urlHash: true });
 	dismissBoot();
 	if (map.lang === "ja") document.title = "静岡県の点群 — ortho-japan";   // head は英語（共有カード・検索）＝日本語の読者だけ日本語の題名
 	window.__map = map;   // console 検証用
