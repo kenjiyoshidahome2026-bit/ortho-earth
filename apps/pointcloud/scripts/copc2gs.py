@@ -11,12 +11,14 @@ import numpy as np
 from pyproj import Transformer
 toLL = Transformer.from_crs("EPSG:6676", "EPSG:4326", always_xy=True)
 # 図郭番号 → VIII 系の範囲（pointcloud-sheets.ts と同じ式）
+#   末尾が k の名前＝2022 年度の南アルプス（1:5000 を四分・四分した 1000×750 m・下2桁は 1〜4・2026-11-18）
 def sheet_box(s):
     # 08 + 行字 + 列字 + 5000 の行・列 + 500 の行・列
     R, C = "ABCDEFGHIJKLMNOPQRST".index(s[2]), "ABCDEFGHIJKLMNOPQRST".index(s[3])
     r5, c5, r0, c0 = int(s[4]), int(s[5]), int(s[6]), int(s[7])
-    x0 = -160000 + C * 40000 + c5 * 4000 + c0 * 400; y1 = 300000 - R * 30000 - r5 * 3000 - r0 * 300
-    return x0, y1 - 300, x0 + 400, y1
+    x5, y5 = -160000 + C * 40000 + c5 * 4000, 300000 - R * 30000 - r5 * 3000
+    if s.endswith("k"): return x5 + (c0 - 1) * 1000, y5 - r0 * 750, x5 + c0 * 1000, y5 - (r0 - 1) * 750
+    return x5 + c0 * 400, y5 - (r0 + 1) * 300, x5 + (c0 + 1) * 400, y5 - r0 * 300
 def region(blocks):   # 区画の並び → tileset の region（ラジアン）
     lons, lats = [], []
     for blk in blocks:
@@ -78,6 +80,10 @@ def merge(L, c):
     C = np.stack([np.bincount(inv, w * (L.cov[:, t] + d[:, a] * d[:, b]), m) for t, (a, b) in enumerate(idx)], -1) / W[:, None]
     col = np.stack([np.bincount(inv, w * L.col[:, k], m) for k in range(3)], -1) / W[:, None]
     return Lv(mu, finish(C, c), W, col)
+def sub(L, m): return Lv(L.ctr[m], L.cov[m], L.w[m], L.col[m])
+def split3(L):   # 平面で 3×3 に分ける目印
+    lo, hi = L.ctr[:, :2].min(0), L.ctr[:, :2].max(0); k = np.minimum((3 * (L.ctr[:, :2] - lo) / np.maximum(hi - lo, 1e-6)).astype(int), 2)
+    return [(k[:, 0] == i) & (k[:, 1] == j) for j in range(3) for i in range(3)]
 def cat(ls): return Lv(np.concatenate([l.ctr for l in ls]), np.concatenate([l.cov for l in ls]), np.concatenate([l.w for l in ls]), np.concatenate([l.col for l in ls]))
 def to_quat(V):   # 回転行列（列＝軸）→ 四元数 x,y,z,w
     m = V; tr = m[:, 0, 0] + m[:, 1, 1] + m[:, 2, 2]; q = np.zeros((len(m), 4))
@@ -109,16 +115,26 @@ def tile(L, center, parent_center, uri, ge, children=None):
     t = {"transform": [1,0,0,0, 0,1,0,0, 0,0,1,0, *(center - parent_center), 1], "boundingVolume": box(L, center, 2 * ge / GE if ge else 1), "geometricError": ge, "refine": "REPLACE", "content": {"uri": uri}}
     if children: t["children"] = children
     return t
+# SHEETS の値は URL か [URL, 多角形の GeoJSON]（2022・2025 で 2021 の欠けを埋める図郭は、欠けの所だけ使う＝MASK と重ねる）
+def sheet_url(s): v = SHEETS[s]; return v if isinstance(v, str) else v[0]
+_masks = {}
+def sheet_mask(s):
+    v = SHEETS and SHEETS.get(s)
+    if not v or isinstance(v, str): return MASK
+    if v[1] not in _masks:
+        g = os.path.join(os.path.dirname(os.environ["SHEETS"]), v[1])
+        m = shapely.intersection(MASK, shapely.union_all([shape(f["geometry"]) for f in json.load(open(g))["features"]])); shapely.prepare(m); _masks[v[1]] = m
+    return _masks[v[1]]
 files = sorted(SHEETS) if SHEETS else sorted(glob.glob(f"{SRC}/*.copc.laz"))[:int(os.environ.get("LIMIT", "100000"))]; byblock = {}
 for f in files:
-    s = os.path.basename(f)[:8]
+    s = f if SHEETS else os.path.basename(f)[:8]
     if BLOCKS and s[:6] not in BLOCKS: continue
-    if MASK is not None and not MASK.intersects(sbox(*sheet_box(s))): continue   # 丸ごと外
+    if MASK is not None and not sheet_mask(s).intersects(sbox(*sheet_box(s))): continue   # 丸ごと外
     byblock.setdefault(s[:6], []).append(s)
 # URL から読むとき：先読み（落とす→zip なら LAS を取り出す）・読んだら消す
 CACHE = os.environ.get("CACHE", f"{OUT}/.cache")
 def fetch(s):
-    url, dst = SHEETS[s], f"{CACHE}/{s}"; os.makedirs(CACHE, exist_ok=True)
+    url, dst = sheet_url(s), f"{CACHE}/{s}"; os.makedirs(CACHE, exist_ok=True)
     for i in range(6):
         try:
             with urllib.request.urlopen(url, timeout=300) as r, open(dst + ".part", "wb") as f: shutil.copyfileobj(r, f, 1 << 22)
@@ -147,24 +163,28 @@ for blk, sheets in sorted(byblock.items()):
     os.makedirs(f"{OUT}/{blk}", exist_ok=True); jobs = []; quads = {}
     for s in sheets:
         las = read_sheet(s); keep = ~np.isin(np.asarray(las.classification), [7, 18])
-        if MASK is not None and not MASK.contains(sbox(*sheet_box(s))):   # 境界にかかる図郭だけ点ごとに判定
-            keep &= shapely.contains_xy(MASK, np.asarray(las.x), np.asarray(las.y))
+        if MASK is not None and not sheet_mask(s).contains(sbox(*sheet_box(s))):   # 境界にかかる図郭だけ点ごとに判定
+            keep &= shapely.contains_xy(sheet_mask(s), np.asarray(las.x), np.asarray(las.y))
         if not keep.any(): continue
         x, y, z = np.asarray(las.x)[keep], np.asarray(las.y)[keep], np.asarray(las.z)[keep]
         lon, lat = toLL.transform(x, y); p = (ecef(lon, lat, z) - O) @ R.T
         rgb = np.stack([np.asarray(las.red), np.asarray(las.green), np.asarray(las.blue)], -1)[keep].astype(np.float64)
         if rgb.max() > 255: rgb /= 257
         L05 = from_points(p, rgb, 0.5); L1 = merge(L05, 1.0)
-        sc = L1.ctr.mean(0) * [1, 1, 0] + [0, 0, np.median(L1.ctr[:, 2])]
-        FINE and write_tile(L05, sc, f"{OUT}/{blk}/{s}_05.glb", jobs); write_tile(L1, sc, f"{OUT}/{blk}/{s}_1.glb", jobs)
-        q = (int(s[6]) // 5, int(s[7]) // 5); quads.setdefault(q, []).append((s, sc, L05 if FINE else None, L1))
+        q = (int(s[6]) // 5, int(s[7]) // 5) if not s.endswith("k") else ((int(s[6]) - 1) // 2, (int(s[7]) - 1) // 2)   # 四分＝2000×1500 m
+        # 1000×750 m の図郭（2022・山の森で 1 m の段が 1 枚 90 MB にもなる）は 3×3 に割って 2021 の図郭（5〜15 MB）並みに
+        parts = [(s, L1, L05)] if not s.endswith("k") else [(f"{s}{i}", sub(L1, m), None) for i, m in enumerate(split3(L1)) if m.any()]
+        for name, Lp, L05p in parts:
+            sc = Lp.ctr.mean(0) * [1, 1, 0] + [0, 0, np.median(Lp.ctr[:, 2])]
+            FINE and L05p is not None and write_tile(L05p, sc, f"{OUT}/{blk}/{name}_05.glb", jobs); write_tile(Lp, sc, f"{OUT}/{blk}/{name}_1.glb", jobs)
+            quads.setdefault(q, []).append((name, sc, L05p if FINE else None, Lp))
         stats[s] = (len(x), L05.n, L1.n); print(blk, s, len(x), L05.n, L1.n, round(time.time() - t0), flush=True)
     if not quads: print("block", blk, "empty"); continue
     qtiles, q4s = [], []
     for q, items in sorted(quads.items()):
         L4 = merge(merge(cat([it[3] for it in items]), 2.0), 4.0); qc = L4.ctr.mean(0) * [1, 1, 0] + [0, 0, np.median(L4.ctr[:, 2])]
         write_tile(L4, qc, f"{OUT}/{blk}/q{q[0]}{q[1]}_4.glb", jobs); q4s.append(L4)
-        kids = [tile(it[3], it[1], qc, f"{blk}/{it[0]}_1.glb", 1.0 * GE, [tile(it[2], it[1], it[1], f"{blk}/{it[0]}_05.glb", 0)]) if FINE else tile(it[3], it[1], qc, f"{blk}/{it[0]}_1.glb", 0) for it in items]
+        kids = [tile(it[3], it[1], qc, f"{blk}/{it[0]}_1.glb", 1.0 * GE, [tile(it[2], it[1], it[1], f"{blk}/{it[0]}_05.glb", 0)]) if FINE and it[2] is not None else tile(it[3], it[1], qc, f"{blk}/{it[0]}_1.glb", 0) for it in items]
         qtiles.append((L4, qc, f"{blk}/q{q[0]}{q[1]}_4.glb", kids))
     L8 = merge(cat(q4s), 8.0); bc = L8.ctr.mean(0) * [1, 1, 0] + [0, 0, np.median(L8.ctr[:, 2])]
     write_tile(L8, bc, f"{OUT}/{blk}/{blk}_8.glb", jobs)
