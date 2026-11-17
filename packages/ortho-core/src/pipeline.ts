@@ -29,6 +29,8 @@ export interface PipelineOptions {
 	lineSub?: number;
 	/** 線の間引きの許容（タイル単位・extent 4096 換算・0＝間引かない・既定） */
 	lineSimp?: number;
+	/** 間引くタイルの z の上限（既定 99＝全部）。関数＝init／setStyle のたびに読む（基図の最細段が後から分かる PMTiles）。最細段のタイルは引き伸ばして使うので間引かない */
+	lineSimpMaxZ?: number | (() => number);
 }
 export interface Pipeline {
 	relayCtl: (msg: unknown, transfer?: Transferable[] | null) => void;
@@ -42,9 +44,10 @@ export interface Pipeline {
 interface Pending { resolve: (r: TileResult) => void; reject: (e: Error) => void; key: string; w: Worker; slot: number; noUrl: boolean }
 /** キューで待つ 1 件（まだ worker に post していない）＝発送時に id を振って pending へ */
 interface Queued { t: TileXYZ; key: string; resolve: (r: TileResult) => void; reject: (e: Error) => void }
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory, request = null, encoding = "mvt", tileQueue = true, perSlot = 3, drape = true, bldMinZ = 14, lineSub = 0, lineSimp = 0 }: PipelineOptions): Pipeline {
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory, request = null, encoding = "mvt", tileQueue = true, perSlot = 3, drape = true, bldMinZ = 14, lineSub = 0, lineSimp = 0, lineSimpMaxZ = 99 }: PipelineOptions): Pipeline {
 	const encodingNow = (): string => (typeof encoding === "function" ? encoding() : encoding) || "mvt";
 	const drapeNow = (): boolean => typeof drape === "function" ? drape() : drape;
+	const simpMaxZNow = (): number => typeof lineSimpMaxZ === "function" ? lineSimpMaxZ() : lineSimpMaxZ;
 	let curStyle = style;   // setStyle で差し替わる今の style（setDrape が再送する）
 	if (workerFactory) setWorkerFactory(workerFactory);   // ホストの入口（役割名 "ortho:scene" / "ortho:tile" → Worker・2026-09-22）
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
@@ -93,7 +96,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		// geometry の直送路（2026-11-04）：tile worker → scene worker を MessageChannel で直結＝main は op の木を受け取らない（Android タブレットで main が 250〜1000ms 止まった＝大きな荷の解読と詰め直しと GC）
 		const ch = new MessageChannel();
 		sceneWorker.postMessage({ type: "tilePort", port: ch.port1 } satisfies SceneRequest, [ch.port1]);
-		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search), rangeCache: !(typeof location !== "undefined" && /[?&]tilecache=0/.test(location.search)), scenePort: ch.port2, bldMinZ, lineSub, lineSimp } satisfies TileRequest, [ch.port2]);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
+		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow(), drape: drapeNow(), noLabels: typeof location !== "undefined" && /[?&]nolab=1/.test(location.search), rangeCache: !(typeof location !== "undefined" && /[?&]tilecache=0/.test(location.search)), scenePort: ch.port2, bldMinZ, lineSub, lineSimp, lineSimpMaxZ: simpMaxZNow() } satisfies TileRequest, [ch.port2]);   // ?nolab=1＝基図の注記を main へ送らない診断ノブ（Android タブレットの main 停止の切り分け・2026-11-04）   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式。drape＝線の細分（§3.2）
 		tileWorkers.push(w);
 	}
 	// 発送＝worker slot に 1 枚頼む（キュー経由でも即時でも同じ道）
@@ -147,13 +150,13 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	function setStyle(newStyle: Style, keep = false): void {
 		curStyle = newStyle; lastDrape = drapeNow();
 		const enc = encodingNow();   // 外来 style の差し替え（map.setStyle）で基図の置き場と形式が一緒に替わる
-		for (const w of tileWorkers) w.postMessage({ type: "setStyle", style: newStyle, encoding: enc, drape: lastDrape } satisfies TileRequest);
+		for (const w of tileWorkers) w.postMessage({ type: "setStyle", style: newStyle, encoding: enc, drape: lastDrape, lineSimpMaxZ: simpMaxZNow() } satisfies TileRequest);
 		if (!keep) tiles.reset();
 	}
 	let lastDrape = drapeNow();
 	function setDrape(): void {
 		const d = drapeNow(); if (d === lastDrape) return; lastDrape = d;   // 変わっていなければ何もしない（再ビルドは高い）
-		for (const w of tileWorkers) w.postMessage({ type: "setStyle", style: curStyle, encoding: encodingNow(), drape: d } satisfies TileRequest);
+		for (const w of tileWorkers) w.postMessage({ type: "setStyle", style: curStyle, encoding: encodingNow(), drape: d, lineSimpMaxZ: simpMaxZNow() } satisfies TileRequest);
 		tiles.reset();
 	}
 	// 後片付け：worker を全て terminate（SPA等で地図を剥がす時＝アプリ側 map.destroy() から）。

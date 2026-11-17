@@ -30,8 +30,7 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 	draw: [
 		["default, draw commands counted", "drawstat=1"],
 		["no terrain", "noterr=1&drawstat=1"],
-		["lines simplified within 2 tile units (linesimp=2)", "linesimp=2&drawstat=1"],
-		["lines simplified within 4 tile units (linesimp=4)", "linesimp=4&drawstat=1"],
+		["lines not simplified (linesimp=0, old default)", "linesimp=0&drawstat=1"],
 		["lines simplified within 8 tile units (linesimp=8)", "linesimp=8&drawstat=1"],
 	],
 	gint: [
