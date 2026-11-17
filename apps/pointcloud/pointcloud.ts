@@ -45,6 +45,11 @@ const WIDE = {
 	gs: `${HF_BASE}gs/2021-LP-Original/tileset.json`,
 	bounds: [138.158, 34.897, 138.637, 35.331] as [number, number, number, number],
 };
+/** 広域の splat を出すズーム（2026-11-18・本人「z に対する LOD・低い倍率では GS は要らない」）＝これより引いた所はオルソと標高だけ（splat の tileset を伏せる＝読まない・持っていた物は手放す）。
+ *  z14＝約 4 m/px（静岡の緯度・MapLibre の z）＝区画の 8 m の段が 2 px・四分の 4 m の段が 1 px になる所。市全域（区画 161）を z11 で全部読むと区画の 8 m の段だけで約 1 GB */
+const GS_MIN_Z = 14;
+/** 寄った後の傾けた視点の奥＝区画の誤差（geometricError 128）が画面で 16 px に満たない区画は読まない（engine の minSSE）＝真上からの z13 に当たる遠さ＝視野の中心の約 2 倍より遠い区画は出さない */
+const GS_MIN_SSE = 16;
 const BIG_MB = 250;   // これより大きい .zip は印を付ける（取るのに時間が掛かる）
 /** 同時に出す図郭の上限（2026-11-07）＝低メモリ端末（≤4GB・iOS）2 枚・他 6 枚（1 枚＝読む点 150 万／400 万・splat の段で GPU に 100 MB 前後）。?lowmem=1/0 はエンジンと同じ上書き */
 const lowMem = (nav: Navigator & { deviceMemory?: number }) => nav.deviceMemory ? nav.deviceMemory <= 4 : nav.maxTouchPoints > 1;   // エンジンの boot/tier.ts の lowMem と同じ目（頁の束にエンジンの源を焼かない＝写し）
@@ -145,6 +150,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<div class="head"><h1>${t("Shizuoka City point cloud data")}<small>${t("Laser surveys of Shizuoka Prefecture (VIRTUAL SHIZUOKA), read straight from the open data")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
 		<h2>${t("Data")}</h2>
 		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Shizuoka City overview (orthophoto, terrain and splats)")}</label>
+		<div class="hint">${t("Splats appear from zoom $1; zoomed out, the overview shows only the orthophoto and terrain.").replace("$1", String(GS_MIN_Z))}</div>
 		<div class="row"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-hint"></div>
 		<div class="sheets" id="pc-sheets"></div>
@@ -181,19 +187,40 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	map.use(splatPlugin({ backend: "webgpu" }));
 
 	// ── 静岡市の広域表示（オルソ・標高・splat の 3D Tiles）＝入／切で足す・外す ──
-	let wideGs: Tiles3DHandle | null = null, wideSeq = 0;
+	//   splat はズームで出し分ける（GS_MIN_Z）＝初めて寄った時に tileset を足し、引いたら伏せる（engine が読むのを止め、少しして手放す）・寄ると出す。
+	//   寄った所でも視野の中の区画だけ・遠い区画は読まない（GS_MIN_SSE）
+	// PLATEAU の建物（エンジンの建物 3D）は splat を出している間は伏せる（2026-11-18・本人「GS を表示するときは Plateau の建物は表示しない」）＝点群の建物と重なるため。
+	//   splat＝広域の splat（z14 から）か、クリックで出した図郭。どちらも無ければ戻す
+	//   戻す時は伏せる前の状態へ（利用者が自分で消していたら消したまま）
+	let sheetsShown = 0, meshHidden = false, meshWas = true;
+	const syncMesh = () => {
+		const hide = gsShown || sheetsShown > 0;
+		if (hide === meshHidden) return;
+		meshHidden = hide;
+		if (hide) { meshWas = map.getMeshVisible(); map.setMeshVisible(false); } else if (meshWas) map.setMeshVisible(true);
+	};
+	let wideOn = false, wideGs: Tiles3DHandle | null = null, gsShown = false, wideAdding: Promise<void> | null = null, wideSeq = 0;
+	const gsWanted = () => wideOn && map.getZoom() >= GS_MIN_Z;
+	const syncGs = () => {
+		const want = gsWanted();
+		if (wideGs) { if (want !== gsShown) { gsShown = want; wideGs.setVisible(want); syncMesh(); } return; }   // 変わった時だけ（setVisible は手放しの時計を毎回かけ直す）
+		if (!want || wideAdding) return;
+		const my = wideSeq;
+		wideAdding = map.add3DTiles(WIDE.gs, { id: "pc-wide-gs", fit: false, maxSSE: 16, minSSE: GS_MIN_SSE, splat: {}, attribution: ATTR }).then(h => {
+			if (my !== wideSeq) { h.remove(); return; }
+			wideGs = h; gsShown = gsWanted(); h.setVisible(gsShown); syncMesh();
+		}, e => console.warn("[pointcloud] wide splats", e)).finally(() => { if (my === wideSeq) wideAdding = null; });
+	};
 	const wide = async (on: boolean) => {
-		const my = ++wideSeq;
-		wideGs?.remove(); wideGs = null; map.raster.remove("pc-wide-ortho");
+		wideSeq++; wideOn = on; wideAdding = null;
+		wideGs?.remove(); wideGs = null; gsShown = false; syncMesh(); map.raster.remove("pc-wide-ortho");
 		if (!on) { await map.setTerrain(null).catch(() => {}); return; }
 		map.setTerrain({ source: { tiles: [`pmtiles://${WIDE.dem}`], encoding: "gsi", tileSize: 256, minzoom: 8, maxzoom: 17, bounds: WIDE.bounds } }).catch(e => console.warn("[pointcloud] wide terrain", e));
 		map.raster.add("pc-wide-ortho", { pmtiles: WIDE.ortho, name: t("Orthophoto 2021"), attribution: ATTR, minZoom: 8, maxZoom: 18 }, { order: "under" }).catch(e => console.warn("[pointcloud] wide ortho", e));
-		try {
-			const h = await map.add3DTiles(WIDE.gs, { id: "pc-wide-gs", fit: false, maxSSE: 16, splat: {}, attribution: ATTR });
-			if (my !== wideSeq) h.remove(); else wideGs = h;
-		} catch (e) { console.warn("[pointcloud] wide splats", e); }
+		syncGs();
 	};
 	$<HTMLInputElement>("#pc-wide").addEventListener("change", e => { wide((e.target as HTMLInputElement).checked); });
+	map.on("move", syncGs);
 	wide(true);
 	const cache = await openPcCache();
 	console.info(`[pointcloud] cache: ${cache.kind}`);
@@ -354,7 +381,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	};
 	/** 出している物の数・URL（?sheet=鍵,鍵）・地図の印 */
 	function updateShown() {
-		highlight(); exportable();
+		highlight(); exportable(); sheetsShown = items.size; syncMesh();
 		$("#pc-shown").textContent = items.size ? tf(t("$1 of $2 sheets shown"), String(items.size), String(MAX_SHEETS)) : "";
 		$<HTMLButtonElement>("#pc-clear-all").disabled = !items.size;
 		const u = new URL(location.href), s3 = [...items.keys()].filter(k => k.startsWith("s3:")).map(k => k.slice(3));

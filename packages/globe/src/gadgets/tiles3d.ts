@@ -906,6 +906,9 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 					return false;
 				}
 				const sse = n.ge * fpx / v.dist;
+				// minSSE（2026-11-18）＝親の受け持ちの無い節点（空の根の子・ADD の子・根）で、その誤差が画面の minSSE px に満たない物は読まず描かない＝遠い所・引いた視点では出さない
+				//   （REPLACE の親が中身を持つ子＝sib は対象外＝親を子に入れ替える途中で穴を開けない）
+				if (!sib && set.opts.minSSE && sse < set.opts.minSSE) { n.used = 0; return true; }
 				if (n.external) { if (n.state === "none") loadExternal(n); return n.state === "failed"; }
 				if (n.imp && !n.imp.st) { const st = impSubtree(n); if (st !== "ready") return st === "failed"; }   // subtree の根＝読めるまで中身も子も分からない（親を出したまま）
 				const kids = kidsOf(n);
