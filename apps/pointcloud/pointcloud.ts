@@ -63,6 +63,7 @@ const HOW = [
 	"Reading keeps at most the point limit in memory: the ZIP is unpacked as it streams in and thinned on the way, so even a large sheet never holds the whole LAS file. Choosing classes (ground, buildings, vegetation…) re-converts the saved points without downloading.",
 	"Fit to terrain compares the ground points (class 2) with the terrain that is drawn and moves the cloud by the median difference. The map's terrain comes from different source data, so a few metres of difference are normal.",
 	"The Shizuoka City overview is prepared in advance and read from Hugging Face: the prefecture's 2021 orthophoto and ground elevation grid as map tiles, and Gaussian splats made from the COPC sheets as 3D Tiles (8 m, 4 m and 1 m levels). Click a sheet to read its points for the closest views.",
+	"The overview uses only the data the prefecture has published from its 2021 survey, clipped to the Shizuoka City boundary (MLIT National Land Numerical Information N03, 2025). The mountains in the north of Aoi Ward (Ikawa to the Southern Alps) were not part of that survey and stay empty. The splats cover Suruga Ward and the area around Shizuoka Station so far.",
 	"Sheets marked COPC were converted in advance to COPC (Cloud Optimized Point Cloud) and are read from Hugging Face: only the octree nodes up to the point limit are fetched, instead of the whole ZIP file.",
 	"This page needs WebGPU (Chrome, Edge, Safari 26 or newer, Firefox 141 or newer). There is no WebGL2 fallback — the conversion runs on the GPU by design.",
 ];
