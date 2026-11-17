@@ -36,11 +36,11 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 	// 線の頂点シェーダの仕事を 1 つずつ抜く（?linedbg・診断・絵は崩れる）＝GPU 時間が頂点の計算に付くのか、三角形の数そのものに付くのかを分ける
 	linevs: [
 		["default", "drawstat=1"],
-		["lines: no vertex elevation", "linedbg=noelev&drawstat=1"],
-		["lines: no depth margin samples", "linedbg=nolift&drawstat=1"],
-		["lines: no ground depth at corners", "linedbg=nogw&drawstat=1"],
+		["lines: joins reuse own end points (join4)", "linedbg=join4&drawstat=1"],
+		["lines: joins from split base/lift (join2)", "linedbg=join2&drawstat=1"],
+		["lines: joins computed, drawn round (joinfs0)", "linedbg=joinfs0&drawstat=1"],
 		["lines: no joins", "linedbg=nojoin&drawstat=1"],
-		["lines: all four removed", "linedbg=noelev,nolift,nogw,nojoin&drawstat=1"],
+		["lines: no joins, elevation, depth margin, ground depth", "linedbg=noelev.nolift.nogw.nojoin&drawstat=1"],
 		["lines: vertices sent but nothing drawn", "linedbg=none&drawstat=1"],
 	],
 	gint: [
