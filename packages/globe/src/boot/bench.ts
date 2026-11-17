@@ -36,10 +36,9 @@ export const BENCH_SETS: Readonly<Record<string, ReadonlyArray<readonly [string,
 	// 線の頂点シェーダの仕事を 1 つずつ抜く（?linedbg・診断・絵は崩れる）＝GPU 時間が頂点の計算に付くのか、三角形の数そのものに付くのかを分ける
 	linevs: [
 		["default", "drawstat=1"],
+		["lines: joins from the screen-space tangent at the joint (joinlin)", "linedbg=joinlin&drawstat=1"],
 		["lines: joins reuse own end points (join4)", "linedbg=join4&drawstat=1"],
-		["lines: joins without reading neighbour points (joinnb0)", "linedbg=joinnb0&drawstat=1"],
 		["lines: join flags forced to 0 (joinflag0)", "linedbg=joinflag0&drawstat=1"],
-		["lines: joins computed, not used for the quad (joinext0)", "linedbg=joinext0&drawstat=1"],
 		["lines: no joins", "linedbg=nojoin&drawstat=1"],
 		["lines: vertices sent but nothing drawn", "linedbg=none&drawstat=1"],
 	],
