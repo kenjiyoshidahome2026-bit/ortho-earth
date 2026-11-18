@@ -430,6 +430,17 @@ export type MeshEvent =
 	| { phase: "catalog"; count: number }
 	| { phase: "start" | "done" | "cancelled" | "failed"; name: string; base: string };
 
+/** map.on("error")（2.4.3〜・MapLibre 同名）。描けなくなった・なりそうな時の知らせ＝画面の案内（左下のチップ・全面の案内）はエンジンが出す。
+ *  kind：out-of-memory（GPU／頁のメモリ不足）／context-lost（GPU の喪失）／webgl-init（WebGL2 が起動できない）／webgpu-fallback（WebGPU を諦め WebGL2 で続ける）。
+ *  action：null＝続ける／"reload"＝1 秒後に読み直す／"reload-safe"＝省メモリで読み直す／"fatal"＝案内を出して止まった */
+export interface MapErrorEvent {
+	type: "error";
+	error: Error;
+	kind: "out-of-memory" | "context-lost" | "webgl-init" | "webgpu-fallback";
+	fatal: boolean;
+	action: "reload" | "reload-safe" | "fatal" | null;
+}
+
 /** 右クリックメニュー項目（map.gadget.contextmenu({items})） */
 export interface ContextMenuItem {
 	name: string;

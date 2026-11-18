@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- メモリ不足・GPU 喪失を言葉で受け止める（2026-11-18・boot/gpufail.ts）。
+     ?v=crash＝前の起動の印（oj.alive）が残ったまま起動＝前の頁は畳まれずに消えた（タブの強制終了）＝省メモリで起動し、左下にチップ（#safemem-chip）を出す。
+     ?v=oom＝頁でメモリ不足の例外（RangeError: Array buffer allocation failed）が 1 回＝チップ（#oom-chip）と map.on("error")（action null）。
+       30 秒に 3 回＝描けていない＝GPU 喪失の梯子へ。回数（oj.ctxlost）を 2 に置いた＝梯子の終わり＝全面の案内（#fatal）と action "fatal"（読み直さない）。 -->
+<html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-gpufail</title></head>
+<body><div id="map"></div>
+<script type="module">
+const V = new URLSearchParams(location.search).get("v") || "crash";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+try {
+	sessionStorage.removeItem("oj.safemem"); sessionStorage.removeItem("oj.ctxlost");
+	if (V === "crash") sessionStorage.setItem("oj.alive", "1");   // 前の起動（別の timeOrigin）の印が下りていない
+	else sessionStorage.removeItem("oj.alive");
+	if (V === "oom") sessionStorage.setItem("oj.ctxlost", "2");
+	const { createGlobe } = await import("@ortho-earth/globe");
+	const map = await createGlobe({ target: "#map", view: "#3/35/139", chips: false, instruments: false, persistView: false });
+	const errs = [];
+	map.on("error", e => errs.push(e));
+	const loaded = await Promise.race([map.once("load").then(() => true), sleep(25000).then(() => false)]);
+	ok("load", loaded);
+	await sleep(300);
+	if (V === "crash") {
+		ok("safeChip", !!document.getElementById("safemem-chip"));
+		ok("safeMark", sessionStorage.getItem("oj.safemem") === "1");
+		ok("aliveIsMine", sessionStorage.getItem("oj.alive") === String(performance.timeOrigin), sessionStorage.getItem("oj.alive"));
+		ok("noFatal", !document.getElementById("fatal"));
+	} else {
+		const boom = () => dispatchEvent(new ErrorEvent("error", { message: "Uncaught RangeError: Array buffer allocation failed", error: new RangeError("Array buffer allocation failed") }));
+		boom();
+		await sleep(100);
+		ok("oomChip", !!document.getElementById("oom-chip"));
+		ok("oomEvent", errs.length === 1 && errs[0].kind === "out-of-memory" && errs[0].action === null && errs[0].error instanceof Error, JSON.stringify(errs.map(e => [e.kind, e.action])));
+		ok("stillAlive", !document.getElementById("fatal"));
+		boom(); boom();
+		await sleep(100);
+		const f = document.getElementById("fatal");
+		ok("burstFatal", !!f && /memory|メモリ/i.test(f.textContent || ""), f?.textContent?.slice(0, 80));
+		ok("burstEvent", errs.length === 2 && errs[1].kind === "out-of-memory" && errs[1].action === "fatal" && errs[1].fatal === true, JSON.stringify(errs.map(e => [e.kind, e.action])));
+		ok("noSafeChip", !document.getElementById("safemem-chip"));
+		await sleep(1500);   // 梯子の終わり＝読み直さない（読み直せば頁が入れ替わり表題が消える）
+	}
+	sessionStorage.removeItem("oj.safemem"); sessionStorage.removeItem("oj.ctxlost");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

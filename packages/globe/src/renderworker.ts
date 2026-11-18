@@ -65,7 +65,7 @@ interface RenderBackend extends TerrainRenderer, RasterRenderer {
 	gintCtx(): unknown;
 	readback?(): Promise<{ base: ArrayBuffer; w: number; h: number } | null>;
 	setGroundHook?(bake: (cam: CameraPose, t: unknown) => number, sig: () => string): void;
-	lost?: Promise<{ message?: string } | null | undefined>;
+	lost?: Promise<{ message?: string; reason?: string } | null | undefined>;
 	dbg?(): unknown; memEstimate?(): unknown; terrStats?(): unknown; meshStats?(): unknown; shadowStats?(): unknown; accumulating?(): boolean; pipeLog?(): ReadonlyArray<{ label: string; ms: number; at: number }>;
 	/** 日影時間・可視域の GPU 版（WebGPU だけ・2026-10-24） */
 	analysis?: RendererAnalysis;
@@ -416,6 +416,8 @@ async function bootWebGL(m: RwMsg) {
 	bootMarks.renderer = bootEp();
 	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
 	glRef = canvas!.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
+	// 喪失を即座に知る（2026-11-18）：フレームの末尾の isContextLost() だけだと、rAF が止まった・描画が例外で抜けた時に気づけない（メモリ不足の機の「黙って止まる」）
+	(canvas as unknown as EventTarget).addEventListener?.("webglcontextlost", () => { if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] webglcontextlost"); postMessage({ type: "contextlost", why: "webglcontextlost" }); } });
 	// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
 	// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
 	gint = createGintLayer(glRef!, { requestDraw: () => { dirty = true; kick(); }, quad4: m.quad4 !== false }) as GintEngine;
@@ -454,7 +456,8 @@ function finishInit(m: RwMsg) {
 	// gint の面（3D）＝地面アトラスへ焼く（RTT ドレープ統合・2026-09-21）。gint は後から差し替わり得る（context lost）＝変数を都度読む
 	if (renderer!.setGroundHook) renderer!.setGroundHook((cam, t) => gint?.bakeFaces ? gint.bakeFaces(cam, t) : 0, () => gint?.bakeSig ? gint.bakeSig() : "");   // 戻り値＝焼いた層数（drawhud gndFaces）
 	if (renderer!.lost) renderer!.lost.then(info => {   // WebGPU の device lost＝WebGL の contextlost と同じ扱いで main が立て直す
-		if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] GPU device lost:", info && info.message); postMessage({ type: "contextlost" }); }
+		if (info?.reason === "destroyed") return;   // 自分で畳んだ（dispose）＝喪失ではない
+		if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] GPU device lost:", info && info.message); postMessage({ type: "contextlost", why: String(info && info.message || "device lost").slice(0, 300) }); }
 	});
 	if (m.scenePort) {
 		m.scenePort.onmessage = (ev: MessageEvent<ScenePortMessage>) => {                  // scene worker から直結：main を経由しない geometry
@@ -549,7 +552,7 @@ const dispatch = (e: { data: RwMsg }) => {
 			MESH_DRAIN_MS = m.meshDrain! > 0 ? m.meshDrain! : 0;   // ?meshdrain=MS（建物メッシュの小片の消化予算）
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), adapterTries: m.gpuKnown ? 6 : 2, noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, meshCull: m.meshCull || 0, meshSort: !!m.meshSort, meshLiteFs: m.meshLiteFs || 0, meshFast: m.meshFast !== false, meshFastCull: m.meshFastCull ?? 1, elevCheap: !!m.elevCheap, lineDbg: m.lineDbg, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, depthRZ: m.depthRZ !== false, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, shedFoot: m.shedFoot !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, warmPar: m.warmPar, gintWarm: m.gintWarm || 0, terrCoarse: m.terrCoarse || 0, terrCoarseAlways: !!m.terrCoarseAlways, flatVec: !!m.flatVec, lineElev: m.lineElev || 0, lineElevMove: m.lineElevMove || 0, gndHold: m.gndHold || 0, gndMipSep: !!m.gndMipSep, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => (bootMarks.import = bootEp(), createRendererGPU(canvas!, { powerPreference: powerPreference(), adapterTries: m.gpuKnown ? 6 : 2, noMD: !!m.noMultiDraw, noTQ: !!m.noTQ, noFade: !!m.noFade, noLx: !!m.noLx, msaa1: !!m.msaa1, lowMem: !!m.lowMem, meshChunk: m.meshChunk, meshLod: m.meshLod, meshLodZ: m.meshLodZ, meshLodZ0: m.meshLodZ0, meshRange: m.meshRange, meshCull: m.meshCull || 0, meshSort: !!m.meshSort, meshLiteFs: m.meshLiteFs || 0, meshFast: m.meshFast !== false, meshFastCull: m.meshFastCull ?? 1, elevCheap: !!m.elevCheap, lineDbg: m.lineDbg, nearClip: m.nearClip! > 0 && m.elevBase ? m.nearClip! * m.elevBase : 0, clipK: m.clipK, fx: m.fx || null, fragDepth: !m.noFragDepth, depthRZ: m.depthRZ !== false, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, shedFoot: m.shedFoot !== false, terrSync: !!m.terrSync, lazyPipes: !!m.lazyPipes, warmPipes: m.warmPipes || 0, warmPar: m.warmPar, gintWarm: m.gintWarm || 0, terrCoarse: m.terrCoarse || 0, terrCoarseAlways: !!m.terrCoarseAlways, flatVec: !!m.flatVec, lineElev: m.lineElev || 0, lineElevMove: m.lineElevMove || 0, gndHold: m.gndHold || 0, gndMipSep: !!m.gndMipSep, onDeviceError: (kind: string, msg: string) => { if (kind === "oom") postMessage({ type: "gpuOom", msg: msg.slice(0, 300) }); }, requestDraw: () => { dirty = true; armRaf(); } }) as unknown as Promise<RenderBackendGPU>).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; bootMarks.renderer = bootEp(); if (r.boot) Object.assign(bootDur, r.boot); hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
