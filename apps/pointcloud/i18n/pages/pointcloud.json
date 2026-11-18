@@ -2214,6 +2214,33 @@
 			"uk": "Огляд використовує лише дані, які префектура опублікувала зі зйомки 2021 року, обрізані за межею міста Сідзуока (MLIT, National Land Numerical Information N03, 2025). Гори на півночі району Аой (від Ікави до Південних Альп) не входили до цієї зйомки й залишаються порожніми. Поки що сплати охоплюють район Суруга та околиці станції Сідзуока.",
 			"ur": "جائزہ صرف وہ ڈیٹا استعمال کرتا ہے جو صوبے نے اپنے 2021 کے سروے سے شائع کیا ہے، اور اسے شیزوکا شہر کی حد (MLIT قومی زمینی عددی معلومات N03، 2025) پر کاٹا گیا ہے۔ آؤئی وارڈ کے شمال کے پہاڑ (ایکاوا سے جنوبی الپس تک) اس سروے میں شامل نہیں تھے اس لیے خالی رہتے ہیں۔ splat فی الحال سوروگا وارڈ اور شیزوکا اسٹیشن کے آس پاس تک ہیں۔",
 			"vi": "Bản xem tổng quan chỉ dùng dữ liệu mà tỉnh đã công bố từ đợt khảo sát năm 2021, cắt theo ranh giới thành phố Shizuoka (MLIT, Thông tin số đất đai quốc gia N03, 2025). Vùng núi phía bắc quận Aoi (từ Ikawa đến dãy Alps phía Nam) không thuộc đợt khảo sát này nên để trống. Hiện tại splat mới phủ quận Suruga và khu vực quanh ga Shizuoka."
+		},
+		"Splats appear from zoom $1; zoomed out, the overview shows only the orthophoto and terrain.": {
+			"ja": "splat はズーム $1 から出ます。それより引いた所では、広域表示はオルソ画像と地形だけです。",
+			"zh": "splat 从缩放级别 $1 起显示；缩小后，概览只显示正射影像和地形。",
+			"ko": "splat은 줌 $1부터 표시됩니다. 그보다 축소하면 광역 보기는 정사영상과 지형만 보여 줍니다.",
+			"fr": "Les splats apparaissent à partir du zoom $1 ; en vue plus éloignée, la vue d’ensemble n’affiche que l’orthophoto et le relief.",
+			"de": "Splats erscheinen ab Zoomstufe $1; weiter herausgezoomt zeigt die Übersicht nur das Orthofoto und das Gelände.",
+			"es": "Los splats aparecen a partir del zoom $1; con menos zoom, la vista general solo muestra la ortofoto y el relieve.",
+			"pt": "Os splats aparecem a partir do zoom $1; com menos zoom, a visão geral mostra apenas a ortofoto e o relevo.",
+			"it": "Gli splat compaiono dallo zoom $1; con uno zoom inferiore, la panoramica mostra solo l’ortofoto e il terreno.",
+			"ru": "Сплаты появляются начиная с масштаба $1; при более мелком масштабе обзор показывает только ортофото и рельеф.",
+			"ar": "تظهر الـ splats بدءًا من مستوى التكبير $1؛ وعند التصغير أكثر لا تعرض النظرة العامة إلا الصورة الجوية المصححة والتضاريس.",
+			"bn": "জুম $1 থেকে স্প্ল্যাট দেখা যায়; তার চেয়ে দূরে গেলে ওভারভিউতে শুধু অর্থোফটো ও ভূখণ্ড দেখায়।",
+			"el": "Τα splats εμφανίζονται από το ζουμ $1· σε πιο απομακρυσμένη προβολή, η επισκόπηση δείχνει μόνο την ορθοφωτογραφία και το ανάγλυφο.",
+			"fa": "splatها از بزرگ‌نمایی $1 به بعد نمایش داده می‌شوند؛ در بزرگ‌نمایی کمتر، نمای کلی فقط ارتوفوتو و ناهمواری را نشان می‌دهد.",
+			"he": "ה-splats מופיעים מרמת זום $1; בזום רחוק יותר, התצוגה הכללית מציגה רק את האורתופוטו ואת פני השטח.",
+			"hi": "स्प्लैट ज़ूम $1 से दिखते हैं; इससे दूर होने पर अवलोकन में केवल ऑर्थोफ़ोटो और भू-भाग दिखता है।",
+			"hu": "A splatek a(z) $1. nagyítási szinttől jelennek meg; távolabbról az áttekintő csak az ortofotót és a domborzatot mutatja.",
+			"id": "Splat muncul mulai zoom $1; saat diperkecil, ikhtisar hanya menampilkan ortofoto dan medan.",
+			"nl": "Splats verschijnen vanaf zoomniveau $1; verder uitgezoomd toont het overzicht alleen de orthofoto en het terrein.",
+			"pl": "Splaty pojawiają się od powiększenia $1; przy mniejszym powiększeniu przegląd pokazuje tylko ortofotomapę i teren.",
+			"sv": "Splats visas från zoomnivå $1; längre utzoomat visar översikten bara ortofotot och terrängen.",
+			"th": "splat จะแสดงตั้งแต่ระดับซูม $1 ขึ้นไป เมื่อซูมออกมากกว่านั้น ภาพรวมจะแสดงเพียงภาพออร์โธและภูมิประเทศ",
+			"tr": "Splat'ler $1 yakınlaştırma düzeyinden itibaren görünür; daha uzaktan genel görünüm yalnızca ortofotoyu ve araziyi gösterir.",
+			"uk": "Сплати з’являються з масштабу $1; при дрібнішому масштабі огляд показує лише ортофото та рельєф.",
+			"ur": "اسپلیٹس زوم $1 سے نظر آتے ہیں؛ اس سے دور جانے پر جائزے میں صرف آرتھوفوٹو اور زمینی سطح دکھائی دیتی ہے۔",
+			"vi": "Splat xuất hiện từ mức thu phóng $1; khi thu nhỏ hơn, phần tổng quan chỉ hiển thị ảnh trực giao và địa hình."
 		}
 	}
 }
