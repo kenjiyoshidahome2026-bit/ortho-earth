@@ -80,6 +80,9 @@ import type { GintFrame, GintDepthCtx, GintClipInfo } from "./gint.ts";
 export interface RendererGPUOptions {
 	/** 既定 "high-performance"（外付け GPU のあるノート PC で速い方を頼む・gpupower.ts）。"low-power"／"default" で戻せる */
 	powerPreference?: GpuPowerPreference; adapterTries?: number; noTQ?: boolean; noFade?: boolean; msaa1?: boolean; lowMem?: boolean; fx?: Partial<RenderFx> | null;
+	/** 捕まえ損ねた GPU のエラー（uncapturederror）の知らせ。kind "oom"＝GPUOutOfMemoryError（GPU のメモリ不足＝タブを大量に開いた機で起こる・2026-11-18）。
+	 *  呼び手（globe の renderworker）が main へ伝え、画面に案内を出す。既定はコンソールに出すだけ（従来どおり） */
+	onDeviceError?: (kind: "oom" | "validation" | "internal", message: string) => void;
 	/** パイプラインを初回使用時に作る（?lazypipe=1）。既定＝起動時に全部（従来）。2026-11-06 Galaxy：GPU プロセスの直列コンパイル 9.6 秒の切り分け・短縮 */
 	lazyPipes?: boolean;
 	/** lazyPipes の束のうち最初のフレームに要る 10 本を起動時に先に作る（?warmpipe=1＝同期・2＝createRenderPipelineAsync で並列）。2026-11-06 Galaxy のトレース：
@@ -448,7 +451,14 @@ export async function createRendererGPU(canvas: HTMLCanvasElement | OffscreenCan
 	const setSeeThrough = (on: boolean): void => { if (on === seeThrough) return; seeThrough = on; ctx.configure({ device, format, alphaMode: on ? "premultiplied" : "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC }); };
 	const isBGRA = format === "bgra8unorm";   // Mac の既定＝readback は BGRA＝RGBA へ swizzle
 	// WebKit(Safari) は GPUDevice の EventTarget 実装が無い版がある＝onuncapturederror 属性も併用（両対応・二重発火なし＝どちらか一方しか効かない環境前提）
-	const onUncap = (e: GPUUncapturedErrorEvent) => console.error("[gpu] uncaptured:", e.error?.message || e.error);
+	const onUncap = (e: GPUUncapturedErrorEvent) => {
+		const err = e.error as GPUError | undefined, msg = String(err?.message || err || "");
+		console.error("[gpu] uncaptured:", msg);
+		const nm = (err as { constructor?: { name?: string } } | undefined)?.constructor?.name || "";
+		const kind = (typeof GPUOutOfMemoryError !== "undefined" && err instanceof GPUOutOfMemoryError) || nm === "GPUOutOfMemoryError" ? "oom"
+			: (typeof GPUInternalError !== "undefined" && err instanceof GPUInternalError) || nm === "GPUInternalError" ? "internal" : "validation";
+		try { rOpts.onDeviceError?.(kind, msg); } catch {}
+	};
 	if (device.addEventListener) device.addEventListener("uncapturederror", onUncap);
 	else if ("onuncapturederror" in device) device.onuncapturederror = onUncap;
 

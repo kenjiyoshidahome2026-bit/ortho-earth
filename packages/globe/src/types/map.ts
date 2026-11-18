@@ -16,7 +16,7 @@ import type {
 	FollowOptions, Gadgets, GeoJSONFeatureCollection, GintApplyOptions, GintLayerHandle, GintLayerOptions,
 	GintPaint, HandlerName, LayerMouseEvent,
 	LayerPressEvent, LightSpec, LightSpecification, LonLat, LookAtOptions, MapLibreLayer,
-	MapLibreSource, MapRegistry, Marker, MeshEvent, NavaraCamera,
+	MapErrorEvent, MapLibreSource, MapRegistry, Marker, MeshEvent, NavaraCamera,
 	OrthoClock, OrthoPlugin, OverlayHandle, OverlayPick, PaddingOptions,
 	Popup, PostPass, PostProcessOptions, ProtocolLoader, QuantizedMeshSource,
 	QueryOptions, RasterAPI, RasterDemSource, RenderedFeature, ResourceType, ScreenGridHandle,
@@ -727,6 +727,9 @@ export interface QueryApi {
 	on(ev: "boxzoomend", cb: (e: { bbox: Bbox; x0: number; y0: number; x1: number; y1: number }) => void): GlobeMap;   // api/query.ts:387
 	/** 協調モード（opts.cooperativeGestures）で止めた操作（1.16.0〜） */
 	on(ev: "cooperativegestureprevented", cb: (e: { kind: "wheel" | "touch" }) => void): GlobeMap;   // api/query.ts:387
+	/** 描けなくなった・なりそうな時（MapLibre 同名・2.4.3〜）。kind：out-of-memory（GPU／頁のメモリ不足）・context-lost（GPU の喪失）・webgl-init（起動できない）・webgpu-fallback（WebGL2 で続ける）。
+	 *  action：null＝続ける／"reload"・"reload-safe"＝1 秒後に読み直す（後者は省メモリ）／"fatal"＝案内を出して止まった。画面の案内はエンジンが出す＝聞くのは記録や独自の表示のため */
+	on(ev: "error", cb: (e: MapErrorEvent) => void): GlobeMap;   // globe.ts emitError
 	// on と同じく api/query.ts が globe.js の素の off を包む
 	off(ev: "click" | "mousemove" | "mouseenter" | "mouseleave" | "mousedown" | "mouseup" | "touchstart" | "touchend" | "dblclick" | "contextmenu", layerId: string | string[], cb: (e: LayerMouseEvent) => void): GlobeMap;   // api/query.ts:392
 	/** 購読解除（1.0.5〜） */

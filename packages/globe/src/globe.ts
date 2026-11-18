@@ -71,6 +71,7 @@ import { createDemTiles } from "./demtiles.ts";   // raster-dem のタイルの�
 import { createCustomGL } from "./gadgets/customgl.ts";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { createSkyTheater } from "./sky/theater.ts";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
+import { isOomMessage, lossStep, crashMarker, clearMarker, safeMemBoot, oomBurst, SAFE_KEY } from "./boot/gpufail.ts";   // メモリ不足・GPU 喪失の裁き（2026-11-18）
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.ts";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.ts";
 import { attributionHTML, setAttrHTML, attrFullHTML } from "./gadgets/instruments.ts";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
@@ -145,6 +146,7 @@ const LIVE_CONTAINERS = new Set<HTMLElement>();
 // 起動順で最初の地図（opts.urlHash:false は辞退）。持ち主でない地図は hash を読まず・hashchange に応じず・書かない・前回ビューも使わない。
 // 1 枚の頁は従来と同じ。持ち主が畳まれても、生きている他の地図が持ち主を継ぐことはない（起動の時に決まる）
 let URL_OWNER: object | null = null;
+let aliveHooked = false;   // 起動の印（boot/gpufail.ts crashMarker）を普通の離脱で下ろす耳＝頁に 1 本
 /** createGlobe の opts＝公開の OrthoJapanOptions＋MapLibre の口（src/maplibre/map.js）が渡す内部の物 */
 interface HostOptions extends GlobeOptions {
 	/** 注視点の高さ（"ground"＝地形の上の中心点・数＝固定［m］・A3） */
@@ -596,7 +598,18 @@ const logEl = orDetached(mapEl.querySelector<HTMLElement>("#log"));
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
 // ?lowmem=0/1＝手動上書き（実機の切り分け・2026-11-05：タブレットだけ近景の建物が暴れる＝LOW_MEM 固有か Mali 固有かを決める戻し口）。
 // 0 を 4GB 機で使うと落ち得る＝A/B の間だけ。
-const LOW_MEM: GlobeScope["LOW_MEM"] = /[?&]lowmem=1/.test(location.search) || (!/[?&]lowmem=0/.test(location.search) && lowMem(navigator));
+// 【落ちた後の立て直し・2026-11-18】前の起動が畳まれずに消えた（タブの強制終了＝メモリ不足の典型・「最初の 3 回は開けなかった」報告）か、GPU の喪失が続いた
+// （下の contextlost の梯子）＝このタブの間は省メモリ（LOW_MEM）で起動する。画面のチップから通常へ戻せる。?lowmem=0 は従わない
+const SS = (() => { try { return sessionStorage; } catch { return null; } })();
+const prevCrash = crashMarker(SS, BOOT_ID).crashed;
+if (!aliveHooked) {
+	aliveHooked = true;
+	window.addEventListener("pagehide", () => clearMarker(SS, BOOT_ID));   // 普通の離脱（再読み込み・遷移・bfcache 行き）＝印を下ろす。強制終了はここを通らない
+	window.addEventListener("pageshow", e => { if (e.persisted) crashMarker(SS, BOOT_ID); });   // bfcache から戻った＝印を立て直す
+}
+const SAFE_MEM = safeMemBoot({ search: location.search, crashed: prevCrash, store: SS });
+if (prevCrash) console.warn("[boot] the previous load ended without unloading (tab killed, likely out of memory) = low-memory mode for this tab session");
+const LOW_MEM: GlobeScope["LOW_MEM"] = /[?&]lowmem=1/.test(location.search) || SAFE_MEM || (!/[?&]lowmem=0/.test(location.search) && lowMem(navigator));
 // GPU の選び方（2026-11-03）＝既定は速い方（high-performance）。外付け GPU のあるノート PC でブラウザが内蔵 GPU を選び、遅くなっていた。
 // opts.powerPreference か ?lowpower=1 で戻せる。main の WebGL（判定の probe・重ね描き）はこの値で、描画 worker へは init で渡す。
 const POWER_PREF: GpuPowerPreference = /[?&]lowpower=1/.test(location.search) ? "low-power" : (opts.powerPreference ?? "high-performance");
@@ -1082,7 +1095,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map<string, GintLayerH>();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive: string | null = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn: GlobeScope["mapOn"] = { click: [], move: [], load: [], mesh: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／mesh=建物3D の読込合図）
+const mapOn: GlobeScope["mapOn"] = { click: [], move: [], load: [], mesh: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [], error: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／mesh=建物3D の読込合図）
 // map.on("mesh")（1.x の旧名 "plateau" は 2.0 で外した）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
 // 建物メッシュの時間割の main 側（HUD の copy 30s log）：起こした（wake）・manager が来た・登録簿が来た。区ごとの段は manager.timeline()・受け口は render worker の mem 便
@@ -1094,6 +1107,54 @@ const meshTlSnap = (): HudSnapshot["meshTl"] => {
 };
 const emitMesh = (e: unknown) => { const q = e as { phase?: string; count?: number }; if (q?.phase === "catalog") meshTlMain.push(["catalog", performance.now(), `${q.count} sets`]); for (const cb of [...mapOn.mesh]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
 let mapLoaded: GlobeLive["mapLoaded"] = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
+// --- メモリ不足・GPU 喪失を言葉で受け止める（2026-11-18・boot/gpufail.ts）---
+// map.on("error")（MapLibre 同名）＝{ error, kind, fatal, action }。kind：out-of-memory／context-lost／webgl-init／webgpu-fallback。
+// action：null（続ける）／"reload"（1 秒後に読み直す）／"reload-safe"（省メモリで読み直す）／"fatal"（案内を出して止まる）
+type MapErrorKind = "out-of-memory" | "context-lost" | "webgl-init" | "webgpu-fallback";
+const emitError = (kind: MapErrorKind, message: string, action: ReturnType<typeof lossStep> | null = null) => {
+	const ev = { type: "error", error: new Error(message || kind), kind, fatal: action === "fatal", action };
+	for (const cb of [...mapOn.error]) { try { cb(ev); } catch (err) { console.error("[map.on error]", err); } }
+};
+let lostHandled = false, oomChip: HTMLElement | null = null, sawOom = false;
+const oomTimes: number[] = [];
+// GPU の喪失（WebGL の contextlost・WebGPU の device lost・続けざまのメモリ不足）＝梯子（lossStep）：読み直す → 省メモリで読み直す → 案内で止まる。
+// 回数は oj.ctxlost（タブの間）。旧＝frame1 で回数を 0 に戻していた＝「描けてはすぐ落ちる」機で読み直しが無限に続いた。今は 60 秒もった時だけ戻す（frame1 の所）
+const onGpuLost = (kind: MapErrorKind, why: string) => {
+	if (lostHandled || ac.signal.aborted) return;   // aborted＝destroy 済み
+	lostHandled = true;
+	const n = +(SS?.getItem("oj.ctxlost") || 0), act = lossStep(n, LOW_MEM), oom = sawOom || kind === "out-of-memory";
+	console.warn(`[boot] GPU ${kind} (${why || "?"}) #${n + 1} -> ${act}`);
+	emitError(kind, why, act);
+	mapEl.querySelector("#fatal")?.remove();
+	if (act === "fatal") {
+		fatalOverlay(oom ? t("The map ran out of memory") : t("GPU rendering was interrupted"),
+			oom ? t("Your device or browser ran low on memory while drawing the map. Close other tabs or apps, then reload.") : t("The rendering context was lost (this can happen when GPU memory runs low). Close other tabs or apps, then reload."), true);
+		return;
+	}
+	try { SS?.setItem("oj.ctxlost", String(n + 1)); if (act === "reload-safe") SS?.setItem(SAFE_KEY, "1"); } catch {}
+	fatalOverlay(t("Restarting the map after a GPU interruption…"), act === "reload-safe" ? t("Reloading in low-memory mode. Closing other tabs or apps helps.") : t("This usually takes a few seconds."));
+	// 1 秒待ってから＝GPU プロセスの再起動を待つ（即リロードだと復帰前の getContext が null＝旧・probe が「ブラウザ非対応」と誤診した。probe 側のリトライと二段の保険）
+	setTimeout(() => { if (!ac.signal.aborted) location.reload(); }, 1000);
+};
+// メモリ不足の知らせ（WebGPU の GPUOutOfMemoryError・worker と頁の ArrayBuffer 確保失敗）。一度きりは左下のチップで知らせて続ける。30 秒に 3 回＝描けていない＝喪失と同じ梯子
+const onOom = (where: string, msg: string) => {
+	if (ac.signal.aborted || lostHandled) return;
+	sawOom = true;
+	console.warn(`[boot] out of memory (${where}): ${msg}`);
+	if (oomBurst(oomTimes, performance.now())) return onGpuLost("out-of-memory", `${where}: ${msg}`);
+	if (oomChip) return;
+	emitError("out-of-memory", `${where}: ${msg}`);
+	oomChip = document.createElement("div");
+	oomChip.id = "oom-chip";
+	oomChip.setAttribute("role", "status");
+	oomChip.style.cssText = "background:rgba(20,24,34,.82);color:#ffd479;font:11px/1.4 system-ui,sans-serif;padding:5px 9px;border-radius:14px;cursor:pointer;user-select:none;-webkit-user-select:none";
+	oomChip.textContent = t("Low on memory — closing other tabs keeps the map stable");
+	oomChip.onclick = () => { oomChip?.remove(); };
+	dockStack(mapEl).append(oomChip);
+};
+// 頁（main）の確保失敗も拾う＝タイルの復号・建物の組み立ての RangeError（Array buffer allocation failed）。メモリ不足の型だけを見る（頁の他の例外には触らない）
+window.addEventListener("error", e => { if (isOomMessage(e.error ?? e.message)) onOom("page", String(e.message || e.error)); }, { signal: ac.signal });
+window.addEventListener("unhandledrejection", e => { if (isOomMessage(e.reason)) onOom("page", String((e.reason as Error)?.message || e.reason)); }, { signal: ac.signal });
 renderWorker.onmessage = e => {
 	const d = e.data;
 	// --- gint（知性の層＝render worker に同居）の返信面（action=旧 gint worker と同形） ---
@@ -1123,10 +1184,10 @@ renderWorker.onmessage = e => {
 	if (d.type === "overlayPickResult") { const f = pickWait.get(d.seq); pickWait.delete(d.seq); f?.(d.hits || []); return; }   // 統一 picking（PR-1）の答え
 	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
 	if (d.type === "overlayStage") { ((dbgHost.__overlay ??= {}) as Record<string, unknown>)[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
-	if (d.type === "gpuFallback") { gpuInitFail = d.why || "init"; dbgHost.__gpuFallback = gpuInitFail; noteGpuFallback(gpuInitFail); console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${gpuInitFail}, this boot only = retry on next reload)`); diagHud && diagHud("gpu fallback", gpuInitFail); return; }
+	if (d.type === "gpuFallback") { gpuInitFail = d.why || "init"; dbgHost.__gpuFallback = gpuInitFail; noteGpuFallback(gpuInitFail); console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${gpuInitFail}, this boot only = retry on next reload)`); diagHud && diagHud("gpu fallback", gpuInitFail); emitError("webgpu-fallback", gpuInitFail); return; }
 	if (d.type === "bootMark") { BOOT["w:" + d.k] = d.t - performance.timeOrigin; return; }   // 起動の時間割の遅れて来た印（frame1 の後に届いた最初のタイルなど）
 	if (d.type === "frame1") {
-		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; paintTable = !!d.pt; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
+		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; paintTable = !!d.pt; setTimeout(() => { if (!lostHandled) try { SS?.removeItem("oj.ctxlost"); } catch {} }, 60000);   // 初描画のあと 60 秒もった＝自動リロード回数をリセット（旧＝frame1 で即＝描けてはすぐ落ちる機で読み直しが無限に回った）。__backend＝スモークテスト用（webgl2/webgpu）
 		sendSsr(); sendSceneFx();   // SSR・場面の効果＝描き手が決まった（WebGPU なら setPostChain の ssr を今送る）
 		mapEl.querySelector("#fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 received backend=${dbgHost.__backend}`);
@@ -1145,6 +1206,15 @@ renderWorker.onmessage = e => {
 			chip.style.cssText = "background:rgba(20,24,34,.78);color:#ffd479;font:11px/1.4 system-ui,sans-serif;padding:5px 9px;border-radius:14px;cursor:pointer;user-select:none;-webkit-user-select:none";
 			chip.textContent = nogpuN >= 2 ? t("Compatibility rendering (WebGL2) — tap to retry fast mode") : t("Started in compatibility rendering (WebGL2) — reload to retry fast mode");
 			chip.onclick = () => { sessionStorage.removeItem("oj.nogpu"); sessionStorage.removeItem("oj.nogpuN"); location.reload(); };
+			dockStack(mapEl).append(chip);
+		}
+		// 省メモリで立て直した起動（前の起動が落ちた／GPU の喪失が続いた）＝黙って軽いモードで走らない。タップ＝通常へ戻して読み直す
+		if (SAFE_MEM && !/[?&]lowmem=1/.test(location.search)) {
+			const chip = document.createElement("div");
+			chip.id = "safemem-chip";
+			chip.style.cssText = "background:rgba(20,24,34,.78);color:#ffd479;font:11px/1.4 system-ui,sans-serif;padding:5px 9px;border-radius:14px;cursor:pointer;user-select:none;-webkit-user-select:none";
+			chip.textContent = t("Low-memory mode (the last load stopped, likely out of memory) — tap for normal mode");
+			chip.onclick = () => { try { SS?.removeItem(SAFE_KEY); SS?.removeItem("oj.ctxlost"); } catch {} location.reload(); };
 			dockStack(mapEl).append(chip);
 		}
 		// WebGPU の present 検証：worker 側は例外ゼロで描けている「つもり」でも、環境によっては canvas に画素が
@@ -1210,22 +1280,19 @@ renderWorker.onmessage = e => {
 		console.error("[render] draw failed (worker report, once):", d.msg, d.stack);
 		dbgHost.__drawErr = d.msg;
 		diagHud && diagHud("GPU error", d.msg.slice(0, 300));
+		if (isOomMessage(d.msg)) onOom("render worker", d.msg);
 		return;
 	}
+	if (d.type === "gpuOom") return onOom("GPU", d.msg || "GPUOutOfMemoryError");   // WebGPU の uncapturederror（GPUOutOfMemoryError）
 	if (d.type === "glfail") {
 		clearTimeout(bootT);
+		emitError("webgl-init", d.error, "fatal");
+		if (isOomMessage(d.error)) { fatalOverlay(t("The map ran out of memory"), t("Your device or browser ran low on memory while drawing the map. Close other tabs or apps, then reload."), true); return; }
 		fatalOverlay(t("Could not start 3D rendering"), t("WebGL2 initialization failed ($1). Hardware acceleration may be disabled in your browser.", d.error), true);
 		return;
 	}
 	if (d.type === "gpuTier") { gpuFast = d.fast; return; }   // GPU格付け（renderworker tuneRes）＝静止時の手前詳細化の可否
-	if (d.type === "contextlost") {
-		const n = +(sessionStorage.getItem("oj.ctxlost") || 0);
-		// まず黙って1回だけ立て直す。1秒待ってから＝GPUプロセスの再起動を待つ（即リロードだと復帰前の
-		// getContext が null＝旧・probe が「ブラウザ非対応」と誤診した。probe側のリトライと二段の保険）。
-		if (n < 1) { sessionStorage.setItem("oj.ctxlost", String(n + 1)); setTimeout(() => location.reload(), 1000); }
-		else fatalOverlay(t("GPU rendering was interrupted"), t("The rendering context was lost (this can happen when GPU memory runs low). Close other tabs or apps, then reload."), true);
-		return;
-	}
+	if (d.type === "contextlost") return onGpuLost("context-lost", d.why || "");   // GPU の喪失＝梯子（上の onGpuLost）
 	if (d.type === "terrStats") { console.log("[terr]", JSON.stringify(d.data)); return; }   // __terr()の返答＝コンソールに1行
 	if (d.type === "rasterInfo") return onRasterInfo(d.id, d.info);       // 画像タイル層：ソースの自己申告が届いた（bbox/zoom 域/出典）
 	if (d.type === "rasterError") return onRasterError(d.id, d.error);   // 同・開けなかった/取得が続けて失敗
@@ -2835,6 +2902,7 @@ function destroy() {
 		document.documentElement.style.cssText = pageStyle.html ?? "";
 		document.body.style.cssText = pageStyle.body ?? "";
 	}
+	if (!LIVE_CONTAINERS.has(mapEl) || LIVE_CONTAINERS.size <= 1) clearMarker(SS, BOOT_ID);   // 地図を畳んだ＝この後に頁が落ちても地図のせいではない（起動の印を下ろす）
 	LIVE_CONTAINERS.delete(mapEl); releaseUrl();   // 容れ物は空き＝同じ div で起動し直せる（預かった div の id は借りた時から触っていない）・URL の持ち主の札も返す
 	mapEl.lang = mapElPrevLang; mapEl.dir = mapElPrevDir;   // 言語/書字方向も借りる前へ返す
 	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();
