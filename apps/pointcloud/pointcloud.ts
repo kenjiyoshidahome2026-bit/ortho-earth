@@ -189,20 +189,27 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	// ── 静岡市の広域表示（オルソ・標高・splat の 3D Tiles）＝入／切で足す・外す ──
 	//   splat はズームで出し分ける（GS_MIN_Z）＝初めて寄った時に tileset を足し、引いたら伏せる（engine が読むのを止め、少しして手放す）・寄ると出す。
 	//   寄った所でも視野の中の区画だけ・遠い区画は読まない（GS_MIN_SSE）
-	// PLATEAU の建物（エンジンの建物 3D）は splat を出している間は伏せる（2026-11-18・本人「GS を表示するときは Plateau の建物は表示しない」）＝点群の建物と重なるため。
+	// PLATEAU の建物（エンジンの建物 3D）と基図の押し出し建物は splat を出している間は伏せる（2026-11-18・本人「GS を表示するときは Plateau の建物は表示しない」）＝点群の建物と重なるため。
 	//   splat＝広域の splat（z14 から）か、クリックで出した図郭。どちらも無ければ戻す
 	//   戻す時は伏せる前の状態へ（利用者が自分で消していたら消したまま）
-	let sheetsShown = 0, meshHidden = false, meshWas = true;
+	let sheetsShown = 0, meshHidden = false, meshWas = true, bldWas = true;
+	const AUTO_BLD = "building-extrusion";
 	const syncMesh = () => {
-		const hide = gsShown || sheetsShown > 0;
+		const hide = gsWanted() || sheetsShown > 0;   // 広域の splat は読み終わりを待たずに伏せる（読み終わる前に PLATEAU が灯って残ることがあった）
 		if (hide === meshHidden) return;
 		meshHidden = hide;
 		if (hide) { meshWas = map.getMeshVisible(); map.setMeshVisible(false); } else if (meshWas) map.setMeshVisible(true);
+		// 基図の自動の押し出し建物（層 building-extrusion）も伏せる（2026-11-18・本人「plateau か基図の押し出しが GS と重なっている」）
+		if (map.getLayer(AUTO_BLD)) {
+			if (hide) { bldWas = map.getLayoutProperty(AUTO_BLD, "visibility") !== "none"; map.setLayoutProperty(AUTO_BLD, "visibility", "none"); }
+			else if (bldWas) map.setLayoutProperty(AUTO_BLD, "visibility", "visible");
+		}
 	};
 	let wideOn = false, wideGs: Tiles3DHandle | null = null, gsShown = false, wideAdding: Promise<void> | null = null, wideSeq = 0;
 	const gsWanted = () => wideOn && map.getZoom() >= GS_MIN_Z;
 	const syncGs = () => {
 		const want = gsWanted();
+		syncMesh();
 		if (wideGs) { if (want !== gsShown) { gsShown = want; wideGs.setVisible(want); syncMesh(); } return; }   // 変わった時だけ（setVisible は手放しの時計を毎回かけ直す）
 		if (!want || wideAdding) return;
 		const my = wideSeq;

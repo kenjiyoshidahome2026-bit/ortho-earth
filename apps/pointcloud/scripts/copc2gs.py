@@ -80,6 +80,9 @@ def merge(L, c):
     C = np.stack([np.bincount(inv, w * (L.cov[:, t] + d[:, a] * d[:, b]), m) for t, (a, b) in enumerate(idx)], -1) / W[:, None]
     col = np.stack([np.bincount(inv, w * L.col[:, k], m) for k in range(3)], -1) / W[:, None]
     return Lv(mu, finish(C, c), W, col)
+# 区画の終わりまで持つのは図郭ごとの 2 m 段（box 用の範囲と 4 m 段の材料）＝1 m 段を 100 枚持つと 14 GB を超えた（2026-11-18）
+def small(L):
+    S = merge(L, 2.0); S.lo, S.hi = L.ctr.min(0), L.ctr.max(0); return S
 def sub(L, m): return Lv(L.ctr[m], L.cov[m], L.w[m], L.col[m])
 def split3(L):   # 平面で 3×3 に分ける目印
     lo, hi = L.ctr[:, :2].min(0), L.ctr[:, :2].max(0); k = np.minimum((3 * (L.ctr[:, :2] - lo) / np.maximum(hi - lo, 1e-6)).astype(int), 2)
@@ -109,7 +112,7 @@ def write_tile(L, center, path, jobs):
         f.write(np.uint32(L.n).tobytes()); f.write(pos.tobytes()); f.write(sc.astype(np.float32).tobytes()); f.write(q.astype(np.float32).tobytes()); f.write(rgba.tobytes())
     jobs.append({"src": path + ".bin", "dst": path})
 def box(L, center, pad):
-    lo, hi = L.ctr.min(0) - center - pad, L.ctr.max(0) - center + pad; c = (lo + hi) / 2; h = np.maximum((hi - lo) / 2, 1)
+    lo, hi = getattr(L, "lo", L.ctr.min(0)) - center - pad, getattr(L, "hi", L.ctr.max(0)) - center + pad; c = (lo + hi) / 2; h = np.maximum((hi - lo) / 2, 1)
     return {"box": [*c, h[0], 0, 0, 0, h[1], 0, 0, 0, h[2]]}
 def tile(L, center, parent_center, uri, ge, children=None):
     t = {"transform": [1,0,0,0, 0,1,0,0, 0,0,1,0, *(center - parent_center), 1], "boundingVolume": box(L, center, 2 * ge / GE if ge else 1), "geometricError": ge, "refine": "REPLACE", "content": {"uri": uri}}
@@ -177,12 +180,12 @@ for blk, sheets in sorted(byblock.items()):
         for name, Lp, L05p in parts:
             sc = Lp.ctr.mean(0) * [1, 1, 0] + [0, 0, np.median(Lp.ctr[:, 2])]
             FINE and L05p is not None and write_tile(L05p, sc, f"{OUT}/{blk}/{name}_05.glb", jobs); write_tile(Lp, sc, f"{OUT}/{blk}/{name}_1.glb", jobs)
-            quads.setdefault(q, []).append((name, sc, L05p if FINE else None, Lp))
+            quads.setdefault(q, []).append((name, sc, L05p if FINE else None, small(Lp)))
         stats[s] = (len(x), L05.n, L1.n); print(blk, s, len(x), L05.n, L1.n, round(time.time() - t0), flush=True)
     if not quads: print("block", blk, "empty"); continue
     qtiles, q4s = [], []
     for q, items in sorted(quads.items()):
-        L4 = merge(merge(cat([it[3] for it in items]), 2.0), 4.0); qc = L4.ctr.mean(0) * [1, 1, 0] + [0, 0, np.median(L4.ctr[:, 2])]
+        L4 = merge(cat([it[3] for it in items]), 4.0); qc = L4.ctr.mean(0) * [1, 1, 0] + [0, 0, np.median(L4.ctr[:, 2])]
         write_tile(L4, qc, f"{OUT}/{blk}/q{q[0]}{q[1]}_4.glb", jobs); q4s.append(L4)
         kids = [tile(it[3], it[1], qc, f"{blk}/{it[0]}_1.glb", 1.0 * GE, [tile(it[2], it[1], it[1], f"{blk}/{it[0]}_05.glb", 0)]) if FINE and it[2] is not None else tile(it[3], it[1], qc, f"{blk}/{it[0]}_1.glb", 0) for it in items]
         qtiles.append((L4, qc, f"{blk}/q{q[0]}{q[1]}_4.glb", kids))
