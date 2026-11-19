@@ -97,7 +97,8 @@ export function createClassifyGPU(device: GPUDevice, format: GPUTextureFormat, d
 	}
 	const U = new Float32Array(36);
 	// 本体の main パスの中で（メッシュの後）。stencil の reference は戻さない（呼ぶ側が要るなら入れ直す）
-	// flat＝1−pf（真俯瞰の平ら化・../classify.ts flatOrigin）。ground＝地面が深度を書いていない（真俯瞰の平らな地図・地形なし）＝①b で単位球を地面として数える
+	// flat＝1−pf（真俯瞰の平ら化・../classify.ts flatOrigin）。ground＝①b で単位球も地面として数える＝「深度の物か単位球か、近い方」。①（深度に負けた面）と①b（深度に勝ち単位球の向こうの面）は重ならない＝二重に数えない。
+	// 地形が単位球より上なら①b は何も足さず、地形の深度が無い画素（タイル未着・基図の塗りが無い・地形なし・真俯瞰）では単位球が地面になる（2026-11-19・地形ありで地面が塗れなかった t-classify）
 	function draw(pass: GPURenderPassEncoder, sampleCount: number, mvp: ArrayLike<number>, logCoef: number, eye: ArrayLike<number>, flat = 0, ground = false): void {
 		if (!vols.size) return;
 		const P = pipesFor(sampleCount);
