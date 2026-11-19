@@ -82,7 +82,8 @@ export function createClassifyGL(gl: WebGL2RenderingContext) {
 		if (s.type != null) v.type = s.type;
 	}
 	// 描き終えた深度の上で（建物・メッシュの後・深度テストの状態は問わない）。戻すのは既定の状態（深度テスト有・書込み有・stencil 無効・色全部）
-	// flat＝1−pf（真俯瞰の平ら化・../classify.ts flatOrigin）。ground＝地面が深度を書いていない（真俯瞰の平らな地図・地形なし）＝①b で単位球を地面として数える
+	// flat＝1−pf（真俯瞰の平ら化・../classify.ts flatOrigin）。ground＝①b で単位球も地面として数える＝「深度の物か単位球か、近い方」。①（深度に負けた面）と①b（深度に勝ち単位球の向こうの面）は重ならない＝二重に数えない。
+	// 地形が単位球より上なら①b は何も足さず、地形の深度が無い画素（タイル未着・基図の塗りが無い・地形なし・真俯瞰）では単位球が地面になる（2026-11-19・地形ありで地面が塗れなかった t-classify）
 	// clipK＝renderer の CLIP_K（st.mvp32 は st.mvp の K 倍）：柱の原点の clip（u_clip）も K 倍にして足し、深度は w/K で＝メッシュ・地形と同じ深度。
 	// 旧＝u_clip は倍率なし・u_mvp は K 倍＝柱の位置と深度が崩れ、GL2（既定 K＝2^20）では 3D Tiles の画素で z-fail の巻き数が 0＝3D Tiles に色が乗らなかった（classification・2026-11-09）
 	function draw(st: { mvp: ArrayLike<number>; mvp32: Float32Array; eye: ArrayLike<number> }, logCoef: number, flat = 0, ground = false, clipK = 1): void {
