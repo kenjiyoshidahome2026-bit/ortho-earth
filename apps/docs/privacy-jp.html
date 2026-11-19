@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>プライバシー — Ortho Earth</title>
+<meta name="description" content="www.ortho-earth.com が集める情報とその理由：Cookie を使わない訪問の集計、ご自身のファイルや作品を保存するための任意のログイン、ブラウザの中だけに残るデータについて。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/privacy-jp">
+<link rel="alternate" hreflang="en" href="https://www.ortho-earth.com/docs/privacy">
+<link rel="alternate" hreflang="ja" href="https://www.ortho-earth.com/docs/privacy-jp">
+<link rel="alternate" hreflang="x-default" href="https://www.ortho-earth.com/docs/privacy">
+<meta property="og:title" content="プライバシー — Ortho Earth">
+<meta property="og:description" content="www.ortho-earth.com が集める情報とその理由：Cookie を使わない訪問の集計、ご自身のファイルや作品を保存するための任意のログイン、ブラウザの中だけに残るデータについて。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/privacy-jp">
+<meta property="og:type" content="article">
+<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"プライバシー — Ortho Earth","description":"www.ortho-earth.com が集める情報とその理由：Cookie を使わない訪問の集計、ご自身のファイルや作品を保存するための任意のログイン、ブラウザの中だけに残るデータについて。","url":"https://www.ortho-earth.com/docs/privacy-jp","mainEntityOfPage":"https://www.ortho-earth.com/docs/privacy-jp","inLanguage":"ja","image":"https://www.ortho-earth.com/og-image.jpg","author":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"publisher":{"@type":"Person","name":"Kenji Yoshida","url":"https://www.ortho-earth.com/docs/introduction"},"isPartOf":{"@type":"WebSite","name":"Ortho Earth","url":"https://www.ortho-earth.com/"}}</script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/" class="logo">Ortho Earth</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">プライバシー</span>
+	<div class="nav-links">
+		<a href="/" class="nav-top">top ⇧</a>
+		<a href="terms-jp.html">利用規約</a>
+		<a href="privacy.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>プライバシー</h1>
+<p class="lead">www.ortho-earth.com が集める情報と、その理由です。最終更新：2026-11-20</p>
+
+<p>
+Ortho Earth は、Kenji Yoshida が一人で運営しているオープンソースのプロジェクトです。サイトの地図はすべて、アカウントなしで使えます。
+広告は出さず、データを売ることもなく、広告や追跡のための Cookie も使いません。
+</p>
+
+<h2 id="visits">1. 訪問の集計</h2>
+<p>
+サイトは Cloudflare を通して配信していて、Cloudflare の <strong>Web Analytics</strong> がページに組み込まれます。
+これは Cookie を使わずに、ページの表示回数、どのページから来たか、国、ブラウザや端末の種類を数えるものです。
+どのページが読まれているかを知るために、この合計だけを見ています。また、ほかのホスティングと同じく、Cloudflare はページを届けたり攻撃を防いだりするために IP アドレスを扱います。
+詳しくは <a href="https://www.cloudflare.com/ja-jp/privacypolicy/">Cloudflare のプライバシーポリシー</a>をご覧ください。
+</p>
+
+<h2 id="signin">2. ログイン（任意）</h2>
+<p>
+一部のアプリでは、GitHub・Google・X でログインして、ご自身のファイルを保存したり作品を公開したりできます。そのときだけ、次の情報を保存します。
+</p>
+<ul>
+	<li>そのサービスでのアカウント ID、表示名、プロフィール画像、（サービスから渡される場合は）メールアドレス</li>
+	<li>ログイン状態：ブラウザの Cookie に入れるランダムな ID（30日間）。サーバー側には、その ID を変換した値と、ブラウザの種類を示す文字列だけを残します</li>
+	<li>アップロードしたファイル（1人あたり最大1GB）と、公開した作品。公開した作品（題名・リンク・作者名・説明・サムネイル）は、その性質上だれでも見られます</li>
+</ul>
+<p>
+これらは Cloudflare（D1 データベースと R2 ストレージ）に保存し、この機能を動かすためだけに使います。ファイルと作品は、いつでもご自身で削除できます。
+アカウントごと消したい場合は、どのサービスでログインしたかを添えて <a href="mailto:kenji.yoshida.home.2026@gmail.com">kenji.yoshida.home.2026@gmail.com</a> へご連絡ください。
+</p>
+
+<h2 id="browser">3. ブラウザの中だけに残るデータ</h2>
+<p>
+表示を速くするために、地図は読み込んだタイルをブラウザの保存領域に置き、端末が WebGPU を使えるかどうかなどの小さな設定を覚えます。
+これは端末の中にだけあり、サイトに送られることはありません。ブラウザでこのサイトのデータを消去すれば消えます。
+</p>
+
+<h2 id="data">4. ほかのサービスから読み込む地図データ</h2>
+<p>
+一部の地図は、公開データの提供元から直接データを読み込みます（地図タイル、衛星や地震の情報、PLATEAU の3D都市モデル、国土地理院のデータなど）。
+そのときブラウザはそれらのサービスに接続し、各サービスは自身の方針のもとで IP アドレスを扱います。
+</p>
+
+<h2 id="agents">5. AI エージェント向けの MCP サーバー</h2>
+<p>
+<code>www.ortho-earth.com/mcp</code> のサーバーは、Ortho Earth についての読み取り専用の質問に答えるだけです。質問の内容は保存しません。
+</p>
+
+<h2 id="changes">6. 変更とお問い合わせ</h2>
+<p>
+内容が変わるときは、このページを更新し、上の日付を変えます。お問い合わせは <a href="mailto:kenji.yoshida.home.2026@gmail.com">kenji.yoshida.home.2026@gmail.com</a> へどうぞ。
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	Ortho Earth · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>
