@@ -50,8 +50,34 @@ const WIDE = {
 /** 広域の splat を出すズーム（2026-11-18・本人「z に対する LOD・低い倍率では GS は要らない」）＝これより引いた所はオルソと標高だけ（splat の tileset を伏せる＝読まない・持っていた物は手放す）。
  *  z14＝約 4 m/px（静岡の緯度・MapLibre の z）＝区画の 8 m の段が 2 px・四分の 4 m の段が 1 px になる所。市全域（区画 161）を z11 で全部読むと区画の 8 m の段だけで約 1 GB */
 const GS_MIN_Z = 14;
-/** 寄った後の傾けた視点の奥＝区画の誤差（geometricError 128）が画面で 16 px に満たない区画は読まない（engine の minSSE）＝真上からの z13 に当たる遠さ＝視野の中心の約 2 倍より遠い区画は出さない */
-const GS_MIN_SSE = 16;
+/** 寄った後の傾けた視点の奥＝区画の誤差（geometricError 128）が画面で minSSE px に満たない区画は読まない（engine の minSSE）＝16 px は真上からの z13 に当たる遠さ＝視野の中心の約 2 倍より遠い区画は出さない */
+/** 広域の splat の細かさ（2026-11-20・本人「M5 ならいいけど、普通機で表示が重い」）。
+ *  tileset の誤差＝区画 128（8 m の段）・四分 64（4 m の段）・図郭 0（1 m の段）＝誤差はセルの 16 倍。maxSSE が 16 だと「4 m のセルが 1 px」で 1 m の段へ降りる＝
+ *  1 m のセルが 0.25 px の所から 1 m の段を読む（静岡の緯度で z15 から・画面いっぱいに 1 m の glb が数百枚・数 GB）。1 m の段は 4 m の段の約 19 倍の量。
+ *  maxSSE を倍にすると 1 m の段を読む距離が半分＝面積で 1/4。32＝1 m のセルが 0.5 CSS px（Retina で 1 device px）から＝見た目はほぼ同じ・48＝0.75 CSS px から（面積で fine の 1/9）。
+ *  自動＝低メモリ・非力（内蔵 GPU・4 コア以下・スマホ）は軽い、12 コア以上は細かい、他は標準。?gsq=light|standard|fine と案内板の選択で上書き（選択は端末に覚える） */
+const GS_QUALITY = {
+	light: { maxSSE: 48, minSSE: 24 },
+	standard: { maxSSE: 32, minSSE: 16 },
+	fine: { maxSSE: 16, minSSE: 16 },
+} as const;
+type GsQuality = keyof typeof GS_QUALITY;
+const isGsq = (v: unknown): v is GsQuality => typeof v === "string" && v in GS_QUALITY;
+/** 端末の格（エンジンの boot/tier.ts の classifyTier と同じ目＝写し）：内蔵 GPU（Intel の Arc 以外・AMD の APU・ソフトウェア）・4 コア以下・スマホ／タブレット＝非力 */
+function autoGsQuality(low: boolean): GsQuality {
+	if (low) return "light";
+	const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
+	let gpu = "";
+	try {
+		const g = document.createElement("canvas").getContext("webgl2"), dbg = g?.getExtension("WEBGL_debug_renderer_info");
+		gpu = dbg ? String(g!.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "") : "";
+		g?.getExtension("WEBGL_lose_context")?.loseContext();
+	} catch { /* 判定できない＝標準 */ }
+	const mobile = nav.userAgentData?.mobile === true || (matchMedia("(pointer: coarse)").matches && nav.maxTouchPoints > 1);
+	const weak = mobile || (nav.hardwareConcurrency || 8) <= 4 || (/\bintel\b/i.test(gpu) && !/\barc\b/i.test(gpu)) || /\bvega\b|radeon\(tm\) graphics/i.test(gpu) || /swiftshader|llvmpipe|basic render/i.test(gpu);
+	return weak ? "light" : (nav.hardwareConcurrency || 0) >= 12 ? "fine" : "standard";
+}
+const GSQ_KEY = "pointcloud.gsq";
 const BIG_MB = 250;   // これより大きい .zip は印を付ける（取るのに時間が掛かる）
 /** 同時に出す図郭の上限（2026-11-07）＝低メモリ端末（≤4GB・iOS）2 枚・他 6 枚（1 枚＝読む点 150 万／400 万・splat の段で GPU に 100 MB 前後）。?lowmem=1/0 はエンジンと同じ上書き */
 const lowMem = (nav: Navigator & { deviceMemory?: number }) => nav.deviceMemory ? nav.deviceMemory <= 4 : nav.maxTouchPoints > 1;   // エンジンの boot/tier.ts の lowMem と同じ目（頁の束にエンジンの源を焼かない＝写し）
@@ -158,6 +184,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<h2>${t("Data")}</h2>
 		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Shizuoka City overview (orthophoto, terrain and splats)")}</label>
 		<div class="hint" id="pc-wide-state"></div>
+		<div class="row"><label for="pc-gsq">${t("Splat detail")}</label><select id="pc-gsq"><option value="auto">${t("Automatic")}</option>${(["light", "standard", "fine"] as const).map(q => `<option value="${q}">${t({ light: "Light (for ordinary PCs)", standard: "Standard", fine: "Fine (fast GPUs)" }[q])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-wide-load" hidden><i class="busy"></i><span></span></div>
 		<div class="row"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-hint"></div>
@@ -197,7 +224,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 
 	// ── 静岡市の広域表示（オルソ・標高・splat の 3D Tiles）＝入／切で足す・外す ──
 	//   splat はズームで出し分ける（GS_MIN_Z）＝初めて寄った時に tileset を足し、引いたら伏せる（engine が読むのを止め、少しして手放す）・寄ると出す。
-	//   寄った所でも視野の中の区画だけ・遠い区画は読まない（GS_MIN_SSE）
+	//   寄った所でも視野の中の区画だけ・遠い区画は読まない（minSSE）。細かさ（GS_QUALITY）は端末で自動・案内板の選択で替える＝setOptions で次の選びから効く（読み直しなし）
 	// PLATEAU の建物（エンジンの建物 3D）と基図の押し出し建物は splat を出している間は伏せる（2026-11-18・本人「GS を表示するときは Plateau の建物は表示しない」）＝点群の建物と重なるため。
 	//   splat＝広域の splat（z14 から）か、クリックで出した図郭。どちらも無ければ戻す
 	//   戻す時は伏せる前の状態へ（利用者が自分で消していたら消したまま）
@@ -216,13 +243,28 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	};
 	let wideOn = false, wideGs: Tiles3DHandle | null = null, gsShown = false, wideAdding: Promise<void> | null = null, wideSeq = 0;
 	const gsWanted = () => wideOn && map.getZoom() >= GS_MIN_Z;
+	// 細かさ＝?gsq= › 端末に覚えた選択 › 自動
+	const gsqAuto = autoGsQuality(LOW), gsqUrl = new URLSearchParams(location.search).get("gsq");
+	let gsqPick: GsQuality | "auto" = "auto";
+	try { const v = localStorage.getItem(GSQ_KEY); if (isGsq(v)) gsqPick = v; } catch { /* 覚えられない器 */ }
+	if (isGsq(gsqUrl)) gsqPick = gsqUrl;
+	const gsq = (): GsQuality => gsqPick === "auto" ? gsqAuto : gsqPick;
+	const gsqSel = $<HTMLSelectElement>("#pc-gsq");
+	gsqSel.value = gsqPick;
+	(gsqSel.options[0]).textContent = tf(t("Automatic ($1)"), t({ light: "Light", standard: "Standard", fine: "Fine" }[gsqAuto]));
+	gsqSel.onchange = () => {
+		gsqPick = isGsq(gsqSel.value) ? gsqSel.value : "auto";
+		try { if (gsqPick === "auto") localStorage.removeItem(GSQ_KEY); else localStorage.setItem(GSQ_KEY, gsqPick); } catch { /* 覚えられない器 */ }
+		wideGs?.setOptions({ ...GS_QUALITY[gsq()] });
+	};
+	console.info(`[pointcloud] splat detail: ${gsq()} (auto ${gsqAuto})`);
 	const syncGs = () => {
 		const want = gsWanted();
 		syncMesh();
 		if (wideGs) { if (want !== gsShown) { gsShown = want; wideGs.setVisible(want); syncMesh(); } return; }   // 変わった時だけ（setVisible は手放しの時計を毎回かけ直す）
 		if (!want || wideAdding) return;
 		const my = wideSeq;
-		wideAdding = map.add3DTiles(WIDE.gs, { id: "pc-wide-gs", fit: false, maxSSE: 16, minSSE: GS_MIN_SSE, splat: {}, attribution: WIDE_ATTR }).then(h => {
+		wideAdding = map.add3DTiles(WIDE.gs, { id: "pc-wide-gs", fit: false, ...GS_QUALITY[gsq()], splat: {}, attribution: WIDE_ATTR }).then(h => {
 			if (my !== wideSeq) { h.remove(); return; }
 			wideGs = h; gsShown = gsWanted(); h.setVisible(gsShown); syncMesh();
 		}, e => console.warn("[pointcloud] wide splats", e)).finally(() => { if (my === wideSeq) wideAdding = null; });
