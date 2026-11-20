@@ -89,7 +89,7 @@ const CSS = `
 #side .btn { cursor: pointer; }
 #side .btn:hover { border-color: rgba(255,255,255,.5); }
 #side .btn.on { border-color: #fff; background: #2a303b; }
-#side .btn:disabled { opacity: .4; cursor: default; }
+#side .btn:disabled, #side select:disabled, #side input:disabled { opacity: .4; cursor: default; }
 #side .hint { padding: 6px 16px 0; color: rgba(255,255,255,.62); font-size: 12px; }
 #side .sheets { max-height: 196px; overflow-y: auto; margin-top: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px; padding: 0 16px; }
 #side .sheet { font: 11.5px ui-monospace, Menlo, monospace; color: inherit; background: #151920; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 3px 5px; cursor: pointer; text-align: start; line-height: 1.3; }
@@ -111,6 +111,11 @@ const CSS = `
 #side details ul { margin: 4px 0 6px; padding-inline-start: 18px; color: rgba(255,255,255,.78); }
 #side details li { margin: 3px 0; }
 #side .cache { padding: 6px 16px 0; color: rgba(255,255,255,.62); font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#side .busy { display: inline-block; width: 10px; height: 10px; margin-inline-end: 6px; vertical-align: -1px; border: 2px solid rgba(255,255,255,.25); border-top-color: #7fb2ff; border-radius: 50%; animation: pc-spin .8s linear infinite; }
+#side .busy[hidden], #pc-loading[hidden] { display: none; }
+#pc-loading { position: absolute; top: 12px; left: 12px; z-index: 3; pointer-events: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: #f1f3f6; background: rgba(11,13,18,.82); border: 1px solid rgba(255,255,255,.18); border-radius: 999px; }
+#pc-loading i { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.25); border-top-color: #7fb2ff; border-radius: 50%; animation: pc-spin .8s linear infinite; }
+@keyframes pc-spin { to { transform: rotate(360deg); } }
 #side .foot { padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.5); font-size: 11px; }
 #side .foot a { color: inherit; }`;
 
@@ -152,7 +157,8 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<div class="head"><h1>${t("Shizuoka City point cloud data")}<small>${t("Laser surveys of Shizuoka Prefecture (VIRTUAL SHIZUOKA), read straight from the open data")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
 		<h2>${t("Data")}</h2>
 		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Shizuoka City overview (orthophoto, terrain and splats)")}</label>
-		<div class="hint">${t("Splats appear from zoom $1; zoomed out, the overview shows only the orthophoto and terrain.").replace("$1", String(GS_MIN_Z))}</div>
+		<div class="hint" id="pc-wide-state"></div>
+		<div class="hint" id="pc-wide-load" hidden><i class="busy"></i><span></span></div>
 		<div class="row"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-hint"></div>
 		<div class="sheets" id="pc-sheets"></div>
@@ -161,11 +167,12 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<div class="status" id="pc-status"></div>
 		<div class="info" id="pc-info"></div>
 		<h2>${t("Display")}</h2>
+		<div class="hint" id="pc-style-note">${t("These settings apply to the sheets you open by clicking. They do not change the overview.")}</div>
 		<div class="row"><label for="pc-color">${t("Colour")}</label><select id="pc-color">${["auto", "rgb", "elevation", "intensity", "classification"].map(c => `<option value="${c}">${t({ auto: "Automatic", rgb: "True colour (RGB)", elevation: "Height", intensity: "Intensity", classification: "Classification" }[c]!)}</option>`).join("")}</select></div>
 		<div class="row"><label for="pc-detail">${t("Detail")}</label><input type="range" id="pc-detail" min="0.5" max="4" step="0.5" value="1"><output id="pc-detail-v"></output></div>
 		<div class="row"><label for="pc-opacity">${t("Opacity")}</label><input type="range" id="pc-opacity" min="0.1" max="1" step="0.05" value="1"><output id="pc-opacity-v"></output></div>
 		<div class="row"><label>${t("Classes")}</label><div class="classes">${CLASS_GROUPS.map(g => `<label class="check"><input type="checkbox" id="pc-cls-${g.id}" checked>${CLASS_LABEL[g.id] ?? g.label}</label>`).join("")}</div></div>
-		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show map sheets")}</label>
+		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show block and sheet outlines")}</label>
 		<div class="cache"><span id="pc-cache"></span><button class="btn" id="pc-cache-clear">${t("Clear")}</button></div>
 		<h2>${t("Export")}</h2>
 		<div class="row"><button class="btn" id="pc-exp-spz" disabled>${t("SPZ (finest level)")}</button><button class="btn" id="pc-exp-tiles" disabled>${t("3D Tiles (all levels)")}</button><button class="btn" id="pc-exp-ply" disabled>${t("PLY (points, for Unity)")}</button><button class="btn" id="pc-exp-las" disabled>${t("LAS (points, for Unreal)")}</button></div>
@@ -220,8 +227,15 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 			wideGs = h; gsShown = gsWanted(); h.setVisible(gsShown); syncMesh();
 		}, e => console.warn("[pointcloud] wide splats", e)).finally(() => { if (my === wideSeq) wideAdding = null; });
 	};
+	// 案内板の「今の広域表示」＝ズームと splat の出し入れ（GS_MIN_Z）をそのまま書く（2026-11-20・本人「左側のパネルと表示が合っていない」）
+	const wideState = () => {
+		const el = $("#pc-wide-state"), z = map.getZoom().toFixed(1);
+		const s = !wideOn ? "" : gsWanted() ? tf(t("Zoom $1: the overview shows splats."), z) : tf(t("Zoom $1: the overview shows the orthophoto and terrain. Splats appear from zoom $2."), z, String(GS_MIN_Z));
+		if (el.textContent !== s) el.textContent = s;
+		el.hidden = !s;
+	};
 	const wide = async (on: boolean) => {
-		wideSeq++; wideOn = on; wideAdding = null;
+		wideSeq++; wideOn = on; wideAdding = null; wideState();
 		wideGs?.remove(); wideGs = null; gsShown = false; syncMesh(); map.raster.remove("pc-wide-ortho");
 		if (!on) { await map.setTerrain(null).catch(() => {}); return; }
 		map.setTerrain({ source: { tiles: [`pmtiles://${WIDE.dem}`], encoding: "gsi", tileSize: 256, minzoom: 8, maxzoom: 17, bounds: WIDE.bounds } }).catch(e => console.warn("[pointcloud] wide terrain", e));
@@ -229,8 +243,22 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		syncGs();
 	};
 	$<HTMLInputElement>("#pc-wide").addEventListener("change", e => { wide((e.target as HTMLInputElement).checked); });
-	map.on("move", syncGs);
+	map.on("move", () => { syncGs(); wideState(); });
 	wide(true);
+	// 読み込み中の印（2026-11-20・本人「読み込みに時間がかかるのにローダー等がなく、固まっているか分からない」）
+	//   地図（オルソ・地形・基図）が載り切っていない／広域の splat の今の視点の分が揃っていない／図郭を読み・変換している間＝地図の左上と案内板に回る印を出す
+	const mapEl = (side.ownerDocument.querySelector(".map-wrap") ?? side.ownerDocument.body) as HTMLElement;
+	mapEl.insertAdjacentHTML("beforeend", `<div id="pc-loading" role="status" aria-live="polite" hidden><i></i><span></span></div>`);
+	const loadingEl = mapEl.querySelector<HTMLElement>("#pc-loading")!;
+	const loadingTick = () => {
+		const sheetBusy = [...items.values()].some(it => !it.h);
+		const gsBusy = !!(wideGs && gsShown && (!wideGs.stats.complete || wideGs.stats.inflight > 0)) || (gsWanted() && !wideGs);
+		const mapBusy = !map.areTilesLoaded();
+		const msg = sheetBusy ? t("Reading the point cloud…") : gsBusy ? (wideGs?.stats.inflight ? tf(t("Loading splats… ($1 tiles in flight)"), fmtN(wideGs.stats.inflight)) : t("Loading splats…")) : mapBusy ? t("Loading the map…") : "";
+		loadingEl.hidden = !msg; if (loadingEl.lastElementChild!.textContent !== msg) loadingEl.lastElementChild!.textContent = msg;
+		const side2 = $("#pc-wide-load"), wmsg = wideOn && !sheetBusy ? msg : "";
+		side2.hidden = !wmsg; if (side2.lastElementChild!.textContent !== wmsg) side2.lastElementChild!.textContent = wmsg;
+	};
 	const cache = await openPcCache();
 	console.info(`[pointcloud] cache: ${cache.kind}`);
 	const showCache = async () => { const { entries, total } = await cache.list(); const el = $("#pc-cache"); el.textContent = cache.kind === "none" ? t("Nothing is saved on this device (storage is unavailable).") : tf(t("Saved on this device: $1 items, $2"), fmtN(entries.length), mb(total)); $<HTMLButtonElement>("#pc-cache-clear").disabled = !entries.length; };
@@ -250,6 +278,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	interface Item { key: string; ck: string; src: string; label: string; extra: Partial<SplatOptions>; code: string | null; h: SplatHandle | null; alt0: number; ground: Array<[number, number, number]>; edges: string; info: string }
 	const items = new Map<string, Item>();
 	let active: Item | null = null, queue: Promise<unknown> = Promise.resolve();
+	setInterval(loadingTick, 300);   // items が出来てから回す
 	const cur = () => active?.h ?? null;
 	const lift = () => { outs(); const v = +$<HTMLInputElement>("#pc-lift").value; for (const it of items.values()) it.h?.setAltitude(it.alt0 + v); };
 	$("#pc-lift").addEventListener("input", lift);
@@ -291,6 +320,9 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	// ── 書き出し（SPZ＝最も細かい段＋置き場・3D Tiles＝段ごとの glb と tileset.json・どちらも無圧縮 zip で 1 本）＝最後に開いた図郭 ──
 	const download = (name: string, bytes: Uint8Array, type = "application/zip") => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
 	const EXP_BTNS = ["#pc-exp-spz", "#pc-exp-tiles", "#pc-exp-ply", "#pc-exp-las"];
+	// 見せ方と高さ＝開いた図郭だけに効く（広域表示の splat は前もって焼いた物＝変えられない）＝図郭を開いていない間は灰色に
+	const STYLE_CTRLS = ["#pc-color", "#pc-detail", "#pc-opacity", ...CLASS_GROUPS.map(g => `#pc-cls-${g.id}`), "#pc-lift", "#pc-fit", "#pc-zero", "#pc-autofit"];
+	const styleable = () => { const off = !items.size; for (const id of STYLE_CTRLS) $<HTMLInputElement>(id).disabled = off; };
 	const exportable = () => { const on = !!cur(); for (const id of EXP_BTNS) $<HTMLButtonElement>(id).disabled = !on; };
 	const exportAs = async (kind: "spz" | "tiles" | "ply" | "las") => {
 		const it = active, h = it?.h; if (!it || !h) return;
@@ -314,6 +346,8 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		finally { exportable(); }
 	};
 	$("#pc-exp-spz").onclick = () => exportAs("spz"); $("#pc-exp-tiles").onclick = () => exportAs("tiles"); $("#pc-exp-ply").onclick = () => exportAs("ply"); $("#pc-exp-las").onclick = () => exportAs("las");
+
+	styleable();
 
 	// ── 読む：保管した段 → 保管した点 → 回線（読んだ点と変換した段はその場で保管）・変換は 1 枚ずつ（GPU とメモリ） ──
 	const ptsKey = (it: Item) => cacheKey("points", it.ck, "auto");
@@ -390,7 +424,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	};
 	/** 出している物の数・URL（?sheet=鍵,鍵）・地図の印 */
 	function updateShown() {
-		highlight(); exportable(); sheetsShown = items.size; syncMesh();
+		highlight(); exportable(); styleable(); sheetsShown = items.size; syncMesh();
 		$("#pc-shown").textContent = items.size ? tf(t("$1 of $2 sheets shown"), String(items.size), String(MAX_SHEETS)) : "";
 		$<HTMLButtonElement>("#pc-clear-all").disabled = !items.size;
 		const u = new URL(location.href), s3 = [...items.keys()].filter(k => k.startsWith("s3:")).map(k => k.slice(3));
