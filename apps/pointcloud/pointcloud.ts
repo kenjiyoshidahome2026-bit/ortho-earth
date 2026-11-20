@@ -104,6 +104,17 @@ const HOW = [
 
 const CSS = `
 #side { font-size: 13px; color: #f1f3f6; background: #0b0d12; overflow-y: auto; overscroll-behavior: contain; color-scheme: dark; }
+#side > * { flex-shrink: 0; }   /* #side は縦の flex（pointcloud.html）＝一覧（overflow:auto）が 0 まで縮められて見えなかった（2026-11-21） */
+#side .ways { margin: 6px 16px 0; padding: 0; list-style: none; font-size: 12px; color: rgba(255,255,255,.78); }
+#side .ways li { margin: 4px 0; padding-inline-start: 10px; border-inline-start: 3px solid; }
+#side .part { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.12); border-inline-start: 3px solid; padding-bottom: 10px; }
+#side .ways .w1, #side .p-wide { border-inline-start-color: #7fb2ff; }   /* ① 広域＝青・② 図郭＝黄（開いた図郭の印と同じ色） */
+#side .ways .w2, #side .p-sheets { border-inline-start-color: #ffd34d; }
+#side .part > h2 { padding-top: 10px; font-size: 14px; letter-spacing: 0; text-transform: none; color: #fff; }
+#side h3 { margin: 0; padding: 14px 16px 2px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: rgba(255,255,255,.62); text-transform: uppercase; }
+#side .row.stack > label { width: 100%; }
+#side details h4 { margin: 8px 0 0; font-size: 12px; color: #fff; }
+#side details p { margin: 6px 0; color: rgba(255,255,255,.78); }
 #side .head { display: flex; gap: 8px; align-items: flex-start; padding: 14px 16px 2px; }
 #side .head .lang { flex: none; max-width: 110px; font-size: 12px; padding: 2px 4px; margin-top: 2px; background: #1b1f26; color: inherit; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; }
 #side h1 { flex: 1; min-width: 0; margin: 0; font-size: 17px; color: #fff; }
@@ -182,37 +193,48 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	const lang = getLang();
 	document.head.insertAdjacentHTML("beforeend", `<style>${CSS}</style>`);
 
+	// 案内板は 2 部に分ける（2026-11-21・本人「第三者から見て分かりやすく・静岡市の部分と静岡県の点群の話が混在している」）
+	//   ① 静岡市の広域表示＝前もって作った市全域の表示（青）／② 県の図郭＝県全域の計測を図郭ごとに直に読む（黄＝開いた図郭の印と同じ色）。見せ方・高さ・書き出しは ② の中
+	const HOW_WIDE = [HOW[7], HOW[8]], HOW_SHEETS = [HOW[0], HOW[9], HOW[1], HOW[2], HOW[3], HOW[4], HOW[5], HOW[6]];
 	side.insertAdjacentHTML("beforeend", `
-		<div class="head"><h1>${t("Shizuoka City point cloud data")}<small>${t("Laser surveys of Shizuoka Prefecture (VIRTUAL SHIZUOKA), read straight from the open data")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
-		<h2>${t("Data")}</h2>
-		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Shizuoka City overview (orthophoto, terrain and splats)")}</label>
+		<div class="head"><h1>${t("Shizuoka City point cloud data")}<small>${t("Laser surveys published by Shizuoka Prefecture (VIRTUAL SHIZUOKA), read straight from the open data. There are two ways to look at them:")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
+		<ol class="ways"><li class="w1">${t("Shizuoka City overview: the whole city at once, prepared in advance from the 2021 survey.")}</li><li class="w2">${t("Prefecture map sheets: open any 400 m × 300 m sheet of any survey in the prefecture (2019–2025) and read its points directly, for the closest views.")}</li></ol>
+		<section class="part p-wide">
+		<h2>${t("① Shizuoka City overview")}</h2>
+		<div class="hint">${t("Shizuoka City only. Mostly the 2021 survey; the mountains in the north of Aoi Ward are filled from the 2022 and 2025 surveys.")}</div>
+		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Show the overview (orthophoto, terrain and splats)")}</label>
 		<div class="hint" id="pc-wide-state"></div>
 		<div class="row"><label for="pc-gsq">${t("Splat detail")}</label><select id="pc-gsq"><option value="auto">${t("Automatic")}</option>${(["light", "standard", "fine"] as const).map(q => `<option value="${q}">${t({ light: "Light (for ordinary PCs)", standard: "Standard", fine: "Fine (fast GPUs)" }[q])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-wide-load" hidden><i class="busy"></i><span></span></div>
-		<div class="row"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
+		</section>
+		<section class="part p-sheets">
+		<h2>${t("② Prefecture map sheets")}</h2>
+		<div class="hint">${t("All of Shizuoka Prefecture. Choose a survey, click a blue block (4 km × 3 km) on the map, then a sheet (400 m × 300 m) on the map or in the list. The points are read from the prefecture's open data and drawn on top of the overview.")}</div>
+		<div class="row stack"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-hint"></div>
 		<div class="sheets" id="pc-sheets"></div>
 		<div class="row"><span class="hint" id="pc-shown" style="padding:0;flex:1"></span><button class="btn" id="pc-clear-all" disabled>${t("Remove all")}</button></div>
 		<div class="bar" id="pc-bar" hidden><i></i></div>
 		<div class="status" id="pc-status"></div>
 		<div class="info" id="pc-info"></div>
-		<h2>${t("Display")}</h2>
+		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show block and sheet outlines")}</label>
+		<div class="cache"><span id="pc-cache"></span><button class="btn" id="pc-cache-clear">${t("Clear")}</button></div>
+		<h3>${t("Display")}</h3>
 		<div class="hint" id="pc-style-note">${t("These settings apply to the sheets you open by clicking. They do not change the overview.")}</div>
 		<div class="row"><label for="pc-color">${t("Colour")}</label><select id="pc-color">${["auto", "rgb", "elevation", "intensity", "classification"].map(c => `<option value="${c}">${t({ auto: "Automatic", rgb: "True colour (RGB)", elevation: "Height", intensity: "Intensity", classification: "Classification" }[c]!)}</option>`).join("")}</select></div>
 		<div class="row"><label for="pc-detail">${t("Detail")}</label><input type="range" id="pc-detail" min="0.5" max="4" step="0.5" value="1"><output id="pc-detail-v"></output></div>
 		<div class="row"><label for="pc-opacity">${t("Opacity")}</label><input type="range" id="pc-opacity" min="0.1" max="1" step="0.05" value="1"><output id="pc-opacity-v"></output></div>
 		<div class="row"><label>${t("Classes")}</label><div class="classes">${CLASS_GROUPS.map(g => `<label class="check"><input type="checkbox" id="pc-cls-${g.id}" checked>${CLASS_LABEL[g.id] ?? g.label}</label>`).join("")}</div></div>
-		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show block and sheet outlines")}</label>
-		<div class="cache"><span id="pc-cache"></span><button class="btn" id="pc-cache-clear">${t("Clear")}</button></div>
-		<h2>${t("Export")}</h2>
-		<div class="row"><button class="btn" id="pc-exp-spz" disabled>${t("SPZ (finest level)")}</button><button class="btn" id="pc-exp-tiles" disabled>${t("3D Tiles (all levels)")}</button><button class="btn" id="pc-exp-ply" disabled>${t("PLY (points, for Unity)")}</button><button class="btn" id="pc-exp-las" disabled>${t("LAS (points, for Unreal)")}</button></div>
-		<div class="hint" id="pc-exp">${t("The SPZ comes zipped with placement.json (anchor and the ENU → ECEF matrix); the 3D Tiles zip holds tileset.json and one glb per level (KHR_gaussian_splatting + SPZ).")} ${t("The PLY holds the read points (metres from the anchor, colour, class) for Unity; the anchor is in its header.")} ${t("The LAS holds the read points (metres from the anchor, colour, class) for Unreal; the anchor is in its header.")}</div>
-		<h2>${t("Height")}</h2>
+		<h3>${t("Height")}</h3>
 		<div class="row"><label for="pc-lift">${t("Raise / lower")}</label><input type="range" id="pc-lift" min="-30" max="30" step="0.1" value="0"><output id="pc-lift-v"></output></div>
 		<div class="row"><button class="btn" id="pc-fit">${t("Fit to terrain")}</button><button class="btn" id="pc-zero">${t("Reset")}</button></div>
 		<label class="check"><input type="checkbox" id="pc-autofit" checked>${t("Fit to terrain after loading")}</label>
 		<div class="hint" id="pc-gap"></div>
-		<details><summary>${t("How this works")}</summary><ul>${HOW.map(x => `<li>${t(x)}</li>`).join("")}</ul></details>
+		<h3>${t("Export")}</h3>
+		<div class="row"><button class="btn" id="pc-exp-spz" disabled>${t("SPZ (finest level)")}</button><button class="btn" id="pc-exp-tiles" disabled>${t("3D Tiles (all levels)")}</button><button class="btn" id="pc-exp-ply" disabled>${t("PLY (points, for Unity)")}</button><button class="btn" id="pc-exp-las" disabled>${t("LAS (points, for Unreal)")}</button></div>
+		<div class="hint" id="pc-exp">${t("The SPZ comes zipped with placement.json (anchor and the ENU → ECEF matrix); the 3D Tiles zip holds tileset.json and one glb per level (KHR_gaussian_splatting + SPZ).")} ${t("The PLY holds the read points (metres from the anchor, colour, class) for Unity; the anchor is in its header.")} ${t("The LAS holds the read points (metres from the anchor, colour, class) for Unreal; the anchor is in its header.")}</div>
+		</section>
+		<details><summary>${t("How this works")}</summary><h4>${t("① Shizuoka City overview")}</h4><ul>${HOW_WIDE.map(x => `<li>${t(x)}</li>`).join("")}</ul><h4>${t("② Prefecture map sheets")}</h4><ul>${HOW_SHEETS.map(x => `<li>${t(x)}</li>`).join("")}</ul><p>${t(HOW[10])}</p></details>
 		<div class="foot">${t("Data")}: <a href="https://registry.opendata.aws/virtual_shizuoka/" target="_blank" rel="noopener">VIRTUAL SHIZUOKA</a> (${t("Shizuoka Prefecture")}, CC BY 4.0)</div>`);
 	const $ = <E extends HTMLElement = HTMLElement>(id: string) => side.querySelector(id) as E;
 	const status = (s: string, err = false) => { const el = $("#pc-status"); el.textContent = s; el.classList.toggle("err", err); };
