@@ -44,7 +44,7 @@ const c3 = await decode("child3.glb");   // SPZ 圧縮＝本体をそのまま�
 const s3 = c3.splats[0];
 ok("child3.spz", c3.splats.length === 1 && s3.n === 0 && s3.spz instanceof Uint8Array && s3.spz[0] === 0x1f && s3.spz[1] === 0x8b && s3.positions.length === 0, `${s3?.spz?.length}`);
 ok("child3.transform", s3.transform.every((v, k) => near(v, s0.transform[k], 1e-6)));
-ok("child3.stats", c3.stats.splats === 0 && c3.stats.points === 0 && c3.points.length === 0);
+ok("child3.stats", c3.stats.splats === 1600 && s3.count === 1600 && c3.stats.points === 0 && c3.points.length === 0, `${c3.stats.splats} ${s3.count}`);   // SPZ でも個数＝POSITION の accessor の count（予算に GPU の量を数える・2026-11-20）
 
 const p = await decode("parent.glb");
 ok("parent", p.splats.length === 1 && p.splats[0].n === 200 && near(p.splats[0].scales[0], 6, 1e-5));

@@ -87,7 +87,8 @@ export interface ModelPoints { geo: number[]; rgba: number[] }
 /** 3D Tiles の glTF の Gaussian splat（KHR_gaussian_splatting・2026-10-18）＝局所の座標のまま＋transform（列優先 4×4・局所 → ECEF＝タイル変換 × ノード変換・heightOffset 込み）。
  *  main（gadgets/tiles3d.ts）が splat の層（SplatData crs "local"）にする＝ECEF を float32 に通さない（0.5m のガタつき）。scales＝線形の σ（m）・rotations＝x,y,z,w・colors＝RGBA（sRGB・A＝不透明度）・
  *  sh＝DC より上の係数（n × K×3・係数が先・K＝3／8／15）。spz＝圧縮の拡張（KHR_gaussian_splatting_compression_spz_*）の本体＝plugin の読み手（parseSpz）が解く（その時 n＝0・配列は空） */
-export interface SplatPrimOut { n: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: 0 | 1 | 2 | 3; transform: number[]; spz: Uint8Array | null; colorSpace: string }
+/** n＝解いた個数（SPZ は解かない＝0）・count＝splat の個数（SPZ も POSITION の accessor の count＝GPU に載る量の見積もり・予算に数える） */
+export interface SplatPrimOut { n: number; count: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: 0 | 1 | 2 | 3; transform: number[]; spz: Uint8Array | null; colorSpace: string }
 /** KHR_implicit_shapes の形（box＝size・原点が中心。EXT_implicit_ellipsoid_region／EXT_implicit_cylinder_region は shape の extensions） */
 export interface ImplicitShape { type?: string; box?: { size?: number[] }; extensions?: Record<string, unknown> }
 /** 3D Tiles の glTF の voxel（EXT_primitive_voxels＋KHR_implicit_shapes・2026-10-23）＝voxel の VoxelData の形：box＝単位立方体 [0,1]³ → ECEF の transform（列優先 4×4・heightOffset 込み）・region＝[w,s,e,n（度）,h0,h1]。
@@ -859,7 +860,7 @@ const SH_C0 = 0.28209479177387814;
 function splatPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: ArrayLike<number>, lift: number): SplatPrimOut | null {
 	const ext = (pr.extensions?.[SPLAT_EXT] ?? {}) as { colorSpace?: string }, colorSpace = typeof ext.colorSpace === "string" ? ext.colorSpace : "srgb_rec709_display", linear = colorSpace === "lin_rec709_display";
 	const transform = [lin[0], lin[1], lin[2], 0, lin[3], lin[4], lin[5], 0, lin[6], lin[7], lin[8], 0, o[0], o[1], o[2], 1];   // 列優先（lin は列優先の 3×3）
-	const empty = (spz: Uint8Array): SplatPrimOut => ({ n: 0, positions: new Float32Array(0), scales: new Float32Array(0), rotations: new Float32Array(0), colors: new Uint8Array(0), sh: null, shDegree: 0, transform, spz, colorSpace });
+	const empty = (spz: Uint8Array, count: number): SplatPrimOut => ({ n: 0, count, positions: new Float32Array(0), scales: new Float32Array(0), rotations: new Float32Array(0), colors: new Uint8Array(0), sh: null, shDegree: 0, transform, spz, colorSpace });
 	const lifted = (out: SplatPrimOut, cx: number, cy: number, cz: number): SplatPrimOut => {   // heightOffset＝重心の ECEF の上向きに沿って持ち上げる（タイルの中身と同じ「高さへの足し込み」）
 		if (!lift) return out;
 		const ex = lin[0] * cx + lin[3] * cy + lin[6] * cz + o[0], ey = lin[1] * cx + lin[4] * cy + lin[7] * cz + o[1], ez = lin[2] * cx + lin[5] * cy + lin[8] * cz + o[2], l = Math.hypot(ex, ey, ez) || 1;
@@ -871,8 +872,8 @@ function splatPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 	if (comp && Number.isInteger(comp.bufferView)) {
 		const data = gltf.bufferViews?.[comp.bufferView!]?.data;
 		if (!data) return null;
-		const P0 = pr.attributes?.POSITION as (GltfAccessor & { min?: number[]; max?: number[] }) | undefined, mn = P0?.min, mx = P0?.max;   // 重心の当ては accessor の min/max（本体は解いていない）
-		return lifted(empty(data.slice()), mn && mx ? (mn[0] + mx[0]) / 2 : 0, mn && mx ? (mn[1] + mx[1]) / 2 : 0, mn && mx ? (mn[2] + mx[2]) / 2 : 0);
+		const P0 = pr.attributes?.POSITION as (GltfAccessor & { min?: number[]; max?: number[]; count?: number }) | undefined, mn = P0?.min, mx = P0?.max;   // 重心の当ては accessor の min/max（本体は解いていない）
+		return lifted(empty(data.slice(), Number.isInteger(P0?.count) && P0!.count! > 0 ? P0!.count! : 0), mn && mx ? (mn[0] + mx[0]) / 2 : 0, mn && mx ? (mn[1] + mx[1]) / 2 : 0, mn && mx ? (mn[2] + mx[2]) / 2 : 0);
 	}
 	const P = pr.attributes?.POSITION?.value, S = splatAttr(pr, "SCALE")?.value, R = splatAttr(pr, "ROTATION")?.value;
 	if (!P || !S || !R) return null;
@@ -906,7 +907,7 @@ function splatPrim(pr: GltfPrimitive, gltf: GltfDoc, lin: ArrayLike<number>, o: 
 	}
 	let sh: Float32Array | null = null;
 	if (shDegree) { const K = coefs.length; sh = new Float32Array(n * K * 3); for (let i = 0; i < n; i++) for (let k = 0; k < K; k++) { const a = coefs[k]; sh[(i * K + k) * 3] = a[i * 3]; sh[(i * K + k) * 3 + 1] = a[i * 3 + 1]; sh[(i * K + k) * 3 + 2] = a[i * 3 + 2]; } }
-	return lifted({ n, positions, scales, rotations, colors, sh, shDegree, transform, spz: null, colorSpace }, n ? cx / n : 0, n ? cy / n : 0, n ? cz / n : 0);
+	return lifted({ n, count: n, positions, scales, rotations, colors, sh, shDegree, transform, spz: null, colorSpace }, n ? cx / n : 0, n ? cy / n : 0, n ? cz / n : 0);
 }
 // ---- voxel のプリミティブ（EXT_primitive_voxels＋KHR_implicit_shapes・2026-10-23）----
 //   mode 2147483647（か extensions.EXT_primitive_voxels）。属性＝独自の意味（_DENSITY など・EXT_structural_metadata の propertyAttributes が class の性質に結ぶ）・accessor の count＝Π(dimensions＋padding)・並びは x が最速。
@@ -1298,7 +1299,7 @@ export async function decodeModel(ab: ArrayBuffer | Uint8Array, { at = null, atG
 			}
 			if (mode4 === 0 && pr.extensions?.[SPLAT_EXT] && tile?.splats) {   // Gaussian splat＝局所の座標＋transform のまま main へ（splat の層）
 				const sp = splatPrim(pr, gltf, lin, [ox, oy, oz], tile.baseH != null ? -tile.baseH : 0);
-				if (sp) { splats.push(sp); nSplat += sp.n; }
+				if (sp) { splats.push(sp); nSplat += sp.count; }
 				continue;
 			}
 			if (mode4 === 0 && pts) {   // 点＝経緯度・高さ・色だけ（点のオーバーレイへ）
