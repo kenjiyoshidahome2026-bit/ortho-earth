@@ -85,7 +85,7 @@ interface TileVoxel { shape: "box" | "region" | "cylinder"; dims: [number, numbe
 /** 円柱の voxel（meshdecode の VoxelCylinderOut＝voxel の契約の cylinder のまま） */
 interface VoxelCylinder { transform: number[]; radius: [number, number]; height: [number, number]; angle: [number, number] }
 /** worker が返す Gaussian splat（meshdecode の SplatPrimOut）＝局所の座標＋transform（ECEF）・spz＝圧縮の本体（plugin が解く） */
-interface TileSplat { n: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: number; transform: number[]; spz: Uint8Array | null; colorSpace: string }
+interface TileSplat { n: number; count?: number; positions: Float32Array; scales: Float32Array; rotations: Float32Array; colors: Uint8Array; sh: Float32Array | null; shDegree: number; transform: number[]; spz: Uint8Array | null; colorSpace: string }
 /** splat の手綱（使う口だけ） */
 interface SplatLayer { ready?: Promise<unknown>; setVisible(on: boolean): unknown; remove(): void }
 /** worker（i3sOpen）の答え */
@@ -303,6 +303,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	const voxOpts = (set: T3dSet, n: T3dNode): false | { property: string | null; declared: T3dSet["voxDecl"]; volume: VoxVolume | null } => hasVoxel() ? { property: typeof set.opts.voxel?.property === "string" ? set.opts.voxel.property : null, declared: set.voxDecl ?? null, volume: voxVolume(n) } : false;
 	const rpc = pool.rpc;
 	const BUDGET = (lowMem ? 160 : 512) * 1024 * 1024, DEF_INFLIGHT = lowMem ? 3 : 6;
+	const SPLAT_GPU_BYTES = 64;   // splat 1 個が描き手（@ortho-earth/splat の WebGPU）の GPU に持つ量（下の splat の層の bytes）
 	// 同時取得数の上限＝既定は lowMem 3／他 6。tileset の opts.maxInflight（1〜32）があれば、その最大で上書き（全 tileset で共通の枠・2026-10-20）。
 	// 使い道＝ベンチで端末判定の差を外して比べる時（iPhone はタッチで一律 lowMem＝3 本）。setOptions での変更も次の選びから効く
 	const maxInflight = (): number => { let m = 0; for (const s of sets.values()) { const v = s.opts.maxInflight; if (typeof v === "number" && v > 0) m = Math.max(m, v); } return m ? Math.min(32, Math.floor(m)) || 1 : DEF_INFLIGHT; };
@@ -499,7 +500,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			if (r.splats?.length) {   // Gaussian splat＝タイルごとに splat の層（crs "local"＋transform・絶対高さ）。spz＝bytes＋format で読み手へ
 				n.splat = [];
 				r.splats.forEach((s, k) => {
-					const q = `tiles3d:${set.id}:${n.id}:${k}`, bytes = s.spz ? s.spz.byteLength : s.positions.byteLength + s.scales.byteLength + s.rotations.byteLength + s.colors.byteLength + (s.sh?.byteLength || 0);
+					// 予算に数える量＝GPU に載る量（2026-11-20）：描き手は 1 個あたり中心 16＋共分散 32＋色 4＋順 4＋鍵 4＋LoD の順位 4＝64 byte（＋SH）を持つ。
+					//   旧＝SPZ の圧縮の大きさ（1 個 約 13 byte）で数えた＝実際の約 5 倍まで積み、予算の SSE 引き上げが効かなかった（静岡市の広域 splat が普通機で重い・本人「M5 ならいいけど、普通機で表示が重い」）
+					const raw = s.spz ? s.spz.byteLength : s.positions.byteLength + s.scales.byteLength + s.rotations.byteLength + s.colors.byteLength + (s.sh?.byteLength || 0);
+					const q = `tiles3d:${set.id}:${n.id}:${k}`, bytes = Math.max(raw, (s.count ?? s.n ?? 0) * SPLAT_GPU_BYTES + (s.sh?.byteLength || 0));
 					const common = { kind: "splat", id: q, altitude: "absolute", depthTest: true, properties: { tile: n.id }, ...(set.opts.splat || {}) };
 					try {
 						const h = (s.spz ? map.addData(s.spz, { ...common, format: "spz", transform: s.transform }) : map.addData({ n: s.n, crs: "local", transform: s.transform, positions: s.positions, scales: s.scales, rotations: s.rotations, colors: s.colors, ...(s.sh ? { sh: s.sh } : {}) }, common)) as unknown as SplatLayer;
