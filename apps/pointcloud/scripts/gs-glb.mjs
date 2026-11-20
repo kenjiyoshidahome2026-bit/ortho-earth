@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { encodeSpzRaw } from "../../../sdk/splat/src/formats.ts";
 import { cloudLevelGlb, enuToGltfAxes } from "../../../sdk/splat/src/cloud.ts";
 import { gzip } from "../../../sdk/splat/src/cloud-export.ts";
+// 位置が中心から 2048 m を越える段（4 km の区画の 8 m 段）は encodeSpzRaw が frac を自動で下げる（2026-11-21・旧＝端が線に潰れた・gs-refit.py で直した）
 const list = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 for (const { src, dst } of list) {
 	const b = fs.readFileSync(src), n = b.readUInt32LE(0); let o = 4;

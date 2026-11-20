@@ -1,7 +1,7 @@
 // node の検定：読み手（.ply・.splat・.spz v2/v3・.ksplat 圧縮 0/1/2・.sog v2）・東北上への下ごしらえ（lnglat・ecef・local）・共分散・視線順の並べ替え・plugin の形。描画は globe の頁 t-psplat。
 import { gzipSync, deflateSync, deflateRawSync } from "node:zlib";
 import { decodePng } from "../../../packages/globe/tests/mlexamples/compare.mjs";
-import { parsePly, parseSplat, parseSpz, decodeSpz, encodeSpzRaw, parseKsplat, parseSog, zipEntries, f16, SPLAT_FORMATS, toEnu, packSh, shDegreeOf, importanceRank, prepare, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
+import { parsePly, parseSplat, parseSpz, decodeSpz, encodeSpzRaw, spzFracFor, parseKsplat, parseSog, zipEntries, f16, SPLAT_FORMATS, toEnu, packSh, shDegreeOf, importanceRank, prepare, quatMat, placeMat, checkSplatData, splatPlugin, SH_C0 } from "../src/index.ts";
 import { read } from "../src/splat-reader.ts";
 import { sortOrder, enuBasis } from "../src/splat-gl.ts";
 import { depthRange, lodCount, pixelsPerMeter } from "../src/splat-gpu.ts";
@@ -90,7 +90,13 @@ function makeSpz(version, pts) {
 	ok("spz.rt.color", Math.abs(rt.colors[0] - 255) <= 3 && Math.abs(rt.colors[1] - 128) <= 3 && Math.abs(rt.colors[2]) <= 3 && rt.colors[3] === 200 && rt.colors[7] === 255, JSON.stringify([...rt.colors]));
 	ok("spz.rt.rot", near(rt.rotations[2], s, 0.01) && near(rt.rotations[3], c, 0.01) && near(rt.rotations[4], -0.5, 0.01) && near(rt.rotations[7], 0.5, 0.01), JSON.stringify([...rt.rotations]));   // w<0 は符号を返して w≧0 に
 	ok("spz.rt.sh", [...rt.sh].every((v, i) => near(v, sh45[i], 1 / 128)));
-	ok("spz.rt.frac", near((await parseSpz(gzipSync(encodeSpzRaw(src, { frac: 20 })))).positions[5], 0.0005, 2e-6));
+	ok("spz.rt.frac", near((await parseSpz(gzipSync(encodeSpzRaw({ ...src, positions: src.positions.map(v => v / 100) }, { frac: 20 })))).positions[5], 0.000005, 2e-6));   // ±8 m に収まる位置（越えると frac が下がる）
+	{   // 2048 m を越える位置＝frac を下げて潰さない（2026-11-21・広域 GS の 4 km 区画の端が線に潰れていた）
+		const far = { ...src, sh: undefined, positions: Float32Array.from([2249.5, 1, -2, -3000.25, 0.5, 4]) };
+		const r = await parseSpz(gzipSync(encodeSpzRaw(far)));
+		ok("spz.rt.far", near(r.positions[0], 2249.5, 1e-3) && near(r.positions[3], -3000.25, 1e-3) && near(r.positions[5], 4, 1e-3), JSON.stringify([...r.positions]));
+		ok("spz.fracFor", spzFracFor(far.positions, 2) === 11 && spzFracFor(src.positions, 2) === 12 && spzFracFor([5000, 0, 0], 1) === 10);
+	}
 	ok("spz.rt.noSh", !(await parseSpz(gzipSync(encodeSpzRaw({ ...src, sh: undefined })))).sh);
 	ok("spz.badMagic", await athrows(() => parseSpz(gzipSync(new Uint8Array(32)))));
 	const raw = new Uint8Array(16); new DataView(raw.buffer).setUint32(0, 0x5053474e, true); new DataView(raw.buffer).setUint32(4, 9, true);

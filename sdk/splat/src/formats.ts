@@ -336,10 +336,20 @@ export async function parseSog(buf: BinSource, { decodeImage = decodeImageDefaul
 
 /** URL／ファイル名 → format（拡張子） */
 // ---- .spz の書き手（v2・SH つき）＝3D Tiles 化（apps/splat/scripts/splat-tiles.mjs）と検定の往復に。gzip は呼び手（node＝zlib・browser＝CompressionStream）----
-/** SplatData（局所・axes は .spz の約束＝RUB "y" で渡す）→ .spz v2 の中身（gzip 前）。frac＝位置の小数の bit 数（既定 12＝±2048 m・0.24 mm 刻み）。尺は 1/16 の log・色は 0.15 の目・回転は 3 byte（w≧0）・SH は 8 bit（×128） */
+/** 位置が 24 bit に収まる小数の bit 数（≦ frac）＝±2^(23−frac) m を越える位置があれば frac を下げる（2026-11-21） */
+export function spzFracFor(positions: ArrayLike<number>, n: number, frac = 12): number {
+	let m = 0;
+	for (let i = 0; i < n * 3; i++) { const v = Math.abs(positions[i]); if (v > m) m = v; }
+	while (frac > 0 && Math.round(m * (1 << frac)) > 0x7fffff) frac--;
+	return frac;
+}
+/** SplatData（局所・axes は .spz の約束＝RUB "y" で渡す）→ .spz v2 の中身（gzip 前）。frac＝位置の小数の bit 数（既定 12＝±2048 m・0.24 mm 刻み）。尺は 1/16 の log・色は 0.15 の目・回転は 3 byte（w≧0）・SH は 8 bit（×128）
+ *  位置が ±2^(23−frac) m を越える時は frac を自動で下げる（spzFracFor・2026-11-21）：旧＝越えた位置を端に寄せて潰した＝静岡市の広域 GS で
+ *  4 km の区画の 8 m 段の端（中心から 2048 m より先）が 1 本の線に潰れ、区画の境に帯状の穴が開いた（細かい段が届くまで地図が透けた） */
 export function encodeSpzRaw(d: SplatData & { n: number }, { frac = 12 }: { frac?: number } = {}): Uint8Array<ArrayBuffer> {
 	const n = d.n, perSplat = d.sh && n ? d.sh.length / n : 0, shDeg = shDegreeOf(perSplat), shN = [0, 9, 24, 45][shDeg];
 	if (frac < 0 || frac > 23) throw new RangeError("splat: encodeSpz frac must be 0–23");
+	frac = spzFracFor(d.positions, n, frac);
 	const b = new Uint8Array(16 + n * (9 + 1 + 3 + 3 + 3 + shN)), dv = new DataView(b.buffer), f = 1 << frac, lim = 0x7fffff;
 	dv.setUint32(0, 0x5053474e, true); dv.setUint32(4, 2, true); dv.setUint32(8, n, true); b[12] = shDeg; b[13] = frac;
 	let o = 16;
