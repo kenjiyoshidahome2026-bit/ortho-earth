@@ -56,10 +56,13 @@ const GS_MIN_Z = 14;
  *  1 m のセルが 0.25 px の所から 1 m の段を読む（静岡の緯度で z15 から・画面いっぱいに 1 m の glb が数百枚・数 GB）。1 m の段は 4 m の段の約 19 倍の量。
  *  maxSSE を倍にすると 1 m の段を読む距離が半分＝面積で 1/4。32＝1 m のセルが 0.5 CSS px（Retina で 1 device px）から＝見た目はほぼ同じ・48＝0.75 CSS px から（面積で fine の 1/9）。
  *  自動＝低メモリ・非力（内蔵 GPU・4 コア以下・スマホ）は軽い、12 コア以上は細かい、他は標準。?gsq=light|standard|fine と案内板の選択で上書き（選択は端末に覚える） */
+// 予算（2026-11-20・本人「スプラットの読み込みが終わりません」z18.6・傾き 75°）：エンジンは splat を GPU の量（1 個 64 byte）で数える。四分（4 m）1 つが
+//   1 m の段の 24 枚前後（約 700 MB）に入れ替わる＝既定の予算（512＋512 MB）では寄った所で 1 m に届かず、粗い段と行き来した。細かさごとに予算を持たせる
+const MB = 1024 * 1024;
 const GS_QUALITY = {
-	light: { maxSSE: 48, minSSE: 24 },
-	standard: { maxSSE: 32, minSSE: 16 },
-	fine: { maxSSE: 16, minSSE: 16 },
+	light: { maxSSE: 48, minSSE: 24, cacheBytes: 512 * MB, maximumCacheOverflowBytes: 512 * MB },
+	standard: { maxSSE: 32, minSSE: 16, cacheBytes: 1024 * MB, maximumCacheOverflowBytes: 1024 * MB },
+	fine: { maxSSE: 16, minSSE: 16, cacheBytes: 2048 * MB, maximumCacheOverflowBytes: 1024 * MB },
 } as const;
 type GsQuality = keyof typeof GS_QUALITY;
 const isGsq = (v: unknown): v is GsQuality => typeof v === "string" && v in GS_QUALITY;
@@ -571,5 +574,5 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		if (b) chooseBlock(code.slice(0, 4));
 		for (const k of qs) openSheet({ key: k, size: 0 }, true);
 	}   // 無ければ広域表示だけ（視点は頁の既定 DEFAULT_VIEW か共有 URL の hash）
-	return { open: toggle, openSheet, chooseSet, chooseBlock, cache, items, get idle() { return queue; }, get handle() { return cur(); } };
+	return { open: toggle, openSheet, chooseSet, chooseBlock, cache, items, get idle() { return queue; }, get handle() { return cur(); }, get wide() { return wideGs; } };   // wide＝広域 splat の手綱（検分用：window.__pointcloud.wide.stats）
 }

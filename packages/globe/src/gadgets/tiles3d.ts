@@ -128,6 +128,8 @@ type T3dOpts = Tiles3DOptions & { heightOffset: number; lodScale?: number; token
 interface T3dSet {
 	/** the memory-adaptive SSE factor of this tileset (Cesium: each tileset has its own cache budget) */
 	sse?: number;
+	/** the factor that last went over the budget and where the eye was (world units): lowering stops above it while the eye stays near (2026-11-20) */
+	sseFloor?: { v: number; eye: number[]; h: number } | null;
 	id: string; kind?: "i3s"; url: string; opts: T3dOpts; stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; splats: number; voxels: number; bytes: number; subtrees: number; complete: boolean };
 	/** the style gave a feature a colour with alpha under 1 (Cesium draws it translucent): OPAQUE batches are put up as BLEND */
 	blendAll?: boolean;
@@ -319,6 +321,11 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// maximumCacheOverflowBytes (512 + 512 MB): a BIM model needing 700 MB keeps its fine levels as in Cesium (aec-architectural-design's
 	// curtain walls were cut to a 9x coarser level). lowMem keeps the old limits
 	const SET_MAX = lowMem ? BUDGET : BUDGET * 2, CAP = lowMem ? BUDGET * 2 : BUDGET * 4;
+	// per-tileset budget (2026-11-20): opts.cacheBytes + opts.maximumCacheOverflowBytes (Cesium's names) override SET_MAX for that tileset, and the
+	// overall CAP grows to hold the largest such budget. Needed once splats are counted at their GPU size (64 bytes each): one 4 m quad of the
+	// Shizuoka city splats refines into ~24 one-metre tiles of ~700 MB together, more than the 512 MB default, so close views never reached 1 m
+	const setMax = (set: T3dSet): number => { const c = set.opts.cacheBytes, o = set.opts.maximumCacheOverflowBytes; return c == null && o == null ? SET_MAX : Math.max(0, c ?? BUDGET) + Math.max(0, o ?? (lowMem ? 0 : BUDGET)); };
+	const capNow = (): number => { let c = CAP; for (const s2 of sets.values()) c = Math.max(c, setMax(s2)); return c; };
 	let moved = false, sseDownAt = 0;   // moved＝前回の選びから動いた（戻しは動いた時だけ）・sseDownAt＝最後に戻した時刻
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
 
@@ -971,12 +978,22 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		// 予算の SSE 引き上げ／戻し（上の sseScale の注釈）。上げたら選び直す（止まっていても効く）・戻すのは今回の選び（動いた時）の分だけ
 		const own = new Map<T3dSet, number>(), live = new Map<T3dSet, number>();
 		for (const set of sets.values()) { let a = 0, b = 0; for (const n of set.loaded()) { const x = n.bytes + n.mainBytes; a += x; if (n.on || n.used === frameNo) b += x; } own.set(set, a); live.set(set, b); }
-		const raise = (set: T3dSet | undefined) => { if (set && (set.sse ?? 1) < 16) { set.sse = Math.min(16, (set.sse ?? 1) * 1.25); schedule(); } };
+		// 戻しの床（2026-11-20）：越えた時の倍率と目の位置を覚え、目が注視点までの距離の 1.5 倍より遠くへ動くかその距離が 1.5 倍変わるまでは、その倍率より下へ戻さない。
+		//   旧＝動くたびに 0.9 倍ずつ戻し、塊（REPLACE の兄弟）を読み始めては越えて上げ、捨てては取り直した（静岡市の splat を寄って傾けると読み込みが終わらない・本人報告）
+		const eyeW = eye, hNow = Math.max(1e-12, s.camDist);   // 目から注視点まで（world）＝寄り具合の物差し
+		const raise = (set: T3dSet | undefined) => { if (set && (set.sse ?? 1) < 16) { set.sse = Math.min(16, (set.sse ?? 1) * 1.25); set.sseFloor = { v: set.sse, eye: [eyeW[0], eyeW[1], eyeW[2]], h: hNow }; schedule(); } };
+		const floorOf = (set: T3dSet): number => {
+			const f = set.sseFloor; if (!f) return 1;
+			const far = len([eyeW[0] - f.eye[0], eyeW[1] - f.eye[1], eyeW[2] - f.eye[2]]) > 1.5 * Math.max(f.h, hNow), dz = hNow / f.h;
+			if (far || dz > 1.5 || dz < 1 / 1.5) { set.sseFloor = null; return 1; }
+			return f.v;
+		};
+		const cap = capNow();
 		let over = false;
-		for (const [set, b] of live) if (b > SET_MAX) { raise(set); over = true; }   // what it shows and wants now (its hidden tiles were evicted above)
-		if (!over && gpuBytes + mainBytes > CAP) raise([...own].filter(([x]) => (x.sse ?? 1) < 16).sort((a, b) => b[1] - a[1])[0]?.[0]);
-		else if (!over && moved && performance.now() - sseDownAt > 1000 && gpuBytes + mainBytes < CAP * 0.7)
-			for (const [set, b] of live) if ((set.sse ?? 1) > 1 && b < SET_MAX * 0.7) { const v = set.sse! * 0.9; set.sse = v < 1.05 ? 1 : v; sseDownAt = performance.now(); }
+		for (const [set, b] of live) if (b > setMax(set)) { raise(set); over = true; }   // what it shows and wants now (its hidden tiles were evicted above)
+		if (!over && gpuBytes + mainBytes > cap) raise([...own].filter(([x]) => (x.sse ?? 1) < 16).sort((a, b) => b[1] - a[1])[0]?.[0]);
+		else if (!over && moved && performance.now() - sseDownAt > 1000 && gpuBytes + mainBytes < cap * 0.7)
+			for (const [set, b] of live) { const fl = floorOf(set); if ((set.sse ?? 1) > fl && b < setMax(set) * 0.7) { const v = Math.max(fl, set.sse! * 0.9); set.sse = v < 1.05 ? 1 : v; sseDownAt = performance.now(); } }
 		moved = false;
 	}
 
