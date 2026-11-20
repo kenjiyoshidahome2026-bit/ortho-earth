@@ -104,23 +104,27 @@ const HOW = [
 
 const CSS = `
 #side { font-size: 13px; color: #f1f3f6; background: #0b0d12; overflow-y: auto; overscroll-behavior: contain; color-scheme: dark; }
+#side > * { flex: none; }   /* #side は縦の flex＝中身が窓より長いと overflow の子（図郭の一覧）が高さ 0 に縮む（2026-11-21・一覧が消えていた） */
 #side .head { display: flex; gap: 8px; align-items: flex-start; padding: 14px 16px 2px; }
 #side .head .lang { flex: none; max-width: 110px; font-size: 12px; padding: 2px 4px; margin-top: 2px; background: #1b1f26; color: inherit; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; }
 #side h1 { flex: 1; min-width: 0; margin: 0; font-size: 17px; color: #fff; }
 #side h1 small { display: block; font-size: 11.5px; font-weight: 400; color: rgba(255,255,255,.62); margin-top: 2px; }
-#side h2 { margin: 0; padding: 12px 16px 2px; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: rgba(255,255,255,.62); text-transform: uppercase; }
+#side h2 { margin: 12px 0 0; padding: 10px 16px 2px; font-size: 13px; font-weight: 600; color: #fff; border-top: 1px solid rgba(255,255,255,.12); }
 #side .row { display: flex; gap: 8px; align-items: center; padding: 6px 16px 0; flex-wrap: wrap; }
 #side .row > label { flex: none; width: 92px; color: rgba(255,255,255,.62); font-size: 12px; }
 #side .row input[type=range] { flex: 1; min-width: 80px; }
 #side .row output { flex: none; min-width: 52px; text-align: end; font: 12px ui-monospace, Menlo, monospace; color: #fff; }
 #side select, #side .btn { font: inherit; font-size: 12px; color: inherit; background: #151920; border: 1px solid rgba(255,255,255,.22); border-radius: 7px; padding: 4px 9px; }
 #side select { flex: 1; min-width: 0; }
+#side .row.stack { display: block; }
+#side .row.stack > label { display: block; width: auto; margin-bottom: 3px; }
+#side .row.stack > select { display: block; width: 100%; box-sizing: border-box; padding: 6px 9px; font-size: 13px; }
 #side .btn { cursor: pointer; }
 #side .btn:hover { border-color: rgba(255,255,255,.5); }
 #side .btn.on { border-color: #fff; background: #2a303b; }
 #side .btn:disabled, #side select:disabled, #side input:disabled { opacity: .4; cursor: default; }
 #side .hint { padding: 6px 16px 0; color: rgba(255,255,255,.62); font-size: 12px; }
-#side .sheets { max-height: 196px; overflow-y: auto; margin-top: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px; padding: 0 16px; }
+#side .sheets { max-height: max(196px, 40vh); overflow-y: auto; margin-top: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px; padding: 0 16px; }
 #side .sheet { font: 11.5px ui-monospace, Menlo, monospace; color: inherit; background: #151920; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 3px 5px; cursor: pointer; text-align: start; line-height: 1.3; }
 #side .sheet span { display: block; color: rgba(255,255,255,.55); font-size: 10.5px; }
 #side .sheet.on { border-color: #ffd34d; background: #2b2a1e; }
@@ -183,35 +187,37 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	document.head.insertAdjacentHTML("beforeend", `<style>${CSS}</style>`);
 
 	side.insertAdjacentHTML("beforeend", `
-		<div class="head"><h1>${t("Shizuoka City point cloud data")}<small>${t("Laser surveys of Shizuoka Prefecture (VIRTUAL SHIZUOKA), read straight from the open data")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
-		<h2>${t("Data")}</h2>
-		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Shizuoka City overview (orthophoto, terrain and splats)")}</label>
+		<div class="head"><h1>${t("Shizuoka City point cloud data")}<small>${t("Shizuoka Prefecture's open laser surveys (VIRTUAL SHIZUOKA): all of Shizuoka City at a glance, or any map sheet of the prefecture")}</small></h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${l.name}</option>`).join("")}</select></div>
+		<h2>${t("1. Shizuoka City at a glance")}</h2>
+		<div class="hint">${t("Orthophoto, terrain and splats of the whole city, prepared in advance from the prefecture's surveys. Just move the map.")}</div>
+		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Show the Shizuoka City overview")}</label>
 		<div class="hint" id="pc-wide-state"></div>
 		<div class="row"><label for="pc-gsq">${t("Splat detail")}</label><select id="pc-gsq"><option value="auto">${t("Automatic")}</option>${(["light", "standard", "fine"] as const).map(q => `<option value="${q}">${t({ light: "Light (for ordinary PCs)", standard: "Standard", fine: "Fine (fast GPUs)" }[q])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-wide-load" hidden><i class="busy"></i><span></span></div>
-		<div class="row"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
+		<h2>${t("2. Open map sheets (whole prefecture)")}</h2>
+		<div class="hint">${t("Reads the surveyed points themselves, one 400 m × 300 m sheet at a time, straight from the prefecture's open data. This works anywhere in Shizuoka Prefecture, not only in the city.")}</div>
+		<div class="row stack"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-hint"></div>
 		<div class="sheets" id="pc-sheets"></div>
 		<div class="row"><span class="hint" id="pc-shown" style="padding:0;flex:1"></span><button class="btn" id="pc-clear-all" disabled>${t("Remove all")}</button></div>
 		<div class="bar" id="pc-bar" hidden><i></i></div>
 		<div class="status" id="pc-status"></div>
 		<div class="info" id="pc-info"></div>
-		<h2>${t("Display")}</h2>
+		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show block and sheet outlines")}</label>
+		<h2>${t("3. Look of the opened sheets")}</h2>
 		<div class="hint" id="pc-style-note">${t("These settings apply to the sheets you open by clicking. They do not change the overview.")}</div>
 		<div class="row"><label for="pc-color">${t("Colour")}</label><select id="pc-color">${["auto", "rgb", "elevation", "intensity", "classification"].map(c => `<option value="${c}">${t({ auto: "Automatic", rgb: "True colour (RGB)", elevation: "Height", intensity: "Intensity", classification: "Classification" }[c]!)}</option>`).join("")}</select></div>
 		<div class="row"><label for="pc-detail">${t("Detail")}</label><input type="range" id="pc-detail" min="0.5" max="4" step="0.5" value="1"><output id="pc-detail-v"></output></div>
 		<div class="row"><label for="pc-opacity">${t("Opacity")}</label><input type="range" id="pc-opacity" min="0.1" max="1" step="0.05" value="1"><output id="pc-opacity-v"></output></div>
 		<div class="row"><label>${t("Classes")}</label><div class="classes">${CLASS_GROUPS.map(g => `<label class="check"><input type="checkbox" id="pc-cls-${g.id}" checked>${CLASS_LABEL[g.id] ?? g.label}</label>`).join("")}</div></div>
-		<label class="check"><input type="checkbox" id="pc-cover" checked>${t("Show block and sheet outlines")}</label>
-		<div class="cache"><span id="pc-cache"></span><button class="btn" id="pc-cache-clear">${t("Clear")}</button></div>
-		<h2>${t("Export")}</h2>
-		<div class="row"><button class="btn" id="pc-exp-spz" disabled>${t("SPZ (finest level)")}</button><button class="btn" id="pc-exp-tiles" disabled>${t("3D Tiles (all levels)")}</button><button class="btn" id="pc-exp-ply" disabled>${t("PLY (points, for Unity)")}</button><button class="btn" id="pc-exp-las" disabled>${t("LAS (points, for Unreal)")}</button></div>
-		<div class="hint" id="pc-exp">${t("The SPZ comes zipped with placement.json (anchor and the ENU → ECEF matrix); the 3D Tiles zip holds tileset.json and one glb per level (KHR_gaussian_splatting + SPZ).")} ${t("The PLY holds the read points (metres from the anchor, colour, class) for Unity; the anchor is in its header.")} ${t("The LAS holds the read points (metres from the anchor, colour, class) for Unreal; the anchor is in its header.")}</div>
-		<h2>${t("Height")}</h2>
 		<div class="row"><label for="pc-lift">${t("Raise / lower")}</label><input type="range" id="pc-lift" min="-30" max="30" step="0.1" value="0"><output id="pc-lift-v"></output></div>
 		<div class="row"><button class="btn" id="pc-fit">${t("Fit to terrain")}</button><button class="btn" id="pc-zero">${t("Reset")}</button></div>
 		<label class="check"><input type="checkbox" id="pc-autofit" checked>${t("Fit to terrain after loading")}</label>
 		<div class="hint" id="pc-gap"></div>
+		<h2>${t("Export the last opened sheet")}</h2>
+		<div class="row"><button class="btn" id="pc-exp-spz" disabled>${t("SPZ (finest level)")}</button><button class="btn" id="pc-exp-tiles" disabled>${t("3D Tiles (all levels)")}</button><button class="btn" id="pc-exp-ply" disabled>${t("PLY (points, for Unity)")}</button><button class="btn" id="pc-exp-las" disabled>${t("LAS (points, for Unreal)")}</button></div>
+		<div class="hint" id="pc-exp">${t("The SPZ comes zipped with placement.json (anchor and the ENU → ECEF matrix); the 3D Tiles zip holds tileset.json and one glb per level (KHR_gaussian_splatting + SPZ).")} ${t("The PLY holds the read points (metres from the anchor, colour, class) for Unity; the anchor is in its header.")} ${t("The LAS holds the read points (metres from the anchor, colour, class) for Unreal; the anchor is in its header.")}</div>
+		<div class="cache"><span id="pc-cache"></span><button class="btn" id="pc-cache-clear">${t("Clear")}</button></div>
 		<details><summary>${t("How this works")}</summary><ul>${HOW.map(x => `<li>${t(x)}</li>`).join("")}</ul></details>
 		<div class="foot">${t("Data")}: <a href="https://registry.opendata.aws/virtual_shizuoka/" target="_blank" rel="noopener">VIRTUAL SHIZUOKA</a> (${t("Shizuoka Prefecture")}, CC BY 4.0)</div>`);
 	const $ = <E extends HTMLElement = HTMLElement>(id: string) => side.querySelector(id) as E;
@@ -297,7 +303,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	const loadingEl = mapEl.querySelector<HTMLElement>("#pc-loading")!;
 	const loadingTick = () => {
 		const sheetBusy = [...items.values()].some(it => !it.h);
-		const gsBusy = !!(wideGs && gsShown && (!wideGs.stats.complete || wideGs.stats.inflight > 0)) || (gsWanted() && !wideGs);
+		const gsBusy = !!(wideGs && gsShown && !wideGs.stats.complete) || (gsWanted() && !wideGs);   // inflight は全 tileset の合計（伏せた PLATEAU も数える）＝見ない（印が消えなかった）
 		const mapBusy = !map.areTilesLoaded();
 		const msg = sheetBusy ? t("Reading the point cloud…") : gsBusy ? (wideGs?.stats.inflight ? tf(t("Loading splats… ($1 tiles in flight)"), fmtN(wideGs.stats.inflight)) : t("Loading splats…")) : mapBusy ? t("Loading the map…") : "";
 		loadingEl.hidden = !msg; if (loadingEl.lastElementChild!.textContent !== msg) loadingEl.lastElementChild!.textContent = msg;
@@ -400,7 +406,9 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	const pointsOf = async (it: Item, show: boolean): Promise<{ d: PointCloudDump; from: string }> => {
 		const saved = await cache.get(ptsKey(it));
 		if (saved) return { d: unpack<PointCloudDump>(saved), from: t("from this device") };
-		const d = await map.readPointCloud(it.src, { ...it.extra, onProgress: (a, b) => { if (!show || items.get(it.key) !== it) return; bar(a / b); status(a < b ? tf(t("Downloading $1 — $2 / $3"), it.label, mb(a), mb(b)) : t("Decoding…")); } });
+		// COPC は節を数百本の範囲読みで取る＝進みの知らせが来ない（1〜2 分）＝経った秒を出す（固まって見えた・2026-11-21）
+		const t0 = performance.now(), tick = setInterval(() => { if (show && items.get(it.key) === it && !it.h && !$("#pc-bar i").style.width.match(/[1-9]/)) status(`${tf(t("Opening $1…"), it.label)} ${Math.round((performance.now() - t0) / 1000)} s`); }, 1000);
+		const d = await map.readPointCloud(it.src, { ...it.extra, onProgress: (a, b) => { if (!show || items.get(it.key) !== it) return; bar(a / b); status(a < b ? tf(t("Downloading $1 — $2 / $3"), it.label, mb(a), mb(b)) : t("Decoding…")); } }).finally(() => clearInterval(tick));
 		await cache.put(ptsKey(it), pack(d)).catch(e => console.warn("[pointcloud] cache points", e));
 		return { d, from: "" };
 	};
@@ -504,14 +512,20 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	await map.addLayer({ id: "pc-cover-line", type: "line", source: "pc-cover", paint: { "line-color": "#7fb2ff", "line-width": 1.2, "line-opacity": 0.8 } });
 	await map.addLayer({ id: "pc-sheet-fill", type: "fill", source: "pc-sheet", paint: { "fill-color": ["case", ["==", ["get", "on"], 1], "#ffd34d", ["==", ["get", "copc"], 1], "#7fe3ff", ["==", ["get", "big"], 1], "#ff9a4d", "#9fe3a0"], "fill-opacity": ["case", ["==", ["get", "on"], 1], 0.28, 0.12] } });
 	await map.addLayer({ id: "pc-sheet-line", type: "line", source: "pc-sheet", paint: { "line-color": ["case", ["==", ["get", "on"], 1], "#ffd34d", ["==", ["get", "copc"], 1], "#7fe3ff", "#9fe3a0"], "line-width": ["case", ["==", ["get", "on"], 1], 2.4, 1] } });
-	const COVER_LAYERS = ["pc-cover-fill", "pc-cover-line", "pc-sheet-fill", "pc-sheet-line"];
+	// 図郭の番号の札（2026-11-21）＝広域の splat は枠の線と塗りを覆う（z14 から）が、文字は splat の上に出る＝寄っても図郭の場所と開いた物（黄）が分かる
+	map.addSource("pc-sheet-pt", { type: "geojson", data: FC([]) });
+	await map.addLayer({ id: "pc-sheet-label", type: "symbol", source: "pc-sheet-pt", minzoom: 13.5, layout: { "text-field": ["get", "code"], "text-size": 11, "text-allow-overlap": true },
+		paint: { "text-color": ["case", ["==", ["get", "on"], 1], "#ffd34d", ["==", ["get", "copc"], 1], "#aef0ff", "#c9f5c9"], "text-halo-color": "rgba(8,12,20,.9)", "text-halo-width": 1.6 } });
+	const COVER_LAYERS = ["pc-cover-fill", "pc-cover-line", "pc-sheet-fill", "pc-sheet-line", "pc-sheet-label"];
 	$("#pc-cover").addEventListener("change", () => { const on = $<HTMLInputElement>("#pc-cover").checked; for (const id of COVER_LAYERS) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); });
 
 	let set = DEFAULT_SET, top: string[] = [], blocks: string[] = [], sheets: Array<{ key: string; size: number; code: string }> = [], block: string | null = null, listAc: AbortController | null = null;
 	const copcIxP = loadCopcIndex().then(ix => { copcIx = ix; if (sheets.length) chooseBlock(block!); });   // 取れたら一覧を出し直す（COPC の印）
 	const sheetFeats = () => FC(sheets.map(f => { const b = sheetBox(f.code)!; return { type: "Feature", geometry: { type: "Polygon", coordinates: [sheetRing(b)] }, properties: { key: f.key, code: f.code, on: items.has("s3:" + f.key) ? 1 : 0, big: !copcOf(copcIx, f.key) && f.size > BIG_MB << 20 ? 1 : 0, copc: copcOf(copcIx, f.key) ? 1 : 0 } } as GeoJSONFeature; }));
 	function highlight() {
-		map.getSource("pc-sheet")?.setData(sheetFeats());
+		const fc = sheetFeats();
+		map.getSource("pc-sheet")?.setData(fc);
+		map.getSource("pc-sheet-pt")?.setData(FC(fc.features.map(f => { const r = (f.geometry as { coordinates: number[][][] }).coordinates[0]; return { type: "Feature", geometry: { type: "Point", coordinates: [(r[0][0] + r[2][0]) / 2, (r[0][1] + r[2][1]) / 2] }, properties: f.properties } as GeoJSONFeature; })));
 		side.querySelectorAll<HTMLElement>(".sheet").forEach(el => el.classList.toggle("on", items.has("s3:" + el.dataset.key)));
 	}
 	// 一覧の知らせは hint の欄（status は読みの知らせ＝並んで走っても上書きし合わない）
