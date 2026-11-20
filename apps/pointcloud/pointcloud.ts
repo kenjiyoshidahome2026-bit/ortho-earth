@@ -22,6 +22,8 @@ import type { GlobeMap, PointCloudDump, LayerMouseEvent, GeoJSONFeature, Bbox, T
 const t = tr();
 const S3 = "https://virtual-shizuoka.s3.ap-northeast-1.amazonaws.com/";
 const ATTR = "VIRTUAL SHIZUOKA (Shizuoka Prefecture, CC BY 4.0)";
+// 広域表示（オルソ・splat）は葵区北部を 2022 年度の南アルプスの点群で埋めている＝その出典に求められている承認の文言をそのまま添える（2026-11-20）
+const WIDE_ATTR = `${ATTR}; 2022 南アルプス：本成果の作成に当たっては、関東森林管理局長の承認を得て、航空レーザ計測データを使用した。（承認番号　5関治第142号-1）`;
 export const DEFAULT_VIEW = "#11.4/35.06/138.40/40t/0r";   // 頁の既定の視点＝静岡市の広域表示
 /** データの組＝S3 の "年/計測/種類"。2019 と 2020 の航空レーザは同じ図郭に同じファイル（2020 が広い）＝2020 だけ出す */
 const SETS: Array<{ id: string; year: number; kind: "LP" | "ALB" | "MMS"; part: "Original" | "Ground" }> = [
@@ -66,7 +68,7 @@ const HOW = [
 	"Reading keeps at most the point limit in memory: the ZIP is unpacked as it streams in and thinned on the way, so even a large sheet never holds the whole LAS file. Choosing classes (ground, buildings, vegetation…) re-converts the saved points without downloading.",
 	"Fit to terrain compares the ground points (class 2) with the terrain that is drawn and moves the cloud by the median difference. The map's terrain comes from different source data, so a few metres of difference are normal.",
 	"The Shizuoka City overview is prepared in advance and read from Hugging Face: the prefecture's 2021 orthophoto and ground elevation grid as map tiles, and Gaussian splats made from the COPC sheets as 3D Tiles (8 m, 4 m and 1 m levels). Click a sheet to read its points for the closest views.",
-	"The overview uses only the data the prefecture has published from its 2021 survey, clipped to the Shizuoka City boundary (MLIT National Land Numerical Information N03, 2025). The mountains in the north of Aoi Ward (Ikawa to the Southern Alps) were not part of that survey and stay empty. The splats cover Suruga Ward and the area around Shizuoka Station so far.",
+	"The overview is built from the prefecture's published surveys and clipped to the Shizuoka City boundary (MLIT National Land Numerical Information N03, 2025). Most of the city comes from the 2021 survey; the mountains in the north of Aoi Ward are filled from the 2022 Southern Alps survey and the 2025 survey. A few areas along the ridges at the city's edge have no published data in any year and stay empty.",
 	"Sheets marked COPC were converted in advance to COPC (Cloud Optimized Point Cloud) and are read from Hugging Face: only the octree nodes up to the point limit are fetched, instead of the whole ZIP file.",
 	"This page needs WebGPU (Chrome, Edge, Safari 26 or newer, Firefox 141 or newer). There is no WebGL2 fallback — the conversion runs on the GPU by design.",
 ];
@@ -213,7 +215,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		if (wideGs) { if (want !== gsShown) { gsShown = want; wideGs.setVisible(want); syncMesh(); } return; }   // 変わった時だけ（setVisible は手放しの時計を毎回かけ直す）
 		if (!want || wideAdding) return;
 		const my = wideSeq;
-		wideAdding = map.add3DTiles(WIDE.gs, { id: "pc-wide-gs", fit: false, maxSSE: 16, minSSE: GS_MIN_SSE, splat: {}, attribution: ATTR }).then(h => {
+		wideAdding = map.add3DTiles(WIDE.gs, { id: "pc-wide-gs", fit: false, maxSSE: 16, minSSE: GS_MIN_SSE, splat: {}, attribution: WIDE_ATTR }).then(h => {
 			if (my !== wideSeq) { h.remove(); return; }
 			wideGs = h; gsShown = gsWanted(); h.setVisible(gsShown); syncMesh();
 		}, e => console.warn("[pointcloud] wide splats", e)).finally(() => { if (my === wideSeq) wideAdding = null; });
@@ -223,7 +225,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		wideGs?.remove(); wideGs = null; gsShown = false; syncMesh(); map.raster.remove("pc-wide-ortho");
 		if (!on) { await map.setTerrain(null).catch(() => {}); return; }
 		map.setTerrain({ source: { tiles: [`pmtiles://${WIDE.dem}`], encoding: "gsi", tileSize: 256, minzoom: 8, maxzoom: 17, bounds: WIDE.bounds } }).catch(e => console.warn("[pointcloud] wide terrain", e));
-		map.raster.add("pc-wide-ortho", { pmtiles: WIDE.ortho, name: t("Orthophoto 2021"), attribution: ATTR, minZoom: 8, maxZoom: 18 }, { order: "under" }).catch(e => console.warn("[pointcloud] wide ortho", e));
+		map.raster.add("pc-wide-ortho", { pmtiles: WIDE.ortho, name: t("Orthophoto 2021"), attribution: WIDE_ATTR, minZoom: 8, maxZoom: 18 }, { order: "under" }).catch(e => console.warn("[pointcloud] wide ortho", e));
 		syncGs();
 	};
 	$<HTMLInputElement>("#pc-wide").addEventListener("change", e => { wide((e.target as HTMLInputElement).checked); });
