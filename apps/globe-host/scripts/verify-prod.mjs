@@ -115,7 +115,7 @@ const PAGES = [
 	{ name: "clock", url: "/globe/clock", ready: `${BOOTED} && window.__clock && window.__clock.at([139.7, 35.7]).resolved.tz === "Asia/Tokyo" && window.__clock.at([32.85, 39.93]).resolved.tz === "Europe/Istanbul"`, ms: 90000 },
 	// 人口の六角形＝GitHub Pages の ortho-data/globe/h3/kontur-20231101/（scripts/kontur-h3.mjs → publish-pages.mjs）。全景で解像度 3 の柱が 1 万本以上立つ
 	{ name: "hex", url: "/globe/hex", ready: `${BOOTED} && window.__hex && window.__hex.cells > 10000`, ms: 90000 },
-	// Gaussian splat＝GitHub Pages の ortho-data/globe/splat/（scripts/splat-tiles.mjs → publish-pages.mjs）。3D Tiles の根 2 枚（2 シーン）が読めて見えた（SPZ のタイルは plugin が解く＝stats.splats には乗らない・shown で見る）
+	// Gaussian splat＝GitHub Pages の ortho-data/globe/splat/（scripts/splat-tiles.mjs → publish-pages.mjs）。3D Tiles の根 2 枚（2 シーン）が読めて見えた（stats.splats は SPZ のタイルも accessor の count で数える・ここは shown で見る）
 	{ name: "splat", url: "/globe/splat", ready: `${BOOTED} && window.__splat && window.__splat.ready && window.__splat.tiles.shown >= 2`, ms: 120000 },
 	// voxel＝合成の雲（volume）が立ち、描き手が決まった（backend＝webgpu か webgl2）。地震の密度は /quakes/archive.geopbf（本番へ中継）＝?scene=quakes で別に見る
 	{ name: "voxel", url: "/globe/voxel", ready: `${BOOTED} && window.__voxel && window.__voxel.ready && window.__voxel.n > 0 && !!window.__voxel.backend`, ms: 90000 },
