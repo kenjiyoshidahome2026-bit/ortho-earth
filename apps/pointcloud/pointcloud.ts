@@ -111,6 +111,11 @@ const CSS = `
 #side details ul { margin: 4px 0 6px; padding-inline-start: 18px; color: rgba(255,255,255,.78); }
 #side details li { margin: 3px 0; }
 #side .cache { padding: 6px 16px 0; color: rgba(255,255,255,.62); font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#side .busy { display: inline-block; width: 10px; height: 10px; margin-inline-end: 6px; vertical-align: -1px; border: 2px solid rgba(255,255,255,.25); border-top-color: #7fb2ff; border-radius: 50%; animation: pc-spin .8s linear infinite; }
+#side .busy[hidden], #pc-loading[hidden] { display: none; }
+#pc-loading { position: absolute; top: 12px; left: 12px; z-index: 3; pointer-events: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: #f1f3f6; background: rgba(11,13,18,.82); border: 1px solid rgba(255,255,255,.18); border-radius: 999px; }
+#pc-loading i { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.25); border-top-color: #7fb2ff; border-radius: 50%; animation: pc-spin .8s linear infinite; }
+@keyframes pc-spin { to { transform: rotate(360deg); } }
 #side .foot { padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.5); font-size: 11px; }
 #side .foot a { color: inherit; }`;
 
@@ -153,6 +158,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 		<h2>${t("Data")}</h2>
 		<label class="check"><input type="checkbox" id="pc-wide" checked>${t("Shizuoka City overview (orthophoto, terrain and splats)")}</label>
 		<div class="hint" id="pc-wide-state"></div>
+		<div class="hint" id="pc-wide-load" hidden><i class="busy"></i><span></span></div>
 		<div class="row"><label for="pc-set">${t("Survey")}</label><select id="pc-set">${SETS.map(s => `<option value="${s.id}"${s.id === DEFAULT_SET ? " selected" : ""}>${s.year} · ${t(KIND[s.kind])} · ${t(PART[s.part])}</option>`).join("")}</select></div>
 		<div class="hint" id="pc-hint"></div>
 		<div class="sheets" id="pc-sheets"></div>
@@ -239,6 +245,20 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	$<HTMLInputElement>("#pc-wide").addEventListener("change", e => { wide((e.target as HTMLInputElement).checked); });
 	map.on("move", () => { syncGs(); wideState(); });
 	wide(true);
+	// 読み込み中の印（2026-11-20・本人「読み込みに時間がかかるのにローダー等がなく、固まっているか分からない」）
+	//   地図（オルソ・地形・基図）が載り切っていない／広域の splat の今の視点の分が揃っていない／図郭を読み・変換している間＝地図の左上と案内板に回る印を出す
+	const mapEl = (side.ownerDocument.querySelector(".map-wrap") ?? side.ownerDocument.body) as HTMLElement;
+	mapEl.insertAdjacentHTML("beforeend", `<div id="pc-loading" role="status" aria-live="polite" hidden><i></i><span></span></div>`);
+	const loadingEl = mapEl.querySelector<HTMLElement>("#pc-loading")!;
+	const loadingTick = () => {
+		const sheetBusy = [...items.values()].some(it => !it.h);
+		const gsBusy = !!(wideGs && gsShown && (!wideGs.stats.complete || wideGs.stats.inflight > 0)) || (gsWanted() && !wideGs);
+		const mapBusy = !map.areTilesLoaded();
+		const msg = sheetBusy ? t("Reading the point cloud…") : gsBusy ? (wideGs?.stats.inflight ? tf(t("Loading splats… ($1 tiles in flight)"), fmtN(wideGs.stats.inflight)) : t("Loading splats…")) : mapBusy ? t("Loading the map…") : "";
+		loadingEl.hidden = !msg; if (loadingEl.lastElementChild!.textContent !== msg) loadingEl.lastElementChild!.textContent = msg;
+		const side2 = $("#pc-wide-load"), wmsg = wideOn && !sheetBusy ? msg : "";
+		side2.hidden = !wmsg; if (side2.lastElementChild!.textContent !== wmsg) side2.lastElementChild!.textContent = wmsg;
+	};
 	const cache = await openPcCache();
 	console.info(`[pointcloud] cache: ${cache.kind}`);
 	const showCache = async () => { const { entries, total } = await cache.list(); const el = $("#pc-cache"); el.textContent = cache.kind === "none" ? t("Nothing is saved on this device (storage is unavailable).") : tf(t("Saved on this device: $1 items, $2"), fmtN(entries.length), mb(total)); $<HTMLButtonElement>("#pc-cache-clear").disabled = !entries.length; };
@@ -258,6 +278,7 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	interface Item { key: string; ck: string; src: string; label: string; extra: Partial<SplatOptions>; code: string | null; h: SplatHandle | null; alt0: number; ground: Array<[number, number, number]>; edges: string; info: string }
 	const items = new Map<string, Item>();
 	let active: Item | null = null, queue: Promise<unknown> = Promise.resolve();
+	setInterval(loadingTick, 300);   // items が出来てから回す
 	const cur = () => active?.h ?? null;
 	const lift = () => { outs(); const v = +$<HTMLInputElement>("#pc-lift").value; for (const it of items.values()) it.h?.setAltitude(it.alt0 + v); };
 	$("#pc-lift").addEventListener("input", lift);
