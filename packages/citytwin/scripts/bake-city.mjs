@@ -363,7 +363,7 @@ async function photos() {
 	for (const s of [...SPOTS, ...STORY.filter(c => !c.photo && c.wiki !== NAME)]) {   // 物語の章は、名所の写真を借りない章だけ焼く。市そのものの記事の代表画像は章と無関係（旭川 1902 年の −41 °C に彫刻美術館 2026-11-17）＝写真なし
 		const d = await get(api, { action: "query", prop: "pageimages", piprop: "thumbnail|name", pithumbsize: "640", titles: s.wiki, redirects: "1" });
 		const pg = d.query?.pages?.[0];
-		if (!pg?.pageimage || !pg.thumbnail) { console.warn(`✗ 写真なし：${s.name}（${s.wiki}）`); continue; }
+		if (!pg?.pageimage || !pg.thumbnail || /^Gthumb\.svg$/i.test(pg.pageimage)) { console.warn(`✗ 写真なし：${s.name}（${s.wiki}）`); continue; }   // Gthumb.svg＝基礎情報の仮の絵（写真でない・草津の栗生楽泉園 2026-11-21）
 		const ii = (await get(commons, { action: "query", prop: "imageinfo", iiprop: "extmetadata", titles: `File:${pg.pageimage}` })).query?.pages?.[0]?.imageinfo?.[0]?.extmetadata;
 		if (!ii) { console.warn(`✗ Commons に無い（ja だけの画像）：${s.name}`); continue; }
 		const text = v => String(v?.value ?? "").replace(/<[^>]*>/g, " ").replace(/[<>]/g, "").replace(/\s+/g, " ").trim();   // 札を外した後に残る < > も落とす（入れ子・閉じない札）。頁では文字として出す
