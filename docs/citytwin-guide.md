@@ -83,8 +83,52 @@
 5. **焼く**：国土数値情報の分はクラウドで、残り（`photos,walk,en,places,stawiki,census`）は Mac で。出力は `ortho-data/japan/<id>/`。
 6. **確かめる**（Mac・GPU）：390px を先に。名所めぐり・わが家のまわり（型 C は村の外の駅と病院が出るか）・ハザード・英語の表示・オフライン保存の実測・`og.jpg` の差し替え。
 7. **出す**：PR → main で自動配信（Worker `ortho-<id>`・`/<id>/`）。www のカードは頼まれた時だけ。
+8. **後から足す**：名所と地図の層は `extras.json` で（下の 6 章）。
 
-## 6. 守ること
+## 6. 後から足す（名所・台帳）
+
+どのデジタルツインも、**頁を作り直さずに**名所と地図の層を足せる。足す場所は台帳の置き場の `ortho-data/japan/<id>/extras.json`（全市に空の器が置いてある）。
+書いて main に入れると、台帳の配信（GitHub Pages）だけで反映される。アプリの配信は要らない。オフライン保存も次の「データベースを更新」で取り込む。
+
+```json
+{
+	"spots": [
+		{
+			"id": "x-suigen",
+			"name": { "ja": "名水の水源", "en": "Spring of Famous Water" },
+			"note": { "ja": "村の水道の源。", "en": "Source of the village water supply." },
+			"lon": 139.1234, "lat": 36.7123,
+			"zoom": 16.5, "tilt": 55, "bearing": 0,
+			"tour": true,
+			"photo": { "src": "https://upload.wikimedia.org/…jpg", "file": "https://commons.wikimedia.org/wiki/File:…", "artist": "作者", "license": "CC BY-SA 4.0" }
+		}
+	],
+	"layers": [
+		{
+			"id": "aed", "name": { "ja": "AED のある所", "en": "AEDs" }, "color": "#d81b60", "on": false,
+			"source": { "name": "川場村", "url": "https://www.vill.kawaba.gunma.jp/" },
+			"rows": [[139.10652, 36.69468, "川場村役場", "谷地2390-2", "入口の右", "Kawaba Village Office", "2390-2 Yachi"]]
+		},
+		{ "id": "trail", "name": { "ja": "散歩道", "en": "Walking trails" }, "color": "#ef6c00", "file": "extra/trail.geojson" }
+	]
+}
+```
+
+| 足す物 | 書き方 | 画面での出方 |
+| --- | --- | --- |
+| 名所 | `spots` に 1 件。`id`（半角の英小文字・数字・`-`、今ある名所と重ねない）・`name`・`lon`/`lat` が必須 | 観光の「名所」の札に並ぶ。場所の検索でも引ける。`?spot=<id>` で共有できる。`tour: true` で名所ツアーの最後に回る |
+| 名所の写真 | `photo.src`（https）と作者・許諾 | 名所の札とツアーの札に出典つきで出る |
+| 点の台帳 | `layers` に `rows`＝`[経度, 緯度, 名, 住所, 一言, 英語の名, 英語の住所]`（3 つ目まで必須） | 暮らしの「地図に出す施設の種類」の下に 1 行。チェックで出し入れ、点を押すと吹き出し。場所の検索でも引ける |
+| 線・面の台帳 | `layers` に `file`＝置き場からの相対の GeoJSON（`extra/…geojson`）。`properties` の `name`・`note`（英語は `name_en`・`note_en`） | 同じ行で出し入れ。線は線、面は薄い塗りと線 |
+
+- 文は `{ "ja": …, "en": … }`。ほかの言語（`fr`・`zh` など）も書ける。無い言語は英語、英語も無ければ日本語で出る。頁の辞書（26 言語）は要らない。
+- `on: true` の層は最初から出る。`color` は `#rrggbb`。`source` は地図の出典の欄に出る。
+- 誤記のある項目だけが飛ばされ、残りは出る（理由はブラウザの console に出る）。範囲から大きく外れた座標（経度と緯度の取り違えなど）は飛ばす。
+- 確かめ方：`node packages/citytwin/tests/t-core.mjs`（全市の `extras.json` を検定する。`npm test` に入っている）。
+- **`extras.json` に書かない物**：市の骨組み（歴史の章・ハザード・病院・急病の案内・国土数値情報の台帳）は今まで通り `data.ts` と焼き。数百件を超える公共施設の類は、焼きの台帳（`facilities.json`）へ入れる方が検索と英語化が効く。
+- 焼き（`bake-<id>.mjs`）は `extras.json` に触れない（無ければ空の器を置くだけ）。手で足した物は焼き直しても消えない。
+
+## 7. 守ること
 
 - エンジンは共有（`sharedEngine()`）。頁がエンジンの持つライブラリを自分で抱えない。
 - 既存の市の台帳を変えない。共有の焼きに足す仕組みは「設定が無ければ今まで通り」にする（今回の町村の仕組みは旭川の台帳がバイト単位で同じことを確かめた）。

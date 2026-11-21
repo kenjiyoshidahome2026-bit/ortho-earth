@@ -137,7 +137,18 @@ export function createOffline(city: CityConfig, appBase: string) {
 			// 名所の写真（photos.json の src）＝取った台帳から
 			const ph = await (await cache.match(d.dataBase + "photos.json"))?.json().catch(() => null) as Record<string, { src: string }> | null;
 			const b = ph ? await putAll(cache, Object.values(ph).map(p => p.src), "data", d, { fresh: o.refresh, conc: 4, opaque: true }) : { bytes: 0, failed: 1 };
-			return { bytes: a.bytes + b.bytes, failed: a.failed + b.failed };
+			// 後から足した物（extras.json）＝目録（ビルドの時の台帳の一覧）より新しいことがある＝今の物を取り直し、その写真と層の台帳も詰める
+			const xr = await fetch(d.dataBase + "extras.json", { credentials: "omit", cache: "no-cache" }).catch(() => null);
+			let c = { bytes: 0, failed: 0 };
+			if (xr?.ok) {
+				const x = await xr.clone().json().catch(() => null) as { spots?: { photo?: { src?: string } }[]; layers?: { file?: string }[] } | null;
+				await cache.put(d.dataBase + "extras.json", xr);
+				const files = (x?.layers || []).flatMap(l => typeof l?.file === "string" && /^[a-z0-9][a-z0-9._/-]*\.(geo)?json$/.test(l.file) && !l.file.includes("..") ? [d.dataBase + l.file] : []);
+				const srcs = (x?.spots || []).flatMap(s => typeof s?.photo?.src === "string" && /^https:\/\//.test(s.photo.src) ? [s.photo.src] : []);
+				const c1 = await putAll(cache, files, "data", d, { fresh: true, conc: 4 }), c2 = await putAll(cache, srcs, "data", d, { fresh: o.refresh, conc: 4, opaque: true });
+				c = { bytes: c1.bytes + c2.bytes, failed: c1.failed + c2.failed };
+			}
+			return { bytes: a.bytes + b.bytes + c.bytes, failed: a.failed + b.failed + c.failed };
 		});
 		// 市の形（区の境）＝細かい段の篩
 		const wards = await (await cache.match(d.dataBase + "wards.json"))?.json().catch(() => null) as { features: { geometry: { type: string; coordinates: unknown } }[] } | null;
