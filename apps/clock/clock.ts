@@ -35,8 +35,8 @@ const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&am
 const rgba = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
 
 export async function mountClock(map: GlobeMap, geopbf: Geopbf, { tzSrc = NE_TIME_ZONES, panelHost }: { tzSrc?: string; panelHost?: HTMLElement | null } = {}) {
-	document.title = t("World clock — ortho-globe");
-	document.querySelector('meta[name="description"]')?.setAttribute("content", t("What time is it there? Hover over the globe to see the local time of every time zone, with daylight saving time — or hold Shift to see all the time zones of a country."));
+	document.title = t("World Clock — Local Time in Every Time Zone on a 3D Globe");
+	document.querySelector('meta[name="description"]')?.setAttribute("content", t("The current local time in every time zone, on a 3D globe with daylight saving time and the night side. Hover any place to see its time, or hold Shift for a whole country."));
 	const mapEl = map.mapEl;
 	const lang = getLang();
 	const resolve = createResolver(ZONES as unknown as ZoneTable);
