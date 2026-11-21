@@ -84,8 +84,8 @@ export const toOrthoForm = src => src
 // 走らせる頁＝ortho の形の本文に import map を 1 つ差すだけ（bare の "@ortho-earth/globe/maplibre" → 共有エンジンの maplibre 入口）
 export const runnableForm = (src, engineUrl) => toOrthoForm(src).replace(/<head([^>]*)>/i, (m) => `${m}\n<script type="importmap">{"imports":{"@ortho-earth/globe/maplibre":${JSON.stringify(engineUrl)}}}</script>`);
 // 公開の頁の head（www のデモ一覧に載る頁の作法＝apps/www/tests/t-demo-pages.mjs・2026-10-14 本人「このページも一つのアプリとして www に」）
-const PUBLISH_DESC = "The official MapLibre GL JS examples, run unchanged on the Ortho Earth 3D globe (WebGPU) by changing one import — pictured next to MapLibre GL JS, each with its source and a Run button.";
-const PUBLISH_TITLE = "MapLibre GL JS examples on a 3D globe — Ortho Earth";   // 公開の頁の title（Issue #308 段 2＝MapLibre の語で着く頁・見出しと本文は変えない）
+const PUBLISH_DESC = "Each official MapLibre GL JS example with its source code and a Run button, pictured next to MapLibre GL JS — and run unchanged on a WebGPU 3D globe by changing one import.";
+const PUBLISH_TITLE = "MapLibre GL JS Examples, Side by Side on a 3D Globe — Ortho Earth";   // 公開の頁の title（Issue #308 段 2＝MapLibre の語で着く頁・見出しと本文は変えない）
 const PUBLISH_HEAD = `<meta name="description" content="${PUBLISH_DESC}"><meta name="theme-color" content="#f7f7f5"><link rel="canonical" href="https://www.ortho-earth.com/maplibre/"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta property="og:title" content="${PUBLISH_TITLE}"><meta property="og:description" content="${PUBLISH_DESC}"><meta property="og:image" content="https://www.ortho-earth.com/thumbs/maplibre.webp"><meta property="og:url" content="https://www.ortho-earth.com/maplibre/"><meta name="twitter:card" content="summary_large_image">`;
 // 段の印（2026-10-23 本人「1/2/3 に赤黄緑のマークを入れた方が分かりやすい(0は紫？)」）＝カードの % の前の丸と、段ごとの絞り込み
 // 段の名と説明＝Sandcastle のギャラリー（tests/csexamples/publish.mjs の LV）と同じ言い回し（2026-11-02 本人「比較表の表現を Cesium と合わせる」）

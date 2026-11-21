@@ -53,8 +53,8 @@ for (const r of rows) for (const side of ["ref", "ortho"])
 	await sharp(path.join(r.dir, side, `${r.name}.png`)).resize(480, 360, { fit: "cover" }).webp({ quality: 62, effort: 6 }).toFile(path.join(OUT, "pics", `${r.name}.${side}.webp`));
 
 const n = rows.length, cnt = l => rows.filter(r => r.level === l).length, labels = [...new Set(rows.map(r => r.label).filter(Boolean))].sort();
-const TITLE = "Sandcastle — the CesiumJS examples on Ortho Earth";
-const DESC = `The ${n} official CesiumJS Sandcastle examples, run unchanged on the Ortho Earth globe through its Cesium-compatible facade, pictured next to CesiumJS.`;
+const TITLE = "CesiumJS Sandcastle Examples, Side by Side on a WebGPU Globe";
+const DESC = `The ${n} official CesiumJS Sandcastle examples, each pictured next to CesiumJS — and run unchanged on the Ortho Earth WebGPU globe through its Cesium-compatible API.`;
 const sc = name => `https://sandcastle.cesium.com/?id=${encodeURIComponent(name)}`;
 const card = r => `<article class="card" data-level="${r.level}" data-label="${esc(r.label)}" data-name="${esc(r.name)}" tabindex="0" role="button" aria-label="${esc(r.title)}">
 <div class="shot"><figure><img loading="lazy" src="pics/${esc(r.name)}.ref.webp" alt="CesiumJS"><figcaption>CesiumJS</figcaption></figure><figure><img loading="lazy" src="pics/${esc(r.name)}.ortho.webp" alt="Ortho Earth"><figcaption>Ortho Earth</figcaption></figure></div>
