@@ -19,15 +19,15 @@ const W = WARDS[0].code;
 
 /** 名所（ツアーの止まり先を兼ねる）。note＝止まった時に出す一行（事実だけ） */
 export const SPOTS: Spot[] = [
-	{ id: "akizuki-castle", wiki: "秋月城", name: "Akizuki Castle Ruins", ward: W, lon: 130.6936, lat: 33.4686, zoom: 16.6, tilt: 58, bearing: 30, note: "Seat of the Akizuki domain from 1623. The Kuromon gate and the Nagayamon gate remain, along an avenue lined with cherry trees." },
+	{ id: "akizuki-castle", wiki: "秋月城", name: "Akizuki Castle Ruins", ward: W, lon: 130.69556, lat: 33.46556, zoom: 16.6, tilt: 58, bearing: 30, note: "Seat of the Akizuki domain from 1623. The Kuromon gate and the Nagayamon gate remain, along an avenue lined with cherry trees." },
 	{ id: "akizuki-town", wiki: "秋月 (朝倉市)", name: "Akizuki Castle Town", ward: W, lon: 130.688, lat: 33.463, zoom: 16.2, tilt: 58, bearing: 0, note: "Castle town in a small basin below Mount Kosho, with old samurai houses and merchant houses. It is a national preservation district for groups of traditional buildings." },
 	{ id: "suisha", wiki: "朝倉の揚水車群", name: "Asakura Water Wheels", ward: W, lon: 130.756, lat: 33.368, zoom: 17, tilt: 58, bearing: 0, note: "Triple and double water wheels that lift water from the Horikawa canal to the fields. They have turned every summer since the Edo period." },
 	{ id: "yamada-zeki", wiki: "山田堰", name: "Yamada Weir", ward: W, lon: 130.77, lat: 33.3628, zoom: 16.6, tilt: 58, bearing: 150, note: "Slanted stone weir across the Chikugo River, completed in its present form in 1790. It still sends water to the Horikawa canal." },
 	{ id: "eso-hachiman", wiki: "恵蘇八幡宮", name: "Eso Hachimangu Shrine", ward: W, lon: 130.7722, lat: 33.3642, zoom: 17, tilt: 58, bearing: 0, note: "Shrine on the hill above the Yamada Weir, linked by tradition to the court that Empress Saimei set up in Asakura in 661." },
 	{ id: "harazuru", wiki: "原鶴温泉", name: "Harazuru Onsen", ward: W, lon: 130.788, lat: 33.352, zoom: 16.6, tilt: 58, bearing: 160, note: "Hot spring town on the bank of the Chikugo River, the largest hot spring resort in Fukuoka Prefecture." },
 	{ id: "amagi-koen", wiki: "甘木公園", name: "Amagi Park", ward: W, lon: 130.67, lat: 33.429, zoom: 16.4, tilt: 58, bearing: 0, note: "Park around a pond, known for about 4,000 cherry trees." },
-	{ id: "hiratsuka", wiki: "平塚川添遺跡", name: "Hiratsuka Kawazoe Site", ward: W, lon: 130.634, lat: 33.405, zoom: 16.6, tilt: 58, bearing: 0, note: "Remains of a Yayoi-period village ringed by several moats, now a park with rebuilt houses. It is a national historic site." },
-	{ id: "amagi-st", wiki: "甘木駅", name: "Amagi Station", ward: W, lon: 130.656, lat: 33.418, zoom: 16.8, tilt: 58, bearing: 0, note: "Last stop of both the Amagi Railway from Kiyama and the Nishitetsu Amagi Line from Kurume. The two stations stand a short walk apart." },
+	{ id: "hiratsuka", wiki: "平塚川添遺跡", name: "Hiratsuka Kawazoe Site", ward: W, lon: 130.65107, lat: 33.3944, zoom: 16.6, tilt: 58, bearing: 0, note: "Remains of a Yayoi-period village ringed by several moats, now a park with rebuilt houses. It is a national historic site." },
+	{ id: "amagi-st", wiki: "甘木駅", name: "Amagi Station", ward: W, lon: 130.65519, lat: 33.41833, zoom: 16.8, tilt: 58, bearing: 0, note: "Last stop of both the Amagi Railway from Kiyama and the Nishitetsu Amagi Line from Kurume. The two stations stand a short walk apart." },
 	{ id: "terauchi-dam", wiki: "寺内ダム", name: "Terauchi Dam", ward: W, lon: 130.69, lat: 33.446, zoom: 15.6, tilt: 58, bearing: 40, note: "Rock-fill dam on the Sata River, completed in 1978, that supplies water to the Fukuoka area." },
 ];
 
@@ -49,7 +49,7 @@ export const MAJOR_HOSPITALS: { key: string; name: string; en: string }[] = [
 ];
 /** 急病の夜間の診療所（公式の頁で確かめた物だけ・無ければ空） */
 export const NIGHT_CENTERS: Clinic[] = [
-
+	{ name: "朝倉地域休日夜間急患センター", addr: "来春422-1（朝倉医師会病院内）", tel: "0946-23-0077", lon: 130.66547, lat: 33.41066, enName: "Asakura Area Holiday and Night Emergency Center", en: "422-1 Raiharu (in Asakura Medical Association Hospital)" },   // 公式の頁で確認 2026-11-21 https://www.asakura-med.or.jp/emergency.html
 ];
 export const majorHospital = (name: string): string | null => MAJOR_HOSPITALS.find(h => name.includes(h.key))?.name ?? null;
 export const facilityIndex = (rows: readonly FacilityRow[], ward: string, subs: ReadonlySet<number>) => facIndex(CITY, rows, ward, subs);
@@ -57,11 +57,11 @@ export const facilityIndex = (rows: readonly FacilityRow[], ward: string, subs: 
 /** 朝倉の歴史の物語。写真は photo（名所の id）か、無ければ章の id で photos.json を引く（bake が両方焼く） */
 export const STORY: Chapter[] = [
 	{ id: "as-661", year: "661", wiki: "朝倉橘広庭宮", name: "A court in Asakura", ward: W, lon: 130.75, lat: 33.378, zoom: 15.4, tilt: 58, bearing: 0, note: "In 661 Empress Saimei moved her court to Asakura on the way to send troops to Korea, and died here the same year." },
-	{ id: "as-1623", year: "1623", photo: "akizuki-castle", wiki: "秋月藩", name: "The Akizuki domain", ward: W, lon: 130.6936, lat: 33.4686, zoom: 16, tilt: 58, bearing: 0, note: "In 1623 Kuroda Nagaoki, a son of the lord of Fukuoka, founded the Akizuki domain of 50,000 koku. The castle town kept its shape for 250 years." },
+	{ id: "as-1623", year: "1623", photo: "akizuki-castle", wiki: "秋月藩", name: "The Akizuki domain", ward: W, lon: 130.69556, lat: 33.46556, zoom: 16, tilt: 58, bearing: 0, note: "In 1623 Kuroda Nagaoki, a son of the lord of Fukuoka, founded the Akizuki domain of 50,000 koku. The castle town kept its shape for 250 years." },
 	{ id: "as-1790", year: "1790", photo: "yamada-zeki", wiki: "山田堰", name: "A weir of stone", ward: W, lon: 130.77, lat: 33.3628, zoom: 16.6, tilt: 58, bearing: 150, note: "In 1790 the village headman Koga Hyakko rebuilt the Yamada Weir as a slanted stone weir, bringing water to far more fields." },
 	{ id: "as-1876", year: "1876", photo: "akizuki-town", wiki: "秋月の乱", name: "The Akizuki Rebellion", ward: W, lon: 130.688, lat: 33.463, zoom: 16, tilt: 58, bearing: 0, note: "In October 1876 former samurai of Akizuki rose against the new government. The rebellion was put down within days." },
-	{ id: "as-1939", year: "1939", photo: "amagi-st", wiki: "甘木鉄道甘木線", name: "The railway to Amagi", ward: W, lon: 130.656, lat: 33.418, zoom: 16.6, tilt: 58, bearing: 0, note: "In 1939 the national railway opened the Amagi Line from Kiyama. Since 1986 it has been run by the local Amagi Railway." },
-	{ id: "as-2006", year: "2006", wiki: "朝倉市", name: "Asakura City", ward: W, lon: 130.666, lat: 33.423, zoom: 15.6, tilt: 58, bearing: 0, note: "In 2006 the city of Amagi and the towns of Asakura and Haki merged to form Asakura City." },
+	{ id: "as-1939", year: "1939", photo: "amagi-st", wiki: "甘木鉄道甘木線", name: "The railway to Amagi", ward: W, lon: 130.65519, lat: 33.41833, zoom: 16.6, tilt: 58, bearing: 0, note: "In 1939 the national railway opened the Amagi Line from Kiyama. Since 1986 it has been run by the local Amagi Railway." },
+	{ id: "as-2006", year: "2006", wiki: "朝倉市", name: "Asakura City", ward: W, lon: 130.66553, lat: 33.42342, zoom: 15.6, tilt: 58, bearing: 0, note: "In 2006 the city of Amagi and the towns of Asakura and Haki merged to form Asakura City." },
 	{ id: "as-2017", year: "2017", wiki: "平成29年7月九州北部豪雨", name: "The heavy rain of 2017", ward: W, lon: 130.79, lat: 33.39, zoom: 14.6, tilt: 58, bearing: 0, note: "In July 2017 record rain in northern Kyushu caused floods and landslides in the hills of Asakura, with many lives lost." },
 ];
 /** 眺め＝見渡す 3 つ（中心＝見る先・bearing＝向き） */
@@ -124,6 +124,7 @@ export const CITY: CityConfig = {
 	lod2Prefetch: LOD2_PREFETCH, bldSets: BLD_SETS,
 	bldNames: () => [],
 	emergency: {
+		night: { centers: NIGHT_CENTERS, label: "Emergency medical center (nights and holidays)", hours: "Internal medicine and surgery · weekdays 20:00 to 7:00 the next morning, Saturdays from 12:30 and Sundays and holidays from 9:00; pediatrics until 23:00. Call ahead to check." },
 		advice: { text: "Unsure whether to call an ambulance? Fukuoka emergency advice line, 24 hours:", tel: "#7119" },
 	},
 	majorHospitals: MAJOR_HOSPITALS,

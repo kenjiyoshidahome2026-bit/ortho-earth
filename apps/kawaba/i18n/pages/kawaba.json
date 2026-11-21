@@ -1052,6 +1052,33 @@
 			"fa": "نقشه را کج کنید تا ژرفای سیل را با بلندی ساختمان‌ها بسنجید. سناریوها برآوردهای رسمی دولت ملی، استان گونما و دیگران‌اند؛ بلایای واقعی ممکن است از آن‌ها فراتر روند.",
 			"ur": "سیلاب کی گہرائی کا عمارتوں کی اونچائی سے موازنہ کرنے کے لیے نقشہ جھکائیں۔ منظرنامے قومی حکومت، گُنما پریفیکچر اور دیگر کے سرکاری اندازے ہیں؛ اصل آفات ان سے بڑھ سکتی ہیں۔",
 			"he": "הטו את המפה כדי להשוות את עומק ההצפה לגובה הבניינים. התרחישים הם הערכות רשמיות של הממשלה הלאומית, מחוז גונמה ואחרים; אסונות ממשיים עלולים לחרוג מהם."
+		},
+		"Unsure whether to call an ambulance? Gunma emergency advice line, 24 hours:": {
+			"ja": "救急車を呼ぶか迷ったら、群馬県救急安心センター（24 時間）：",
+			"zh": "不确定是否该叫救护车？群马县急救咨询专线，24 小时：",
+			"ko": "구급차를 불러야 할지 모르겠다면? 군마현 응급 상담 전화, 24시간:",
+			"fr": "Vous hésitez à appeler une ambulance ? Ligne de conseil d'urgence de Gunma, 24 h/24 :",
+			"de": "Unsicher, ob Sie einen Krankenwagen rufen sollen? Notfall-Beratung Gunma, rund um die Uhr:",
+			"es": "¿No sabe si llamar a una ambulancia? Línea de consejo de urgencias de Gunma, 24 horas:",
+			"pt": "Não sabe se deve chamar uma ambulância? Linha de aconselhamento de emergência de Gunma, 24 horas:",
+			"it": "Non sa se chiamare un'ambulanza? Linea di consulenza per le emergenze di Gunma, 24 ore:",
+			"nl": "Twijfelt u of u een ambulance moet bellen? Spoedadvieslijn van Gunma, 24 uur per dag:",
+			"pl": "Nie wiesz, czy wezwać karetkę? Linia porad ratunkowych prefektury Gunma, całą dobę:",
+			"ru": "Не уверены, вызывать ли скорую? Линия экстренных консультаций Гуммы, круглосуточно:",
+			"uk": "Не впевнені, чи викликати швидку? Лінія екстрених консультацій Гумми, цілодобово:",
+			"hu": "Nem biztos benne, hogy mentőt kell hívnia? Gunma sürgősségi tanácsadó vonala, éjjel-nappal:",
+			"sv": "Osäker på om du ska ringa ambulans? Gunmas akuta rådgivningslinje, dygnet runt:",
+			"tr": "Ambulans çağırıp çağırmamakta kararsız mısınız? Gunma acil danışma hattı, 24 saat:",
+			"el": "Δεν είστε σίγουροι αν πρέπει να καλέσετε ασθενοφόρο; Γραμμή συμβουλών έκτακτης ανάγκης της Γκούνμα, όλο το 24ωρο:",
+			"id": "Ragu apakah perlu memanggil ambulans? Saluran konsultasi darurat Gunma, 24 jam:",
+			"vi": "Không chắc có nên gọi xe cấp cứu? Đường dây tư vấn cấp cứu Gunma, 24 giờ:",
+			"th": "ไม่แน่ใจว่าควรเรียกรถพยาบาลหรือไม่? สายให้คำปรึกษาฉุกเฉินของกุมมะ ตลอด 24 ชั่วโมง:",
+			"bn": "অ্যাম্বুলেন্স ডাকবেন কি না নিশ্চিত নন? গুনমার জরুরি পরামর্শ লাইন, 24 ঘণ্টা:",
+			"hi": "तय नहीं कर पा रहे कि एम्बुलेंस बुलाएँ या नहीं? गुन्मा आपात सलाह लाइन, 24 घंटे:",
+			"ar": "لست متأكدًا من ضرورة طلب سيارة إسعاف؟ خط استشارات الطوارئ في غونما، على مدار 24 ساعة:",
+			"fa": "مطمئن نیستید آمبولانس خبر کنید یا نه؟ خط مشاورهٔ اورژانس گونما، 24 ساعته:",
+			"ur": "ایمبولینس بلانے کے بارے میں یقین نہیں؟ گُنما ہنگامی مشورہ لائن، 24 گھنٹے:",
+			"he": "לא בטוחים אם להזמין אמבולנס? קו הייעוץ לשעת חירום של גונמה, 24 שעות:"
 		}
 	}
 }

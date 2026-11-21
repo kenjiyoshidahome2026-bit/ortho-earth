@@ -19,12 +19,12 @@ const W = WARDS[0].code;
 
 /** 名所（ツアーの止まり先を兼ねる）。note＝止まった時に出す一行（事実だけ） */
 export const SPOTS: Spot[] = [
-	{ id: "denen-plaza", wiki: "道の駅川場田園プラザ", name: "Kawaba Denen Plaza", ward: W, lon: 139.1107, lat: 36.694, zoom: 16.8, tilt: 58, bearing: 0, note: "Roadside station among the fields, with a farmers' market, a brewery, a bakery and a dairy." },
+	{ id: "denen-plaza", wiki: "道の駅川場田園プラザ", name: "Kawaba Denen Plaza", ward: W, lon: 139.10742, lat: 36.68708, zoom: 16.8, tilt: 58, bearing: 0, note: "Roadside station among the fields, with a farmers' market, a brewery, a bakery and a dairy." },
 	{ id: "kichijoji", wiki: "吉祥寺 (川場村)", name: "Kichijo-ji Temple", ward: W, lon: 139.1272, lat: 36.7239, zoom: 17, tilt: 58, bearing: 0, note: "Zen temple of the Kencho-ji school founded in 1339, known as a temple of flowers for its gardens through the seasons." },
 	{ id: "kawaba-onsen", wiki: "川場温泉", name: "Kawaba Onsen", ward: W, lon: 139.1262, lat: 36.7068, zoom: 16.6, tilt: 58, bearing: 0, note: "Hot spring by the Usune River. A legend says the monk Kobo Daishi struck the ground with his staff and the spring came out." },
 	{ id: "nagai-shuzo", wiki: "永井酒造", name: "Nagai Sake Brewery", ward: W, lon: 139.1046, lat: 36.6996, zoom: 17, tilt: 58, bearing: 0, note: "Sake brewery founded in 1886, which brews with the spring water of Mount Hotaka." },
 	{ id: "kenkomura", wiki: "世田谷区民健康村", name: "Setagaya Health Village", ward: W, lon: 139.14, lat: 36.716, zoom: 16.4, tilt: 58, bearing: 0, note: "Lodges and fields where residents of Setagaya, Tokyo, stay and take part in farming and forest work, under the partnership the two made in 1981." },
-	{ id: "minzoku", wiki: "川場村歴史民俗資料館", name: "Kawaba Village Museum of History and Folklore", ward: W, lon: 139.112, lat: 36.7, zoom: 17.2, tilt: 58, bearing: 0, note: "Museum of village life and farming, in a wooden school building of the Meiji period." },
+	{ id: "minzoku", wiki: "川場村歴史民俗資料館", name: "Kawaba Village Museum of History and Folklore", ward: W, lon: 139.10542, lat: 36.69303, zoom: 17.2, tilt: 58, bearing: 0, note: "Museum of village life and farming, in a wooden school building of the Meiji period." },
 	{ id: "kawaba-ski", wiki: "川場スキー場", name: "Kawaba Ski Resort", ward: W, lon: 139.14, lat: 36.787, zoom: 15.2, tilt: 62, bearing: 0, note: "Ski resort high on the slopes of Mount Hotaka, opened in 1989." },
 ];
 
@@ -54,10 +54,10 @@ export const facilityIndex = (rows: readonly FacilityRow[], ward: string, subs: 
 /** 川場の歴史の物語。写真は photo（名所の id）か、無ければ章の id で photos.json を引く（bake が両方焼く） */
 export const STORY: Chapter[] = [
 	{ id: "kw-1339", year: "1339", photo: "kichijoji", wiki: "吉祥寺 (川場村)", name: "A Zen temple", ward: W, lon: 139.1272, lat: 36.7239, zoom: 16.6, tilt: 58, bearing: 0, note: "Kichijo-ji was founded in 1339 as a temple of the Kencho-ji school of Rinzai Zen." },
-	{ id: "kw-1889", year: "1889", wiki: "川場村", name: "One village", ward: W, lon: 139.11, lat: 36.6975, zoom: 14.8, tilt: 58, bearing: 0, note: "In 1889 several villages along the Usune River joined to form Kawaba Village. It has kept the same borders ever since." },
+	{ id: "kw-1889", year: "1889", wiki: "川場村", name: "One village", ward: W, lon: 139.10647, lat: 36.69464, zoom: 14.8, tilt: 58, bearing: 0, note: "In 1889 several villages along the Usune River joined to form Kawaba Village. It has kept the same borders ever since." },
 	{ id: "kw-1981", year: "1981", photo: "kenkomura", wiki: "世田谷区民健康村", name: "A partnership with Setagaya", ward: W, lon: 139.14, lat: 36.716, zoom: 15.8, tilt: 58, bearing: 0, note: "In 1981 Kawaba and Setagaya, Tokyo, signed a partnership to build a second home in the country for Setagaya's residents." },
 	{ id: "kw-1989", year: "1989", photo: "kawaba-ski", wiki: "川場スキー場", name: "A ski resort", ward: W, lon: 139.14, lat: 36.787, zoom: 15, tilt: 62, bearing: 0, note: "Kawaba Ski Resort opened on Mount Hotaka in 1989, bringing winter visitors to the village." },
-	{ id: "kw-1998", year: "1998", photo: "denen-plaza", wiki: "道の駅川場田園プラザ", name: "Farming plus tourism", ward: W, lon: 139.1107, lat: 36.694, zoom: 16.4, tilt: 58, bearing: 0, note: "Denen Plaza, built under the village's policy of farming plus tourism, opened fully in 1998 and became the village's front door." },
+	{ id: "kw-1998", year: "1998", photo: "denen-plaza", wiki: "道の駅川場田園プラザ", name: "Farming plus tourism", ward: W, lon: 139.10742, lat: 36.68708, zoom: 16.4, tilt: 58, bearing: 0, note: "Denen Plaza, built under the village's policy of farming plus tourism, opened fully in 1998 and became the village's front door." },
 ];
 /** 眺め＝見渡す 3 つ（中心＝見る先・bearing＝向き） */
 export const HILL_VIEWS: View[] = [
@@ -115,6 +115,9 @@ export const CITY: CityConfig = {
 	hinanUrl: HINAN_URL,
 	lod2Prefetch: LOD2_PREFETCH, bldSets: BLD_SETS,
 	bldNames: () => [],
+	emergency: {
+		advice: { text: "Unsure whether to call an ambulance? Gunma emergency advice line, 24 hours:", tel: "#7119" },   // 群馬県救急安心センター（2025-10-01 開始・県の頁で確認 2026-11-21）
+	},
 	majorHospitals: MAJOR_HOSPITALS,
 	noAreas: ["zoning"],   // 用途地域の無い村（都市計画区域の外）
 	groundCenter: true,   // 山と谷の地形＝注視点を地面に（京都・札幌・旭川と同じ）
