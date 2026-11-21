@@ -3,12 +3,15 @@
 // 細かい関数（歩ける道・タイル・地点調べ等）の検定は apps/yokohama/tests/t-yokohama.mjs（横浜の台帳で確かめる）、京都・福岡の設定は apps/kyoto/tests/t-kyoto.mjs・apps/fukuoka/tests/t-fukuoka.mjs。
 // 3 市（横浜・京都・福岡）の設定ファイルも読み、
 // 共有モジュールの約束（CityConfig）を満たしているかを並べて確かめる。
-import { readFileSync } from "node:fs";
-import { wardOfAddress, sheltersIn, facilityIndex, parseState, writeState, subwayCodes, HAZARDS, TABS, FACILITY_CATS } from "../src/core.ts";
+import { readFileSync, existsSync } from "node:fs";
+import { wardOfAddress, sheltersIn, facilityIndex, parseState, writeState, subwayCodes, HAZARDS, TABS, FACILITY_CATS, parseExtras, extraText } from "../src/core.ts";
 import { CITY as YK } from "../../../apps/yokohama/data.ts";
 import { CITY as KT } from "../../../apps/kyoto/data.ts";
 import { CITY as FK } from "../../../apps/fukuoka/data.ts";
 import { CITY as AK } from "../../../apps/asahikawa/data.ts";
+import { CITY as AS } from "../../../apps/asakura/data.ts";
+import { CITY as KW } from "../../../apps/kawaba/data.ts";
+import { CITY as KS } from "../../../apps/kusatsu/data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 
@@ -29,12 +32,32 @@ t("URL の状態：既定の面（暮らし）は書かない", !/tab=/.test(wri
 t("URL の状態：名所だけの URL は観光の面で開く・往復で同じ", (() => { const a = parseState(YK, "?spot=mm21"), w = writeState(YK, "", a), b = parseState(YK, "?tab=life&spot=mm21"); return a.tab === "sight" && w === "?spot=mm21" && b.tab === "life" && /tab=life/.test(writeState(YK, "", b)); })());
 t("地下鉄の駅番号：市の路線表で引く", subwayCodes(YK.subway, "センター南").length === 2 && subwayCodes(KT.subway, "烏丸御池").length === 2 && subwayCodes(KT.subway, "関内").length === 0);
 t("ハザードの型紙：全国の 4 つ", HAZARDS.map(h => h.id).join() === "flood,hightide,tsunami,dosha");
-const ALL = [YK, KT, FK, AK];
+t("住所 → 市町村：町村は郡の名が挟まる（群馬県利根郡川場村…・吾妻郡草津町…）・隣の市町村は当てない", wardOfAddress(KW, "群馬県利根郡川場村大字谷地2390-2")?.code === "10444" && wardOfAddress(KW, "川場村谷地2402")?.code === "10444" && wardOfAddress(KS, "吾妻郡草津町大字草津28")?.code === "10426" && wardOfAddress(KW, "群馬県沼田市上原町1738-1") === null && wardOfAddress(KS, "群馬県吾妻郡長野原町大字長野原1520-4") === null && wardOfAddress(AS, "福岡県朝倉市菩提寺412-2")?.code === "40228" && wardOfAddress(AS, "福岡県朝倉郡筑前町x") === null);
+const ALL = [YK, KT, FK, AK, AS, KW, KS];
 for (const C of ALL) {
 	const req = ["id", "key", "title", "cityName", "allWards", "outside", "addrPrefix", "bbox", "view", "maskBox", "wards", "spots", "tour", "tourIntro", "subway", "subwayName", "subwayNote", "busName", "transit", "railLinesEn", "hazards", "riskNote", "hinanUrl", "lod2Prefetch", "bldSets", "majorHospitals", "offlineMB"];
 	t(`${C.id}：CityConfig の欄が揃う`, req.every(k => C[k] != null), req.filter(k => C[k] == null).join());
 	t(`${C.id}：ツアーは名所の id・名所は区に属す`, C.tour.every(id => C.spots.some(s => s.id === id)) && C.spots.every(s => C.wards.some(w => w.code === s.ward)));
 	t(`${C.id}：id と保存の鍵の頭が市ごとに違う`, ALL.every(o => o === C || (o.id !== C.id && o.key !== C.key)));
+}
+// 後から足す物（extras.json）
+{
+	const x = parseExtras({ spots: [
+		{ id: "x-ok", name: { en: "New place", ja: "新しい名所", fr: "Nouveau lieu" }, note: { en: "Note" }, lon: 139.11, lat: 36.70, tour: true, photo: { src: "https://example.org/a.jpg", artist: "A", license: "CC BY 4.0" } },
+		{ id: "denen-plaza", name: "dup", lon: 139.11, lat: 36.70 }, { id: "Bad Id", name: "x", lon: 139.11, lat: 36.70 }, { id: "far", name: "x", lon: 36.70, lat: 139.11 }, { id: "noname", lon: 139.11, lat: 36.70 },
+	], layers: [
+		{ id: "aed", name: { en: "AEDs", ja: "AED" }, color: "#d81b60", rows: [[139.105, 36.694, "役場", "谷地2390", "", "Village Office"], [0, 0, "壊れた行"]] },
+		{ id: "trail", name: "Trails", file: "extra/trail.geojson" }, { id: "evil", name: "x", file: "../x.json" }, { id: "empty", name: "x" }, { id: "aed", name: "dup", rows: [[139.105, 36.694, "a"]] },
+	] }, KW, "ja");
+	t("extras：正しい名所だけ足す（id の重なり・悪い id・範囲の外・名前なしは飛ばす）", x.spots.map(s => s.id).join() === "x-ok" && x.spots[0].name === "新しい名所" && x.spots[0].ward === KW.wards[0].code && x.tour.join() === "x-ok" && x.photos["x-ok"]?.license === "CC BY 4.0", JSON.stringify(x.errors));
+	t("extras：層は点の表か台帳の名・壊れた行と外へ出る名は飛ばす", x.layers.map(l => l.id).join() === "aed,trail" && x.layers[0].rows.length === 1 && x.layers[0].label === "AED" && x.layers[1].color === "#00897b" && x.errors.length === 8, `${x.errors.length} ${x.errors.join(" / ")}`);
+	t("extras：言語は その言語 → 英語 → 日本語", extraText({ en: "E", ja: "J", fr: "F" }, "fr") === "F" && extraText({ en: "E", ja: "J" }, "de") === "E" && extraText({ en: "E" }, "ja") === "E" && extraText("S", "ko") === "S");
+	t("extras：無い・壊れた＝何も足さない", parseExtras(null, KW, "ja").spots.length === 0 && parseExtras({ spots: "x", layers: 3 }, KW, "en").layers.length === 0);
+	for (const C of ALL) {
+		const f = new URL(`../../../ortho-data/japan/${C.id}/extras.json`, import.meta.url);
+		const raw = existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : null, r = parseExtras(raw, C, "en");
+		t(`${C.id}：extras.json が有り、誤りが無い（層の台帳も有る）`, !!raw && r.errors.length === 0 && r.layers.every(l => !l.file || existsSync(new URL(`../../../ortho-data/japan/${C.id}/${l.file}`, import.meta.url))), r.errors.join(" / "));
+	}
 }
 const pages = JSON.parse(readFileSync(new URL("../i18n/pages/citytwin.json", import.meta.url), "utf8")).ui;
 t("共通の辞書：施設の区分の名が全部ある", FACILITY_CATS.every(c => pages[c.name]?.ja || c.name in JSON.parse(readFileSync(new URL("../../globe/src/i18n/ui.json", import.meta.url), "utf8")).ui));

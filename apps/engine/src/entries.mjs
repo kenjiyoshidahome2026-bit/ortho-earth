@@ -47,7 +47,7 @@ export const ENTRIES = [
 		"common/panel",
 		// 仮想スクロールの表（2026-10-24）＝yokohama の施設検索・ortho-japan の温泉の一覧が共に読む
 		"common/bigtable",
-		// 市のデジタルツインの芯（2026-11-14・packages/citytwin）＝横浜市（/yokohama/）・京都市（/kyoto/）・福岡市（/fukuoka/）・札幌市（/sapporo/）・旭川市（/asahikawa/）が共に読む。boot＝通信なしの worker の起こし方（エンジンより先に読む小さな入口）・core＝台帳と純関数（市の設定 data.ts も読む）
+		// 市のデジタルツインの芯（2026-11-14・packages/citytwin）＝横浜市（/yokohama/）・京都市（/kyoto/）・福岡市（/fukuoka/）・札幌市（/sapporo/）・旭川市（/asahikawa/）・朝倉市（/asakura/）・川場村（/kawaba/）・草津町（/kusatsu/）が共に読む。boot＝通信なしの worker の起こし方（エンジンより先に読む小さな入口）・core＝台帳と純関数（市の設定 data.ts も読む）
 		"@ortho-earth/citytwin", "@ortho-earth/citytwin/core", "@ortho-earth/citytwin/boot",
 		"world-data/data", "world-data/worldlayers", "geopbf/encodeXLSX", "@ortho-earth/jp/census/charts", "@ortho-earth/globe/wiki.js",
 	].map(spec => [spec, sub(spec), src(spec)]),

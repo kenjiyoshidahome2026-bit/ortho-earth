@@ -1,0 +1,5 @@
+{
+	"pages": {
+		"kawaba": ["data.ts", "main.ts"]
+	}
+}

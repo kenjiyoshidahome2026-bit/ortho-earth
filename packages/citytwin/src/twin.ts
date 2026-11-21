@@ -16,7 +16,8 @@ import { tr, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文�
 import { createWikiFrame, summaryIn, langChain } from "@ortho-earth/globe/wiki.js";   // 駅の Wikipedia（冒頭と枠）＝共有エンジンの入口（onsen・parks と同じ芯）
 import type { GlobeMap, LayerMouseEvent, RenderedFeature, GeoJSONFeature, LonLat, WalkHandle, StyleExpression, Marker, Popup } from "@ortho-earth/globe";
 import { HINAN_FLAGS, BUILDINGS_MIN_ZOOM, SUBWAY_MIN_ZOOM, insideBox, RAIL_LAYER, FACILITY_CATS, FACILITY_SUBS, subOf, facilityIndex, normJa, wardOfAddress, ZONES, AREAS, TAB_NAMES, TABS, sheltersIn, railLinesEn, flagsOf, subwayCodes, parseState, writeState, DEPTH, tilePixel, legendIndex, floorsOfDepth, depthTop, nearestSites, nearestRows, featureAt, inGeometry, siteName, walkMin, distM, WALK_RINGS, walkRadius, circleRing, countRings, decodeWalk, walkCells, buildWalkGraph, walkSnap, walkSearch, walkTo, sampleLine, climb, shiftInto, parsePlaces, samePlace, PLACES_MAX, PLACE_NAME_MAX, searchPlaces, type SavedPlace, type WalkLine, type WalkGraph, type WalkFrom, type PlaceRow, type CityConfig } from "./core.ts";
-import type { AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow, View } from "./core.ts";
+import { parseExtras } from "./core.ts";
+import type { ExtraRow, AreaId, Spot, HinanRow, TwinState, Tab, Photo, FacilityRow, StationRow, BusRow, View } from "./core.ts";
 import { createOffline, type Stage, type OfflineRec } from "./offline.ts";   // 通信なしで使う束（完全オフライン・本人 2026-11-12）
 
 const JAPAN_BBOX: [number, number, number, number] = [122, 20, 154, 46];
@@ -40,10 +41,13 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	// 全国で同じ文言の辞書（このパッケージ）を本体の表に足す＝市の頁の辞書（main.ts の startPage）と並ぶ。UI を組む前に
 	await loadPage(c => import(`../i18n/lang/citytwin/${c}.json`));
 	const t = tr(), lang = getLang();
-	const { wards: WARDS, spots: SPOTS, tour: TOUR, hazards: HAZARDS, view: CITY_VIEW, bbox: CITY_BBOX, maskBox: MASK_BOX, subway: SUBWAY, transit: TRANSIT, railLinesEn: RAIL_LINES_EN } = city;
+	const { wards: WARDS, hazards: HAZARDS, view: CITY_VIEW, bbox: CITY_BBOX, maskBox: MASK_BOX, subway: SUBWAY, transit: TRANSIT, railLinesEn: RAIL_LINES_EN } = city;
 	const hasArea = (id: AreaId) => !city.noAreas?.includes(id);   // 市に台帳のある区域か
 	// 区の無い市（旭川 2026-11-17）＝WARDS が市そのもの 1 つ。区の選びは出さず（市の名だけ）、統計は「市全体」のままでも市の物を出す。区のある市は ""＝従来どおり
 	const ONE = WARDS.length === 1 ? WARDS[0].code : "";
+	// 町村の字（city.unit）＝施設の区分・種別の「区役所」と「市全体」を町村の言い方に（無い市＝今まで通り）
+	const UNIT: Record<string, string> = city.unit ? { "Whole city": city.unit.whole, "Ward offices": city.unit.office, "Ward offices and government": city.unit.offices } : {};
+	const tn = (k: string) => t(UNIT[k] ?? k);
 	const TAG = `[${city.id}]`;   // console の印
 	const Offline = createOffline(city, opts.appBase);
 	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）
@@ -79,6 +83,11 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		.then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
 		.catch(e => { console.warn(TAG, name, e); return null; })).get(name)!) as Promise<T | null>;
 	const enP: Promise<unknown> = lang === "ja" ? Promise.resolve() : ledger<EnNames>("facilities-en.json").then(d => { EN = d; });
+	// 後から足す物（extras.json＝名所と地図の層・core.ts の parseExtras）。案内板を組む前に読む（名所の札と層の行に並べる）。無い・壊れた＝足さない
+	const X = parseExtras(await ledger<unknown>("extras.json"), city, lang);
+	for (const e of X.errors) console.warn(TAG, "extras.json", e);
+	const SPOTS: Spot[] = [...city.spots, ...X.spots], TOUR: string[] = [...city.tour, ...X.tour];
+	if (!st.spot) { const q = new URLSearchParams(location.search).get("spot"); if (X.spots.some(s => s.id === q)) { st.spot = q!; if (!new URLSearchParams(location.search).get("tab")) st.tab = "sight"; } }   // parseState は市の設定の名所しか知らない
 
 	// ── カメラ ──
 	// 地区（区・全市）＝平面の地区図：基図はベクターのまま全層（地名・地形・鉄道・道路）を点ける。傾けた 3D（名所・ツアー・海の眺め）へ移る時は元の点け方へ戻す（本人 2026-10-21・ラスターには替えない）
@@ -123,7 +132,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			<section data-pane="life">
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 札（地図の表示＝既定・施設の検索）。2026-11-13 に札の並びを「地図の表示」が先へ -->
 				<h2>${esc(t("District"))}</h2>
-				<div class="wrow">${ONE ? `<b class="wone">${esc(t(city.cityName))}</b>` : ""}<select class="ward" aria-label="${esc(t("District"))}"${ONE ? " hidden" : ""}><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${esc(w.code)}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(t("Whole city"))}</button></div>
+				<div class="wrow">${ONE ? `<b class="wone">${esc(t(city.cityName))}</b>` : ""}<select class="ward" aria-label="${esc(t("District"))}"${ONE ? " hidden" : ""}><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${esc(w.code)}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(tn("Whole city"))}</button></div>
 				<div class="detail stats-out" hidden></div>
 				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="show" aria-selected="true">${esc(t("Map display"))}</button><button type="button" role="tab" data-sub-tab="find" aria-selected="false">${esc(t("Search facilities"))}</button></nav>
 				<!-- 札の並び＝「地図の表示」が先・既定（本人 2026-11-13） -->
@@ -138,7 +147,8 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 				<h3>${esc(t("Types of facilities on the map"))}</h3>
 				<div class="fbar fac-bar"><small class="fac-n"></small><button type="button" class="fac-all">${esc(t("Show all"))}</button><button type="button" class="fac-none">${esc(t("Hide all"))}</button></div>
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
-					return `<div class="cg" data-cg="${i}"><label class="grp"><input type="checkbox" data-cat="${i}"><b><i style="background:${c.color}"></i>${esc(t(c.name))}</b><small></small></label>${subs.length > 1 ? `<button type="button" class="tw" data-tw="${i}" aria-expanded="false" aria-label="${esc(t("Types"))}"></button><div class="kds">${subs.map(({ x, j }) => `<label class="grp kd"><input type="checkbox" data-sub="${j}"><b>${esc(t(x.name))}</b><small></small></label>`).join("")}</div>` : ""}</div>`; }).join("")}</div>
+					return `<div class="cg" data-cg="${i}"><label class="grp"><input type="checkbox" data-cat="${i}"><b><i style="background:${c.color}"></i>${esc(tn(c.name))}</b><small></small></label>${subs.length > 1 ? `<button type="button" class="tw" data-tw="${i}" aria-expanded="false" aria-label="${esc(t("Types"))}"></button><div class="kds">${subs.map(({ x, j }) => `<label class="grp kd"><input type="checkbox" data-sub="${j}"><b>${esc(tn(x.name))}</b><small></small></label>`).join("")}</div>` : ""}</div>`; }).join("")}</div>
+				${X.layers.length ? `<div class="cats xls">${X.layers.map(l => `<div class="cg"><label class="grp"><input type="checkbox" data-xl="${esc(l.id)}"${l.on ? " checked" : ""}><b><i style="background:${l.color}"></i>${esc(l.label)}</b><small>${l.rows?.length ? num(l.rows.length) : ""}</small></label></div>`).join("")}</div>` : ""}
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
 				<h3>${esc(t(city.zonesTitle))}</h3>
 				<p class="sub flat">${esc(t(city.flatNote))}</p>
@@ -362,7 +372,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	$(".fitc").onclick = () => { setWard(""); };   // 全市＝選び直さなくても押せる（セレクタは同じ値を選んでも change が来ない）
 
 	// ── 観光：名所（写真つき）──
-	const photos = () => ledger<Record<string, Photo>>("photos.json");
+	const photos = () => ledger<Record<string, Photo>>("photos.json").then(p => Object.keys(X.photos).length ? { ...(p || {}), ...X.photos } : p);
 	const photoHTML = (ph: Photo | undefined, cls = "ph") => ph ? `<figure class="${cls}"><img src="${esc(ph.src)}" alt="" loading="lazy" referrerpolicy="no-referrer">
 		<figcaption><a href="${esc(ph.file)}" target="_blank" rel="noopener">${esc(t("Photo: $1", (ph.artist || "Wikimedia Commons") + (ph.license ? ` / ${ph.license}` : "")))}</a></figcaption></figure>` : "";
 	const spotNote = $<HTMLElement>(".spot-note");
@@ -470,9 +480,9 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		paintChips(true);
 		facTable();
 	})();
-	const facKind = (r: FacilityRow) => lang === "ja" ? r[5] || t(FACILITY_CATS[r[3]]?.name || "") : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
+	const facKind = (r: FacilityRow) => lang === "ja" && !(city.unit && r[5] === "区役所") ? r[5] || tn(FACILITY_CATS[r[3]]?.name || "") : tn(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
 	const facPop = (r: FacilityRow) => { const c = FACILITY_CATS[r[3]];
-		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(facName(r))}</b>${r[4] ? `<p>${esc(facAddr(r))}</p>` : ""}`); };
+		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? tn(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(facName(r))}</b>${r[4] ? `<p>${esc(facAddr(r))}</p>` : ""}`); };
 	async function setFac(on: boolean) {
 		facOn = on;
 		if (on) await loadFac();
@@ -496,6 +506,43 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	$(".fac-all").onclick = () => { for (const j of ALL_SUBS) subOn.add(j); applyFac(); };
 	$(".fac-none").onclick = () => { subOn.clear(); applyFac(); };
 	paintChips();
+
+	// ── 暮らし：後から足した層（extras.json の layers）＝行のチェックで出し入れ・押すと吹き出し ──
+	const xlReady = new Map<string, Promise<string[]>>();
+	const xlAdd = (l: typeof X.layers[number]) => xlReady.get(l.id) ?? xlReady.set(l.id, (async () => {
+		const sid = `yk-x-${l.id}`, ids: string[] = [];
+		const attr = l.source ? (l.source.url && /^https:\/\//.test(l.source.url) ? `<a href="${esc(l.source.url)}" target="_blank" rel="noopener">${esc(l.source.name)}</a>` : esc(l.source.name)) : undefined;
+		const rowHTML = (name: string, addr?: string, note?: string) => `<div class="pk"><i style="background:${l.color}"></i>${esc(l.label)}</div><b>${esc(name)}</b>${addr ? `<p>${esc(addr)}</p>` : ""}${note ? `<p>${esc(note)}</p>` : ""}`;
+		const rowOf = (r: ExtraRow) => rowHTML(lang === "ja" ? r[2] : r[5] || r[2], lang === "ja" ? r[3] : r[6] || r[3], r[4]);
+		const tip = map.gadget.tip();
+		const hook = (id: string, html: (e: LayerMouseEvent) => [LonLat, string, string] | null) => {
+			map.on("mousemove", id, e => { const h = html(e); tip(h ? `<b>${esc(h[2])}</b>` : null); });
+			map.on("mouseleave", id, () => tip(null));
+			map.on("click", id, e => { const h = html(e); if (!h) return; tip(null); openPop(h[0], h[1]); });
+		};
+		const circle = { "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3.5, 15, 6, 18, 8.5] as StyleExpression, "circle-color": l.color, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 };
+		if (l.rows?.length) {
+			map.addSource(sid, { type: "geojson", ...(attr ? { attribution: attr } : {}), data: { type: "FeatureCollection", features: l.rows.map((r, i) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r[0], r[1]] }, properties: { i } })) } });
+			await map.addLayer({ id: sid, type: "circle", source: sid, minzoom: 9, paint: circle }); ids.push(sid);
+			hook(sid, e => { const f = (e.features || []).find(x => x.properties?.i != null), r = f && l.rows![f.properties.i]; return r ? [[r[0], r[1]], rowOf(r), lang === "ja" ? r[2] : r[5] || r[2]] : null; });
+		}
+		if (l.file) {
+			const fc = await ledger<{ type: string; features: GeoJSONFeature[] }>(l.file);
+			if (fc?.features?.length) {
+				const nameOf = (p: Record<string, unknown>) => String((lang !== "ja" && p.name_en) || p.name || l.label), noteOf = (p: Record<string, unknown>) => String((lang !== "ja" && p.note_en) || p.note || "");
+				const pick = (e: LayerMouseEvent): [LonLat, string, string] | null => { const f = (e.features || [])[0]; if (!f || !e.lngLat) return null; const p = (f.properties || {}) as Record<string, unknown>; return [[e.lngLat.lng, e.lngLat.lat], rowHTML(nameOf(p), "", noteOf(p)), nameOf(p)]; };
+				// 形ごとに source を分ける（エンジンの式に形の種類の絞りを頼らない）：面＝薄い塗りと線・線＝線・点＝丸
+				const part = (k: string, re: RegExp) => { const fs = fc.features.filter(f => re.test(f.geometry?.type || "")); if (!fs.length) return ""; const id = `${sid}-${k}`; map.addSource(id, { type: "geojson", ...(attr ? { attribution: attr } : {}), data: { type: "FeatureCollection", features: fs } as never }); return id; };
+				const pa = part("a", /Polygon$/), pl = part("l", /LineString$/), pp = part("p", /Point$/);
+				if (pa) { await map.addLayer({ id: `${pa}-fill`, type: "fill", source: pa, paint: { "fill-color": l.color, "fill-opacity": 0.22 } }); await map.addLayer({ id: `${pa}-line`, type: "line", source: pa, paint: { "line-color": l.color, "line-width": 1.6 } }); ids.push(`${pa}-fill`, `${pa}-line`); hook(`${pa}-fill`, pick); }
+				if (pl) { await map.addLayer({ id: pl, type: "line", source: pl, paint: { "line-color": l.color, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.6, 16, 3.4] } }); ids.push(pl); hook(pl, pick); }
+				if (pp) { await map.addLayer({ id: pp, type: "circle", source: pp, minzoom: 9, paint: circle }); ids.push(pp); hook(pp, pick); }
+			}
+		}
+		return ids;
+	})().catch(e => { console.warn(TAG, "extras layer", l.id, e); return [] as string[]; })).get(l.id)!;
+	const xlSet = async (l: typeof X.layers[number], on: boolean) => { if (!on && !xlReady.has(l.id)) return; for (const id of await xlAdd(l)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); };
+	$$<HTMLInputElement>("[data-xl]").forEach(b => { const l = X.layers.find(x => x.id === b.dataset.xl)!; b.onchange = () => { xlSet(l, b.checked); }; if (b.checked) xlSet(l, true); });
 
 	// ── 暮らし：施設の検索（common/bigtable の表・本人 2026-10-22）──
 	// 行＝選んだ地区（区・全市）× 出している種別（上のチップ）の施設。窓の文字＝名称・種別・区・住所の部分一致（表記の揺れは normJa で揃える）。
@@ -812,7 +859,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const [, rail, , sh] = await Promise.all([loadFac(), loadRail(), loadBus(), loadShelters()]);
 		if (walkOut.dataset.run !== run) return;
 		const rows: [string, string, number[]][] = [];
-		if (fac) FACILITY_CATS.forEach((c, i) => { const n = countRings(fac!, at, r => r[3] === i); if (n[n.length - 1]) rows.push([c.color, t(c.name), n]); });
+		if (fac) FACILITY_CATS.forEach((c, i) => { const n = countRings(fac!, at, r => r[3] === i); if (n[n.length - 1]) rows.push([c.color, tn(c.name), n]); });
 		if (sh) { const seen = new Set<string>(); rows.push(["#1f9d55", t("Evacuation sites"), countRings(sh.filter(r => !seen.has(siteName(r[2])) && !!seen.add(siteName(r[2]))), at)]); }   // 棟ごとの行を 1 か所に
 		if (bus) rows.push(["#ef6c00", t("Bus stops"), countRings(bus, at)]);
 		if (rail) rows.push(["#37474f", t("Railway stations"), countRings(rail.stations.filter(s => distM(at, [s[0], s[1]]) > 30 && s[2] !== ja), at)]);   // 自分の駅（他社の同じ名の駅も）は数えない
@@ -1273,7 +1320,8 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			if (!r) return { m: distM(at, to), k: -1 };
 			routes.push(r.path); return { m: r.m, k: routes.length - 1 }; };
 		const best = <T extends [number, number, ...unknown[]]>(cands: { row: T }[], n = 1) => cands.map(c => ({ row: c.row, w: way([c.row[0], c.row[1]]) })).sort((a, b) => a.w.m - b.w.m).slice(0, n);
-		const walk = (w: Way, to: string) => { if (w.k >= 0) routeTo[w.k] = to; return w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
+		const walk = (w: Way, to: string) => { if (w.k >= 0) routeTo[w.k] = to; return w.k < 0 && w.m > 3000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1)))   /* 道の網の外で 3 km を超える＝歩く話でない（町村の外の駅・本署＝生活圏・2026-11-21）＝直線の km だけ */
+			: w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
 			: `${esc(t("$1 m · about $2 min on foot", num(Math.round(w.m)), Math.max(1, Math.round(w.m / 80))))} <button type="button" class="wroute" data-k="${w.k}">${esc(t("Route"))}</button>`; };
 		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${esc(legend[i].color)}"></i>${esc(t(legend[i].label))}</span>`;
 		const out: string[] = [];
@@ -1286,7 +1334,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const sta: { row: StationRow; w: Way }[] = [];
 		if (rail) for (const r of best(nearestRows(rail.stations, at, 8), 8)) { if (!sta.some(s => s.row[2] === r.row[2])) sta.push(r); if (sta.length >= 2) break; }
 		const bs = bus ? best(nearestRows(bus, at, 4))[0] : null;
-		if (sta.length || bs) out.push(`<h3>${esc(t("Getting around"))}</h3><div class="pr">${sta.map(({ row: r, w }) => row(t("$1 Station", staName(r[2])), walk(w, t("$1 Station", staName(r[2]))))).join("")}${bs ? row(t("Bus stops"), `${esc(stopName(bs.row[2]))}<br><small>${walk(bs.w, stopName(bs.row[2]))}</small>`) : ""}</div>${sta[0] ? `<button type="button" class="walkr" data-lon="${sta[0].row[0]}" data-lat="${sta[0].row[1]}" data-name="${esc(staName(sta[0].row[2]))}" data-ja="${esc(sta[0].row[2])}">${esc(t("Walking distance from $1", t("$1 Station", staName(sta[0].row[2]))))}</button>` : ""}`);
+		if (sta.length || bs) out.push(`<h3>${esc(t("Getting around"))}</h3><div class="pr">${sta.map(({ row: r, w }) => row(t("$1 Station", staName(r[2])), walk(w, t("$1 Station", staName(r[2]))))).join("")}${bs ? row(t("Bus stops"), `${esc(stopName(bs.row[2]))}<br><small>${walk(bs.w, stopName(bs.row[2]))}</small>`) : ""}</div>${sta[0] && sta[0].row[0] >= city.bbox[0] - 0.02 && sta[0].row[0] <= city.bbox[2] + 0.02 && sta[0].row[1] >= city.bbox[1] - 0.02 && sta[0].row[1] <= city.bbox[3] + 0.02 /* 歩ける道の台帳の枠の中の駅だけ（町村の生活圏の駅は外＝徒歩圏は出さない） */ ? `<button type="button" class="walkr" data-lon="${sta[0].row[0]}" data-lat="${sta[0].row[1]}" data-name="${esc(staName(sta[0].row[2]))}" data-ja="${esc(sta[0].row[2])}">${esc(t("Walking distance from $1", t("$1 Station", staName(sta[0].row[2]))))}</button>` : ""}`);
 		// 防災＝想定浸水（3 つの想定）・土砂・水が届く階・最寄りの避難場所
 		const worst = Math.max(...depths), ev = sh ? best(nearestSites(sh, at, 4))[0] : null;
 		out.push(`<h3>${esc(t("Disasters"))}</h3><div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div>${ev ? row(t("Nearest evacuation sites"), `${esc(shName(ev.row))}<br><small>${walk(ev.w, shName(ev.row))}</small>`) : ""}</div>`
@@ -1310,7 +1358,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			const pick = (n: string, i: number) => { const rows = fac!.filter(r => subOf(r[3], r[5]) === i), cityLib = n === "Libraries" ? rows.filter(r => r[2].startsWith(city.addrPrefix)) : [];
 				return best(nearestRows(cityLib.length ? cityLib : rows, at, 3))[0]; };
 			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: pick(n, i) })).filter(x => x.r);
-			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w, facName(r!.row))}</small>`)).join("")}</div>`);
+			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(tn(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w, facName(r!.row))}</small>`)).join("")}</div>`);
 		}
 		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
 		// 管轄の署の名（台帳は日本語だけ）＝日本語以外は施設の台帳の同じ署の英語（「南消防署」→ 旭川市消防本部南消防署の行 → Minami Fire Station）
@@ -1462,6 +1510,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		for (const s of SPOTS) out.push({ ja: s.wiki, en: s.name, loc: t(s.name), note: wardName(s.ward), c: [s.lon, s.lat] });
 		const [pl, fc] = await Promise.all([ledger<{ rows: [number, number, string, string, number][] }>("places.json"), ledger<{ rows: FacilityRow[] }>("facilities.json"), enP]);
 		for (const r of pl?.rows || []) out.push({ ja: r[2], en: r[3], note: "", c: [r[0], r[1]] });
+		for (const l of X.layers) for (const r of l.rows || []) out.push({ ja: r[2], en: r[5] || "", note: l.label, c: [r[0], r[1]] });   // 後から足した層の点も引ける
 		for (const r of fc?.rows || []) { const en = EN?.rows?.[`${r[2]}|${r[4]}`]; out.push({ ja: r[2], en: en?.[0] || "", note: lang === "ja" ? r[4] : en?.[1] || r[4], c: [r[0], r[1]] }); }
 		await Promise.all(WARDS.map(async w => {
 			const fcw = await ledger<SmallFC>(`census/${w.code}.json`);

@@ -17,6 +17,12 @@
 //               prefKind／localKind＝県名の後の字・「◯立」の字（既定「県・府・都」・北海道＝pref "北海道"・prefKind ""・localKind "道"）・jo: true＝住所の条丁目（札幌）
 //   min       … 下限の調整 { walk, places, stawiki, towns }
 //   fitBox    … 区と市の「収める枠」に数える範囲 [w,s,e,n]（遠い沖の島を外す・福岡の小呂島）。省くと全部（横浜・京都）
+//   町村（2026-11-21 川場村・草津町＝docs/citytwin-guide.md）：
+//   gun       … 郡の名（"利根郡"）＝住所と郵便番号データの「利根郡川場村」の頭を外す
+//   lifeBox   … 生活圏の枠 [w,s,e,n]＝町村の外でも採る範囲（最寄りの駅と線・本署の警察署・消防署・CITY.majorHospitals に挙げた病院）。省くと市の中だけ（今までの市）
+//   stationNames … 生活圏の駅のうち採る駅の名（["長野原草津口"]＝バスの出る玄関の駅だけ・直線で近いだけの無人駅を「最寄り駅」に出さない）。省くと生活圏の駅を全部
+//   policeNames … 管轄の面を採る警察署の名（町村に本署が無い＝["沼田警察署"]）。省くと市内の本署
+//   allowEmpty  … true＝施設の出どころが 0 件でも止めない（消防署の無い村）・dropNames … 台帳から外す施設の名の式
 //
 //
 // 出す物（座標は経度・緯度の小数 5 桁＝約 1m）：
@@ -63,6 +69,8 @@ net.setDefaultAutoSelectFamilyAttemptTimeout?.(2500);
 // 市の外接矩形に少し余白（市境をまたぐ線と駅を切らない）＝BOX（bakeCity で決める）
 const M = 0.02;
 const inBox = ([x, y]) => x >= BOX[0] && x <= BOX[2] && y >= BOX[1] && y <= BOX[3];
+// 生活圏の枠（町村＝BAKE.lifeBox）。無い市は市の枠と同じ
+const inLife = ([x, y]) => inBox([x, y]) || (!!B.lifeBox && x >= B.lifeBox[0] && x <= B.lifeBox[2] && y >= B.lifeBox[1] && y <= B.lifeBox[3]);
 const r5 = v => Math.round(v * 1e5) / 1e5;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -233,7 +241,7 @@ async function rail() {
 	const ln = [];
 	for (const f of lines) {
 		const g = f.geometry; const parts = g.type === "LineString" ? [g.coordinates] : g.coordinates;
-		const keep = parts.filter(c => c.some(inBox)).map(c => dp(c, 0.00003));
+		const keep = parts.filter(c => c.some(inLife)).map(c => dp(c, 0.00003));
 		if (keep.length) ln.push({ type: "Feature", properties: { line: f.properties.N02_003, op: f.properties.N02_004, subway: isSub(f.properties) ? 1 : 0 }, geometry: { type: "MultiLineString", coordinates: keep } });
 	}
 	// 駅＝N02 は駅のホームの線＝中点を代表点に。同じ名前で 400m 以内（乗換駅）は 1 点に畳み、乗り入れる路線を並べる。地下鉄は地下鉄だけで畳む（記号を付けるため）
@@ -241,7 +249,7 @@ async function rail() {
 	for (const f of st) {
 		const c = (f.geometry.type === "LineString" ? f.geometry.coordinates : f.geometry.coordinates.flat());
 		const m = c[Math.floor(c.length / 2)];
-		if (inBox(m)) raw.push({ x: m[0], y: m[1], name: f.properties.N02_005, line: `${f.properties.N02_004} ${f.properties.N02_003}`, subway: isSub(f.properties) ? 1 : 0 });
+		if (inLife(m) && (!B.stationNames || (m[0] >= CITY.bbox[0] && m[0] <= CITY.bbox[2] && m[1] >= CITY.bbox[1] && m[1] <= CITY.bbox[3]) || B.stationNames.includes(f.properties.N02_005))) raw.push({ x: m[0], y: m[1], name: f.properties.N02_005, line: `${f.properties.N02_004} ${f.properties.N02_003}`, subway: isSub(f.properties) ? 1 : 0 });
 	}
 	const groups = [];
 	for (const s of raw) {
@@ -284,13 +292,19 @@ const SRC = () => [
 		kind: p => ({ "03001": "美術館", "03002": "博物館・資料館", "03003": "図書館", "03004": "水族館", "03005": "動植物園" })[p.P27_004] || "" },
 	{ url: `P28/P28-22/P28-22_${PREF}.zip`, re: /P28-\d+_\d\d/, label: "P28 国・都道府県の機関", cat: p => /^03/.test(p.P28_002) ? 3 : 0, name: "P28_003", addr: "P28_004",
 		kind: p => ({ "03001": "美術館", "03002": "博物館・資料館", "03003": "図書館", "03004": "水族館", "03005": "動植物園" })[p.P28_002] || ({ 1: "国の機関", 2: "県の機関" })[+p.P28_005] || "国・県の機関" },
-	{ url: `P17/P17-12/P17-12_${PREF}_GML.zip`, re: /P17-\d+_\d\d_FireStation/, label: "P17 消防署", cat: () => 4, name: "P17_001", addr: "P17_004", kind: p => ({ 1: "消防本部", 2: "消防署", 3: "出張所" })[p.P17_003] || "" },
-	{ url: `P18/P18-12/P18-12_${PREF}_GML.zip`, re: /P18-\d+_\d\d_PoliceStation/, label: "P18 警察署", cat: () => 5, name: "P18_001", addr: "P18_004",
+	{ url: `P17/P17-12/P17-12_${PREF}_GML.zip`, re: /P17-\d+_\d\d_FireStation/, label: "P17 消防署", cat: () => 4, name: "P17_001", addr: "P17_004", life: p => B.fireRe.test(String(p.P17_001 || "")), kind: p => ({ 1: "消防本部", 2: "消防署", 3: "出張所" })[p.P17_003] || "" },
+	{ url: `P18/P18-12/P18-12_${PREF}_GML.zip`, re: /P18-\d+_\d\d_PoliceStation/, label: "P18 警察署", cat: () => 5, name: "P18_001", addr: "P18_004", life: p => !!B.policeNames?.includes(String(p.P18_001 || "").trim()),
 		kind: p => ({ 1: "警察本部", 2: "警察署", 3: "分庁舎", 4: "交番", 5: "駐在所", 6: "派出所", 7: "警察学校", 8: "地域安全センター" })[p.P18_003] || "" },
-	{ url: `P04/P04-20/P04-20_${PREF}_GML.zip`, re: /P04-\d+_\d\d/, label: "P04 医療機関", cat: () => 6, name: "P04_002", addr: "P04_003", keep: p => +p.P04_001 === 1, kind: () => "病院" },   // 病院だけ（診療所・歯科は採らない）
+	{ url: `P04/P04-20/P04-20_${PREF}_GML.zip`, re: /P04-\d+_\d\d/, label: "P04 医療機関", cat: () => 6, name: "P04_002", addr: "P04_003", keep: p => +p.P04_001 === 1, life: p => CITY.majorHospitals.some(h => String(p.P04_002 || "").includes(h.key)), kind: () => "病院" },   // 病院だけ（診療所・歯科は採らない）
 ];
 // 区の面（N03・間引き前）＝点がどの区にあるか。外接矩形で先に篩う
-let wardPolys;
+let wardPolys, muniPolys;
+const ringHas = (ring, x, y) => { let inside = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside; } return inside; };
+/** 生活圏の施設（町村の外）の市町村の名（N03 の面）＝住所の頭に補う（「沼田市」） */
+async function muniOf([x, y]) {
+	muniPolys ??= (await ksjFeatures(N03_URL, /N03-\d+_\d\d/)).flatMap(f => { const g = f.geometry, n = `${f.properties.N03_004 || ""}${f.properties.N03_005 || ""}`; return !g || !n ? [] : (g.type === "Polygon" ? [g.coordinates] : g.coordinates).map(p => ({ n, ring: p[0] })); });
+	return muniPolys.find(m => ringHas(m.ring, x, y))?.n ?? "";
+}
 async function wardOf([x, y]) {
 	if (!wardPolys) {
 		wardPolys = [];
@@ -311,7 +325,8 @@ async function wardOf([x, y]) {
 	return null;
 }
 /** 住所を「横浜市◯◯区…」に揃える（県名は落とし、市名・区名が無ければ補う） */
-const fullAddr = (addr, w) => { const a = addr.startsWith(B.prefName) ? addr.slice(B.prefName.length) : addr; return a.startsWith(NAME) ? a : a.startsWith(w.name) || (a && w.name === NAME) ? NAME + a : a ? `${NAME}${w.name}${a}` : ""; };   // 区の無い市（旭川）＝区の名が市の名
+const noPref = addr => { let a = addr.startsWith(B.prefName) ? addr.slice(B.prefName.length) : addr; if (B.gun && a.startsWith(B.gun)) a = a.slice(B.gun.length); return B.gun && a.startsWith(NAME + NAME) ? a.slice(NAME.length) : a; };   // 町村＝郡の名を外す・出どころで二重になった町村の名（「川場村川場村谷地」）を 1 つに
+const fullAddr = (addr, w) => { const a = noPref(addr); return a.startsWith(NAME) ? a : a.startsWith(w.name) || (a && w.name === NAME) ? NAME + a : a ? `${NAME}${w.name}${a}` : ""; };   // 区の無い市（旭川）＝区の名が市の名
 async function facilities() {
 	const rows = [];
 	for (const s of SRC()) {
@@ -322,15 +337,18 @@ async function facilities() {
 		const seen = new Set();
 		for (const f of feats) {
 			const p = f.properties, c = firstPt(f.geometry);
-			if (!c || !inBox(c) || (s.keep && !s.keep(p))) continue;
-			const w = await wardOf(c); if (!w) continue;   // 市外（川崎・鎌倉…）は落とす
+			if (!c || !inLife(c) || (s.keep && !s.keep(p))) continue;
+			const w = inBox(c) ? await wardOf(c) : null;
+			const far = !w && !!B.lifeBox && !!s.life?.(p);   // 町村の外の、生活圏の施設（駅前の本署・広域の消防署・挙げた病院）
+			if (!w && !far) continue;   // 市外（川崎・鎌倉…）は落とす
 			const name = String(p[s.name] ?? "").trim();
-			if (!name) continue;
+			if (!name || B.dropNames?.test(name)) continue;   // dropNames＝台帳の誤り（国の機関に入った民間のホテル・草津）
 			const k = `${name}|${r5(c[0])}|${r5(c[1])}`; if (seen.has(k)) continue; seen.add(k);
-			rows.push([r5(c[0]), r5(c[1]), name, s.cat(p), fullAddr(String(p[s.addr] ?? "").trim(), w), s.kind(p)]); n++;
+			const addr = String(p[s.addr] ?? "").trim();
+			rows.push([r5(c[0]), r5(c[1]), name, s.cat(p), w ? fullAddr(addr, w) : (m => { const a = noPref(addr).replace(/^\S{1,4}?郡(?=.+[町村])/, ""); return a.startsWith(m) ? a : m + a; })(await muniOf(c)), s.kind(p)]); n++;
 		}
 		console.log(`${s.label}: ${n} 件`);
-		if (!n) throw new Error(`${s.label}: 0 件（列名を --inspect で確かめる）`);
+		if (!n && !B.allowEmpty) throw new Error(`${s.label}: 0 件（列名を --inspect で確かめる）`);
 	}
 	if (INSPECT) return;
 	for (let i = 0; i < CATS.length; i++) console.log(`  ${CATS[i]}: ${rows.filter(r => r[3] === i).length}`);
@@ -346,7 +364,7 @@ async function photos() {
 	for (const s of [...SPOTS, ...STORY.filter(c => !c.photo && c.wiki !== NAME)]) {   // 物語の章は、名所の写真を借りない章だけ焼く。市そのものの記事の代表画像は章と無関係（旭川 1902 年の −41 °C に彫刻美術館 2026-11-17）＝写真なし
 		const d = await get(api, { action: "query", prop: "pageimages", piprop: "thumbnail|name", pithumbsize: "640", titles: s.wiki, redirects: "1" });
 		const pg = d.query?.pages?.[0];
-		if (!pg?.pageimage || !pg.thumbnail) { console.warn(`✗ 写真なし：${s.name}（${s.wiki}）`); continue; }
+		if (!pg?.pageimage || !pg.thumbnail || /^Gthumb\.svg$/i.test(pg.pageimage)) { console.warn(`✗ 写真なし：${s.name}（${s.wiki}）`); continue; }   // Gthumb.svg＝基礎情報の仮の絵（写真でない・草津の栗生楽泉園 2026-11-21）
 		const ii = (await get(commons, { action: "query", prop: "imageinfo", iiprop: "extmetadata", titles: `File:${pg.pageimage}` })).query?.pages?.[0]?.imageinfo?.[0]?.extmetadata;
 		if (!ii) { console.warn(`✗ Commons に無い（ja だけの画像）：${s.name}`); continue; }
 		const text = v => String(v?.value ?? "").replace(/<[^>]*>/g, " ").replace(/[<>]/g, "").replace(/\s+/g, " ").trim();   // 札を外した後に残る < > も落とす（入れ子・閉じない札）。頁では文字として出す
@@ -432,7 +450,7 @@ async function census() {
 		}
 		const tot = feats.reduce((a, f) => a + f.properties.p, 0);
 		console.log(`小地域：${w.name} ${feats.length} 面・人口 ${tot}`);
-		if (feats.length < 20) throw new Error(`小地域が少ない：${w.name}`);
+		if (feats.length < (B.min?.small ?? 20)) throw new Error(`小地域が少ない：${w.name}`);
 		write(`census/${w.code}.json`, fc(feats));
 	}
 }
@@ -472,7 +490,7 @@ async function schoolAreas(label, url, re, pre, file) {
 	if (INSPECT) return inspect(label, feats);
 	const out = [];
 	for (const f of feats) { const p = f.properties, g = f.geometry && slimPoly(f.geometry);
-		if (!g || p[pre + "_001"] !== B.cityCode || !String(p[pre + "_002"] || "").startsWith(NAME)) continue;   // 市（14100）の市立だけ
+		if (!g || p[pre + "_001"] !== B.cityCode || !noPref(String(p[pre + "_002"] || "")).startsWith(NAME)) continue;   // 市（14100）の市立だけ
 		out.push({ type: "Feature", properties: { n: String(p[pre + "_004"] || "").trim(), a: String(p[pre + "_005"] || "").trim() }, geometry: g }); }
 	areaReport(label, out);
 	write(file, fc(out));
@@ -485,7 +503,7 @@ async function police() {
 	if (INSPECT) return inspect("P18 警察署の管轄", areas);
 	// 横浜市内の署＝点（PoliceStation）の行政区域が横浜市の区（14101〜14118＝1413x の川崎・1415x の相模原を拾わない）の警察署。管轄の面はその署の名で選ぶ
 	const st = await ksjFeatures(zipUrl, /P18-\d+_\d\d_PoliceStation/);   // 先に並ぶ PoliceStation.shp が当たる（Jurisdiction より前）
-	const names = new Set(st.filter(f => B.wardOnlyRe.test(String(f.properties.P18_002)) && String(f.properties.P18_003) === "2").map(f => String(f.properties.P18_001).trim()));
+	const names = new Set(B.policeNames ?? st.filter(f => B.wardOnlyRe.test(String(f.properties.P18_002)) && String(f.properties.P18_003) === "2").map(f => String(f.properties.P18_001).trim()));
 	const out = mergeByName(areas.filter(f => names.has(String(f.properties.P18_005).trim())).map(f => ({ properties: { n: String(f.properties.P18_005).trim() }, geometry: slimPoly(f.geometry) })).filter(f => f.geometry));
 	areaReport(`警察署の管轄（${NAME}内の署 ${names.size}）`, out);
 	const miss = [...names].filter(n => !out.some(f => f.properties.n === n)); if (miss.length) console.warn(`  管轄の面が無い署：${miss.join("・")}`);
@@ -581,6 +599,7 @@ async function makeE() {
 	const towns = new Map();
 	for (const line of csv.split(/\r?\n/)) {
 		const f = line.split(",").map(x => x.replace(/^"|"$/g, ""));
+		if (B.gun && f[7]?.startsWith(B.gun)) f[7] = f[7].slice(B.gun.length);
 		if (!f[7]?.startsWith(NAME) || !f[8] || f[8].startsWith("以下に掲載がない")) continue;
 		const k = f[8].replace(/（.*$/, ""), r = f[5].normalize("NFKC").replace(/\(.*$/, "");
 		if (k && r && !towns.has(k)) towns.set(k, r);
@@ -631,6 +650,8 @@ export async function bakeCity(bake, cacheDir) {
 	N03_URL = `${KSJ}N03/N03-2025/N03-20250101_${PREF}_GML.zip`;
 	BOX = [CITY.bbox[0] - M, CITY.bbox[1] - M, CITY.bbox[2] + M, CITY.bbox[3] + M];
 	fs.mkdirSync(CACHE, { recursive: true }); fs.mkdirSync(OUT, { recursive: true });
+	// 後から足す物の台帳（extras.json＝名所と地図の層・手で書く）＝無ければ空の器を置く。焼きは中身に触れない（docs/citytwin-guide.md「後から足す」）
+	if (!fs.existsSync(path.join(OUT, "extras.json"))) fs.writeFileSync(path.join(OUT, "extras.json"), '{\n\t"spots": [],\n\t"layers": []\n}\n');
 	for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en, places, stawiki, census })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) {
 		if (bake.skip?.includes(k)) { console.log(`（${k} はこの市では焼かない）`); continue; }
 		await fn();

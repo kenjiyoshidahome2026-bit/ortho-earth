@@ -186,6 +186,8 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	const name = (ja, cat) => name0(ja, cat).replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();   // 読めずに残った字は出さない
 	const name0 = (ja, cat) => {
 		if (EN_EXACT[ja]) return EN_EXACT[ja];
+		if (city.exact?.[ja]) return city.exact[ja];   // 市町村の設定の訳（名と同じ時だけ・町村の短い名「公民館」）。無い市は今まで通り
+		for (const [k, v] of Object.entries(city.fix ?? {})) if (ja.includes(k)) return v;   // 市町村の設定の固有の訳（名がこの語を含めば）。無い市は今まで通り（2026-11-21 川場・草津・朝倉）
 		for (const [k, v] of Object.entries(EN_FIX)) if (ja.includes(k)) return v;
 		const cons = consulate(normJp(ja), city.en); if (cons) return cons;
 		let s = normJp(ja).replace(/\([^)]*\)/g, "");   // 括弧の中（愛称）は落とす
@@ -216,7 +218,14 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	};
 	/** 住所（「横浜市港北区菊名7-8-27」）→「7-8-27 Kikuna, Kohoku-ku」（横浜市は書かない） */
 	const addr = (ja, wardEn) => {
-		let s = normJp(ja).replace(re("^@P@K"), "").replace(re("^@C市"), "").replace(/^\S+?区/, "");
+		let s = normJp(ja).replace(re("^@P@K"), "");
+		// 町村（BAKE.en.kind＝"町"|"村"）：郡の名・町村の名・「大字」「字」を外す。生活圏の外の市町村（BAKE.en.outside＝{ 沼田市: "Numata City" }）はその名を後ろに書く。設定の無い市は今まで通り
+		if (city.gun) s = s.replace(new RegExp(`^${city.gun}`), "");
+		const out = Object.entries(city.outside ?? {}).find(([k]) => s.startsWith(k));
+		if (out) { s = s.slice(out[0].length); wardEn = out[1]; }
+		else if (city.kind) s = s.replace(re(`^@C${city.kind}`), "");
+		if (city.kind) s = s.replace(/^大字/, "").replace(/(\D)字(?=\D)/, "$1 ");
+		s = s.replace(re("^@C市"), "").replace(/^\S+?区/, "");
 		if (city.jo) { const j = joAddr(s); if (j) return `${j}${wardEn ? `, ${wardEn}` : ""}`; }   // 札幌の条丁目
 		s = s.replace(/([一二三四五六七八九十]+)丁目/, (_, n) => kanjiNum(n) + "-").replace(/番地?の?/g, "-").replace(/号/g, "").replace(/-+$/, "").replace(/-{2,}/g, "-");
 		const m = s.match(/^(\D*?)(\d[\d-]*)(.*)$/);
@@ -257,7 +266,7 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	};
 	/** 駅の名（「京急鶴見」）→ Keikyu Tsurumi（「駅」は付けない＝画面が "$1 Station" で付ける） */
 	const ascii = v => v.replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();   // 読めずに残った字は出さない
-	const station = ja => STATION_EN[ja] || stations[ja] || ascii(proper(normJp(ja).replace(/駅$/, "")));   // stations＝市の設定で渡す駅の英語（京都＝OSM の name:en・読みの辞書は「宝ヶ池」を Takara Kechi にした）
+	const station = ja => city.stations?.[ja] || STATION_EN[ja] || stations[ja] || ascii(proper(normJp(ja).replace(/駅$/, "")));   // stations＝市の設定で渡す駅の英語（京都＝OSM の name:en・読みの辞書は「宝ヶ池」を Takara Kechi にした）
 	/** バス停の名：「鶴見駅西口」→ Tsurumi Station West Exit・「奈良小学校前」→ Nara Elementary School・「最乗寺前」→ Saijoji-mae */
 	const stop = ja => STOP_EN[ja] || ascii(stop0(ja));
 	const stop0 = ja => {
@@ -270,6 +279,7 @@ export function makeEn({ towns, wards, tokenize, city = { ja: "横浜", en: "Yok
 	};
 	/** 避難場所：「横浜市立市場小学校　校舎２８（３階以上）」→ Shijo Elementary School, Building 28 (3rd floor and above) */
 	const shelter = ja => {
+		if (city.shelters?.[ja]) return city.shelters[ja];   // 市町村の設定の避難場所の訳（名と同じ時だけ）。無い市は今まで通り
 		let s = normJp(ja).trim(), tail = "";
 		// 末の括弧（「（３階以上）」「（※２階以上）」「（※洪水は計画規模）」）を全部読む＝計画規模と最大規模で階が違う行を分ける
 		const notes = [];

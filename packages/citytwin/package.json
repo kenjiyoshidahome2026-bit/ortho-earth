@@ -4,7 +4,7 @@
 	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
-	"description": "市のデジタルツインの共通の芯（案内板・暮らし／交通／観光／防災／解析の面・わが家のまわり・歩ける道・通信なしの束）＝横浜市（/yokohama/）・京都市（/kyoto/）・福岡市（/fukuoka/）・札幌市（/sapporo/）・旭川市（/asahikawa/）が共に読む。本番は共有エンジンの入口 /globe/engine/<版>/citytwin/*.js（2026-11-14）",
+	"description": "市のデジタルツインの共通の芯（案内板・暮らし／交通／観光／防災／解析の面・わが家のまわり・歩ける道・通信なしの束）＝横浜市（/yokohama/）・京都市（/kyoto/）・福岡市（/fukuoka/）・札幌市（/sapporo/）・旭川市（/asahikawa/）・朝倉市（/asakura/）・川場村（/kawaba/）・草津町（/kusatsu/）が共に読む。本番は共有エンジンの入口 /globe/engine/<版>/citytwin/*.js（2026-11-14）",
 	"exports": {
 		".": "./src/twin.ts",
 		"./core": "./src/core.ts",
