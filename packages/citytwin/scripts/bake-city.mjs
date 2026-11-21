@@ -20,6 +20,7 @@
 //   町村（2026-11-21 川場村・草津町＝docs/citytwin-guide.md）：
 //   gun       … 郡の名（"利根郡"）＝住所と郵便番号データの「利根郡川場村」の頭を外す
 //   lifeBox   … 生活圏の枠 [w,s,e,n]＝町村の外でも採る範囲（最寄りの駅と線・本署の警察署・消防署・CITY.majorHospitals に挙げた病院）。省くと市の中だけ（今までの市）
+//   stationNames … 生活圏の駅のうち採る駅の名（["長野原草津口"]＝バスの出る玄関の駅だけ・直線で近いだけの無人駅を「最寄り駅」に出さない）。省くと生活圏の駅を全部
 //   policeNames … 管轄の面を採る警察署の名（町村に本署が無い＝["沼田警察署"]）。省くと市内の本署
 //   allowEmpty  … true＝施設の出どころが 0 件でも止めない（消防署の無い村）・dropNames … 台帳から外す施設の名の式
 //
@@ -248,7 +249,7 @@ async function rail() {
 	for (const f of st) {
 		const c = (f.geometry.type === "LineString" ? f.geometry.coordinates : f.geometry.coordinates.flat());
 		const m = c[Math.floor(c.length / 2)];
-		if (inLife(m)) raw.push({ x: m[0], y: m[1], name: f.properties.N02_005, line: `${f.properties.N02_004} ${f.properties.N02_003}`, subway: isSub(f.properties) ? 1 : 0 });
+		if (inLife(m) && (!B.stationNames || (m[0] >= CITY.bbox[0] && m[0] <= CITY.bbox[2] && m[1] >= CITY.bbox[1] && m[1] <= CITY.bbox[3]) || B.stationNames.includes(f.properties.N02_005))) raw.push({ x: m[0], y: m[1], name: f.properties.N02_005, line: `${f.properties.N02_004} ${f.properties.N02_003}`, subway: isSub(f.properties) ? 1 : 0 });
 	}
 	const groups = [];
 	for (const s of raw) {

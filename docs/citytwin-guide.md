@@ -65,7 +65,7 @@
 | 区域の層 | 用途地域・小／中学校区 | 同じ | 用途地域は有る時だけ |
 | 急病の案内 | 夜間急病センター＋ #7119 | 確かめられた物だけ | 公式に確かめられない時は出さない |
 | 歴史の章 | 6〜8 | 6〜8 | 5〜7 |
-| `BAKE` の追加 | `subwayOp`・`fitBox` | 無し | `gun`・`lifeBox`・`policeNames`・`allowEmpty`・`dropNames`・`min.small` |
+| `BAKE` の追加 | `subwayOp`・`fitBox` | 無し | `gun`・`lifeBox`・`stationNames`・`policeNames`・`allowEmpty`・`dropNames`・`min.small` |
 | オフライン保存の目安 | 450〜550 MB | 100〜180 MB | 100 MB 未満 |
 
 オフライン保存の大きさは、Mac で本番と同じ build を配信して実測し、`OFFLINE_MB` に書く（見積もりのまま出さない）。
