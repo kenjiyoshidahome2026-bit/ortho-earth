@@ -101,7 +101,7 @@ export const OFFLINE_MB = 60;   // 実測（MacBook・本番と同じ build を�
 export const CITY: CityConfig = {
 	id: "kusatsu", key: "ks",
 	title: "Kusatsu Digital Twin", cityName: "Kusatsu Town", allWards: "Kusatsu Town", outside: "Outside Kusatsu Town.",
-	wholeCityTitle: "Show all of Kusatsu Town", flatNote: "Shown on the flat map (press Whole city to see all of Kusatsu Town).", zonesTitle: "Zoning and jurisdictions",
+	wholeCityTitle: "Show all of Kusatsu Town", flatNote: "Shown on the flat map (press Whole town to see all of Kusatsu Town).", zonesTitle: "Zoning and jurisdictions",
 	addrPrefix: "草津町", bbox: CITY_BBOX, view: CITY_VIEW, maskBox: MASK_BOX,
 	wards: WARDS, spots: SPOTS, tour: TOUR,
 	tourIntro: "A hot spring town about 1,200 m above the sea, at the foot of Mount Kusatsu-Shirane. From Yubatake to the crater lake, a tour through the town in 3D.",
@@ -120,6 +120,7 @@ export const CITY: CityConfig = {
 	emergency: {
 		advice: { text: "Unsure whether to call an ambulance? Gunma emergency advice line, 24 hours:", tel: "#7119" },   // 群馬県救急安心センター（2025-10-01 開始・県の頁で確認 2026-11-21）
 	},
+	unit: { whole: "Whole town", office: "Town office", offices: "Town office and government" },   // 町村の字（「市全体」「区役所」を出さない・2026-11-21）
 	majorHospitals: MAJOR_HOSPITALS,
 	groundCenter: true,   // 山と谷の地形＝注視点を地面に（京都・札幌・旭川と同じ）
 	homeJuris: true,      // 区が無い＝警察署・消防署の管轄をわが家のカードに出す

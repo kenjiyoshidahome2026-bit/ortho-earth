@@ -45,6 +45,9 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 	const hasArea = (id: AreaId) => !city.noAreas?.includes(id);   // 市に台帳のある区域か
 	// 区の無い市（旭川 2026-11-17）＝WARDS が市そのもの 1 つ。区の選びは出さず（市の名だけ）、統計は「市全体」のままでも市の物を出す。区のある市は ""＝従来どおり
 	const ONE = WARDS.length === 1 ? WARDS[0].code : "";
+	// 町村の字（city.unit）＝施設の区分・種別の「区役所」と「市全体」を町村の言い方に（無い市＝今まで通り）
+	const UNIT: Record<string, string> = city.unit ? { "Whole city": city.unit.whole, "Ward offices": city.unit.office, "Ward offices and government": city.unit.offices } : {};
+	const tn = (k: string) => t(UNIT[k] ?? k);
 	const TAG = `[${city.id}]`;   // console の印
 	const Offline = createOffline(city, opts.appBase);
 	// 出典＝表示言語で（地図の出典の欄・2026-10-21 CDP 実測で英語ほか全言語に日本語が残っていた）
@@ -129,7 +132,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			<section data-pane="life">
 				<!-- 市民ファースト（本人 2026-10-25）：地区 → 札（地図の表示＝既定・施設の検索）。2026-11-13 に札の並びを「地図の表示」が先へ -->
 				<h2>${esc(t("District"))}</h2>
-				<div class="wrow">${ONE ? `<b class="wone">${esc(t(city.cityName))}</b>` : ""}<select class="ward" aria-label="${esc(t("District"))}"${ONE ? " hidden" : ""}><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${esc(w.code)}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(t("Whole city"))}</button></div>
+				<div class="wrow">${ONE ? `<b class="wone">${esc(t(city.cityName))}</b>` : ""}<select class="ward" aria-label="${esc(t("District"))}"${ONE ? " hidden" : ""}><option value="">${esc(t(city.allWards))}</option>${WARDS.map(w => `<option value="${esc(w.code)}">${esc(t(w.en))}</option>`).join("")}</select><button type="button" class="stb" hidden aria-expanded="false">${esc(t("Statistics"))}</button><button type="button" class="fitc" title="${esc(t(city.wholeCityTitle))}">${esc(tn("Whole city"))}</button></div>
 				<div class="detail stats-out" hidden></div>
 				<nav class="subtabs" role="tablist"><button type="button" role="tab" data-sub-tab="show" aria-selected="true">${esc(t("Map display"))}</button><button type="button" role="tab" data-sub-tab="find" aria-selected="false">${esc(t("Search facilities"))}</button></nav>
 				<!-- 札の並び＝「地図の表示」が先・既定（本人 2026-11-13） -->
@@ -144,7 +147,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 				<h3>${esc(t("Types of facilities on the map"))}</h3>
 				<div class="fbar fac-bar"><small class="fac-n"></small><button type="button" class="fac-all">${esc(t("Show all"))}</button><button type="button" class="fac-none">${esc(t("Hide all"))}</button></div>
 				<div class="cats">${FACILITY_CATS.map((c, i) => { const subs = FACILITY_SUBS.map((x, j) => ({ x, j })).filter(({ x }) => x.cat === i);
-					return `<div class="cg" data-cg="${i}"><label class="grp"><input type="checkbox" data-cat="${i}"><b><i style="background:${c.color}"></i>${esc(t(c.name))}</b><small></small></label>${subs.length > 1 ? `<button type="button" class="tw" data-tw="${i}" aria-expanded="false" aria-label="${esc(t("Types"))}"></button><div class="kds">${subs.map(({ x, j }) => `<label class="grp kd"><input type="checkbox" data-sub="${j}"><b>${esc(t(x.name))}</b><small></small></label>`).join("")}</div>` : ""}</div>`; }).join("")}</div>
+					return `<div class="cg" data-cg="${i}"><label class="grp"><input type="checkbox" data-cat="${i}"><b><i style="background:${c.color}"></i>${esc(tn(c.name))}</b><small></small></label>${subs.length > 1 ? `<button type="button" class="tw" data-tw="${i}" aria-expanded="false" aria-label="${esc(t("Types"))}"></button><div class="kds">${subs.map(({ x, j }) => `<label class="grp kd"><input type="checkbox" data-sub="${j}"><b>${esc(tn(x.name))}</b><small></small></label>`).join("")}</div>` : ""}</div>`; }).join("")}</div>
 				${X.layers.length ? `<div class="cats xls">${X.layers.map(l => `<div class="cg"><label class="grp"><input type="checkbox" data-xl="${esc(l.id)}"${l.on ? " checked" : ""}><b><i style="background:${l.color}"></i>${esc(l.label)}</b><small>${l.rows?.length ? num(l.rows.length) : ""}</small></label></div>`).join("")}</div>` : ""}
 				<p class="sub flat">${esc(t("They appear as you zoom in. Tap a dot for its name and address."))}</p>
 				<h3>${esc(t(city.zonesTitle))}</h3>
@@ -477,9 +480,9 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		paintChips(true);
 		facTable();
 	})();
-	const facKind = (r: FacilityRow) => lang === "ja" ? r[5] || t(FACILITY_CATS[r[3]]?.name || "") : t(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
+	const facKind = (r: FacilityRow) => lang === "ja" && !(city.unit && r[5] === "区役所") ? r[5] || tn(FACILITY_CATS[r[3]]?.name || "") : tn(FACILITY_SUBS[subOf(r[3], r[5])]?.name || "");
 	const facPop = (r: FacilityRow) => { const c = FACILITY_CATS[r[3]];
-		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? t(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(facName(r))}</b>${r[4] ? `<p>${esc(facAddr(r))}</p>` : ""}`); };
+		openPop([r[0], r[1]], `<div class="pk"><i style="background:${c?.color || "#777"}"></i>${esc(c ? tn(c.name) : "")}${r[5] ? `${lang === "ja" ? "・" : " · "}${esc(facKind(r))}` : ""}</div><b>${esc(facName(r))}</b>${r[4] ? `<p>${esc(facAddr(r))}</p>` : ""}`); };
 	async function setFac(on: boolean) {
 		facOn = on;
 		if (on) await loadFac();
@@ -856,7 +859,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const [, rail, , sh] = await Promise.all([loadFac(), loadRail(), loadBus(), loadShelters()]);
 		if (walkOut.dataset.run !== run) return;
 		const rows: [string, string, number[]][] = [];
-		if (fac) FACILITY_CATS.forEach((c, i) => { const n = countRings(fac!, at, r => r[3] === i); if (n[n.length - 1]) rows.push([c.color, t(c.name), n]); });
+		if (fac) FACILITY_CATS.forEach((c, i) => { const n = countRings(fac!, at, r => r[3] === i); if (n[n.length - 1]) rows.push([c.color, tn(c.name), n]); });
 		if (sh) { const seen = new Set<string>(); rows.push(["#1f9d55", t("Evacuation sites"), countRings(sh.filter(r => !seen.has(siteName(r[2])) && !!seen.add(siteName(r[2]))), at)]); }   // 棟ごとの行を 1 か所に
 		if (bus) rows.push(["#ef6c00", t("Bus stops"), countRings(bus, at)]);
 		if (rail) rows.push(["#37474f", t("Railway stations"), countRings(rail.stations.filter(s => distM(at, [s[0], s[1]]) > 30 && s[2] !== ja), at)]);   // 自分の駅（他社の同じ名の駅も）は数えない
@@ -1355,7 +1358,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			const pick = (n: string, i: number) => { const rows = fac!.filter(r => subOf(r[3], r[5]) === i), cityLib = n === "Libraries" ? rows.filter(r => r[2].startsWith(city.addrPrefix)) : [];
 				return best(nearestRows(cityLib.length ? cityLib : rows, at, 3))[0]; };
 			const near = HOME_NEAR.map(({ n, i }) => ({ n, r: pick(n, i) })).filter(x => x.r);
-			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(t(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w, facName(r!.row))}</small>`)).join("")}</div>`);
+			if (near.length) out.push(`<h3>${esc(t("Nearby facilities"))}</h3><div class="pr">${near.map(({ n, r }) => row(tn(n), `${esc(facName(r!.row))}<br><small>${walk(r!.w, facName(r!.row))}</small>`)).join("")}</div>`);
 		}
 		// まちのきまり＝用途地域（建ぺい率・容積率）。警察署／消防署の管轄は横浜では区と同じ＝出さない（他の自治体で使うかもしれない＝作りは残す・本人 2026-10-25）
 		// 管轄の署の名（台帳は日本語だけ）＝日本語以外は施設の台帳の同じ署の英語（「南消防署」→ 旭川市消防本部南消防署の行 → Minami Fire Station）

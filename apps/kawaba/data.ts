@@ -99,7 +99,7 @@ export const OFFLINE_MB = 60;   // 実測（MacBook・本番と同じ build を�
 export const CITY: CityConfig = {
 	id: "kawaba", key: "kw",
 	title: "Kawaba Digital Twin", cityName: "Kawaba Village", allWards: "Kawaba Village", outside: "Outside Kawaba Village.",
-	wholeCityTitle: "Show all of Kawaba Village", flatNote: "Shown on the flat map (press Whole city to see all of Kawaba Village).", zonesTitle: "Zoning and jurisdictions",
+	wholeCityTitle: "Show all of Kawaba Village", flatNote: "Shown on the flat map (press Whole village to see all of Kawaba Village).", zonesTitle: "Zoning and jurisdictions",
 	addrPrefix: "川場村", bbox: CITY_BBOX, view: CITY_VIEW, maskBox: MASK_BOX,
 	wards: WARDS, spots: SPOTS, tour: TOUR,
 	tourIntro: "A village of about 85 km² at the southern foot of Mount Hotaka. From the roadside station among the fields to the temple of flowers, a tour through the village in 3D.",
@@ -118,6 +118,7 @@ export const CITY: CityConfig = {
 	emergency: {
 		advice: { text: "Unsure whether to call an ambulance? Gunma emergency advice line, 24 hours:", tel: "#7119" },   // 群馬県救急安心センター（2025-10-01 開始・県の頁で確認 2026-11-21）
 	},
+	unit: { whole: "Whole village", office: "Village office", offices: "Village office and government" },   // 町村の字（「市全体」「区役所」を出さない・2026-11-21）
 	majorHospitals: MAJOR_HOSPITALS,
 	noAreas: ["zoning"],   // 用途地域の無い村（都市計画区域の外）
 	groundCenter: true,   // 山と谷の地形＝注視点を地面に（京都・札幌・旭川と同じ）

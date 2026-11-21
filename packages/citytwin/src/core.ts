@@ -514,6 +514,8 @@ export interface CityConfig extends CityWards, CityState {
 	majorHospitals: { key: string; name: string; /** 日本語以外の名（無ければ台帳の英語化＝読みの辞書の当て推量・札幌で Sapporo Ika University になった） */ en?: string }[];
 	/** 警察署・消防署の管轄をわが家のカードに出すか（区と一致しない市なら true） */
 	homeJuris: boolean;
+	/** 町村の字（省くと市の字のまま＝今まで通り）：whole＝「市全体」ボタン・office＝施設の種別「区役所」・offices＝区分「区役所・行政」の代わり（市の頁の辞書の鍵） */
+	unit?: { whole: string; office: string; offices: string };
 	/** 通信なしの保存のおおよその大きさ（MB） */
 	offlineMB: number;
 }
