@@ -649,6 +649,8 @@ export async function bakeCity(bake, cacheDir) {
 	N03_URL = `${KSJ}N03/N03-2025/N03-20250101_${PREF}_GML.zip`;
 	BOX = [CITY.bbox[0] - M, CITY.bbox[1] - M, CITY.bbox[2] + M, CITY.bbox[3] + M];
 	fs.mkdirSync(CACHE, { recursive: true }); fs.mkdirSync(OUT, { recursive: true });
+	// 後から足す物の台帳（extras.json＝名所と地図の層・手で書く）＝無ければ空の器を置く。焼きは中身に触れない（docs/citytwin-guide.md「後から足す」）
+	if (!fs.existsSync(path.join(OUT, "extras.json"))) fs.writeFileSync(path.join(OUT, "extras.json"), '{\n\t"spots": [],\n\t"layers": []\n}\n');
 	for (const [k, fn] of Object.entries({ wards, rail, bus, facilities, photos, zoning, eschool, jschool, police, fire, walk, en, places, stawiki, census })) if (ONLY.includes(k) && !(INSPECT && k === "photos")) {
 		if (bake.skip?.includes(k)) { console.log(`（${k} はこの市では焼かない）`); continue; }
 		await fn();

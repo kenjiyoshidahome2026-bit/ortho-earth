@@ -517,3 +517,60 @@ export interface CityConfig extends CityWards, CityState {
 	/** 通信なしの保存のおおよその大きさ（MB） */
 	offlineMB: number;
 }
+
+// ── 後から足す物（extras.json・2026-11-21 本人「台帳・名所等は各々適時追加できる構造に」）──
+// 台帳の置き場（ortho-data/japan/<市>/）に extras.json を置くと、頁を作り直さずに名所と地図の層が増える（docs/citytwin-guide.md「後から足す」）。
+// 無い市＝今までどおり。壊れた項目は飛ばして残りを出す（1 つの誤記で全部が消えない）。
+/** 言語ごとの文（en は必須＝日本語以外の言語の控え・ja は日本語の画面） */
+export type ExtraText = string | { en: string; ja?: string } & Readonly<Record<string, string | undefined>>;
+/** 足す名所：id（半角の英数と -）・name・note・lon/lat。ward＝区のある市の区コード（省くと住所からは引かない＝""）・tour: true＝名所ツアーの最後に回る・photo＝出典つきの写真 */
+export interface ExtraSpot { id: string; name: ExtraText; note?: ExtraText; lon: number; lat: number; zoom?: number; tilt?: number; bearing?: number; ward?: string; wiki?: string; tour?: boolean; photo?: Partial<Photo> & { src: string } }
+/** 足す層の点の 1 行 [経度, 緯度, 名, 住所?, 一言?, 英語の名?, 英語の住所?] */
+export type ExtraRow = [number, number, string, string?, string?, string?, string?];
+/** 足す層：点の表 rows、または GeoJSON の台帳 file（置き場からの相対・点＝丸・線＝線・面＝薄い塗りと線・properties の name／note（と name_en／note_en）を吹き出しに）。on: true＝最初から出す */
+export interface ExtraLayer { id: string; name: ExtraText; color?: string; rows?: ExtraRow[]; file?: string; on?: boolean; source?: { name: string; url?: string } }
+export interface Extras { spots: Spot[]; tour: string[]; photos: Record<string, Photo>; layers: (ExtraLayer & { label: string; color: string })[]; /** 飛ばした項目の訳（検定と console） */ errors: string[] }
+const EXTRA_ID = /^[a-z0-9][a-z0-9-]{0,39}$/, EXTRA_COLOR = /^#[0-9a-fA-F]{6}$/, EXTRA_FILE = /^[a-z0-9][a-z0-9._/-]*\.(geo)?json$/;
+/** 言語ごとの文を今の言語の 1 本に（その言語 → 英語 → 日本語） */
+export const extraText = (x: ExtraText | undefined, lang: string): string => typeof x === "string" ? x : x ? (x[lang] || (lang === "ja" ? x.ja : "") || x.en || x.ja || "") : "";
+/** extras.json を確かめて、頁がそのまま使える形にする（city＝範囲と区と、もう有る名所の id） */
+export function parseExtras(raw: unknown, city: Pick<CityConfig, "bbox" | "wards" | "spots" | "view">, lang: string): Extras {
+	const out: Extras = { spots: [], tour: [], photos: {}, layers: [], errors: [] };
+	if (!raw || typeof raw !== "object") return out;
+	const r = raw as { spots?: unknown; layers?: unknown };
+	const [w, s, e, n] = city.bbox, M = 0.3;   // 範囲の外の点＝経度と緯度の取り違えなどの誤記（生活圏の物は少し外でも通す）
+	const inBox = (lon: unknown, lat: unknown) => typeof lon === "number" && typeof lat === "number" && lon >= w - M && lon <= e + M && lat >= s - M && lat <= n + M;
+	const str = (v: unknown) => typeof v === "string" && v.length > 0;
+	const text = (v: unknown) => str(v) || (!!v && typeof v === "object" && str((v as { en?: unknown }).en));
+	const ids = new Set(city.spots.map(x => x.id));
+	for (const [i, v] of (Array.isArray(r.spots) ? r.spots : []).entries()) {
+		const x = v as ExtraSpot, at = `spots[${i}]${x && str(x.id) ? ` ${x.id}` : ""}`;
+		if (!x || !str(x.id) || !EXTRA_ID.test(x.id)) { out.errors.push(`${at}: id`); continue; }
+		if (ids.has(x.id)) { out.errors.push(`${at}: id が重なる`); continue; }
+		if (!text(x.name)) { out.errors.push(`${at}: name`); continue; }
+		if (!inBox(x.lon, x.lat)) { out.errors.push(`${at}: lon/lat が範囲の外`); continue; }
+		if (x.ward != null && !city.wards.some(k => k.code === x.ward)) { out.errors.push(`${at}: ward`); continue; }
+		ids.add(x.id);
+		out.spots.push({ id: x.id, wiki: str(x.wiki) ? x.wiki! : extraText(x.name, "ja"), name: extraText(x.name, lang), note: extraText(x.note, lang), ward: x.ward ?? (city.wards.length === 1 ? city.wards[0].code : ""),
+			lon: x.lon, lat: x.lat, zoom: typeof x.zoom === "number" ? x.zoom : 16.5, tilt: typeof x.tilt === "number" ? x.tilt : 55, bearing: typeof x.bearing === "number" ? x.bearing : 0 });
+		if (x.tour === true) out.tour.push(x.id);
+		if (x.photo && str(x.photo.src) && /^https:\/\//.test(x.photo.src)) out.photos[x.id] = { src: x.photo.src, file: x.photo.file || x.photo.page || x.photo.src, artist: x.photo.artist || "", license: x.photo.license || "", page: x.photo.page || "" };
+		else if (x.photo) out.errors.push(`${at}: photo.src（https の URL）`);
+	}
+	const lids = new Set<string>();
+	for (const [i, v] of (Array.isArray(r.layers) ? r.layers : []).entries()) {
+		const x = v as ExtraLayer, at = `layers[${i}]${x && str(x.id) ? ` ${x.id}` : ""}`;
+		if (!x || !str(x.id) || !EXTRA_ID.test(x.id) || lids.has(x.id)) { out.errors.push(`${at}: id`); continue; }
+		if (!text(x.name)) { out.errors.push(`${at}: name`); continue; }
+		if (x.color != null && !EXTRA_COLOR.test(x.color)) { out.errors.push(`${at}: color（#rrggbb）`); continue; }
+		if (x.file != null && (!str(x.file) || !EXTRA_FILE.test(x.file) || x.file.includes(".."))) { out.errors.push(`${at}: file`); continue; }
+		const rows: ExtraRow[] = [];
+		for (const [j, row] of (Array.isArray(x.rows) ? x.rows : []).entries()) {
+			if (Array.isArray(row) && inBox(row[0], row[1]) && str(row[2])) rows.push(row as ExtraRow); else out.errors.push(`${at}: rows[${j}]`);
+		}
+		if (!rows.length && !x.file) { out.errors.push(`${at}: rows か file が要る`); continue; }
+		lids.add(x.id);
+		out.layers.push({ ...x, rows, label: extraText(x.name, lang), color: x.color || "#00897b" });
+	}
+	return out;
+}
