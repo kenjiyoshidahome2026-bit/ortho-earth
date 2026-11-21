@@ -20,6 +20,7 @@
 
 ## notes/
 
+- [citytwin-guide.md](citytwin-guide.md) — 市町村のデジタルツインの作り方（規模別の指針・単独か広域かの判断）
 - [improvement-plan.md](notes/improvement-plan.md) — 2.2 以後の改善計画（順番の正本）
 - [render-roadmap.md](notes/render-roadmap.md) — 描画の統合ロードマップ
 - [perf-survey.md](notes/perf-survey.md) / [perf-plan.md](notes/perf-plan.md) — 描画の速さの俯瞰と実施計画

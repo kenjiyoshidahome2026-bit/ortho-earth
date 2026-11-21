@@ -1273,7 +1273,8 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 			if (!r) return { m: distM(at, to), k: -1 };
 			routes.push(r.path); return { m: r.m, k: routes.length - 1 }; };
 		const best = <T extends [number, number, ...unknown[]]>(cands: { row: T }[], n = 1) => cands.map(c => ({ row: c.row, w: way([c.row[0], c.row[1]]) })).sort((a, b) => a.w.m - b.w.m).slice(0, n);
-		const walk = (w: Way, to: string) => { if (w.k >= 0) routeTo[w.k] = to; return w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
+		const walk = (w: Way, to: string) => { if (w.k >= 0) routeTo[w.k] = to; return w.k < 0 && w.m > 3000 ? esc(t("About $1 km", (w.m / 1000).toFixed(1)))   /* 道の網の外で 3 km を超える＝歩く話でない（町村の外の駅・本署＝生活圏・2026-11-21）＝直線の km だけ */
+			: w.k < 0 ? esc(t("Straight line $1 m · about $2 min on foot", num(Math.round(w.m)), walkMin(w.m)))
 			: `${esc(t("$1 m · about $2 min on foot", num(Math.round(w.m)), Math.max(1, Math.round(w.m / 80))))} <button type="button" class="wroute" data-k="${w.k}">${esc(t("Route"))}</button>`; };
 		const band = (i: number, legend: typeof DEPTH) => i < 0 ? `<span class="out">${esc(t("Outside the expected area"))}</span>` : `<span><i style="background:${esc(legend[i].color)}"></i>${esc(t(legend[i].label))}</span>`;
 		const out: string[] = [];
@@ -1286,7 +1287,7 @@ export async function mountTwin(map: GlobeMap, city: CityConfig, opts: TwinOptio
 		const sta: { row: StationRow; w: Way }[] = [];
 		if (rail) for (const r of best(nearestRows(rail.stations, at, 8), 8)) { if (!sta.some(s => s.row[2] === r.row[2])) sta.push(r); if (sta.length >= 2) break; }
 		const bs = bus ? best(nearestRows(bus, at, 4))[0] : null;
-		if (sta.length || bs) out.push(`<h3>${esc(t("Getting around"))}</h3><div class="pr">${sta.map(({ row: r, w }) => row(t("$1 Station", staName(r[2])), walk(w, t("$1 Station", staName(r[2]))))).join("")}${bs ? row(t("Bus stops"), `${esc(stopName(bs.row[2]))}<br><small>${walk(bs.w, stopName(bs.row[2]))}</small>`) : ""}</div>${sta[0] ? `<button type="button" class="walkr" data-lon="${sta[0].row[0]}" data-lat="${sta[0].row[1]}" data-name="${esc(staName(sta[0].row[2]))}" data-ja="${esc(sta[0].row[2])}">${esc(t("Walking distance from $1", t("$1 Station", staName(sta[0].row[2]))))}</button>` : ""}`);
+		if (sta.length || bs) out.push(`<h3>${esc(t("Getting around"))}</h3><div class="pr">${sta.map(({ row: r, w }) => row(t("$1 Station", staName(r[2])), walk(w, t("$1 Station", staName(r[2]))))).join("")}${bs ? row(t("Bus stops"), `${esc(stopName(bs.row[2]))}<br><small>${walk(bs.w, stopName(bs.row[2]))}</small>`) : ""}</div>${sta[0] && sta[0].row[0] >= city.bbox[0] - 0.02 && sta[0].row[0] <= city.bbox[2] + 0.02 && sta[0].row[1] >= city.bbox[1] - 0.02 && sta[0].row[1] <= city.bbox[3] + 0.02 /* 歩ける道の台帳の枠の中の駅だけ（町村の生活圏の駅は外＝徒歩圏は出さない） */ ? `<button type="button" class="walkr" data-lon="${sta[0].row[0]}" data-lat="${sta[0].row[1]}" data-name="${esc(staName(sta[0].row[2]))}" data-ja="${esc(sta[0].row[2])}">${esc(t("Walking distance from $1", t("$1 Station", staName(sta[0].row[2]))))}</button>` : ""}`);
 		// 防災＝想定浸水（3 つの想定）・土砂・水が届く階・最寄りの避難場所
 		const worst = Math.max(...depths), ev = sh ? best(nearestSites(sh, at, 4))[0] : null;
 		out.push(`<h3>${esc(t("Disasters"))}</h3><div class="pr">${water.map((h, i) => `<div><small>${esc(t(h.name))}</small>${band(depths[i], h.legend)}</div>`).join("")}<div><small>${esc(t(dosha.name))}</small>${band(dz, dosha.legend)}</div>${ev ? row(t("Nearest evacuation sites"), `${esc(shName(ev.row))}<br><small>${walk(ev.w, shName(ev.row))}</small>`) : ""}</div>`

@@ -1,0 +1,5 @@
+{
+	"pages": {
+		"asakura": ["data.ts", "main.ts"]
+	}
+}

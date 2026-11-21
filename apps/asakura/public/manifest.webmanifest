@@ -1,0 +1,15 @@
+{
+	"name": "Asakura digital twin — 朝倉市デジタルツイン",
+	"short_name": "Asakura",
+	"description": "A citizen-first digital twin of Asakura that also works without a connection (save it once from the Disasters tab).",
+	"start_url": "/asakura/",
+	"scope": "/asakura/",
+	"display": "standalone",
+	"background_color": "#f6f6f4",
+	"theme_color": "#f6f6f4",
+	"icons": [
+		{ "src": "/asakura/icon-192.png", "sizes": "192x192", "type": "image/png" },
+		{ "src": "/asakura/icon-512.png", "sizes": "512x512", "type": "image/png" },
+		{ "src": "/asakura/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+	]
+}

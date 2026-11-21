@@ -9,6 +9,9 @@ import { CITY as YK } from "../../../apps/yokohama/data.ts";
 import { CITY as KT } from "../../../apps/kyoto/data.ts";
 import { CITY as FK } from "../../../apps/fukuoka/data.ts";
 import { CITY as AK } from "../../../apps/asahikawa/data.ts";
+import { CITY as AS } from "../../../apps/asakura/data.ts";
+import { CITY as KW } from "../../../apps/kawaba/data.ts";
+import { CITY as KS } from "../../../apps/kusatsu/data.ts";
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 
@@ -29,7 +32,8 @@ t("URL の状態：既定の面（暮らし）は書かない", !/tab=/.test(wri
 t("URL の状態：名所だけの URL は観光の面で開く・往復で同じ", (() => { const a = parseState(YK, "?spot=mm21"), w = writeState(YK, "", a), b = parseState(YK, "?tab=life&spot=mm21"); return a.tab === "sight" && w === "?spot=mm21" && b.tab === "life" && /tab=life/.test(writeState(YK, "", b)); })());
 t("地下鉄の駅番号：市の路線表で引く", subwayCodes(YK.subway, "センター南").length === 2 && subwayCodes(KT.subway, "烏丸御池").length === 2 && subwayCodes(KT.subway, "関内").length === 0);
 t("ハザードの型紙：全国の 4 つ", HAZARDS.map(h => h.id).join() === "flood,hightide,tsunami,dosha");
-const ALL = [YK, KT, FK, AK];
+t("住所 → 市町村：町村は郡の名が挟まる（群馬県利根郡川場村…・吾妻郡草津町…）・隣の市町村は当てない", wardOfAddress(KW, "群馬県利根郡川場村大字谷地2390-2")?.code === "10444" && wardOfAddress(KW, "川場村谷地2402")?.code === "10444" && wardOfAddress(KS, "吾妻郡草津町大字草津28")?.code === "10426" && wardOfAddress(KW, "群馬県沼田市上原町1738-1") === null && wardOfAddress(KS, "群馬県吾妻郡長野原町大字長野原1520-4") === null && wardOfAddress(AS, "福岡県朝倉市菩提寺412-2")?.code === "40228" && wardOfAddress(AS, "福岡県朝倉郡筑前町x") === null);
+const ALL = [YK, KT, FK, AK, AS, KW, KS];
 for (const C of ALL) {
 	const req = ["id", "key", "title", "cityName", "allWards", "outside", "addrPrefix", "bbox", "view", "maskBox", "wards", "spots", "tour", "tourIntro", "subway", "subwayName", "subwayNote", "busName", "transit", "railLinesEn", "hazards", "riskNote", "hinanUrl", "lod2Prefetch", "bldSets", "majorHospitals", "offlineMB"];
 	t(`${C.id}：CityConfig の欄が揃う`, req.every(k => C[k] != null), req.filter(k => C[k] == null).join());
