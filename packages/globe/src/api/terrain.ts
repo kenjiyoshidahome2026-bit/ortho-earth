@@ -43,7 +43,16 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 		if (typeof sp === "string") sp = (live.mlSources.get(sp) ?? live.EXT?.ms.sources?.[sp] ?? null) as TerrainSpec | null;   // addSource の物（型は自由）は raster-dem／quantized-mesh として読む
 		if (t && !sp) throw new Error("setTerrain: raster-dem source not found");
 		setExag(t ? exagOf(t.exaggeration) : 1);
-		if (sp?.type === "quantized-mesh") return setDem(qmSpecOf(sp));   // Cesium の地形（#110）＝raster-dem の詰め直しを通さない
+		if (sp?.type === "quantized-mesh") return setDem(qmSpecOf(sp));
+		if (sp?.type === "cog") {   // 標高の COG（2026-11-24）＝main で開き、"cog://z/x/y" を値のまま（Float32）返す取得口で地形へ。ズーム域・範囲は COG の自己申告
+			const { openCogTiles } = await import("../gadgets/cog-tiles.ts");
+			const srcIn = sp.cog ?? requester.resolve(new URL(String(sp.url), location.href).href, "Source").url;
+			cogDem?.close(); cogDem = null;
+			const ct = cogDem = await openCogTiles(srcIn);
+			const i = ct.info;
+			return setDem({ tiles: ["cog://{z}/{x}/{y}"], encoding: "terrarium", tileSize: 256, minzoom: sp.minzoom ?? i.minZoom, maxzoom: sp.maxzoom ?? i.maxZoom, bounds: sp.bounds ?? i.bbox, dtm: !!sp.dtm, cellZoom: sp.cellZoom, ...(sp.seafloor ? { seafloor: true } : {}) }, u => ct.demLoad(u));
+		}
+		cogDem?.close(); cogDem = null;   // COG でない地形へ替えた・外した   // Cesium の地形（#110）＝raster-dem の詰め直しを通さない
 		if (sp && !sp.tiles && typeof sp.url === "string" && sp.url.startsWith("pmtiles://")) sp = { ...sp, tiles: [sp.url] };   // PMTiles の標高（url:"pmtiles://…"＝MapLibre の pmtiles プロトコルと同じ書き方）＝TileJSON を取りに行かない（core の dem-src が索引で引く・2026-11-14）
 		if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, live.EXT?.baseUrl || location.href, { fetchFn: ((u, init) => requester.fetch(u as string, "Source", init)) as typeof fetch }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize は TileJSON の申告も（mapterhorn＝terrarium・旧＝捨てて mapbox で解いた＝256m ごとに折り返す鋸歯）
 		if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map((u: string) => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
@@ -57,6 +66,7 @@ export function installTerrain(map: Installing<TerrainApi>, live: TerrainLive, {
 		return setDem(demSpec, custom ? (u: string) => Promise.resolve(requester.resolve(u, "Tile").load?.("image")).then(d => pixels(d) ?? (d instanceof Blob || d instanceof ArrayBuffer ? d : ArrayBuffer.isView(d) ? new Blob([d as Uint8Array<ArrayBuffer>]) : null), () => null) : null);
 	};
 	let demChan: MessageChannel | null = null;
+	let cogDem: { close(): void } | null = null;   // 標高の COG（setTerrain の type:"cog"）＝差し替え・外す時に閉じる
 	function setDem(spec: TerrainSpec | null, load: DemLoad | null = null): GlobeMap {   // 標高のソースを差し替える（raster-dem も quantized-mesh も同じ 4 つの口＝core createDemSource が振り分ける）
 		live.demSpec = spec;
 		live.demMain = live.demSpec ? createDemSource(live.demSpec, { load }) : null;

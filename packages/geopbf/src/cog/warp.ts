@@ -96,3 +96,48 @@ export function warpRGBA({ lv, geoL, getTileRGBA, forward }: WarpSource, tgt: Ta
 	}
 	return out;
 }
+
+/** warpFloat の入力（単バンドの値＝標高など。色にしない） */
+export interface WarpFloatSource {
+	lv: LevelDims;
+	geoL: GeoLevel;
+	/** デコード済み（型付き配列・画素インターリーブ）。欠タイルは null */
+	getTile(tx: number, ty: number): ArrayLike<number> | null;
+	/** 画素あたりのバンド数（先頭バンドを読む） */
+	samples: number;
+	nodata: number | null;
+	forward(p: readonly number[]): [number, number];
+}
+// 値の再標本化（標高 COG → 地形の XYZ タイル・2026-11-24）。warpRGBA と同じ逆引き＋bilinear だが、
+// 値を色に潰さず Float32 のまま返す。範囲外・欠タイル・nodata・NaN は NaN（地形は NaN の所だけ既定の標高を残す）。
+// 4 近傍の一部が欠けた時は、有る点だけの重みで割る（縁で値が 0 へ引かれない）。
+export function warpFloat({ lv, geoL, getTile, samples, nodata, forward }: WarpFloatSource, tgt: Target, { nearest = false }: WarpOptions = {}): Float32Array {
+	const { w, h, mapLL } = tgt;
+	const out = new Float32Array(w * h).fill(NaN);
+	const { tileW, tileH, tilesX, tilesY } = lv, S = samples || 1;
+	const val = (px: number, py: number): number => {
+		if (px < 0 || py < 0 || px >= lv.width || py >= lv.height) return NaN;
+		const tx = (px / tileW) | 0, ty = (py / tileH) | 0;
+		if (tx >= tilesX || ty >= tilesY) return NaN;
+		const t = getTile(tx, ty);
+		if (!t) return NaN;
+		const v = t[((py - ty * tileH) * tileW + (px - tx * tileW)) * S];
+		return nodata !== null && v === nodata ? NaN : v;
+	};
+	for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+		const [X, Y] = forward(mapLL(i, j));
+		const [px, py] = geoPx(geoL, X, Y);
+		const fx = px - 0.5, fy = py - 0.5;
+		if (nearest) { out[j * w + i] = val(Math.round(fx), Math.round(fy)); continue; }
+		const x0 = Math.floor(fx), y0 = Math.floor(fy), ax = fx - x0, ay = fy - y0;
+		const a = val(x0, y0), b = val(x0 + 1, y0), c = val(x0, y0 + 1), d = val(x0 + 1, y0 + 1);
+		const wa = (1 - ax) * (1 - ay), wb = ax * (1 - ay), wc = (1 - ax) * ay, wd = ax * ay;
+		let s = 0, k = 0;
+		if (a === a) { s += a * wa; k += wa; }
+		if (b === b) { s += b * wb; k += wb; }
+		if (c === c) { s += c * wc; k += wc; }
+		if (d === d) { s += d * wd; k += wd; }
+		if (k > 0) out[j * w + i] = s / k;
+	}
+	return out;
+}

@@ -741,6 +741,9 @@ export type RasterSpec =
 			/** 切り抜き（1.7.0〜）：この経緯度矩形 [west, south, east, north]（度）の中を描かない。paint では raster-cutout */
 			cutout?: [number, number, number, number] | null } | null }
 	| { pmtiles: string; name?: string; attribution?: string }
+	/** COG（Cloud Optimized GeoTIFF・2.6.0〜）＝ヘッダと IFD を読み、要るタイル・overview だけを HTTP Range で取って XYZ に再標本化する（元の座標系＝平面直角・UTM・経緯度・3857）。
+	 *  ズーム域は画素の大きさから自動（minZoom/maxZoom で上書き）。File/Blob も可。標高の COG は map.setTerrain({ source: { type: "cog", url } }) */
+	| { cog: string | Blob; name?: string; attribution?: string; minZoom?: number; maxZoom?: number; adjust?: { hueRotate?: number; saturation?: number; contrast?: number; brightnessMin?: number; brightnessMax?: number } | null }
 	/** WMS（1.2.0〜・#45）＝GetMap を画面のタイルに割る（EPSG:3857）。url に {bbox-epsg-3857} を直に書いた XYZ 形でも可（MapLibre と同じ記法） */
 	| { wms: { url: string; layers: string; styles?: string; format?: string; transparent?: boolean; version?: "1.3.0" | "1.1.1"; params?: Record<string, string> }; minZoom?: number; maxZoom?: number; bbox?: Bbox; attribution?: string; name?: string }
 	/** WMTS（#45）＝capabilities（GetCapabilities の URL）を読むか、KVP を手で（url・layer・tileMatrixSet）。ウェブメルカトルの行列だけ描ける。REST の型紙は url に {TileMatrix}/{TileRow}/{TileCol} を書いて XYZ 形で渡してもよい */
@@ -930,6 +933,9 @@ export interface SampleHeightResult { lng: number; lat: number; height: number |
  *  url＝layer.json（CORS が要る・相対は頁基準）か ion＝利用者の Cesium ion の鍵（{ assetId, accessToken }・Cesium World Terrain は assetId 1）。鍵は同梱しない。
  *  heights＝タイルの高さの基準：既定 "ellipsoidal"（仕様どおりの楕円体高＝Cesium World Terrain・PDOK）＝同梱の EGM96（30 分）のジオイド高を引いて標高へ直す（要る時だけ読む）／
  *  "orthometric"＝標高で配る配信（swisstopo）。heightOffset＝足す高さ（m）。高さ 0..0 の空のタイル（PDOK の粗い段）と 404/403 は無い所＝既定の標高が残る */
+/** 標高の COG（2.6.0〜・2026-11-24）＝ヘッダと IFD を読み、要るタイル・overview だけを HTTP Range で取って値のまま（float32 など・PNG の量子化なし）地形へ。
+ *  元の座標系（平面直角・UTM・経緯度・3857）から XYZ へ再標本化する。ズーム域・範囲は COG の自己申告（minzoom/maxzoom/bounds で上書き）。nodata は既定の標高のまま */
+export interface CogDemSource { type: "cog"; url?: string; cog?: Blob; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number; seafloor?: boolean }
 export interface QuantizedMeshSource { type: "quantized-mesh"; url?: string; ion?: { assetId: number | string; accessToken: string }; heights?: "ellipsoidal" | "orthometric"; heightOffset?: number;
 	/** R01 のセルを焼く段（既定＝タイルの幅がセルの約 1/4＝z10）・maxzoom＝1 点の標本の上限の段（既定 16） */ cellZoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; headers?: Record<string, string>; credentials?: RequestCredentials;
 	/** 海底を持つ（Cesium の World Bathymetry 等）＝負の標高を海面の 0 へ寄せずに描く。この間は既定の標高（GEBCO の R10／R90）の海底も出す */ seafloor?: boolean;
@@ -937,7 +943,8 @@ export interface QuantizedMeshSource { type: "quantized-mesh"; url?: string; ion
 export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "terrarium" | "mapbox" | "gsi" | "custom"; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number; /** 海底を持つ（負の標高を 0 へ寄せない）＝QuantizedMeshSource と同じ */ seafloor?: boolean }
 /** 標高の source を整えた後の spec（map.getTerrain の source）＝raster-dem は tiles を頁基準の絶対・encoding 既定 mapbox・tileSize 512・maxzoom 22（TileJSON の申告の encoding・bounds はそのまま）／
  *  quantized-mesh は url を頁基準の絶対にしただけ（ion・heights などもそのまま） */
-export type TerrainSourceSpec = { type?: string; url?: string; tiles?: string[]; encoding?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: number[] | null; dtm?: boolean; cellZoom?: number | null; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number; seafloor?: boolean; negative?: boolean };
+/** type:"cog"＝標高の COG（float32 など・url か cog に File/Blob・2.6.0〜）＝要るタイルだけ Range で取り、値のまま地形へ（PNG の量子化なし） */
+export type TerrainSourceSpec = { type?: string; url?: string; cog?: Blob; tiles?: string[]; encoding?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: number[] | null; dtm?: boolean; cellZoom?: number | null; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number; seafloor?: boolean; negative?: boolean };
 export type ResourceType = "Style" | "Source" | "Tile" | "SpriteJSON" | "SpriteImage" | "Image" | "Unknown";
 export type TransformRequestFunction = (url: string, resourceType: ResourceType) => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | undefined | null;
 export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json" | "image" | "string"; headers?: Record<string, string> }, abortController: AbortController) => Promise<{ data: ArrayBuffer | ArrayBufferView | Blob | string | object | null }>;

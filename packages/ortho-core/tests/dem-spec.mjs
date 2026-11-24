@@ -77,6 +77,16 @@ const warn = console.warn; console.warn = () => {};
 	ch.port1.close(); ch.port2.close();
 }
 
+// ── 値のままの標高（標高 COG・DemHeights＝{ width, height, heights }）：encoding を通さず Float32 のまま・NaN は無い所 ──
+{
+	const n = 4, hs = new Float32Array(n * n).fill(42.25);
+	const f0 = fetched, asked = [];
+	const d = createDemSource({ tiles: ["cog://{z}/{x}/{y}"], encoding: "gsi", maxzoom: 3 }, { load: async u => { asked.push(u); return { width: n, height: n, heights: hs }; } });
+	const h = await d.height(139, 35, 3);
+	ok("heights：値のまま（gsi の復号を通さない）", Math.abs(h - 42.25) < 1e-6, `h=${h}`);
+	ok("heights：cog:// の型紙で頼む・fetch は呼ばない", asked[0] === "cog://3/7/3" && fetched === f0, asked[0]);
+}
+
 globalThis.fetch = realFetch; console.warn = warn;
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ dem-spec 全 PASS");
 process.exit(fail ? 1 : 0);

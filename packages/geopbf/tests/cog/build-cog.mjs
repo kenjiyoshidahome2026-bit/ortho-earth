@@ -56,6 +56,17 @@ export function buildCog(o = {}) {
 				if (!Array.isArray(v)) v = [v];
 				for (let b = 0; b < bands; b++) arr[(j * tw + i) * bands + b] = v[b] ?? v[0];
 			}
+			if (predictor === 3) {   // 浮動小数の水平差分（TIFF TN3）：行ごとに上位バイトから面へ並べ替え→バイトの差分
+				const bpsF = bytesPer, wc = tw * bands, rowB = wc * bpsF, src = new Uint8Array(arr.buffer), outB = new Uint8Array(src.length);
+				for (let j = 0; j < th; j++) {
+					const o = j * rowB;
+					for (let c = 0; c < wc; c++) for (let b = 0; b < bpsF; b++) outB[o + (bpsF - 1 - b) * wc + c] = src[o + c * bpsF + b];   // LE 前提
+					for (let i = rowB - 1; i >= bands; i--) outB[o + i] = (outB[o + i] - outB[o + i - bands]) & 255;
+				}
+				let u8 = outB;
+				if (comp === 8) u8 = new Uint8Array(deflateSync(u8)); else if (comp === 5) u8 = lzwEncode(u8);
+				tiles.push(u8); continue;
+			}
 			if (predictor) {   // 水平差分（エンコード側＝右から引く）
 				for (let j = 0; j < th; j++) for (let i = tw * bands - 1; i >= bands; i--) {
 					const at = j * tw * bands + i;
@@ -90,7 +101,7 @@ export function buildCog(o = {}) {
 			[339, 3, Array(bands).fill(dtype === "f32" ? 3 : 1)],
 		];
 		if (li > 0) entries.push([254, 4, [1]]);   // overview
-		if (predictor) entries.push([317, 3, [2]]);
+		if (predictor) entries.push([317, 3, [predictor === 3 ? 3 : 2]]);
 		if (strip) entries.push([278, 3, [lv.th]]);
 		else entries.push([322, 3, [lv.tw]], [323, 3, [lv.th]]);
 		if (li === 0) {

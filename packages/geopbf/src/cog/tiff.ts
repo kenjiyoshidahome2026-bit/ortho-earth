@@ -3,7 +3,7 @@
 // 対応: classic(magic 42)/BigTIFF(magic 43)・II/MM 両バイト順・タイル型＋strip 型（strip は
 // 「幅=画像幅のタイル」へ正規化＝GDAL を通らないローカル .tif の救済）・overview チェーン・
 // GeoKeyDirectory→EPSG・ModelPixelScale/Tiepoint（回転付き ModelTransformation は軸平行のみ許容）。
-// 非対応（明示エラー）: PlanarConfig=2・predictor=3・12bit JPEG。未知タグは黙って skip（既存文化）。
+// 非対応（明示エラー）: PlanarConfig=2・12bit JPEG。predictor=3（浮動小数）は decode.ts が戻す（2026-11-24）。未知タグは黙って skip（既存文化）。
 import type { Ifd, Geo, BBox, TiffInfo } from "./types.ts";
 
 const TYPE_SIZE: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 16: 8, 17: 8, 18: 8 };
@@ -94,7 +94,6 @@ export async function parseTiff(getBytes: GetBytes): Promise<TiffInfo> {
 		const planar = await one(tags, 284, 1);
 		if (planar !== 1) throw new Error("cog: PlanarConfiguration=2 (planar) not supported");
 		const predictor = await one(tags, 317, 1);
-		if (predictor === 3) throw new Error("cog: floating point predictor (3) not supported");
 		const compression = await one(tags, 259, 1);
 		const bits = (await values(tags, 258)) || [8];
 		if (compression === 7 && bits.some(b => b > 8)) throw new Error("cog: >8bit JPEG not supported");

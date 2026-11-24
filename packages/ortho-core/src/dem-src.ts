@@ -57,10 +57,12 @@ export function normalizeDemSpec(spec: DemSpecInput | null | undefined): DemSpec
 /** 独自スキーム（addProtocol）の取得口＝タイルの本体（PNG などのバイト列）か画素（ImageData 形＝RGBA をそのまま・canvas を通さない）か無し（null＝そこに無い）。
  *  main では loader 関数を直に（opts.load）、worker では main が渡した MessagePort（spec.port：{ id, url } を送ると { id, data } が返る）で */
 export interface DemPixels { width: number; height: number; data: Uint8ClampedArray | Uint8Array }
-export type DemLoad = (url: string) => Promise<ArrayBuffer | Blob | DemPixels | null>;
+/** 値のままの標高（m・Float32・row0＝北・無い所は NaN）＝標高 COG（geopbf/cog の renderXYZFloat）を地形へ。encoding は通さない（2026-11-24） */
+export interface DemHeights { width: number; height: number; heights: Float32Array }
+export type DemLoad = (url: string) => Promise<ArrayBuffer | Blob | DemPixels | DemHeights | null>;
 const portLoad = (port: MessagePort): DemLoad => {
-	const wait = new Map<number, (d: ArrayBuffer | Blob | DemPixels | null) => void>(); let seq = 0;
-	port.onmessage = (e: MessageEvent) => { const m = e.data as { id: number; data: ArrayBuffer | Blob | DemPixels | null }; wait.get(m.id)?.(m.data ?? null); wait.delete(m.id); };
+	const wait = new Map<number, (d: ArrayBuffer | Blob | DemPixels | DemHeights | null) => void>(); let seq = 0;
+	port.onmessage = (e: MessageEvent) => { const m = e.data as { id: number; data: ArrayBuffer | Blob | DemPixels | DemHeights | null }; wait.get(m.id)?.(m.data ?? null); wait.delete(m.id); };
 	return url => new Promise(res => { const id = ++seq; wait.set(id, res); port.postMessage({ id, url }); });
 };
 export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { load?: DemLoad | null } = {}): DemSource {
@@ -80,6 +82,7 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 			if (load) {
 				const d = await load(url(z, x, y));
 				if (!d) return null;
+				if ("width" in d && "heights" in d) return { h: d.heights, n: d.width };   // 値のまま（標高 COG）＝RGB の復号も canvas も通さない
 				if ("width" in d && "data" in d) return { h: decodeDEM(d.data, spec.encoding, spec), n: d.width };   // 画素のまま（Cesium の互換の口の地形）＝canvas の往復なし
 				body = d instanceof Blob ? d : new Blob([d]);
 			}

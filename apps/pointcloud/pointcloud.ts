@@ -47,6 +47,12 @@ const WIDE = {
 	gs: `${HF_BASE}gs/2021-LP-Original/tileset.json`,
 	bounds: [138.158, 34.897, 138.637, 35.331] as [number, number, number, number],
 };
+// COG の試し（2026-11-24・共通化 段 1）＝?wide=cog で、静岡駅まわり（ND77・ND87）のオルソ 0.2 m と標高 0.5 m（float）を元の座標系（平面直角 VIII 系）の COG から
+//   Range で読む（pmtiles と見比べる用）。オルソは pmtiles の上に重ね、標高は COG だけ（範囲の外は既定の地形）
+const WIDE_COG = /[?&]wide=cog\b/.test(location.search) ? {
+	ortho: `${HF_BASE}raster/cog/shizuoka-2021-ortho-nd77-nd87.cog.tif`,
+	dem: `${HF_BASE}raster/cog/shizuoka-2021-dem-nd77-nd87.cog.tif`,
+} : null;
 /** 広域の splat を出すズーム（2026-11-18・本人「z に対する LOD・低い倍率では GS は要らない」）＝これより引いた所はオルソと標高だけ（splat の tileset を伏せる＝読まない・持っていた物は手放す）。
  *  z14＝約 4 m/px（静岡の緯度・MapLibre の z）＝区画の 8 m の段が 2 px・四分の 4 m の段が 1 px になる所。市全域（区画 161）を z11 で全部読むと区画の 8 m の段だけで約 1 GB */
 const GS_MIN_Z = 14;
@@ -287,10 +293,12 @@ export async function mountPointcloud(map: GlobeMap, side: HTMLElement) {
 	};
 	const wide = async (on: boolean) => {
 		wideSeq++; wideOn = on; wideAdding = null; wideState();
-		wideGs?.remove(); wideGs = null; gsShown = false; syncMesh(); map.raster.remove("pc-wide-ortho");
+		wideGs?.remove(); wideGs = null; gsShown = false; syncMesh(); map.raster.remove("pc-wide-ortho"); map.raster.remove("pc-wide-ortho-cog");
 		if (!on) { await map.setTerrain(null).catch(() => {}); return; }
-		map.setTerrain({ source: { tiles: [`pmtiles://${WIDE.dem}`], encoding: "gsi", tileSize: 256, minzoom: 8, maxzoom: 17, bounds: WIDE.bounds } }).catch(e => console.warn("[pointcloud] wide terrain", e));
+		if (WIDE_COG) map.setTerrain({ source: { type: "cog", url: WIDE_COG.dem } }).catch(e => console.warn("[pointcloud] wide terrain (COG)", e));
+		else map.setTerrain({ source: { tiles: [`pmtiles://${WIDE.dem}`], encoding: "gsi", tileSize: 256, minzoom: 8, maxzoom: 17, bounds: WIDE.bounds } }).catch(e => console.warn("[pointcloud] wide terrain", e));
 		map.raster.add("pc-wide-ortho", { pmtiles: WIDE.ortho, name: t("Orthophoto 2021"), attribution: WIDE_ATTR, minZoom: 8, maxZoom: 18 }, { order: "under" }).catch(e => console.warn("[pointcloud] wide ortho", e));
+		if (WIDE_COG) map.raster.add("pc-wide-ortho-cog", { cog: WIDE_COG.ortho, name: t("Orthophoto 2021"), attribution: WIDE_ATTR }, { order: "under" }).catch(e => console.warn("[pointcloud] wide ortho (COG)", e));
 		syncGs();
 	};
 	$<HTMLInputElement>("#pc-wide").addEventListener("change", e => { wide((e.target as HTMLInputElement).checked); });

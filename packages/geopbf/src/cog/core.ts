@@ -7,7 +7,7 @@ import type { SourceInput, SourceOptions, SourceMetrics } from "./source.ts";
 import { parseTiff } from "./tiff.ts";
 import { projFor, SUPPORTED_EPSG } from "./proj.ts";
 import { decodeTile, toRGBA8, makeLut } from "./decode.ts";
-import { warpRGBA, geoAtLevel, geoPx, xyzTarget, lonlatTarget } from "./warp.ts";
+import { warpRGBA, warpFloat, geoAtLevel, geoPx, xyzTarget, lonlatTarget } from "./warp.ts";
 import { makeLRU, noopCache } from "./cache.ts";
 import type { ByteCache } from "./cache.ts";
 import type { Ifd, GeoLevel, BBox, Target, TileCoord, Stretch, StretchRange, LutSpec, Composite, Lut, RasterData } from "./types.ts";
@@ -54,6 +54,8 @@ export interface Cog {
 	getTiles(level: number, list: TileCoord[], o?: { signal?: AbortSignal }): Promise<(Uint8ClampedArray | null | undefined)[]>;
 	plan(tgt: Target, o?: PlanOptions): Plan | null;
 	render(tgt: Target, o?: RenderOptions): Promise<Uint8ClampedArray | null>;
+	/** 目標グリッドへ値のまま（先頭バンド・Float32・無い所は NaN）＝標高 COG を地形へ（2026-11-24）。JPEG/WebP の COG は null */
+	renderFloat(tgt: Target, o?: RenderOptions): Promise<Float32Array | null>;
 	/** 生の圧縮バイト（sparse は null） */
 	rawTiles(level: number, list: TileCoord[], signal?: AbortSignal): Promise<(Uint8Array | null | undefined)[]>;
 	ifdOf(level: number): Ifd;
@@ -72,6 +74,7 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 	// 鍵が "cog::lv/tx/ty" に潰れて別ファイル同士が衝突する）。全量モードも素通し。
 	const cache2 = opts.cache && (opts.cacheKey || s.etag) ? opts.cache : noopCache;
 	const lru = makeLRU<Uint8ClampedArray | 0>(opts.memBudget ?? 128 << 20);   // null は 0 を番人に
+	const lruV = makeLRU<RasterData | 0>((opts.memBudget ?? 128 << 20) >> 1);   // 値のままのタイル（renderFloat＝標高）。null は 0
 	const metrics = { ttfhMs: 0, tilesDecoded: 0, decodeMs: 0, cacheHits: 0 };
 
 	// ヘッダ窓に収まる読みはネットに出さない（16KB に IFD が収まるのが COG の通例）
@@ -245,6 +248,23 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 		return warpRGBA({ lv: pl.lv, geoL: pl.geoL, getTileRGBA: (tx, ty) => tiles.get(key(pl.level, tx, ty)) || null, forward: proj.forward }, tgt, o);
 	};
 
+	// 値のまま描く（標高）＝デコード済みの型付き配列を LRU に持ち、色にせず warpFloat
+	const renderFloat = async (tgt: Target, o: RenderOptions = {}): Promise<Float32Array | null> => {
+		const pl = plan(tgt, o);
+		if (!pl) return null;
+		const tiles = new Map<string, RasterData | null>(), miss: TileCoord[] = [];
+		for (const [tx, ty] of pl.list) { const c = lruV.get(key(pl.level, tx, ty)); c !== null ? tiles.set(key(pl.level, tx, ty), c === 0 ? null : c) : miss.push([tx, ty]); }
+		if (miss.length) {
+			const raster = await getRasterTiles(pl.level, miss, o.signal);
+			for (const [k, r] of raster) {
+				if (r?.image) return null;   // JPEG/WebP＝値を持たない
+				const d = r?.data ?? null;
+				lruV.set(k, d ?? 0, d ? d.byteLength : 16); tiles.set(k, d);
+			}
+		}
+		return warpFloat({ lv: pl.lv, geoL: pl.geoL, getTile: (tx, ty) => tiles.get(key(pl.level, tx, ty)) || null, samples: pl.lv.samples, nodata: t.nodata, forward: proj.forward }, tgt, o);
+	};
+
 	return {
 		width: full.width, height: full.height, tileW: full.tileW, tileH: full.tileH,
 		samples: full.samples, dtype: dtypeOf(full), epsg,
@@ -253,14 +273,14 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 		levelFor,
 		getTile: async (level, tx, ty, o = {}) => (await getTilesRGBA(level, [[tx, ty]], o.signal)).get(key(level, tx, ty)),
 		getTiles: async (level, list, o = {}) => { const m = await getTilesRGBA(level, list, o.signal); return list.map(([tx, ty]) => m.get(key(level, tx, ty))); },
-		plan, render,
+		plan, render, renderFloat,
 		rawTiles: async (level, list, signal) => { const m = await rawTiles(level, list, signal); return list.map(([tx, ty]) => m.get(key(level, tx, ty))); },
 		ifdOf: (level) => t.ifds[level],
 		littleEndian: t.littleEndian,
 		ensureStretch: () => needStretch ? ensureStretch() : Promise.resolve(null),
 		drawOpts: { composite, lut },   // ブラウザ層（index.js）が worker へそのまま運ぶ描画オプション（stretch は ensureStretch）
 		metrics: () => ({ ...metrics, ...s.metrics, lruBytes: lru.bytes }),
-		close: () => { lru.clear(); },
+		close: () => { lru.clear(); lruV.clear(); },
 	};
 }
 
