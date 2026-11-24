@@ -3,12 +3,6 @@
 Release notes for the Ortho Earth npm packages. Each release also has a longer article on
 ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases).
 
-## Unreleased
-
-- **`tiltDrag` option** (`createGlobe`, and `ortho: { tiltDrag }` on the MapLibre-style `Map`): `"maplibre"` makes the
-  tilt drag (right button / Ctrl + drag, two-finger vertical drag) work like MapLibre GL JS — dragging down lowers the
-  pitch, at 0.8°/px bearing and 0.5°/px pitch. The default `"ortho"` keeps the current direction and speed. ([#1206](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues/1206))
-
 ## mcp 0.1.0 — 2026-11-11
 
 **@ortho-earth/mcp 0.1.0** — new: an MCP server, so AI agents can look Ortho Earth up instead of guessing.
