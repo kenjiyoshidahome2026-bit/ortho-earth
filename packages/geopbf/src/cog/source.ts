@@ -13,10 +13,13 @@
 // headerBytes 64 KB：16 KB だと IFD 連鎖が先頭に収まらない COG（Tellus AVNIR-2 webcog＝4 バンド×8 段）で
 // ヘッダ読みが 32 リクエスト/1.6 s に化けた（64 KB なら 1 本/0.1 s・2026-09-16 実測）。+48 KB は 1 タイル未満
 import type { ByteCache } from "./cache.ts";
+import { getScheduler, originKey, type Scheduler } from "./sched.ts";
 const DEF = { headerBytes: 65536, gapBytes: 65536, maxReq: 4 << 20, concurrency: 6 };
 
-/** 部分読み（from, len）。sig は readMany から渡る */
-export type RangeRead = (from: number, len: number, signal?: AbortSignal) => Promise<Uint8Array>;
+/** 部分読み（from, len）。sig・prio（取り順の優先度＝大きいほど先・段 4）は readMany から渡る */
+export type RangeRead = (from: number, len: number, signal?: AbortSignal, prio?: Prio) => Promise<Uint8Array>;
+/** 優先度＝数か、出す時に問う関数（sched.ts） */
+export type Prio = number | (() => number);
 /** {read,size} 注入の入力（テスト/特殊経路用） */
 export interface ReadSource { read: RangeRead; size?: number | null }
 /** openSource が受ける源: URL・Blob/File・{read,size} */
@@ -40,6 +43,10 @@ export interface SourceOptions {
 	cacheKey?: string;
 	/** これより大きい 1 回の読みは残さない（既定 8 MB＝ZIP を丸ごと解く読みでキャッシュを溢れさせない） */
 	cacheMaxBytes?: number;
+	/** 回線に出す取り順（共通化 段 4）＝既定はこの realm の共有物（getScheduler・オリジンごと同時 6・優先度の高い順・待ちは中断で外れる）。false＝使わない（readMany の並行本数だけ） */
+	scheduler?: Scheduler | false;
+	/** 優先度の既定（readMany / read に prio が無い時・既定 0） */
+	priority?: number;
 }
 export interface SourceMetrics { rangeRequests: number; coalescedFrom: number; bytesFetched: number; cacheHits?: number }
 export interface ByteRange { from: number; len: number }
@@ -57,8 +64,8 @@ export interface Source {
 	metrics: SourceMetrics;
 	/** Range 非対応 host＝全量を Blob に持っている */
 	wholeFile?: boolean;
-	/** ranges=[{from,len}] → Uint8Array[]（入力順）。coalesce 発注の一元口 */
-	readMany(ranges: ByteRange[], signal?: AbortSignal): Promise<Uint8Array[]>;
+	/** ranges=[{from,len}] → Uint8Array[]（入力順）。coalesce 発注の一元口。prio＝取り順の優先度（大きいほど先） */
+	readMany(ranges: ByteRange[], signal?: AbortSignal, prio?: Prio): Promise<Uint8Array[]>;
 }
 type SourceBase = Omit<Source, "readMany">;
 
@@ -121,8 +128,13 @@ export async function openSource(src: SourceInput, opts: SourceOptions = {}): Pr
 	}
 	const head = tailBytes ? new Uint8Array(0) : got, tail = tailBytes ? got : undefined;
 
-	const net: RangeRead = async (from, len, sig) => {
-		const res = await f(url, { headers: { Range: `bytes=${from}-${from + len - 1}` }, signal: sig || signal });
+	// 取り順（段 4）＝同じオリジンへの読みは realm で 1 つの列に並ぶ（COG のタイル・COPC の節・階層の頁が同じ規則）
+	const sched = opts.scheduler === false ? null : opts.scheduler || getScheduler(), key = originKey(url), prio0 = opts.priority ?? 0;
+	const net: RangeRead = (from, len, sig, prio) => sched
+		? sched.run(js => net1(from, len, js), { key, priority: prio ?? prio0, signal: sig || signal })
+		: net1(from, len, sig || signal);
+	const net1 = async (from: number, len: number, sig?: AbortSignal): Promise<Uint8Array> => {
+		const res = await f(url, { headers: { Range: `bytes=${from}-${from + len - 1}` }, signal: sig });
 		if (!res.ok && res.status !== 206) throw new Error(`cog: HTTP ${res.status}`);
 		metrics.rangeRequests++;
 		const bin = new Uint8Array(await res.arrayBuffer());
@@ -135,22 +147,23 @@ export async function openSource(src: SourceInput, opts: SourceOptions = {}): Pr
 	const cache = opts.cache, ver = cache ? (opts.cacheKey ? `k:${opts.cacheKey}` : etag ? `e:${etag}` : `h:${fnv(tail || head)}:${size}`) : "";
 	const ck = (from: number, len: number): string => `r:${ver}:${from}-${len}`;
 	const maxC = opts.cacheMaxBytes ?? 8 << 20;
-	const read: RangeRead = !cache ? net : async (from, len, sig) => {
-		if (len > maxC) return net(from, len, sig);
+	const read: RangeRead = !cache ? net : async (from, len, sig, prio) => {
+		if (len > maxC) return net(from, len, sig, prio);
 		const hit = await cache.get(ck(from, len)).catch(() => null);
 		if (hit && hit.length === len) { metrics.cacheHits = (metrics.cacheHits || 0) + 1; return hit; }
-		const b = await net(from, len, sig);
+		const b = await net(from, len, sig, prio);
 		cache.set(ck(from, len), b.slice()).catch(() => {});   // 写して持つ（合体塊の subarray が親を抱えない）
 		return b;
 	};
-	const src2 = withMany({ read, size, head, tail, etag, metrics }, gapBytes, maxReq, concurrency);
+	const lanes = sched ? 64 : concurrency;   // 取り順がある時は readMany の中で絞らない（同時数は列が持つ＝呼び手を跨いで）
+	const src2 = withMany({ read, size, head, tail, etag, metrics }, gapBytes, maxReq, lanes);
 	if (cache) {   // readMany＝当たった範囲は回線に出さず、外れだけを合体して取り、範囲ごとに残す
-		const many = withMany({ read: net, size, head, tail, etag, metrics }, gapBytes, maxReq, concurrency).readMany;
-		src2.readMany = async (ranges, sig) => {
+		const many = withMany({ read: net, size, head, tail, etag, metrics }, gapBytes, maxReq, lanes).readMany;
+		src2.readMany = async (ranges, sig, prio) => {
 			const hits = await Promise.all(ranges.map(r => r.len > maxC ? null : cache.get(ck(r.from, r.len)).catch(() => null)));
 			const miss = ranges.map((r, i) => ({ r, i })).filter(({ r, i }) => !(hits[i] && hits[i]!.length === r.len));
 			metrics.cacheHits = (metrics.cacheHits || 0) + ranges.length - miss.length;
-			const got = await many(miss.map(m => m.r), sig);
+			const got = await many(miss.map(m => m.r), sig, prio);
 			const out = hits.slice() as Uint8Array[];
 			miss.forEach((m, j) => { out[m.i] = got[j]; if (m.r.len <= maxC) cache.set(ck(m.r.from, m.r.len), got[j].slice()).catch(() => {}); });
 			return out;
@@ -165,7 +178,7 @@ interface RangeGroup { from: number; len: number; items: (ByteRange & { i: numbe
 // 合体塊を concurrency 本で並行取得 → 各要求へ切り出し。ネット読みの発注はここに一元化する。
 function withMany(base: SourceBase, gapBytes: number, maxReq: number, concurrency: number): Source {
 	const s = base as Source;   // readMany をここで足す（オブジェクトは同一）
-	s.readMany = async (ranges, signal) => {
+	s.readMany = async (ranges, signal, prio) => {
 		if (!ranges.length) return [];
 		const idx = ranges.map((r, i) => ({ ...r, i })).sort((a, b) => a.from - b.from);
 		const groups: RangeGroup[] = [];
@@ -182,7 +195,7 @@ function withMany(base: SourceBase, gapBytes: number, maxReq: number, concurrenc
 		const lane = async (): Promise<void> => {
 			while (cursor < groups.length) {
 				const g = groups[cursor++];
-				const buf = await s.read(g.from, g.len, signal);
+				const buf = await s.read(g.from, g.len, signal, prio);
 				for (const it of g.items) out[it.i] = buf.subarray(it.from - g.from, it.from - g.from + it.len);
 			}
 		};

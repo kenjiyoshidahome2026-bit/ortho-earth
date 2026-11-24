@@ -37,7 +37,7 @@ export interface CogOptions extends SourceOptions {
 export interface Overview { level: number; width: number; height: number; tilesX: number; tilesY: number; resX: number }
 export interface CogMetrics extends SourceMetrics { ttfhMs: number; tilesDecoded: number; decodeMs: number; cacheHits: number; lruBytes: number }
 export interface PlanOptions { level?: number }
-export interface RenderOptions extends PlanOptions { signal?: AbortSignal; nearest?: boolean }
+export interface RenderOptions extends PlanOptions { signal?: AbortSignal; nearest?: boolean; /** 範囲読みの取り順の優先度（大きいほど先・共通化 段 4） */ priority?: number }
 /** 目標グリッド → 必要源タイルの割り出し */
 export interface Plan { level: number; lv: Ifd; geoL: GeoLevel; list: TileCoord[] }
 /** デコード済みタイル: raster（型付き配列）か image（ブラウザでデコード済み RGBA） */
@@ -58,7 +58,7 @@ export interface Cog {
 	/** 目標グリッドへ値のまま（先頭バンド・Float32・無い所は NaN）＝標高 COG を地形へ（2026-11-24）。JPEG/WebP の COG は null */
 	renderFloat(tgt: Target, o?: RenderOptions): Promise<Float32Array | null>;
 	/** 生の圧縮バイト（sparse は null） */
-	rawTiles(level: number, list: TileCoord[], signal?: AbortSignal): Promise<(Uint8Array | null | undefined)[]>;
+	rawTiles(level: number, list: TileCoord[], signal?: AbortSignal, prio?: number): Promise<(Uint8Array | null | undefined)[]>;
 	ifdOf(level: number): Ifd;
 	littleEndian: boolean;
 	ensureStretch(): Promise<Stretch | null>;
@@ -150,17 +150,17 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 	const key = (lv: number, tx: number, ty: number): string => `${lv}/${tx}/${ty}`;
 
 	// 生バイト（圧縮のまま）を sparse 判定込みで取る。二層目キャッシュはここ（圧縮バイト＝IDB に優しい）。
-	const rawTiles = async (level: number, list: TileCoord[], signal?: AbortSignal): Promise<Map<string, Uint8Array | null>> => {
+	const rawTiles = async (level: number, list: TileCoord[], signal?: AbortSignal, prio?: number): Promise<Map<string, Uint8Array | null>> => {
 		const lv = t.ifds[level];
 		const chunks = tiffChunks(lv, level).resolve(list);   // 索引（IFD）→ チャンク（COPC の節と同じ形・sparse は空）
-		const bufs = await readChunks(s, chunks, signal);     // 端末キャッシュ→合体→並行は source が一元に（点群と同じ口）
+		const bufs = await readChunks(s, chunks, signal, prio);     // 端末キャッシュ→合体→並行は source が一元に（点群と同じ口）
 		return new Map(chunks.map((c, i) => [c.key, bufs[i]]));
 	};
 
 	// デコード済み raster（typed）タイル群＝stretch 算出と render が使う
-	const getRasterTiles = async (level: number, list: TileCoord[], signal?: AbortSignal): Promise<Map<string, RasterTile | null>> => {
+	const getRasterTiles = async (level: number, list: TileCoord[], signal?: AbortSignal, prio?: number): Promise<Map<string, RasterTile | null>> => {
 		const lv = t.ifds[level];
-		const raw = await rawTiles(level, list, signal);
+		const raw = await rawTiles(level, list, signal, prio);
 		const entries = [...raw];
 		const decoded = await Promise.all(entries.map(async ([, buf]): Promise<RasterTile | null> => {   // デコードは並列（旧＝タイルごとに直列 await＝DecompressionStream/createImageBitmap の待ちが足し算）
 			if (!buf) return null;
@@ -179,7 +179,7 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 	};
 
 	// RGBA8 タイル（LRU 一層目）
-	const getTilesRGBA = async (level: number, list: TileCoord[], signal?: AbortSignal): Promise<Map<string, Uint8ClampedArray | null>> => {
+	const getTilesRGBA = async (level: number, list: TileCoord[], signal?: AbortSignal, prio?: number): Promise<Map<string, Uint8ClampedArray | null>> => {
 		const lv = t.ifds[level];
 		const out = new Map<string, Uint8ClampedArray | null>(), miss: TileCoord[] = [];
 		for (const [tx, ty] of list) {
@@ -188,7 +188,7 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 		}
 		if (miss.length) {
 			const stretch = needStretch ? await ensureStretch() : null;
-			const raster = await getRasterTiles(level, miss, signal);
+			const raster = await getRasterTiles(level, miss, signal, prio);
 			for (const [k, r] of raster) {
 				const rgba = r === null ? null : r.image ? r.image : toRGBA8(r.data, lv, { stretch, nodata: t.nodata, composite, lut });
 				lru.set(k, rgba === null ? 0 : rgba, rgba ? rgba.byteLength ?? lv.tileW * lv.tileH * 4 : 16);   // null は 0 を番人に
@@ -230,7 +230,7 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 	const render = async (tgt: Target, o: RenderOptions = {}): Promise<Uint8ClampedArray | null> => {
 		const pl = plan(tgt, o);
 		if (!pl) return null;
-		const tiles = await getTilesRGBA(pl.level, pl.list, o.signal);
+		const tiles = await getTilesRGBA(pl.level, pl.list, o.signal, o.priority);
 		return warpRGBA({ lv: pl.lv, geoL: pl.geoL, getTileRGBA: (tx, ty) => tiles.get(key(pl.level, tx, ty)) || null, forward: proj.forward }, tgt, o);
 	};
 
@@ -241,7 +241,7 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 		const tiles = new Map<string, RasterData | null>(), miss: TileCoord[] = [];
 		for (const [tx, ty] of pl.list) { const c = lruV.get(key(pl.level, tx, ty)); c !== null ? tiles.set(key(pl.level, tx, ty), c === 0 ? null : c) : miss.push([tx, ty]); }
 		if (miss.length) {
-			const raster = await getRasterTiles(pl.level, miss, o.signal);
+			const raster = await getRasterTiles(pl.level, miss, o.signal, o.priority);
 			for (const [k, r] of raster) {
 				if (r?.image) return null;   // JPEG/WebP＝値を持たない
 				const d = r?.data ?? null;
@@ -260,7 +260,7 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 		getTile: async (level, tx, ty, o = {}) => (await getTilesRGBA(level, [[tx, ty]], o.signal)).get(key(level, tx, ty)),
 		getTiles: async (level, list, o = {}) => { const m = await getTilesRGBA(level, list, o.signal); return list.map(([tx, ty]) => m.get(key(level, tx, ty))); },
 		plan, render, renderFloat,
-		rawTiles: async (level, list, signal) => { const m = await rawTiles(level, list, signal); return list.map(([tx, ty]) => m.get(key(level, tx, ty))); },
+		rawTiles: async (level, list, signal, prio) => { const m = await rawTiles(level, list, signal, prio); return list.map(([tx, ty]) => m.get(key(level, tx, ty))); },
 		ifdOf: (level) => t.ifds[level],
 		littleEndian: t.littleEndian,
 		ensureStretch: () => needStretch ? ensureStretch() : Promise.resolve(null),

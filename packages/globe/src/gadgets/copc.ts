@@ -20,7 +20,7 @@ import type { GlobeMap } from "../types/map.ts";
 type COPCInfo = COPCHandle["info"];
 /** 八分木の節（worker の答え）＋選びの状態。key＝[d, x, y, z]・c／r＝β 単位球の外接球・ll＝中心の経緯度 */
 interface NodeMsg { key: number[]; offset: number; byteSize: number; pointCount: number; c: number[]; r: number; spacingM: number; ll: number[] }
-interface PcNode extends NodeMsg { state: "none" | "loading" | "ready" | "failed"; used: number; on: boolean; q?: string; points?: number; gs?: Float64Array }
+interface PcNode extends NodeMsg { state: "none" | "loading" | "ready" | "failed"; used: number; on: boolean; q?: string; points?: number; gs?: Float64Array; /** 読みかけの rpc の番号と、送った優先度（段 4） */ rid?: number; pri?: number }
 /** 階層の頁（要る時に読む） */
 interface PageMsg { key: number[]; offset: number; byteSize: number }
 interface PcPage extends PageMsg { state: "none" | "loading" | "ready" | "failed" }
@@ -48,10 +48,11 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	const pending = new Map<string | number, { res: (d: unknown) => void; rej: (e: Error) => void }>(); let rid = 0;
 	w.onmessage = e => { const d = e.data || {};
 		if (d.type === "progress") { const st = sets.get(d.id); try { (st?.opts.onProgress ?? readProgress.get(d.id))?.(d.loaded, d.total); } catch (err) { console.warn("[copc] onProgress", err); } return; }   // ZIP を取る間の進み具合（rpc の答えでない）
-		const p = pending.get(d.rid ?? `o${d.id}`); if (!p) return; pending.delete(d.rid ?? `o${d.id}`); d.type === "error" ? p.rej(new Error(d.error)) : p.res(d); };
+		const p = pending.get(d.rid ?? `o${d.id}`); if (!p) return; pending.delete(d.rid ?? `o${d.id}`); d.type === "error" ? p.rej(Object.assign(new Error(d.error), d.aborted ? { name: "AbortError" } : {})) : p.res(d); };
 	const rpc = <T>(msg: Record<string, unknown>, key: string | number, transfer: Transferable[] = []) => new Promise<T>((res, rej) => { pending.set(key, { res, rej } as { res: (d: unknown) => void; rej: (e: Error) => void }); w.postMessage({ ...msg, ell }, transfer); });
 	const GS_MAX = 1200;   // fitTerrain に使う地面の見本の上限（粗い節から＝全体に散る）
-	const BUDGET = lowMem ? 2e6 : 6e6, MAX_INFLIGHT = lowMem ? 2 : 4;
+	// MAX_INFLIGHT＝worker へ頼んでおく節の数（段 4）。回線の同時数は worker の取り順（オリジンごと 6）が持つ＝ここは「先に並べておく」数＝画面が動けば prio の付け替えと cancel で入れ替わる
+	const BUDGET = lowMem ? 2e6 : 6e6, MAX_INFLIGHT = lowMem ? 4 : 12;
 	const sets = new Map<string, PcSet>(), readProgress = new Map<string, (loaded: number, total: number) => void>();
 	let seq = 0, inflight = 0, loadedPts = 0, raf = 0, frameNo = 0;
 	const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; update(); }); };
@@ -102,7 +103,7 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	function applyStyle(set: PcSet) {
 		const o = set.opts, info = set.info!;
 		const mode = o.color === "auto" ? (info.hasRgb ? "rgb" : "elevation") : o.color;
-		set.ov?.post({ type: "style", mode, size: o.pointSize, attenuation: o.attenuation !== false, elevRange: o.elevationRange || info.zRange.map(v => v - (info.vertical === "ellipsoidal" ? geoidHeight(info.center[0], info.center[1]) || 0 : 0) + (o.heightOffset || 0)),
+		set.ov?.post({ type: "style", mode, size: o.pointSize, attenuation: o.attenuation !== false, elevRange: o.elevationRange || (mode === "heightAboveGround" ? [0, 30] : info.zRange.map(v => v - (info.vertical === "ellipsoidal" ? geoidHeight(info.center[0], info.center[1]) || 0 : 0) + (o.heightOffset || 0))),
 			lift: (o.heightOffset || 0) / earthM, liftM: o.heightOffset || 0,
 			intensityRange: o.intensityRange || [0, 65535], opacity: o.opacity ?? 1 });
 	}
@@ -115,11 +116,11 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 			schedule();
 		}).catch(err => { p.state = "failed"; console.warn(`[copc] ${set.id}: hierarchy page`, err); });
 	}
-	function loadNode(set: PcSet, n: PcNode) {
+	function loadNode(set: PcSet, n: PcNode, pri = 0) {
 		n.state = "loading"; inflight++; if (!set.info!.inMemory) { set.stats.requests++; set.stats.bytes += n.byteSize; }
 		const N = set.info!.vertical === "ellipsoidal" ? geoidHeight(n.ll[0], n.ll[1]) || 0 : 0;
-		const q = ++rid;
-		rpc<{ n: number; pos: Float32Array; origin: number[]; rgb?: Uint8Array | null; intensity: Uint16Array; cls: Uint8Array; elev: Float32Array; gs?: Float64Array; affine?: boolean; ms?: Partial<COPCMetrics["ms"]> }>({ type: "node", id: set.id, rid: q, node: { key: n.key, offset: n.offset, byteSize: n.byteSize, pointCount: n.pointCount }, N }, q).then(r => {
+		const q = ++rid; n.rid = q; n.pri = pri;
+		rpc<{ n: number; pos: Float32Array; origin: number[]; rgb?: Uint8Array | null; intensity: Uint16Array; cls: Uint8Array; elev: Float32Array; gs?: Float64Array; affine?: boolean; ms?: Partial<COPCMetrics["ms"]> }>({ type: "node", id: set.id, rid: q, node: { key: n.key, offset: n.offset, byteSize: n.byteSize, pointCount: n.pointCount }, N, pri }, q).then(r => {
 			inflight--;
 			if (!sets.has(set.id) || set.nodes.get(keyStr(n.key)) !== n) return;
 			n.state = "ready"; n.q = keyStr(n.key); n.points = r.n; if (r.gs?.length) n.gs = r.gs; loadedPts += r.n; set.stats.nodes++; set.stats.points += r.n;
@@ -127,7 +128,11 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 			set.ov!.post({ type: "layer", q: n.q, n: r.n, pos: r.pos, origin: r.origin, rgb: r.rgb, intensity: r.intensity, cls: r.cls, elev: r.elev, spacing: n.spacingM / earthM }, [r.pos.buffer, r.elev.buffer, r.intensity.buffer, r.cls.buffer, ...(r.rgb ? [r.rgb.buffer] : [])]);
 			n.on = true;
 			schedule();
-		}).catch(err => { inflight--; n.state = "failed"; set.stats.failed++; console.warn(`[copc] ${set.id}: node ${keyStr(n.key)}`, err); schedule(); });
+		}).catch(err => {
+			inflight--;
+			if ((err as Error)?.name === "AbortError") { n.state = "none"; if (!set.info!.inMemory) { set.stats.requests--; set.stats.bytes -= n.byteSize; } schedule(); return; }   // 画面を外れて取り消した（段 4）＝また要れば頼み直す
+			n.state = "failed"; set.stats.failed++; console.warn(`[copc] ${set.id}: node ${keyStr(n.key)}`, err); schedule();
+		});
 	}
 	function unload(set: PcSet, n: PcNode) { if (n.state !== "ready") return; set.ov!.post({ type: "remove", q: n.q }); loadedPts -= n.points!; set.stats.nodes--; set.stats.points -= n.points!; n.state = "none"; n.on = false; }
 	function setOn(set: PcSet, n: PcNode, on: boolean) { if (n.on === on) return; n.on = on; set.ov!.post({ type: "vis", q: n.q, on }); }
@@ -156,6 +161,7 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 				if (budget < n.pointCount) break;
 				n.used = frameNo; budget -= n.pointCount;
 				if (n.state === "ready") show.add(n); else if (n.state === "none") want.push({ set, n, pri: px });
+				else if (n.state === "loading" && n.rid && Math.abs(px - (n.pri || 0)) > 0.2 * Math.max(px, n.pri || 0)) { n.pri = px; w.postMessage({ type: "prio", id: set.id, rid: n.rid, pri: px }); }   // 待っている節の順を画面に合わせる（段 4）
 				if (px <= set.opts.density) continue;   // この節で十分に細かい
 				for (const ck of childrenOf(n.key)) {
 					const k = keyStr(ck), c = set.nodes.get(k);
@@ -163,12 +169,13 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 					else { const p = set.pages.get(k); if (p && p.state === "none") loadPage(set, p); }
 				}
 			}
+			for (const n of set.nodes.values()) if (n.state === "loading" && n.used !== frameNo && n.rid) { w.postMessage({ type: "cancel", id: set.id, rid: n.rid }); n.rid = 0; }   // 画面・予算を外れた読みかけ＝取り消す（待ちは回線に出ない・走りは止まる）
 			let shownPts = 0;
 			for (const n of set.nodes.values()) if (n.state === "ready") { const on = show.has(n); setOn(set, n, on); if (on) shownPts += n.points!; }
 			set.stats.shown = show.size; set.stats.shownPoints = shownPts;
 		}
 		want.sort((a, b) => b.pri - a.pri);
-		for (const { set, n } of want) { if (inflight >= MAX_INFLIGHT) break; loadNode(set, n); }
+		for (const { set, n, pri } of want) { if (inflight >= MAX_INFLIGHT) break; loadNode(set, n, pri); }
 		if (loadedPts > BUDGET * 1.2) {   // 予算＝今出していない節から古い順に
 			const cand = [...sets.values()].flatMap(st => [...st.nodes.values()].filter(n => n.state === "ready" && !n.on).map(n => ({ st, n }))).sort((a, b) => a.n.used - b.n.used);
 			for (const { st, n } of cand) { if (loadedPts <= BUDGET) break; unload(st, n); }

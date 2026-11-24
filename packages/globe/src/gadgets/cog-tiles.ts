@@ -3,7 +3,8 @@
 //   画像：map.raster.add(id, { cog: URL }) → port プロバイダ（raster-src の契約 { id, z, x, y } → ImageBitmap）＝render worker の画像タイル層がそのまま描く
 //   標高：map.setTerrain({ source: { type: "cog", url } }) → DemLoad（"cog://z/x/y" → { width, height, heights: Float32Array }）＝地形のセル・1 点の標高がそのまま引く
 //   どちらも COG の元の座標系（平面直角など）から XYZ(3857) へ再標本化するのは geopbf/cog（画像＝pool worker の warpRGBA・標高＝main の warpFloat）。
-//   GPU の共通化（タイルの池・点群からの標本化）は段 3（設計案 2026-11-24）。
+//   GPU の共通化：点群が本体の地面アトラス（この画像層が焼かれる先）と標高アトラスを GPU で引く（段 3・copc-gpu の color "ground"/"heightAboveGround"）。
+//   範囲読みは realm で 1 つの取り順（geopbf/cog/sched・段 4）＝オリジンごと同時 6・新しいタイルほど先・中断は列から外す。
 // 遅延：使う時だけ dynamic import（geopbf/cog の pool も開いた時に作る）。
 import { openCog } from "geopbf/cog";
 import type { BrowserCog, BrowserCogOptions } from "geopbf/cog";
@@ -11,6 +12,8 @@ import { idbTileCache } from "./cog-idb.ts";
 
 // 読んだタイルの端末キャッシュ（段 2＝COPC と同じ口）＝画像層と地形の COG で 1 つ（main・DB は cog の見比べ表示と分ける）
 let sharedCache: ReturnType<typeof idbTileCache> | null = null;
+// 取り順（段 4）＝新しく頼まれたタイルほど先（今の画面）。画面を外れたタイルは raster-src の abort で列から外れる（回線に出ない）
+let ticket = 0;
 
 const LONLAT = new Set([4326, 4258, 4269, 4612, 6668]);
 const MERC_M = 156543.03392804097;   // z0 の 1 px（赤道・256 px タイル）
@@ -51,7 +54,7 @@ export async function openCogTiles(src: string | Blob, opts: BrowserCogOptions =
 				if (abort) { acs.get(id)?.abort(); acs.delete(id); return; }
 				const ac = new AbortController(); acs.set(id, ac);
 				try {
-					const bitmap = await cog.renderXYZ(z, x, y, { format: "bitmap", signal: ac.signal }) as ImageBitmap | null;
+					const bitmap = await cog.renderXYZ(z, x, y, { format: "bitmap", signal: ac.signal, priority: ++ticket }) as ImageBitmap | null;
 					port.postMessage({ id, bitmap }, bitmap ? [bitmap] : []);
 				} catch (err) { if (!ac.signal.aborted) port.postMessage({ id, bitmap: null, error: String((err as Error)?.message || err) }); }
 				finally { acs.delete(id); }
@@ -60,7 +63,7 @@ export async function openCogTiles(src: string | Blob, opts: BrowserCogOptions =
 		async demLoad(url) {
 			const m = /(\d+)\/(\d+)\/(\d+)(?:\D*)$/.exec(url);
 			if (!m) return null;
-			const h = await cog.renderXYZFloat(+m[1], +m[2], +m[3], { size: 256 }).catch(() => null);
+			const h = await cog.renderXYZFloat(+m[1], +m[2], +m[3], { size: 256, priority: ++ticket + 1e9 }).catch(() => null);   // 地形は画像より先（形が決まらないと画像も置けない）
 			if (!h) return null;
 			for (let i = 0; i < h.length; i++) if (h[i] === h[i]) return { width: 256, height: 256, heights: h };
 			return null;   // 全部 NaN＝そこに無い（XYZ の 404 と同じ）

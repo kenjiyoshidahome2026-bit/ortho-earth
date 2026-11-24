@@ -14,7 +14,17 @@ export interface OverlaySize { w: number; h: number }
 /** gpuDevice＝本体の GPUDevice（WebGPU で描いている時・他は null）。stage＝モジュールが非同期の準備の段を名乗る（main の __overlay に残る・"failed" は失敗＝addThree の ready が reject）（three-draw の "setup"） */
 export interface OverlayHost { requestDraw(): void; post(data: unknown): void; depthGLSL: string; customArgs(cam: CameraPose, w: number, h: number, projection?: string): ReturnType<typeof makeCustomArgs>; stage?(st: string, extra?: Record<string, unknown>): void; gpuDevice?(): GPUDevice | null;
 	/** ask for the scene depth (#47) only while it is needed (every frame with depth costs a copy that waits for the GPU): true = from the next frame on, false = stop */
-	wantDepth?(on: boolean): void }
+	wantDepth?(on: boolean): void;
+	/** 本体の地面の GPU 資源（共通化 段 3・WebGPU の時だけ・他は null）＝毎フレーム問う（窓の作り直しで view が替わる） */
+	groundGpu?(): GroundGpu | null }
+/** 地面アトラス（ラスタ層・基図の塗りを合成した前乗算 RGBA・細かい順の窓 0..3）と標高アトラス（r16float・m）。
+ *  窓 win＝[W, S, spanLon, spanLat]（度）・v は北が 0（t＝((lon−W)/spanLon, 1−(lat−S)/spanLat)）・split＝左右 2 枚（左半分＝x×0.5）。
+ *  標高 uv＝(経緯度 − bounds.xy) / bounds.zw（反転なし）。どちらも filterable＝線形の sampler で引ける */
+export interface GroundGpu {
+	windows: { view: GPUTextureView; win: [number, number, number, number]; size: number }[];
+	split: boolean;
+	elev: { view: GPUTextureView; bounds: [number, number, number, number] } | null;
+}
 /** オーバーレイの frame の api（main の makeProjector と同じ規約） */
 export interface OverlayApi {
 	project(lon: number, lat: number): number[]; projectH(lon: number, lat: number, hM?: number): number[]; clipH(lon: number, lat: number, hM?: number): number[];

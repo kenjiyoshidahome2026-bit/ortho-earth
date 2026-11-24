@@ -6,6 +6,8 @@
              （地面の下の点は奥行きと関係なく地平線の判定で描かれない＝奥行きは建物・地形の起伏で見る）
      ?v=drop＝.copc.laz を落とす（File のまま Blob.slice で節だけ）・普通の LAZ（COPC の印を消した同じ点）と LAS 1.2・形式 3（合成・東京駅のあたり）は丸ごと読んで八分木（点群計画 段 3-3）：
              座標系の無い LAS は断る・{ crs: "EPSG:6677" } で読める・GeoTIFF キーがあれば .las のドロップで読める
+     ?v=ground＝地面の色（color "ground"＝本体の地面アトラスを GPU で引く・共通化 段 3）・地面からの高さ（"heightAboveGround"）
+     ?v=cancel＝寄った直後に余所へ飛ぶ＝読みかけの節は取り消し（失敗に数えない）・戻れば全部そろう（取り順・共通化 段 4）
      画素＝オーバーレイの canvas（dbgHost.__ovPixels("copc:<id>")・透明の上に描く＝アルファで見る） -->
 <html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-copc</title></head>
 <body><div id="map"></div>
@@ -102,6 +104,41 @@ try {
 		await settled(see); await sleep(1200);
 		const b = split(await grab("copc:see"));
 		ok("depth", a.out > 500 && a.inB === 0 && b.inB > 200, `depth=${JSON.stringify(a)} nodepth=${JSON.stringify(b)}`);
+		map.destroy();
+	} else if (V === "ground") {   // 地面の色（共通化 段 3・WebGPU のみ）：点群の下に一色（マゼンタ）の画像を敷く＝"ground" の点はその色・"heightAboveGround" は段彩
+		const map = await createGlobe({ target: "#map", view: "#17/40.6892/-74.0445/0/45", chips: false, debugGlobals: true });
+		await map.once("load");
+		const C = [-74.0445, 40.6892], d = 0.01, cv = new OffscreenCanvas(64, 64), g2 = cv.getContext("2d");
+		g2.fillStyle = "#ff00ff"; g2.fillRect(0, 0, 64, 64);
+		g2.fillStyle = "#00ff00"; g2.fillRect(32, 32, 32, 32);   // 南東の 4 分の 1 だけ緑＝東西・南北の向き（アトラスの v は北が 0）を見る
+		await map.raster.add("mg", { image: cv.transferToImageBitmap(), corners: [[C[0] - d, C[1] + d], [C[0] + d, C[1] + d], [C[0] + d, C[1] - d], [C[0] - d, C[1] - d]] }, { order: "over", opacity: 1 });
+		const h = await map.addPointCloud(FX, { id: "g", fit: false, depth: false });
+		await settled(h); await sleep(1500);
+		const be = window.__backend;
+		const a = count(await grab("copc:g"));
+		// 点の画素を東西南北の 4 分割で数える（行は GL＝下から・WebGPU の描き手＝上から＝flipY false）
+		const quad = p => { const k = p.w / map.mapEl.clientWidth, [cx, cy] = map.projectLL(C[0], C[1]), q = { se: [0, 0, 0, 0], other: [0, 0, 0, 0] };
+			for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) { const i = ((p.flipY === false ? y : p.h - 1 - y) * p.w + x) * 4; if (p.data[i + 3] <= 20) continue; const ex = x / k - cx, ey = y / k - cy; if (Math.abs(ex) < 4 || Math.abs(ey) < 4) continue; const o = ex > 0 && ey > 0 ? q.se : q.other; o[0]++; o[1] += p.data[i]; o[2] += p.data[i + 1]; o[3] += p.data[i + 2]; }
+			for (const o of [q.se, q.other]) for (let j = 1; j < 4; j++) o[j] = Math.round(o[j] / Math.max(1, o[0])); return q; };
+		h.setOptions({ color: "ground" }); await sleep(1200);
+		const bp = await grab("copc:g"), b = count(bp), bq = bp ? quad(bp) : null;
+		h.setOptions({ color: "heightAboveGround" }); await sleep(1200);
+		const c = count(await grab("copc:g"));
+		if (be === "webgpu") ok("ground", a.n > 500 && b.n > 500 && bq.se[0] > 100 && bq.other[0] > 100 && bq.se[2] > 200 && bq.se[1] < 60 && bq.other[1] > 200 && bq.other[2] < 60, `rgb=${a.rgb} ground: SE=${bq?.se} other=${bq?.other}`);   // 南東＝緑・他＝マゼンタ
+		else ok("ground-gl-fallback", b.n > 500, `map=${be} ground=${b.rgb}`);
+		ok("hag", c.n > 500 && (Math.abs(c.rgb[0] - b.rgb[0]) + Math.abs(c.rgb[1] - b.rgb[1])) > 40, `hag=${c.rgb}`);
+		map.destroy();
+	} else if (V === "cancel") {   // 取り順（共通化 段 4）：寄って子の節を頼んだ直後に余所へ飛ぶ＝読みかけは取り消し（失敗に数えない）・戻れば頼み直して全部そろう
+		const map = await createGlobe({ target: "#map", view: "#16/40.6892/-74.0445", chips: false, debugGlobals: true });
+		await map.once("load");
+		const h = await map.addPointCloud(FX, { id: "c", fit: false });
+		await settled(h);
+		map.jumpTo({ center: [-74.0445, 40.6892], zoom: 18.5, pitch: 40 }); await sleep(30);
+		map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0 });
+		const s1 = await until(() => h.stats.inflight === 0 ? h.stats : null, 20000, 100);
+		map.jumpTo({ center: [-74.0445, 40.6892], zoom: 18.5, pitch: 40 });
+		const s2 = await until(() => { const s = h.stats; return s.inflight === 0 && s.nodes === 5 ? s : null; }, 30000, 300);
+		ok("cancel", !!s1 && s1.failed === 0 && !!s2 && s2.failed === 0 && s2.points === 100000, JSON.stringify({ away: s1 && { n: s1.nodes, f: s1.failed, r: s1.requests }, back: h.stats }));
 		map.destroy();
 	} else if (V === "net") {   // 実物（verify:net だけ）：Autzen（PDAL の見本・オレゴン州 State Plane＝LCC・フィート・分類つき・81MB）＝節だけ読む
 		const map = await createGlobe({ target: "#map", view: "#3/44/-123", chips: false, debugGlobals: true });

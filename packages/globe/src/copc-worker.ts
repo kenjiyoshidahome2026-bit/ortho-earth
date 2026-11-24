@@ -39,7 +39,8 @@ interface PcSet {
 type SphNode = CopcNode & { c?: number[]; r?: number; ll?: ArrayLike<number>; spacingM?: number };
 /** main からの便（type ごとに使う欄が違う） */
 interface CopcMsg {
-	type?: "open" | "page" | "node" | "dump" | "close"; id: number; rid?: number; ell?: boolean;
+	type?: "open" | "page" | "node" | "dump" | "close" | "prio" | "cancel"; id: number; rid?: number; ell?: boolean;
+	/** node・prio＝取り順の優先度（節の点の間隔の画面 px・大きいほど先・段 4） */ pri?: number;
 	/** dump＝読む点の上限（等間隔に間引く・0＝全部）。N（節と同じ欄）＝楕円体高なら中心の EGM96 の N（m） */ maxPoints?: number;
 	src?: string | Blob; headers?: Record<string, string>; crs?: string; vertical?: "orthometric" | "ellipsoidal";
 	page?: { offset: number; byteSize: number }; node?: CopcNode; N?: number;
@@ -52,6 +53,9 @@ const NO_LAZ = 'copc: no LAZ decoder — install @ortho-earth/tile-formats and a
 const laz = () => LAZ ??= POINTCLOUD_FORMATS.laz!().catch(e => { LAZ = null; throw e; });
 // 読んだ節・階層の頁を端末に残す（共通化 段 2・2026-11-24）＝開き直した図郭・戻った場所は回線へ出ない（HF の COPC 1 枚が約 2 分かかっていた所）。
 // 版＝ETag か先頭（LAS のヘッダ）のハッシュ＝ファイルが差し替われば当たらない。4 GB 以下の端末は 128 MB・他は 512 MB（古い順に捨てる）
+// 取り順（共通化 段 4）＝読みかけの節の優先度と中断の手綱（rid ごと）。範囲読みは realm の共有の列（geopbf/cog/sched・オリジンごと同時 6）に
+//   「出す時に問う」優先度で並ぶ＝main が画面に合わせて prio を送れば、まだ回線に出ていない節の順が入れ替わる・画面を外れた節は cancel で列から外れる（走っていれば fetch を止める）
+const live = new Map<number, { pri: number; ac: AbortController }>();
 const rangeCache = idbTileCache(((navigator as WorkerNavigator & { deviceMemory?: number }).deviceMemory ?? 8) <= 4 ? 128 << 20 : 512 << 20, "ortho-copc");
 const sets = new Map<number, PcSet>();   // id → { src, hdr, info, crs, vUnit, ellipsoidal }
 const D2R = Math.PI / 180;
@@ -177,7 +181,8 @@ async function node(m: CopcMsg & { node: CopcNode }) {
 	let r: LasRecords | ReturnType<typeof gatherNode>, t1 = t0;
 	if (set.mem) { if (!set.mem.idx) throw new Error("copc: opened for reading only (no octree)"); r = gatherNode(set.mem.store, set.mem.idx, m.node.offset, n); }   // 丸ごと読み＝手元の点を集めるだけ（rgb は 8bit 済み）
 	else {
-		const [[got], decode] = await Promise.all([readChunks(set.src!, copcChunks.resolve([m.node])), laz()]);
+		const h = m.rid !== undefined ? live.get(m.rid) : undefined;
+		const [[got], decode] = await Promise.all([readChunks(set.src!, copcChunks.resolve([m.node]), h?.ac.signal, h ? () => h.pri : m.pri), laz()]);
 		const buf = got ?? new Uint8Array(0);
 		t1 = performance.now();
 		const rec = await decode(buf, { format: hdr.format, recordLength: hdr.recordLength, count: n });
@@ -287,9 +292,12 @@ self.onmessage = async (e: MessageEvent<CopcMsg | null>) => {
 	try {
 		if (m.ell !== undefined) setDecodeEnv({ ell: m.ell });
 		if (m.type === "open") { const r = await open(m); self.postMessage({ type: "opened", id: m.id, ...r }); }
-		else if (m.type === "page") { const s = sets.get(m.id); const b = new Uint8Array(await s!.src!.read(m.page!.offset, m.page!.byteSize)); self.postMessage({ type: "page", id: m.id, rid: m.rid, ...withSpheres(s!, parseHierarchyPage(b)) }); }
+		else if (m.type === "page") { const s = sets.get(m.id); const b = new Uint8Array(await s!.src!.read(m.page!.offset, m.page!.byteSize, undefined, 1e9)); self.postMessage({ type: "page", id: m.id, rid: m.rid, ...withSpheres(s!, parseHierarchyPage(b)) }); }
+		else if (m.type === "prio") { const h = live.get(m.rid!); if (h) h.pri = m.pri ?? h.pri; }
+		else if (m.type === "cancel") live.get(m.rid!)?.ac.abort();
 		else if (m.type === "node") {
-			const r = await node(m as CopcMsg & { node: CopcNode });
+			if (m.rid !== undefined) live.set(m.rid, { pri: m.pri ?? 0, ac: new AbortController() });
+			const r = await node(m as CopcMsg & { node: CopcNode }).finally(() => { if (m.rid !== undefined) live.delete(m.rid); });
 			self.postMessage({ type: "node", id: m.id, rid: m.rid, ...r }, [r.pos.buffer, r.elev.buffer, r.intensity.buffer, r.cls.buffer, ...(r.rgb ? [r.rgb.buffer] : [])]);
 		}
 		else if (m.type === "dump") {
@@ -298,6 +306,6 @@ self.onmessage = async (e: MessageEvent<CopcMsg | null>) => {
 		}
 		else if (m.type === "close") sets.delete(m.id);
 	} catch (err) {
-		self.postMessage({ type: "error", id: m.id, rid: m.rid, error: String(err && (err as Error).message || err) });
+		self.postMessage({ type: "error", id: m.id, rid: m.rid, error: String(err && (err as Error).message || err), aborted: (err as Error)?.name === "AbortError" });
 	}
 };

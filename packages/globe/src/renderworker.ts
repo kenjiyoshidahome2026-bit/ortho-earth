@@ -40,7 +40,7 @@ import type { GpuTextSink } from "@ortho-earth/core/textgpu";
 import type { Terrain, TerrainOptions, TerrainRenderer } from "@ortho-earth/core/terrain";
 import type { Raster, RasterRenderer } from "@ortho-earth/core/raster";
 import type { ScenePortMessage, MergedScene } from "@ortho-earth/core/worker-msg";
-import type { OverlayHost, OverlayApi, LastOverlayFrame, OverlayModule } from "./types/overlay.ts";   // 同一フレームのオーバーレイの契約
+import type { OverlayHost, OverlayApi, LastOverlayFrame, OverlayModule, GroundGpu } from "./types/overlay.ts";   // 同一フレームのオーバーレイの契約
 
 // 起動の時間割（?hud=1 の boot 行・[boot] timeline）：印は epoch ms（performance.timeOrigin + now）＝main が自分の起点へ直す。
 // workerStart＝この worker の起点（new Worker の頃）・script＝この脚本の評価（＝worker.js と renderworker の取得・解析・評価が済んだ）。
@@ -79,6 +79,7 @@ interface RenderBackendGPU extends RenderBackend {
 	gpuErrors: string[];
 	/** 起動の時間割（ms）：adapter／device の取得・init（パイプライン等の生成） */
 	boot?: { adapterMs: number; deviceMs: number; initMs: number };
+	groundGpu?(): GroundGpu;
 }
 /** gint.stats() の計器 */
 interface GintStats { drawn: number; fbo: number; pickMs: number; rank: number; tierW: number; edges: number; tiers: number; tiersDone: boolean; total: number; runs?: number; chunks?: number; subs?: number; kept?: number; vb?: number[] | null }
@@ -202,6 +203,7 @@ function overlayAdd(m: RwMsg) {
 		customArgs: (cam, w, h, projection) => makeCustomArgs(cam, w, h, { earthM: worldRadiusM(), globe: cam.zoom < GLOBE_MAX_Z && projection === "globe" }),
 		stage: (st, extra) => { if (overlays.get(m.name!) === o) stage(st, extra); },
 		wantDepth: on => { if (o.depth !== !!on) { o.depth = !!on; dirty = true; armRaf(); } },   // 深度を要る間だけ（czml＝高さのある線か尾がある時）
+		groundGpu: () => backendName === "webgpu" ? (renderer as RenderBackendGPU | null)?.groundGpu?.() ?? null : null,   // 地面アトラス・標高アトラス（共通化 段 3）＝点群が同じ GPU のまま地面の色・標高を引く
 		gpuDevice: () => backendName === "webgpu" ? ((renderer as RenderBackendGPU | null)?.device as unknown as GPUDevice | undefined) ?? null : null };   // 本体の GPUDevice（WebGPU の時）＝共有して描くオーバーレイ（three の WebGPURenderer）が深度をコピーなしで読む   // モジュールが非同期の準備を済ませた段（three の "setup"・失敗の "failed"）を名乗る
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
 	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
