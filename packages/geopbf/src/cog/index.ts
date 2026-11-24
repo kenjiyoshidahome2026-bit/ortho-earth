@@ -33,6 +33,8 @@ interface Rendered { rgba: Uint8ClampedArray; w: number; h: number }
 export interface BrowserCog extends Cog {
 	renderXYZ(z: number, x: number, y: number, o?: RenderXYZOptions): Promise<RenderOut>;
 	renderTo(grid: { bbox: BBox; w: number; h: number }, o?: RenderToOptions): Promise<RenderOut>;
+	/** XYZ(3857) タイルへ値のまま（Float32・size²・無い所は NaN）＝標高 COG を地形の DEM タイルに（2026-11-24） */
+	renderXYZFloat(z: number, x: number, y: number, o?: RenderOptions & { size?: number }): Promise<Float32Array | null>;
 }
 
 export async function openCog(src: SourceInput, opts: BrowserCogOptions = {}): Promise<BrowserCog> {
@@ -94,6 +96,14 @@ export async function openCog(src: SourceInput, opts: BrowserCogOptions = {}): P
 				} finally { inflight.delete(k); }
 			})();
 			inflight.set(k, p);
+			return p;
+		},
+		renderXYZFloat(z, x, y, o = {}) {
+			const size = o.size || 256, k = `f/${z}/${x}/${y}/${size}`;
+			const p = (inflight.get(k) as Promise<Float32Array | null> | undefined) ?? (async () => {
+				try { return await cog.renderFloat(xyzTarget(z, x, y, size), o); } finally { inflight.delete(k); }
+			})();
+			inflight.set(k, p as Promise<RenderOut>);
 			return p;
 		},
 		// 経緯度グリッド（エンジンの等経緯度アトラスセル用）。{bbox:[w,s,e,n], w, h}

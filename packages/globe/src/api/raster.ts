@@ -9,7 +9,7 @@ import type { RasterApi } from "../types/map.ts";
 
 /** map.raster.add が受ける spec を読む形（RasterSpec のどの形も入る＝各形の項目を全部 optional で） */
 interface SpecIn {
-	url?: string; pmtiles?: string; wms?: Extract<RasterSpec, { wms: unknown }>["wms"]; file?: File; table?: string; port?: MessagePort; image?: Blob | ImageBitmap; iiif?: string | object;
+	url?: string; pmtiles?: string; cog?: string | Blob; wms?: Extract<RasterSpec, { wms: unknown }>["wms"]; file?: File; table?: string; port?: MessagePort; image?: Blob | ImageBitmap; iiif?: string | object;
 	video?: HTMLVideoElement | string | string[]; canvas?: HTMLCanvasElement | OffscreenCanvas; corners?: [LonLat, LonLat, LonLat, LonLat]; animate?: boolean;
 	tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: Bbox | null; attribution?: string | null; subdomains?: string[] | string; tms?: boolean; matrixIds?: string[];
 	headers?: Record<string, string>; credentials?: RequestCredentials; name?: string | null; adjust?: Extract<RasterSpec, { url: string }>["adjust"];
@@ -18,7 +18,7 @@ interface SpecIn {
 type SpecRead = RasterSpec & SpecIn;
 /** 台帳の 1 件（id → spec/opts/info・提供側 worker・出典・add の約束） */
 interface RasterRec {
-	spec: SpecRead; opts: RasterOptions & { tileBias?: number }; info: RasterInfoMsg | null; error: string | null; worker: Worker | null; attrHTML: string | null; port?: MessagePort;
+	spec: SpecRead; opts: RasterOptions & { tileBias?: number }; info: RasterInfoMsg | null; error: string | null; worker: Worker | null; attrHTML: string | null; port?: MessagePort; closeSrc?: () => void;
 	_res: ((info: RasterInfo) => void) | null; _rej: ((e: Error) => void) | null;
 }
 /** provider の port が受ける要求（タイル { id, z, x, y }・中断 { id, abort }） */
@@ -32,7 +32,7 @@ export function installRaster(map: Installing<RasterApi>, live: RasterLive, {
 	// カタログ（地域パック rasters＝外から定義）と ?r= の同期。外から定義できる口＝三つ：地域パック（REGION.rasters）／
 	// URL（?xyz= ?pm= ?r=）／公開 API（map.raster.add＝自前契約の URL テンプレ・ラスタ PMTiles・MessagePort プロバイダ）。
 	const rasterReg = new Map<string, RasterRec>();   // id → { spec, opts, info, error, worker, attrHTML, _res, _rej }
-	ownDestroy.push(() => { for (const r of rasterReg.values()) { r.worker?.terminate(); r.port?.close(); r._rej?.(new Error("destroyed")); } rasterReg.clear(); });   // 提供側 worker（main 所有）
+	ownDestroy.push(() => { for (const r of rasterReg.values()) { r.worker?.terminate(); r.port?.close(); r.closeSrc?.(); r._rej?.(new Error("destroyed")); } rasterReg.clear(); });   // 提供側 worker（main 所有）
 	const rasterCbs = new Set<() => void>();
 	const rasterStatWait: RasterReturn["rasterStatWait"] = new Map(); let rasterStatSeq = 0;
 	const rasterChanged = () => { live.attrZone = null; requestDraw(); for (const cb of rasterCbs) { try { cb(); } catch (e) { console.error("[raster] onChange", e); } } };
@@ -44,7 +44,7 @@ export function installRaster(map: Installing<RasterApi>, live: RasterLive, {
 		rec.info = info;
 		// 出典＝ソースの自己申告（PMTiles/MBTiles の metadata・カタログの宣言）を消毒して出す。無ければホスト名（無出典で他人の絵を出さない）
 		// 四隅で貼る絵（画像・動画・canvas）の name は呼び手が付けた内部の名（"viewshed"・"sunshadow"・style の layer id）＝出典ではない＝出さない（2026-10-25・横浜の出典欄に viewshed が出ていた）
-		rec.attrHTML = info?.attribution ? sanitizeHTML(String(info.attribution)) : (rec.spec?.url ? hostOf(rec.spec.url) : rec.spec?.pmtiles ? hostOf(rec.spec.pmtiles) : (info?.name && !rec.spec?.corners ? sanitizeHTML(String(info.name)) : null));
+		rec.attrHTML = info?.attribution ? sanitizeHTML(String(info.attribution)) : (rec.spec?.url ? hostOf(rec.spec.url) : rec.spec?.pmtiles ? hostOf(rec.spec.pmtiles) : typeof rec.spec?.cog === "string" ? hostOf(new URL(rec.spec.cog, location.href).href) : (info?.name && !rec.spec?.corners ? sanitizeHTML(String(info.name)) : null));
 		rec._res?.(info); rec._res = rec._rej = null;
 		rasterChanged();
 	}
@@ -122,6 +122,18 @@ export function installRaster(map: Installing<RasterApi>, live: RasterLive, {
 				if (rq.load) { const ch = new MessageChannel(); serveProtocolRaster(ch.port1, rq.url, spec); wireSpec = { port: ch.port2, name: spec.name || null, attribution: spec.attribution || null, adjust: spec.adjust ?? null }; transfer = [ch.port2]; rec.port = ch.port1; }   // adjust＝色調整・切り抜きは worker が復号の後に掛ける（どの種類にも）
 				else if (rq.url !== tpl || rq.headers || rq.credentials) wireSpec = { ...spec, wms: undefined, url: rq.url, headers: rq.headers ? { ...(spec.headers || {}), ...rq.headers } : spec.headers, credentials: rq.credentials ?? spec.credentials };
 			}
+			if (spec?.cog) {   // COG（GeoTIFF の範囲読み・2026-11-24）＝main で開いて port プロバイダとして答える（再標本化は geopbf/cog の pool worker）
+				try {
+					const { openCogTiles } = await import("../gadgets/cog-tiles.ts");
+					const srcIn = typeof spec.cog === "string" ? requester.resolve(new URL(spec.cog, location.href).href, "Source").url : spec.cog;
+					const ct = await openCogTiles(srcIn, { memBudget: LOW_MEM ? 32 << 20 : 128 << 20 });
+					if (rasterReg.get(id) !== rec) { ct.close(); throw new Error("removed while opening"); }
+					const ch = new MessageChannel();
+					ct.serveRaster(ch.port1, { name: spec.name ?? null, attribution: spec.attribution ?? null, minZoom: spec.minZoom, maxZoom: spec.maxZoom });
+					rec.port = ch.port1; rec.closeSrc = () => ct.close();
+					wireSpec = { port: ch.port2, name: spec.name || null, attribution: spec.attribution || null, adjust: spec.adjust ?? null }; transfer = [ch.port2];
+				} catch (err) { if (rasterReg.get(id) === rec) rasterReg.delete(id); throw err; }
+			}
 			let iiifMaps: unknown[] | null = null, iiifAttr: string | null = null, iiifFallback: string | null = null;
 			if (spec?.iiif) {   // 基準点の注記（Georeference Annotation・#177）＝main で読んで解き、画像と写像は worker が持つ
 				try { ({ maps: iiifMaps, attribution: iiifAttr, fallback: iiifFallback } = await live.iiifOpen(spec.iiif, spec.attribution)); }
@@ -152,7 +164,7 @@ export function installRaster(map: Installing<RasterApi>, live: RasterLive, {
 			rasterChanged();
 			return done;
 		}) as RasterAPI["add"],   // 重ね書き（video／canvas／その他）の実体は 1 本
-		remove(id) { if (live.videoCtl?.remove(id)) { requestDraw(); return true; } const rec = rasterReg.get(id); if (!rec) return false; rasterReg.delete(id); rec.worker?.terminate(); rec.port?.close(); rec._rej?.(new Error("removed")); wPost({ type: "set", cmd: "rasterRemove", prop: id }); rasterChanged(); return true; },
+		remove(id) { if (live.videoCtl?.remove(id)) { requestDraw(); return true; } const rec = rasterReg.get(id); if (!rec) return false; rasterReg.delete(id); rec.worker?.terminate(); rec.port?.close(); rec.closeSrc?.(); rec._rej?.(new Error("removed")); wPost({ type: "set", cmd: "rasterRemove", prop: id }); rasterChanged(); return true; },
 		set(id, o) { if (live.videoCtl?.get(id)) return o.opacity != null ? live.videoCtl.setOpacity(id, o.opacity) : true; const rec = rasterReg.get(id); if (!rec) return false; Object.assign(rec.opts, o); wPost({ type: "set", cmd: "rasterSet", prop: id, data: o }); rasterChanged(); return true; },
 		list: () => [...rasterReg].map(([id, r]) => ({ id, info: r.info, spec: r.spec, opts: r.opts, error: r.error })),
 		info: id => rasterReg.get(id)?.info ?? null,

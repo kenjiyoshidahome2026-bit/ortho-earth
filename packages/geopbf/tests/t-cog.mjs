@@ -249,6 +249,33 @@ const reqCount = (path) => log.filter(l => l.path === path).length;
 	cog2.close();
 }
 
+// ---- 17) 標高 COG（f32・deflate＋predictor 3・平面直角 VIII 系）→ renderFloat（値のまま・nodata は NaN）------------
+{
+	const elev = (x, y) => x === 0 && y === 0 ? -9999 : 100 + x * 0.25 + y * 0.5;   // 0.5 m 格子の斜面（左上の 1 点だけ nodata）
+	files.set("/dem.tif", { body: buildCog({ width: 64, height: 48, tileW: 16, tileH: 16, bands: 1, dtype: "f32", compression: "deflate", predictor: 3, epsg: 6676, origin: [-30000, -100000], scale: [0.5, 0.5], nodata: -9999, overviews: [2], pixel: elev }) });
+	const cog = await openCog(`${base}/dem.tif`);
+	ok(cog.dtype === "f32" && cog.epsg === 6676, `f32・EPSG:6676 で開く（実測 ${cog.dtype}・${cog.epsg}）`);
+	const raw = await cog.rawTiles(0, [[1, 1]]);
+	const dec = await decodeTile(raw[0], cog.ifdOf(0), true);
+	ok(dec.kind === "raster" && Math.abs(dec.data[5 * 16 + 3] - elev(19, 21)) < 1e-4, `predictor 3 を戻した値（実測 ${dec.kind === "raster" ? dec.data[5 * 16 + 3] : dec.kind}・期待 ${elev(19, 21)}）`);
+	// 画素中心の経緯度へ 1×1 の目標を置き、値がそのまま出るか
+	const { projFor } = await import("../src/cog/proj.ts");
+	const pj = projFor(6676);
+	const at = (px, py) => pj.inverse([-30000 + (px + 0.5) * 0.5, -100000 - (py + 0.5) * 0.5]);
+	const one = (ll) => ({ w: 1, h: 1, mapLL: () => ll });
+	const v = await cog.renderFloat(one(at(19, 21)), { level: 0 });
+	ok(v && Math.abs(v[0] - elev(19, 21)) < 1e-3, `renderFloat が値のまま（実測 ${v?.[0]}・期待 ${elev(19, 21)}）`);
+	const nd = await cog.renderFloat(one(at(0, 0)), { level: 0, nearest: true });
+	ok(nd && Number.isNaN(nd[0]), `nodata は NaN（実測 ${nd?.[0]}）`);
+	const out = await cog.renderFloat(one([0, 0]), { level: 0 });
+	ok(out === null || Number.isNaN(out[0]), "範囲外は null か NaN");
+	const ll = at(32, 24), z = 20, n = 2 ** z;
+	const xt = Math.floor((ll[0] + 180) / 360 * n), yt = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + ll[1] * Math.PI / 360)) / Math.PI) / 2 * n);
+	const tile = await cog.renderFloat(xyzTarget(z, xt, yt, 64));
+	const vals = tile ? [...tile].filter(x => x === x) : [];
+	ok(vals.length > 100 && vals.every(x => x > 99 && x < 150), `XYZ タイルへ値のまま（有効 ${vals.length}/4096・範囲 ${Math.min(...vals).toFixed(2)}〜${Math.max(...vals).toFixed(2)}）`);
+}
+
 server.close();
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");
 process.exit(fails ? 1 : 0);

@@ -18,7 +18,7 @@ import type {
 	LayerPressEvent, LightSpec, LightSpecification, LonLat, LookAtOptions, MapLibreLayer,
 	MapErrorEvent, MapLibreSource, MapRegistry, Marker, MeshEvent, NavaraCamera,
 	OrthoClock, OrthoPlugin, OverlayHandle, OverlayPick, PaddingOptions,
-	Popup, PostPass, PostProcessOptions, ProtocolLoader, QuantizedMeshSource,
+	Popup, PostPass, PostProcessOptions, ProtocolLoader, QuantizedMeshSource, CogDemSource,
 	QueryOptions, RasterAPI, RasterDemSource, RenderedFeature, ResourceType, ScreenGridHandle,
 	ScreenGridOptions, SkySpecification, AtmosphereSpec, MeshLightingSpec, GroundLightingSpec, GroundMaterialSpec, SnapshotOverlay, StyleExpression, SunSpec,
 	TerrainSourceSpec, Tiles3DHandle, Tiles3DOptions, TransformRequestFunction, VideoHandle, WalkHandle, WalkOptions,
@@ -426,7 +426,7 @@ export interface TerrainApi {
 	getHeight(lon: number, lat: number): Promise<number>;   // api/terrain.ts:22
 	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ（誇張も 1 に戻る）。
 	 *  exaggeration＝地形の誇張（2026-10-24〜・省略＝1＝実スケール）。地形と、地形に乗る物の足元を持ち上げる（建物・模型そのものの高さは伸ばさない＝MapLibre と同じ） */
-	setTerrain(terrain: { source: string | RasterDemSource | QuantizedMeshSource; exaggeration?: number } | null): Promise<GlobeMap>;   // api/terrain.ts:25
+	setTerrain(terrain: { source: string | RasterDemSource | QuantizedMeshSource | CogDemSource; exaggeration?: number } | null): Promise<GlobeMap>;   // api/terrain.ts:25
 	// source は整えた後の spec（実体）＝叩き台の RasterDemSource | QuantizedMeshSource から実体に合わせた（TileJSON の申告の encoding・bounds は型の外の値も通る）
 	getTerrain(): { source: TerrainSourceSpec; exaggeration: number } | null;   // api/terrain.ts:47
 	/** 地形の誇張だけを変える（Cesium の scene.verticalExaggeration・2026-10-24〜）。既定の標高（setTerrain をしていない地図）にも効く。正の数以外は 1（実スケール） */

@@ -58,6 +58,22 @@ function undoPredictor2(data: RasterData, w: number, h: number, samples: number,
 	return data;
 }
 
+// ---- predictor=3（浮動小数の水平差分・TIFF Technical Note 3＝libtiff fpAcc）-----------------------
+// 行ごと：バイト単位の累積（stride＝samples）→ 上位バイトから並んだ面（bps 枚）を画素へ組み直す。
+// 面の並びはファイルの byte order に依らず「上位バイトが先」＝戻すとプラットフォーム endian の浮動小数になる（呼び手は le を読み替える）
+function undoPredictor3(src: Uint8Array, w: number, h: number, samples: number, bps: number): Uint8Array {
+	const wc = w * samples, rowB = wc * bps, out = new Uint8Array(rowB * h), tmp = new Uint8Array(rowB);
+	const rows = Math.min(h, Math.floor(src.length / rowB));   // strip 型の最後の帯は短い
+	for (let r = 0; r < rows; r++) {
+		const o = r * rowB;
+		tmp.set(src.subarray(o, o + rowB));
+		for (let i = samples; i < rowB; i++) tmp[i] = (tmp[i] + tmp[i - samples]) & 255;
+		for (let c = 0; c < wc; c++) for (let b = 0; b < bps; b++)
+			out[o + c * bps + (PLATFORM_LE ? b : bps - 1 - b)] = tmp[(bps - 1 - b) * wc + c];
+	}
+	return out;
+}
+
 // ---- バイト列 → 型付き配列（ファイル byte order → プラットフォーム）---------------------------
 const PLATFORM_LE = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 function typedOf(u8: Uint8Array, ifd: LeanIfd, le: boolean): RasterData {
@@ -108,6 +124,7 @@ export async function decodeTile(raw: Uint8Array, ifd: LeanIfd, le: boolean): Pr
 	else if (compression === 8 || compression === 32946) u8 = await inflate(raw, "deflate");   // zlib（TIFF deflate は zlib 包み）
 	else if (compression === 5) u8 = lzwDecode(raw, tileW * tileH * samples * bytesPer);
 	else throw new Error(`cog: unsupported compression ${compression}`);
+	if (ifd.predictor === 3) return { kind: "raster", data: typedOf(undoPredictor3(u8, tileW, tileH, samples, bytesPer), ifd, PLATFORM_LE) };   // 浮動小数（DEM の float32 COG＝GDAL の PREDICTOR=3）
 	let data = typedOf(u8, ifd, le);
 	if (ifd.predictor === 2) data = undoPredictor2(data, tileW, tileH, samples, bytesPer);
 	return { kind: "raster", data };
