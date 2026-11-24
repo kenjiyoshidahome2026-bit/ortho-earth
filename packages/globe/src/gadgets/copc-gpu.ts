@@ -259,9 +259,9 @@ export function create(): CopcGpuModule {
 		const lon = Math.atan2(o[2], o[0]), lat = Math.atan(o[1] / (rAx * hz));
 		const W = (lo: number, la: number) => { const cb = Math.cos(la), sp = Math.sin(la), w = Math.hypot(cb, rAx * sp), h = cb / w; return [h * Math.cos(lo), rAx * sp / w, h * Math.sin(lo)]; };
 		const e = 1e-6, a = W(lon + e, lat), b = W(lon - e, lat), c2 = W(lon, lat + e), d = W(lon, lat - e);
-		const Jl = [0, 1, 2].map(i => (a[i] - b[i]) / (2 * e * R2D)), Jp = [0, 1, 2].map(i => (c2[i] - d[i]) / (2 * e * R2D));   // 1 度あたりの世界の変位
-		const ll = Jl[0] * Jl[0] + Jl[1] * Jl[1] + Jl[2] * Jl[2], pp = Jp[0] * Jp[0] + Jp[1] * Jp[1] + Jp[2] * Jp[2], lp = Jl[0] * Jp[0] + Jl[1] * Jp[1] + Jl[2] * Jp[2], det = ll * pp - lp * lp;
-		const gLon = [0, 1, 2].map(i => (pp * Jl[i] - lp * Jp[i]) / det), gLat = [0, 1, 2].map(i => (ll * Jp[i] - lp * Jl[i]) / det);   // (JᵀJ)⁻¹Jᵀ
+		const Jlon = [0, 1, 2].map(i => (a[i] - b[i]) / (2 * e * R2D)), Jlat = [0, 1, 2].map(i => (c2[i] - d[i]) / (2 * e * R2D));   // 1 度あたりの世界の変位
+		const ll = Jlon[0] * Jlon[0] + Jlon[1] * Jlon[1] + Jlon[2] * Jlon[2], pp = Jlat[0] * Jlat[0] + Jlat[1] * Jlat[1] + Jlat[2] * Jlat[2], lp = Jlon[0] * Jlat[0] + Jlon[1] * Jlat[1] + Jlon[2] * Jlat[2], det = ll * pp - lp * lp;
+		const gLon = [0, 1, 2].map(i => (pp * Jlon[i] - lp * Jlat[i]) / det), gLat = [0, 1, 2].map(i => (ll * Jlat[i] - lp * Jlon[i]) / det);   // (JᵀJ)⁻¹Jᵀ
 		const r = { rAx, lon0: lon * R2D, lat0: lat * R2D, gLon, gLat };
 		jac.set(L, r);
 		return r;
