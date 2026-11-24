@@ -17,6 +17,7 @@ import { tileOutsideCoverage } from "./tile.ts";
 import { vectorLayersOf } from "./mlstyle.ts";
 import { overzoomTile } from "./overzoom.ts";
 import type { PMTiles, Source } from "pmtiles";
+import { getScheduler, originKey, type Scheduler } from "geopbf/cog/sched";
 import type { TileData } from "./tileformat.ts";
 import type { VectorLayerInfo } from "./mlstyle.ts";
 
@@ -137,12 +138,26 @@ export function cachingSource(src: string, inner: Source, open: () => Promise<Ra
 	};
 }
 
+// 回線の取り順（COG×点群の共通化 段 4 を PMTiles へ・2026-11-25）：HTTP のアーカイブの範囲読みは geopbf/cog/sched の列を通る
+//   ＝この realm の COG のタイル・COPC の節と同じ規則（オリジンごとの同時数・優先度の高い順・中断は回線に出る前に列から外す）。
+//   優先度＝先頭（ヘッダ＋根の索引）が一番先・それ以外は新しく頼まれた読みほど先（今の画面）。画面を外れたタイルは呼び手の signal（raster-src の abort）で列から外れる。
+//   端末キャッシュ（cachingSource・Cache API）はこの外側＝当たった範囲は列に並ばない。OPFS・丸呑み（Range 非対応）は回線に出ないので通さない。
+let ticket = 0;
+export function scheduledSource(inner: Source, src: string, sched: Scheduler = getScheduler()): Source {
+	const key = originKey(src);
+	return {
+		getKey: () => inner.getKey(),
+		getBytes: (offset, length, signal, etag) => sched.run(js => inner.getBytes(offset, length, js, etag), { key, priority: offset === 0 ? Number.MAX_SAFE_INTEGER : ++ticket, signal }),
+	};
+}
+
 async function openArchive(src: string): Promise<PMTiles> {
 	const m = await import("pmtiles");
 	if (src.startsWith(OPFS)) return new m.PMTiles(opfsSource(src.slice(OPFS.length)));
 	// Range で読める置き場だと一度分かったら、次の起動からは探りの 1 往復を省く（端末キャッシュが入の時だけ）
 	const store = rangeCacheFlag.on ? await openRangeStore() : null, probeKey = rcKey(src, "range-ok");
-	const ranged = (): PMTiles => new m.PMTiles(rangeCacheFlag.on ? cachingSource(src, new m.FetchSource(src), async () => store, () => new m.EtagMismatch("archive changed")) : src);
+	const net = (): Source => scheduledSource(new m.FetchSource(src), src);   // 回線＝共通の取り順を通す
+	const ranged = (): PMTiles => new m.PMTiles(rangeCacheFlag.on ? cachingSource(src, net(), async () => store, () => new m.EtagMismatch("archive changed")) : net());
 	if (store && await store.match(probeKey).catch(() => undefined)) return ranged();
 	try {
 		const res = await fetch(src, { headers: { Range: "bytes=0-0" } });
