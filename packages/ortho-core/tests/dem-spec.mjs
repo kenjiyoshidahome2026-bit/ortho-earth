@@ -1,6 +1,6 @@
 // 外来の標高ソース（dem-src.ts・qmesh-src.ts）の spec の正規化と、取得なしで決まる口（covers・範囲外の height／cell）の検定。
 // タイルの取得と解読（fetch・createImageBitmap・OffscreenCanvas）はブラウザ側＝ここでは fetch を偽物に替えて「呼ばない」ことを見る。
-import { normalizeDemSpec, createDemSource } from "../src/dem-src.ts";
+import { normalizeDemSpec, createDemSource, sniffImageType, frameToRGBA, decodeImageRGBA } from "../src/dem-src.ts";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
@@ -85,6 +85,36 @@ const warn = console.warn; console.warn = () => {};
 	const h = await d.height(139, 35, 3);
 	ok("heights：値のまま（gsi の復号を通さない）", Math.abs(h - 42.25) < 1e-6, `h=${h}`);
 	ok("heights：cog:// の型紙で頼む・fetch は呼ばない", asked[0] === "cog://3/7/3" && fetched === f0, asked[0]);
+}
+
+// ── 画像の復号は canvas を通さない（#1209）：ImageDecoder（WebCodecs）→ VideoFrame.copyTo → 詰めた RGBA ──
+//   実物の Chromium（ImageDecoder・lossless WebP／PNG・α あり／なし）で画素一致は手元で確認済み。ここは型の見分けと並べ替えを偽の frame で
+{
+	const B = a => new Uint8Array(a);
+	ok("sniff：PNG・WebP・JPEG・AVIF・不明", sniffImageType(B([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10])) === "image/png" && sniffImageType(B([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])) === "image/webp"
+		&& sniffImageType(B([0xff, 0xd8, 0xff, 0xe0])) === "image/jpeg" && sniffImageType(B([0, 0, 0, 28, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66])) === "image/avif" && sniffImageType(B([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])) === null);
+	// 2×1 画素（R=128,G=51,B=102,A=255｜R=129,G=0,B=7,A=0）を各形で持つ偽の frame
+	const px = [[128, 51, 102, 255], [129, 0, 7, 0]];
+	const frame = (format, conv = true) => ({ format, codedWidth: 2, codedHeight: 1, visibleRect: { width: 2, height: 1 }, closed: 0, close() { this.closed++; },
+		async copyTo(dst, o = {}) { const f = o.format ?? format; if (o.format && !conv) throw new Error("no conv"); px.forEach((p, i) => { const q = f.startsWith("BGR") ? [p[2], p[1], p[0], p[3]] : p; dst.set(f.endsWith("X") ? [q[0], q[1], q[2], 99] : q, i * 4 + (o.layout?.[0].offset ?? 0)); }); } });
+	const want = (a0, a1) => [128, 51, 102, a0, 129, 0, 7, a1].join();
+	ok("frame RGBA：そのまま", (await frameToRGBA(frame("RGBA"))).data.join() === want(255, 0));
+	ok("frame BGRA：R と B を入れ替え・α はそのまま（α 0＝無効値が残る）", (await frameToRGBA(frame("BGRA"))).data.join() === want(255, 0));
+	ok("frame BGRX：入れ替え・X は 255（Chromium の不透明な画像はこの形）", (await frameToRGBA(frame("BGRX"))).data.join() === want(255, 255));
+	ok("frame RGBX：X は 255", (await frameToRGBA(frame("RGBX"))).data.join() === want(255, 255));
+	ok("frame I420 など：copyTo の format:RGBA に任せる・出来なければ null", (await frameToRGBA({ ...frame("I420"), format: "I420", async copyTo(dst, o) { if (o.format !== "RGBA") throw 0; dst.set([128, 51, 102, 255, 129, 0, 7, 0]); } })).data.join() === want(255, 0) && (await frameToRGBA(frame("I420", false))) === null);
+	ok("ImageDecoder が無ければ null（呼び手は従来の canvas）", (await decodeImageRGBA(new ArrayBuffer(16))) === null);
+	// 偽の ImageDecoder：色変換なし・前乗算なしで頼むこと、frame と decoder を閉じること、load の口（Blob）から地形の標高まで
+	const seen = []; let fr;
+	globalThis.ImageDecoder = class { static async isTypeSupported(t) { return t === "image/webp"; } constructor(init) { seen.push(init); this.closed = 0; } async decode() { fr = frame("BGRX"); fr.codedWidth = fr.visibleRect.width = 2; fr.codedHeight = fr.visibleRect.height = 2;
+		fr.copyTo = async dst => { for (let i = 0; i < 4; i++) dst.set([102, 51, 128, 0], i * 4); }; return { image: fr }; } close() { seen.push("closed"); } };
+	const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0, 0, 0, 0]).buffer;
+	const d = createDemSource({ tiles: ["cs-webp://{z}/{x}/{y}"], maxzoom: 2 }, { load: async () => new Blob([webp]) });
+	const h = await d.height(139, 35, 2);
+	ok("ImageDecoder：load の Blob を canvas なしで解く（terrarium 128/51/102 → 51.398m）", Math.abs(h - (128 * 256 + 51 + 102 / 256 - 32768)) < 1e-4, `h=${h}`);
+	ok("ImageDecoder：type は先頭のバイトから・colorSpaceConversion none・premultiplyAlpha none・閉じる", seen[0].type === "image/webp" && seen[0].colorSpaceConversion === "none" && seen[0].premultiplyAlpha === "none" && seen[1] === "closed" && fr.closed === 1);
+	ok("ImageDecoder：解けない型（PNG を断る）は null", (await decodeImageRGBA(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]).buffer)) === null);
+	delete globalThis.ImageDecoder;
 }
 
 globalThis.fetch = realFetch; console.warn = warn;
