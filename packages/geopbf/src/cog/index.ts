@@ -60,7 +60,7 @@ export async function openCog(src: SourceInput, opts: BrowserCogOptions = {}): P
 			return rgba && { rgba, w: tgtObj.w, h: tgtObj.h };
 		}
 		const stretch = await cog.ensureStretch();
-		const raw = await cog.rawTiles(pl.level, pl.list, o.signal);
+		const raw = await cog.rawTiles(pl.level, pl.list, o.signal, o.priority);
 		// coalesce 塊の subarray を transfer すると親 buffer が死ぬ＝コピーして渡す（圧縮バイトは小さい）
 		const msgRaw: RawTileMsg[] = pl.list.map(([tx, ty], i) => { const b = raw[i]; return { tx, ty, buf: b ? b.slice().buffer : null }; });
 		const r = await pool.submit({

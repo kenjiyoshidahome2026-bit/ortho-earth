@@ -1281,7 +1281,7 @@ export interface SearchOptions {
 /** COPC の点群のオプション（map.addPointCloud） */
 export interface COPCOptions {
 	/** 手綱の id（既定＝自動） */ id?: string;
-	/** 点の色（既定 "auto"＝RGB があれば rgb・無ければ elevation） */ color?: "auto" | "rgb" | "classification" | "intensity" | "elevation";
+	/** 点の色（既定 "auto"＝RGB があれば rgb・無ければ elevation）。"ground"＝地図の地面の色（オルソ等のラスタ層を合成した地面アトラスを GPU で引く・無い所は点の RGB）・"heightAboveGround"＝地形（標高アトラス）からの高さの段彩（elevationRange 既定 0〜30 m）。この 2 つは WebGPU の時だけ（WebGL2 では elevation の段彩） */ color?: "auto" | "rgb" | "classification" | "intensity" | "elevation" | "ground" | "heightAboveGround";
 	/** 点の半径（CSS px・既定 2）／attenuation＝距離で縮む（既定 true＝節の点の間隔 × 焦点距離 / 距離・1〜size×2 px）・false＝画素固定 */ pointSize?: number; attenuation?: boolean;
 	/** 細かさ（節の点の間隔の画面 px がこれより粗ければ子へ・既定 2・LOW_MEM 3） */ density?: number;
 	/** 地形・建物の裏で隠れる（シーンの深度・既定 true） */ depth?: boolean;

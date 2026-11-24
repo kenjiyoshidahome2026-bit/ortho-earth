@@ -12,9 +12,9 @@ import type { Msg, Style } from "./copc-gl.ts";
 const BUF = { MAP_READ: 0x01, COPY_SRC: 0x04, COPY_DST: 0x08, UNIFORM: 0x40, STORAGE: 0x80 } as const;
 const TEX = { COPY_SRC: 0x01, COPY_DST: 0x02, TEXTURE_BINDING: 0x04, RENDER_ATTACHMENT: 0x10 } as const;
 const STAGE = { VERTEX: 0x1, FRAGMENT: 0x2 } as const;
-const SLOT = 256;       // 層ごとの uniform の枡（dynamic offset の最小の揃え）
+const SLOT = 512;       // 層ごとの uniform の枡（dynamic offset の揃え 256 の倍・304 B 使う）
 const MAX_RAD = 64;     // 点の半径の上限（px・GL の ALIASED_POINT_SIZE_RANGE の代わり）
-const MODES: Record<string, number> = { rgb: 0, classification: 1, intensity: 2, elevation: 3 };
+const MODES: Record<string, number> = { rgb: 0, classification: 1, intensity: 2, elevation: 3, ground: 4, heightAboveGround: 5 };
 
 const WGSL = /* wgsl */`
 struct Uni {
@@ -26,14 +26,42 @@ struct Uni {
 	size: f32, atten: f32, maxRad: f32, opacity: f32,
 	lift: f32, liftM: f32, logCoef: f32, eps: f32,
 	mode: u32, depthOn: u32, hasRgb: u32, pad: u32,
+	gLon: vec3f, gndN: f32,          // 節の原点からの変位（世界単位）→ 経度の差（度）の行・地面アトラスの窓の数（0..4）
+	gLat: vec3f, gSplit: f32,        // 同じく緯度の行・左右 2 枚のアトラス（1＝左半分）
+	elevUV: vec4f,                   // 標高アトラス：uv＝xy ＋ 経緯度の差 × zw（原点の分は倍精度で前計算）
+	gw: array<vec4f, 4>,             // 地面アトラスの窓 k：uv＝xy ＋ 経緯度の差 × zw（細かい順）
+	gp: vec4f,                       // x＝標高アトラスあり・y＝点の間隔（度・ミップの段を選ぶ）
 };
 @group(0) @binding(0) var<uniform> U: Uni;
 @group(0) @binding(1) var dep: texture_2d<f32>;
+// 本体の地面（共通化 段 3）＝同じ GPUDevice の地面アトラス（前乗算 RGBA・v は北が 0）と標高アトラス（r16float・m）
+@group(0) @binding(2) var gSamp: sampler;
+@group(0) @binding(3) var gTex0: texture_2d<f32>;
+@group(0) @binding(4) var gTex1: texture_2d<f32>;
+@group(0) @binding(5) var gTex2: texture_2d<f32>;
+@group(0) @binding(6) var gTex3: texture_2d<f32>;
+@group(0) @binding(7) var eTex: texture_2d<f32>;
 @group(1) @binding(0) var<storage, read> P: array<f32>;     // 位置（原点相対・x y z）
 @group(1) @binding(1) var<storage, read> RGB: array<u32>;   // 色（rgba8・無い層は 1 語のダミー）
 @group(1) @binding(2) var<storage, read> INT: array<u32>;   // 強度（u16 を 2 つずつ）
 @group(1) @binding(3) var<storage, read> CLS: array<u32>;   // 分類（u8 を 4 つずつ）
 @group(1) @binding(4) var<storage, read> ELEV: array<f32>;  // 標高（m）
+fn inWin(uv: vec2f) -> bool { return all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0)); }
+fn gUV(uv: vec2f) -> vec2f { var t = vec2f(uv.x, 1.0 - uv.y); if (U.gSplit > 0.5) { t.x = clamp(t.x * 0.5, 0.002, 0.498); } return t; }
+fn gLod(span: f32, dim: f32) -> f32 { return max(0.0, log2(max(1e-12, U.gp.y * dim / max(1e-12, span)))); }
+// 地面アトラスの色（点を含む一番細かい窓・前乗算）＝a は覆いの濃さ（0＝何も描いていない所）
+fn groundAt(dll: vec2f) -> vec4f {
+	let n = U.gndN;
+	let u0 = U.gw[0].xy + dll * U.gw[0].zw;
+	if (n > 0.5 && inWin(u0)) { return textureSampleLevel(gTex0, gSamp, gUV(u0), gLod(1.0 / U.gw[0].w, f32(textureDimensions(gTex0).y))); }
+	let u1 = U.gw[1].xy + dll * U.gw[1].zw;
+	if (n > 1.5 && inWin(u1)) { return textureSampleLevel(gTex1, gSamp, gUV(u1), gLod(1.0 / U.gw[1].w, f32(textureDimensions(gTex1).y))); }
+	let u2 = U.gw[2].xy + dll * U.gw[2].zw;
+	if (n > 2.5 && inWin(u2)) { return textureSampleLevel(gTex2, gSamp, gUV(u2), gLod(1.0 / U.gw[2].w, f32(textureDimensions(gTex2).y))); }
+	let u3 = U.gw[3].xy + dll * U.gw[3].zw;
+	if (n > 3.5 && inWin(u3)) { return textureSampleLevel(gTex3, gSamp, gUV(u3), gLod(1.0 / U.gw[3].w, f32(textureDimensions(gTex3).y))); }
+	return vec4f(0.0);
+}
 struct VO { @builtin(position) pos: vec4f, @location(0) col: vec4f, @location(1) p: vec2f, @location(2) rad: f32, @location(3) w: f32 }
 fn ramp(t0: f32) -> vec3f {   // 標高の段彩（青→緑→黄→赤）＝copc-gl.ts と同じ
 	let t = clamp(t0, 0.0, 1.0);
@@ -79,7 +107,21 @@ fn clsColor(k: u32) -> vec3f {   // ASPRS LAS 1.4 の分類
 	if (U.mode == 0u) { if (U.hasRgb != 0u) { col = unpack4x8unorm(RGB[i]).rgb; } }
 	else if (U.mode == 1u) { col = clsColor((CLS[i >> 2u] >> ((i & 3u) * 8u)) & 0xffu); }
 	else if (U.mode == 2u) { let v = f32((INT[i >> 1u] >> ((i & 1u) * 16u)) & 0xffffu); col = vec3f(clamp((v - U.intRange.x) / max(1e-6, U.intRange.y - U.intRange.x), 0.0, 1.0)); }
-	else { col = ramp((ELEV[i] + U.liftM - U.elev.x) / max(1e-6, U.elev.y - U.elev.x)); }
+	else if (U.mode == 3u) { col = ramp((ELEV[i] + U.liftM - U.elev.x) / max(1e-6, U.elev.y - U.elev.x)); }
+	else {
+		let dll = vec2f(dot(p0, U.gLon), dot(p0, U.gLat));   // 節の原点からの経緯度の差（度）
+		if (U.mode == 4u) {   // 地面の色（オルソ等）＝無い所は点の RGB（無ければ灰）
+			let g = groundAt(dll);
+			var base = vec3f(0.72);
+			if (U.hasRgb != 0u) { base = unpack4x8unorm(RGB[i]).rgb; }
+			col = g.rgb + base * (1.0 - g.a);
+		} else {   // 地面からの高さ（標高アトラス）＝段彩の範囲は m（0..）。アトラスが無ければ標高の段彩
+			var h = ELEV[i] + U.liftM;
+			let eu = U.elevUV.xy + dll * U.elevUV.zw;
+			if (U.gp.x > 0.5 && inWin(eu)) { h = h - textureSampleLevel(eTex, gSamp, eu, 0.0).r; }
+			col = ramp((h - U.elev.x) / max(1e-6, U.elev.y - U.elev.x));
+		}
+	}
 	o.col = vec4f(col, U.opacity);
 	return o;
 }
@@ -110,6 +152,7 @@ export interface CopcGpuModule {
 	destroy(): void;
 	readonly shared: boolean;
 }
+const R2D = 180 / Math.PI;
 const align256 = (v: number): number => Math.ceil(v / 256) * 256;
 
 export function create(): CopcGpuModule {
@@ -117,7 +160,9 @@ export function create(): CopcGpuModule {
 	let shared = false, wantDepth = false, dead = false;
 	let pipe: GPURenderPipeline | null = null, l0: GPUBindGroupLayout | null = null, l1: GPUBindGroupLayout | null = null;
 	let ub: GPUBuffer | null = null, ubSlots = 0, uData = new ArrayBuffer(0), dummyDep: GPUTexture | null = null, dummyRgb: GPUBuffer | null = null;
-	let bg0: GPUBindGroup | null = null, bg0Tex: GPUTexture | null = null, bg0Ub: GPUBuffer | null = null;
+	let bg0: GPUBindGroup | null = null, bg0Tex: GPUTexture | null = null, bg0Ub: GPUBuffer | null = null, bg0Views: (GPUTextureView | null)[] = [];
+	let dummyView: GPUTextureView | null = null, gSamp: GPUSampler | null = null;
+	const jac = new WeakMap<Layer, { rAx: number; lon0: number; lat0: number; gLon: number[]; gLat: number[] }>();
 	const layers = new Map<string, Layer>(), probes: unknown[] = [];
 	let style: Style = { mode: "rgb", size: 2, attenuation: true, elevRange: [0, 100], intensityRange: [0, 65535], opacity: 1, lift: 0, liftM: 0 };
 	const mvpL = new Float64Array(16);
@@ -139,7 +184,8 @@ export function create(): CopcGpuModule {
 		wantDepth = opts.depth !== false;
 		format = gpu.getPreferredCanvasFormat();
 		// pipeline を先に組む（失敗したら canvas の文脈を取らずに投げる＝WebGL2 へ落とせる）
-		l0 = device.createBindGroupLayout({ label: "copc-u", entries: [{ binding: 0, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } }, { binding: 1, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } }] });
+		l0 = device.createBindGroupLayout({ label: "copc-u", entries: [{ binding: 0, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } }, { binding: 1, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+			{ binding: 2, visibility: STAGE.VERTEX, sampler: { type: "filtering" } }, ...[3, 4, 5, 6, 7].map(binding => ({ binding, visibility: STAGE.VERTEX, texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d" as GPUTextureViewDimension } }))] });
 		l1 = device.createBindGroupLayout({ label: "copc-pts", entries: [0, 1, 2, 3, 4].map(binding => ({ binding, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" as GPUBufferBindingType } })) });
 		const m = device.createShaderModule({ code: WGSL, label: "copc" });
 		const info = await m.getCompilationInfo();
@@ -150,6 +196,8 @@ export function create(): CopcGpuModule {
 		pipe = await device.createRenderPipelineAsync({ label: "copc-draw", layout: device.createPipelineLayout({ bindGroupLayouts: [l0, l1] }), vertex: { module: m, entryPoint: "vs" }, fragment: { module: m, entryPoint: "fs", targets: [{ format, blend }] }, primitive: { topology: "triangle-list" } });
 		if (dead) return;
 		dummyDep = device.createTexture({ label: "copc-dep0", size: [1, 1], format: "rgba8unorm", usage: TEX.TEXTURE_BINDING | TEX.COPY_DST });
+		dummyView = dummyDep.createView();
+		gSamp = device.createSampler({ label: "copc-ground", magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 		dummyRgb = device.createBuffer({ label: "copc-rgb0", size: 16, usage: BUF.STORAGE });
 		ensureUb(64);
 		const c = canvas.getContext("webgpu" as "2d") as unknown as GPUCanvasContext | null;   // lib.dom の OffscreenCanvas は "webgpu" の overload を持たない
@@ -202,6 +250,22 @@ export function create(): CopcGpuModule {
 		readCanvas(w, h).then(data => { for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: false, info, data: id === ids[ids.length - 1] ? data : data.slice() }); })
 			.catch(e => { for (const id of ids) host?.post?.({ type: "pixels", id, error: String((e as Error)?.message || e) }); });
 	}
+	// 節の原点の経緯度と「原点からの変位（世界単位）→ 経緯度の差（度）」の 2 行（接平面への擬似逆行列）＝点ごとの atan2 を避け、f32 でも 0.2 m の画素に合う
+	//   世界座標＝meshdecode の geoWorld（球 rAx＝1／楕円体＝β 単位球）。節は数百 m＝曲率の 2 次の誤差は mm
+	function layerJac(L: Layer, rAx: number) {
+		const c = jac.get(L);
+		if (c && c.rAx === rAx) return c;
+		const o = L.origin, hz = Math.hypot(o[0], o[2]);
+		const lon = Math.atan2(o[2], o[0]), lat = Math.atan(o[1] / (rAx * hz));
+		const W = (lo: number, la: number) => { const cb = Math.cos(la), sp = Math.sin(la), w = Math.hypot(cb, rAx * sp), h = cb / w; return [h * Math.cos(lo), rAx * sp / w, h * Math.sin(lo)]; };
+		const e = 1e-6, a = W(lon + e, lat), b = W(lon - e, lat), c2 = W(lon, lat + e), d = W(lon, lat - e);
+		const Jlon = [0, 1, 2].map(i => (a[i] - b[i]) / (2 * e * R2D)), Jlat = [0, 1, 2].map(i => (c2[i] - d[i]) / (2 * e * R2D));   // 1 度あたりの世界の変位
+		const ll = Jlon[0] * Jlon[0] + Jlon[1] * Jlon[1] + Jlon[2] * Jlon[2], pp = Jlat[0] * Jlat[0] + Jlat[1] * Jlat[1] + Jlat[2] * Jlat[2], lp = Jlon[0] * Jlat[0] + Jlon[1] * Jlat[1] + Jlon[2] * Jlat[2], det = ll * pp - lp * lp;
+		const gLon = [0, 1, 2].map(i => (pp * Jlon[i] - lp * Jlat[i]) / det), gLat = [0, 1, 2].map(i => (ll * Jlat[i] - lp * Jlon[i]) / det);   // (JᵀJ)⁻¹Jᵀ
+		const r = { rAx, lon0: lon * R2D, lat0: lat * R2D, gLon, gLat };
+		jac.set(L, r);
+		return r;
+	}
 	function frame(cam: CameraPose, s: CameraState, { w, h }: OverlaySize, api: OverlayApi): boolean {
 		if (!device || !ctx || !pipe) return false;
 		const vis = [...layers.values()].filter(L => L.on && L.n);
@@ -210,7 +274,16 @@ export function create(): CopcGpuModule {
 			const dep = wantDepth && api?.depth ? { tex: api.depth.gpuTexture(device), w: api.depth.w, h: api.depth.h, logCoef: api.depth.logCoef } : null;
 			const tex = dep ? dep.tex : dummyDep!;
 			ensureUb(vis.length);
-			if (!bg0 || bg0Tex !== tex || bg0Ub !== ub) { bg0 = device.createBindGroup({ layout: l0!, entries: [{ binding: 0, resource: { buffer: ub!, size: SLOT } }, { binding: 1, resource: tex.createView() }] }); bg0Tex = tex; bg0Ub = ub; }
+			// 地面（段 3）＝地面の色・地面からの高さの時だけ本体の資源を問う（view は毎フレーム・窓の作り直しで替わる）
+			const gm = style.mode === "ground" || style.mode === "heightAboveGround";
+			const gg = gm ? host?.groundGpu?.() ?? null : null;
+			const gw = gg && style.mode === "ground" ? gg.windows.slice(0, 4) : [], ge = gg && style.mode === "heightAboveGround" ? gg.elev : null;
+			const views: (GPUTextureView | null)[] = [0, 1, 2, 3].map(k => gw[k]?.view ?? null); views.push(ge?.view ?? null);
+			if (!bg0 || bg0Tex !== tex || bg0Ub !== ub || views.some((v, k) => v !== bg0Views[k])) {
+				bg0 = device.createBindGroup({ layout: l0!, entries: [{ binding: 0, resource: { buffer: ub!, size: SLOT } }, { binding: 1, resource: tex.createView() }, { binding: 2, resource: gSamp! }, ...views.map((v, k) => ({ binding: 3 + k, resource: v ?? dummyView! }))] });
+				bg0Tex = tex; bg0Ub = ub; bg0Views = views;
+			}
+			const rAx = api?.rAx || 1;
 			const dpr = cam.dpr || 1, M = s.mvp, F = new Float32Array(uData), I = new Uint32Array(uData);
 			const mode = MODES[style.mode] ?? 0, size = Math.max(0.5, style.size * dpr);
 			vis.forEach((L, k) => {
@@ -225,6 +298,19 @@ export function create(): CopcGpuModule {
 				F[f + 32] = size; F[f + 33] = style.attenuation ? 1 : 0; F[f + 34] = MAX_RAD; F[f + 35] = style.opacity ?? 1;
 				F[f + 36] = style.lift || 0; F[f + 37] = style.liftM || 0; F[f + 38] = dep ? dep.logCoef : 1; F[f + 39] = 2e-6;
 				I[f + 40] = mode; I[f + 41] = dep ? 1 : 0; I[f + 42] = L.hasRgb ? 1 : 0; I[f + 43] = 0;
+				if (mode >= 4) {
+					const J = layerJac(L, rAx), ll0 = [J.lon0, J.lat0];
+					F[f + 44] = J.gLon[0]; F[f + 45] = J.gLon[1]; F[f + 46] = J.gLon[2]; F[f + 47] = gw.length;
+					F[f + 48] = J.gLat[0]; F[f + 49] = J.gLat[1]; F[f + 50] = J.gLat[2]; F[f + 51] = gg?.split ? 1 : 0;
+					// 原点の分（経緯度 − 窓の角）は倍精度で引いてから f32＝0.2 m の画素でもずれない
+					if (ge) { const b = ge.bounds; F[f + 52] = (ll0[0] - b[0]) / b[2]; F[f + 53] = (ll0[1] - b[1]) / b[3]; F[f + 54] = 1 / b[2]; F[f + 55] = 1 / b[3]; }
+					for (let k = 0; k < 4; k++) {
+						const a = gw[k], o4 = f + 56 + k * 4;
+						if (a) { F[o4] = (ll0[0] - a.win[0]) / a.win[2]; F[o4 + 1] = (ll0[1] - a.win[1]) / a.win[3]; F[o4 + 2] = 1 / a.win[2]; F[o4 + 3] = 1 / a.win[3]; }
+						else { F[o4] = -1; F[o4 + 1] = -1; F[o4 + 2] = 0; F[o4 + 3] = 0; }
+					}
+					F[f + 72] = ge ? 1 : 0; F[f + 73] = L.spacing * R2D; F[f + 74] = 0; F[f + 75] = 0;
+				}
 			});
 			device.queue.writeBuffer(ub!, 0, uData, 0, vis.length * SLOT);
 		}
@@ -238,7 +324,7 @@ export function create(): CopcGpuModule {
 	function destroy(): void {
 		dead = true;
 		layers.forEach(drop); layers.clear();
-		ub?.destroy(); dummyDep?.destroy(); dummyRgb?.destroy();
+		ub?.destroy(); dummyDep?.destroy(); dummyRgb?.destroy(); bg0Views = [];
 		try { ctx?.unconfigure(); } catch { /* 古い実装 */ }
 		device = null; ctx = null; bg0 = null;   // device は本体の物＝壊さない
 	}
