@@ -60,6 +60,42 @@ export interface DemPixels { width: number; height: number; data: Uint8ClampedAr
 /** 値のままの標高（m・Float32・row0＝北・無い所は NaN）＝標高 COG（geopbf/cog の renderXYZFloat）を地形へ。encoding は通さない（2026-11-24） */
 export interface DemHeights { width: number; height: number; heights: Float32Array }
 export type DemLoad = (url: string) => Promise<ArrayBuffer | Blob | DemPixels | DemHeights | null>;
+// 画像のバイト列 → RGBA の画素（canvas を通さない・#1209・2026-11-25）。
+//   旧＝createImageBitmap → OffscreenCanvas.drawImage → getImageData だけ。単独のページでは正確でも、地図（WebGPU／WebGL2 が GPU を使っている）の中では
+//   まれに画素の 1 段（terrarium の R＝256m）がずれ、実行ごとに違う点が「+256m×双線形の重み」で高く出た（canvas の経路はブラウザが GPU／色の扱いを選べる＝データ画像には保証が無い）。
+//   ここは WebCodecs の ImageDecoder（色変換なし・前乗算なし・CPU の復号）で読み、VideoFrame.copyTo で RGBA を写す。無い（Safari 等）・その型を解けない・失敗は null＝呼び手が従来の canvas へ
+/** 先頭のバイトから画像の型（ImageDecoder は type が要る・配信の Content-Type は当てにしない） */
+export function sniffImageType(b: Uint8Array): string | null {
+	if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+	if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+	if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+	if (b.length >= 12 && b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70 && b[8] === 0x61 && b[9] === 0x76 && b[10] === 0x69) return "image/avif";   // ftypavif／ftypavis
+	return null;
+}
+interface FrameLike { format: string | null; codedWidth: number; codedHeight: number; visibleRect?: { width: number; height: number } | null; copyTo(dst: Uint8Array, opts?: { layout?: { offset: number; stride: number }[]; format?: string }): Promise<unknown>; close(): void }
+type ImageDecoderCtor = { new (init: { data: ArrayBuffer; type: string; colorSpaceConversion?: string; premultiplyAlpha?: string }): { decode(): Promise<{ image: FrameLike }>; close(): void }; isTypeSupported(type: string): Promise<boolean> };
+/** VideoFrame（RGBA／RGBX／BGRA／BGRX）→ 詰めた RGBA（X は不透明 255）。それ以外の形（I420 など）は copyTo の format:"RGBA" に任せ、出来なければ null */
+export async function frameToRGBA(f: FrameLike): Promise<DemPixels | null> {
+	const w = f.visibleRect?.width ?? f.codedWidth, h = f.visibleRect?.height ?? f.codedHeight, out = new Uint8Array(w * h * 4), layout = [{ offset: 0, stride: w * 4 }];
+	const fmt = f.format;
+	if (fmt === "RGBA" || fmt === "RGBX" || fmt === "BGRA" || fmt === "BGRX") await f.copyTo(out, { layout });
+	else { try { await f.copyTo(out, { layout, format: "RGBA" }); } catch { return null; } }
+	if (fmt === "BGRA" || fmt === "BGRX") for (let i = 0; i < out.length; i += 4) { const t = out[i]; out[i] = out[i + 2]; out[i + 2] = t; }
+	if (fmt === "RGBX" || fmt === "BGRX") for (let i = 3; i < out.length; i += 4) out[i] = 255;
+	return { width: w, height: h, data: out };
+}
+export async function decodeImageRGBA(body: Blob | ArrayBuffer): Promise<DemPixels | null> {
+	const ID = (globalThis as { ImageDecoder?: ImageDecoderCtor }).ImageDecoder;
+	if (!ID) return null;
+	try {
+		const buf = body instanceof ArrayBuffer ? body : await body.arrayBuffer();
+		const type = sniffImageType(new Uint8Array(buf, 0, Math.min(16, buf.byteLength)));
+		if (!type || !(await ID.isTypeSupported(type))) return null;
+		const dec = new ID({ data: buf, type, colorSpaceConversion: "none", premultiplyAlpha: "none" });
+		try { const { image } = await dec.decode(); try { return await frameToRGBA(image); } finally { image.close(); } }
+		finally { dec.close(); }
+	} catch { return null; }
+}
 const portLoad = (port: MessagePort): DemLoad => {
 	const wait = new Map<number, (d: ArrayBuffer | Blob | DemPixels | DemHeights | null) => void>(); let seq = 0;
 	port.onmessage = (e: MessageEvent) => { const m = e.data as { id: number; data: ArrayBuffer | Blob | DemPixels | DemHeights | null }; wait.get(m.id)?.(m.data ?? null); wait.delete(m.id); };
@@ -97,6 +133,8 @@ export function createDemSource(spec0: DemSpecInput | QmeshSpecInput, opts: { lo
 				if (!r.ok) return null;   // 404＝そこに無い（海・範囲外）
 				body = await r.blob();
 			}
+			const px = await decodeImageRGBA(body);   // canvas を通さない（#1209）＝無ければ従来の canvas
+			if (px && px.width === px.height) return { h: decodeDEM(px.data, spec.encoding, spec), n: px.width };
 			const bmp = await createImageBitmap(body, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
 			const n = bmp.width;
 			ctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true });
