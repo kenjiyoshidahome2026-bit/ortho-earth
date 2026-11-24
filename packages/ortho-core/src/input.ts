@@ -27,11 +27,18 @@ export interface InertiaRecord2 { t: number; vx: number; vy: number }
 export interface Inertia { dur: number; amount: number; ease: (x: number) => number }
 export interface Inertia2 { dur: number; ax: number; ay: number; ease: (x: number) => number }
 export type HandlerName = "scrollZoom" | "dragPan" | "dragRotate" | "keyboard" | "doubleClickZoom" | "boxZoom" | "touchZoomRotate" | "touchRotate" | "touchPitch" | "cooperativeGestures";
+/** チルトのドラッグ（右ボタン／Ctrl＋ドラッグ・2 本指の縦ドラッグ）の向きと速さ：
+ *  "ortho"（既定・従来）＝下へドラッグで俯角が増える（倒す）・方位 0.006 rad/px・俯角 0.005 rad/px
+ *  "maplibre"＝MapLibre GL JS と同じ（#1206）＝下へドラッグで俯角が減る（起こす）・方位 0.8°/px・俯角 0.5°/px（MapLibre の pitchSpeed −0.5） */
+export type TiltDrag = "ortho" | "maplibre";
+/** チルトのドラッグの 1px 当たりの量（ラジアン）。bearing＝横、pitch＝縦（下へ動いた px に掛ける＝負なら下で起こす） */
+export const tiltDragRates = (mode: TiltDrag = "ortho"): { bearing: number; pitch: number } =>
+	mode === "maplibre" ? { bearing: 0.8 * D2R, pitch: -0.5 * D2R } : { bearing: 0.006, pitch: 0.005 };
 export interface BoxZoomInfo { bbox?: [number, number, number, number]; x0?: number; y0?: number; x1?: number; y1?: number }
 export interface InputOptions {
 	canvas: HTMLCanvasElement; cam: CameraPose; size: { w: number; h: number }; dpr: number; maxPitch: number; zoomMin?: number; zoomMax?: number;
 	onMove: () => void; onGesture?: () => void; onClick?: (x: number, y: number) => void; onHover?: (x: number, y: number) => void; blocked?: (() => boolean) | null; signal?: AbortSignal;
-	wheelZoom?: "linear" | "maplibre"; handlers?: Partial<Record<HandlerName, boolean>>; interactive?: boolean; cooperativeGestures?: boolean; zoomSnap?: number;
+	wheelZoom?: "linear" | "maplibre"; tiltDrag?: TiltDrag; handlers?: Partial<Record<HandlerName, boolean>>; interactive?: boolean; cooperativeGestures?: boolean; zoomSnap?: number;
 	onBoxZoom?: (phase: "start" | "end" | "cancel", d: BoxZoomInfo) => void; onBlocked?: (kind: "wheel" | "touch") => void;
 }
 export interface InputController {
@@ -108,7 +115,7 @@ export function inertiaOf2(records: readonly InertiaRecord2[], now: number, o: I
 export const snapZoom = (z: number, snap: number): number => snap > 0 ? Math.round(z / snap) * snap : z;
 export const HANDLER_NAMES: readonly HandlerName[] = ["scrollZoom", "dragPan", "dragRotate", "keyboard", "doubleClickZoom", "boxZoom", "touchZoomRotate", "touchRotate", "touchPitch", "cooperativeGestures"];
 
-export function createInput({ canvas, cam: cam0, size, dpr, maxPitch, zoomMin = 2, zoomMax = 20, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, blocked, signal, wheelZoom = "linear",
+export function createInput({ canvas, cam: cam0, size, dpr, maxPitch, zoomMin = 2, zoomMax = 20, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, blocked, signal, wheelZoom = "linear", tiltDrag = "ortho",
 	handlers = {}, interactive = true, cooperativeGestures = false, zoomSnap = 0, onBoxZoom = () => {}, onBlocked = () => {} }: InputOptions): InputController {
 	const cam = cam0 as InputCamera;   // 入力は pitch/bearing を数として扱う（globe の cam は常に数・公開の型は CameraPose＝types/input.d.ts と同じ口）
 	// handler の on/off（MapLibre の map.scrollZoom.disable() …）。interactive:false＝全部 off（cooperativeGestures は「協調モード」の旗＝既定 off）
@@ -141,6 +148,7 @@ export function createInput({ canvas, cam: cam0, size, dpr, maxPitch, zoomMin = 
 	const touches = new Map<number, Touch>();    // アクティブなタッチポインタ pointerId → {x,y}
 	let pinch: Pinch | null = null;             // 2本指状態 { d,a,cx,cy（前フレーム）, sd,sa,sx,sy（開始）, mode: null|"tilt"|"free" }
 	const evXY = (e: { clientX: number; clientY: number }): [number, number] => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+	const TILT = tiltDragRates(tiltDrag);   // チルトのドラッグの向きと速さ（#1206・既定は従来の向き）
 	let maxPitchCur = maxPitch;   // 実行時に変えられる（編集ガジェット＝真上固定 setMaxPitch(0)・解除で戻す）
 	const clampPitch = (v: number): number => Math.max(0, Math.min(maxPitchCur, v));
 	let zoomMinCur = zoomMin;   // 実行時に変えられる（編集ガジェット＝z2.5 の床・解除で戻す）
@@ -271,7 +279,7 @@ export function createInput({ canvas, cam: cam0, size, dpr, maxPitch, zoomMin = 
 		if (drag.off) { drag.x = ex; drag.y = ey; return; }   // handler off＝掴んでも動かない（MapLibre の dragPan.disable()）
 		const now = performance.now();
 		if (drag.tilt) {
-			const db = (ex - drag.x) * 0.006, dp = clampPitch(cam.pitch + (ey - drag.y) * 0.005) - cam.pitch;
+			const db = (ex - drag.x) * TILT.bearing, dp = clampPitch(cam.pitch + (ey - drag.y) * TILT.pitch) - cam.pitch;
 			cam.bearing += db; cam.pitch += dp;
 			drag.recs!.push({ t: now, vx: db * R2D, vy: dp * R2D });
 			onMove();
@@ -382,7 +390,7 @@ export function createInput({ canvas, cam: cam0, size, dpr, maxPitch, zoomMin = 
 			}
 		}
 		if (pc.mode === "tilt") {
-			if (H.touchPitch) { cam.pitch = clampPitch(cam.pitch + (cy - pc.cy) * 0.005); onMove(); }   // マウス右ドラッグと同係数＝手触りを揃える（touchPitch off＝動かない）
+			if (H.touchPitch) { cam.pitch = clampPitch(cam.pitch + (cy - pc.cy) * TILT.pitch); onMove(); }   // マウス右ドラッグと同係数・同じ向き（tiltDrag）＝手触りを揃える（touchPitch off＝動かない）
 		} else if (pc.mode === "free") {
 			if (H.dragPan) panBy(pc.cx, pc.cy, cx, cy);                             // 重心＝掴み点（1本指と同じ所作）
 			const da = H.touchZoomRotate && H.touchRotate ? wrapAngle(a - pc.a) : 0, dz = H.touchZoomRotate ? Math.log2(d / pc.d) : 0;

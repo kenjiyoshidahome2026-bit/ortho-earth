@@ -333,6 +333,10 @@ export interface OrthoJapanOptions {
 	cooperativeGestures?: boolean;
 	/** ズームの目盛り（0＝無し）。ホイール・ダブルクリック・+/− の着地を吸着 */
 	zoomSnap?: number;
+	/** チルトのドラッグ（右ボタン／Ctrl＋ドラッグ・2 本指の縦ドラッグ）の向きと速さ（2.5.0〜・#1206）。
+	 *  "ortho"（既定）＝下へドラッグで俯角が増える（倒す）・方位 約 0.34°/px・俯角 約 0.29°/px（従来どおり）。
+	 *  "maplibre"＝MapLibre GL JS と同じ＝下へドラッグで俯角が減る（起こす）・方位 0.8°/px・俯角 0.5°/px */
+	tiltDrag?: "ortho" | "maplibre";
 	/** 動きを減らす（C10・2026-10-12・MapLibre の prefers-reduced-motion と同じ意味）＝easeTo／flyTo／fitBounds は essential:true でなければ jumpTo。無指定＝OS の設定を追う。実行時は setReduceMotion */
 	reduceMotion?: boolean;
 	/** 前回ビューの保存と復元（localStorage）。false＝読まない・書かない（同じオリジンの本体の「前回の続き」を上書きしない背景用途向け。既定 true・1.1.0〜）。
