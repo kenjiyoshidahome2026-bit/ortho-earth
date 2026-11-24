@@ -3,6 +3,38 @@
 Release notes for the Ortho Earth npm packages. Each release also has a longer article on
 ortho-earth.com and an entry on [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases).
 
+## 2.5.0 — 2026-11-24
+
+**@ortho-earth/globe 2.5.0 · @ortho-earth/core 2.5.0** (also @ortho-earth/splat 0.8.1).
+
+```
+npm i @ortho-earth/globe@2.5
+```
+
+- **Out of memory and GPU loss no longer end in a blank page.** A tab that was killed last time starts again in
+  low-memory mode (a chip at the bottom left switches back). A lost GPU is handled in steps: reload, then reload in
+  low-memory mode, then stop with a message; a device that loses the GPU right after drawing no longer reloads forever.
+  WebGPU `GPUOutOfMemoryError` and failed buffer allocations in the page and the workers are caught. New:
+  `map.on("error", e)` (MapLibre's name) with `{ error, kind, fatal, action }`.
+- **Faster basemap on everyday devices** (measured on a 4 GB Mali tablet): line joins are built from the tangent at the
+  joint instead of re-projecting the neighbours (Tokyo z12 basemap GPU 34 → 25–26 ms), basemap lines are simplified
+  within 4 tile units (z12 line triangles 195k → 122k) and subdivided no finer than 1/128 of a tile side (z7 25 → 58
+  fps), and low- and mid-tier devices cover the basemap with one-level-coarser tiles. GeoJSON lines over 20k edges use
+  coarse sets (unmap's default view 42 → 60 fps), and their far-side edges are dropped in the vertex stage. The old ways stay
+  behind `?linedbg=joinold`, `?linesimp=0`, `?linesubn=0`, `?tilepx=560`, `?ginttier=200000` and `?gintback=0`.
+- **Tilt drag like MapLibre, if you want it.** `tiltDrag: "maplibre"` makes the right-button / Ctrl + drag and the
+  two-finger vertical drag lower the pitch when dragging down, at MapLibre's speeds (0.8°/px bearing, 0.5°/px pitch).
+  The default keeps the current direction. With the MapLibre-style `Map`, pass `ortho: { tiltDrag: "maplibre" }`.
+  ([#1206](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues/1206))
+- **3D Tiles memory per tileset.** `cacheBytes` and `maximumCacheOverflowBytes` (Cesium's names; default 512 MB + 512
+  MB, 160 MB + 0 on low-memory devices) and `minSSE`. Gaussian splat tiles are counted by their GPU size (64 bytes per
+  splat) instead of their compressed size, which let a tileset grow to about five times its budget.
+- **Fixes:** ground classification with terrain painted nothing where the basemap had not written depth yet;
+  `map.addData(cloud, { kind: "splat" })` threw for point cloud objects from `map.readPointCloud` and `handle.read()`;
+  `.spz` files written by `@ortho-earth/splat` squashed positions beyond 2048 m onto the edge (the precision now drops
+  automatically; new `spzFracFor`).
+- **Same API as 2.4.** Everything is additive.
+
 ## mcp 0.1.0 — 2026-11-11
 
 **@ortho-earth/mcp 0.1.0** — new: an MCP server, so AI agents can look Ortho Earth up instead of guessing.
