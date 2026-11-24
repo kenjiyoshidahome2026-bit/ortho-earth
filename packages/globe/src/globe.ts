@@ -2091,6 +2091,7 @@ const input: GlobeScope["input"] = createInput({
 	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: zoomMinCur, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
 	// 手触りの旗（A2・2026-10-12・MapLibre 同名）：opts.handlers={scrollZoom:false,…}・opts.interactive:false＝全部 off・opts.cooperativeGestures・opts.zoomSnap。実行時は map.setHandler
 	handlers: opts.handlers || {}, interactive: opts.interactive, cooperativeGestures: opts.cooperativeGestures, zoomSnap: opts.zoomSnap,
+	tiltDrag: opts.tiltDrag === "maplibre" ? "maplibre" : "ortho",   // チルトのドラッグの向き（#1206）：既定＝従来（下へで倒す）／"maplibre"＝MapLibre と同じ（下へで起こす・速さも MapLibre）
 	onBoxZoom: (phase, d) => {
 		if (phase === "end") { for (const cb of mapOn.boxzoomend) { try { cb({ bbox: d.bbox, x0: d.x0, y0: d.y0, x1: d.x1, y1: d.y1 }); } catch (e) { console.error("[map.on boxzoomend]", e); } } map.fitBounds(d.bbox!, { linear: true, duration: 500 }); }   // MapLibre の BoxZoomHandler＝fitScreenCoordinates(linear)
 		else for (const cb of mapOn[phase === "start" ? "boxzoomstart" : "boxzoomcancel"]) { try { cb({}); } catch (e) { console.error("[map.on boxzoom]", e); } }
