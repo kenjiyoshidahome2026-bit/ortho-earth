@@ -14,6 +14,8 @@
 // 世界座標＝meshdecode の geoWorld（建物メッシュ・3D Tiles の点と同じ式・楕円体表示も）。
 import { POINTCLOUD_FORMATS } from "#pointcloud-formats";
 import { openSource } from "geopbf/cog/source";
+import { readChunks, copcChunks } from "geopbf/cog/chunks";   // 索引（階層の頁）→ 節のバイト範囲 → Range（COG のタイルと同じ口・段 2）
+import { idbTileCache } from "./gadgets/cog-idb.ts";   // 範囲の端末キャッシュ（段 2・COG と同じ口）
 import { resolveCrs } from "./pointcloud-crs.ts";
 import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.ts";
 import { placeNode, dumpEnu, dumpStride } from "./copc-place.ts";
@@ -48,6 +50,9 @@ interface CopcMsg {
 let LAZ: ReturnType<NonNullable<PointcloudFormats["laz"]>> | null = null;
 const NO_LAZ = 'copc: no LAZ decoder — install @ortho-earth/tile-formats and alias "#pointcloud-formats" to "@ortho-earth/tile-formats/pointcloud" in your bundler';
 const laz = () => LAZ ??= POINTCLOUD_FORMATS.laz!().catch(e => { LAZ = null; throw e; });
+// 読んだ節・階層の頁を端末に残す（共通化 段 2・2026-11-24）＝開き直した図郭・戻った場所は回線へ出ない（HF の COPC 1 枚が約 2 分かかっていた所）。
+// 版＝ETag か先頭（LAS のヘッダ）のハッシュ＝ファイルが差し替われば当たらない。4 GB 以下の端末は 128 MB・他は 512 MB（古い順に捨てる）
+const rangeCache = idbTileCache(((navigator as WorkerNavigator & { deviceMemory?: number }).deviceMemory ?? 8) <= 4 ? 128 << 20 : 512 << 20, "ortho-copc");
 const sets = new Map<number, PcSet>();   // id → { src, hdr, info, crs, vUnit, ellipsoidal }
 const D2R = Math.PI / 180;
 // 節ページの項に選びの材料を足す：c＝境界球の中心（世界座標）・r＝半径（世界単位）・spacingM＝その節の点の間隔（m）・ll＝中心の経緯度（main が EGM96 の N を引く）
@@ -103,7 +108,7 @@ async function open(m: CopcMsg) {
 	const name = typeof m.src === "string" ? new URL(m.src, self.location.href).pathname : (m.src as File | undefined)?.name || "";
 	if (!POINTCLOUD_FORMATS.laz && /\.laz$/i.test(name)) throw new Error(NO_LAZ);   // 取りに行く前に（.las は解読器なしで読める＝ヘッダを見るまで分からない物だけ取る）
 	const fetchFn = m.headers ? (u: RequestInfo | URL, init: RequestInit = {}) => fetch(u, { ...init, headers: { ...(init.headers || {}), ...m.headers } }) : undefined;
-	let src = await openSource(m.src!, { headerBytes: 65536, ...(fetchFn ? { fetch: fetchFn } : {}) }), local = typeof m.src !== "string";
+	let src = await openSource(m.src!, { headerBytes: 65536, cache: rangeCache, ...(fetchFn ? { fetch: fetchFn } : {}) }), local = typeof m.src !== "string";
 	let streamed = false;
 	if (isZip(src.head) && m.read) {   // 読むだけ＝解きながら流す（Blob を作らない）。中が LAZ なら丸ごと解く要がある＝下の Blob の道へ
 		const z = await streamPointCloud(src, { onProgress: (loaded, total) => self.postMessage({ type: "progress", id: m.id, loaded, total }) });
@@ -172,7 +177,8 @@ async function node(m: CopcMsg & { node: CopcNode }) {
 	let r: LasRecords | ReturnType<typeof gatherNode>, t1 = t0;
 	if (set.mem) { if (!set.mem.idx) throw new Error("copc: opened for reading only (no octree)"); r = gatherNode(set.mem.store, set.mem.idx, m.node.offset, n); }   // 丸ごと読み＝手元の点を集めるだけ（rgb は 8bit 済み）
 	else {
-		const [buf, decode] = await Promise.all([set.src!.read(m.node.offset, m.node.byteSize), laz()]);
+		const [[got], decode] = await Promise.all([readChunks(set.src!, copcChunks.resolve([m.node])), laz()]);
+		const buf = got ?? new Uint8Array(0);
 		t1 = performance.now();
 		const rec = await decode(buf, { format: hdr.format, recordLength: hdr.recordLength, count: n });
 		r = readRecords(rec, n, hdr);
@@ -259,7 +265,7 @@ async function dump(m: CopcMsg) {
 		let shift = -1;   // RGB の 16bit／8bit＝最初の節で見分ける
 		for (let i = 0; i < take.length; i += 4) {   // 4 節ずつ取る（読みと解読を重ねる）
 			const batch = take.slice(i, i + 4), t1 = performance.now();
-			const bufs = await Promise.all(batch.map(b => set.src!.read(b.nd.offset, b.nd.byteSize)));
+			const bufs = (await readChunks(set.src!, copcChunks.resolve(batch.map(b => b.nd)))).map(b => b ?? new Uint8Array(0));   // 4 節を 1 口で（端末キャッシュ→隣り合う節は合体）
 			tRead += performance.now() - t1;
 			for (let j = 0; j < batch.length; j++) {
 				const { nd, stride } = batch[j], rec = await decode(bufs[j], { format: hdr.format, recordLength: hdr.recordLength, count: nd.pointCount }), f = keepClasses(thin(readRecords(rec, nd.pointCount, hdr), stride, batch[j].k), batch[j].k, mask), r = f.r, k = f.k, at = out.at;

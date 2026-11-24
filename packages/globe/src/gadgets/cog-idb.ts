@@ -6,15 +6,16 @@
 /** geopbf/cog の二層目キャッシュの口（openCog の opts.cache） */
 export interface ByteCache { get(key: string): Promise<Uint8Array | null | undefined>; set(key: string, value: Uint8Array): Promise<unknown> }
 
-const DB = "ortho-cog", ST = "tiles", META = "meta";
+const ST = "tiles", META = "meta";
 interface Rec { b: Uint8Array; t: number; n: number }
 
-export function idbTileCache(budget: number): ByteCache {
+/** name＝DB の名（COG＝"ortho-cog"・COPC の worker＝"ortho-copc"＝スレッドごとに別の DB＝合計の勘定が競らない） */
+export function idbTileCache(budget: number, name = "ortho-cog"): ByteCache {
 	let dbP: Promise<IDBDatabase | null> | null = null;
 	const open = () => dbP ??= new Promise<IDBDatabase | null>(res => {
 		try {
 			if (typeof indexedDB === "undefined") return res(null);
-			const rq = indexedDB.open(DB, 1);
+			const rq = indexedDB.open(name, 1);
 			const to = setTimeout(() => res(null), 3000);   // 他タブが握っている等＝待たずに素通しへ
 			rq.onupgradeneeded = () => { const db = rq.result; db.createObjectStore(ST).createIndex("t", "t"); db.createObjectStore(META); };
 			rq.onsuccess = () => { clearTimeout(to); res(rq.result); };

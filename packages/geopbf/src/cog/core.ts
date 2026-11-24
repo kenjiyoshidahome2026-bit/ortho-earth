@@ -3,12 +3,13 @@
 // 流れ: source（ヘッダ一発読み）→ tiff（IFD/GeoKey）→ モデル化（overview 表・bboxLL・levelFor）
 //       → getTile(s)（sparse→null・coalesce 発注・LRU・注入キャッシュ）→ render(目標グリッドへ warp）。
 import { openSource } from "./source.ts";
+import { readChunks, tiffChunks } from "./chunks.ts";
 import type { SourceInput, SourceOptions, SourceMetrics } from "./source.ts";
 import { parseTiff } from "./tiff.ts";
 import { projFor, SUPPORTED_EPSG } from "./proj.ts";
 import { decodeTile, toRGBA8, makeLut } from "./decode.ts";
 import { warpRGBA, warpFloat, geoAtLevel, geoPx, xyzTarget, lonlatTarget } from "./warp.ts";
-import { makeLRU, noopCache } from "./cache.ts";
+import { makeLRU } from "./cache.ts";
 import type { ByteCache } from "./cache.ts";
 import type { Ifd, GeoLevel, BBox, Target, TileCoord, Stretch, StretchRange, LutSpec, Composite, Lut, RasterData } from "./types.ts";
 
@@ -18,7 +19,7 @@ export { xyzTarget, lonlatTarget };
 /** JPEG/WebP タイルをブラウザでデコードする口（index.js が createImageBitmap 系を注入） */
 export type ImageDecoder = (bytes: Uint8Array, mime: string, w: number, h: number) => Promise<Uint8ClampedArray>;
 export interface CogOptions extends SourceOptions {
-	/** 二層目キャッシュ（圧縮バイト・IDB 等）。cacheKey か ETag があるときだけ使う */
+	/** 二層目キャッシュ（圧縮バイト・IDB 等）＝source が範囲ごとに持つ（版＝cacheKey／ETag／先頭の中身のハッシュ） */
 	cache?: ByteCache;
 	cacheKey?: string;
 	/** 一層目（デコード済み RGBA）の byte 予算（既定 128 MB） */
@@ -70,12 +71,10 @@ export interface Cog {
 export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<Cog> {
 	const t0 = now();
 	const s = await openSource(src, opts);
-	// 二層目キャッシュ（圧縮バイト）は鍵が刻めるとき＝cacheKey か ETag があるときだけ（どちらも無い読み口＝署名 URL の proxy 等で
-	// 鍵が "cog::lv/tx/ty" に潰れて別ファイル同士が衝突する）。全量モードも素通し。
-	const cache2 = opts.cache && (opts.cacheKey || s.etag) ? opts.cache : noopCache;
+	// 二層目キャッシュ（圧縮バイト・IDB 等）は source が持つ（段 2＝COPC と同じ口・範囲ごと・版は cacheKey／ETag／先頭のハッシュ）
 	const lru = makeLRU<Uint8ClampedArray | 0>(opts.memBudget ?? 128 << 20);   // null は 0 を番人に
 	const lruV = makeLRU<RasterData | 0>((opts.memBudget ?? 128 << 20) >> 1);   // 値のままのタイル（renderFloat＝標高）。null は 0
-	const metrics = { ttfhMs: 0, tilesDecoded: 0, decodeMs: 0, cacheHits: 0 };
+	const metrics = { ttfhMs: 0, tilesDecoded: 0, decodeMs: 0 };
 
 	// ヘッダ窓に収まる読みはネットに出さない（16KB に IFD が収まるのが COG の通例）
 	const getBytes = async (from: number, len: number): Promise<Uint8Array> => {
@@ -149,26 +148,13 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 	})();
 
 	const key = (lv: number, tx: number, ty: number): string => `${lv}/${tx}/${ty}`;
-	const key2 = (lv: number, tx: number, ty: number): string => `cog:${opts.cacheKey || s.etag || ""}:${lv}/${tx}/${ty}`;
 
 	// 生バイト（圧縮のまま）を sparse 判定込みで取る。二層目キャッシュはここ（圧縮バイト＝IDB に優しい）。
 	const rawTiles = async (level: number, list: TileCoord[], signal?: AbortSignal): Promise<Map<string, Uint8Array | null>> => {
 		const lv = t.ifds[level];
-		const out = new Map<string, Uint8Array | null>(), need: { tx: number; ty: number; from: number; len: number }[] = [];
-		const items = list.map(([tx, ty]) => { const i = ty * lv.tilesX + tx; return { tx, ty, i, empty: tx < 0 || ty < 0 || tx >= lv.tilesX || ty >= lv.tilesY || !lv.offsets[i] || !lv.counts[i] }; });
-		const hits = s.wholeFile ? null : await Promise.all(items.map(it => it.empty ? null : cache2.get(key2(level, it.tx, it.ty))));   // IDB 照会はまとめて（旧＝タイルごとに直列 await）
-		items.forEach(({ tx, ty, i, empty }, j) => {
-			if (empty) { out.set(key(level, tx, ty), null); return; }
-			const hit = hits ? hits[j] : null;
-			if (hit) { out.set(key(level, tx, ty), hit); metrics.cacheHits++; return; }
-			need.push({ tx, ty, from: lv.offsets[i], len: lv.counts[i] });
-		});
-		const bufs = await s.readMany(need.map(r => ({ from: r.from, len: r.len })), signal);
-		need.forEach((r, i) => {
-			out.set(key(level, r.tx, r.ty), bufs[i]);
-			if (!s.wholeFile) cache2.set(key2(level, r.tx, r.ty), bufs[i]).catch(() => {});
-		});
-		return out;
+		const chunks = tiffChunks(lv, level).resolve(list);   // 索引（IFD）→ チャンク（COPC の節と同じ形・sparse は空）
+		const bufs = await readChunks(s, chunks, signal);     // 端末キャッシュ→合体→並行は source が一元に（点群と同じ口）
+		return new Map(chunks.map((c, i) => [c.key, bufs[i]]));
 	};
 
 	// デコード済み raster（typed）タイル群＝stretch 算出と render が使う
@@ -279,7 +265,7 @@ export async function openCog(src: SourceInput, opts: CogOptions = {}): Promise<
 		littleEndian: t.littleEndian,
 		ensureStretch: () => needStretch ? ensureStretch() : Promise.resolve(null),
 		drawOpts: { composite, lut },   // ブラウザ層（index.js）が worker へそのまま運ぶ描画オプション（stretch は ensureStretch）
-		metrics: () => ({ ...metrics, ...s.metrics, lruBytes: lru.bytes }),
+		metrics: () => ({ ...metrics, ...s.metrics, cacheHits: s.metrics.cacheHits || 0, lruBytes: lru.bytes }),
 		close: () => { lru.clear(); lruV.clear(); },
 	};
 }
