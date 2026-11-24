@@ -78,6 +78,7 @@
 		"./cog": "./src/cog/index.ts",
 		"./cog/core": "./src/cog/core.ts",
 		"./cog/source": "./src/cog/source.ts",
+		"./cog/chunks": "./src/cog/chunks.ts",
 		"./convert": "./src/convert/index.ts",
 		"./pmtiles": "./src/convert/tiler.ts",
 		"./tilesource": "./src/convert/tilesource.ts",

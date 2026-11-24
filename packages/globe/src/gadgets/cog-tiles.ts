@@ -7,6 +7,10 @@
 // 遅延：使う時だけ dynamic import（geopbf/cog の pool も開いた時に作る）。
 import { openCog } from "geopbf/cog";
 import type { BrowserCog, BrowserCogOptions } from "geopbf/cog";
+import { idbTileCache } from "./cog-idb.ts";
+
+// 読んだタイルの端末キャッシュ（段 2＝COPC と同じ口）＝画像層と地形の COG で 1 つ（main・DB は cog の見比べ表示と分ける）
+let sharedCache: ReturnType<typeof idbTileCache> | null = null;
 
 const LONLAT = new Set([4326, 4258, 4269, 4612, 6668]);
 const MERC_M = 156543.03392804097;   // z0 の 1 px（赤道・256 px タイル）
@@ -26,7 +30,8 @@ export interface CogTiles {
 const zoomFor = (m: number, lat: number) => Math.log2(MERC_M * Math.cos(lat * Math.PI / 180) / Math.max(m, 1e-6));
 
 export async function openCogTiles(src: string | Blob, opts: BrowserCogOptions = {}): Promise<CogTiles> {
-	const cog = await openCog(src, opts);
+	sharedCache ??= idbTileCache(((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8) <= 4 ? 128 << 20 : 512 << 20, "ortho-cog-tiles");
+	const cog = await openCog(src, { cache: sharedCache, ...opts });
 	const [w, s, e, n] = cog.bboxLL, lat = (s + n) / 2;
 	const k = LONLAT.has(cog.epsg) ? 111320 : 1;   // 経緯度の COG は度→m（中心の緯度で十分）
 	const fine = cog.overviews[0].resX * k, coarse = cog.overviews[cog.overviews.length - 1].resX * k;

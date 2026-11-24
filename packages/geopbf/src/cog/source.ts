@@ -7,10 +7,12 @@
 //   ・Blob/File は slice で常に range 同等。{read,size} 注入はテスト/特殊経路用。
 //   ・readMany() が COG の肝＝タイル群の byte range をオフセット順に整列し、gap < gapBytes を
 //     1 リクエストへ合体（HTTP/1 host とリクエスト単価の高い CDN で効く）。1本の上限 maxReq。
+// 端末キャッシュ（opts.cache・2026-11-24 共通化 段 2）＝範囲ごとに残す。COG のタイル・COPC の節・階層の頁が同じ口で残る。
 // fetch は注入可（CORS 無し配信を proxy 越しに読む口・maplibre.js の options.fetch と同じ流儀）。
 
 // headerBytes 64 KB：16 KB だと IFD 連鎖が先頭に収まらない COG（Tellus AVNIR-2 webcog＝4 バンド×8 段）で
 // ヘッダ読みが 32 リクエスト/1.6 s に化けた（64 KB なら 1 本/0.1 s・2026-09-16 実測）。+48 KB は 1 タイル未満
+import type { ByteCache } from "./cache.ts";
 const DEF = { headerBytes: 65536, gapBytes: 65536, maxReq: 4 << 20, concurrency: 6 };
 
 /** 部分読み（from, len）。sig は readMany から渡る */
@@ -32,9 +34,16 @@ export interface SourceOptions {
 	tailBytes?: number;
 	fetch?: typeof fetch;
 	signal?: AbortSignal;
+	/** 読んだ範囲の端末キャッシュ（IDB 等・注入式・2026-11-24 共通化 段 2）＝COG・COPC・何でも同じ口。URL の range 運転の時だけ効く */
+	cache?: ByteCache;
+	/** キャッシュの版の鍵（署名 URL のように URL が毎回変わる読み口が渡す）。無ければ ETag、それも無ければ先頭の中身のハッシュ＋総長 */
+	cacheKey?: string;
+	/** これより大きい 1 回の読みは残さない（既定 8 MB＝ZIP を丸ごと解く読みでキャッシュを溢れさせない） */
+	cacheMaxBytes?: number;
 }
-export interface SourceMetrics { rangeRequests: number; coalescedFrom: number; bytesFetched: number }
+export interface SourceMetrics { rangeRequests: number; coalescedFrom: number; bytesFetched: number; cacheHits?: number }
 export interface ByteRange { from: number; len: number }
+const fnv = (u: Uint8Array): string => { let h = 0x811c9dc5; for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 0x01000193); return (h >>> 0).toString(16); };
 /** openSource の戻り */
 export interface Source {
 	read: RangeRead;
@@ -112,7 +121,7 @@ export async function openSource(src: SourceInput, opts: SourceOptions = {}): Pr
 	}
 	const head = tailBytes ? new Uint8Array(0) : got, tail = tailBytes ? got : undefined;
 
-	const read: RangeRead = async (from, len, sig) => {
+	const net: RangeRead = async (from, len, sig) => {
 		const res = await f(url, { headers: { Range: `bytes=${from}-${from + len - 1}` }, signal: sig || signal });
 		if (!res.ok && res.status !== 206) throw new Error(`cog: HTTP ${res.status}`);
 		metrics.rangeRequests++;
@@ -121,7 +130,33 @@ export async function openSource(src: SourceInput, opts: SourceOptions = {}): Pr
 		if (bin.length < len && size !== null && from + len <= size) throw new Error(`cog: truncated ${bin.length}/${len}`);
 		return bin.length > len ? bin.subarray(0, len) : bin;   // 行儀の悪い host の過剰応答も許容
 	};
-	return withMany({ read, size, head, tail, etag, metrics }, gapBytes, maxReq, concurrency);
+	// 端末キャッシュ（段 2）＝鍵は「版＋範囲」。版＝cacheKey か ETag、無ければ先頭の中身のハッシュ＋総長（別オリジンは ETag を JS に見せないことがある＝PMTiles の端末キャッシュと同じ考え）。
+	// 先頭は毎回回線から取る（上の 1 本）＝ファイルが差し替わると版が変わり、古い範囲は当たらない（予算で古い順に消える）
+	const cache = opts.cache, ver = cache ? (opts.cacheKey ? `k:${opts.cacheKey}` : etag ? `e:${etag}` : `h:${fnv(tail || head)}:${size}`) : "";
+	const ck = (from: number, len: number): string => `r:${ver}:${from}-${len}`;
+	const maxC = opts.cacheMaxBytes ?? 8 << 20;
+	const read: RangeRead = !cache ? net : async (from, len, sig) => {
+		if (len > maxC) return net(from, len, sig);
+		const hit = await cache.get(ck(from, len)).catch(() => null);
+		if (hit && hit.length === len) { metrics.cacheHits = (metrics.cacheHits || 0) + 1; return hit; }
+		const b = await net(from, len, sig);
+		cache.set(ck(from, len), b.slice()).catch(() => {});   // 写して持つ（合体塊の subarray が親を抱えない）
+		return b;
+	};
+	const src2 = withMany({ read, size, head, tail, etag, metrics }, gapBytes, maxReq, concurrency);
+	if (cache) {   // readMany＝当たった範囲は回線に出さず、外れだけを合体して取り、範囲ごとに残す
+		const many = withMany({ read: net, size, head, tail, etag, metrics }, gapBytes, maxReq, concurrency).readMany;
+		src2.readMany = async (ranges, sig) => {
+			const hits = await Promise.all(ranges.map(r => r.len > maxC ? null : cache.get(ck(r.from, r.len)).catch(() => null)));
+			const miss = ranges.map((r, i) => ({ r, i })).filter(({ r, i }) => !(hits[i] && hits[i]!.length === r.len));
+			metrics.cacheHits = (metrics.cacheHits || 0) + ranges.length - miss.length;
+			const got = await many(miss.map(m => m.r), sig);
+			const out = hits.slice() as Uint8Array[];
+			miss.forEach((m, j) => { out[m.i] = got[j]; if (m.r.len <= maxC) cache.set(ck(m.r.from, m.r.len), got[j].slice()).catch(() => {}); });
+			return out;
+		};
+	}
+	return src2;
 }
 
 interface RangeGroup { from: number; len: number; items: (ByteRange & { i: number })[] }

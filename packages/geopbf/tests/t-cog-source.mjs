@@ -89,5 +89,29 @@ const mk = async (opts = {}) => {
 	let m3 = ""; try { await openSource(42); } catch (e) { m3 = e.message; }
 	ok(/unsupported source/.test(m3), "未知のソースは例外");
 }
+// 端末キャッシュ（opts.cache・段 2）：URL の range 運転で範囲ごとに残す・2 回目は回線へ出ない・版は ETag／先頭のハッシュ
+{
+	const reqs = []; let body = data, etag = null;
+	const fakeFetch = async (url, init) => {
+		const m = /bytes=(\d+)-(\d+)/.exec(init.headers.Range); const a = +m[1], b = Math.min(+m[2], body.length - 1); reqs.push(`${a}-${b}`);
+		return new Response(body.slice(a, b + 1), { status: 206, headers: { "content-range": `bytes ${a}-${b}/${body.length}`, ...(etag ? { etag } : {}) } });
+	};
+	const store = new Map(), cache = { get: async k => store.get(k) ?? null, set: async (k, v) => { store.set(k, v); } };
+	const open = () => openSource("https://x/a.copc.laz", { fetch: fakeFetch, cache, headerBytes: 64, gapBytes: 100 });
+	const s1 = await open();
+	const a = await s1.read(1000, 50), many = await s1.readMany([{ from: 2000, len: 20 }, { from: 2030, len: 20 }, { from: 9000, len: 10 }]);
+	ok(same(a, 1000) && same(many[1], 2030) && same(many[2], 9000), "cache：中身は回線と同じ");
+	const n1 = reqs.length;
+	const s2 = await open();
+	const a2 = await s2.read(1000, 50), many2 = await s2.readMany([{ from: 2000, len: 20 }, { from: 2030, len: 20 }, { from: 9000, len: 10 }, { from: 20000, len: 5 }]);
+	ok(reqs.length === n1 + 2 && same(a2, 1000) && same(many2[0], 2000) && same(many2[3], 20000), `cache：開き直すと残した範囲は回線へ出ない（先頭 1＋外れ 1・実測 +${reqs.length - n1}）`);
+	ok(s2.metrics.cacheHits === 4, `cache：当たりを数える（実測 ${s2.metrics.cacheHits}）`);
+	body = data.slice(); body[10] ^= 255;   // ファイルが差し替わった（先頭が変わる・ETag なし）
+	const s3 = await open(); const n3 = reqs.length;
+	await s3.read(1000, 50);
+	ok(reqs.length === n3 + 1, "cache：先頭が変わると版が変わり、古い範囲は使わない");
+	etag = '"v2"'; const s4 = await openSource("https://x/a.copc.laz", { fetch: fakeFetch, cache, headerBytes: 64, cacheKey: "scene-1" });
+	ok([...store.keys()].some(k => k.startsWith("r:h:")) && (await s4.read(1000, 50), [...store.keys()].some(k => k.startsWith("r:k:scene-1:"))), "cache：cacheKey が版に勝つ（署名 URL の読み口）");
+}
 if (fails) { console.error(`${fails} 件失敗`); process.exit(1); }
 console.log("全件通過");
