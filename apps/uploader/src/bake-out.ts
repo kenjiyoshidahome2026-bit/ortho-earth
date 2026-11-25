@@ -87,7 +87,7 @@ export async function plateauBake(q: screenLogger, { Bucket, apiUrl }: NativeBuc
 }
 
 // 歩ける道の網（全国）＝packages/citytwin/scripts/bake-walk-japan.mjs → bake-out/walk/（区画 <cx>_<cy>.bin・目録 index.json）→ GIS/walk/（2026-11-25・本人「全国分を R2 に置く」）。
-// 区画は約 10 万枚＝8 本ずつ並べて置き、64 枚ごとに進みを localStorage に残す（途中で閉じても同じ焼きなら続きから）。index.json は最後に置く（見えた時には区画が揃っている）。
+// 区画は約 10 万枚＝24 本並べて置き（失敗は待って置き直す）、256 枚ごとに進みを localStorage に残す（途中で閉じても同じ焼きなら続きから）。index.json は最後に置く（見えた時には区画が揃っている）。
 export async function walkJapan(q: screenLogger, { Bucket, apiUrl }: NativeBucket & { apiUrl: string }) {
 	q.clear(); q.title("歩ける道の網（bake-out/walk）→ GIS/walk/");
 	devOnly();
@@ -100,16 +100,24 @@ export async function walkJapan(q: screenLogger, { Bucket, apiUrl }: NativeBucke
 	const KEY = `walk-upload:${index.made}`;
 	let done = 0; try { done = +(localStorage.getItem(KEY) || 0); } catch { /* 無くても最初から */ }
 	if (done) q.log(`続きから：${done} / ${index.cells.length}`);
-	const t0 = Date.now();
-	for (let i = done; i < index.cells.length; i += 64) {
-		const part = index.cells.slice(i, i + 64);
-		for (let j = 0; j < part.length; j += 8) await Promise.all(part.slice(j, j + 8).map(async k => {
-			const body = await (await readLocal(`walk/${k}.bin`)).blob();
-			await bucket.put(new File([body], `${k}.bin`, { type: "application/octet-stream" }));
-		}));
-		done = i + part.length;
+	// 1 枚ずつは遅い（8 本並べて約 2 枚/秒＝全国 13 時間）・API は時々 502 を返す（2026-11-25 MacBook で 238 枚目で止まった）
+	// ＝24 本の口で順に取り、失敗は 5 回まで待って置き直す（2・4・8・16・32 秒）。進みは 256 枚ごとに残す
+	const PAR = 24, CHUNK = 256;
+	const putCell = async (k: string) => {
+		const body = await (await readLocal(`walk/${k}.bin`)).blob();
+		for (let a = 0; ; a++) {
+			try { await bucket.put(new File([body], `${k}.bin`, { type: "application/octet-stream" })); return; }
+			catch (e) { if (a >= 5) throw e; await new Promise(r => setTimeout(r, 2000 * 2 ** a)); }
+		}
+	};
+	const t0 = Date.now(); let n = 0;
+	for (let i = done; i < index.cells.length; i += CHUNK) {
+		const part = index.cells.slice(i, i + CHUNK);
+		let next = 0;
+		await Promise.all(Array.from({ length: PAR }, async () => { while (next < part.length) await putCell(part[next++]); }));
+		done = i + part.length; n++;
 		try { localStorage.setItem(KEY, String(done)); } catch { /* 進みを残せないだけ */ }
-		if ((done / 64) % 20 === 0 || done === index.cells.length) q.log(`↑ ${done} / ${index.cells.length}（${((Date.now() - t0) / 60000).toFixed(1)} 分）`);
+		if (n % 8 === 0 || done === index.cells.length) q.log(`↑ ${done} / ${index.cells.length}（${((Date.now() - t0) / 60000).toFixed(1)} 分）`);
 	}
 	await bucket.put(new File([JSON.stringify(index)], "index.json", { type: "application/json" }));
 	try { localStorage.removeItem(KEY); } catch { /* 無くても良い */ }
