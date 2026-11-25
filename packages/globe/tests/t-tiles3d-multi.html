@@ -19,6 +19,12 @@ run(); async function run() { try {
 	const on = () => h.tiles.filter(x => x.on).map(x => x.uri).sort().join(" ");
 	const full = await until(() => h.stats.shown === 7 && on() === "1_0_0.glb 1_0_0.glb 1_0_1.glb 1_0_1.glb 1_1_0.glb 1_1_0.glb 1_1_1.glb");
 	ok("full", full, `${JSON.stringify(h.stats)} ${on()}`);
+	{   // GPU メモリの共有の台帳（gadgets/membudget.ts）＝tileset の量と地図の固定分が同じ台帳に載る・?gpumem=MB が総予算
+		const g = window.__gpuMem(), q = +new URLSearchParams(location.search).get("gpumem") || 0;
+		await until(() => window.__gpuMem().by.map > 0, 6000);
+		const g2 = window.__gpuMem();
+		ok("ledger", g.by.tiles3d > 0 && Math.abs(g.by.tiles3d - (h.stats.gpuMB + h.stats.mainMB) * 1048576) < 1048576 && g2.by.map > 0 && (!q || g.total === q * 1048576), JSON.stringify(g2));
+	}
 	if (v11) {   // pick＝content ごとの metadata と group・同じタイルの a と b は同じ tile の番号
 		const hits = new Map();
 		for (let y = 10; y < 600; y += 8) for (let x = 10; x < 960; x += 8) { const p = h.pick(x, y), name = p?.contentMetadata?.properties.name; if (name && !hits.has(name)) hits.set(name, p); }

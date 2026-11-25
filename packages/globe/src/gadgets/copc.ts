@@ -15,6 +15,7 @@ import type { COPCHandle, COPCOptions, OverlayHandle, PointCloudDump, PointCloud
 import { planesOf } from "../frustum.ts";   // mvp → 視錐台の 6 面（tiles3d と同じ 1 本）
 import type { Requester } from "../request.ts";
 import type { GlobeMap } from "../types/map.ts";
+import type { MemLedger } from "./membudget.ts";
 
 /** worker（copc 役）の open が返す見出し＝公開の COPCHandle.info */
 type COPCInfo = COPCHandle["info"];
@@ -37,13 +38,15 @@ type COPCSetHandle = COPCHandle & { readonly stats: COPCHandle["stats"] & COPCMe
 /** createCOPC の deps（globe.js の copcGet が渡す） */
 export interface COPCEnv {
 	cam: CameraPose; size: () => { w: number; h: number }; dpr: number; lowMem: boolean; signal?: AbortSignal; requester: Requester; ell: boolean; earthM: number;
+	/** GPU メモリの共有の台帳（無ければ自分の予算だけ） */
+	ledger?: MemLedger | null;
 	/** 出典の欄（html＝null で外す） */
 	setAttr?: (id: string, html: string | null) => void;
 }
 
 const keyStr = (k: number[]) => k.join("-");
 
-export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requester, ell, earthM, setAttr = () => {} }: COPCEnv) {
+export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, ledger = null, signal, requester, ell, earthM, setAttr = () => {} }: COPCEnv) {
 	const w = new Worker(new URL("../worker.ts", import.meta.url), { type: "module", name: "copc" });
 	const pending = new Map<string | number, { res: (d: unknown) => void; rej: (e: Error) => void }>(); let rid = 0;
 	w.onmessage = e => { const d = e.data || {};
@@ -52,7 +55,10 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	const rpc = <T>(msg: Record<string, unknown>, key: string | number, transfer: Transferable[] = []) => new Promise<T>((res, rej) => { pending.set(key, { res, rej } as { res: (d: unknown) => void; rej: (e: Error) => void }); w.postMessage({ ...msg, ell }, transfer); });
 	const GS_MAX = 1200;   // fitTerrain に使う地面の見本の上限（粗い節から＝全体に散る）
 	// MAX_INFLIGHT＝worker へ頼んでおく節の数（段 4）。回線の同時数は worker の取り順（オリジンごと 6）が持つ＝ここは「先に並べておく」数＝画面が動けば prio の付け替えと cancel で入れ替わる
-	const BUDGET = lowMem ? 2e6 : 6e6, MAX_INFLIGHT = lowMem ? 4 : 12;
+	const BUDGET0 = lowMem ? 2e6 : 6e6, MAX_INFLIGHT = lowMem ? 4 : 12;
+	// 共有の台帳（gadgets/membudget.ts・2026-11-25）＝点の予算を「総予算 − 他の描き手が今持つ量」で頭打ちにする。1 点＝GPU の 24 byte（位置 12・標高 4・強度 2・分類 1・色 4 と揃え）
+	const PT_BYTES = 24;
+	let BUDGET = BUDGET0;
 	const sets = new Map<string, PcSet>(), readProgress = new Map<string, (loaded: number, total: number) => void>();
 	let seq = 0, inflight = 0, loadedPts = 0, raf = 0, frameNo = 0;
 	const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; update(); }); };
@@ -140,6 +146,7 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	function update() {
 		if (!sets.size) return;
 		frameNo++;
+		BUDGET = ledger ? Math.max(2e5, Math.min(BUDGET0, ledger.limit("copc") / PT_BYTES)) : BUDGET0;
 		const W = size().w, H = size().h, s = cameraState(cam, W, H), planes = planesOf(s.mvp), eye = s.eye, fpx = s.focal / (cam.dpr || dpr || 1), el = Math.hypot(...eye);
 		const want: Array<{ set: PcSet; n: PcNode; pri: number }> = [];
 		for (const set of sets.values()) {
@@ -180,7 +187,9 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 			const cand = [...sets.values()].flatMap(st => [...st.nodes.values()].filter(n => n.state === "ready" && !n.on).map(n => ({ st, n }))).sort((a, b) => a.n.used - b.n.used);
 			for (const { st, n } of cand) { if (loadedPts <= BUDGET) break; unload(st, n); }
 		}
+		ledger?.touch();
 	}
+	const offLedger = ledger?.register("copc", { bytes: () => loadedPts * PT_BYTES, poke: () => schedule() });
 	function handle(set: PcSet): COPCSetHandle {
 		return {
 			id: set.id, info: set.info!,
@@ -217,7 +226,7 @@ export function createCOPC(map: GlobeMap, { cam, size, dpr, lowMem, signal, requ
 	}
 	const onMove = () => schedule();
 	map.on("move", onMove); map.on("settle", onMove);
-	const destroy = () => { for (const id of [...sets.keys()]) remove(id); w.terminate(); map.off?.("move", onMove); map.off?.("settle", onMove); cancelAnimationFrame(raf); };
+	const destroy = () => { for (const id of [...sets.keys()]) remove(id); w.terminate(); offLedger?.(); map.off?.("move", onMove); map.off?.("settle", onMove); cancelAnimationFrame(raf); };
 	signal?.addEventListener("abort", destroy, { once: true });
 	return { add, read, remove, list: () => [...sets.values()].map(handle), destroy };
 }
