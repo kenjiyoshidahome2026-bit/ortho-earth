@@ -278,6 +278,36 @@ export function cameraState(cam: CameraPose, W: number, H: number): CameraState 
 	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal, projection };
 }
 
+// 注視点の高さの付け替え（2026-11-25）：目の位置と視線をそのままに、注視点を「画面の中心の視線が高さ altM の球に当たる所」へ移す＝絵は変わらない。
+// 返すのは新しい center・zoom（注視点までの距離が変わる分）・pitch・bearing（当たり所の鉛直が僅かに違う分）。cam.centerAlt＝altM と一緒に書く。
+// 動機：注視点が海抜 0 のままだと、標高の高い所で傾けて寄る時、寄る中心が地面の下（朝倉の山で 365 m 下）＝目が地面すれすれを滑り、手前の地面が大きく流れ、
+// やがて山に潜る。注視点を見えている地面に置けば、寄る中心は地面の上（MapLibre の centerClampedToGround＋地形の変化で zoom を付け替える recalculateZoom と同じ考え）。
+// 当たらない（地平線の上・目が球の中）は null＝呼び手は何もしない。楕円体では距離を β 空間で測る近似（zoom の誤差 0.005 段未満）・pitch/bearing は据え置き
+export function rebaseCenterAlt(cam: CameraPose, W: number, H: number, altM: number): { center: LonLat; zoom: number; pitch: number; bearing: number } | null {
+	const st = cameraState(cam, W, H), E = st.eye, off = cam.offset, dpr = cam.dpr || 1;
+	const R = 1 + Math.max(0, altM) / worldRadiusM();
+	if (!(Math.hypot(E[0], E[1], E[2]) > R)) return null;   // 目が球の中＝unproject は近平面の点を返す（当たり所ではない）
+	const ll = unproject(st, W / 2 + (off ? off[0] * dpr : 0), H / 2 + (off ? off[1] * dpr : 0), R);
+	if (!ll) return null;
+	const u = lonlatTo3D(ll[0], ll[1]), P = [u[0] * R, u[1] * R, u[2] * R];
+	const d = [E[0] - P[0], E[1] - P[1], E[2] - P[2]], dist = Math.hypot(d[0], d[1], d[2]);
+	if (!(dist > 0) || !(st.camDist > 0)) return null;
+	const zoom = cam.zoom + Math.log2(st.camDist / dist);
+	let pitch = cam.pitch || 0, bearing = cam.bearing || 0;
+	if (R_AX === 1) {
+		const back = [d[0] / dist, d[1] / dist, d[2] / dist], cp = Math.max(-1, Math.min(1, mat.dot(back, u)));
+		pitch = Math.acos(cp);
+		const sp = Math.sin(pitch);
+		if (sp > 1e-6) {
+			const a = ll[0] * D2R, b = ll[1] * D2R;
+			const north = [-Math.sin(b) * Math.cos(a), Math.cos(b), -Math.sin(b) * Math.sin(a)], east = [-Math.sin(a), 0, Math.cos(a)];
+			const f = [(u[0] * cp - back[0]) / sp, (u[1] * cp - back[1]) / sp, (u[2] * cp - back[2]) / sp];
+			bearing = Math.atan2(mat.dot(f, east), mat.dot(f, north));
+		}
+	}
+	return { center: ll, zoom, pitch, bearing };
+}
+
 // 視線の基底（f64・純関数）：v(ndc)＝F＋ndc.x·X＋ndc.y·Y＝目から出る視線。長さは clip w が 1 になる向き（g·v＝1・g＝mvp の w 行）＝
 // 目からの相対位置は P＝w·v（w＝clip w＝深度から戻す奥行き）。透視は ndc に対して v がアフィン＝3 点で決まる。mvp/invMvp は列優先（mat.js）。
 // invMvp（f32）を GPU で積和すると近平面が浅い高ズームのチルトで視線が画素単位で揺れる（#46 の AO・#65 の球の床）＝CPU の f64 で作って uniform で渡す。
