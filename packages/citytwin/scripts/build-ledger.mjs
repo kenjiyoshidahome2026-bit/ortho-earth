@@ -100,7 +100,8 @@ const H = csv.shift(), col = k => H.indexOf(k);
 const rows = new Map();
 for (const c of csv) {
 	if (c[col("status")] === "欠番" || c[col("code")].endsWith("000")) continue;
-	rows.set(c[col("code")], { code: c[col("code")], prefName: c[col("pref")], name: c[col("city")], kana: c[col("cityKana")] });
+	const renamed = c[col("status")] === "名称変更";   // 名称変更の行は新しい名とよみの列を使う（篠山市→丹波篠山市・水海道市→常総市）
+	rows.set(c[col("code")], { code: c[col("code")], prefName: c[col("pref")], name: c[col(renamed ? "newName" : "city")], kana: c[col(renamed ? "newNameKana" : "cityKana")] });
 }
 // ── 2. 種別・親（政令市の区）──
 const SEIREI = new Set(["01100", "04100", "11100", "12100", "14100", "14130", "14150", "15100", "22100", "22130", "23100", "26100", "27100", "27140", "28100", "33100", "34100", "40100", "40130", "43100"]);
@@ -118,13 +119,22 @@ for (const r of rows.values()) {
 // 6 桁（チェックディジット付き）
 const cd = c => { const s = [...c].reduce((a, d, i) => a + +d * (6 - i), 0); return c + (11 - s % 11) % 10; };
 // ── 3. 英語の名・アプリの id ──
+// Wikidata（fetch-ledger-wikidata.mjs が Mac で書いた ledger/wikidata.json・CC0）＝英語名・記事名・公式サイト。無ければ列は空・英語はよみから
+const WD = path.join(ROOT, "packages/citytwin/ledger/wikidata.json");
+const WDROWS = fs.existsSync(WD) ? JSON.parse(fs.readFileSync(WD, "utf8")).rows : {};
 for (const r of rows.values()) {
 	let name = r.name, kana = r.kana;
 	if (r.kind === "区") { const p = rows.get(r.parent); name = name.slice(p.name.length); kana = kana.startsWith(p.kana) ? kana.slice(p.kana.length) : kana; }
 	const [stem, tail] = stripKind(name, kana);
 	const en = cap(romaji(stem));
-	r.en = en;
-	r.enFull = r.kind === "区" ? `${en}-ku` : `${en} ${{ 市: "City", 政令市: "City", 特別区: "City", 町: "Town", 村: "Village" }[r.kind]}`;
+	// 英語の名は Wikidata の英語名を正とする（長音記号と市町村の字を外す＝Honjō-shi → Honjo・Minami-Alps・Minoh）。無い所だけよみから作った名
+	const w = WDROWS[r.code];
+	if (w) Object.assign(r, { qid: w.qid, wikiJa: w.wikiJa, wikiEn: w.wikiEn, enWd: w.en, site: w.site?.[0] });
+	const wdHead = w?.en && w.en.replace(/,.*$/, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\s-]+(city|town|village|ward|ku|shi|machi|cho|mura|son)$/i, "").trim();
+	r.enAuto = en;
+	r.en = wdHead && /^[A-Za-z][A-Za-z' -]*$/.test(wdHead) ? wdHead : en;
+	r.enSrc = r.en === wdHead ? "wd" : "auto";
+	r.enFull = r.kind === "区" ? `${r.en}-ku` : `${r.en} ${{ 市: "City", 政令市: "City", 特別区: "City", 町: "Town", 村: "Village" }[r.kind]}`;
 	r.kanaTail = tail;
 }
 // id＝英語の名を小文字に。同じ id が 2 つ以上の市区町村に出たら「-県」、それでも重なれば種別も足す。既にある頁の id は変えない
@@ -280,6 +290,7 @@ for (let p = 1; p <= 47; p++) {
 		for (const t of targets) {
 			let a = acc.get(t);
 			if (!a) acc.set(t, a = { box: [180, 90, -180, -90], km2: 0, big: null, bigA: 0, gun: null, shinko: null });
+			if (t === code && rows.get(code) && !rows.get(code).n03Checked) { rows.get(code).n03Checked = true; const nm = (pr.N03_003 && !/郡$/.test(pr.N03_003) ? pr.N03_003 : "") + (pr.N03_004 || "") + (pr.N03_005 || ""); const want = rows.get(code).name; if (pr.N03_004 && !nm.endsWith(want) && !want.endsWith(pr.N03_005 || pr.N03_004)) console.warn(`\n名が N03 と違う：${code} 台帳 ${want}／N03 ${nm}`); }
 			if (t === code) { if (pr.N03_003 && /郡$/.test(pr.N03_003)) a.gun = pr.N03_003; if (pr.N03_002) a.shinko = pr.N03_002; }
 			for (const poly of polys) {
 				const ar = ringKm2(poly[0]) - poly.slice(1).reduce((s, h) => s + ringKm2(h), 0);
@@ -360,7 +371,7 @@ for (const r of rows.values()) {
 const COLS = [
 	["code", r => r.code], ["code6", r => cd(r.code)], ["pref", r => r.pref], ["prefName", r => r.prefName], ["name", r => r.name], ["kana", r => r.kana],
 	["kind", r => r.kind], ["parent", r => r.parent], ["gun", r => r.gun], ["shinko", r => r.shinko],
-	["en", r => r.en], ["enFull", r => r.enFull], ["id", r => r.id], ["app", r => r.app], ["sameName", r => r.same],
+	["en", r => r.en], ["enSrc", r => r.enSrc], ["enFull", r => r.enFull], ["id", r => r.id], ["app", r => r.app], ["sameName", r => r.same],
 	["pop2025", r => r.pop], ["hh2025", r => r.hh], ["popChange", r => r.popChange], ["km2", r => r.km2],
 	["w", r => r.bbox?.[0]], ["s", r => r.bbox?.[1]], ["e", r => r.bbox?.[2]], ["n", r => r.bbox?.[3]], ["lon", r => r.lon], ["lat", r => r.lat],
 	["type", r => r.type], ["missing", r => r.missing],
@@ -369,6 +380,7 @@ const COLS = [
 	["policeName", r => r.policeName], ["fireName", r => r.fireName],
 	["nearSta", r => r.nearSta], ["nearPolice", r => r.nearPolice], ["nearFire", r => r.nearFire], ["nearEr", r => r.nearEr], ["lifeBox", r => r.lifeBox],
 	["plateauLod", r => r.plateauLod], ["plateauYear", r => r.plateauYear], ["plateauLod1MB", r => r.plateauLod1MB], ["plateauHaz", r => r.plateauHaz],
+	["qid", r => r.qid], ["wikiJa", r => r.wikiJa], ["wikiEn", r => r.wikiEn], ["enWd", r => r.enWd], ["enAuto", r => r.enAuto], ["site", r => r.site],
 ];
 const sorted = [...rows.values()].sort((a, b) => a.code.localeCompare(b.code));
 const tsv = [COLS.map(c => c[0]).join("\t"), ...sorted.map(r => COLS.map(([, f]) => f(r) ?? "").join("\t"))].join("\n") + "\n";
