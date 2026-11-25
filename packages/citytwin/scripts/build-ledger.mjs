@@ -356,6 +356,20 @@ for (const r of rows.values()) {
 	r.lifeBox = [box[0] - 0.02, box[1] - 0.02, box[2] + 0.02, box[3] + 0.02].map(v => Math.round(v * 100) / 100).join(",");
 }
 
+// ── 6c. Wikidata（fetch-ledger-wikidata.mjs が Mac で書いた ledger/wikidata.json・無ければ列は空）──
+//   enDiff＝Wikidata の英語名の頭の語が、よみから作った en と違う（山ノ内＝Yamanouchi など）＝en を直す候補
+const WD = path.join(ROOT, "packages/citytwin/ledger/wikidata.json");
+if (fs.existsSync(WD)) {
+	const wd = JSON.parse(fs.readFileSync(WD, "utf8")).rows;
+	const norm = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+	for (const r of rows.values()) {
+		const w = wd[r.code]; if (!w) continue;
+		Object.assign(r, { qid: w.qid, wikiJa: w.wikiJa, wikiEn: w.wikiEn, enWd: w.en, site: w.site?.[0] });
+		const head = w.en && w.en.replace(/,.*$/, "").replace(/\s+(City|Town|Village|Ward|ward|-ku|-shi|-machi|-cho|-mura|-son)$/i, "").replace(/-(ku|shi|machi|cho|mura|son)$/i, "");
+		if (head && norm(head) !== norm(r.en)) r.enDiff = 1;
+	}
+}
+
 // ── 7. 書き出す ──
 const COLS = [
 	["code", r => r.code], ["code6", r => cd(r.code)], ["pref", r => r.pref], ["prefName", r => r.prefName], ["name", r => r.name], ["kana", r => r.kana],
@@ -369,6 +383,7 @@ const COLS = [
 	["policeName", r => r.policeName], ["fireName", r => r.fireName],
 	["nearSta", r => r.nearSta], ["nearPolice", r => r.nearPolice], ["nearFire", r => r.nearFire], ["nearEr", r => r.nearEr], ["lifeBox", r => r.lifeBox],
 	["plateauLod", r => r.plateauLod], ["plateauYear", r => r.plateauYear], ["plateauLod1MB", r => r.plateauLod1MB], ["plateauHaz", r => r.plateauHaz],
+	["qid", r => r.qid], ["wikiJa", r => r.wikiJa], ["wikiEn", r => r.wikiEn], ["enWd", r => r.enWd], ["enDiff", r => r.enDiff], ["site", r => r.site],
 ];
 const sorted = [...rows.values()].sort((a, b) => a.code.localeCompare(b.code));
 const tsv = [COLS.map(c => c[0]).join("\t"), ...sorted.map(r => COLS.map(([, f]) => f(r) ?? "").join("\t"))].join("\n") + "\n";
