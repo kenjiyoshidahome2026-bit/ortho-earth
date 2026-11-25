@@ -73,7 +73,7 @@
 
 ## 5. 手順
 
-1. **調べる**（クラウドで可）：市区町村コード・PLATEAU の有無・`bake-<id>.mjs --inspect` で国土数値情報の中身。ここで型が決まる。
+1. **調べる**（クラウドで可）：まず全国の台帳 `packages/citytwin/ledger/municipalities.tsv`（5 桁のコードで引く・列は同じ所の README）で、型の案・境界の範囲・郡・英語の名・PLATEAU の有無・型 C の生活圏の枠の案を見る。続けて `bake-<id>.mjs --inspect` で国土数値情報の中身を確かめる。ここで型が決まる。
 2. **器を起こす**：`node packages/citytwin/scripts/new-city.mjs <id> "<English>" <日本語の名> --port=52xx`（型紙は旭川）。
 3. **書く**（市町村ごとに手で）：
    - `apps/<id>/data.ts` … 範囲・名所・歴史の章・めぐる順・病院・ハザード。座標と年は Wikipedia と公式の頁で確かめる。
