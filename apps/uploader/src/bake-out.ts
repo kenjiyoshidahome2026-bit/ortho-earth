@@ -85,3 +85,33 @@ export async function plateauBake(q: screenLogger, { Bucket, apiUrl }: NativeBuc
 	}
 	q.log(`上げた ${up} 件（${(bytes / 1e6).toFixed(1)}MB）・R2 に既にある ${same} 件・欠けありで止めた ${holes} 件`);
 }
+
+// 歩ける道の網（全国）＝packages/citytwin/scripts/bake-walk-japan.mjs → bake-out/walk/（区画 <cx>_<cy>.bin・目録 index.json）→ GIS/walk/（2026-11-25・本人「全国分を R2 に置く」）。
+// 区画は約 10 万枚＝8 本ずつ並べて置き、64 枚ごとに進みを localStorage に残す（途中で閉じても同じ焼きなら続きから）。index.json は最後に置く（見えた時には区画が揃っている）。
+export async function walkJapan(q: screenLogger, { Bucket, apiUrl }: NativeBucket & { apiUrl: string }) {
+	q.clear(); q.title("歩ける道の網（bake-out/walk）→ GIS/walk/");
+	devOnly();
+	const index: { made: string; cells: string[]; bytes: number } = await (await readLocal("walk/index.json")).json();
+	if (!index.cells?.length) throw new Error("bake-out/walk に区画が無い＝node packages/citytwin/scripts/bake-walk-japan.mjs");
+	const remote = await fetch(`${apiUrl}/bucket/GIS/walk/index.json`, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+	if (remote?.made === index.made) { q.log(`R2 に同じ焼き（${index.made}）が置いてある＝何もしない`); return; }
+	const bucket = await Bucket("GIS/walk", { silent: true, lazy: true });
+	if (!bucket) throw new Error("Bucket(GIS/walk) に到達できない");
+	const KEY = `walk-upload:${index.made}`;
+	let done = 0; try { done = +(localStorage.getItem(KEY) || 0); } catch { /* 無くても最初から */ }
+	if (done) q.log(`続きから：${done} / ${index.cells.length}`);
+	const t0 = Date.now();
+	for (let i = done; i < index.cells.length; i += 64) {
+		const part = index.cells.slice(i, i + 64);
+		for (let j = 0; j < part.length; j += 8) await Promise.all(part.slice(j, j + 8).map(async k => {
+			const body = await (await readLocal(`walk/${k}.bin`)).blob();
+			await bucket.put(new File([body], `${k}.bin`, { type: "application/octet-stream" }));
+		}));
+		done = i + part.length;
+		try { localStorage.setItem(KEY, String(done)); } catch { /* 進みを残せないだけ */ }
+		if ((done / 64) % 20 === 0 || done === index.cells.length) q.log(`↑ ${done} / ${index.cells.length}（${((Date.now() - t0) / 60000).toFixed(1)} 分）`);
+	}
+	await bucket.put(new File([JSON.stringify(index)], "index.json", { type: "application/json" }));
+	try { localStorage.removeItem(KEY); } catch { /* 無くても良い */ }
+	q.success(`GIS/walk/ に ${index.cells.length} 区画（${(index.bytes / 1e6).toFixed(0)} MB）と index.json を置いた`);
+}

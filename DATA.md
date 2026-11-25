@@ -65,6 +65,7 @@ npm run publish:pages -w world-data -- --scope=japan --write
 | 見本 `showcase/*`（人口密度の 3D・江戸の古地図） | **japan の `public/` に残す**（下の 5） | www のデモ（`?g=showcase/…`・`?iiif=/japan/showcase/…`） |
 | エンジンの実行時アセット：`plateau-sets`・`airports`・`plateau-landmarks`・`plateau-exclude` | **japan の `public/` に残す**（npm の SDK に同梱＝`assetBase` の契約） | エンジン |
 | 形状 `ne-cultural-base`／`-detail`・`rivers.json` | **bucket GIS/world に残す** | 全アプリ |
+| 全国の歩ける道の網（デジタルツインの道順・0.02° 四方の区画 `<cx>_<cy>.bin`＋`index.json`・OpenStreetMap ODbL・2026-11-25 本人「全国分を R2 に置く」） | **bucket `GIS/walk/`**（焼く＝`packages/citytwin/scripts/bake-walk-japan.mjs`（MacBook・GDAL）→ uploader の「歩ける道の網・全国」） | これから作る市町村のデジタルツイン（今の 8 都市は `ortho-data/japan/<市>/walk/` のまま） |
 | 地震の `archive.geopbf`（23MB） | R2 `ortho-quakes`（/quakes/） | /globe/quakes |
 | 人工衛星 `active.csv`（毎時ミラー） | Worker＋KV（/sats/） | /globe/sats |
 | 雲 | 自前のデータなし（NASA GIBS・EUMETView 直読み） | /globe/clouds |
