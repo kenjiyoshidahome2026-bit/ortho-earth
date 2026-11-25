@@ -330,6 +330,7 @@ setInterval(() => {
 }, 33);
 // ?hud=1（init.mem・旧mem=1）＝状態盤テレメトリを main へ~2Hzで送る（terrain LRU＋JSヒープ＋GPU固定＋描画実測）。main が plateau/tiles と合算して HUD 表示。
 let drawX = 1;   // ?bench の負荷倍率（set cmd "drawX"）：1＝通常。N＝本番の 1 回の前に同じ絵を N−1 回余分に描いて submit する
+let gpuMemLast = 0, gpuMemSent = 0;
 let memOn = false, memWant = false, memLast = 0, hudFrames = 0, hudTotal = 0, hudGpuName = "";   // hudTotal＝起動からの実描画枚数（?bench の物差し＝2 点の差÷時間）
 // ?hud=1 の CPU 内訳（2026-11-03・Android タブレットで 1 フレーム 100ms 超・解像度を下げても不変＝GPU でなく CPU）。
 // 描いたフレームごとに worker の JS 時間を部位別に測り EMA で HUD へ＝実機の画面だけで「何に食われているか」が分かる計器
@@ -1390,6 +1391,13 @@ function frame() {
 	if (!drew && aaDyn && lastAA === 1 && nowT - lastDrewT > RES_SETTLE_MS) dirty = true;
 	// ?hud=1（旧mem=1）：状態盤テレメトリを~2Hzで main へ。dirty 外＝静止中も送る。terrain LRU＋JSヒープ＋GPU固定＋
 	// 描画実測（fps＝窓内の実描画枚数／frameMs＝emaMs／res＝動的解像度）＋backend/GPU名。plateau/tiles/navigator は main 側が合算。
+	// GPU メモリの共有の台帳（main の gadgets/membudget.ts）へ、地図の固定分（標高・地面アトラス・MSAA・タイルのプール・影・画像層）を知らせる。2 s ごと・8 MB 以上変わった時だけ
+	if (renderer && nowT - gpuMemLast > 2000) {
+		gpuMemLast = nowT;
+		const e = renderer.memEstimate?.() as Record<string, number> | undefined;
+		let b = raster?.bytes?.() || 0; if (e) for (const k in e) if (typeof e[k] === "number") b += e[k];
+		if (Math.abs(b - gpuMemSent) > 8 << 20) { gpuMemSent = b; postMessage({ type: "gpuMem", bytes: b }); }
+	}
 	if (memOn && renderer && nowT - memLast > 500) {
 		const fps = nowT > memLast ? Math.round(hudFrames * 1000 / (nowT - memLast)) : 0;
 		const drawL = hudFrames > 0 ? drawStatLine(hudFrames * drawX) : undefined;   // ?drawstat=1＝1 回の描画あたりの描画命令（描かなかった窓は前の値を残す）

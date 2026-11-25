@@ -93,6 +93,7 @@ import { setPowerPreference, type GpuPowerPreference } from "@ortho-earth/core/g
 import type { CameraPose } from "@ortho-earth/core/camera";
 import type { BucketProvider, GeoPBF, GeopbfInput } from "geopbf";
 import type { PluginHostOptions } from "./plugin.ts";
+import { createMemLedger, defaultGpuBudget } from "./gadgets/membudget.ts";   // GPU メモリの共有の台帳（小さい＝静的 import）
 import type { ClusterSource } from "./gadgets/aggregate-core.ts";
 import type { createCOPC } from "./gadgets/copc.ts";
 import type { CustomLayer } from "./gadgets/customgl.ts";
@@ -775,6 +776,13 @@ const hudOn = !!hudParam || benchOn, hudOpenInit = hudParam?.[1] === "1";   // h
 // フェード進行・PLATEAUバッチ数を画面へ出す。塗り0枚なら CPU/状態側（シーンが空・退場）、
 // 枚数が出ているのに黒なら GPU 側＝二分の起点になる（Android 実機の反転 2026-08-03・USB接続なしで読める）。
 const drawHud = /[?&]drawhud=1/.test(location.search);
+// GPU メモリの共有の台帳（gadgets/membudget.ts・2026-11-25）＝3D Tiles／splat の tileset・点群・地図の固定分・建物メッシュが 1 つの総予算を分け合う。
+//   総予算＝端末の格（lowMem 600 MB・4 GB 機 1 GB・12 コア以上 4 GB・10 コア以上 3 GB・他 2 GB）・?gpumem=MB で上書き。地図の固定分は render worker が数 s ごとに知らせる（gpuMem）
+let mapGpuBytes = 0;
+const memLedger = createMemLedger((() => { const q = /[?&]gpumem=(\d+)/.exec(location.search); return q ? Math.max(64, +q[1]) * 1048576 : defaultGpuBudget({ lowMem: LOW_MEM, deviceMemory: (navigator as NavigatorPlus).deviceMemory || 8, cores: navigator.hardwareConcurrency || 8 }); })());
+memLedger.register("map", { bytes: () => mapGpuBytes });
+memLedger.register("city", { bytes: () => meshMgr?.memStats().bytes || 0 });
+dbgHost.__gpuMem = () => memLedger.snapshot();
 let memTerrain = 0, memHeap = 0, memGpu: { atlas: number; mesh: number; msaa: number; pool?: number } | null = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memLite = false;   // 動いている間だけの軽量 index が今オンか（?meshlitemove）
 let memFps = 0, memFrameMs = 0, memRes = 1, memShed = 1, memBackend: string | null = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
@@ -1304,6 +1312,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; rasterFading = !!d.fading; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
+	if (d.type === "gpuMem") { mapGpuBytes = d.bytes || 0; memLedger.touch(); return; }   // 地図の GPU 固定分（アトラス・MSAA・タイルのプール・画像層）＝台帳へ
 	if (d.type === "mem") { memGintL = d.gintL ?? memGintL; memDrawL = d.drawL ?? memDrawL; memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrames = d.frames ?? memFrames; memAt = d.at ?? memAt; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memShed = d.shed ?? memShed; memLite = !!d.lite; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memMeshDraw = d.meshDraw || memMeshDraw; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; memLab = d.lab ?? memLab; memCpu = d.cpu ?? memCpu; memMeshRx = d.meshRx ?? memMeshRx; memSlow = d.slow ?? memSlow; memPipes = d.pipes ?? memPipes; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
@@ -3626,7 +3635,7 @@ async function iiifOpen(src: string | object, attribution: string | null | undef
 // ── COPC の点群（#178・Cloud Optimized Point Cloud・.copc.laz）＝gadgets/copc.js（遅延 chunk）・worker は copc 役（LAZ の解読器＝"#pointcloud-formats" のプラグイン）──
 // map.addPointCloud(url | File, opts)→ 手綱（stats・setOptions・setVisible・remove）・?copc=<URL>[&copcattr=<出典>]（門は ?g= と共用）・.las／.laz のドロップ
 let copcCtl: ReturnType<typeof createCOPC> | null = null;
-const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.ts")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M,
+const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.ts")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, ledger: memLedger, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M,
 	setAttr: (id, html) => {   // 出典の欄（#attr）＝opts.attribution・無ければ URL のホスト名（無出典で他人のデータを出さない＝サービスと同じ方針）。鍵は "pc:<id>"＝"src:" でない（様式の組み直しで source に無い "src:" は消される）
 		const k = "pc:" + id, v = html ? sanitizeHTML(String(html)) : null;
 		if ((vtxAttrs.get(k) ?? null) === v) return;
@@ -3671,7 +3680,7 @@ map.removePointCloud = async id => copcCtl ? (id == null ? copcCtl.list().every(
 // map.gadget.tiles3d(url, opts) / map.add3DTiles(url, opts)＝戻り値の手綱（remove / setVisible / setOptions / stats）。?tiles3d=<URL>（門は ?g= と共用）・&t3dh=<m>＝高さのずらし
 let t3dCtl: T3dLive | null = null;
 const t3dGet = async () => { const m = await import("./gadgets/tiles3d.ts"); return t3dCtl ??= m.createTiles3D(map, {
-	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON,   // ell＝楕円体表示（#43）＝選びの世界座標と worker の置き方
+	cam, size: () => size, dpr, lowMem: LOW_MEM, ledger: memLedger, signal: ac.signal, requester, ell: ELL_ON,   // ell＝楕円体表示（#43）＝選びの世界座標と worker の置き方
 	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, (data.mc as Float32Array | undefined)?.buffer, (data.uvm as Float32Array | undefined)?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [(data[k] as TileTex | undefined)?.bitmap, (data[k] as TileTex | undefined)?.rgba?.buffer]), ...((data.meta as { texs?: (TileTex | null)[] } | null | undefined)?.texs || []).flatMap(t => [t?.bitmap, t?.rgba?.buffer])].filter(Boolean) as Transferable[])] : []); },   // 描き直しは worker が転送を当てた時に決める（伏せた区への転送は描かない＝main から同じカメラの描き直しを頼まない・2026-10-19）
 	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); },   // 同上＝worker が切替を当てた時（変わった時だけ）描き直す
 	setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); requestDraw(); },   // feature state の色（W7）

@@ -43,6 +43,7 @@ import type { MeshPickEnv } from "../types/install.ts";
 import type { GlobeMap } from "../types/map.ts";
 import type { GlobeCam } from "../types/scope.ts";
 import { insideUnit, type GeomOut } from "../geom-tile.ts";
+import type { MemLedger } from "./membudget.ts";
 import { planesOf } from "../frustum.ts";   // mvp → 視錐台の 6 面（copc と同じ 1 本）
 
 /** タイルの content（読む欄だけ） */
@@ -146,6 +147,8 @@ type I3SHandle = Awaited<ReturnType<GlobeMap["addI3S"]>>;
 /** createTiles3D の deps（globe.js の t3dGet が渡す） */
 export interface Tiles3DEnv {
 	cam: GlobeCam; size: () => { w: number; h: number }; dpr: number;
+	/** GPU メモリの共有の台帳（無ければ自分の予算だけ） */
+	ledger?: MemLedger | null;
 	setMesh(name: string, data: MeshSetData | null): void;
 	meshVis(ward: string, on: boolean): void;
 	setMeshCol?: ((name: string, data: Uint8Array) => void) | null;
@@ -255,7 +258,7 @@ let ctxRGB: OffscreenCanvasRenderingContext2D | null = null;
 const cssRGB = (c: string): number[] | null => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB!.fillStyle = "#000"; ctxRGB!.fillStyle = c; const f = ctxRGB!.fillStyle as string, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshNrm = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setMeshSplit = null, setMeshEnv = null, setMeshTint = null, setMeshOutline = null, setMeshNoClip = null, setMeshImagery = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, setMeshNrm = null, setMeshPaint = null, setMeshCut = null, setMeshCustom = null, setMeshSplit = null, setMeshEnv = null, setMeshTint = null, setMeshOutline = null, setMeshNoClip = null, setMeshImagery = null, setClassify = null, pickEnv = null, setAttribution = null, lowMem = false, ledger = null, signal, requester = null, ell = ellipsoidOn() }: Tiles3DEnv = {} as Tiles3DEnv) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -325,7 +328,11 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 	// overall CAP grows to hold the largest such budget. Needed once splats are counted at their GPU size (64 bytes each): one 4 m quad of the
 	// Shizuoka city splats refines into ~24 one-metre tiles of ~700 MB together, more than the 512 MB default, so close views never reached 1 m
 	const setMax = (set: T3dSet): number => { const c = set.opts.cacheBytes, o = set.opts.maximumCacheOverflowBytes; return c == null && o == null ? SET_MAX : Math.max(0, c ?? BUDGET) + Math.max(0, o ?? (lowMem ? 0 : BUDGET)); };
-	const capNow = (): number => { let c = CAP; for (const s2 of sets.values()) c = Math.max(c, setMax(s2)); return c; };
+	const capOwn = (): number => { let c = CAP; for (const s2 of sets.values()) c = Math.max(c, setMax(s2)); return c; };
+	// 共有の台帳（gadgets/membudget.ts・2026-11-25）＝自分の上限（tileset ごと・全体）を「総予算 − 他の描き手（地図の固定分・建物・点群）が今持つ量」で頭打ちにする。
+	//   台帳が無い（単体の検定）＝従来どおり。上限が下がると、下の「捨てる」「SSE を上げる」がそのまま働く＝粗い段で止まる
+	const room = (): number => ledger ? ledger.limit("tiles3d") : Infinity;
+	const capNow = (): number => Math.min(capOwn(), room());
 	let moved = false, sseDownAt = 0;   // moved＝前回の選びから動いた（戻しは動いた時だけ）・sseDownAt＝最後に戻した時刻
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
 
@@ -971,9 +978,10 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		// 今回の選びで塊の一員だった物（used === frameNo・兄弟が揃うのを待って伏せている子）は捨てない（2026-10-20）：旧＝伏せている子も捨てた＝
 		// 揃いかけの塊が予算を越えると、着いた兄弟を捨てては取り直す空回り（合成 48 枚・lowMem 160 MB で 150 s に 5.4 GB を取り直し・表示は根のまま・
 		// render worker の受け箱が 760 MB まで膨らむ）。塊が予算を越える時は越えたまま揃えて出す（表示中の物を捨てないのと同じ扱い）
-		if (gpuBytes + mainBytes > BUDGET) {
+		const roomNow = room(), keepMax = Math.min(BUDGET, roomNow);   // 取っておく量（使っていない物も含めて）の上限
+		if (gpuBytes + mainBytes > keepMax) {
 			const cand = [...sets.values()].flatMap(s2 => s2.loaded()).filter(n => !n.on && n.used !== frameNo).sort((a, b) => a.used - b.used);
-			for (const n of cand) { if (gpuBytes + mainBytes <= BUDGET * 0.85) break; unload(n); }
+			for (const n of cand) { if (gpuBytes + mainBytes <= keepMax * 0.85) break; unload(n); }
 		}
 		// 予算の SSE 引き上げ／戻し（上の sseScale の注釈）。上げたら選び直す（止まっていても効く）・戻すのは今回の選び（動いた時）の分だけ
 		const own = new Map<T3dSet, number>(), live = new Map<T3dSet, number>();
@@ -990,12 +998,14 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 		};
 		const cap = capNow();
 		let over = false;
-		for (const [set, b] of live) if (b > setMax(set)) { raise(set); over = true; }   // what it shows and wants now (its hidden tiles were evicted above)
+		for (const [set, b] of live) if (b > Math.min(setMax(set), roomNow)) { raise(set); over = true; }   // what it shows and wants now (its hidden tiles were evicted above)
 		if (!over && gpuBytes + mainBytes > cap) raise([...own].filter(([x]) => (x.sse ?? 1) < 16).sort((a, b) => b[1] - a[1])[0]?.[0]);
 		else if (!over && moved && performance.now() - sseDownAt > 1000 && gpuBytes + mainBytes < cap * 0.7)
-			for (const [set, b] of live) { const fl = floorOf(set); if ((set.sse ?? 1) > fl && b < setMax(set) * 0.7) { const v = Math.max(fl, set.sse! * 0.9); set.sse = v < 1.05 ? 1 : v; sseDownAt = performance.now(); } }
+			for (const [set, b] of live) { const fl = floorOf(set); if ((set.sse ?? 1) > fl && b < Math.min(setMax(set), roomNow) * 0.7) { const v = Math.max(fl, set.sse! * 0.9); set.sse = v < 1.05 ? 1 : v; sseDownAt = performance.now(); } }
 		moved = false;
+		ledger?.touch();
 	}
+	const offLedger = ledger?.register("tiles3d", { bytes: () => gpuBytes + mainBytes, poke: schedule });
 
 	const onMove = () => { moved = true; schedule(); };
 	map.on("move", onMove); map.on("settle", onMove);
@@ -1097,7 +1107,7 @@ export function createTiles3D(map: GlobeMap, { cam, size, dpr, setMesh, meshVis,
 			return out;
 		},
 		pickAll(x: number, y: number) { return [...sets.values()].filter(s => !s.hidden).map(s => { const h = pickSet(s, x, y); return h && { id: s.id, ...h }; }).filter(Boolean); },   // 全 tileset の当たり（W7・queryRenderedFeatures が使う）
-		destroy() { for (const id of [...sets.keys()]) ctl.remove(id); pool.destroy(); map.off("move", onMove); map.off("settle", onMove); },
+		destroy() { for (const id of [...sets.keys()]) ctl.remove(id); pool.destroy(); offLedger?.(); map.off("move", onMove); map.off("settle", onMove); },
 	};
 	signal?.addEventListener("abort", () => ctl.destroy(), { once: true });
 	return ctl;
