@@ -4,7 +4,7 @@
 //   球の縁では光線が球を外す（unproject null＝凍る）ため、レート方式を球外れ時のフォールバックに残す。消すと再発する。
 //   limb 際の過敏さ（掴み点が縁ほど1pxの回転角が発散）は1イベント0.5radの頭打ちで受ける。
 // ・anchoredAt＝カーソル下の地点を固定したままズーム/軸回転。補正も同じversor＝アンカーが正確に貼り付く。
-//   アンカー不成立（空/地平線の向こう）は補正を捨て中心回転へ退避＝「暴れたら大人しい方」。
+//   アンカー不成立（空/地平線の向こう）は補正を捨て中心回転へ退避＝「暴れたら大人しい方」。地平線際（掠め角 < 8°）は補正を連続に弱めて退避へ繋ぐ（anchorWeight）。
 // ・タッチ＝Google/Apple が世界に教育した2本指の語彙に乗る（v1 ortho-map の pinch+twist の移植＋チルト追加）：
 //   1本指=パン／2本指ひらく=ズーム（重心アンカー）／2本指ひねる=回転／2本指の平行縦ドラッグ=チルト。
 //   チルトは開始の判定窓（〜12px）で「間隔・角度ほぼ不変＋縦優勢」の時だけロック＝ズームと混ざって酔わない（Googleと同じ裁き）。
@@ -112,6 +112,18 @@ export function inertiaOf2(records: readonly InertiaRecord2[], now: number, o: I
 	return { dur: dur * 1000, ax: sx / mag * sp * (dur / 2), ay: sy / mag * sp * (dur / 2), ease: bezierEase(...o.ease) };
 }
 // zoomSnap＝目盛り（0＝無し）に吸着
+// 地平線際の錨の弱め（anchoredAt）：目から錨 a（海面の球の点）への視線が地面を掠める角 γ の sin で 0〜1（smoothstep）。
+// sinγ ≥ sin(ANCHOR_GRAZE) は 1＝従来どおり厳密に貼り付く（75° のチルトで画面中心は γ≈15°＝画面の中心より下は全部 1）。
+// 地平線（γ→0）で 0＝錨の立たない空（null＝中心ズーム）と連続に繋がる。錨の地面距離は γ に反比例して伸びる（z16・75° で中心 ~0.1 km・γ 1° で ~8 km）
+export const ANCHOR_GRAZE = 8 * D2R;
+export function anchorWeight(st: { eye: ArrayLike<number> }, a: ArrayLike<number>): number {
+	const P = lonlatTo3D(a[0], a[1]), E = st.eye;
+	const d0 = P[0] - E[0], d1 = P[1] - E[1], d2 = P[2] - E[2], l = Math.hypot(d0, d1, d2);
+	if (!(l > 0)) return 1;
+	const s = -(d0 * P[0] + d1 * P[1] + d2 * P[2]) / l;   // sinγ（P＝β単位球の点＝外向きの法線）
+	const t = Math.max(0, Math.min(1, s / Math.sin(ANCHOR_GRAZE)));
+	return t * t * (3 - 2 * t);
+}
 export const snapZoom = (z: number, snap: number): number => snap > 0 ? Math.round(z / snap) * snap : z;
 export const HANDLER_NAMES: readonly HandlerName[] = ["scrollZoom", "dragPan", "dragRotate", "keyboard", "doubleClickZoom", "boxZoom", "touchZoomRotate", "touchRotate", "touchPitch", "cooperativeGestures"];
 
@@ -158,11 +170,12 @@ export function createInput({ canvas, cam: cam0, size, dpr, maxPitch, zoomMin = 
 	// versor回転（v1 ortho/d3-versor の自由回転の移植）：掴んだ地点a→今カーソル下bの大円回転を姿勢に合成し、
 	// (lon,lat,bearing) へ分解し直す。このカメラ族は全球回転で閉じている（pitch/zoomは注視点相対＝回しても不変）
 	// ので、チルト・周辺部・極でも厳密＝掴んだ地点がカーソルに正確に貼り付く。極越えも自然（天地はbearingが引き受ける）。
-	function rotateGrab(a: ArrayLike<number>, b: ArrayLike<number>): void {
+	// frac＝回転角に掛ける割合（0〜1・既定 1＝厳密に貼り付く）。anchoredAt が地平線際の錨で弱める（anchorWeight）
+	function rotateGrab(a: ArrayLike<number>, b: ArrayLike<number>, frac = 1): void {
 		const ua = lonlatTo3D(a[0], a[1]), ub = lonlatTo3D(b[0], b[1]);
 		const x = cross(ua, ub), s = Math.hypot(x[0], x[1], x[2]);
-		if (s < 1e-12) return;                                        // 無回転（同一点/対蹠点）
-		const th = Math.min(Math.atan2(s, dot(ua, ub)), 0.5);         // 1イベント上限≈29°＝limb際の過敏さの頭打ち（旧「縁の爆発」のversor版。追従は次イベントが担う）
+		if (s < 1e-12 || !(frac > 0)) return;                         // 無回転（同一点/対蹠点・割合 0）
+		const th = Math.min(Math.atan2(s, dot(ua, ub)), 0.5) * Math.min(1, frac);   // 1イベント上限≈29°＝limb際の過敏さの頭打ち（旧「縁の爆発」のversor版。追従は次イベントが担う）
 		const k = scale(x, 1 / s);
 		const cs = Math.cos(th), sn = -Math.sin(th), oc = 1 - cs;     // -th回転＝R⁻¹（世界がaをbへ回る時、カメラ基底は逆へ回る）
 		const rot = (v: ArrayLike<number>): number[] => add(add(scale(v, cs), scale(cross(k, v), sn)), scale(k, dot(k, v) * oc));   // Rodrigues
@@ -411,7 +424,11 @@ export function createInput({ canvas, cam: cam0, size, dpr, maxPitch, zoomMin = 
 		if (a) {
 			const st1 = cameraState(cam, size.w, size.h);
 			const b = unproject(st1, px * dpr, py * dpr);
-			if (b) rotateGrab(a, b);   // アンカー点aを元のカーソル位置へ戻す回転（versor・厳密）。不成立（空/地平線の向こう）は中心回転のまま
+			// アンカー点aを元のカーソル位置へ戻す回転（versor）。不成立（空/地平線の向こう）は中心回転のまま。
+			// 地平線際の錨は弱める（anchorWeight＝視線が地面を掠める角で 0〜1）：深いチルトで地平線近くにカーソルがあると、錨は何 km も先＝
+			// 1 目盛りで注視点が km 単位で飛び、次の目盛りでカーソルが地平線の上に出ると 0（中心ズーム）＝「km 飛ぶ／止まる」が交互のジタバタ（2026-11-25）。
+			// 掠める角が小さいほど補正を連続に 0 へ寄せる＝地平線の上（null）と滑らかに繋がる。掠め角 ANCHOR_GRAZE 以上（画面の大半）は従来どおり厳密
+			if (b) rotateGrab(a, b, Math.min(anchorWeight(st0, a), anchorWeight(st1, b)));   // b も測る：引く時は新しい地平線際の b が遠い（a は近くても a→b が km 単位）
 		}
 		onMove();
 	}
