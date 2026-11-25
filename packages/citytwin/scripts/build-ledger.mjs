@@ -144,6 +144,10 @@ for (const r of units) {
 const ids = new Map();
 for (const r of units) ids.set(r.id, [...(ids.get(r.id) || []), r]);
 for (const [id, list] of ids) if (list.length > 1) for (const r of list) r.id = `${id.replace(/-[a-z]+$/, "")}-${{ 市: "city", 特別区: "city", 政令市: "city", 町: "town", 村: "village" }[r.kind]}-${PREF_EN[+r.pref]}`;
+// それでも重なる（同じ県に同じよみの町村＝江差町と枝幸町・二つの泊村）＝コードを足す
+const ids2 = new Map();
+for (const r of units) ids2.set(r.id, [...(ids2.get(r.id) || []), r]);
+for (const list of ids2.values()) if (list.length > 1) for (const r of list) r.id += "-" + r.code;
 // 名の重なり（同じ漢字の名が別の市区町村にある）
 const byName = new Map();
 for (const r of units) byName.set(r.name, [...(byName.get(r.name) || []), r.code]);
