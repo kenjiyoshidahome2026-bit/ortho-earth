@@ -1,7 +1,7 @@
 // 地球儀のホスト（LAYERS.md の globe 層）＝createGlobe(opts)。地域（基図・標高・台帳・語彙・起動後の拡張）は opts.region の申告で足す＝このファイルは地域名を知らない。
 // 意匠：quiet-mono（トークン→部品）→ app固有 の順を 1 枚に焼いた素の CSS（scripts/build-css.mjs・scss を変えたら npm run build:css）＝利用者に sass が要らない
 import "./globe.css";
-import { evalExpr, truthy, KNOWN_OPS, parseRGBA, isColor, cameraState, project, projectCss, unproject, buildGeoJSONOverlay, createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat } from "@ortho-earth/core";
+import { evalExpr, truthy, KNOWN_OPS, parseRGBA, isColor, cameraState, project, projectCss, unproject, buildGeoJSONOverlay, createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat, rebaseCenterAlt } from "@ortho-earth/core";
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { marchRay } from "./raymarch.ts";
 import { normLight, lightPayload, LIGHT_TYPES } from "./light.ts";
@@ -957,7 +957,26 @@ const LINESUB = /[?&]linesub=1/.test(location.search);   // vt perf plan §3.2 �
 // 無指定＝従来（海面・内製の既定）。cam.centerAlt へ毎フレーム写す（core cameraState が注視点を持ち上げる）。jumpTo({ elevation }) は固定値を上書き（2026-09-30）
 let centerElevMode: GlobeLive["centerElevMode"] = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;   // 実行時に map.setCenterClampedToGround／setCenterElevation で変わる（A3・2026-10-12）
 let centerElevFixed: GlobeLive["centerElevFixed"] = Number.isFinite(centerElevMode) ? centerElevMode as number : null;
+// ?cground=1（試験用ノブ・2026-11-25・既定は変えない）＝内製の地図（centerElevation 無指定）でも、止まるたびに注視点を「画面の中心に見えている地面」へ付け替える。
+// 目と視線はそのまま（core rebaseCenterAlt＝絵は変わらない）・center と zoom が地面基準になる＝次のズーム・回転の中心が地面の上。
+// 動機：注視点が海抜 0 のままだと、標高の高い所（朝倉の山＝地面 365 m）で傾けて寄る時、寄る中心が地面の 365 m 下＝目が地面すれすれを滑って手前の地面が大きく流れ、
+// z16.5 で山に潜る（本人「深いチルトで zoom-in/out すると少し上下している」・地形なしでは出ない）。動いている間は高さを据え置く（MapLibre の elevation freeze と同じ）
+const CGROUND = /[?&]cground=1/.test(location.search);
+let cgroundN = 0;   // 1 回の静止で付け替える回数の上限（付け替えで中心が動く → 地面の高さを引き直す → …の反復・onMove で 0 に戻す）
+function rebaseGround() {
+	if (!noTerr) sampleGroundElev();
+	if (moving || flightActive() || cgroundN >= 8) return;
+	const v = noTerr ? 0 : groundElevM * dispPf();   // 描いている地面の高さ（傾きのフェード込み・真上は平ら＝0）
+	if (Math.abs(v - (cam.centerAlt || 0)) < 0.5) return;
+	const r = rebaseCenterAlt(cam, size.w, size.h, v);
+	if (!r) return;
+	cgroundN++;
+	cam.center = [wrapLon(r.center[0]), r.center[1]]; cam.zoom = r.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, r.pitch)); cam.bearing = r.bearing;
+	cam.centerAlt = v; cam.groundAlt = v;
+	requestDraw(); if (!printHold) saveView();
+}
 function syncCenterAlt() {
+	if (CGROUND && centerElevMode === undefined && centerElevFixed == null) return rebaseGround();
 	if (centerElevMode === undefined && centerElevFixed == null) return;
 	if (centerElevMode === "ground" && !noTerr) sampleGroundElev();   // 基図の無い地図（style 無し・基図の門の外）でも中心の地面を引く（基図圏の tiles.update の前でも呼ぶ＝二重は geKey で潰れる）
 	const v = centerElevMode === "ground" && !noTerr ? groundElevM : (centerElevFixed ?? 0);
@@ -1672,6 +1691,7 @@ const groundRNow = () => {
 };
 
 function onMove() {
+	cgroundN = 0;
 	clampCamLimits();   // 実行時の上限・可動域（#35）＝入力・飛行・URL 復元のどの経路で動いても同じ所で締める（聞き手へ渡す前に）
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）。聞き手より先＝move も settle／getCenter と同じ ±180° の経度を受け取る（旧＝move だけ 190° 等の生の値）
 	for (const cb of mapOn.move) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0 }); } catch (e) { console.error("[map.on move]", e); } }
