@@ -1,9 +1,9 @@
 import { load, setApiUrl } from "./loader.ts";
 import type { HeightRequest } from "../worker-msg.ts";
 onmessage = async e => {
-	const { name, apiUrl }: HeightRequest = e.data;
+	const { name, apiUrl, bakedOnly }: HeightRequest = e.data;
 	if (apiUrl) setApiUrl(apiUrl);
-	try { const obj = await load(name);
+	try { const obj = await load(name, { bakedOnly });
 		obj ? postMessage(obj, [obj.data.buffer as ArrayBuffer]) : postMessage(null);
 	} catch (e) { postMessage(null); }
 };

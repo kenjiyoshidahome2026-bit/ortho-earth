@@ -65,7 +65,8 @@ export type ScenePortMessage =
 export interface RenderModeMessage { type: "mode"; md?: boolean; maxDraws?: number; perf?: boolean; mdDash?: boolean; pt?: boolean }   // pt＝色の語を表の行として読める（paint 表の (b) 類・GL2 の md）   // mdDash＝線分プールの語 6 の距離をシェーダが読む（S-P1-3・GL2）。無ければ scene worker が刻んでから常駐させる
 
 // ── ortho:height（elevation/worker.ts）＝標高タイルの復号
-export interface HeightRequest { name: string; apiUrl?: string }
+/** bakedOnly＝R01 を bucket（申告域の焼き直し）だけで引く＝JAXA へ行かない（AW3D30 一覧に無いセル・一覧が届かない間） */
+export interface HeightRequest { name: string; apiUrl?: string; bakedOnly?: boolean }
 /** 復号済みタイル（data は transfer）｜null＝失敗 */
 export type HeightResponse = ElevTile | null;
 

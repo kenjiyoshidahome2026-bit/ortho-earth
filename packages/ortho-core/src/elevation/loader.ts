@@ -38,13 +38,14 @@ export async function index_alos(): Promise<Record<string, string>> {
 // このパッケージが知っているのは「R01 は bucket を先に見る・無ければ JAXA」という段の規則だけ（2026-09-17）。
 export const inBbox = (bbox: readonly number[] | null | undefined, lng: number, lat: number): boolean => !!bbox && lng >= bbox[0] && lng < bbox[2] && lat >= bbox[1] && lat < bbox[3];
 
-export async function load(name: string): Promise<ElevTile | null> {
+export async function load(name: string, o: { bakedOnly?: boolean } = {}): Promise<ElevTile | null> {
 	if (name === WORLD_ATLAS) return load_gepco(name);   // 全球アトラス＝段の規約外（R{段}… でない）・bucket/IDB 直読み
 	const [lng, lat, range] = decodeName(name);
 	if (range !== 1) return load_gepco(name);
 	// R01: bucket（焼き直し済みの域＝裸地 DTM）優先 → 無ければ JAXA（AW3D30 DSM＝表層）
 	const baked = await load_gepco(name).catch(() => null);
 	if (baked) return baked;
+	if (o.bakedOnly) return null;   // 申告域の中で AW3D30 一覧に載らない（海・一覧が届かない）セル＝JAXA の 5° zip へ行かない（応答まで数十秒）
 	const alos = await load_alos(lng, lat);
 	// bucket 未収録の印＝申告域の内側でも収録外の土地（日本の bbox 内の韓国・台湾等）は JAXA が正
 	// → 失効判定の対象から外す手掛かり（これが無いと毎セッション再取得ループ）
