@@ -41,7 +41,7 @@ const TIMELINE = {
     [92.5, 101.5,"Computed on the device’s GPU, in an ordinary browser. No tile server."],
     [102.5,116.5,"About 16,000 satellites, their orbits computed in the browser. WebGPU, WebGL2 as fallback."],
     [117.5,126.3,  "For field sites with no network: choose an area ahead of time, on the Equal Earth map."],
-    [126.7,135.3,  "The device saves the map and terrain for that area."],
+    [126.7,135.3,  "The device saves the map and terrain for that area.", "top"],
     [135.7,146.5,"Then go offline. The globe, and search, keep working."],
     [147.5,155,  "Your MapLibre and CesiumJS code runs unchanged."],
     [155.5,164.5,"MapLibre: 137 examples, 91 same picture, 43 same answer, 3 run, 0 fail. CesiumJS: 304 examples, 264 same picture, 40 same answer."],

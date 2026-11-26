@@ -51,13 +51,14 @@ function eyebrow(text, a, dark=true){
   if (!text) return; g.save(); g.globalAlpha = a; font(600, 28, "Space Grotesk");
   g.fillStyle = C.orange; g.textBaseline = "top";
   const s = text.toUpperCase().split("").join(String.fromCharCode(8202));
+  if (!dark){ const w = g.measureText(s).width; g.fillStyle = "rgba(14,26,43,0.82)"; roundRect(76, 58, w+40, 56, 10); g.fill(); g.fillStyle = C.orange; }
   g.fillText(s, 96, 72); g.restore();
 }
-function caption(text, a){
+function caption(text, a, pos){
   if (!text || a <= 0) return;
   g.save(); g.globalAlpha = a; font(400, 40);
   const lines = wrap(text, 1500); const lh = 54;
-  const h = lines.length*lh + 44; const y = H - 90 - h;
+  const h = lines.length*lh + 44; const y = pos === "top" ? 136 : H - 90 - h;
   let mw = 0; lines.forEach(l => mw = Math.max(mw, g.measureText(l).width));
   const bx = (W - mw)/2 - 36;
   g.fillStyle = "rgba(14,26,43,0.82)"; roundRect(bx, y, mw+72, h, 10); g.fill();
@@ -267,10 +268,10 @@ window.render = function(t){
   // short dip between scenes
   const lt = t - s.t0, rt = s.t1 - t;
   if (s.kind === "live"){ const gr = g.createLinearGradient(0, 0, 0, 200); gr.addColorStop(0, "rgba(14,26,43,0.75)"); gr.addColorStop(1, "rgba(14,26,43,0)"); g.fillStyle = gr; g.fillRect(0, 0, W, 200); }
-  eyebrow(s.eyebrow, fadeInOut(t, s.t0, s.t1, .5));
+  eyebrow(s.eyebrow, fadeInOut(t, s.t0, s.t1, .5), s.kind !== "live");
   if (TIMELINE.disclaimerScenes.includes(s.id)) disclaimer(fadeInOut(t, s.t0, s.t1, .5));
   if (MODE !== "graphics"){
-    for (const [a,b,txt] of TIMELINE.captions) if (t >= a && t < b) caption(txt, fadeInOut(t, a, b, .35));
+    for (const [a,b,txt,pos] of TIMELINE.captions) if (t >= a && t < b) caption(txt, fadeInOut(t, a, b, .35), pos);
   }
   const fi = 1 - ramp(lt, 0, 0.35), fo = 1 - ramp(rt, 0, 0.35);
   const dip = Math.max(s.t0 > 0 ? fi : 0, fo) * 0.85;
