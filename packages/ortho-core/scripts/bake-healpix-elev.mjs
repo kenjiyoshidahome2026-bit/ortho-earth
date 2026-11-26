@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { encode, decode, encodeName } from "altpbf";
 import { hpxCount, hpxPath } from "../src/healpix.ts";
-import { hpxTilePoints, cellsForPoints, bakeHpxTile, hpxParentTile, hpxElevName } from "../src/elevation/healpixbake.ts";
+import { hpxTilePoints, cellsForPoints, bakeHpxTile, hpxParentTile, hpxElevName, gebcoR10Width } from "../src/elevation/healpixbake.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const arg = (name, def) => { const i = process.argv.indexOf("--" + name); return i < 0 ? def : process.argv[i + 1]; };
@@ -35,6 +35,8 @@ mkdirSync(OUT, { recursive: true }); mkdirSync(SRCDIR, { recursive: true });
 
 // ── 大元のタイル（LRU・今のタイルが触る分は追い出さない）──
 const NX = 360 / RANGE, NY = 180 / RANGE, KEEP = RANGE === 90 ? 8 : +arg("keep", 24);
+const WOF0 = RANGE === 10 ? gebcoR10Width : null;   // 緯度帯ごとの幅（2400 の時の値）
+let WOF = WOF0;
 const cells = new Map(), sources = new Set();   // "cx,cy" → タイル（無い＝null）
 let cellPx = 0, fetched = 0, missing = 0;
 async function loadCell(key) {
@@ -49,9 +51,13 @@ async function loadCell(key) {
 	}
 	if (buf[0] === 0x1f && buf[1] === 0x8b) buf = gunzipSync(buf);
 	const t = await decode(new Blob([buf]));
-	if (t.range !== RANGE || t.width !== t.height) throw new Error(`${name}: range ${t.range}・${t.width}x${t.height}`);
-	if (cellPx && t.width !== cellPx) throw new Error(`${name}: 幅 ${t.width}（他は ${cellPx}）`);
-	cellPx = t.width; if (t.source) sources.add(t.source.replace(/@.*$/, ""));
+	// 高さは全部同じ（＝間引く前の幅）。幅は R10 だけ緯度帯で違う（GEBCO の R10＝極の帯は 400×2400・uploader の gebco.ts の shrink）
+	if (t.range !== RANGE) throw new Error(`${name}: range ${t.range}`);
+	if (cellPx && t.height !== cellPx) throw new Error(`${name}: 高さ ${t.height}（他は ${cellPx}）`);
+	cellPx = t.height;
+	const want = WOF ? WOF(cy) * cellPx / 2400 : cellPx;
+	if (t.width !== want) throw new Error(`${name}: 幅 ${t.width}（この緯度帯は ${want} のはず）`);
+	if (t.source) sources.add(t.source.replace(/@.*$/, ""));
 	return t;
 }
 async function ensure(keys) {
@@ -76,9 +82,10 @@ async function bake(k, n) {
 		if (k === MAX) leafDone++; else leafDone += 4 ** (MAX - k);
 	} else {
 		if (k === MAX) {
-			if (!cellPx) await ensure(new Set(["0,0"]));   // 幅を知る
-			await ensure(cellsForPoints(hpxTilePoints(k, n, W, SS), RANGE, cellPx));
-			data = bakeHpxTile(get, RANGE, cellPx, k, n, W, SS);
+			if (!cellPx) await ensure(new Set([`0,${NY / 2}`]));   // 高さ（＝間引く前の幅）を知る
+			const wOf = WOF0 && (cy => WOF0(cy) * cellPx / 2400);
+			await ensure(cellsForPoints(hpxTilePoints(k, n, W, SS), RANGE, cellPx, cellPx, wOf));
+			data = bakeHpxTile(get, RANGE, cellPx, k, n, W, SS, cellPx, wOf);
 			if (++leafDone % 64 === 0 || leafDone === leafTotal) console.log(`  ${leafDone}/${leafTotal} 枚（${((Date.now() - t0) / 1000).toFixed(0)} 秒）`);
 		} else {
 			const ch = []; for (let i = 0; i < 4; i++) ch.push(await bake(k + 1, n * 4 + i));

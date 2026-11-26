@@ -25,41 +25,57 @@ export function hpxTilePoints(order: number, npix: number, W: number, ss = 1): H
 const gridX = (lon: number, range: number, w: number): number => (lon + 180) / range * w - 0.5;
 const gridY = (lat: number, range: number, h: number): number => (lat + 90) / range * h - 0.5;
 
-/** 標本点のバイリニアが触る大元のセル（"cx,cy"）＝呼び手が先に読み込んでおく分。range＝セルの幅（度）・w, h＝セルの画素数 */
-export function cellsForPoints(pts: HpxPoints, range: number, w: number, h = w): Set<string> {
-	const GW = 360 / range * w, GH = 180 / range * h, out = new Set<string>();
-	for (let i = 0; i < pts.lon.length; i++) {
-		const gx = gridX(pts.lon[i], range, w), gy = Math.min(GH - 1, Math.max(0, gridY(pts.lat[i], range, h)));
-		const x0 = Math.floor(gx), y0 = Math.min(GH - 2, Math.floor(gy));
-		for (const x of [x0, x0 + 1]) { const cx = Math.floor(((x % GW) + GW) % GW / w); out.add(cx + "," + Math.floor(y0 / h)); out.add(cx + "," + Math.floor((y0 + 1) / h)); }
+/** 緯度帯ごとのセルの幅（cy＝南からのセル番号 → 画素数）。高緯度で経度方向を間引いた大元（GEBCO の R10＝極の帯は 400×2400）のための口。
+ *  間引いたセルの画素 i は、間引く前の格子（幅 w）の画素 i·(w/幅) の位置の値（uploader の create10 の標本の取り方＝左寄せ） */
+export type WidthOf = (cy: number) => number;
+/** GEBCO から作った R10（apps/uploader/src/terrain/gebco.ts の shrink）の幅：南端の緯度が ±80° 以遠＝400・±70°＝800・±60°＝1200・±50°＝1600・他＝2400 */
+export const gebcoR10Width: WidthOf = cy => { const a = Math.min(cy, 17 - cy); return a === 0 ? 400 : a === 1 ? 800 : a === 2 ? 1200 : a === 3 ? 1600 : 2400; };
+
+// 標本点 1 つのバイリニアが読む 2 行 × 2 列を回す共通の部品。行ごとに帯の幅が違い得る＝横の補間は行ごとに別の刻みで行う
+function forTaps(lon: number, lat: number, range: number, w: number, h: number, wOf: WidthOf | null, tap: (cx: number, cy: number, lx: number, ly: number, wc: number, row: number, fx: number, right: number) => void): number {
+	const GH = 180 / range * h, NX = 360 / range, gx = gridX(lon, range, w), gy = Math.min(GH - 1, Math.max(0, gridY(lat, range, h)));
+	const y0 = Math.min(GH - 2, Math.floor(gy));
+	for (let row = 0; row < 2; row++) {
+		const Y = y0 + row, cy = Math.floor(Y / h), wc = wOf ? wOf(cy) : w, GWc = NX * wc, t = gx * wc / w, tf = Math.floor(t), fx = t - tf;
+		const x0 = ((tf % GWc) + GWc) % GWc, x1 = (x0 + 1) % GWc;
+		tap(Math.floor(x0 / wc), cy, x0 % wc, Y - cy * h, wc, row, fx, 0);
+		tap(Math.floor(x1 / wc), cy, x1 % wc, Y - cy * h, wc, row, fx, 1);
 	}
+	return gy - y0;
+}
+
+/** 標本点のバイリニアが触る大元のセル（"cx,cy"）＝呼び手が先に読み込んでおく分。range＝セルの幅（度）・w, h＝セルの画素数（間引く前） */
+export function cellsForPoints(pts: HpxPoints, range: number, w: number, h = w, wOf: WidthOf | null = null): Set<string> {
+	const out = new Set<string>();
+	let lastCx = -1, lastCy = -1;
+	for (let i = 0; i < pts.lon.length; i++) forTaps(pts.lon[i], pts.lat[i], range, w, h, wOf, (cx, cy) => { if (cx !== lastCx || cy !== lastCy) { out.add(cx + "," + cy); lastCx = cx; lastCy = cy; } });
 	return out;
 }
 
 /** 標本点を大元の格子からバイリニアで引く（m・Float64）。経度は 180° で巻き、緯度は極でクランプ＝セルの境と 180° 線をまたいでも継ぎ目が出ない */
-export function sampleCells(pts: HpxPoints, get: CellGetter, range: number, w: number, h = w): Float64Array {
-	const GW = 360 / range * w, GH = 180 / range * h, out = new Float64Array(pts.lon.length);
+export function sampleCells(pts: HpxPoints, get: CellGetter, range: number, w: number, h = w, wOf: WidthOf | null = null): Float64Array {
+	const out = new Float64Array(pts.lon.length), v = [0, 0, 0, 0];
 	let lastKey = -1, last: ElevGrid | null | undefined = null;
-	const px = (X: number, Y: number): number => {   // 全球の画素 (X 西から・Y 南から)
-		const cx = Math.floor(X / w), cy = Math.floor(Y / h), key = cy * 4096 + cx;
+	const tap = (cx: number, cy: number, lx: number, ly: number, wc: number, row: number, _fx: number, right: number): void => {
+		const key = cy * 4096 + cx;
 		if (key !== lastKey) { lastKey = key; last = get(cx, cy); }
-		if (!last) return 0;
-		if (last.width !== w || last.height !== h) throw new Error(`sampleCells: cell ${cx},${cy} is ${last.width}x${last.height}, expected ${w}x${h}`);
-		return last.data[(h - 1 - (Y - cy * h)) * w + (X - cx * w)];   // 格納は北上げ（altpbf）
+		if (!last) { v[row * 2 + right] = 0; return; }
+		if (last.width !== wc || last.height !== h) throw new Error(`sampleCells: cell ${cx},${cy} is ${last.width}x${last.height}, expected ${wc}x${h}`);
+		v[row * 2 + right] = last.data[(h - 1 - ly) * wc + lx];   // 格納は北上げ（altpbf）
 	};
+	let fx0 = 0, fx1 = 0;
+	const tapFx = (cx: number, cy: number, lx: number, ly: number, wc: number, row: number, fx: number, right: number): void => { if (row) fx1 = fx; else fx0 = fx; tap(cx, cy, lx, ly, wc, row, fx, right); };
 	for (let i = 0; i < out.length; i++) {
-		const gx = gridX(pts.lon[i], range, w), gy = Math.min(GH - 1, Math.max(0, gridY(pts.lat[i], range, h)));
-		const xf = Math.floor(gx), fx = gx - xf, y0 = Math.min(GH - 2, Math.floor(gy)), fy = gy - y0;
-		const x0 = ((xf % GW) + GW) % GW, x1 = (x0 + 1) % GW;
-		const a = px(x0, y0), b = px(x1, y0), c = px(x0, y0 + 1), d = px(x1, y0 + 1), bot = a + (b - a) * fx;
-		out[i] = bot + ((c + (d - c) * fx) - bot) * fy;
+		const fy = forTaps(pts.lon[i], pts.lat[i], range, w, h, wOf, tapFx);
+		const bot = v[0] + (v[1] - v[0]) * fx0, top = v[2] + (v[3] - v[2]) * fx1;
+		out[i] = bot + (top - bot) * fy;
 	}
 	return out;
 }
 
 /** 最も細かい order のタイル 1 枚＝W×W の Int16（行優先・列＝ix の向き・行＝iy の向き）。ss＞1 は副標本の箱平均 */
-export function bakeHpxTile(get: CellGetter, range: number, w: number, order: number, npix: number, W: number, ss = 1, h = w): Int16Array {
-	const v = sampleCells(hpxTilePoints(order, npix, W, ss), get, range, w, h), out = new Int16Array(W * W), n = W * ss, inv = 1 / (ss * ss);
+export function bakeHpxTile(get: CellGetter, range: number, w: number, order: number, npix: number, W: number, ss = 1, h = w, wOf: WidthOf | null = null): Int16Array {
+	const v = sampleCells(hpxTilePoints(order, npix, W, ss), get, range, w, h, wOf), out = new Int16Array(W * W), n = W * ss, inv = 1 / (ss * ss);
 	for (let r = 0; r < W; r++) for (let q = 0; q < W; q++) {
 		let s = 0;
 		for (let j = 0; j < ss; j++) for (let i = 0; i < ss; i++) s += v[(r * ss + j) * n + q * ss + i];

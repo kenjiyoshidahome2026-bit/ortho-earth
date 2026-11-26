@@ -2,7 +2,7 @@
 // 守るもの＝「大元（R90／R10 の経緯度タイル）の値が、正しい場所・正しい向きで HEALPix タイルに載る」。
 // 滑らかな解析的な地形を合成の大元（8 枚・1°/画素）に置き、焼いたタイルの各画素をその画素の中心での真値と比べる
 // ＝番地・画素の向き・北上げの格納・180° 線の巻き・極のクランプ・面の境のどれが崩れても落ちる。
-import { hpxTilePoints, cellsForPoints, sampleCells, bakeHpxTile, hpxParentTile, hpxElevName, parseHpxElevName } from "../src/elevation/healpixbake.ts";
+import { hpxTilePoints, cellsForPoints, sampleCells, bakeHpxTile, hpxParentTile, hpxElevName, parseHpxElevName, gebcoR10Width } from "../src/elevation/healpixbake.ts";
 import { hpxCount, cellOf, hpxPixelLonLat, hpxNeighbors, lonLatToNest } from "../src/healpix.ts";
 import { encode, decode } from "altpbf";
 
@@ -94,6 +94,26 @@ const ORDER = 1, W = 16, baked = [];
 	const back = await decode(new Blob([bin])), nm = parseHpxElevName(back.name);
 	ok(name === "H01P25" && nm.order === 1 && nm.npix === 25 && back.width === W && back.data.every((v, i) => v === baked[25][i]), "encode → decode で名前と値が戻る");
 	ok(parseHpxElevName("R01N035E139") === null, "経緯度タイルの名前は HEALPix の名前でない");
+}
+
+// 7. 緯度帯で幅の違う大元（GEBCO の R10＝極の帯は経度方向を間引いてある・画素 i は間引く前の画素 i·k の位置の値）
+{
+	const RG = 30, hh = 60, wOf = cy => (cy === 0 || cy === 5) ? 10 : (cy === 1 || cy === 4) ? 30 : 60, cells = new Map();
+	for (let cy = 0; cy < 6; cy++) for (let cx = 0; cx < 12; cx++) {
+		const wc = wOf(cy), k = hh / wc, data = new Int16Array(wc * hh);
+		for (let y = 0; y < hh; y++) for (let x = 0; x < wc; x++) data[(hh - 1 - y) * wc + x] = Math.round(f(cx * RG - 180 + (x * k + 0.5) * RG / hh, cy * RG - 90 + (y + 0.5) * RG / hh));
+		cells.set(cx + "," + cy, { data, width: wc, height: hh });
+	}
+	const g = (cx, cy) => cells.get(cx + "," + cy) ?? null;
+	let worst = 0, missed = 0;
+	for (let p = 0; p < hpxCount(ORDER); p++) {
+		const pts = hpxTilePoints(ORDER, p, W), need = cellsForPoints(pts, RG, hh, hh, wOf);
+		const t = bakeHpxTile((cx, cy) => { if (!need.has(cx + "," + cy)) missed++; return g(cx, cy); }, RG, hh, ORDER, p, W, 1, hh, wOf), c = cellOf(ORDER, p);
+		for (let row = 0; row < W; row++) for (let col = 0; col < W; col++) { const ll = hpxPixelLonLat(ORDER, c, W, col, row); worst = Math.max(worst, Math.abs(t[row * W + col] - f(ll[0], ll[1]))); }
+	}
+	// 極の帯は 3°/画素まで粗い＝誤差は大きめ（cos 緯度で振幅が小さい所）。標本の位置が半画素ずれれば 100 m を超える
+	ok(worst < 40 && missed === 0, `幅の違う緯度帯（極の帯 1/6・その隣 1/2）でも真値と合う（最大 ${worst.toFixed(1)} m）・先読みの見積りも足りる`);
+	ok([0, 1, 2, 3, 4, 8, 13, 14, 15, 16, 17].map(gebcoR10Width).join() === "400,800,1200,1600,2400,2400,2400,1600,1200,800,400", "gebcoR10Width：uploader の gebco.ts の shrink と同じ表");
 }
 
 if (fails) { console.error(`\n${fails} failed`); process.exit(1); }
