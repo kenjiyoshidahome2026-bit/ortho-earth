@@ -123,3 +123,46 @@ export async function walkJapan(q: screenLogger, { Bucket, apiUrl }: NativeBucke
 	try { localStorage.removeItem(KEY); } catch { /* 無くても良い */ }
 	q.success(`GIS/walk/ に ${index.cells.length} 区画（${(index.bytes / 1e6).toFixed(0)} MB）と index.json を置いた`);
 }
+
+// HEALPix の標高タイル＝packages/ortho-core/scripts/bake-healpix-elev.mjs → bake-out/hpx/elev/（Norder{k}/Dir{d}/Npix{n}.altpbf・properties・目録 index.json）→ GIS/hpx/elev/（2026-11-27）。
+// Norder 0〜5 で 16,380 枚＝歩ける道の網と同じ置き方（24 本並べる・失敗は待って置き直す・256 枚ごとに進みを残す・index.json は最後＝見えた時にはタイルが揃っている）。
+// 置くパスは焼きの出力と同じ（HiPS の置き場）＝読む側は GIS/hpx/elev/Norder{k}/Dir{d}/Npix{n}.altpbf を番地から直に組める。
+export async function hpxElev(q: screenLogger, { Bucket, apiUrl }: NativeBucket & { apiUrl: string }) {
+	q.clear(); q.title("HEALPix の標高タイル（bake-out/hpx/elev）→ GIS/hpx/elev/");
+	devOnly();
+	const raw: string[] | { made: string; width: number; tiles: string[] } = await (await readLocal("hpx/elev/index.json")).json();
+	// 旧い目録（パスの配列だけ）＝焼いた時刻が無い＝枚数を鍵の代わりにする（焼き直したら node …/bake-healpix-elev.mjs --resume で新しい目録になる）
+	const index = Array.isArray(raw) ? { made: `legacy-${raw.length}`, width: 0, tiles: raw } : raw;
+	if (!index.tiles?.length) throw new Error("bake-out/hpx/elev にタイルが無い＝node packages/ortho-core/scripts/bake-healpix-elev.mjs");
+	const bad = index.tiles.find(t => !/^Norder\d+\/Dir\d+\/Npix\d+\.altpbf$/.test(t));
+	if (bad) throw new Error(`目録に HEALPix のタイルでないパス：${bad}`);
+	const remote = await fetch(`${apiUrl}/bucket/GIS/hpx/elev/index.json`, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+	if (remote?.made === index.made) { q.log(`R2 に同じ焼き（${index.made}）が置いてある＝何もしない`); return; }
+	const bucket = await Bucket("GIS/hpx/elev", { silent: true, lazy: true });
+	if (!bucket) throw new Error("Bucket(GIS/hpx/elev) に到達できない");
+	const KEY = `hpx-elev-upload:${index.made}`;
+	let done = 0; try { done = +(localStorage.getItem(KEY) || 0); } catch { /* 無くても最初から */ }
+	if (done) q.log(`続きから：${done} / ${index.tiles.length}`);
+	const PAR = 24, CHUNK = 256;
+	let bytes = 0;
+	const putTile = async (rel: string) => {
+		const body = await (await readLocal(`hpx/elev/${rel}`)).blob(); bytes += body.size;
+		for (let a = 0; ; a++) {
+			try { await bucket.put(new File([body], rel, { type: "application/x-altpbf" })); return; }
+			catch (e) { if (a >= 5) throw e; await new Promise(r => setTimeout(r, 2000 * 2 ** a)); }
+		}
+	};
+	const t0 = Date.now(); let n = 0;
+	for (let i = done; i < index.tiles.length; i += CHUNK) {
+		const part = index.tiles.slice(i, i + CHUNK);
+		let next = 0;
+		await Promise.all(Array.from({ length: PAR }, async () => { while (next < part.length) await putTile(part[next++]); }));
+		done = i + part.length; n++;
+		try { localStorage.setItem(KEY, String(done)); } catch { /* 進みを残せないだけ */ }
+		if (n % 8 === 0 || done === index.tiles.length) q.log(`↑ ${done} / ${index.tiles.length}（${((Date.now() - t0) / 60000).toFixed(1)} 分）`);
+	}
+	await bucket.put(new File([await (await readLocal("hpx/elev/properties")).blob()], "properties", { type: "text/plain" }));
+	await bucket.put(new File([JSON.stringify(index)], "index.json", { type: "application/json" }));
+	try { localStorage.removeItem(KEY); } catch { /* 無くても良い */ }
+	q.success(`GIS/hpx/elev/ に ${index.tiles.length} 枚（今回 ${(bytes / 1e6).toFixed(0)} MB）と properties・index.json を置いた`);
+}

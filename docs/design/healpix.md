@@ -4,6 +4,7 @@
 `docs/notes/raster-tiles.md` の残「非メルカトルのタイル行列」の答え。外来の物（地理院・PMTiles・MapLibre／Cesium の顔）はメルカトルのまま。
 
 - 純関数：`packages/ortho-core/src/healpix.ts`（検定 `tests/healpix.mjs`＝healpy 1.20 の値と突き合わせ）
+- 標高を読む：`packages/ortho-core/src/elevation/healpixread.ts`（経緯度の窓を HEALPix タイルから埋める・検定 `tests/healpix-read.mjs`）
 - 標高の焼き：`packages/ortho-core/src/elevation/healpixbake.ts`（検定 `tests/healpix-bake.mjs`）・`packages/ortho-core/scripts/bake-healpix-elev.mjs`
 - 本人向けの設計案＝Claude Doc「HEALPixタイルをV3の中核に据える設計案」
 
@@ -22,12 +23,12 @@
 
 タイルの大きさの目安（幅 512）：1 画素＝58.6°/(512·2^k)。Norder k はメルカトルの z ≒ k+2.6（赤道・同じ画素数のタイル）。
 
-### 未照合：公式 HiPS の画素の向き
+### タイルの中の座標＝V3 の方式（仮決め・本人 2026-11-27）
 
-タイルの中の画素の向き（上の「列＝ix・行＝iy」）は**自前の規約**で、公式 HiPS（hipsgen・Aladin Lite）と合うかは確かめていない
-（クラウドの器から CDS のサーバーに届かない＝実物のタイルと比べられなかった・2026-11-26）。
-標高タイルは中身が altpbf＝HiPS の読み手は元々読めないので実害は無い。画像（jpg・png）のタイルを HiPS の道具に読ませたくなった時に、
-実物と突き合わせて転置・反転を決める（番地と置き場は同じ＝直すのは画素の並べ方だけ）。
+タイルの中の座標は、HEALPix の平面（Calabretta & Roukema）を 45° 回して、基底の面と子のセルが軸に平行な正方形になる**面ごとの (x, y)** に統一する
+（＝上の表の「面内の座標」「タイルの画素」そのもの＝列が x・行が y・行 0 が南の隅の側）。階層と置き場は HEALPix NESTED・HiPS のまま。
+画素の向きは公式 HiPS（hipsgen・Aladin Lite）には**そろえない**（照合もしない）＝標高も、先々の画像・ベクタ（OSM を同じ座標で切る）も、この向きで揃える。
+今の標高タイル（2026-11-27 の焼き）は最初からこの向き＝作り直しは要らない。縁の重ね（隣の 1 画素を焼き込む等）は必要になった時に足してよい（今は無し）。
 
 ## 2. 標高タイル（大元＝R90〜R10）
 
@@ -53,11 +54,12 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min
 
 目で確かめる＝`node packages/ortho-core/scripts/hpx-elev-preview.mjs --order 5 --bbox 128,30,146,46 --width 2400`（正距円筒の段彩 PNG・`--grid` でタイルの境）。
 
-出力は `bake-out/hpx/elev/`（gitignore）。置き場（R2 のどこか）と uploader のボタンは未定。
+出力は `bake-out/hpx/elev/`（gitignore）。置き場＝bucket の `GIS/hpx/elev/`（焼きの出力と同じパス＝`Norder{k}/Dir{d}/Npix{n}.altpbf`・`properties`・`index.json`）。
+上げるのは uploader のボタン「HEALPix の標高タイル（bake-out/hpx/elev）→ GIS/hpx/elev」（24 本並べる・途中で閉じても続きから・`index.json` は最後）。
 
 ## 3. 段取り
 
-1. 規約 ── この文書（公式 HiPS との照合は未了）。
+1. 規約 ── この文書（タイルの中の座標は V3 の方式として仮決め・HiPS の画素の向きにはそろえない）。
 2. 純関数と検定 ── 済。
 3. 焼き手 ── 済（合成の大元で検定・試作の Python 版 `make_tiles.py` と同じ入力で画素が一致＝差は丸めの 1）。本物の R90 は Mac で焼けた（252 枚・14 秒・2026-11-27）。R10 も焼けた（16,128 枚・990 秒・無いセル 0）＝ Norder 0〜5 の 16,380 枚が揃った。
 4. 読む側 ── 未着手。ラスタ層の源 `scheme: "healpix"`（`raster-src.ts`／`raster.ts`）と選抜（`selectLOD` の兄弟）。描画は先に地面アトラスへ焼く方式、画素ごとに引く方式（試作）は全球帯だけ後から。フラグの裏で入れる。
