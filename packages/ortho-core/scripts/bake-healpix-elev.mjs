@@ -57,7 +57,7 @@ async function loadCell(key) {
 	cellPx = t.height;
 	const want = WOF ? WOF(cy) * cellPx / 2400 : cellPx;
 	if (t.width !== want) throw new Error(`${name}: 幅 ${t.width}（この緯度帯は ${want} のはず）`);
-	if (t.source) sources.add(t.source.replace(/@.*$/, ""));
+	for (const s of (t.source || "").replace(/@.*$/, "").split("+")) if (s.trim()) sources.add(s.trim());   // 「GEBCO 2026 + GSI DEM10B(JP) @日付」のような合成の出所を割って数える
 	return t;
 }
 async function ensure(keys) {

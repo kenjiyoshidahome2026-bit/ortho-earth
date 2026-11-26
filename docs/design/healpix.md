@@ -51,13 +51,15 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R90 --order 2 --min
 node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min-order 3    # --resume で続きから
 ```
 
+目で確かめる＝`node packages/ortho-core/scripts/hpx-elev-preview.mjs --order 5 --bbox 128,30,146,46 --width 2400`（正距円筒の段彩 PNG・`--grid` でタイルの境）。
+
 出力は `bake-out/hpx/elev/`（gitignore）。置き場（R2 のどこか）と uploader のボタンは未定。
 
 ## 3. 段取り
 
 1. 規約 ── この文書（公式 HiPS との照合は未了）。
 2. 純関数と検定 ── 済。
-3. 焼き手 ── 済（合成の大元で検定・試作の Python 版 `make_tiles.py` と同じ入力で画素が一致＝差は丸めの 1）。本物の R90 は Mac で焼けた（252 枚・14 秒・2026-11-27）。R10 は緯度帯の幅の対応を入れて焼き直し待ち。
+3. 焼き手 ── 済（合成の大元で検定・試作の Python 版 `make_tiles.py` と同じ入力で画素が一致＝差は丸めの 1）。本物の R90 は Mac で焼けた（252 枚・14 秒・2026-11-27）。R10 も焼けた（16,128 枚・990 秒・無いセル 0）＝ Norder 0〜5 の 16,380 枚が揃った。
 4. 読む側 ── 未着手。ラスタ層の源 `scheme: "healpix"`（`raster-src.ts`／`raster.ts`）と選抜（`selectLOD` の兄弟）。描画は先に地面アトラスへ焼く方式、画素ごとに引く方式（試作）は全球帯だけ後から。フラグの裏で入れる。
 5. 継ぎ目と極の目視 → 広げるか（全球標高アトラス `WORLD1024_1`・極の蓋／扇の乗り換え）の判断。既定を切り替えるならそこが 3.0。
 
