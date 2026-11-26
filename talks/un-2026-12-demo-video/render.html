@@ -1,0 +1,298 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:"Space Grotesk";font-weight:500;src:url(node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-500-normal.woff2)}
+@font-face{font-family:"Space Grotesk";font-weight:600;src:url(node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-600-normal.woff2)}
+@font-face{font-family:"Space Grotesk";font-weight:700;src:url(node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff2)}
+@font-face{font-family:"InterG";font-weight:700;src:url(node_modules/@fontsource/inter/files/inter-greek-700-normal.woff2)}
+@font-face{font-family:"Inter";font-weight:400;src:url(node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2)}
+@font-face{font-family:"Inter";font-weight:600;src:url(node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2)}
+html,body{margin:0;background:#0E1A2B}
+canvas{display:block}
+</style>
+<script src="node_modules/d3-array/dist/d3-array.min.js"></script>
+<script src="node_modules/d3-geo/dist/d3-geo.min.js"></script>
+<script src="node_modules/topojson-client/dist/topojson-client.min.js"></script>
+<script src="world.js"></script>
+<script src="land.js"></script>
+<script src="timeline.js"></script>
+</head><body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+const W = 1920, H = 1080;
+const C = { ink:"#0E1A2B", ink2:"#172A42", paper:"#F4F1EA", paper2:"#E8E3D8", orange:"#E8743B", blue:"#6FB3E8", soft:"#B9C6D6", softDark:"#4A5568" };
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+const MODE = new URLSearchParams(location.search).get("mode") || "animatic"; // animatic | graphics (no captions, no placeholders)
+
+const countries = topojson.feature(WORLD, WORLD.objects.countries);
+const land110 = topojson.feature(LAND110, LAND110.objects.land);
+const AFR = new Set(["012","024","204","072","854","108","120","132","140","148","174","178","180","384","262","818","226","232","748","231","266","270","288","324","624","404","426","430","434","450","454","466","478","480","504","508","516","562","566","646","678","686","690","694","706","710","728","729","834","768","788","800","732","894","716"]);
+const africa = { type:"FeatureCollection", features: countries.features.filter(f => AFR.has(f.id) || f.properties.name === "Somaliland") };
+const greenland = countries.features.find(f => f.id === "304");
+const sphere = { type: "Sphere" };
+const grat = d3.geoGraticule10();
+
+const imgs = {};
+function loadImg(src){ return new Promise(r => { const i = new Image(); i.onload = () => { imgs[src] = i; r(); }; i.onerror = () => r(); i.src = src; }); }
+
+const ease = x => x<0?0:x>1?1:x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const clamp01 = x => Math.max(0, Math.min(1, x));
+const ramp = (t, a, b) => clamp01((t - a) / (b - a));
+const fadeInOut = (t, t0, t1, d=.6) => Math.min(ramp(t, t0, t0+d), 1 - ramp(t, t1-d, t1));
+
+// ---------- text helpers
+function font(w, px, fam="Inter"){ g.font = `${w} ${px}px "${fam}"`; }
+function wrap(text, maxW){
+  const words = text.split(" "); const lines = []; let line = "";
+  for (const w of words){ const tr = line ? line+" "+w : w; if (g.measureText(tr).width > maxW && line){ lines.push(line); line = w; } else line = tr; }
+  if (line) lines.push(line); return lines;
+}
+function eyebrow(text, a, dark=true){
+  if (!text) return; g.save(); g.globalAlpha = a; font(600, 28, "Space Grotesk");
+  g.fillStyle = C.orange; g.textBaseline = "top";
+  const s = text.toUpperCase().split("").join(String.fromCharCode(8202));
+  g.fillText(s, 96, 72); g.restore();
+}
+function caption(text, a){
+  if (!text || a <= 0) return;
+  g.save(); g.globalAlpha = a; font(400, 40);
+  const lines = wrap(text, 1500); const lh = 54;
+  const h = lines.length*lh + 44; const y = H - 90 - h;
+  let mw = 0; lines.forEach(l => mw = Math.max(mw, g.measureText(l).width));
+  const bx = (W - mw)/2 - 36;
+  g.fillStyle = "rgba(14,26,43,0.82)"; roundRect(bx, y, mw+72, h, 10); g.fill();
+  g.fillStyle = C.paper; g.textBaseline = "top"; g.textAlign = "center";
+  lines.forEach((l,i) => g.fillText(l, W/2, y+22+i*lh));
+  g.restore();
+}
+function roundRect(x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+function disclaimer(a){
+  g.save(); g.globalAlpha = a*0.8; font(400, 18); g.fillStyle = C.soft; g.textAlign = "right"; g.textBaseline = "bottom";
+  g.fillText(TIMELINE.disclaimer, W-40, H-24); g.restore();
+}
+
+// ---------- globe
+function drawGlobe(t, cx, cy, r, lon0, alpha=1){
+  const p = d3.geoOrthographic().scale(r).translate([cx, cy]).rotate([lon0, -18]).clipAngle(90);
+  const path = d3.geoPath(p, g);
+  g.save(); g.globalAlpha = alpha;
+  // glow
+  const gr = g.createRadialGradient(cx, cy, r*0.9, cx, cy, r*1.18);
+  gr.addColorStop(0, "rgba(111,179,232,0.28)"); gr.addColorStop(1, "rgba(111,179,232,0)");
+  g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r*1.18, 0, 2*Math.PI); g.fill();
+  g.beginPath(); path(sphere); g.fillStyle = "#13243A"; g.fill();
+  g.beginPath(); path(grat); g.strokeStyle = "rgba(185,198,214,0.16)"; g.lineWidth = 1; g.stroke();
+  g.beginPath(); path(land110); g.fillStyle = "#2E4A6B"; g.fill(); g.strokeStyle = "rgba(244,241,234,0.35)"; g.lineWidth = 1; g.stroke();
+  // terminator-ish shading
+  const sh = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+  sh.addColorStop(0, "rgba(255,255,255,0.06)"); sh.addColorStop(1, "rgba(0,0,0,0.35)");
+  g.beginPath(); path(sphere); g.fillStyle = sh; g.fill();
+  g.beginPath(); path(sphere); g.strokeStyle = "rgba(111,179,232,0.5)"; g.lineWidth = 1.5; g.stroke();
+  g.restore();
+}
+
+// ---------- morph projection Mercator -> Equal Earth
+const LIM = 85.0511 * Math.PI/180;
+const EEK = Math.PI / d3.geoEqualEarthRaw(Math.PI, 0)[0];
+function mixRaw(a){
+  return function(l, f){
+    const fc = Math.max(-LIM, Math.min(LIM, f));
+    const mx = l, my = Math.log(Math.tan(Math.PI/4 + fc/2));
+    const e = d3.geoEqualEarthRaw(l, f);
+    return [(1-a)*mx + a*e[0]*EEK, (1-a)*my + a*e[1]*EEK];
+  };
+}
+function mapProj(a, box){
+  const p = d3.geoProjection(mixRaw(a)).precision(0.3);
+  p.fitExtent(box, sphere); return p;
+}
+function drawFlatMap(a, box, opt={}){
+  const p = mapProj(a, box), path = d3.geoPath(p, g);
+  g.beginPath(); path(sphere); g.fillStyle = "#13243A"; g.fill();
+  g.beginPath(); path(grat); g.strokeStyle = "rgba(185,198,214,0.14)"; g.lineWidth = 1; g.stroke();
+  g.beginPath(); path(countries); g.fillStyle = "#2E4A6B"; g.fill(); g.strokeStyle = "rgba(244,241,234,0.22)"; g.lineWidth = 0.6; g.stroke();
+  if (opt.hl){
+    g.save(); g.globalAlpha = opt.hl;
+    g.beginPath(); path(africa); g.fillStyle = C.orange; g.fill();
+    g.beginPath(); path(greenland); g.fillStyle = C.blue; g.fill();
+    g.restore();
+  }
+  g.beginPath(); path(sphere); g.strokeStyle = "rgba(111,179,232,0.45)"; g.lineWidth = 1.5; g.stroke();
+  return p;
+}
+
+// ---------- scenes
+function sceneGlobeTitle(t, s){
+  g.fillStyle = C.ink; g.fillRect(0,0,W,H);
+  const lt = t - s.t0;
+  drawGlobe(t, 1340, 560, 400 + lt*4, -20 - lt*9, ramp(lt, 0, 1.5));
+  g.save(); g.globalAlpha = ramp(lt, 1.2, 2.4); font(700, 140, "Space Grotesk"); g.fillStyle = C.paper; g.textBaseline = "alphabetic";
+  g.fillText("The Earth", 120, 470); g.fillText("is round.", 120, 610); g.restore();
+  g.save(); g.globalAlpha = ramp(lt, 3, 4.2); font(400, 40); g.fillStyle = C.soft;
+  g.fillText("A 3-minute look at a web map", 124, 700);
+  g.fillText("after Web Mercator.", 124, 752); g.restore();
+  g.save(); g.globalAlpha = ramp(lt, 4.5, 5.5)*0.9; font(400, 24); g.fillStyle = C.soft;
+  g.fillText("ortho-earth · open source · runs in the browser", 124, 960); g.restore();
+  // fade out
+  g.save(); g.globalAlpha = ramp(lt, 9.2, 10); g.fillStyle = C.ink; g.fillRect(0,0,W,H); g.restore();
+}
+
+function sceneMercator(t, s){
+  g.fillStyle = C.ink; g.fillRect(0,0,W,H);
+  const lt = t - s.t0;
+  const side = 690, x0 = (W-side)/2, y0 = 140;
+  g.save(); g.globalAlpha = ramp(lt, 0, 0.8);
+  drawFlatMap(0, [[x0, y0], [x0+side, y0+side]]);
+  // tile grid builds z0 -> z3
+  const z = lt < 2 ? 0 : lt < 3.5 ? 1 : lt < 5 ? 2 : 3;
+  const n = 1 << z, ts = side / n;
+  g.strokeStyle = "rgba(232,116,59,0.9)"; g.lineWidth = 2;
+  for (let i=0;i<=n;i++){ g.beginPath(); g.moveTo(x0+i*ts, y0); g.lineTo(x0+i*ts, y0+side); g.stroke(); g.beginPath(); g.moveTo(x0, y0+i*ts); g.lineTo(x0+side, y0+i*ts); g.stroke(); }
+  // labels
+  font(600, 30, "Space Grotesk"); g.fillStyle = C.orange; g.textBaseline = "top";
+  g.fillText(`zoom ${z}  ·  ${n*n} tiles of 256 px`, x0 + side + 40, y0 + 8);
+  font(400, 26); g.fillStyle = C.soft;
+  ["EPSG:3857", "Web Mercator", "rendered on a server,", "slid side by side", "in the browser"].forEach((l,i)=> g.fillText(l, x0 + side + 40, y0 + 70 + i*38));
+  font(700, 120, "Space Grotesk"); g.fillStyle = "rgba(244,241,234,0.9)"; g.textAlign = "right";
+  g.fillText("2005", x0 - 50, y0 + 10);
+  // "2025" stamp late
+  const a2 = ramp(lt, 12.5, 13.5);
+  if (a2 > 0){ g.globalAlpha = a2; g.fillStyle = C.orange; g.fillText("2026", x0 - 50, y0 + 150);
+    font(400, 26); g.fillStyle = C.soft; g.fillText("still the default", x0 - 50, y0 + 285); }
+  g.restore();
+}
+
+function sceneMorph(t, s){
+  g.fillStyle = C.ink; g.fillRect(0,0,W,H);
+  const lt = t - s.t0;
+  const a = ease(ramp(lt, 5.5, 10));          // morph Mercator -> Equal Earth
+  const hl = ramp(lt, 0.6, 1.6);
+  // box interpolates from square to wide
+  const sq = [[615, 140], [1305, 830]], wide = [[140, 170], [1780, 830]];
+  const box = [[sq[0][0]+(wide[0][0]-sq[0][0])*a, sq[0][1]+(wide[0][1]-sq[0][1])*a], [sq[1][0]+(wide[1][0]-sq[1][0])*a, sq[1][1]+(wide[1][1]-sq[1][1])*a]];
+  const p = drawFlatMap(a, box, { hl });
+  // label
+  g.save(); font(700, 44, "Space Grotesk"); g.textBaseline = "top";
+  g.globalAlpha = 1 - ramp(lt, 5, 6); g.fillStyle = C.paper; g.fillText("Web Mercator", 96, 140);
+  g.globalAlpha = ramp(lt, 9, 10); g.fillStyle = C.paper; g.fillText("Equal Earth", 96, 140);
+  g.restore();
+  // area callouts
+  const ca = ramp(lt, 1.5, 2.5) * (1 - ramp(lt, 5, 5.8)) + ramp(lt, 10, 11) * (1 - ramp(lt, 13, 13.8));
+  if (ca > 0){
+    const gl = p([-42, 72]), af = p([20, 3]);
+    g.save(); g.globalAlpha = ca; font(600, 30, "Space Grotesk"); g.textBaseline = "middle";
+    g.fillStyle = C.blue; g.fillText("Greenland  2.2 M km²", gl[0] + 60, gl[1]);
+    g.fillStyle = C.orange; g.fillText("Africa  30.4 M km²", af[0] + 260, af[1]);
+    g.restore();
+  }
+  // 14x big
+  const bx = ramp(lt, 10.5, 11.3) * (1 - ramp(lt, 13, 13.8));
+  if (bx > 0){ g.save(); g.globalAlpha = bx; font(700, 200, "Space Grotesk"); g.fillStyle = C.orange; g.textAlign="right"; g.textBaseline="top"; g.fillText("14×", W-96, 90); g.restore(); }
+  // UN GA card
+  const un = ramp(lt, 13.6, 14.6);
+  if (un > 0){
+    g.save(); g.globalAlpha = un;
+    g.fillStyle = "rgba(14,26,43,0.86)"; g.fillRect(0,0,W,H);
+    font(600, 28, "Space Grotesk"); g.fillStyle = C.orange; g.textBaseline = "top";
+    g.fillText("UN GENERAL ASSEMBLY · 4 SEPTEMBER 2026", 200, 200);
+    font(700, 240, "Space Grotesk"); g.fillStyle = C.paper; g.fillText("164 – 1", 190, 250);
+    font(400, 40); g.fillStyle = C.soft; g.fillText("6 abstentions · led by African states", 200, 510);
+    font(500, 52, "Space Grotesk"); g.fillStyle = C.paper;
+    wrap("Equal Earth: “a relevant option for improving the accuracy of the cartographic representation of the world.”", 1450).forEach((l,i)=> g.fillText(l, 200, 610 + i*66));
+    g.restore();
+  }
+}
+
+function sceneLive(t, s){
+  const lt = t - s.t0, dur = s.t1 - s.t0;
+  g.fillStyle = "#000"; g.fillRect(0,0,W,H);
+  const im = (MODE === "final" && clipFrames[s.id]) || imgs[s.still];
+  if (im){
+    const k = 1 + 0.08 * (lt / dur);
+    const sc = Math.max(W / im.width, H / im.height) * k;
+    const iw = im.width*sc, ih = im.height*sc;
+    g.save(); g.imageSmoothingQuality = "high"; g.drawImage(im, (W-iw)/2, (H-ih)/2, iw, ih); g.restore();
+  }
+  if (MODE === "animatic"){
+    g.save(); g.fillStyle = "rgba(14,26,43,0.35)"; g.fillRect(0,0,W,H);
+    font(600, 22, "Inter"); const tag = "LIVE CAPTURE GOES HERE · placeholder still";
+    const tw = g.measureText(tag).width;
+    g.fillStyle = C.orange; roundRect(W - tw - 136, 64, tw + 40, 44, 6); g.fill();
+    g.fillStyle = C.ink; g.textBaseline = "middle"; g.fillText(tag, W - tw - 116, 87);
+    font(400, 20); g.fillStyle = C.paper; g.textAlign = "right"; g.fillText(s.url, W - 96, 132);
+    g.restore();
+  }
+}
+
+function sceneFormula(t, s){
+  const lt = t - s.t0;
+  g.fillStyle = C.paper; g.fillRect(0,0,W,H);
+  g.save(); g.textBaseline = "middle"; g.textAlign = "center";
+  const parts = [["MapLibre", C.ink], [" × ", C.softDark], ["Cesium", C.ink], [" − ", C.softDark], ["Mercator", C.ink], [" + α", C.orange]];
+  g.font = '700 104px "Space Grotesk", "InterG"';
+  const ws = parts.map(p => g.measureText(p[0]).width); const tot = ws.reduce((a,b)=>a+b,0);
+  let x = (W - tot)/2; g.textAlign = "left";
+  parts.forEach((p,i)=>{ const a = ramp(lt, 0.2 + i*0.35, 0.7 + i*0.35); g.globalAlpha = a; g.fillStyle = p[1]; g.fillText(p[0], x, 470 + (1-a)*20);
+    if (i === 4 && lt > 2.6){ g.strokeStyle = C.orange; g.lineWidth = 8; const k = ramp(lt, 2.6, 3.1); g.beginPath(); g.moveTo(x - 6, 474); g.lineTo(x - 6 + (ws[i]+12)*k, 474); g.stroke(); }
+    x += ws[i]; });
+  g.globalAlpha = ramp(lt, 3, 3.8); font(400, 40); g.fillStyle = C.softDark; g.textAlign = "center";
+  g.fillText("α = Equal Earth · real 3D · analysis on the device · offline", W/2, 620);
+  g.restore();
+  g.save(); g.globalAlpha = ramp(lt, 5.4, 6); g.fillStyle = C.ink; g.fillRect(0,0,W,H); g.restore();
+}
+
+function sceneClose(t, s){
+  g.fillStyle = C.ink; g.fillRect(0,0,W,H);
+  const lt = t - s.t0;
+  drawGlobe(t, 1500, 560, 360, 100 - lt*6, ramp(lt, 0, 1));
+  g.save(); g.textBaseline = "alphabetic";
+  g.globalAlpha = ramp(lt, 0.3, 1.2); font(600, 28, "Space Grotesk"); g.fillStyle = C.orange;
+  g.fillText("OPEN SOURCE · USE IT · SHAPE IT · BUILD IT", 124, 300);
+  g.globalAlpha = ramp(lt, 1.2, 2.2); font(700, 110, "Space Grotesk"); g.fillStyle = C.paper;
+  g.fillText("The Earth is round.", 120, 480);
+  g.globalAlpha = ramp(lt, 2.6, 3.6); font(500, 56, "Space Grotesk"); g.fillStyle = C.soft;
+  g.fillText("Our maps can be, too.", 124, 580);
+  g.globalAlpha = ramp(lt, 4, 5); font(400, 30); g.fillStyle = C.paper;
+  g.fillText("www.ortho-earth.com", 124, 860);
+  font(400, 24); g.fillStyle = C.soft; g.fillText("github.com/kenjiyoshidahome2026-bit/ortho-earth", 124, 905);
+  g.restore();
+  g.save(); g.globalAlpha = ramp(lt, 8.2, 9); g.fillStyle = "#000"; g.fillRect(0,0,W,H); g.restore();
+}
+
+const FN = { "globe-title": sceneGlobeTitle, "mercator-grid": sceneMercator, "morph": sceneMorph, "live": sceneLive, "formula": sceneFormula, "globe-close": sceneClose };
+
+window.render = function(t){
+  const s = TIMELINE.scenes.find(s => t >= s.t0 && t < s.t1) || TIMELINE.scenes[TIMELINE.scenes.length-1];
+  g.save(); FN[s.kind](t, s); g.restore();
+  // short dip between scenes
+  const lt = t - s.t0, rt = s.t1 - t;
+  if (s.kind === "live"){ const gr = g.createLinearGradient(0, 0, 0, 200); gr.addColorStop(0, "rgba(14,26,43,0.75)"); gr.addColorStop(1, "rgba(14,26,43,0)"); g.fillStyle = gr; g.fillRect(0, 0, W, 200); }
+  eyebrow(s.eyebrow, fadeInOut(t, s.t0, s.t1, .5));
+  if (TIMELINE.disclaimerScenes.includes(s.id)) disclaimer(fadeInOut(t, s.t0, s.t1, .5));
+  if (MODE !== "graphics"){
+    for (const [a,b,txt] of TIMELINE.captions) if (t >= a && t < b) caption(txt, fadeInOut(t, a, b, .35));
+  }
+  const fi = 1 - ramp(lt, 0, 0.35), fo = 1 - ramp(rt, 0, 0.35);
+  const dip = Math.max(s.t0 > 0 ? fi : 0, fo) * 0.85;
+  if (dip > 0 && s.kind !== "globe-title"){ g.save(); g.globalAlpha = dip; g.fillStyle = "#000"; g.fillRect(0,0,W,H); g.restore(); }
+};
+// final mode: live scenes read real capture frames from clips/<scene-id>/NNNNN.jpg (30 fps, 1920x1080)
+const clipFrames = {};
+const clipCount = {};
+async function prepClip(t){
+  const s = TIMELINE.scenes.find(s => t >= s.t0 && t < s.t1);
+  if (!s || s.kind !== "live" || MODE !== "final") return;
+  const n = clipCount[s.id]; if (!n) return;
+  const idx = Math.min(n, Math.max(1, Math.floor((t - s.t0) * TIMELINE.fps) + 1 + (s.clipOffset || 0)));
+  const src = `clips/${s.id}/${String(idx).padStart(5, "0")}.jpg`;
+  await new Promise(r => { const i = new Image(); i.onload = () => { clipFrames[s.id] = i; r(); }; i.onerror = () => r(); i.src = src; });
+}
+window.setClipCounts = c => Object.assign(clipCount, c);
+window.frame = async function(t, q){ await prepClip(t); render(t); return cv.toDataURL("image/jpeg", q || 0.92); };
+window.ready = (async () => {
+  await Promise.all([document.fonts.load('700 40px "Space Grotesk"'), document.fonts.load('500 40px "Space Grotesk"'), document.fonts.load('600 40px "Space Grotesk"'), document.fonts.load('400 40px "Inter"'), document.fonts.load('600 40px "Inter"'), document.fonts.load('700 40px "InterG"', 'α')]);
+  await Promise.all(TIMELINE.scenes.filter(s => s.still).map(s => loadImg(s.still)));
+  return true;
+})();
+</script>
+</body></html>

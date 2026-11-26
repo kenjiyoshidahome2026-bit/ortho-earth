@@ -1,0 +1,2 @@
+{ "name": "un-2026-12-demo-video", "private": true, "type": "commonjs",
+  "dependencies": { "@fontsource/inter": "^5", "@fontsource/space-grotesk": "^5", "d3-array": "^3", "d3-geo": "^3", "topojson-client": "^3", "playwright": "^1" } }

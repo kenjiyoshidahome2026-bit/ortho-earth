@@ -1,0 +1,64 @@
+1
+00:00:10,500 --> 00:00:16,000
+2005: the web map is cut into 256-pixel squares on one projection, Web Mercator.
+
+2
+00:00:16,500 --> 00:00:22,000
+For the networks and processors of 2005, a brilliant compromise.
+
+3
+00:00:22,500 --> 00:00:27,500
+Twenty years later, the compromise is still the default.
+
+4
+00:00:28,500 --> 00:00:34,000
+On Web Mercator, Greenland looks about as big as Africa.
+
+5
+00:00:34,500 --> 00:00:41,000
+On Equal Earth, area is fair: Africa is about 14 times larger.
+
+6
+00:00:50,500 --> 00:00:58,000
+A tilted Mercator plane is a perspective view of a model that is already distorted.
+
+7
+00:00:58,500 --> 00:01:08,000
+Here there is one model, a round Earth, from orbit…
+
+8
+00:01:08,500 --> 00:01:21,500
+…down to the street: Tokyo Station in 3D, PLATEAU open data. No mode switch. No plane.
+
+9
+00:01:22,500 --> 00:01:32,000
+1.5 million earthquakes since 1967, drawn at their true depth inside the Earth.
+
+10
+00:01:32,500 --> 00:01:41,500
+Computed on the device’s GPU, in an ordinary browser. No tile server.
+
+11
+00:01:42,500 --> 00:01:56,500
+About 16,000 satellites, their orbits computed in the browser. WebGPU, WebGL2 as fallback.
+
+12
+00:01:57,500 --> 00:02:07,000
+For field sites with no network: choose an area ahead of time, on the Equal Earth map.
+
+13
+00:02:07,500 --> 00:02:16,000
+The device saves the map and terrain for that area.
+
+14
+00:02:16,500 --> 00:02:26,500
+Then go offline. The globe, and search, keep working.
+
+15
+00:02:27,500 --> 00:02:35,000
+Your MapLibre and CesiumJS code runs unchanged.
+
+16
+00:02:35,500 --> 00:02:44,500
+MapLibre: 137 examples, 91 same picture, 43 same answer, 3 run, 0 fail. CesiumJS: 304 examples, 264 same picture, 40 same answer.
+
