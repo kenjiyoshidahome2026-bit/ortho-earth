@@ -4,6 +4,7 @@
 `docs/notes/raster-tiles.md` の残「非メルカトルのタイル行列」の答え。外来の物（地理院・PMTiles・MapLibre／Cesium の顔）はメルカトルのまま。
 
 - 純関数：`packages/ortho-core/src/healpix.ts`（検定 `tests/healpix.mjs`＝healpy 1.20 の値と突き合わせ）
+- 標高を読む：`packages/ortho-core/src/elevation/healpixread.ts`（経緯度の窓を HEALPix タイルから埋める・検定 `tests/healpix-read.mjs`）
 - 標高の焼き：`packages/ortho-core/src/elevation/healpixbake.ts`（検定 `tests/healpix-bake.mjs`）・`packages/ortho-core/scripts/bake-healpix-elev.mjs`
 - 本人向けの設計案＝Claude Doc「HEALPixタイルをV3の中核に据える設計案」
 
