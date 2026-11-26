@@ -114,7 +114,7 @@ interface RwMsg {
 	perf?: boolean; resFix?: number; glyphMs?: number; glyphDb?: boolean; fontWarm?: number; stay?: boolean; lowMem?: boolean; rangeCache?: boolean; gintTier?: number; drawStat?: boolean; gintBack?: boolean; gintDbg?: string; lineDbg?: string; gintLodMove?: number; meshChunk?: boolean; meshLod?: number; meshLodZ?: number; meshLodZ0?: number; meshRange?: number; meshShed?: number; meshShedMax?: number; meshShedMs?: number; meshCull?: number; meshSort?: number; resMin?: number; meshLiteMove?: number; meshLiteFs?: number; meshFast?: boolean; meshFastCull?: number; depthRZ?: boolean; elevCheap?: boolean; bakeLift?: boolean; nearClip?: number; clipK?: number; clipKGl?: number; mem?: boolean; noBld?: boolean; drawHud?: boolean; gpu?: boolean; power?: GpuPowerPreference;
 	gpuKnown?: boolean;   // この端末は以前 WebGPU で描けた（main の oj.gpuOk）＝adapter 取得を粘る
 	noTQ?: boolean; noFade?: boolean; noLx?: boolean; noPt?: boolean; msaa1?: boolean; msaa4?: boolean; fx?: unknown; noFragDepth?: boolean; gndFast?: boolean; quad4?: boolean; cpuElev?: boolean; terrLod?: boolean; terrSync?: boolean; shedFoot?: boolean;
-	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
+	noGint?: boolean; noGintSB?: boolean; noMultiDraw?: boolean; terrainExag?: number; earthM?: number; apiUrl?: string; noMixed?: boolean; noFarTerr?: boolean; hpxTerr?: number; noNearTerr?: boolean; r01Zoom?: number; gmax?: number;
 	dem?: TerrainOptions["dem"]; dtm?: TerrainOptions["dtm"]; noTerr?: boolean; terrLazy?: boolean;
 	meshDrain?: number;   // ?meshdrain=MS＝建物メッシュの小片を 1 フレームに時間予算 MS ms ぶん（＋フレームの合間も timer で）当てる。0＝従来の 1 フレーム 1 個
 	warmPar?: number;   // ?warmpar=N＝warmpipe=3 で同時にコンパイルする本数（0＝全部一度に・既定 0・renderer.ts）
@@ -435,7 +435,7 @@ async function bootWebGL(m: RwMsg) {
 let terrLazyInit: RwMsg | null = null;
 const makeTerrain = (m: RwMsg, dem: TerrainOptions["dem"] | undefined): RwTerrain => createTerrain({
 	renderer: renderer!, requestDraw: () => { dirty = true; kick(); },
-	exag: m.terrainExag!, earthM: m.earthM!, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr, noNear: !!m.noNearTerr, r01Zoom: m.r01Zoom! > 0 ? m.r01Zoom : undefined,
+	exag: m.terrainExag!, earthM: m.earthM!, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr, hpx: m.hpxTerr === 2 ? 2 : !!m.hpxTerr, noNear: !!m.noNearTerr, r01Zoom: m.r01Zoom! > 0 ? m.r01Zoom : undefined,
 	gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
 	dem: dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
 	dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.ts から渡す（接地リフトと失効判定の根拠）

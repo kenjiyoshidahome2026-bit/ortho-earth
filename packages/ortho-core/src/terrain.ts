@@ -5,6 +5,8 @@
 import { unproject, cameraState, lonlatTo3D, betaToLonLat, WORLD_PX } from "./camera.ts";
 import { downsampleFlipped, cropResample, SEA_FLOOR } from "./elevation.ts";
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.ts";
+import { createHpxElevSource } from "./elevation/healpixsrc.ts";   // 標高の HEALPix タイル（?hpx=1・docs/design/healpix.md）
+import type { HpxElevSource } from "./elevation/healpixsrc.ts";
 import { createDemSource } from "./dem-src.ts";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
 import type { CameraPose, CameraState, LonLat } from "./camera.ts";
 import type { ElevGrid, ElevTileGrid } from "./elevation.ts";
@@ -26,6 +28,8 @@ export interface TerrainOptions {
 	r01Zoom?: number; dtm?: DtmDecl | null; dem?: DemSpecInput | QmeshSpecInput | null; gMax?: number | null;
 	/** 検定用：標高タイルの読み手を直に渡す（無ければ createTileLoader＝altpbf） */
 	tileLoader?: TileLoader | null;
+	/** R10 のセル（近窓・遠景層）を HEALPix の標高タイル（GIS/hpx/elev）から埋める（既定は従来の R10 の生タイル）。true＝HEALPix の方が取り寄せが軽い密度だけ（Norder 3・4＝?hpx=1）・2＝R10 のセル全部（Norder 5 まで＝?hpx=2・継ぎ目の目視用）。源を直に渡すのは検定用 */
+	hpx?: boolean | 2 | HpxElevSource | null;
 }
 /** 視野を覆うセル窓（range 刻みの原点セルと枚数・cellRes＝1 セルの texel） */
 export interface CellWindow { range: number; originCX: number; originCY: number; cellsX: number; cellsY: number; cellRes: number; wanted?: Set<string> | null }
@@ -57,8 +61,10 @@ export function clipToDTM(box: number[] | null | undefined, dtm: number[] | null
 // 未申告＝保証なし＝接地リフトをしない（建物は海面高に置く）。地域の知識はアプリが持つ（2026-09-17）。
 // dem＝外来の標高タイル（raster-dem の spec・#36）。R01・R10 のセルを上書きする（DEM が有効な画素だけ・無い所は altpbf の標高のまま）。
 //   dem.dtm＝true（裸地の申告）なら、地域の申告が無い所ではその範囲で接地リフトしてよい。setDem(spec|null) で生き替え。
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, noNear = false, r01Zoom = 13, dtm = null, dem = null, gMax = null, tileLoader = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, noNear = false, r01Zoom = 13, dtm = null, dem = null, gMax = null, tileLoader = null, hpx = null }: TerrainOptions): Terrain {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
 	const dtmDecl = dtm || null;
+	const hpxSrc: HpxElevSource | null = hpx === true || hpx === 2 ? createHpxElevSource({ apiUrl, lowMem, skipAbove: hpx === 2 ? null : 4 }) : hpx || null;
+	if (hpxSrc) console.log(`[terrain] hpx=${hpx === 2 ? 2 : 1} (R10 cells from HEALPix elevation tiles)`);
 	const S = self as unknown as PerfSelf;
 	// 計器 a（perf plan §1・?perf=1）：セル 1 枚の再標本化（resample）と GPU への上げ（upload＝f16 変換＋writeTexture 発行）の時間。
 	// どちらも描画スレッド＝4ms 超は 1 フレーム落ちの引っ掛かり＝即 console・累計は self.__perfHitch.elev（mem テレメトリで main へ）。
@@ -343,6 +349,17 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const tile = await getCell(-180 + cx * 90, -90 + cy * 90, 90);
 		return tile ? rsDown(tile, N) : null;
 	}
+	// R10 のセル（近窓・遠景層）＝?hpx=1 なら HEALPix の標高タイルから（セルの密度に合う order・docs/design/healpix.md）。
+	// 外来の DEM が掛かるセル・HEALPix が取れない時（未アップロード・通信断）は従来の R10 の生タイル＝絵は欠けない。max＝そのセルの最大標高（遠景層の地平の見積もり）
+	async function cell10(cellLng: number, cellLat: number, N: number): Promise<{ payload: CellPayload; max: number } | null> {
+		const lngN = ((cellLng % 360) + 540) % 360 - 180;
+		if (hpxSrc && !demSrc?.covers(lngN, cellLat, 10)) {
+			const gen = demGen, c = await hpxSrc.cell(lngN, cellLat, 10, N, seafloor);
+			if (c && gen === demGen) return { payload: c.grid, max: c.max };
+		}
+		const t = await getCell(cellLng, cellLat, 10);
+		return t ? { payload: rsDown(t, N), max: gridMax(t) } : null;
+	}
 	// 全球の先読み＝アトラス 1 本（16MB）。無ければ従来の R90 8 枚（lowMem は 117MB＝従来どおり見送り＝オンデマンド）
 	const prefetchWorld = (): Promise<void> => getWorldAtlas().then(a => { if (!a && !lowMem) for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) getCell(lng, lat, 90); });
 	// ラベル位置の標高(m)。キャッシュ済みの最も細かいセルから（R01→R10→R90 フォールバック→全球アトラス）
@@ -355,6 +372,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			tile = r10Tiles.get(range + "," + cx0 + "," + cy0);
 			if (tile) break;
 		}
+		if (hpxSrc && (!tile || tile.range === 90)) { const v = hpxSrc.sample(lon, lat); if (v !== null) return v; }   // ?hpx=1＝R10 の生タイルは手元に無い＝HEALPix から埋めたセルで引く
 		if (!tile) return worldAtlas ? sampleWorldAtlas(worldAtlas, lon, lat) : 0;   // R90 生タイルはアトラス運用では LRU に来ない＝床はアトラス
 		const cx = tile.lng, cy = tile.lat, range = tile.range;
 		const { data, width: w, height: h } = tile;
@@ -376,7 +394,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			tile = r10Tiles.get(range + "," + Math.floor(lon0 / range) * range + "," + Math.floor(lat0 / range) * range);
 			if (tile) break;
 		}
-		if (!tile) return sampleElev;
+		if (!tile || (hpxSrc && tile.range === 90)) return sampleElev;   // ?hpx=1＝R90 しか無い所は HEALPix のセルを先に見る（sampleElev）
 		const cx = tile.lng, cy = tile.lat, range = tile.range, { data, width: w, height: h } = tile, sea = seaOf(tile);
 		return (lon: number, lat: number): number => {
 			if (lon < cx || lon >= cx + range || lat < cy || lat >= cy + range) return sampleElev(lon, lat);
@@ -616,6 +634,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			} else {
 				// R90（世界 4×2 固定窓・originCX=-2/originCY=-1）＝全球アトラスの切り出し。R10/R01＝生タイル→downsampleFlipped
 				const cellP: Promise<CellPayload | null> = range === 90 ? cell90(r.originCX + cx + 2, r.originCY + cy + 1, r.cellRes)
+					: range === 10 ? cell10(cellLng, cellLat, r.cellRes).then(c => c ? c.payload : null)
 					: getCell(cellLng, cellLat, range).then(t => t ? rsDown(t, r.cellRes) : null);
 				cellP.then(tile => {
 					pendingElev--; notifyPending(range);
@@ -665,7 +684,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				const cellLng = (fr.originCX + cx) * farSpan, cellLat = (fr.originCY + cy) * farSpan;
 				pendingElev++; notifyPending(farSpan);
 				const farP: Promise<CellPayload | null> = farSpan === 90 ? cell90(fr.originCX + cx + 2, fr.originCY + cy + 1, fr.cellRes)   // 世界帯の床＝全球アトラス
-					: getCell(cellLng, cellLat, farSpan).then(t => { if (t && farKey === fkey) { const m = gridMax(t); if (m > farMax) { farMax = m; renderer.set("elevFarMax", farMax); } } return t ? rsDown(t, fr.cellRes) : null; });
+					: cell10(cellLng, cellLat, fr.cellRes).then(c => { if (c && farKey === fkey && c.max > farMax) { farMax = c.max; renderer.set("elevFarMax", farMax); } return c ? c.payload : null; });
 				farP.then(tile => {
 					pendingElev--; notifyPending(farSpan);
 					if (tile && farKey === fkey) { putCell("elevCellFar", tile, cx, cy, fr.cellRes); farWritten.add(ck); }

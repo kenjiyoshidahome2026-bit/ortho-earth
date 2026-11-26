@@ -4,7 +4,7 @@
 `docs/notes/raster-tiles.md` の残「非メルカトルのタイル行列」の答え。外来の物（地理院・PMTiles・MapLibre／Cesium の顔）はメルカトルのまま。
 
 - 純関数：`packages/ortho-core/src/healpix.ts`（検定 `tests/healpix.mjs`＝healpy 1.20 の値と突き合わせ）
-- 標高を読む：`packages/ortho-core/src/elevation/healpixread.ts`（経緯度の窓を HEALPix タイルから埋める・検定 `tests/healpix-read.mjs`）
+- 標高を読む：`packages/ortho-core/src/elevation/healpixread.ts`（経緯度の窓を HEALPix タイルから埋める・検定 `tests/healpix-read.mjs`）・`healpixsrc.ts`（地形のセルとして出す源・`?hpx=1`・検定 `tests/terrain-hpx.mjs`）
 - 標高の焼き：`packages/ortho-core/src/elevation/healpixbake.ts`（検定 `tests/healpix-bake.mjs`）・`packages/ortho-core/scripts/bake-healpix-elev.mjs`
 - 本人向けの設計案＝Claude Doc「HEALPixタイルをV3の中核に据える設計案」
 
@@ -62,7 +62,13 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min
 1. 規約 ── この文書（タイルの中の座標は V3 の方式として仮決め・HiPS の画素の向きにはそろえない）。
 2. 純関数と検定 ── 済。
 3. 焼き手 ── 済（合成の大元で検定・試作の Python 版 `make_tiles.py` と同じ入力で画素が一致＝差は丸めの 1）。本物の R90 は Mac で焼けた（252 枚・14 秒・2026-11-27）。R10 も焼けた（16,128 枚・990 秒・無いセル 0）＝ Norder 0〜5 の 16,380 枚が揃った。
-4. 読む側 ── 未着手。ラスタ層の源 `scheme: "healpix"`（`raster-src.ts`／`raster.ts`）と選抜（`selectLOD` の兄弟）。描画は先に地面アトラスへ焼く方式、画素ごとに引く方式（試作）は全球帯だけ後から。フラグの裏で入れる。
+4. 読む側 ── 最初の読み手＝地形（本人裁定 2026-11-27「地形の大元として読む」）。`?hpx=1` の時、地形の R10 のセル（近窓・遠景層）を HEALPix タイルから埋める
+   （`src/elevation/healpixsrc.ts`・`terrain.ts` の `cell10`・検定 `tests/terrain-hpx.mjs`）。描く側（アトラス・シェーダ）は経緯度の窓のまま＝GL2／WebGPU とも無変更。
+   - セルの密度に合う order を選ぶ（`hpxOrderFor`）。10° のセル 1 枚の取り寄せ＝Norder 3：タイル 4〜5 枚（1.3 Mpx）・Norder 4：12 枚（3.1 Mpx）・Norder 5：36 枚（9.4 Mpx）。R10 の生タイルは 1 枚 5.76 Mpx。
+   - `?hpx=1`＝HEALPix の方が軽い密度（Norder 3・4＝1 セル約 1,400 texel まで）だけ HEALPix・それより細かい窓は従来の R10。`?hpx=2`＝R10 のセル全部を HEALPix から（Norder 5 まで＝継ぎ目の目視用）。
+   - 落ちる先：HEALPix に届かない（未アップロード・通信断）・外来の DEM が掛かるセル＝従来の R10。R90（全球アトラス 1 本）・R01・混成窓の R10 切り出し・近景層は従来のまま。
+   - 標本化は CPU（描画ワーカー・行の束ごとに手を放す）＝1 セル 512² で約 80 ms・1024² で約 180 ms（クラウドの器の Node で計測）。実機の体感と、GPU へ移すかは目視の後に決める。
+   - 画像のラスタ層の源 `scheme: "healpix"`・画素ごとに引く方式（試作）は未着手。
 5. 継ぎ目と極の目視 → 広げるか（全球標高アトラス `WORLD1024_1`・極の蓋／扇の乗り換え）の判断。既定を切り替えるならそこが 3.0。
 
 ## 4. 轍
