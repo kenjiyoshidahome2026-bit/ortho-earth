@@ -53,7 +53,8 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min
 
 目で確かめる＝`node packages/ortho-core/scripts/hpx-elev-preview.mjs --order 5 --bbox 128,30,146,46 --width 2400`（正距円筒の段彩 PNG・`--grid` でタイルの境）。
 
-出力は `bake-out/hpx/elev/`（gitignore）。置き場（R2 のどこか）と uploader のボタンは未定。
+出力は `bake-out/hpx/elev/`（gitignore）。置き場＝bucket の `GIS/hpx/elev/`（焼きの出力と同じパス＝`Norder{k}/Dir{d}/Npix{n}.altpbf`・`properties`・`index.json`）。
+上げるのは uploader のボタン「HEALPix の標高タイル（bake-out/hpx/elev）→ GIS/hpx/elev」（24 本並べる・途中で閉じても続きから・`index.json` は最後）。
 
 ## 3. 段取り
 

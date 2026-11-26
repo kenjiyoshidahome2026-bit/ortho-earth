@@ -27,7 +27,7 @@ import { worldAtlas } from "./terrain/worldatlas.ts";
 import { worldUI } from "./world/index.ts";
 import { modelsUI } from "./models.ts";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
 import { sharedData } from "./shared-data.ts";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）
-import { altTiles, nlftpCatalog, plateauBake, walkJapan } from "./bake-out.ts";   // 焼きスクリプトの出力（bake-out/）→ GIS/alt・catalog/（スクリプトは鍵を読まない・2026-10-15）
+import { altTiles, nlftpCatalog, plateauBake, walkJapan, hpxElev } from "./bake-out.ts";   // 焼きスクリプトの出力（bake-out/）→ GIS/alt・catalog/（スクリプトは鍵を読まない・2026-10-15）
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -58,6 +58,7 @@ const MENU: [string, [string, Run][]][] = [
 		["below-sea land (GEBCO×admin0)", belowSeaLand],
 		["world hypso atlas (R90×8 → 1枚)", worldAtlas],   // R90 を GEBCO で更新してから
 		["標高タイル（bake-out/alt）→ GIS/alt", altTiles],   // 日本の R01（DEM10B）・R10（GEBCO+DEM10B）＝apps/ortho-japan/scripts/bake-dem10b.mjs・bake-r10-jp.mjs が焼いた物
+		["HEALPix の標高タイル（bake-out/hpx/elev）→ GIS/hpx/elev", hpxElev],   // packages/ortho-core/scripts/bake-healpix-elev.mjs が焼いた物（Norder 0〜5・16,380 枚・docs/design/healpix.md）
 	]],
 	["日本", [
 		["KSJ 鉄道/高速道路 (N02/N06)", japan.ksj],

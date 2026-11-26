@@ -12,7 +12,7 @@
 // 目安（タイル幅 512）：1 画素＝58.6°/(512·2^order)。order 2＝0.029°（R90 の 0.033° 相当）・order 5＝0.0036°（R10 の 0.0042° 相当）。
 // 出力：bake-out/hpx/elev/Norder{k}/Dir{d}/Npix{n}.altpbf（HiPS の置き場・中身は altpbf＝名前 H{order}P{npix}・Int16・行優先）＋ properties ＋ index.json。
 // 大元の取り寄せ：--src-dir に在ればそれ・無ければ https://api.ortho-earth.com/bucket/GIS/alt/<名前> から取って --src-dir に控える（鍵は読まない）。
-// 上げるのは uploader のボタンから（R2 へ出す物は uploader から＝本人 2026-09-30）＝ボタンは未作成（置き場が決まってから）。
+// 上げるのは uploader のボタン「HEALPix の標高タイル（bake-out/hpx/elev）→ GIS/hpx/elev」（R2 へ出す物は uploader から＝本人 2026-09-30）。
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
@@ -106,9 +106,10 @@ for (let n = 0; n < hpxCount(MIN); n++) { if (FACE !== null && Math.floor(n / pe
 // ── 目録（HiPS の properties と、uploader が読む index.json）＝全面を焼いた時だけ書く（面 1 つの試し焼きで目録を潰さない）──
 if (FACE === null) {
 	const idxFile = path.join(OUT, "index.json");
-	const prev = existsSync(idxFile) ? JSON.parse(readFileSync(idxFile, "utf8")) : [];
-	const all = [...new Set([...prev, ...written])].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
-	writeFileSync(idxFile, JSON.stringify(all) + "\n");
+	// 目録＝{ made（焼いた時刻＝uploader の「同じ焼きなら何もしない・続きから」の鍵）, width, tiles }。旧い形（パスの配列だけ・2026-11-27 まで）も読んで継ぐ
+	const old = existsSync(idxFile) ? JSON.parse(readFileSync(idxFile, "utf8")) : [];
+	const all = [...new Set([...(Array.isArray(old) ? old : old.tiles || []), ...written])].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+	writeFileSync(idxFile, JSON.stringify({ made: new Date().toISOString(), width: W, tiles: all }) + "\n");
 	const orders = all.map(p => +/^Norder(\d+)/.exec(p)[1]);
 	writeFileSync(path.join(OUT, "properties"), [
 		"obs_title = Ortho Earth elevation (HEALPix)",
