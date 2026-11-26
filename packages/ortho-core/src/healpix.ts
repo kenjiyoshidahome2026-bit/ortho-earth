@@ -49,13 +49,13 @@ export function locToXYF(z: number, phi: number, out: HpxXYF = { face: 0, x: 0, 
 	const za = Math.abs(z);
 	let tt = (phi * 2 / Math.PI) % 4; if (tt < 0) tt += 4; if (tt >= 4) tt = 0;
 	if (za <= 2 / 3) {   // 赤道帯
-		const jp = 0.5 + tt - 0.75 * z, jm = 0.5 + tt + 0.75 * z, ifp = Math.floor(jp), ifm = Math.floor(jm);
+		const jP = 0.5 + tt - 0.75 * z, jM = 0.5 + tt + 0.75 * z, ifp = Math.floor(jP), ifm = Math.floor(jM);
 		out.face = ifp === ifm ? (ifp | 4) : ifp < ifm ? ifp : ifm + 8;
-		out.x = jm - ifm; out.y = 1 - (jp - ifp);
+		out.x = jM - ifm; out.y = 1 - (jP - ifp);
 	} else {   // 極の冠
 		const ntt = Math.min(3, Math.floor(tt)), tp = tt - ntt, tmp = Math.sqrt(3 * (1 - za));
-		const jp = tp * tmp, jm = (1 - tp) * tmp;
-		if (z > 0) { out.face = ntt; out.x = 1 - jm; out.y = 1 - jp; } else { out.face = ntt + 8; out.x = jp; out.y = jm; }
+		const jP = tp * tmp, jM = (1 - tp) * tmp;
+		if (z > 0) { out.face = ntt; out.x = 1 - jM; out.y = 1 - jP; } else { out.face = ntt + 8; out.x = jP; out.y = jM; }
 	}
 	// 面の縁ちょうど（丸めで 1 や負になる）を面の内側へ
 	out.x = out.x < 0 ? 0 : out.x >= 1 ? 1 - 2 ** -53 : out.x; out.y = out.y < 0 ? 0 : out.y >= 1 ? 1 - 2 ** -53 : out.y;
