@@ -32,12 +32,15 @@ const BACK = (() => {
 // その球の視点を呼び出し元の hash へ載せて戻る＝japan が同じ球で開く。重ねて開いた時（embed）の「地球儀＝japan へ返す」と同じ動き
 if (BACK && MORPH && !EMBED) {
 	let leaving = false;
-	addEventListener("pageshow", e => { if (e.persisted) { leaving = false; void app.morphIn(); } });   // ブラウザの「進む」で bfcache から戻った＝留まっていた球から開き直す（もう一度畳める）
+	addEventListener("pageshow", e => { if (e.persisted) location.reload(); });   // bfcache から戻された＝畳んだ後の抜け殻（下の destroy）＝読み直す
 	app.on("parked", v => {
 		const s = v as { zoom: number; lat: number; lon: number } | undefined;
 		if (leaving || !s) return; leaving = true;
 		const rest = BACK.hash.replace(/^#/, "").split("/").filter(Boolean).slice(3);
 		const u = new URL(BACK.href); u.hash = "#" + [s.zoom.toFixed(2), s.lat.toFixed(5), s.lon.toFixed(5), ...rest].join("/");
+		// 移る前に畳む＝GPU・配列を今すぐ手放す（iOS Safari は離れた頁を bfcache に生かす＝畳まないと戻り先の地図と同時にメモリへ乗る）
+		document.documentElement.style.background = document.body.style.background = "#000";   // 球のフレームの地色のまま渡す
+		try { app.destroy(); } catch (e) { console.warn("[equal] destroy before leaving", e); }
 		location.href = u.href;
 	});
 }
