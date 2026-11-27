@@ -74,7 +74,7 @@ export const healpixGrid: TileGrid<HpxTile> = {
 		};
 	},
 	bounds(t) {
-		const [cl] = nestToLonLat(t.order, t.npix); let w = Infinity, e = -Infinity, s = 90, n = -90, pole = false;
+		const cl = nestToLonLat(t.order, t.npix)[0]; let w = Infinity, e = -Infinity, s = 90, n = -90, pole = false;
 		for (const [lon, lat] of hpxBoundary(t.order, t.npix, 8)) {
 			if (lat < s) s = lat; if (lat > n) n = lat;
 			if (Math.abs(lat) > 90 - 1e-9) { pole = true; continue; }   // 極の点の経度は意味が無い
