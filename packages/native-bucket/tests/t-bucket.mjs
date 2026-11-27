@@ -95,6 +95,10 @@ await t("Range は要る分だけ 206 で返す（PMTiles の部分読み）", a
 	const realGet = R2.get; R2.get = async (k, o) => ({ ...(await realGet(k, o)), httpMetadata: { contentEncoding: "gzip" } }); const realHead = R2.head; R2.head = async k => ({ ...(await realHead(k)), httpMetadata: { contentEncoding: "gzip" } });
 	objs.set("GIS/z.json", "abcdef");
 	eq(await rg("bytes=1-2", "GIS/z.json"), "200||6|abcdef", "gzip で置いた物は Range を見ずに全体");
+	R2.get = async (k, o) => ({ ...(await realGet(k, o)), httpMetadata: { contentEncoding: "null" } }); R2.head = async k => ({ ...(await realHead(k)), httpMetadata: { contentEncoding: "null" } });
+	objs.set("GIS/n.zip", "abcdef");
+	eq(await rg("bytes=1-2", "GIS/n.zip"), "206|bytes 1-2/6|2|bc", "昔の put が残した文字列 \"null\" は「縮めていない」＝Range が効く");
+	{ const r = await bucket(new Request(BASE + "GIS/n.zip"), R2, ctx, ENV); await settle(); eq(r.headers.get("Content-Encoding") || "", "", "全体の応答に content-encoding: null を出さない"); }
 	R2.get = realGet; R2.head = realHead;
 });
 

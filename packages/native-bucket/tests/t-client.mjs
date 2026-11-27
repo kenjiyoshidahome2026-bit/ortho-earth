@@ -133,7 +133,7 @@ const gz = async u8 => new Uint8Array(await new Response(new Blob([u8]).stream()
 	ok("put：圧縮できる物は gzip で置く", objs.get("dir/a.json")?.meta.contentEncoding === "gzip" && n === objs.get("dir/a.json").bytes.length && n > 0);
 	ok("get：伸ばして返す（json・text・arrayBuffer・blob）", same(await B.get("a.json", "json"), { v: 1 }) && await B.get("a.json", "text") === '{"v":1}' && (await B.get("a.json", "arrayBuffer")).byteLength === 7 && (await B.get("a.json")).size === 7);
 	await B.put(new File([new Uint8Array([137, 80, 78, 71])], "p.png"));
-	ok("put(File)：名前は File から・png は縮めない", objs.get("dir/p.png")?.meta.contentEncoding === null && objs.get("dir/p.png").bytes.length === 4);
+	ok("put(File)：名前は File から・png は縮めない", objs.get("dir/p.png")?.meta.contentEncoding === undefined && objs.get("dir/p.png").bytes.length === 4);
 	const m = await B.meta("a.json");
 	ok("meta：Key は名前だけ・ETag は引用符なし", m.Key === "a.json" && m.ETag === objs.get("dir/a.json").etag && m.Size === objs.get("dir/a.json").bytes.length);
 	ok("meta：無い＝null・exist・etag", await B.meta("none") === null && await B.exist("a.json") && !(await B.exist("none")) && await B.etag("none") === null && await B.etag("a.json") === m.ETag);
@@ -151,7 +151,7 @@ const gz = async u8 => new Uint8Array(await new Response(new Blob([u8]).stream()
 	ok("multipart の本体は元と同じ", objs.get("dir/big.png").bytes[4096 * 7] === big[4096 * 7] && objs.get("dir/big.png").bytes[big.length - 4096] === big[big.length - 4096]);
 	// PMTiles は丸ごと縮めない（中のタイルが既に gzip・Range で読む物）＝Content-Encoding を付けない
 	await B.put(new File(["PMTiles-like plain text body ".repeat(50)], "t.pmtiles", { type: "application/vnd.pmtiles" }));
-	ok("put：.pmtiles は縮めない", objs.get("dir/t.pmtiles")?.meta.contentEncoding === null && objs.get("dir/t.pmtiles").bytes.length === 29 * 50 && objs.get("dir/t.pmtiles").meta.contentType === "application/vnd.pmtiles");
+	ok("put：.pmtiles は縮めない", objs.get("dir/t.pmtiles")?.meta.contentEncoding === undefined && objs.get("dir/t.pmtiles").bytes.length === 29 * 50 && objs.get("dir/t.pmtiles").meta.contentType === "application/vnd.pmtiles");
 	// multipart のやり直し：部品の 503 と回線断は待ってやり直す・401 はやり直さない
 	{
 		const real = globalThis.fetch; let hits = 0, calls = 0;
