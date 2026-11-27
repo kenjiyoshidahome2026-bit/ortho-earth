@@ -6,7 +6,7 @@
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs                      # 日本の PBF（無ければ Geofabrik から約 2.3 GB）→ Norder 4..12
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs --pbf=<file.osm.pbf>  # 手元の PBF（県・地方の PBF＝試し焼き）
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs --box=139.5,35.5,140,35.9   # 範囲だけ
-//   … --order=12 --min-order=4 --extent=4096 --out=bake-out/hpx/osm --jobs=<働き手の数> --readers=2
+//   … --order=12 --min-order=4 --extent=4096 --out=bake-out/hpx/osm --jobs=<働き手の数> --readers=2 --pack-only（残っている仮の束から詰め直す） --keep-tmp（仮の束を消さない）
 //   … --lines=<a.geojsonl> --polys=<b.geojsonl>   # ogr2ogr の代わりに GeoJSONSeq を直に読む（検定用）
 // 層（Protomaps の層名と kind に寄せる＝今の style が効きやすい）と、出し始める段（Norder k ≒ メルカトルの z k+2.6）:
 //   roads     … 道（kind＝highway／major_road／minor_road／path・kind_detail＝highway の値）と鉄道（kind＝rail）
@@ -145,7 +145,8 @@ function worker() {
 // ═══ 親：読む口を回して行を配る → 束を配って詰めさせる → 目次 ═══
 async function main() {
 	const t0 = Date.now(); let pbf = opt("pbf"), source = "OpenStreetMap";
-	if (!LINES && !POLYS) {
+	const PACK_ONLY = process.argv.includes("--pack-only");   // 読む・切るを飛ばして、残っている仮の束（<out>-tmp）から詰め直す（詰める段で落ちた時のやり直し）
+	if (!LINES && !POLYS && !PACK_ONLY) {
 		if (!pbf) {
 			pbf = path.join(OSM, "japan-latest.osm.pbf");
 			if (!fs.existsSync(pbf)) { fs.mkdirSync(OSM, { recursive: true }); console.log(`PBF を取る：${GEOFABRIK}`); execFileSync("curl", ["-fL", "--retry", "5", "-o", pbf + ".part", GEOFABRIK], { stdio: "inherit" }); fs.renameSync(pbf + ".part", pbf); }
@@ -153,7 +154,8 @@ async function main() {
 		try { execFileSync("ogr2ogr", ["--version"], { stdio: "ignore" }); } catch { console.error("ogr2ogr が無い＝brew install gdal"); process.exit(1); }
 		source = `OpenStreetMap（${path.basename(pbf)}）`;
 	}
-	fs.rmSync(TMP, { recursive: true, force: true }); fs.mkdirSync(TMP, { recursive: true });
+	if (PACK_ONLY && !fs.existsSync(TMP)) { console.error(`--pack-only：仮の束が無い（${path.relative(ROOT, TMP)}）`); process.exit(1); }
+	if (!PACK_ONLY) { fs.rmSync(TMP, { recursive: true, force: true }); fs.mkdirSync(TMP, { recursive: true }); }
 	console.log(`[hpx-osm] Norder ${MIN}..${MAX}・刻み ${EXT}${BOX ? `・範囲 ${BOX.join(",")}` : ""}・働き手 ${JOBS} → ${path.relative(ROOT, OUT)}`);
 
 	// 働き手の群れ：仕事（msg）を空いた働き手へ。返事 1 つで 1 仕事が終わる
@@ -195,8 +197,9 @@ async function main() {
 	}
 	// 線と面を同時に読むのは --readers=2 の時だけ：面を読む ogr2ogr は日本全体で 100 GB 超の記憶を使った（Mac で実測・2026-11-27）＝既定は 1 本ずつ
 	const fl = () => LINES || pbf ? feed("lines", LINES, ["highway", "railway", "waterway"]) : null, fp = () => POLYS || pbf ? feed("multipolygons", POLYS, ["building", "natural", "landuse", "waterway"]) : null;
-	if (+opt("readers", 1) >= 2) await Promise.all([fl(), fp()]); else { await fl(); await fp(); }
-	idle.length = 0; await Promise.all(ws.map(w => new Promise(done => { w.job = { done }; w.postMessage({ flush: 1 }); })));   // 全員の残りを書き出す（1 人ずつ名指しで＝返事で空きに戻る）
+	if (PACK_ONLY) console.log("読む・切るは飛ばす（--pack-only）"); else if (+opt("readers", 1) >= 2) await Promise.all([fl(), fp()]); else { await fl(); await fp(); }
+	if (!PACK_ONLY) { idle.length = 0; await Promise.all(ws.map(w => new Promise(done => { w.job = { done }; w.postMessage({ flush: 1 }); })));   // 全員の残りを書き出す（1 人ずつ名指しで＝返事で空きに戻る）
+	}
 	tick(true);
 	const seen = st.lines.seen + st.multipolygons.seen, used = st.lines.used + st.multipolygons.used, tRead = (Date.now() - t0) / 1000;
 	console.log(`\n読み終わり：${seen} 件を見た・採った ${used} 件・タイルの切れ ${pieces}・${tRead.toFixed(0)} 秒`);
@@ -210,7 +213,7 @@ async function main() {
 		process.stdout.write(`\rタイル：${written.length} 枚・${(bytes / 1e6).toFixed(0)} MB   `);
 	})));
 	for (const w of ws) await w.terminate();
-	fs.rmSync(TMP, { recursive: true, force: true });
+	if (!process.argv.includes("--keep-tmp")) fs.rmSync(TMP, { recursive: true, force: true });
 	written.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 	fs.writeFileSync(path.join(OUT, "index.json"), JSON.stringify({ made: new Date().toISOString(), source: `${source}・© OpenStreetMap contributors・ODbL`, layers: LAYERS, minOrder: MIN, maxOrder: MAX, extent: EXT, tiles: written, bytes }) + "\n");
 	const orders = Object.keys(perOrder).map(Number).sort((a, b) => a - b), tAll = (Date.now() - t0) / 1000;
