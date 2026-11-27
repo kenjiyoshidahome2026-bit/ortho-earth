@@ -286,7 +286,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const cpu = b.tier(thr);
 		t = { lines: cpu.lines ? R.instanceVAO(cpu.lines, 3) : null, fills: cpu.fills ? R.instanceVAO(cpu.fills, 4) : null };
 		L.gpu.set(thr, t);
-		while (L.gpu.size > GPU_TIERS) { const [k0, old] = L.gpu.entries().next().value!; L.gpu.delete(k0); R.freeVAO(old.lines); R.freeVAO(old.fills); if (LOW_MEM) b.tiers.delete(k0); }   // 層あたり 4 段まで常駐（GPU メモリ）・低メモリ端末は 2 段で CPU 側の並びも一緒に捨てる（戻れば作り直す）
+		b.tiers.delete(thr);   // GPU へ載せたら CPU 側の並びは要らない（bufferData/writeBuffer は写しを取る）。旧＝作った段を全部持ち続けていた（実測 2026-11-27：108〜161MB）
+		while (L.gpu.size > GPU_TIERS) { const [k0, old] = L.gpu.entries().next().value!; L.gpu.delete(k0); R.freeVAO(old.lines); R.freeVAO(old.fills); }   // 層あたり 4 段まで常駐（GPU メモリ）・低メモリ端末は 2 段（戻れば作り直す）
 		return t;
 	}
 
@@ -451,10 +452,11 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	function warmTiers(): void {
 		if (destroyed || morph || raf || LOW_MEM) return;   // 低メモリ端末は先回りしない（並びを余分に持たない）
 		const thr = lodThreshold(view.zoom);
+		for (const L of layers) if (L.baked?.tiers.size) for (const k of [...L.baked.tiers.keys()]) if (k !== thr - 3 && k !== thr + 3) L.baked.tiers.delete(k);   // 先回りで作ったまま使わなかった段＝今の隣でなくなったら捨てる（CPU 側に残るのは隣の 2 段まで）
 		for (const t of [thr - 3, thr + 3]) {
 			if (t < 0 || t > 63) continue;
 			for (const L of layers) {
-				if (!L.on || L.status !== "ready" || L.def === GRATICULE || L.baked!.kind === "point" || L.baked!.tiers.has(t)) continue;
+				if (!L.on || L.status !== "ready" || L.def === GRATICULE || L.baked!.kind === "point" || L.baked!.tiers.has(t) || L.gpu?.has(t)) continue;
 				L.baked!.tier(t);
 				warmT = setTimeout(warmTiers, 30);
 				return;
