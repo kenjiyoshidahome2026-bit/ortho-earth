@@ -16,7 +16,6 @@
 import { gadgetStack } from "./stack.ts";
 import { registerKeyOwner, claimKeys } from "./keys.ts";   // 重ねている間はキー（矢印・Esc・ショートカット）を equal が握る＝下の地図へ漏らさない（#173 段 3 の持ち主）
 import { tr, getLang } from "../i18n.ts";
-import { lowMem } from "../boot/tier.ts";   // 低メモリ端末（≤4GB・iOS はタッチ端末を一律）＝globe 本体と同じ物差し・同じ戻し口（?lowmem=1/0）
 import type { ContextMenuItem, EqualOptions, LonLat } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
@@ -66,7 +65,9 @@ export async function goEqual(map: GlobeMap, { url, center, morph: doMorph = tru
 	//（実測：開く前から GPU +0.5〜0.8GB・うち 0.4〜0.9GB は隠れている下の地図の分）＝タブが落ちる。頁を移れば下の地図は丸ごと解放される。
 	// equal の頁は ?morph（同じ球のフレームから開く）と ?back=（「← 戻る」＝球へ畳んで、その視点を hash に載せてこの頁へ戻る）を元から持つ＝
 	// 絵の繋がりは同じで、戻りだけこの頁の読み直しになる。back からは ?start=equal を抜く（戻った途端にまた開かない）
-	if (/[?&]lowmem=1/.test(location.search) || (!/[?&]lowmem=0/.test(location.search) && lowMem(navigator))) {
+	// 2026-11-27 夕：実機（iPhone 16 Pro）で「球のフレームの後に地球が出ない」が #1237・#1240 の後も続く（エミュレーションでは再現せず・原因未特定）＝
+	// 自動の判定（lowMem）では移らず、元の「重ねて開く」へ戻す。頁を移る道は ?lowmem=1 を付けた時だけ（実機での切り分け用に残す）
+	if (/[?&]lowmem=1/.test(location.search)) {
 		const back = new URL(location.href); back.searchParams.delete("start");
 		const u = new URL(dest, location.href);
 		u.searchParams.set("lang", getLang()); if (morph) u.searchParams.set("morph", morph);
