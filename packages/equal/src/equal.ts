@@ -51,8 +51,15 @@ const MAX_ZOOM = 8;   // NE 10m の縮尺の天井（本人 2026-09-18「maxZoom
 let geopbfReady = false;
 const ensureGeopbf = (): void => { if (!geopbfReady) { createGeopbf(API, { bucket: nativeBucket as BucketProvider, prewarm: true }); geopbfReady = true; } };   // prewarm＝復号レーンを先に起こす（起動直後に 4 層を必ず解く＝立ち上げを DB/IDB 待ちと重ねる）
 // 低メモリ端末＝globe の boot/tier.ts lowMem と同じ物差し（deviceMemory ≤4GB・deviceMemory の無い iOS/iPadOS はタッチ端末を一律）。
-// iOS はタブのメモリが尽きると黙って落ちる＝標高アトラス・近景の窓・段の常駐を絞る（下の LOW_MEM の各所）
-const LOW_MEM: boolean = typeof navigator !== "undefined" && ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory! <= 4 : navigator.maxTouchPoints > 1);
+// ?lowmem=1／0＝強制・解除（globe と同じ戻し口）。iOS はタブのメモリが尽きると黙って落ちる＝標高アトラス・近景の窓・段の常駐を絞る（下の LOW_MEM の各所）
+const LOW_MEM: boolean = (() => {
+	if (typeof navigator === "undefined") return false;
+	const search = typeof location !== "undefined" ? location.search : "";
+	if (/[?&]lowmem=1/.test(search)) return true;
+	if (/[?&]lowmem=0/.test(search)) return false;
+	const dm = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+	return dm ? dm <= 4 : navigator.maxTouchPoints > 1;
+})();
 const num01 = (v: string | null, d: number): number => { const n = parseFloat(v as string); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
 
 /** 層の状態：{ def, on, status, baked, vtx, gpu } */
@@ -397,7 +404,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 				else { morph = null; fadeTop(""); hoverDirty = true; syncGlobeBtn(); m.resolve(); emit("morph", 0); }
 			} else {
 				if (m.phase === "veil") { m.phase = "morph"; m.t0 = now; }
-				else { m.phase = "park"; m.resolve(); }
+				else { m.phase = "park"; m.resolve(); emit("parked", { zoom: m.sphere.zoom, lat: m.sphere.lat, lon: sphereLon() }); }   // 球へ畳み終えた＝球の視点（殻が呼び出し元へ戻る時の受け渡し）
 			}
 		}
 		if (morph && ((morph.phase !== "park" && !morph.hold) || more)) requestDraw();
