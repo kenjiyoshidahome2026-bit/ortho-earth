@@ -3,6 +3,7 @@
 // 建物の実メッシュ（正確な高さ/屋根）への"扉"の叩き台。
 import earcut from "earcut";
 import { tileLocalToLonLat } from "./tile.ts";
+import type { TileProj } from "./tilegrid.ts";
 import { polygons } from "./decode.ts";   // フラットgeom({coords,ends})→[flat, holes]（build と共用）
 import type { TileXYZ } from "./tile.ts";
 import type { DecodedTile, TileData } from "./tileformat.ts";
@@ -19,20 +20,21 @@ const ROOF = 1.0, WALL = 0.76;             // 陰影（屋根明／壁暗）
 /** style.schema.buildings＝どの層のどの属性が建物の種別と階層を表すか */
 export interface BuildingsSchema { layer: string; levelKey?: string | null; codeKey?: string | null; heightByCode?: Record<string, number> | null; defaultHeight?: number | null }
 export interface BuildingsSchemaHolder { buildings?: BuildingsSchema | null; [k: string]: unknown }
-export interface BuildingsTile extends TileXYZ { layers: TileData }
+export interface BuildingsTile extends TileXYZ { layers: TileData; /** メルカトルでないタイル（HEALPix）。省けばメルカトル */ proj?: TileProj | null }
 
 // 建物の押し出し。**どの層のどの属性が建物の種別と階層を表すかは style が申告する**（style.schema.buildings）。
 // エンジンはソースの名乗り方を知らない＝申告の無いソース（?pm= の任意アーカイブ等）では建物を出さない。
 //   schema.buildings = { layer, levelKey, codeKey, heightByCode:{コード:高さm}, defaultHeight }
 // 地理院 optimal_bvmap の申告は apps/ortho-japan/style-mono.js（3101 普通/3102 堅ろう/3103 高層/3111 無壁舎 など・2026-09-17）。
-export function buildBuildings({ layers, z, x, y }: BuildingsTile, origin: readonly number[], schema: BuildingsSchemaHolder | null = null, minZ = 14): BuildingsGeom | null {   // minZ＝立ち上げ始めるタイルの z（既定 14・非力な端末は上げる＝斜めの遠景の建物を平らに）
+export function buildBuildings({ layers, z, x, y, proj = null }: BuildingsTile, origin: readonly number[], schema: BuildingsSchemaHolder | null = null, minZ = 14): BuildingsGeom | null {   // minZ＝立ち上げ始めるタイルの z（既定 14・非力な端末は上げる＝斜めの遠景の建物を平らに）
 	const B = schema && schema.buildings;
 	if (!B) return null;                     // 語彙の申告が無いソース＝建物は立てない
 	const src = (layers as DecodedTile)[B.layer];
 	if (!src || z < minZ) return null;       // 建物は近景(高z)タイルのみ
 	const [ox, oy] = origin;
 	const pos: number[] = [], shade: number[] = [], anchor: number[] = [];
-	const toLL = (px: number, py: number): [number, number] => tileLocalToLonLat(x, y, z, px, py, src.extent);
+	const pjF = proj ? proj.toLonLat(src.extent, 0, 0) : null;
+	const toLL = pjF ? (px: number, py: number): [number, number] => { const o: [number, number] = [0, 0]; pjF(px, py, o, 0); return o; } : (px: number, py: number): [number, number] => tileLocalToLonLat(x, y, z, px, py, src.extent);
 
 	for (const f of src.features) {
 		if (B.levelKey && f.props[B.levelKey] !== 0) continue;        // 地上レベルのみ（階層の属性は申告側が指名）

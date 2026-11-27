@@ -17,7 +17,7 @@ export type GeoJSONGeometry =
 	| { type: "MultiPolygon"; coordinates: Position[][][] };
 /** タイルの地物（{ type, geom: { coords, ends } }）＝geojson の代わり（worker） */
 export interface GeoCtxFeat { type: string | undefined; geom: { coords: ArrayLike<number>; ends: number[] } | null }
-export interface GeoCtxTile { z: number; x: number; y: number; E?: number }
+export interface GeoCtxTile { z: number; x: number; y: number; E?: number; /** メルカトルでないタイルの写し手（在れば z/x/y でなくこれで経緯度へ・tilegrid.ts の TileProj） */ ll?: ((px: number, py: number, out: { [i: number]: number }, oi: number) => void) | null }
 /** featureGeomLL が読む ctx の項 */
 export interface GeoCtx { geojson?: GeoJSONGeometry | null; feat?: GeoCtxFeat | null; tile?: GeoCtxTile | null }
 
@@ -26,7 +26,7 @@ const D2R = Math.PI / 180;
 export function featureGeomLL(ctx: GeoCtx): GeoJSONGeometry | null {
 	if (ctx.geojson) return ctx.geojson;
 	const f = ctx.feat, t = ctx.tile; if (!f?.geom || !t) return null;
-	const { coords: c, ends } = f.geom, E = t.E || 4096, ll = (i: number): Position => tileLocalToLonLat(t.x, t.y, t.z, c[i], c[i + 1], E);
+	const { coords: c, ends } = f.geom, E = t.E || 4096, ll = t.ll ? (i: number): Position => { const o: Position = [0, 0]; t.ll!(c[i], c[i + 1], o, 0); return o; } : (i: number): Position => tileLocalToLonLat(t.x, t.y, t.z, c[i], c[i + 1], E);
 	if (f.type === "Point") { const pts: Position[] = []; for (let i = 0; i < c.length; i += 2) pts.push(ll(i)); return pts.length === 1 ? { type: "Point", coordinates: pts[0] } : { type: "MultiPoint", coordinates: pts }; }
 	const parts: Position[][] = []; let s = 0; for (const e of ends) { const r: Position[] = []; for (let i = s; i < e; i += 2) r.push(ll(i)); parts.push(r); s = e; }
 	if (f.type === "LineString") return parts.length === 1 ? { type: "LineString", coordinates: parts[0] } : { type: "MultiLineString", coordinates: parts };

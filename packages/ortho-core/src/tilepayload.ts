@@ -11,6 +11,8 @@ import type { Label } from "./labels.ts";
 import type { BuildingsGeom } from "./scene.ts";
 import type { TileData } from "./tileformat.ts";
 import type { TileXYZ } from "./tile.ts";
+import { healpixGrid, hpxTileProj } from "./tilegrid.ts";
+import type { HpxTile } from "./healpix.ts";
 export { opBuffers };
 
 /** タイル 1 枚の荷＝描画 op 列・注記・建物・実バイト */
@@ -36,5 +38,19 @@ export function buildTilePayload(layers: TileData, { z, x, y }: TileXYZ, style: 
 	const buildings = buildBuildings({ layers, z, x, y }, origin, style.schema, opts?.bldMinZ ?? 14);
 	let bytes = 0; for (const b of opBuffers(dl.ops, buildings)) bytes += b.byteLength;   // geometry の実バイト（scene worker 側）＝main のメモリ予算/退避の基準
 	bytes += labelsBytes(labels);   // ＋注記が main に占める量の概算（2026-10-21）＝予算は「タイル 1 枚が両側に残す量」で縛る
+	return { origin, dl, labels, buildings, z, bytes };
+}
+
+/** HEALPix のタイル 1 枚の荷（docs/design/healpix.md §6）。layers＝hpxToTileFrame で MVT の枠（y 下向き）に合わせた解読済みのタイル。
+ *  style は zoom＝Norder＋3（healpixGrid.styleZoom）で評価する。原点＝タイルの中心。図郭外の水域（emptySea）は敷かない（海は下地に任せる）。
+ *  メルカトルの口（上の buildTilePayload）とは別の関数＝既存の経路はここを通らない */
+export function buildHpxTilePayload(layers: TileData, t: HpxTile, style: Style, opts?: PayloadOptions): TilePayload {
+	const proj = hpxTileProj(t), origin = healpixGrid.origin(t), z = healpixGrid.styleZoom(t), n = opts?.lineSub;
+	const subLenM = opts?.drape === false ? Infinity : n && n > 0 ? Math.max(700, proj.sideM / n) : undefined;   // 等積＝緯度に依らない
+	const dl = buildTileDrawList({ layers, z, x: 0, y: 0, proj, subLenM, simpTol: opts?.lineSimp || 0 }, style, origin);
+	const { labels } = buildLabels({ layers, z, x: 0, y: 0, proj }, style);
+	const buildings = buildBuildings({ layers, z, x: 0, y: 0, proj }, origin, style.schema, opts?.bldMinZ ?? 14);
+	let bytes = 0; for (const b of opBuffers(dl.ops, buildings)) bytes += b.byteLength;
+	bytes += labelsBytes(labels);
 	return { origin, dl, labels, buildings, z, bytes };
 }

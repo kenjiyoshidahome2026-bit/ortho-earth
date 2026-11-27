@@ -3,6 +3,7 @@
 // 実装は 2 つ：mercatorGrid＝tile.ts と同じ式（値が 1 ビットも変わらない事を検定で縛る）・healpixGrid＝healpix.ts／healpixvt.ts の関数を並べたもの。
 // ⚠ まだどこにも配線していない（段取りの 1 段目＝足すだけ）。
 import { lonLatToTile, tileBoundsInto, type TileXYZ } from "./tile.ts";
+import type { DecodedTile } from "./tileformat.ts";
 import { cellOf, lonLatToNest, nestToLonLat, hpxBoundary, hpxChildren, hpxParent, xyfToLonLat, type HpxTile } from "./healpix.ts";
 
 /** タイルの中の点 (px, py ∈ 0..extent) → 経緯度（原点からの差）を out[oi], out[oi+1] へ書く */
@@ -89,3 +90,46 @@ export const healpixGrid: TileGrid<HpxTile> = {
 	parent: t => ({ order: t.order - 1, npix: hpxParent(t.npix) }),
 	under: (t, b) => t.order > b.order && Math.floor(t.npix / 4 ** (t.order - b.order)) === b.npix,
 };
+
+// ── 組み立て（build・labels・buildings）へ渡す形 ──────────────────────────────────────────────
+/** メルカトルでないタイルの「番地の計算」＝組み立てが要る分だけ（省けばメルカトル＝今のまま）。座標は MVT の枠（x 右・y 下）で受ける */
+export interface TileProj {
+	/** キャッシュ・注記の群の鍵に使う名前（タイルごとに違う） */
+	key: string;
+	/** タイルの中の点 (px, py ∈ 0..extent・y は下向き) → 経緯度（原点 ox, oy からの差）の写し手 */
+	toLonLat(extent: number, ox: number, oy: number): ToLonLat;
+	/** タイルの辺の長さ（m） */
+	sideM: number;
+	/** 同じ辺の長さになるメルカトルの z（赤道・小数）＝タイル単位 → 画素の物差し（破線など） */
+	zEq: number;
+}
+const HPX_SIDE0_M = 6371008.8 * Math.sqrt(Math.PI / 3);   // 面 1 枚（全球の 1/12）と同じ面積の正方形の辺
+const HPX_ZEQ0 = Math.log2(40075016.686 / HPX_SIDE0_M);   // ≒ 2.62
+
+/** HEALPix のタイルを組み立てへ渡す TileProj。組み立ては MVT の枠（y 下向き）で動く＝hpxToTileFrame で枠を合わせたタイルと組で使う */
+export function hpxTileProj(t: HpxTile): TileProj {
+	return {
+		key: healpixGrid.key(t), sideM: HPX_SIDE0_M / 2 ** t.order, zEq: t.order + HPX_ZEQ0,
+		toLonLat(extent, ox, oy) { const f = healpixGrid.toLonLat(t, extent, ox, oy); return (px, py, out, oi) => f(px, extent - py, out, oi); },
+	};
+}
+/** 焼いた HEALPix のタイル（y 上向き・外周は反時計回り）を MVT の枠（y 下向き）へ合わせる＝y を裏返し、多角形の輪は点の順も逆にする。
+ *  こうすると (1) 輪の符号（外周が正）が MVT と同じまま (2) タイル → 経緯度が「向きを裏返す」写像になる＝メルカトルと同じ＝三角形の巻き・建物の壁の表裏が今の経路と揃う。
+ *  その場で書き換える（解読した直後に 1 回だけ）。線と点は y だけ（線の向きは変えない） */
+export function hpxToTileFrame<T extends DecodedTile>(tile: T): T {
+	for (const name in tile) {
+		const L = tile[name], E = L.extent;
+		for (const f of L.features) {
+			const g = f.geom; if (!g) continue;
+			const c = g.coords;
+			for (let i = 1; i < c.length; i += 2) c[i] = E - c[i];
+			if (f.type !== "Polygon") continue;
+			let s = 0;
+			for (const e of g.ends) {   // 輪ごとに点の順を逆に（閉じた輪＝最初と最後が同じ点でも、そのまま逆でよい）
+				for (let a = s, b = e - 2; a < b; a += 2, b -= 2) { const x = c[a], y = c[a + 1]; c[a] = c[b]; c[a + 1] = c[b + 1]; c[b] = x; c[b + 1] = y; }
+				s = e;
+			}
+		}
+	}
+	return tile;
+}
