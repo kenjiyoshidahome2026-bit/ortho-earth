@@ -25,6 +25,8 @@ export type BucketGetType = "blob" | "json" | "text" | "arrayBuffer";
 export type BucketZipTarget = string | false | null | DecodeZIPOptions;
 
 class _Bucket {
+	/** multipart のやり直し：回数と最初の待ち（ms・倍々に延ばす）。検定が縮められるよう外から替えられる */
+	retries = 4; retryWait = 1000;
 	baseUrl: string;
 	directory: string;
 	apiKey: string;
@@ -109,7 +111,7 @@ class _Bucket {
 	async put(name: string | File, file?: Blob): Promise<number> {
 		if (name instanceof Blob && name.name) [file, name] = [name, name.name];
 		const key = name as string, f0 = file as Blob;   // ここから先は文字列と Blob（名前の無い File・Blob 無しは旧来どおり split／isGzip で落ちる）
-		const compressed = ['zip','gz','7z','rar','tar','tgz','pdf','epub','jpg','jpeg','png','gif','webp','mp4','mkv','mov','avi','webm','mp3','ogg','wav','flac'];
+		const compressed = ['zip','gz','7z','rar','tar','tgz','pdf','epub','jpg','jpeg','png','gif','webp','mp4','mkv','mov','avi','webm','mp3','ogg','wav','flac','pmtiles'];   // pmtiles＝中のタイルが既に gzip・丸ごと縮めると Range で読めなくなる
 		const extension = key.split('.').pop()!.toLowerCase();
 		const compressible = !compressed.includes(extension) && !(await isGzip(f0));
 		const f = compressible ? await gzip(f0) : f0;
@@ -126,33 +128,48 @@ class _Bucket {
 			return f.size;
 		}
 		// Files >= 50 MB use multipart upload.
+		// 回線の瞬断・5xx・429 は少し待ってやり直す（1 GB＝200 個の部品を順に送る＝1 つの失敗で全部を捨てない）。4xx は直らないのですぐ諦める
+		const send = async (what: string, init: () => RequestInit): Promise<Response> => {
+			for (let n = 0; ; n++) {
+				let msg: string;
+				try {
+					const res = await fetch(targetUrl, init());
+					if (res.ok) return res;
+					const e: { error?: string } = await res.json().catch(() => ({}));
+					msg = `${what} failed: ${res.status} ${e.error ?? ""}`;
+					if (res.status < 500 && res.status !== 429 && res.status !== 408) throw Object.assign(new Error(msg), { final: true });
+				} catch (e) {
+					if ((e as { final?: boolean }).final) throw e;
+					msg = (e as Error).message.startsWith(what) ? (e as Error).message : `${what} failed: ${(e as Error).message}`;
+				}
+				if (n >= this.retries) throw new Error(msg);
+				await new Promise(r => setTimeout(r, this.retryWait * 2 ** n));
+			}
+		};
 		let headers: Record<string, string> = { 'X-Action': 'mp-create', 'X-API-Key': this.apiKey, 'X-Metadata-Type': f.type || 'application/octet-stream' };
 		if (compressible) headers['X-Content-Encoding'] = "gzip";
-		const createRes = await fetch(targetUrl, { method: 'POST', headers });
-		if (!createRes.ok) { const e: { error?: string } = await createRes.json().catch(() => ({})); throw new Error(`mp-create failed: ${createRes.status} ${e.error ?? ""}`); }
+		const createRes = await send("mp-create", () => ({ method: 'POST', headers }));
 		const { uploadId }: { uploadId: string } = await createRes.json();
 		const parts: { partNumber: number; etag: string }[] = [];
 		let partNumber = 1, totalUploaded = 0;
 		for (let start = 0; start < f.size; start += chunkSize) {
-			const chunk = f.slice(start, start + chunkSize);
-			const uploadRes = await fetch(targetUrl, {
+			const chunk = f.slice(start, start + chunkSize), pn = partNumber.toString();
+			const uploadRes = await send("mp-upload", () => ({
 				method: 'POST',
-				headers: { 'X-Action': 'mp-upload', 'X-API-Key': this.apiKey, 'X-Upload-ID': uploadId, 'X-Part-Number': partNumber.toString() },
+				headers: { 'X-Action': 'mp-upload', 'X-API-Key': this.apiKey, 'X-Upload-ID': uploadId, 'X-Part-Number': pn },
 				body: chunk
-			});
-			if (!uploadRes.ok) { const e: { error?: string } = await uploadRes.json().catch(() => ({})); throw new Error(`mp-upload failed: ${uploadRes.status} ${e.error ?? ""}`); }
+			}));
 			const { etag }: { etag: string } = await uploadRes.json();
 			parts.push({ partNumber, etag });
 			totalUploaded += chunk.size;
 			this._dispatch("SaveProgress", { name: key, saved: totalUploaded, total: f.size });
 			partNumber++;
 		}
-		const completeRes = await fetch(targetUrl, {
+		await send("mp-complete", () => ({
 			method: 'POST',
 			headers: { 'X-Action': 'mp-complete', 'X-API-Key': this.apiKey, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ uploadId, parts })
-		});
-		if (!completeRes.ok) { const e: { error?: string } = await completeRes.json().catch(() => ({})); throw new Error(`mp-complete failed: ${completeRes.status} ${e.error ?? ""}`); }
+		}));
 		this._dispatch("SaveEnd", { name: key, total: totalUploaded });
 		return totalUploaded;
 	}

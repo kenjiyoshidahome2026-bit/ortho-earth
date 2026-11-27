@@ -149,6 +149,25 @@ const gz = async u8 => new Uint8Array(await new Response(new Blob([u8]).stream()
 	const sent = await B.put("big.png", new Blob([big]));
 	ok("50MB 以上は multipart（5MB ずつ・順に組む）", sent === big.length && objs.get("dir/big.png")?.bytes.length === big.length && R2.parts.get("u1").parts.length === 11 && R2.parts.get("u1").done.length === 11);
 	ok("multipart の本体は元と同じ", objs.get("dir/big.png").bytes[4096 * 7] === big[4096 * 7] && objs.get("dir/big.png").bytes[big.length - 4096] === big[big.length - 4096]);
+	// PMTiles は丸ごと縮めない（中のタイルが既に gzip・Range で読む物）＝Content-Encoding を付けない
+	await B.put(new File(["PMTiles-like plain text body ".repeat(50)], "t.pmtiles", { type: "application/vnd.pmtiles" }));
+	ok("put：.pmtiles は縮めない", objs.get("dir/t.pmtiles")?.meta.contentEncoding === null && objs.get("dir/t.pmtiles").bytes.length === 29 * 50 && objs.get("dir/t.pmtiles").meta.contentType === "application/vnd.pmtiles");
+	// multipart のやり直し：部品の 503 と回線断は待ってやり直す・401 はやり直さない
+	{
+		const real = globalThis.fetch; let hits = 0, calls = 0;
+		const isPart = i => new Headers(i?.headers).get("X-Action") === "mp-upload";
+		globalThis.fetch = async (u, i) => { if (isPart(i)) { calls++; const pn = new Headers(i.headers).get("X-Part-Number"); if (pn === "3" && hits < 2) { if (hits++ === 0) return new Response('{"error":"busy"}', { status: 503 }); throw new TypeError("network down"); } } return real(u, i); };
+		B.retryWait = 1;
+		const again = await B.put("big2.png", new Blob([big]));
+		ok("multipart：部品の 503・回線断はやり直して通る", again === big.length && hits === 2 && calls === 13 && objs.get("dir/big2.png")?.bytes.length === big.length && objs.get("dir/big2.png").bytes[4096 * 7] === big[4096 * 7] && R2.parts.get("u1").parts.length === 11);
+		calls = 0; globalThis.fetch = async (u, i) => { if (isPart(i)) { calls++; return new Response('{"error":"Unauthorized"}', { status: 401 }); } return real(u, i); };
+		const e1 = await B.put("big3.png", new Blob([big])).catch(e => e);
+		ok("multipart：401 はやり直さない", e1 instanceof Error && /mp-upload failed: 401/.test(e1.message) && calls === 1, e1?.message);
+		calls = 0; B.retries = 2; globalThis.fetch = async (u, i) => { if (isPart(i)) { calls++; return new Response('{"error":"down"}', { status: 500 }); } return real(u, i); };
+		const e2 = await B.put("big4.png", new Blob([big])).catch(e => e);
+		ok("multipart：直らなければ回数で諦める", e2 instanceof Error && /mp-upload failed: 500 down/.test(e2.message) && calls === 3, e2?.message);
+		globalThis.fetch = real; B.retries = 4;
+	}
 	objs.delete("dir/big.png");
 	const anon = await nativeBucket(API).Bucket("dir");
 	let e401 = null; try { await anon.put("x.txt", new Blob(["x"])); } catch (e) { e401 = e; }
