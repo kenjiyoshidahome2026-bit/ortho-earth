@@ -395,7 +395,7 @@ mapEl.dir = isRTL() ? "rtl" : "ltr";
 const GJVT = !/[?&]gjvt=0(?:&|$)/.test(location.search), GJVT_FILL = /[?&]gjvt=2(?:&|$)/.test(location.search);
 const PER_FEATURE = /"(get|has|properties|feature-state|id|geometry-type)"/;   // 式が地物を読む（データ駆動）
 const TEXT_GPU = "gpu" in navigator && !/[?&]text=2d(?:&|$)/.test(location.search);
-for (const cid of ["c", "labels", ...(TEXT_GPU ? ["labelsgpu"] : [])]) { const cv = (cid === "c" && mapEl.querySelector<HTMLCanvasElement>(":scope > canvas#c")) || document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }   // #c は預かった容れ物に先に置かれていれば使う（MapLibre の口の getCanvas は起動前でも同じ canvas を返す＝terra-draw 等が構築時に掴む）
+for (const cid of ["c", "labels", ...(TEXT_GPU ? ["labelsgpu"] : [])]) { const cv = (cid === "c" && mapEl.querySelector<HTMLCanvasElement>(":scope > canvas#c")) || document.createElement("canvas"); cv.id = cid; cv.style.position = "absolute"; cv.style.inset = "0"; mapEl.appendChild(cv); }   // #c は預かった容れ物に先に置かれていれば使う（MapLibre の口の getCanvas は起動前でも同じ canvas を返す＝terra-draw 等が構築時に掴む）
 // 地中フェードの覆い（カメラが地表より下へ潜った時に暗くする＝クランプの代替。updateUnderground が opacity を駆動）。
 // canvas 2層の直後・UI より前＝基図/ラベル/gint を覆い、計器・検索は上に残す（脱出できる）。スタイルは style.css の #underground。
 const undergroundEl = mapEl.appendChild(document.createElement("div"));

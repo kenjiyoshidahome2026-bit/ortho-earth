@@ -17,6 +17,11 @@ export const BOOT_CSS = `#boot{position:fixed;inset:0;z-index:2147483647;display
 #boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
 @keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
 @media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}`;
+/** 地図の容れ物の寸法（quiet-mono components.scss と同じ規則・同じ特異度）を頁の head へ先に入れる分。
+ *  本体の CSS は非同期で届く＝キャッシュが温まった読み直しではエンジンが先に動き、#map の高さが中身（まだ流し込みの canvas・家具）で伸びて、
+ *  その大きさ（実測 780×42396 → 128916・上限 16384 で切っても 780×16384）で描画バッファが作られていた＝低メモリ端末はそこで落ちる（2026-11-27）。
+ *  vite の頁（bootScreen）だけに配る＝静的な写し（bootStatic）は MapLibre の例＝利用者の #map 指定に任せる */
+export const MAP_BOX_CSS = `:where(.qm,#map){position:relative;width:100%;height:100%}:is(.qm,#map){overflow:hidden}#c,#gint,#labels{position:absolute;inset:0;width:100%;height:100%}`;
 /** 球儀マーク（aria-label は head と同じ英語） */
 export const BOOT_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg>`;
 /** 幕そのもの（外部の CSS/JS に依らず HTML のパース直後に描ける＝FCP の実体） */

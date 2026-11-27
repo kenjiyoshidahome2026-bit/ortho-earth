@@ -2,7 +2,7 @@
 // 各アプリの base・outDir・proxy は各アプリに残す。lib×ES の資産まわりは vite-lib-plugins.mjs、共有エンジンは shared-engine.mjs。
 import { resolve, dirname } from "node:path";
 import { rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { BOOT_SLOT, BOOT_CSS, BOOT_HTML } from "../../src/boot/screen.ts";
+import { BOOT_SLOT, BOOT_CSS, BOOT_HTML, MAP_BOX_CSS } from "../../src/boot/screen.ts";
 
 // COOP/COEP を middleware で「全リクエスト」に刻む（dev と preview の両方）。server.headers だと worker のサブ import の転送レスポンスに
 // 届かず worker 全滅→黒画面＝middleware が標準解（japan 2026-09）。crossOriginIsolated＝gint の SharedArrayBuffer（ゼロコピー）の点火条件で、
@@ -64,7 +64,7 @@ export const bootScreen = {
 	name: "boot-screen",
 	transformIndexHtml(html) {
 		if (!html.includes(BOOT_SLOT)) return html;
-		return html.replace(BOOT_SLOT, BOOT_HTML).replace("</head>", `\t<style id="boot-css">${BOOT_CSS}</style>\n</head>`);
+		return html.replace(BOOT_SLOT, BOOT_HTML).replace("</head>", `\t<style id="boot-css">${BOOT_CSS}${MAP_BOX_CSS}</style>\n</head>`);
 	},
 };
 

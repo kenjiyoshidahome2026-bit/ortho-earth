@@ -4,7 +4,15 @@ import { createEqual } from "@ortho-earth/equal";
 import { t } from "@ortho-earth/equal/i18n";
 
 const Q = new URLSearchParams(location.search);
-const MORPH = Q.has("morph");   // 球から開いて着いた＝戻る時も球へ畳んでから
+// 球から開いて着いた＝戻る時も球へ畳んでから。部品は開いた後に URL から ?morph を落とす（読み直しで変形をやり直さない）＝
+// 読み直し・ブラウザの「戻る」で入り直した時も「球から来た」を覚えておく（同じ back 宛ての間だけ・タブの間だけ）
+const MORPH = (() => {
+	const key = "equal:morph-back", back = Q.get("back") || "";
+	try {
+		if (Q.has("morph")) { if (back) sessionStorage.setItem(key, back); return true; }
+		return !!back && sessionStorage.getItem(key) === back;
+	} catch { return Q.has("morph"); }
+})();
 const EMBED = Q.get("embed") === "1" && window.parent !== window;   // japan の iframe に重なって開く（同一 URL の受け渡し・2026-09-20）
 const app = await createEqual({ target: "#app", params: location.search, hash: true });
 globalThis.equal = app;   // 検証・コンソール用の口（旧来と同じ名前＝equal.setView(…)・equal.openCSV(file)…）
