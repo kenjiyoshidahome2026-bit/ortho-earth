@@ -38,7 +38,7 @@ if (BACK && MORPH && !EMBED) {
 		if (leaving || !s) return; leaving = true;
 		const rest = BACK.hash.replace(/^#/, "").split("/").filter(Boolean).slice(3);
 		const u = new URL(BACK.href); u.hash = "#" + [s.zoom.toFixed(2), s.lat.toFixed(5), s.lon.toFixed(5), ...rest].join("/");
-		location.href = u.href;
+		location.replace(u.href);   // 履歴は差し替える＝呼び出し元 → equal → 呼び出し元 と積まない（積むと、戻った先でブラウザの「戻る」がまた equal を開く）
 	});
 }
 if (BACK && !EMBED) app.addButton({

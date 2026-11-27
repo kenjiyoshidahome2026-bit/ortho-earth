@@ -71,7 +71,9 @@ export async function goEqual(map: GlobeMap, { url, center, morph: doMorph = tru
 		const u = new URL(dest, location.href);
 		u.searchParams.set("lang", getLang()); if (morph) u.searchParams.set("morph", morph);
 		u.searchParams.set("back", back.href); u.hash = viewHash;
-		location.href = u.href;
+		// 入口（?start=equal＝www のカード）は履歴を差し替える＝この頁を履歴に残すと、equal からの「戻る」（ブラウザの戻る・「← 戻る」の history.back()）が
+		// ここへ着いてまた equal へ送り返す＝www へ戻れない罠になる（本人 2026-11-27「www に戻りません」）。差し替えれば戻る＝来た頁（www）
+		if (/[?&]start=equal\b/.test(location.search)) location.replace(u.href); else location.href = u.href;
 		return;
 	}
 	const handBack = (v: EqualViewBack | null | undefined) => { if (v) location.hash = `#${(+v.zoom).toFixed(2)}/${(+v.lat).toFixed(5)}/${(+v.lon).toFixed(5)}`; };
