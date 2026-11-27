@@ -67,7 +67,7 @@ const MENU: [string, [string, Run][]][] = [
 		["国土数値情報カタログ（bake-out/catalog）→ catalog/", nlftpCatalog],   // 年版の差し替え＝apps/gishub-jp/scripts/nlftp-bump.mjs --write が書いた物
 		["PLATEAU の焼き（bake-out/plateau）→ GIS/plateau", plateauBake],   // apps/japan-map/scripts/bake-plateau.mjs --only=… が焼いた物（横浜の LOD1 13 区など）
 		["歩ける道の網・全国（bake-out/walk）→ GIS/walk", walkJapan],   // packages/citytwin/scripts/bake-walk-japan.mjs が焼いた物（デジタルツインの道順・2026-11-25）
-		["HEALPix の OSM ベクタ（bake-out/hpx/osm）→ GIS/hpx/osm", hpxOsm],   // packages/ortho-core/scripts/bake-healpix-osm.mjs が焼いた物（日本域の試し焼き・道と鉄道／水／建物・docs/design/healpix.md §5）
+		["HEALPix の OSM ベクタ（bake-out/hpx/osm-pm の PMTiles）→ GIS/hpx/osm", hpxOsm],   // packages/ortho-core/scripts/bake-healpix-osm.mjs が焼いた物（日本域の試し焼き・道と鉄道／水／建物・docs/design/healpix.md §5）
 	]],
 	["共有データ", [
 		["census・zipcode → GIS/shared", sharedData],

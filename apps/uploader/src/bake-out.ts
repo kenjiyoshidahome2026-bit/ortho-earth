@@ -171,8 +171,29 @@ export async function hpxElev(q: screenLogger, env: NativeBucket & { apiUrl: str
 	q.clear(); q.title("HEALPix の標高タイル（bake-out/hpx/elev）→ GIS/hpx/elev/");
 	await hpxUpload(q, env, { name: "elev", ext: "altpbf", mime: "application/x-altpbf", extra: ["properties"], bake: "packages/ortho-core/scripts/bake-healpix-elev.mjs" });
 }
-// OSM のベクタ（日本域の試し焼き・層＝roads／water／buildings・© OpenStreetMap contributors・ODbL・docs/design/healpix.md §5）
-export async function hpxOsm(q: screenLogger, env: NativeBucket & { apiUrl: string }) {
-	q.clear(); q.title("HEALPix の OSM ベクタ（bake-out/hpx/osm）→ GIS/hpx/osm/");
-	await hpxUpload(q, env, { name: "osm", ext: "mvt", mime: "application/vnd.mapbox-vector-tile", bake: "packages/ortho-core/scripts/bake-healpix-osm.mjs" });
+// OSM のベクタ（層＝roads／water／buildings・© OpenStreetMap contributors・ODbL・docs/design/healpix.md §5）
+// 置くのは面ごとの PMTiles（bake-out/hpx/osm-pm/face{f}.pmtiles・最大 12 個）＝全国で 20 万枚の小さいファイルを 1 枚ずつ置く代わり（本人 2026-11-27「12個に分けてpmタイル化」）。
+// 束ねるのは packages/ortho-core/scripts/pack-healpix-pmtiles.mjs。50 MB 以上は native-bucket が multipart。index.json は最後。
+export async function hpxOsm(q: screenLogger, { Bucket, apiUrl }: NativeBucket & { apiUrl: string }) {
+	q.clear(); q.title("HEALPix の OSM ベクタ（bake-out/hpx/osm-pm の PMTiles）→ GIS/hpx/osm/");
+	devOnly();
+	const local = "hpx/osm-pm", dest = "GIS/hpx/osm";
+	const index: { made: string; faces: { face: number; file: string; tiles: number; bytes: number }[]; tiles: number; bytes: number } = await (await readLocal(`${local}/index.json`)).json();
+	if (!index.faces?.length) throw new Error(`bake-out/${local} に PMTiles が無い＝node packages/ortho-core/scripts/bake-healpix-osm.mjs → node packages/ortho-core/scripts/pack-healpix-pmtiles.mjs`);
+	const bad = index.faces.find(f => !/^face([0-9]|1[01])\.pmtiles$/.test(f.file));
+	if (bad) throw new Error(`目録に面の PMTiles でない名前：${bad.file}`);
+	const remote = await fetch(`${apiUrl}/bucket/${dest}/index.json`, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null);
+	if (remote?.made === index.made) { q.log(`R2 に同じ束（${index.made}）が置いてある＝何もしない`); return; }
+	const bucket = await Bucket(dest, { silent: true, lazy: true });
+	if (!bucket) throw new Error(`Bucket(${dest}) に到達できない`);
+	const t0 = Date.now();
+	for (const f of index.faces) {
+		q.log(`↑ ${f.file}（${(f.bytes / 1e6).toFixed(0)} MB・${f.tiles} 枚ぶん）…`);
+		const body = await (await readLocal(`${local}/${f.file}`)).blob();
+		if (body.size !== f.bytes) throw new Error(`${f.file} の大きさが目録と違う（${body.size} ≠ ${f.bytes}）＝束ね直す`);
+		await bucket.put(new File([body], f.file, { type: "application/vnd.pmtiles" }));
+		q.log(`　置いた（${((Date.now() - t0) / 60000).toFixed(1)} 分）`);
+	}
+	await bucket.put(new File([JSON.stringify(index)], "index.json", { type: "application/json" }));
+	q.success(`${dest}/ に PMTiles ${index.faces.length} 個（${(index.bytes / 1e6).toFixed(0)} MB・${index.tiles} 枚ぶん）と index.json を置いた`);
 }

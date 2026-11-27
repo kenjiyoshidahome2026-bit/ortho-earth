@@ -111,6 +111,15 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min
 - 記憶（Mac で実測・全国）：面（multipolygons）を読む ogr2ogr が 128 GB（うち圧縮済み 120 GB・物理 64 GB の機械でスワップ 0）・線の時は約 15 GB・node は 1 GB。→ 線と面の同時読みは既定で切った（`--readers=2` で入る）。詰める段は、行を文字列のままタイルごとに分けてから 1 タイルずつ座標に開く（束ごと開かない）。
 - 全国の試し焼き（並列化の前・2026-11-27）：読む・切るは 921 秒で 4,536 万件（線 1,170 万・面 3,365 万）・切れ 6,998 万。ogr2ogr の記憶は件数に比例して増え続け、最後は 204 GB（終わり際にスワップ 10 GB）。詰める段は node の heap 上限（約 4.5 GB）で落ちた（東京を含む束が 938 MB）＝束を Norder 8 に細かくし 1 タイルずつ開く形に直した・`--pack-only` で仮の束から詰め直せる。
 - GDAL の記憶の出どころ（Mac で切り分け・GDAL 3.13.3）：環境変数（`OGR_INTERLEAVED_READING`・`OSM_MAX_TMPFILE_SIZE`・`OSM_COMPRESS_NODES`）・`-where`・`-select`・出力先（`/vsistdout/`／`/dev/stdout`）はどれも無関係。**出力の形式が GeoJSONSeq の時だけ増える**（1 件あたり約 6 KB）。CSV（`-lco GEOMETRY=AS_WKT`）だと 0.3 GB のまま。→ 焼き手は ogr2ogr の出力を CSV にし、働き手が CSV の行と WKT を読む（引用符の中の改行で割れた行は親がつなぐ）。出る速さは GeoJSONSeq より 2〜3 割遅い。
+- **全国の焼きが通った**（Mac・18 コア・働き手 12・2026-11-27）：549 秒（読む・切る 508・詰める 41）・記憶は ogr2ogr 4.7 GB・node 10 GB 以内・スワップの増え 0。208,825 枚・1,472 MB（gzip で約 1.08 GB）＝N4 14・N5 39・N6 102・N7 297・N8 903・N9 3,004・N10 10,695・N11 40,258・N12 153,513 枚（N12 だけで 1,080 MB・1 枚の中央値 1.8 KB・最大 416 KB）。500 KB 超 0 枚。日本は沖縄まで全部が面 1。
+
+### 置き方＝面ごとの PMTiles（本人 2026-11-27「12個に分けてpmタイル化というのはどうですか？」）
+
+- HEALPix の面 1 つは段 k で 2^k × 2^k の四分木＝PMTiles の z/x/y と同じ形。**z ＝ Norder・x ＝ 面の中の ix・y ＝ 面の中の iy**（北西向きに増える＝メルカトルの「上から下」に直さない）と読み替えて、PMTiles v3 をそのまま借りる（Hilbert の番号・索引・Range 読み・同じ中身の畳み込み・gzip）。
+- ファイルは `face{f}.pmtiles`（f＝0〜11・在る面だけ）＋目録 `index.json { made, source, layers, minOrder, maxOrder, extent, faces: [{ face, file, tiles, bytes }], tiles, bytes }`。メタデータの `healpix` 節（`scheme: "healpix-face"`・`face`・`tileY: "up"`）に約束を書く。**メルカトルではない**＝既製のビューアで開くと位置はでたらめ。
+- 束ねる：`node packages/ortho-core/scripts/pack-healpix-pmtiles.mjs --in=bake-out/hpx/osm-japan`（→ `bake-out/hpx/osm-pm/`・束ねた後に無作為の枚数を読み戻して元と突き合わせる）。上げる：uploader の「HEALPix の OSM ベクタ（bake-out/hpx/osm-pm の PMTiles）」→ `GIS/hpx/osm/`。
+- 読む側（未着手）：今の PMTiles の読み手（`pmtiles-src.ts`）で、面を選んで (Norder, ix, iy) を引く。面をまたぐ隣は `hpxNeighbors`。
+- 逃げ道：全球で面 1 つが重すぎたら、その面だけ下の段（例：Norder 2 の 16 分割）で割る＝四分木なので同じ読み替えで済む。今の書き手は全部を記憶に載せて組む＝面 1 つが数 GB まで。
 
 - 間引き：最も細かい段は丸めるだけ。粗い段は Douglas–Peucker（1.5 刻み）と小さい多角形（8 刻み² 未満）の切り捨て。線の両端とタイルの縁の点は動かさない＝隣のタイルとの継ぎを保つ（`hpxSimplify`）。
 - 多角形の輪は外周＝反時計回り・穴＝時計回りにそろえて焼く（y が上向きの約束）。
