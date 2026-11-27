@@ -111,4 +111,20 @@ for (const [name, lat, pole] of [["北極の蓋", 80, 90], ["南極の蓋", -70,
 	ok(polys.parts.length === 2 && polys.parts[0].length === 4 && polys.parts[1].length === 5, "間引き：小さい多角形は捨てる・縁に乗る点（切り口）は残す");
 	ok(hpxSimplify({ order: 5, npix: 0, type: "polygon", parts: [sq(10, 10, 2)] }, 1.5, 8) === null, "間引き：何も残らないタイルは null");
 }
+// 9. 線をつなぐ：2 本だけ出会う端点でつなぐ・枝分かれと縁ではつながない・短い離れ線は捨てる
+{
+	const { hpxMergeLines } = await import("../src/healpixvt.ts");
+	const m = hpxMergeLines([[[10, 10], [20, 10]], [[30, 10], [20, 10]], [[30, 10], [40, 20]], [[100, 100], [110, 100]], [[110, 100], [120, 100]], [[110, 100], [110, 120]]]);
+	const len = p => p.length;
+	ok(m.length === 4 && m.some(p => len(p) === 4 && ((p[0][0] === 10 && p[3][0] === 40) || (p[0][0] === 40 && p[3][0] === 10))), `つなぐ：向きの違う 3 本が 1 本に・三叉路の 3 本はそのまま（${m.length} 本）`);
+	const e = hpxMergeLines([[[0, 50], [100, 50]], [[0, 50], [0, 50.5].map(Math.round)], [[4096, 7], [4000, 7]], [[4096, 7], [4000, 90]]]);
+	ok(e.filter(p => p.length === 2).length >= 3, "つなぐ：タイルの縁の点ではつながない");
+	const ring = hpxMergeLines([[[10, 10], [20, 10]], [[20, 10], [20, 20]], [[20, 20], [10, 10]]]);
+	ok(ring.length === 1 && ring[0].length === 4, "つなぐ：輪になる 3 本は 1 本（止まる）");
+	const s = hpxMergeLines([[[10, 10], [11, 10]], [[11, 10], [12, 10]], [[0, 5], [1, 5]], [[500, 500], [600, 500]]], 4096, 4);
+	ok(s.length === 2, "つなぐ：縁に触れない短い線（つないでも 4 刻み未満）は捨てる・縁に触れる短い線は残す");
+	const total = a => a.reduce((n, p) => n + p.length - 1, 0), raw = []; for (let i = 0; i < 50; i++) raw.push([[i * 10, 7], [i * 10 + 10, 7]]);
+	const j = hpxMergeLines(raw.sort(() => 0.5 - ((raw.length * 7919) % 13) / 13));
+	ok(j.length === 1 && total(j) === 50, "つなぐ：50 本の列が 1 本・辺の数は変わらない");
+}
 console.log(fails ? `${fails} failed` : "all passed"); process.exit(fails ? 1 : 0);
