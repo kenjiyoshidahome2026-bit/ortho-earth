@@ -14,6 +14,8 @@
 //   buildings … 建物（多角形・最も細かい段だけ＝既定 Norder 12。11 だと都心の 1 枚が約 710 KB・2 万 4 千棟＝重すぎた＝2026-11-27 の試し焼き）
 // 海岸線（陸の多角形）は PBF からは出ない（osmcoastline の仕事）＝入れていない。地名・施設の点もまだ。
 // 間引き：最も細かい段は丸めるだけ。粗い段は Douglas–Peucker（1.5 刻み）と小さい多角形の切り捨て。タイルの縁の点は動かさない。
+// 線のまとめ：タイルごと・層ごとに、属性が同じ線を 1 つの地物にまとめ、端点が 2 本だけ出会う所でつなぐ（`hpxMergeLines`）。粗い段はつないだ後にもう 1 度間引き、縁に触れない短い線（4 刻み未満）を捨てる。
+//   （東京の試し焼きで Norder 7・8 の 1 枚が約 600 KB＝細かい段より重かった＝短い way が 1 本ずつ別の地物だったため・2026-11-27）
 // 出力：bake-out/hpx/osm/Norder{k}/Dir{d}/Npix{n}.mvt ＋ index.json { made, source, layers, minOrder, maxOrder, extent, tiles, bytes }。上げるのは uploader のボタン。
 // 許諾：© OpenStreetMap contributors（ODbL）。
 import fs from "node:fs";
@@ -22,7 +24,7 @@ import readline from "node:readline";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { hpxPath, cellOf, nestOf } from "../src/healpix.ts";
-import { hpxSplitFaces, hpxSliceFace, hpxSimplify, encodeHpxVt } from "../src/healpixvt.ts";
+import { hpxSplitFaces, hpxSliceFace, hpxSimplify, hpxMergeLines, encodeHpxVt } from "../src/healpixvt.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const opt = (k, d) => process.argv.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
@@ -40,7 +42,7 @@ const RAIL = { rail: 6, subway: 9, light_rail: 9, monorail: 9, tram: 10, narrow_
 const WATERWAY = { river: 7, canal: 9, stream: 11, ditch: 11, drain: 11 };
 function classifyLine(t) {
 	if (t.highway && ROAD[t.highway]) { const [kind, min] = ROAD[t.highway], p = { kind, kind_detail: t.highway }; if (t.name) p.name = t.name; if (t.ref) p.ref = t.ref; if (t.tunnel && t.tunnel !== "no") p.is_tunnel = true; if (t.bridge && t.bridge !== "no") p.is_bridge = true; return { layer: "roads", min, props: p, nameFrom: 9 }; }
-	if (t.railway && RAIL[t.railway] !== undefined) { const p = { kind: "rail", kind_detail: t.railway }; if (t.name) p.name = t.name; if (t.tunnel && t.tunnel !== "no") p.is_tunnel = true; return { layer: "roads", min: RAIL[t.railway], props: p, nameFrom: 10 }; }
+	if (t.railway && RAIL[t.railway] !== undefined) { const p = { kind: "rail", kind_detail: t.railway }; /* 側線・車庫の線（service＝yard／siding／spur…）は Norder 10 から */ if (t.name) p.name = t.name; if (t.tunnel && t.tunnel !== "no") p.is_tunnel = true; return { layer: "roads", min: t.service ? Math.max(RAIL[t.railway], 10) : RAIL[t.railway], props: p, nameFrom: 10 }; }
 	if (t.waterway && WATERWAY[t.waterway] !== undefined) { const p = { kind: t.waterway === "river" ? "river" : t.waterway === "canal" ? "canal" : "stream" }; if (t.name) p.name = t.name; return { layer: "water", min: WATERWAY[t.waterway], props: p, nameFrom: 9 }; }
 	return null;
 }
@@ -134,11 +136,19 @@ for (const file of fs.readdirSync(TMP).sort()) {
 		const [key, layer, ty, props, co] = l.split("\t");
 		const parts = co.split(";").map(s => { const v = s.split(" ").map(Number), p = []; for (let i = 0; i < v.length; i += 2) p.push([v[i], v[i + 1]]); return p; });
 		const tl = by.get(key) ?? by.set(key, new Map()).get(key);
-		(tl.get(layer) ?? tl.set(layer, []).get(layer)).push({ type: TYPE[ty], parts, props: JSON.parse(props) });
+		const fs_ = tl.get(layer) ?? tl.set(layer, { list: [], lines: new Map() }).get(layer);
+		if (ty === "l") { const g = fs_.lines.get(props); if (g) g.push(...parts); else fs_.lines.set(props, parts); }   // 線は属性ごとに束ねる
+		else fs_.list.push({ type: TYPE[ty], parts, props: JSON.parse(props) });
 	}
 	for (const [key, tl] of by) {
 		const [k, n] = key.split("/").map(Number), rel = hpxPath(k, n, "mvt"), out = path.join(OUT, rel);
-		const b = encodeHpxVt(LAYERS.filter(L => tl.has(L)).map(L => ({ name: L, extent: EXT, features: tl.get(L) })));
+		for (const fs_ of tl.values()) for (const [props, raw] of fs_.lines) {
+			let parts = hpxMergeLines(raw, EXT, k < MAX ? 4 : 0);
+			if (k < MAX) parts = hpxSimplify({ order: k, npix: n, type: "line", parts }, 1.5, 0, EXT)?.parts ?? [];
+			if (parts.length) fs_.list.push({ type: "line", parts, props: JSON.parse(props) });
+		}
+		const b = encodeHpxVt(LAYERS.filter(L => tl.get(L)?.list.length).map(L => ({ name: L, extent: EXT, features: tl.get(L).list })));
+		if (!b.length) continue;
 		fs.mkdirSync(path.dirname(out), { recursive: true }); fs.writeFileSync(out, b);
 		written.push(rel); bytes += b.length; if (b.length > 500e3) big++; perBytes[k] = (perBytes[k] || 0) + b.length; perMax[k] = Math.max(perMax[k] || 0, b.length);
 	}

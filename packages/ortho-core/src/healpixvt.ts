@@ -204,6 +204,33 @@ export function hpxSimplify(t: TileGeom, tol: number, minArea = 0, extent = 4096
 	return parts.length ? { ...t, parts } : null;
 }
 /** 経緯度の図形 → order のタイルごとの図形（①〜③ を通す）。曲がりの許しは刻みの 1/4 */
+// 同じ属性の線をつなぐ（粗い段を軽くする）：端点がちょうど 2 本だけ出会う所でつなぐ＝枝分かれ（3 本以上）とタイルの縁の点ではつながない（形も網のつながりも変えない）。
+// OSM の道は短い way の列＝つなぐと「線の頭」の数が減り、つないだ後の間引きも効く。minLen＞0 なら、縁に触れない短い線（つないだ後の長さ＜minLen）を捨てる。
+export function hpxMergeLines(parts: Pt[][], extent = 4096, minLen = 0): Pt[][] {
+	const onEdge = (q: Pt): boolean => q[0] === 0 || q[1] === 0 || q[0] === extent || q[1] === extent;
+	const key = (q: Pt): number => q[0] * 8192 + q[1], ends = new Map<number, number[]>();   // 端点 → そこで終わる線の番号（i*2＝始点・i*2+1＝終点）
+	const lines = parts.filter(p => p.length >= 2);
+	lines.forEach((p, i) => { for (const e of [0, 1]) { const k = key(e ? p[p.length - 1] : p[0]); (ends.get(k) ?? ends.set(k, []).get(k)!).push(i * 2 + e); } });
+	const used = new Uint8Array(lines.length), out: Pt[][] = [];
+	const next = (q: Pt, from: number): number => {   // 点 q で、線 from の相手（ちょうど 2 本の時だけ）。無ければ -1
+		if (onEdge(q)) return -1;
+		const a = ends.get(key(q))!; if (a.length !== 2) return -1;
+		const o = (a[0] >> 1) === from ? a[1] : a[0];
+		return (o >> 1) === from || used[o >> 1] ? -1 : o;
+	};
+	const grow = (chain: Pt[], from: number): void => {   // chain の終わりを伸ばせるだけ伸ばす
+		for (;;) { const o = next(chain[chain.length - 1], from); if (o < 0) return; const i = o >> 1, p = lines[i]; used[i] = 1; from = i; if (o & 1) for (let k = p.length - 2; k >= 0; k--) chain.push(p[k]); else for (let k = 1; k < p.length; k++) chain.push(p[k]); }
+	};
+	for (let i = 0; i < lines.length; i++) {
+		if (used[i]) continue; used[i] = 1;
+		const fwd = [...lines[i]]; grow(fwd, i);
+		const back: Pt[] = [lines[i][0]]; grow(back, i);   // 始点から逆向きにも伸ばす
+		const chain = back.length > 1 ? [...back.reverse(), ...fwd.slice(1)] : fwd;
+		if (minLen > 0 && !onEdge(chain[0]) && !onEdge(chain[chain.length - 1])) { let L = 0; for (let k = 1; k < chain.length && L < minLen; k++) L += Math.hypot(chain[k][0] - chain[k - 1][0], chain[k][1] - chain[k - 1][1]); if (L < minLen) continue; }
+		out.push(chain);
+	}
+	return out;
+}
 export function hpxTileGeoms(g: LLGeom, order: number, extent = 4096): TileGeom[] {
 	return hpxSplitFaces(g, 1 / (2 ** order * extent * 4)).flatMap(f => hpxSliceFace(f, order, extent));
 }
