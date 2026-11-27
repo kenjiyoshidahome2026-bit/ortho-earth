@@ -4,6 +4,7 @@ import { evalExpr, truthy, originOfLayer, formatSections } from "./expr.ts";
 import { allowsVertical } from "./vertical.ts";
 import { parseRGBA } from "./color.ts";
 import { tileLocalToLonLat } from "./tile.ts";
+import type { TileProj } from "./tilegrid.ts";
 import { parseFontStack } from "./fontstack.ts";
 import { labelKey } from "./labelkey.ts";   // 注記の鍵＝ここで一度焼く（main の重複排除・labels2d の当選集合が同じ鍵を読む）
 import type { ExprContext } from "./expr.ts";
@@ -40,7 +41,7 @@ export interface Label extends Partial<LabelLayout>, Partial<LabelIcon>, LabelLi
 	/** 球の縁の近くは出さない（視線と地面のなす角の余弦の下限・ネイティブの記号の層の horizon＝MapLibre に無い拡張・0／無し＝全部） */
 	hz?: number;
 }
-export interface LabelsTile extends TileXYZ { layers: TileData; stateOf?: StateOf | null }
+export interface LabelsTile extends TileXYZ { layers: TileData; stateOf?: StateOf | null; /** メルカトルでないタイル（HEALPix）。省けばメルカトル */ proj?: TileProj | null }
 export interface LabelsResult { labels: Label[]; codepoints: Set<number>; font: string }
 
 const num = (v: unknown, d: number): number => (typeof v === "number" && !isNaN(v)) ? v : d;
@@ -181,7 +182,14 @@ function layoutOf(L: StyleLayer, lo: Record<string, unknown>, ctx: ExprContext, 
 }
 // style の symbol層から点・横書きラベルを抽出。anchor は絶対経緯度[lon,lat]（タイル跨ぎ共通原点）。
 // stateOf＝地物 → その feature-state（#109・省略可＝build.js と同じ口）。filter の後に ctx へ＝paint（text-color・halo・text-opacity・icon-color…）が読む。基図は渡さない
-export function buildLabels({ layers, z, x, y, stateOf = null }: LabelsTile, style: Style): LabelsResult {
+export function buildLabels({ layers, z, x, y, stateOf = null, proj = null }: LabelsTile, style: Style): LabelsResult {
+	// タイルの中の点 → 経緯度。メルカトルは今の式のまま・proj の時は写し手（層の extent ごとに 1 回作る）
+	let pjE = 0, pjF: ReturnType<TileProj["toLonLat"]> | null = null;
+	const toLL = !proj ? (px: number, py: number, E: number): [number, number] => tileLocalToLonLat(x, y, z, px, py, E) : (px: number, py: number, E: number): [number, number] => {
+		if (pjE !== E || !pjF) { pjE = E; pjF = proj.toLonLat(E, 0, 0); }
+		const o: [number, number] = [0, 0]; pjF(px, py, o, 0); return o;
+	};
+	const tkey = proj ? proj.key : `${z}/${x}/${y}`;   // 注記の群（symbol-spacing）の鍵＝タイルごと
 	const codeKey = style.schema && style.schema.labelCode;   // 注記の分類コードの属性名＝style の申告（themes の絞り込みと路線記号がこれを見る）
 	const out: Label[] = [];
 	const codepoints = new Set<number>();
@@ -231,7 +239,7 @@ export function buildLabels({ layers, z, x, y, stateOf = null }: LabelsTile, sty
 				: [{ px: g.coords[0], py: g.coords[1] }];
 			for (const sp of spots) {
 			const px = sp.px, py = sp.py;
-			const [lon, lat] = tileLocalToLonLat(x, y, z, px, py, src.extent);
+			const [lon, lat] = toLL(px, py, src.extent);
 			const dkey = (ml ? li + "\u0001" : "") + (whole ? "~" : "") + text + "\u0001" + icon + "@" + Math.round(px) + "," + Math.round(py);   // 丸ごとの線（~）は点・中心の注記と畳まない   // MapLibre 由来の層は層ごとに（同じ点・同じ文字でも別の層なら両方置いて後の層が勝つ＝poi_transit が poi_r1 に消されていた）・ネイティブは従来どおり層またぎで 1 つ
 			if (seen.has(dkey)) continue; seen.add(dkey);
 			const color = parseRGBA(evalExpr(L.paint?.["text-color"] ?? "#000", ctx));
@@ -240,12 +248,12 @@ export function buildLabels({ layers, z, x, y, stateOf = null }: LabelsTile, sty
 			const sort = num(evalExpr(lo["symbol-sort-key"] ?? 0, ctx), 0);
 			for (const ch of text) codepoints.add(ch.codePointAt(0)!);
 			const lay = layoutOf(L, lo, ctx, ml);
-			const lg = spacingPx ? `${z}/${x}/${y}/${li}/${fi}/${sp.part ?? 0}` : null;   // symbol-spacing の群＝1 本の線（タイル・層・地物・部分）の中だけ（MapLibre と同じ＝隣の区間の同名の道は両方出る）
+			const lg = spacingPx ? `${tkey}/${li}/${fi}/${sp.part ?? 0}` : null;   // symbol-spacing の群＝1 本の線（タイル・層・地物・部分）の中だけ（MapLibre と同じ＝隣の区間の同名の道は両方出る）
 			const line: LabelLine = !onLine ? {} : upright ? { mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}) } : whole ? ((): LabelLine => {
-				const path = new Float64Array(sp.n! * 2); for (let i = 0; i < sp.n!; i++) { const q = tileLocalToLonLat(x, y, z, g.coords[sp.s! + i * 2], g.coords[sp.s! + i * 2 + 1], src.extent); path[i * 2] = q[0]; path[i * 2 + 1] = q[1]; }
-				const w = tileLocalToLonLat(x, y, z, 0, 0, src.extent), e2 = tileLocalToLonLat(x, y, z, src.extent, src.extent, src.extent);
+				const path = new Float64Array(sp.n! * 2); for (let i = 0; i < sp.n!; i++) { const q = toLL(g.coords[sp.s! + i * 2], g.coords[sp.s! + i * 2 + 1], src.extent); path[i * 2] = q[0]; path[i * 2 + 1] = q[1]; }
+				const w = toLL(0, 0, src.extent), e2 = toLL(src.extent, src.extent, src.extent);
 				return { lp: 2, path, cum: sp.cum, lc: sp.lc, tz: z, upp, tbx: [w[0], e2[1], e2[0], w[1]], mw: 0, sp: spacingPx, lg, ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false };   // lp 2＝部分を丸ごと（錨は描く側）・tbx＝タイルの枠（西・南・東・北＝錨はこの中だけ）
-			})() : ((): LabelLine => { const sPath = sp.path!, path = new Float64Array(sPath.length); for (let i = 0; i < sPath.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sPath[i], sPath[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
+			})() : ((): LabelLine => { const sPath = sp.path!, path = new Float64Array(sPath.length); for (let i = 0; i < sPath.length; i += 2) { const q = toLL(sPath[i], sPath[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
 			const tx = (s: string): string => lay.transform === "uppercase" ? s.toUpperCase() : lay.transform === "lowercase" ? s.toLowerCase() : s;
 			const rec: Label = { anchor: [lon, lat], text: tx(text), size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...(szn ? { szn, tz: z, ...(dzA ? { tdz: dzA } : {}) } : {}), ...lay.rec, ...(sec ? { sec: sec.map(q => ({ ...q, t: tx(q.t) })) } : {}), ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
 			if (rec.wm && !allowsVertical(rec.text)) delete rec.wm;   // 縦書きにできない文字（ラテンだけ）＝横書き

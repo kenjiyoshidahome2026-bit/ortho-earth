@@ -8,6 +8,7 @@ import type { DecodedFeature, DecodedGeom, DecodedTile, EmptyTile, TileData } fr
 import type { ExprContext, ExprOrigin } from "./expr.ts";
 import type { GeoCtxTile } from "./expr-geo.ts";
 import type { TileXYZ } from "./tile.ts";
+import type { TileProj } from "./tilegrid.ts";
 import type { BuildingsSchema } from "./buildings.ts";
 
 /** 基図の style の層（MapLibre の部分集合＝fill / line / symbol / background・式は評価器 expr.ts が読む） */
@@ -19,7 +20,7 @@ export interface Style { layers: StyleLayer[]; emptySea?: string | null; schema?
 /** 地物 → その feature-state（#109） */
 export type StateOf = (f: DecodedFeature) => Record<string, unknown> | null | undefined;
 /** buildTileDrawList の入力＝解読済みの層と タイル座標 */
-export interface BuildTile extends TileXYZ { layers: TileData; subLenM?: number; stateOf?: StateOf | null; /** 線の間引きの許容（タイル単位・extent 4096 換算・0＝間引かない） */ simpTol?: number }
+export interface BuildTile extends TileXYZ { /** メルカトルでないタイル（HEALPix）の番地の計算。省けばメルカトル＝z/x/y。在る時は z＝style の zoom・x, y は使わない */ proj?: TileProj | null; layers: TileData; subLenM?: number; stateOf?: StateOf | null; /** 線の間引きの許容（タイル単位・extent 4096 換算・0＝間引かない） */ simpTol?: number }
 export interface DrawList { ops: DrawOp[] }
 
 // 一番上（pole=1）／下（pole=-1）の行のタイル：上端（py≤0）／下端（py≥extent）に沿う「境界の辺」（1 つの三角形にしか属さない辺）から、極の 1 頂点へ扇を張る。
@@ -408,7 +409,7 @@ function linkSegs(g: LineSegs): void {
 	close(first, last);
 	g.pv = pv; g.nx = nx;
 }
-function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null, simpTol = 0 }: BuildTile, style: Style, origin: readonly number[], pale: (c: unknown) => unknown, B: Bufs): DrawList {
+function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null, simpTol = 0, proj = null }: BuildTile, style: Style, origin: readonly number[], pale: (c: unknown) => unknown, B: Bufs): DrawList {
 	const [ox, oy] = origin;
 	const ops: DrawOp[] = [];   // { kind:'fill'|'line', li, ... } を style層順に（li=style層index、跨ぎバッチ結合用）
 	// タイルローカル(0..extent) → 経緯度(原点相対) を out[oi],out[oi+1] へ直書き。x,y,n はタイル内で不変なので
@@ -426,19 +427,26 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null, si
 		}
 		return R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * ((y + py / extent) / nTiles)))) - HALF_PI) - oy;
 	};
-	const llInto = (px: number, py: number, extent: number, out: Float64Array, oi: number): void => {
+	const llMerc = (px: number, py: number, extent: number, out: Float64Array, oi: number): void => {
 		const wx = (x + px / extent) / nTiles;
 		out[oi] = (wx * 360 - 180) - ox;
 		out[oi + 1] = latOf(py, extent);
 	};
+	// メルカトルでないタイル（proj）＝写し手を層の extent ごとに 1 回作って使う。無ければ上のメルカトルの式そのもの（同じ関数＝今と同じ値）
+	let pjE = 0, pjF: ((px: number, py: number, out: { [i: number]: number }, oi: number) => void) | null = null;
+	const llInto = !proj ? llMerc : (px: number, py: number, extent: number, out: Float64Array, oi: number): void => {
+		if (pjE !== extent || !pjF) { pjE = extent; pjF = proj.toLonLat(extent, ox, oy); }
+		pjF(px, py, out, oi);
+	};
+	// 式（within／distance）が地物の形を経緯度へ戻す口＝メルカトルは今のまま { z, x, y, E }・proj の時は写し手を添える
+	const geoTile = (extent: number): GeoCtxTile => proj ? { z, x, y, E: extent, ll: proj.toLonLat(extent, 0, 0) } : { z, x, y, E: extent };
 	const sc = new Float64Array(2);    // line 用スクラッチ（1頂点）＝毎回の一時配列を作らない
 	let llBuf = new Float64Array(0);   // fill 用：ポリゴン頂点の経緯度を貯める再利用バッファ（最大サイズまで成長）
 	// 頂点色は Uint8×4（正規化attribでGLへ）：float32×4 だと fill 頂点24Bの2/3が色＝実質8bit精度のデータに
 	// バス幅の2/3を割いていた。バイト化で tess出力→transfer→常駐→merge→upload の全段が縮む。
 	const b255 = (v: number): number => v <= 0 ? 0 : v >= 1 ? 255 : (v * 255 + 0.5) | 0;
 	// 線分細分の閾値（タイル単位）：地形にドレープする際、長い直線が尾根で折れないよう ~700m 毎に分割。
-	const [, cLat] = tileLocalToLonLat(x, y, z, 2048, 2048, 4096);
-	const mPerUnit = 40075016.686 * Math.cos(cLat * Math.PI / 180) / (Math.pow(2, z) * 4096);
+	const mPerUnit = proj ? proj.sideM / 4096 : 40075016.686 * Math.cos(tileLocalToLonLat(x, y, z, 2048, 2048, 4096)[1] * Math.PI / 180) / (Math.pow(2, z) * 4096);
 	const subLen = Math.max(1, subLenM / mPerUnit);   // 700m（既定）相当のタイル単位（Infinity＝細分なし・下の lineSegs で低 z だけ fill の格子に倒す）
 
 	// 塗りの地物の幾何（切り抜き→三角形分割→細分→極の扇→経緯度）は色に依らない＝地物ごとに一度だけ作って層を跨いで使い回す。
@@ -463,7 +471,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null, si
 			const [flat1, tris1]: [ArrayLike<number>, ArrayLike<number>] = fillSub > 0 ? subdivideTris(flat0, tris0, fillSub) : [flat0, tris0];
 			// 極まで延ばす（MapLibre の extendToNorthPole／SouthPole）：一番上／下の行のタイルで、上端（py≤0）／下端（py≥extent）に沿う境界の辺から極の 1 頂点へ扇を張る
 			// ＝北極海・南極大陸がメルカトルの端（85.05°）で切れず極まで塗られる（旧＝極の周りが球の地の色・2026-09-30）。極の頂点は経緯度を直に書く（下の poleAt）
-			const poleAt = fillSub > 0 && y === 0 ? 1 : fillSub > 0 && y === nTiles - 1 ? -1 : 0;
+			const poleAt = proj ? 0 : fillSub > 0 && y === 0 ? 1 : fillSub > 0 && y === nTiles - 1 ? -1 : 0;   // proj（HEALPix）は面が極まで覆う＝延ばさない
 			const [flat, tris] = poleAt ? extendToPole(flat1, tris1, extent, poleAt) : [flat1, tris1];
 			// ユニーク頂点を一度だけ経緯度化（原点相対）→ 三角形は共有頂点をインデックスで引く。
 			if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
@@ -536,13 +544,13 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null, si
 		const extent = src.extent;
 		// filter で残る地物だけを line-sort-key/fill-sort-key の昇順に（高い値ほど後＝上に描く）。std は道路を vt_drworder で並べる。
 		// 旧＝層の全地物を並べてから filter＝同じ source-layer（road）を読む層の数だけ全地物の sort-key を評価して並べていた
-		const feats = filterSortFeatures(src.features, L.filter, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], zL, eo, { z, x, y, E: extent });   // tile＝within/distance（C2）が地物の形を経緯度へ
+		const feats = filterSortFeatures(src.features, L.filter, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], zL, eo, geoTile(extent));   // tile＝within/distance（C2）が地物の形を経緯度へ
 
 		if (L.type === "fill") {
 			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = B.pos, col = B.col, idx = B.idx; pos.n = col.n = idx.n = 0;
-			const ctx: ExprContext = { zoom: zL, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ctx: ExprContext = { zoom: zL, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: geoTile(extent) };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			const ptL = eo ? layerPaintTable("fill", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝頂点ごとの行（状態を焼く呼び手＝利用者の層は feature-state の層を表にしない＝段 3）
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
@@ -594,12 +602,12 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null, si
 			const ml = !!(eo && L.dashInLineWidths), dashRaw = lp ? null : dashPattern(dashV, ml);
 			const gpuDash = ml && dashRaw && (!off || uOff) && dashRaw.length <= DASH_GPU_MAX ? dashRaw : null;   // シェーダで描く（S-P1-3）＝刻まない。ずらす層は層で 1 つの値の時だけ
 			const dist = gpuDash || lp ? B.dist : null; if (dist) dist.n = 0;
-			const dK = 2 ** (32 - z) / extent;   // タイル単位 → z24 の px
+			const dK = 2 ** (32 - (proj ? proj.zEq : z)) / extent;   // タイル単位 → z24 の px
 			const cpu = gpuDash || !dashRaw ? null : ml ? dashCpuML(dashRaw) : [dashRaw, dashRaw[0]] as [number[], number];   // CPU で刻む模様と刻み始めの残り
 			const dashPat = cpu ? cpu[0] : null;
 			// line-gradient（G-3）＝色の語は線分の始点・終点の進み（unorm16×2）・色は描き手が見本（lt.lut）から引く。CPU で刻む破線とは並ばない（色で描く）
 			const lg = eo && !dashPat && !lp ? lineGradientOf(L, zL, eo, pale) : null, lt = lp ?? lg;
-			const ctx: ExprContext = { zoom: zL, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ctx: ExprContext = { zoom: zL, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: geoTile(extent) };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			const ptL = eo && !lg ? layerPaintTable("line", L.paint, eo) : null, pt = ptL && !(ptL.fs && stateOf) ? new PtRows(ptL, B.rid) : null;   // paint 表の (b) 類＝線分ごとの行（同上）・色の語を進みに使う層は持たない
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）

@@ -163,7 +163,10 @@ interface TileGrid<T> {                       // T＝番地（メルカトル {z
 ### 段取り（各段で止まれる）
 
 1. **格子の口を足す**（新しいファイルだけ・配線しない）〔済＝`src/tilegrid.ts`・`tests/tilegrid.mjs`〕：`tilegrid.ts`＝メルカトルと HEALPix の 2 実装＋検定（メルカトルは `tile.ts` と同じ値・HEALPix は往復と隣の継ぎ）。既存のファイルは触らない。
-2. **組み立てを格子越しに**：`build.ts`・`labels.ts`・`buildings.ts`・`tilepayload.ts` の番地の計算を口越しに替える。既定はメルカトル＝絵は変わらない（既存の検定＋描画の突き合わせで確かめる）。**ここが既存のファイルに触る最初の段＝本人に見せてから。**
+2. **組み立てを格子越しに**〔済・本人 2026-11-27「お願いします」〕：`build.ts`・`labels.ts`・`buildings.ts`・`expr-geo.ts` に、メルカトルでないタイルの口 `proj?: TileProj`（`tilegrid.ts`）を足した。**省けば今の式そのもの**（置き換えではなく枝＝メルカトルの熱い道と緯度の覚えは 1 行も動かしていない）。`bench-tile.mjs --hash` の指紋が前後で同じ（optbv×gsi `b57e291d`・omt z0×pm-mono `76a73b13`）。HEALPix の入口は `tilepayload.ts` の `buildHpxTilePayload`（別の関数）。
+   - **枠の合わせ `hpxToTileFrame`**：焼いたタイルは y が上向き＝タイル → 経緯度が「向きを保つ」写像で、メルカトル（y 下向き＝向きを裏返す）と逆。そのまま組むと三角形の巻きと建物の壁の表裏が逆になる。解読の直後に y を裏返し、多角形の輪の点の順も逆にして MVT の枠へ合わせる（輪の符号＝外周が正はそのまま）。写し手の側（`hpxTileProj`）が y を戻す。
+   - 物差し：タイルの辺 `sideM`＝6,519.6 km / 2^k（N12＝1,591.7 m・緯度に依らない）・破線など画素の物差しは `zEq`＝k + 2.62・style の zoom は k + 3・極への延長と図郭外の水域は無し。
+   - 残り：線に沿う注記はタイルの枠の中で角度を見る所がある＝HEALPix の枠は 45° 回っている＝注記を載せる段で確かめる。検定＝`tests/hpx-payload.mjs`（場所・面積・巻き・建物・隣との切り口）。
 3. **HEALPix のタイル 1 枚を地球に置く**：`?hpxvt=1` で、決め打ちの数枚（東京の N9）を今の style で組み立てて描く。位置と継ぎ目を目で確かめる。
 4. **タイル選び**：`selectLOD`／`tilemanager` を格子越しに。HEALPix で視野を覆う・段の切り替え・祖先の引き伸ばし。
 5. **style の合わせ**：焼いた層（roads・water・buildings）と属性に合う style。今の基図の style は別のスキーマ＝そのままでは色が付かない。
