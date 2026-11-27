@@ -77,7 +77,9 @@ export async function goEqual(map: GlobeMap, { url, center, morph: doMorph = tru
 		addEventListener("pageshow", e => { if (e.persisted) location.reload(); });
 		document.documentElement.style.background = document.body.style.background = "#000";   // equal は黒地の球から開く＝間に地の色を挟まない
 		try { map.destroy(); } catch (e) { console.warn("[equal] destroy before leaving", e); }
-		location.href = u.href;
+		// 入口（?start=equal＝www のカード）は履歴を差し替える＝この頁を履歴に残すと、equal からの「戻る」（ブラウザの戻る・「← 戻る」の history.back()）が
+		// ここへ着いてまた equal へ送り返す＝www へ戻れない罠になる（本人 2026-11-27「www に戻りません」）。差し替えれば戻る＝来た頁（www）
+		if (/[?&]start=equal\b/.test(location.search)) location.replace(u.href); else location.href = u.href;
 		return;
 	}
 	const handBack = (v: EqualViewBack | null | undefined) => { if (v) location.hash = `#${(+v.zoom).toFixed(2)}/${(+v.lat).toFixed(5)}/${(+v.lon).toFixed(5)}`; };
