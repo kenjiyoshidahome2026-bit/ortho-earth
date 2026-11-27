@@ -50,6 +50,9 @@ const MAX_ZOOM = 8;   // NE 10m の縮尺の天井（本人 2026-09-18「maxZoom
 // bucket 基盤は頁で一度（部品を何度作り直しても 1 回）
 let geopbfReady = false;
 const ensureGeopbf = (): void => { if (!geopbfReady) { createGeopbf(API, { bucket: nativeBucket as BucketProvider, prewarm: true }); geopbfReady = true; } };   // prewarm＝復号レーンを先に起こす（起動直後に 4 層を必ず解く＝立ち上げを DB/IDB 待ちと重ねる）
+// 低メモリ端末＝globe の boot/tier.ts lowMem と同じ物差し（deviceMemory ≤4GB・deviceMemory の無い iOS/iPadOS はタッチ端末を一律）。
+// iOS はタブのメモリが尽きると黙って落ちる＝標高アトラス・近景の窓・段の常駐を絞る（下の LOW_MEM の各所）
+const LOW_MEM: boolean = typeof navigator !== "undefined" && ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory! <= 4 : navigator.maxTouchPoints > 1);
 const num01 = (v: string | null, d: number): number => { const n = parseFloat(v as string); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
 
 /** 層の状態：{ def, on, status, baked, vtx, gpu } */
@@ -233,11 +236,11 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			.catch(e => console.warn("[hypso] climate texture failed (latitude approximation)", e));
 		const maxTex = R.maxTex;
 		let upT = 0;   // セル到着ごとの再アップロードは 1 フレームにまとめる
-		await loadWorldElevation({ apiUrl: API, cellRes: Math.min(1024, Math.floor(maxTex / 4)),
+		await loadWorldElevation({ apiUrl: API, cellRes: Math.min(LOW_MEM ? 512 : 1024, Math.floor(maxTex / 4)),   // 低メモリ端末＝半分の密度（Float32 33MB → 8MB・GPU 17MB → 4MB）。近景（z≥5.5）は R10 窓が受け持つ
 			onUpdate: a => { cancelAnimationFrame(upT); upT = requestAnimationFrame(() => { R.setElevation(a.data, a.width, a.height); requestDraw(); }); } })
 			.catch(e => console.error("[hypso] elevation failed", e));
 		await clim;
-		near = createNearElevation({ apiUrl: API, maxTex, onAtlas: a => { R.setNearElevation(a); requestDraw(); },
+		near = createNearElevation({ apiUrl: API, maxTex, lowMem: LOW_MEM, onAtlas: a => { R.setNearElevation(a); requestDraw(); },
 			onBusy: b => { b ? busy.add("Terrain R10") : busy.delete("Terrain R10"); updateToast(); } });
 		hypsoState = 2; busy.delete("Hypsometry"); updateToast(); requestDraw();
 	}
@@ -271,6 +274,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const rank = Math.floor(1.5 * Math.log2(pxDeg * pxDeg) + 61.524);
 		return Math.max(0, Math.min(63, Math.floor(rank / 3) * 3));
 	}
+	const GPU_TIERS = LOW_MEM ? 2 : 4;
 	const vtxByXY = new WeakMap<Uint32Array, VertexTexture>();
 	function gpuTier(L: GpuHost, thr: number): Tier {
 		const b = L.baked!;
@@ -282,7 +286,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const cpu = b.tier(thr);
 		t = { lines: cpu.lines ? R.instanceVAO(cpu.lines, 3) : null, fills: cpu.fills ? R.instanceVAO(cpu.fills, 4) : null };
 		L.gpu.set(thr, t);
-		while (L.gpu.size > 4) { const [k0, old] = L.gpu.entries().next().value!; L.gpu.delete(k0); R.freeVAO(old.lines); R.freeVAO(old.fills); }   // 層あたり 4 段まで常駐（GPU メモリ）
+		while (L.gpu.size > GPU_TIERS) { const [k0, old] = L.gpu.entries().next().value!; L.gpu.delete(k0); R.freeVAO(old.lines); R.freeVAO(old.fills); if (LOW_MEM) b.tiers.delete(k0); }   // 層あたり 4 段まで常駐（GPU メモリ）・低メモリ端末は 2 段で CPU 側の並びも一緒に捨てる（戻れば作り直す）
 		return t;
 	}
 
@@ -445,7 +449,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// 作るのは CPU 側の並びだけ（GPU へ載せるのはまたいだ時＝常駐 4 段の掟はそのまま）
 	let warmT = 0;
 	function warmTiers(): void {
-		if (destroyed || morph || raf) return;
+		if (destroyed || morph || raf || LOW_MEM) return;   // 低メモリ端末は先回りしない（並びを余分に持たない）
 		const thr = lodThreshold(view.zoom);
 		for (const t of [thr - 3, thr + 3]) {
 			if (t < 0 || t > 63) continue;
