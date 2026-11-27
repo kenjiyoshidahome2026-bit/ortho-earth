@@ -98,10 +98,12 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min
 
 | 層 | 中身 | 出し始める段 |
 |---|---|---|
-| `roads` | 道：kind＝`highway`（motorway・trunk＝4〜）／`major_road`（primary 6・secondary 7・tertiary 8）／`minor_road`（residential ほか 10・service 11）／`path`（11）。`kind_detail`＝highway の値・`name`／`ref` は 9〜・`is_tunnel`／`is_bridge` | 4〜11 |
+| `roads` | 道：kind＝`highway`（motorway・trunk＝4〜）／`major_road`（primary 6・secondary 7・tertiary 8）／`minor_road`（residential ほか 10・service 11）／`path`（11）。`kind_detail`＝highway の値・`name`／`ref` は 9〜・`is_tunnel`／`is_bridge` | 4〜12 |
 | `roads` | 鉄道：kind＝`rail`・`kind_detail`＝railway の値（rail 6・subway ほか 9・tram 10） | 6〜10 |
-| `water` | 水面（多角形・kind＝`water`）5〜・水路（線・`river` 7・`canal` 9・`stream` 11） | 5〜11 |
-| `buildings` | 建物（多角形・属性なし） | 最も細かい段だけ（既定 11） |
+| `water` | 水面（多角形・kind＝`water`）5〜・水路（線・`river` 7・`canal` 9・`stream` 11） | 5〜12 |
+| `buildings` | 建物（多角形・属性なし） | 最も細かい段だけ（既定 12） |
+
+- 試し焼き（本人の Mac・2026-11-27・`--box=139.5,35.5,140,35.9`・Norder 4〜11）：線 60 万・面 316 万（ほぼ建物）→ 379 枚・100 MB・1,584 秒（ほぼ GDAL が日本全体の PBF を読む時間＝範囲を絞っても変わらない）。プレビュー（Norder 9・11）は形も境の継ぎも合っていた。都心の Norder 11 は 1 枚 約 710 KB（建物 約 2 万 4 千棟・道 約 7 千本）＝重すぎる → **既定の最も細かい段を 12 に**（建物は 12 だけ・1 枚 約 1.6 km 角）。
 
 - 間引き：最も細かい段は丸めるだけ。粗い段は Douglas–Peucker（1.5 刻み）と小さい多角形（8 刻み² 未満）の切り捨て。線の両端とタイルの縁の点は動かさない＝隣のタイルとの継ぎを保つ（`hpxSimplify`）。
 - 多角形の輪は外周＝反時計回り・穴＝時計回りにそろえて焼く（y が上向きの約束）。
