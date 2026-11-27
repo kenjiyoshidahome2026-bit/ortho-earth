@@ -9,6 +9,9 @@ const MAX_LIST_PAGES = 10;
 const LIST_CACHE = "public, max-age=0, s-maxage=60";
 
 /** Range ヘッダ（bytes=a-b／a-／-n の 1 区間だけ）→ R2 の {offset, length}。無い・読めない＝null（全体を返す）・範囲の外＝false（416） */
+// 置いた時の縮め方。昔の put は X-Content-Encoding が無い時に null をそのまま R2 へ渡していて、R2 はそれを文字列 "null" で持つ（本番の zip で確認 2026-11-27）
+//   ＝"null" を「縮めていない」と読む。これを見ないと、縮めずに置いた物でも Range が効かず全体が返る。
+export const encOf = (o: { httpMetadata?: { contentEncoding?: string | null } } | null) => { const e = o?.httpMetadata?.contentEncoding; return !e || e === "null" || e === "identity" ? "" : e; };
 export function parseRange(h: string | null, size: number): { offset: number; length: number } | null | false {
 	const m = h && /^bytes=(\d*)-(\d*)$/.exec(h.trim());
 	if (!m || (!m[1] && !m[2])) return null;
@@ -68,12 +71,12 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 			if (isMeta) {
 				const meta = { Key: obj.key, Size: obj.size, LastModified: obj.uploaded,
 					ETag: (obj.httpEtag || "").replace(/"/g, ""),
-					ContentEncoding: obj.httpMetadata?.contentEncoding || ""
+					ContentEncoding: encOf(obj)
 				};
 				return new Response(JSON.stringify({ data: meta }), { headers: { "Content-Type": "application/json" } });
 			}
 			// Range（PMTiles 等の部分読み）＝縮めずに置いた物だけ。R2 から要る分だけ取り、206 で返す（エッジには載せない＝部分は鍵が分かれない）
-			const range = isMeta || obj.httpMetadata?.contentEncoding ? null : parseRange(request.headers.get("Range"), obj.size);
+			const range = isMeta || encOf(obj) ? null : parseRange(request.headers.get("Range"), obj.size);
 			if (range === false) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${obj.size}`, "Accept-Ranges": "bytes" } });
 			if (range) {
 				const part = await bucket.get(path, { range });
@@ -89,7 +92,7 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 			const response = new Response((obj as R2ObjectBody).body, {
 				headers: {
 					"Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
-					"Content-Encoding": obj.httpMetadata?.contentEncoding || "",
+					"Content-Encoding": encOf(obj),
 					"Content-Length": obj.size as unknown as string, "ETag": obj.httpEtag,
 					"Cache-Control": IMMUTABLE.test(path) ? "public, max-age=31536000, immutable" : "public, s-maxage=3600, max-age=60"
 				}
@@ -106,14 +109,14 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 			const action = request.headers.get("X-Action");
 			if (action === "put") { // 通常のアップロード
 				const contentType = request.headers.get("X-Metadata-Type") || "application/octet-stream";
-				const contentEncoding = request.headers.get("X-Content-Encoding");
+				const contentEncoding = request.headers.get("X-Content-Encoding") || undefined;   // 無い時は渡さない（null を渡すと R2 が文字列 "null" で持つ）
 				await bucket.put(path, request.body, { httpMetadata: { contentType, contentEncoding } });
 				purge();
 				return new Response(JSON.stringify({ data: "ok" }));
 			}
 			if (action === "mp-create") { // マルチパートアップロード: 開始
 				const contentType = request.headers.get("X-Metadata-Type") || "application/octet-stream";
-				const contentEncoding = request.headers.get("X-Content-Encoding");
+				const contentEncoding = request.headers.get("X-Content-Encoding") || undefined;   // 無い時は渡さない（null を渡すと R2 が文字列 "null" で持つ）
 				const upload = await bucket.createMultipartUpload(path, { httpMetadata: { contentType, contentEncoding } });
 				return new Response(JSON.stringify({ uploadId: upload.uploadId }));
 			}
