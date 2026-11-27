@@ -6,8 +6,8 @@
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs                      # 日本の PBF（無ければ Geofabrik から約 2.3 GB）→ Norder 4..12
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs --pbf=<file.osm.pbf>  # 手元の PBF（県・地方の PBF＝試し焼き）
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs --box=139.5,35.5,140,35.9   # 範囲だけ
-//   … --order=12 --min-order=4 --extent=4096 --out=bake-out/hpx/osm --jobs=<働き手の数> --readers=2
-//   … --lines=<a.geojsonl> --polys=<b.geojsonl>   # ogr2ogr の代わりに GeoJSONSeq を直に読む（検定用）
+//   … --order=12 --min-order=4 --extent=4096 --out=bake-out/hpx/osm --jobs=<働き手の数> --readers=2 --pack-only（残っている仮の束から詰め直す） --keep-tmp（仮の束を消さない）
+//   … --lines=<a.geojsonl> --polys=<b.geojsonl>   # ogr2ogr の代わりにファイルを直に読む（検定用・GeoJSONSeq か、ogr2ogr と同じ CSV＝1 行目が WKT,…）
 // 層（Protomaps の層名と kind に寄せる＝今の style が効きやすい）と、出し始める段（Norder k ≒ メルカトルの z k+2.6）:
 //   roads     … 道（kind＝highway／major_road／minor_road／path・kind_detail＝highway の値）と鉄道（kind＝rail）
 //   water     … 水面（多角形・kind＝water）と水路（線・kind＝river／canal／stream）
@@ -84,12 +84,30 @@ function worker() {
 	const signed = r => { let a = 0; for (let i = 0; i < r.length - 1; i++) a += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]; return a; };
 	const orient = (r, outer) => (signed(r) > 0) === outer ? r : [...r].reverse();
 	const tags = hs => { const t = {}; for (const m of (hs || "").matchAll(/"((?:[^"\\]|\\.)*)"=>"((?:[^"\\]|\\.)*)"/g)) t[m[1]] = m[2]; return t; };
-	function cut(kind, rows) {   // kind＝"lines"｜"multipolygons"。返り＝採った件数
+	// CSV（GDAL の -f CSV -lco GEOMETRY=AS_WKT）の 1 行 → 列の値。引用符の中の "" は " 1 つ
+	const csvRow = line => { const out = []; let i = 0; while (i <= line.length) { if (line[i] === '"') { let j = i + 1, v = ""; for (;;) { const k = line.indexOf('"', j); if (k < 0) { v += line.slice(j); i = line.length + 1; break; } if (line[k + 1] === '"') { v += line.slice(j, k + 1); j = k + 2; } else { v += line.slice(j, k); i = k + 2; break; } } out.push(v); } else { const k = line.indexOf(",", i); if (k < 0) { out.push(line.slice(i)); break; } out.push(line.slice(i, k)); i = k + 1; } } return out; };
+	const ringOf = t => t.split(",").map(q => { q = q.trim(); const k = q.indexOf(" "), k2 = q.indexOf(" ", k + 1); return [+q.slice(0, k), +(k2 < 0 ? q.slice(k + 1) : q.slice(k + 1, k2))]; });
+	function wkt(w) {   // → GeoJSON と同じ形の { type, coordinates }。読めない形は null
+		const i = w.indexOf("("); if (i < 0) return null;
+		const ty = w.slice(0, i).trim().split(" ")[0], j = w.lastIndexOf(")");
+		if (ty === "LINESTRING") return { type: "LineString", coordinates: ringOf(w.slice(i + 1, j)) };
+		if (ty === "MULTILINESTRING") return { type: "MultiLineString", coordinates: w.slice(i + 2, j - 1).split(/\)\s*,\s*\(/).map(ringOf) };
+		if (ty === "POLYGON") return { type: "Polygon", coordinates: w.slice(i + 2, j - 1).split(/\)\s*,\s*\(/).map(ringOf) };
+		if (ty === "MULTIPOLYGON") return { type: "MultiPolygon", coordinates: w.slice(i + 3, j - 2).split(/\)\)\s*,\s*\(\(/).map(q => q.split(/\)\s*,\s*\(/).map(ringOf)) };
+		return null;
+	}
+	function cut(kind, rows, cols) {   // kind＝"lines"｜"multipolygons"・cols＝CSV の列名（無ければ GeoJSONSeq）。返り＝採った件数
 		let used = 0;
 		for (const s of rows) {
-			const i = s.indexOf("{"); if (i < 0) continue;
-			const f = JSON.parse(s.slice(i)), p = f.properties || {}, t = { ...tags(p.other_tags) }, g = f.geometry;
-			for (const [k, v] of Object.entries(p)) if (v !== null && k !== "other_tags" && k !== "osm_id") t[k] = String(v);
+			let t, g;
+			if (cols) {
+				const v = csvRow(s); t = {};
+				for (let c = 0; c < cols.length; c++) { const k = cols[c], x = v[c]; if (x === undefined || x === "") continue; if (k === "WKT") g = wkt(x); else if (k === "other_tags") Object.assign(t, tags(x)); else if (k !== "osm_id") t[k] = x; }
+			} else {
+				const i = s.indexOf("{"); if (i < 0) continue;
+				const f = JSON.parse(s.slice(i)), p = f.properties || {}; t = { ...tags(p.other_tags) }; g = f.geometry;
+				for (const [k, v] of Object.entries(p)) if (v !== null && k !== "other_tags" && k !== "osm_id") t[k] = String(v);
+			}
 			if (!g) continue;
 			if (kind === "lines") {
 				const cls = classifyLine(t); if (!cls) continue;
@@ -136,7 +154,7 @@ function worker() {
 		return made;
 	}
 	parentPort.on("message", m => {
-		if (m.rows) { const p0 = pieces, used = cut(m.kind, m.rows); parentPort.postMessage({ cut: 1, seen: m.rows.length, used, pieces: pieces - p0 }); }
+		if (m.rows) { const p0 = pieces, used = cut(m.kind, m.rows, m.cols); parentPort.postMessage({ cut: 1, seen: m.rows.length, used, pieces: pieces - p0 }); }
 		else if (m.flush) { flush(); parentPort.postMessage({ flushed: 1 }); }
 		else if (m.files) pack(m.files).then(packed => parentPort.postMessage({ packed }));
 	});
@@ -145,7 +163,8 @@ function worker() {
 // ═══ 親：読む口を回して行を配る → 束を配って詰めさせる → 目次 ═══
 async function main() {
 	const t0 = Date.now(); let pbf = opt("pbf"), source = "OpenStreetMap";
-	if (!LINES && !POLYS) {
+	const PACK_ONLY = process.argv.includes("--pack-only");   // 読む・切るを飛ばして、残っている仮の束（<out>-tmp）から詰め直す（詰める段で落ちた時のやり直し）
+	if (!LINES && !POLYS && !PACK_ONLY) {
 		if (!pbf) {
 			pbf = path.join(OSM, "japan-latest.osm.pbf");
 			if (!fs.existsSync(pbf)) { fs.mkdirSync(OSM, { recursive: true }); console.log(`PBF を取る：${GEOFABRIK}`); execFileSync("curl", ["-fL", "--retry", "5", "-o", pbf + ".part", GEOFABRIK], { stdio: "inherit" }); fs.renameSync(pbf + ".part", pbf); }
@@ -153,7 +172,8 @@ async function main() {
 		try { execFileSync("ogr2ogr", ["--version"], { stdio: "ignore" }); } catch { console.error("ogr2ogr が無い＝brew install gdal"); process.exit(1); }
 		source = `OpenStreetMap（${path.basename(pbf)}）`;
 	}
-	fs.rmSync(TMP, { recursive: true, force: true }); fs.mkdirSync(TMP, { recursive: true });
+	if (PACK_ONLY && !fs.existsSync(TMP)) { console.error(`--pack-only：仮の束が無い（${path.relative(ROOT, TMP)}）`); process.exit(1); }
+	if (!PACK_ONLY) { fs.rmSync(TMP, { recursive: true, force: true }); fs.mkdirSync(TMP, { recursive: true }); }
 	console.log(`[hpx-osm] Norder ${MIN}..${MAX}・刻み ${EXT}${BOX ? `・範囲 ${BOX.join(",")}` : ""}・働き手 ${JOBS} → ${path.relative(ROOT, OUT)}`);
 
 	// 働き手の群れ：仕事（msg）を空いた働き手へ。返事 1 つで 1 仕事が終わる
@@ -168,7 +188,7 @@ async function main() {
 	const run = msg => new Promise(done => { queue.push({ msg, done }); pump(); });
 	const room = () => queue.length < JOBS * 2 ? null : new Promise(r => waiters.push(r));   // 配りすぎない（読む口を待たせる）
 
-	// ── 読む：ogr2ogr の GeoJSONSeq（か、検定用のファイル）を 2,000 行ずつ配る。線と面は同時 ──
+	// ── 読む：ogr2ogr の CSV（形は WKT）か、検定用のファイル（GeoJSONSeq か同じ CSV）を 2,000 行ずつ配る。線と面は同時 ──
 	const st = { lines: { seen: 0, used: 0 }, multipolygons: { seen: 0, used: 0 } }; let pieces = 0, lastTick = 0;
 	const tick = force => { const now = Date.now(); if (!force && now - lastTick < 2000) return; lastTick = now; process.stdout.write(`\r線 ${st.lines.seen} 件（採った ${st.lines.used}）・面 ${st.multipolygons.seen} 件（採った ${st.multipolygons.used}）・タイルの切れ ${pieces}・${((now - t0) / 1000).toFixed(0)} 秒   `); };
 	async function feed(layer, file, want) {
@@ -178,14 +198,21 @@ async function main() {
 			// GDAL の版で列が違う（railway が列か other_tags か）＝先に列を見て、在る列だけで条件と選択を組む
 			const info = execFileSync("ogrinfo", ["-so", pbf, layer], { encoding: "utf8" }), cols = new Set([...info.matchAll(/^(\w+): \w+/gm)].map(m => m[1]));
 			const has = want.filter(c => cols.has(c)), where = [...has.map(c => `${c} IS NOT NULL`), ...want.filter(c => !cols.has(c)).map(c => `other_tags LIKE '%"${c}"=>%'`)].join(" OR ");
-			const args = ["-f", "GeoJSONSeq", "/vsistdout/", pbf, layer, "-where", where, "-select", ["osm_id", ...(cols.has("name") ? ["name"] : []), ...has, "other_tags"].join(","), "-lco", "COORDINATE_PRECISION=7"];
+			// 出力は CSV（形は WKT）：GeoJSONSeq の書き手は 1 件出すごとに記憶を抱え込み、日本全体の面で 204 GB になった（GDAL 3.13.3・Mac で切り分け・2026-11-27）。CSV は 0.3 GB のまま
+			const args = ["-f", "CSV", "/vsistdout/", pbf, layer, "-where", where, "-select", ["osm_id", ...(cols.has("name") ? ["name"] : []), ...has, "other_tags"].join(","), "-lco", "GEOMETRY=AS_WKT"];
 			if (BOX) args.push("-spat", ...BOX.map(String));
 			ogr = spawn("ogr2ogr", args, { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, OGR_INTERLEAVED_READING: "YES", OSM_MAX_TMPFILE_SIZE: "4096" } });
 			input = ogr.stdout;
 		}
-		const jobs = []; let rows = [];
-		const send = () => { const n = rows; rows = []; jobs.push(run({ kind: layer, rows: n }).then(r => { st[layer].seen += r.seen; st[layer].used += r.used; pieces += r.pieces; tick(); })); };
-		for await (const s of readline.createInterface({ input, crlfDelay: Infinity })) {
+		const jobs = []; let rows = [], cols, first = true, pend = null;
+		const send = () => { const n = rows; rows = []; jobs.push(run({ kind: layer, rows: n, cols }).then(r => { st[layer].seen += r.seen; st[layer].used += r.used; pieces += r.pieces; tick(); })); };
+		for await (let s of readline.createInterface({ input, crlfDelay: Infinity })) {
+			if (first) { first = false; if (/^"?WKT"?,/.test(s)) { cols = s.split(",").map(c => c.replace(/^"|"$/g, "")); continue; } }   // 1 行目が列名なら CSV（そうでなければ GeoJSONSeq）
+			if (cols) {   // 引用符の中の改行で行が割れていたら、次の行とつなぐ（引用符の数が奇数＝まだ中）
+				if (pend !== null) { s = pend + "\n" + s; pend = null; }
+				let q = 0; for (let i = s.indexOf('"'); i >= 0; i = s.indexOf('"', i + 1)) q++;
+				if (q & 1) { pend = s; continue; }
+			}
 			rows.push(s);
 			if (rows.length >= 2000) { send(); const r = room(); if (r) await r; }
 		}
@@ -195,8 +222,9 @@ async function main() {
 	}
 	// 線と面を同時に読むのは --readers=2 の時だけ：面を読む ogr2ogr は日本全体で 100 GB 超の記憶を使った（Mac で実測・2026-11-27）＝既定は 1 本ずつ
 	const fl = () => LINES || pbf ? feed("lines", LINES, ["highway", "railway", "waterway"]) : null, fp = () => POLYS || pbf ? feed("multipolygons", POLYS, ["building", "natural", "landuse", "waterway"]) : null;
-	if (+opt("readers", 1) >= 2) await Promise.all([fl(), fp()]); else { await fl(); await fp(); }
-	idle.length = 0; await Promise.all(ws.map(w => new Promise(done => { w.job = { done }; w.postMessage({ flush: 1 }); })));   // 全員の残りを書き出す（1 人ずつ名指しで＝返事で空きに戻る）
+	if (PACK_ONLY) console.log("読む・切るは飛ばす（--pack-only）"); else if (+opt("readers", 1) >= 2) await Promise.all([fl(), fp()]); else { await fl(); await fp(); }
+	if (!PACK_ONLY) { idle.length = 0; await Promise.all(ws.map(w => new Promise(done => { w.job = { done }; w.postMessage({ flush: 1 }); })));   // 全員の残りを書き出す（1 人ずつ名指しで＝返事で空きに戻る）
+	}
 	tick(true);
 	const seen = st.lines.seen + st.multipolygons.seen, used = st.lines.used + st.multipolygons.used, tRead = (Date.now() - t0) / 1000;
 	console.log(`\n読み終わり：${seen} 件を見た・採った ${used} 件・タイルの切れ ${pieces}・${tRead.toFixed(0)} 秒`);
@@ -210,7 +238,7 @@ async function main() {
 		process.stdout.write(`\rタイル：${written.length} 枚・${(bytes / 1e6).toFixed(0)} MB   `);
 	})));
 	for (const w of ws) await w.terminate();
-	fs.rmSync(TMP, { recursive: true, force: true });
+	if (!process.argv.includes("--keep-tmp")) fs.rmSync(TMP, { recursive: true, force: true });
 	written.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 	fs.writeFileSync(path.join(OUT, "index.json"), JSON.stringify({ made: new Date().toISOString(), source: `${source}・© OpenStreetMap contributors・ODbL`, layers: LAYERS, minOrder: MIN, maxOrder: MAX, extent: EXT, tiles: written, bytes }) + "\n");
 	const orders = Object.keys(perOrder).map(Number).sort((a, b) => a - b), tAll = (Date.now() - t0) / 1000;
