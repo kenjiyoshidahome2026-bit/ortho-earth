@@ -311,7 +311,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// ── 描画 ──
 	const ID_ORDER = -1;        // 国 ID バッファ＝他の全部より先（塗りもコロプレスもホバーもこれを読む）
 	const CHORO_ORDER = 10.5;   // コロプレスの重ね順＝国の塗り(10)の直後・係争地(11)/市街地(12)/湖(14) はその上
-	let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "", firstFrame = false;
+	let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "", firstFrame = false, movedAt = -1e9, identT = 0;
+	const IDENT_REST_MS = 90;   // 視点が止まってからホバー識別を読むまで
 	function requestDraw(): void { if (!raf && !destroyed) raf = requestAnimationFrame(draw); }
 
 	// ── 変形（japan の球 ⇄ Equal Earth）＝「ortho と Equal Earth は相性がいい」を絵にする（本人 2026-09-20・2D 実装）──
@@ -427,10 +428,34 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			drawScene();
 			{ const [W, H] = size(); if (labelsLayer.draw(view, W, H, Math.min(window.devicePixelRatio || 1, 2))) requestDraw(); }   // ラベル（フェード中は次のフレームも）
 			for (const fn of frameSubs) fn();   // 注釈（anno）＝ラベルの上
-			if (hoverDirty) { hoverDirty = false; identify(); }   // 視点が動いた直後＝描いた ID バッファで指の下を読み直す
+			// 視点が動いた直後＝描いた ID バッファで指の下を読み直す。ただし動いている最中（ホイール・慣性）は読まない＝止まってから 1 回。
+			// WebGL2 の readPixels は GPU を同期で待つ＝毎フレーム読むと弱い GPU でそのままコマ落ちになる（実測 2026-11-27：z2→z7 のホイールで self 887ms）
+			if (hoverDirty) {
+				clearTimeout(identT);
+				if (performance.now() - movedAt >= IDENT_REST_MS) { hoverDirty = false; identify(); }
+				else identT = setTimeout(() => { if (hoverDirty && !destroyed && !raf && !morph) { hoverDirty = false; identify(); } }, IDENT_REST_MS);   // 描画待ち（raf）ならその draw が拾う
+			}
 		}
 		updatePos(); updateScale();
 		scheduleHash();
+		clearTimeout(warmT); warmT = setTimeout(warmTiers, 400);
+	}
+	// 隣のズーム段（±1 段＝rank ±3）の頂点の並びを、止まっている間に先に作っておく＝ホイールで段をまたいだ瞬間の 1 コマ止まり
+	//（実測 2026-11-27：段またぎで tier 生成 45〜73ms＝35〜50ms のコマ）を、またぐ前の空き時間へ移す。1 回の仕事＝1 層 1 段だけ（主スレッドを長く握らない）。
+	// 作るのは CPU 側の並びだけ（GPU へ載せるのはまたいだ時＝常駐 4 段の掟はそのまま）
+	let warmT = 0;
+	function warmTiers(): void {
+		if (destroyed || morph || raf) return;
+		const thr = lodThreshold(view.zoom);
+		for (const t of [thr - 3, thr + 3]) {
+			if (t < 0 || t > 63) continue;
+			for (const L of layers) {
+				if (!L.on || L.status !== "ready" || L.def === GRATICULE || L.baked!.kind === "point" || L.baked!.tiers.has(t)) continue;
+				L.baked!.tier(t);
+				warmT = setTimeout(warmTiers, 30);
+				return;
+			}
+		}
 	}
 	function drawScene(): void {   // 海 → 層（順は ops）→ コロプレス（beginFrame 済みが前提）
 		R.drawSea(PALETTE.sea, PALETTE.bg, PALETTE.edge);
@@ -948,7 +973,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// ── 入力：ドラッグ＝掴んだ経緯度を指の下に固定・ホイール/ピンチ/ダブルクリック＝錨つきズーム ──
 	let pointer: Pointer | null = null, dragging = false;   // pointer = { cx, cy（左上原点 CSS px）, sx, sy（中心原点）}
 	const local = (e: { clientX: number; clientY: number }): Pointer => { const r = canvas.getBoundingClientRect(); const cx = e.clientX - r.left, cy = e.clientY - r.top; return { cx, cy, sx: cx - r.width / 2, sy: cy - r.height / 2 }; };
-	function setView(v: View): void { view = clampView(v, ...size(), MAX_ZOOM); hoverDirty = true; requestDraw(); }   // 地図が動けば指の下の国も変わる
+	function setView(v: View): void { view = clampView(v, ...size(), MAX_ZOOM); hoverDirty = true; movedAt = performance.now(); requestDraw(); }   // 地図が動けば指の下の国も変わる
 	function zoomAround(sx: number, sy: number, zoom: number): void {
 		const ll = unproject(view, sx, sy);
 		if (!ll) return setView({ ...view, zoom });
@@ -1067,7 +1092,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		destroy() {
 			if (destroyed) return;
 			destroyed = true;
-			cancelAnimationFrame(raf); clearTimeout(hashTimer); clearTimeout(noteT);
+			cancelAnimationFrame(raf); clearTimeout(hashTimer); clearTimeout(noteT); clearTimeout(identT); clearTimeout(warmT);
 			ac.abort();
 			for (const o of observers) o.disconnect();
 			near?.stop();

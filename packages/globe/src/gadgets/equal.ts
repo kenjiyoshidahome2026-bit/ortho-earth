@@ -32,6 +32,7 @@ interface EqualApp {
 	releaseMorph(): void;
 	on(ev: "frame", cb: () => void): unknown;
 	on(ev: "closed", cb: (v?: EqualViewBack | null) => void): unknown;
+	on(ev: "morph", cb: (dir?: number) => void): unknown;
 }
 /** load() が解決する物（部品の入口） */
 interface EqualModule {
@@ -70,14 +71,23 @@ export async function goEqual(map: GlobeMap, { url, center, morph: doMorph = tru
 		const ac = new AbortController();
 		registerKeyOwner(box, ac.signal); claimKeys(box);   // 開いている間はキーの持ち主＝下の地図の矢印・Esc・ショートカットは止まる
 		let app: EqualApp | null = null;
-		const close = () => { ac.abort(); box.style.opacity = "0"; setTimeout(() => { try { app?.destroy(); } catch {} box.remove(); }, 320); };
+		// 覆い切っている間は下の地図（canvas・家具）を visibility:hidden にする＝合成器が毎フレーム下の 5K canvas 3 枚を重ね続けない
+		//（実測 2026-11-27：重ねた状態のドラッグ 53〜55fps・GPU 待ち 70ms → 下を隠すと 60fps・14ms）。畳み始め（morph −1）で戻す＝球の受け渡しは今まで通り
+		const hidden: [HTMLElement, string][] = [];
+		const cover = (on: boolean) => {
+			if (on === hidden.length > 0) return;
+			if (on) { for (const el of mapEl.children) if (el !== box && el instanceof HTMLElement) { hidden.push([el, el.style.visibility]); el.style.visibility = "hidden"; } }
+			else { for (const [el, v] of hidden) el.style.visibility = v; hidden.length = 0; }
+		};
+		const close = () => { cover(false); ac.abort(); box.style.opacity = "0"; setTimeout(() => { try { app?.destroy(); } catch {} box.remove(); }, 320); };
 		try {
 			const { createEqual } = await (load() as EqualModule | Promise<EqualModule>);
 			const params = new URLSearchParams({ embed: "1", lang: getLang() });   // embed=1＝「地球儀」と Esc は持ち主へ返す（closed）・morph は hold（合図まで球のまま）
 			if (morph) params.set("morph", morph);
 			app = await createEqual({ target: box, params, view: viewHash, hash: false, ...(url != null && { assetBase: new URL(dest, location.href) }), geopbf: false });   // hash:false＝頁の URL は japan の物・geopbf:false＝エンジンが起こした bucket 基盤をそのまま使う
 			if (ac.signal.aborted) { app.destroy(); return; }
-			const shown = () => { box.style.opacity = "1"; onFrame?.(); if (doMorph) setTimeout(() => app!.releaseMorph(), 320); };   // 重なり切ってから開く
+			const shown = () => { box.style.opacity = "1"; onFrame?.(); if (doMorph) setTimeout(() => app!.releaseMorph(), 320); else setTimeout(() => { if (!ac.signal.aborted) cover(true); }, 320); };   // 重なり切ってから開く
+			app.on("morph", dir => cover(dir === 0));   // 0＝開き切った（不透明の地図）・±1＝変形中（球のフレーム＝下の球と重なる絵）
 			if (app.drawn) shown(); else app.on("frame", shown);
 			app.on("closed", v => { handBack(v); requestAnimationFrame(() => requestAnimationFrame(close)); });
 		} catch (e) {
