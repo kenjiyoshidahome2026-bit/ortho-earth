@@ -50,6 +50,9 @@ const MAX_ZOOM = 8;   // NE 10m の縮尺の天井（本人 2026-09-18「maxZoom
 // bucket 基盤は頁で一度（部品を何度作り直しても 1 回）
 let geopbfReady = false;
 const ensureGeopbf = (): void => { if (!geopbfReady) { createGeopbf(API, { bucket: nativeBucket as BucketProvider, prewarm: true }); geopbfReady = true; } };   // prewarm＝復号レーンを先に起こす（起動直後に 4 層を必ず解く＝立ち上げを DB/IDB 待ちと重ねる）
+// 低メモリ端末＝globe の boot/tier.ts lowMem と同じ物差し（deviceMemory ≤4GB・deviceMemory の無い iOS/iPadOS はタッチ端末を一律）。
+// iOS はタブのメモリが尽きると黙って落ちる＝標高アトラス・近景の窓・段の常駐を絞る（下の LOW_MEM の各所）
+const LOW_MEM: boolean = typeof navigator !== "undefined" && ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory! <= 4 : navigator.maxTouchPoints > 1);
 const num01 = (v: string | null, d: number): number => { const n = parseFloat(v as string); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
 
 /** 層の状態：{ def, on, status, baked, vtx, gpu } */
@@ -233,11 +236,11 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			.catch(e => console.warn("[hypso] climate texture failed (latitude approximation)", e));
 		const maxTex = R.maxTex;
 		let upT = 0;   // セル到着ごとの再アップロードは 1 フレームにまとめる
-		await loadWorldElevation({ apiUrl: API, cellRes: Math.min(1024, Math.floor(maxTex / 4)),
+		await loadWorldElevation({ apiUrl: API, cellRes: Math.min(LOW_MEM ? 512 : 1024, Math.floor(maxTex / 4)),   // 低メモリ端末＝半分の密度（Float32 33MB → 8MB・GPU 17MB → 4MB）。近景（z≥5.5）は R10 窓が受け持つ
 			onUpdate: a => { cancelAnimationFrame(upT); upT = requestAnimationFrame(() => { R.setElevation(a.data, a.width, a.height); requestDraw(); }); } })
 			.catch(e => console.error("[hypso] elevation failed", e));
 		await clim;
-		near = createNearElevation({ apiUrl: API, maxTex, onAtlas: a => { R.setNearElevation(a); requestDraw(); },
+		near = createNearElevation({ apiUrl: API, maxTex, lowMem: LOW_MEM, onAtlas: a => { R.setNearElevation(a); requestDraw(); },
 			onBusy: b => { b ? busy.add("Terrain R10") : busy.delete("Terrain R10"); updateToast(); } });
 		hypsoState = 2; busy.delete("Hypsometry"); updateToast(); requestDraw();
 	}
@@ -271,6 +274,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const rank = Math.floor(1.5 * Math.log2(pxDeg * pxDeg) + 61.524);
 		return Math.max(0, Math.min(63, Math.floor(rank / 3) * 3));
 	}
+	const GPU_TIERS = LOW_MEM ? 2 : 4;
 	const vtxByXY = new WeakMap<Uint32Array, VertexTexture>();
 	function gpuTier(L: GpuHost, thr: number): Tier {
 		const b = L.baked!;
@@ -282,7 +286,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const cpu = b.tier(thr);
 		t = { lines: cpu.lines ? R.instanceVAO(cpu.lines, 3) : null, fills: cpu.fills ? R.instanceVAO(cpu.fills, 4) : null };
 		L.gpu.set(thr, t);
-		while (L.gpu.size > 4) { const [k0, old] = L.gpu.entries().next().value!; L.gpu.delete(k0); R.freeVAO(old.lines); R.freeVAO(old.fills); }   // 層あたり 4 段まで常駐（GPU メモリ）
+		while (L.gpu.size > GPU_TIERS) { const [k0, old] = L.gpu.entries().next().value!; L.gpu.delete(k0); R.freeVAO(old.lines); R.freeVAO(old.fills); if (LOW_MEM) b.tiers.delete(k0); }   // 層あたり 4 段まで常駐（GPU メモリ）・低メモリ端末は 2 段で CPU 側の並びも一緒に捨てる（戻れば作り直す）
 		return t;
 	}
 
@@ -311,7 +315,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// ── 描画 ──
 	const ID_ORDER = -1;        // 国 ID バッファ＝他の全部より先（塗りもコロプレスもホバーもこれを読む）
 	const CHORO_ORDER = 10.5;   // コロプレスの重ね順＝国の塗り(10)の直後・係争地(11)/市街地(12)/湖(14) はその上
-	let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "", firstFrame = false;
+	let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "", firstFrame = false, movedAt = -1e9, identT = 0;
+	const IDENT_REST_MS = 90;   // 視点が止まってからホバー識別を読むまで
 	function requestDraw(): void { if (!raf && !destroyed) raf = requestAnimationFrame(draw); }
 
 	// ── 変形（japan の球 ⇄ Equal Earth）＝「ortho と Equal Earth は相性がいい」を絵にする（本人 2026-09-20・2D 実装）──
@@ -427,10 +432,34 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			drawScene();
 			{ const [W, H] = size(); if (labelsLayer.draw(view, W, H, Math.min(window.devicePixelRatio || 1, 2))) requestDraw(); }   // ラベル（フェード中は次のフレームも）
 			for (const fn of frameSubs) fn();   // 注釈（anno）＝ラベルの上
-			if (hoverDirty) { hoverDirty = false; identify(); }   // 視点が動いた直後＝描いた ID バッファで指の下を読み直す
+			// 視点が動いた直後＝描いた ID バッファで指の下を読み直す。ただし動いている最中（ホイール・慣性）は読まない＝止まってから 1 回。
+			// WebGL2 の readPixels は GPU を同期で待つ＝毎フレーム読むと弱い GPU でそのままコマ落ちになる（実測 2026-11-27：z2→z7 のホイールで self 887ms）
+			if (hoverDirty) {
+				clearTimeout(identT);
+				if (performance.now() - movedAt >= IDENT_REST_MS) { hoverDirty = false; identify(); }
+				else identT = setTimeout(() => { if (hoverDirty && !destroyed && !raf && !morph) { hoverDirty = false; identify(); } }, IDENT_REST_MS);   // 描画待ち（raf）ならその draw が拾う
+			}
 		}
 		updatePos(); updateScale();
 		scheduleHash();
+		clearTimeout(warmT); warmT = setTimeout(warmTiers, 400);
+	}
+	// 隣のズーム段（±1 段＝rank ±3）の頂点の並びを、止まっている間に先に作っておく＝ホイールで段をまたいだ瞬間の 1 コマ止まり
+	//（実測 2026-11-27：段またぎで tier 生成 45〜73ms＝35〜50ms のコマ）を、またぐ前の空き時間へ移す。1 回の仕事＝1 層 1 段だけ（主スレッドを長く握らない）。
+	// 作るのは CPU 側の並びだけ（GPU へ載せるのはまたいだ時＝常駐 4 段の掟はそのまま）
+	let warmT = 0;
+	function warmTiers(): void {
+		if (destroyed || morph || raf || LOW_MEM) return;   // 低メモリ端末は先回りしない（並びを余分に持たない）
+		const thr = lodThreshold(view.zoom);
+		for (const t of [thr - 3, thr + 3]) {
+			if (t < 0 || t > 63) continue;
+			for (const L of layers) {
+				if (!L.on || L.status !== "ready" || L.def === GRATICULE || L.baked!.kind === "point" || L.baked!.tiers.has(t)) continue;
+				L.baked!.tier(t);
+				warmT = setTimeout(warmTiers, 30);
+				return;
+			}
+		}
 	}
 	function drawScene(): void {   // 海 → 層（順は ops）→ コロプレス（beginFrame 済みが前提）
 		R.drawSea(PALETTE.sea, PALETTE.bg, PALETTE.edge);
@@ -948,7 +977,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// ── 入力：ドラッグ＝掴んだ経緯度を指の下に固定・ホイール/ピンチ/ダブルクリック＝錨つきズーム ──
 	let pointer: Pointer | null = null, dragging = false;   // pointer = { cx, cy（左上原点 CSS px）, sx, sy（中心原点）}
 	const local = (e: { clientX: number; clientY: number }): Pointer => { const r = canvas.getBoundingClientRect(); const cx = e.clientX - r.left, cy = e.clientY - r.top; return { cx, cy, sx: cx - r.width / 2, sy: cy - r.height / 2 }; };
-	function setView(v: View): void { view = clampView(v, ...size(), MAX_ZOOM); hoverDirty = true; requestDraw(); }   // 地図が動けば指の下の国も変わる
+	function setView(v: View): void { view = clampView(v, ...size(), MAX_ZOOM); hoverDirty = true; movedAt = performance.now(); requestDraw(); }   // 地図が動けば指の下の国も変わる
 	function zoomAround(sx: number, sy: number, zoom: number): void {
 		const ll = unproject(view, sx, sy);
 		if (!ll) return setView({ ...view, zoom });
@@ -1067,7 +1096,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		destroy() {
 			if (destroyed) return;
 			destroyed = true;
-			cancelAnimationFrame(raf); clearTimeout(hashTimer); clearTimeout(noteT);
+			cancelAnimationFrame(raf); clearTimeout(hashTimer); clearTimeout(noteT); clearTimeout(identT); clearTimeout(warmT);
 			ac.abort();
 			for (const o of observers) o.disconnect();
 			near?.stop();

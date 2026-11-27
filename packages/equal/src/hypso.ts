@@ -73,16 +73,18 @@ export function loadClimate(url: string): Promise<HTMLImageElement> {
 // 生タイル（2400²×int16≈11MB/枚）は窓へ再標本化したら捨てる＝常駐はセル単位の Float32（解像度つき）の LRU だけ。
 export const NEAR_MIN_ZOOM = 5.5;   // これ未満は R90 だけ（japan の R90/R10 境界と同じ。5 だと 1280px 幅で 6×4 セル×11MB≈260MB を初回に落とす＝重すぎる・2026-09-18）
 const CAP = 10;                   // 窓の最大セル数（片辺）
-export interface NearElevationOptions { apiUrl?: string; maxTex?: number; onAtlas: (atlas: NearAtlas | null) => void; onBusy?: (busy: boolean) => void }
+export interface NearElevationOptions { apiUrl?: string; maxTex?: number; /** 低メモリ端末＝セルの常駐と窓アトラスを絞る */ lowMem?: boolean; onAtlas: (atlas: NearAtlas | null) => void; onBusy?: (busy: boolean) => void }
 export interface NearElevation {
 	/** view＝{lon,lat,zoom}・unprojectFn(sx,sy)→[lon,lat]|null・W,H＝CSS px */
 	ensure(view: View, W: number, H: number, unprojectFn: (sx: number, sy: number) => number[] | null): void;
 	/** 静止待ちのタイマーを捨て、作りかけの窓を無効にする（部品の destroy から） */
 	stop(): void;
 }
-export function createNearElevation({ apiUrl, maxTex = 4096, onAtlas, onBusy }: NearElevationOptions): NearElevation {
+export function createNearElevation({ apiUrl, maxTex = 4096, lowMem = false, onAtlas, onBusy }: NearElevationOptions): NearElevation {
 	const cellCache = new Map<string, Float32Array>();   // "cx,cy,res" → Float32Array(res²)（行0=南）
-	const CACHE_BYTES = 192 << 20;
+	// 低メモリ端末（スマホ・タブレット）：常駐 192MB → 32MB・窓アトラスの辺 4096 → 2048（Float32 64MB → 16MB）。
+	// 画面が小さい＝窓のセル数も少ない＝密度はほぼ変わらない（2026-11-27「変形の直後に低メモリ機で落ちる」）
+	const CACHE_BYTES = (lowMem ? 32 : 192) << 20, ATLAS_MAX = lowMem ? 2048 : 4096;
 	let cacheBytes = 0, key = "", gen = 0, timer = 0, inflight = 0;
 	const remember = (k: string, a: Float32Array): void => {
 		cellCache.set(k, a); cacheBytes += a.byteLength;
@@ -123,7 +125,7 @@ export function createNearElevation({ apiUrl, maxTex = 4096, onAtlas, onBusy }: 
 		// 解像度：画面が使い切れる密度（2 の冪に量子化＝ズーム微動で作り直さない）・ソース 2400・テクスチャ辺の予算
 		const pxPerCell = 256 * Math.pow(2, view.zoom) * Math.min(devicePixelRatio || 1, 2) / 36;
 		const useful = Math.pow(2, Math.ceil(Math.log2(Math.max(64, pxPerCell))));
-		const res = Math.max(128, Math.min(2048, useful, Math.floor(Math.min(4096, maxTex) / Math.max(nx, ny))));
+		const res = Math.max(128, Math.min(2048, useful, Math.floor(Math.min(ATLAS_MAX, maxTex) / Math.max(nx, ny))));
 		const x0 = (camCX + lox) * 10, y0 = loy * 10;
 		const k = `${x0},${y0},${nx},${ny},${res}`;
 		if (k === key) return;

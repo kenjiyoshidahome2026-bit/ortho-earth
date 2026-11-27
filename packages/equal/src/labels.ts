@@ -81,7 +81,7 @@ export function createLabels(canvas: HTMLCanvasElement): LabelsLayer {
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, W, H);
 		ctx.textBaseline = "middle"; ctx.lineJoin = "round";
-		let animating = false;
+		let animating = false, curFont = "", curSpacing = "";
 		// フェード：当選＝1 へ・落選＝0 へ（0.25s）
 		for (const [k, w] of winners) { const f = fades.get(k); if (!f) fades.set(k, { L: w.L, dy: w.dy, a: 0, t: now }); else f.dy = w.dy; }
 		for (const [k, f] of fades) {
@@ -103,7 +103,7 @@ export function createLabels(canvas: HTMLCanvasElement): LabelsLayer {
 				}
 				continue;
 			}
-			ctx.font = fontOf(L);
+			{ const fnt = fontOf(L); if (fnt !== curFont) ctx.font = curFont = fnt; }   // 同じ書体の連続は設定し直さない（font の代入は毎回パースが走る）
 			if (L.dot) {   // 都市の点（首都＝二重丸）
 				const dc = L.dotColor || L.color;
 				ctx.beginPath(); ctx.arc(x, y, L.dot, 0, Math.PI * 2); ctx.fillStyle = dc; ctx.fill();
@@ -112,7 +112,7 @@ export function createLabels(canvas: HTMLCanvasElement): LabelsLayer {
 			}
 			const tx = L.dot ? x + L.dot + 3 : x;
 			ctx.textAlign = L.dot ? "left" : "center";
-			if (L.spacing) ctx.letterSpacing = L.spacing; else ctx.letterSpacing = "0px";
+			{ const sp = L.spacing || "0px"; if (sp !== curSpacing) ctx.letterSpacing = curSpacing = sp; }
 			ctx.lineWidth = HALO_W; ctx.strokeStyle = L.halo; ctx.strokeText(L.text, tx, y);
 			ctx.fillStyle = L.color; ctx.fillText(L.text, tx, y);
 		}
