@@ -4085,6 +4085,21 @@ const vtxMount = async (v: UserLayerRec, layer: MLLayer) => {
 // ── vector source の fill／line／circle／symbol（段 8⑤・2026-09-27）＝gadgets/vtdraw.js（遅延 chunk・この層が来た時だけ読む＝他の地図は何も変わらない）──
 // 本人の裁定「別の流れ・基図の上」：基図の配管は触らない。結合した scene は render worker の "user" の枠へ（基図の塗りと線の上）・注記は vtLabels（基図と同じ衝突）
 let vtdCtl: ReturnType<typeof createVTDraw> | null = null;
+// ?hpxvt=N ＝HEALPix の OSM ベクタ（bucket の GIS/hpx/osm・面ごとの PMTiles）を段 N で数枚だけ地球に置く（V3 の読む側の試し・docs/design/healpix.md §6 の 3 段目）。
+//   &hpxat=経度,緯度（既定＝東京駅）を含むタイルと隣の計 9 枚を一度だけ取り、利用者の層と同じ "user" の枠へ流す（基図の上・基図の配管は触らない）。
+//   タイル選びは無い＝視点を動かしても取り直さない。旗が無ければ何も読まない。⚠ "user" の枠を使う＝vector source の描く層（vtdraw）と同時には使えない（後から来た方が上書き）
+{
+	const m = /[?&]hpxvt=(\d+)/.exec(location.search);
+	if (m) {
+		const at = /[?&]hpxat=(-?[\d.]+),(-?[\d.]+)/.exec(location.search), lon = at ? +at[1] : 139.767, lat = at ? +at[2] : 35.681;
+		Promise.all([import("@ortho-earth/core/healpix-vt"), import("./vtops.ts")]).then(async ([h, v]) => {
+			const r = await h.loadHpxVtScene({ apiUrl: "https://api.ortho-earth.com", order: +m[1], lon, lat, li0: v.USER_LI0 });
+			console.log(`[hpxvt] Norder ${r.order}・${r.found}/${r.tiles.length} tiles・${r.scene.layers.length} layers @ ${lon},${lat}`);
+			if (!r.found) return;
+			wPost({ type: "set", cmd: "scene", data: r.scene, prop: "user" }, h.hpxSceneBuffers(r.scene)); requestDraw();
+		}).catch(e => console.warn("[hpxvt] failed", (e as Error)?.message ?? e));
+	}
+}
 const vtdDesc: GlobeScope["vtdDesc"] = new Map();       // sid → 解いた記述子（問い合わせがタイルを取り直す）
 const vtdMounting: GlobeScope["vtdMounting"] = new Map();   // sid → 記述子を待っている層の数（isSourceLoaded＝まだ）
 const vtdOrder: GlobeScope["vtdOrder"] = () => [...mlLayers.values()].filter(v => v.kind === "vtdraw" && vtdCtl?.has(v.layer.id)).map(v => v.layer.id);   // MapLibre の順（下から）
