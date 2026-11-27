@@ -16,6 +16,7 @@
 import { gadgetStack } from "./stack.ts";
 import { registerKeyOwner, claimKeys } from "./keys.ts";   // 重ねている間はキー（矢印・Esc・ショートカット）を equal が握る＝下の地図へ漏らさない（#173 段 3 の持ち主）
 import { tr, getLang } from "../i18n.ts";
+import { lowMem } from "../boot/tier.ts";   // 低メモリ端末（≤4GB・iOS はタッチ端末を一律）＝globe 本体と同じ物差し・同じ戻し口（?lowmem=1/0）
 import type { ContextMenuItem, EqualOptions, LonLat } from "../../globe.d.ts";
 import type { GlobeMap } from "../types/map.ts";
 const t = tr();
@@ -61,6 +62,18 @@ export async function goEqual(map: GlobeMap, { url, center, morph: doMorph = tru
 	const viewHash = `#${z.toFixed(2)}/${lat.toFixed(5)}/${lon.toFixed(5)}`;
 	const place = (el: HTMLElement) => Object.assign(el.style, { position: "absolute", inset: "0", width: "100%", height: "100%", border: "0", background: "transparent", opacity: "0", transition: "opacity .3s" });
 	// 戻り＝球の視点をこの頁の hash に書けば japan は hashchange で即時ジャンプ（applyView）＝下の球が同じ球になってから消す
+	// 低メモリ端末は重ねない＝/equal/ の頁へ移る（本人裁定 2026-11-27）。重ねると 2 つの地図が同時にメモリへ乗る＝幕が開いた瞬間が山
+	//（実測：開く前から GPU +0.5〜0.8GB・うち 0.4〜0.9GB は隠れている下の地図の分）＝タブが落ちる。頁を移れば下の地図は丸ごと解放される。
+	// equal の頁は ?morph（同じ球のフレームから開く）と ?back=（「← 戻る」＝球へ畳んで、その視点を hash に載せてこの頁へ戻る）を元から持つ＝
+	// 絵の繋がりは同じで、戻りだけこの頁の読み直しになる。back からは ?start=equal を抜く（戻った途端にまた開かない）
+	if (/[?&]lowmem=1/.test(location.search) || (!/[?&]lowmem=0/.test(location.search) && lowMem(navigator))) {
+		const back = new URL(location.href); back.searchParams.delete("start");
+		const u = new URL(dest, location.href);
+		u.searchParams.set("lang", getLang()); if (morph) u.searchParams.set("morph", morph);
+		u.searchParams.set("back", back.href); u.hash = viewHash;
+		location.href = u.href;
+		return;
+	}
 	const handBack = (v: EqualViewBack | null | undefined) => { if (v) location.hash = `#${(+v.zoom).toFixed(2)}/${(+v.lat).toFixed(5)}/${(+v.lon).toFixed(5)}`; };
 
 	if (typeof load === "function") {   // ── div＝同じ頁に部品を組む ──

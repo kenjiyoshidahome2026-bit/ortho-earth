@@ -28,15 +28,23 @@ const BACK = (() => {
 		return u.origin === location.origin || (local(u.hostname) && local(location.hostname)) ? u : null;
 	} catch { return null; }
 })();
+// 球から開いて来た（?morph＋?back＝japan の低メモリ端末の道・2026-11-27）：球へ畳み終えたら（「← 戻る」・「地球儀」・右クリック「この地点を球体へ」のどれでも）
+// その球の視点を呼び出し元の hash へ載せて戻る＝japan が同じ球で開く。重ねて開いた時（embed）の「地球儀＝japan へ返す」と同じ動き
+if (BACK && MORPH && !EMBED) {
+	let leaving = false;
+	addEventListener("pageshow", e => { if (e.persisted) { leaving = false; void app.morphIn(); } });   // ブラウザの「進む」で bfcache から戻った＝留まっていた球から開き直す（もう一度畳める）
+	app.on("parked", v => {
+		const s = v as { zoom: number; lat: number; lon: number } | undefined;
+		if (leaving || !s) return; leaving = true;
+		const rest = BACK.hash.replace(/^#/, "").split("/").filter(Boolean).slice(3);
+		const u = new URL(BACK.href); u.hash = "#" + [s.zoom.toFixed(2), s.lat.toFixed(5), s.lon.toFixed(5), ...rest].join("/");
+		location.href = u.href;
+	});
+}
 if (BACK && !EMBED) app.addButton({
 	text: t("Back"), title: t("Go back to the page you came from"), arrow: true,
-	onClick: async () => {
-		if (MORPH) {   // 球へ畳んでから、球の視点（#z/lat/lon＝今 URL に書かれている）を呼び出し元の hash へ差し替えて戻る＝japan が同じ球で開く
-			await app.morphOut();
-			const cur = location.hash.replace(/^#/, "").split("/").slice(0, 3), rest = BACK.hash.replace(/^#/, "").split("/").filter(Boolean).slice(3);
-			const u = new URL(BACK.href); if (cur.length === 3) u.hash = "#" + [...cur, ...rest].join("/");
-			location.href = u.href; return;
-		}
+	onClick: () => {
+		if (MORPH) { void app.morphOut(); return; }   // 球へ畳む → 上の "parked" が呼び出し元へ戻す
 		const from = document.referrer ? new URL(document.referrer) : null;
 		if (from && from.origin === BACK.origin && from.pathname === BACK.pathname && history.length > 1) history.back();
 		else location.href = BACK.href;
