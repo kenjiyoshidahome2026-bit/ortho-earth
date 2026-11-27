@@ -15,9 +15,9 @@ globalThis.caches = { default: {
 	delete: async req => store.delete(new URL(req.url).href),
 } };
 // R2 の差し替え（put/get/delete/multipart）
-const objs = new Map();
+const objs = new Map(); let ranged = 0;
 const R2 = {
-	get: async k => objs.has(k) ? { key: k, body: objs.get(k), size: objs.get(k).length, httpEtag: `"${objs.get(k).length}"`, httpMetadata: {} } : null,
+	get: async (k, o) => objs.has(k) ? { key: k, body: o?.range ? (ranged++, objs.get(k).slice(o.range.offset, o.range.offset + o.range.length)) : objs.get(k), size: objs.get(k).length, httpEtag: `"${objs.get(k).length}"`, httpMetadata: {} } : null,
 	head: async k => objs.has(k) ? { key: k, size: objs.get(k).length, httpMetadata: {} } : null,
 	put: async (k, body) => { objs.set(k, typeof body === "string" ? body : await new Response(body).text()); },
 	delete: async k => { objs.delete(k); },
@@ -78,6 +78,24 @@ await t("一覧はエッジに載り、書いた後は親の一覧も捨てる�
 	const r2 = await bucket(new Request(BASE + "endless/"), R2, ctx, ENV); await settle();
 	eq(JSON.parse(await r2.text()).data.IsTruncated, true, "上限で打ち切り");
 	R2.list = async () => ({ objects: [], truncated: false });
+});
+
+await t("Range は要る分だけ 206 で返す（PMTiles の部分読み）", async () => {
+	objs.set("GIS/hpx/osm/face1.pmtiles", "0123456789");
+	const rg = async (h, path = "GIS/hpx/osm/face1.pmtiles") => { const r = await bucket(new Request(BASE + path, { headers: { Range: h } }), R2, ctx, ENV); await settle(); return [r.status, r.headers.get("Content-Range"), r.headers.get("Content-Length"), r.status === 416 ? "" : await r.text()].join("|"); };
+	eq(await rg("bytes=2-5"), "206|bytes 2-5/10|4|2345", "a-b");
+	eq(await rg("bytes=7-"), "206|bytes 7-9/10|3|789", "a-");
+	eq(await rg("bytes=-3"), "206|bytes 7-9/10|3|789", "-n");
+	eq(await rg("bytes=0-16383"), "206|bytes 0-9/10|10|0123456789", "末尾を越える b は切り詰める（pmtiles の最初の 16 KB）");
+	eq(await rg("bytes=10-12"), "416|bytes */10||", "範囲の外");
+	eq(ranged, 4, "R2 へは範囲で取りに行く");
+	eq(store.has(BASE + "GIS/hpx/osm/face1.pmtiles"), false, "部分はエッジに載せない");
+	eq(await rg("bytes=0-1,4-5"), "200||10|0123456789", "複数区間は全体で返す");
+	eq(await rg("bytes=1-2", "GIS/none.pmtiles"), "404|||{\"data\":null}", "無い物");
+	const realGet = R2.get; R2.get = async (k, o) => ({ ...(await realGet(k, o)), httpMetadata: { contentEncoding: "gzip" } }); const realHead = R2.head; R2.head = async k => ({ ...(await realHead(k)), httpMetadata: { contentEncoding: "gzip" } });
+	objs.set("GIS/z.json", "abcdef");
+	eq(await rg("bytes=1-2", "GIS/z.json"), "200||6|abcdef", "gzip で置いた物は Range を見ずに全体");
+	R2.get = realGet; R2.head = realHead;
 });
 
 const cc = async path => (await bucket(new Request(BASE + path), R2, ctx, ENV)).headers.get("Cache-Control");

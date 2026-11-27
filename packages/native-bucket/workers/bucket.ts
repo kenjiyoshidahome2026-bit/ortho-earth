@@ -8,6 +8,15 @@ const IMMUTABLE = /^GIS\/shared\/.+\.[0-9a-f]{8,}\.[a-z0-9]+$/;
 const MAX_LIST_PAGES = 10;
 const LIST_CACHE = "public, max-age=0, s-maxage=60";
 
+/** Range ヘッダ（bytes=a-b／a-／-n の 1 区間だけ）→ R2 の {offset, length}。無い・読めない＝null（全体を返す）・範囲の外＝false（416） */
+export function parseRange(h: string | null, size: number): { offset: number; length: number } | null | false {
+	const m = h && /^bytes=(\d*)-(\d*)$/.exec(h.trim());
+	if (!m || (!m[1] && !m[2])) return null;
+	if (!m[1]) { const n = Math.min(+m[2], size); return n > 0 ? { offset: size - n, length: n } : false; }
+	const a = +m[1], b = m[2] ? Math.min(+m[2], size - 1) : size - 1;
+	return a < size && a <= b ? { offset: a, length: b - a + 1 } : false;
+}
+
 export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionContext, env: Partial<Env> = {}) {
 	const url = new URL(request.url);
 	const path = decodeURIComponent(url.pathname.split('/bucket/').pop()!);
@@ -53,7 +62,8 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 				return response;
 			}
 			const isMeta = url.searchParams.has("meta");
-			const obj = await (isMeta ? bucket.head(path) : bucket.get(path));
+			const ranged = !isMeta && request.headers.has("Range");   // Range の時はまず大きさだけ（本体は要る分だけ後で取る）
+			let obj = await (isMeta || ranged ? bucket.head(path) : bucket.get(path));
 			if (!obj) return new Response(JSON.stringify({ data: null }), { status: 404 });
 			if (isMeta) {
 				const meta = { Key: obj.key, Size: obj.size, LastModified: obj.uploaded,
@@ -62,6 +72,20 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 				};
 				return new Response(JSON.stringify({ data: meta }), { headers: { "Content-Type": "application/json" } });
 			}
+			// Range（PMTiles 等の部分読み）＝縮めずに置いた物だけ。R2 から要る分だけ取り、206 で返す（エッジには載せない＝部分は鍵が分かれない）
+			const range = isMeta || obj.httpMetadata?.contentEncoding ? null : parseRange(request.headers.get("Range"), obj.size);
+			if (range === false) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${obj.size}`, "Accept-Ranges": "bytes" } });
+			if (range) {
+				const part = await bucket.get(path, { range });
+				if (!part) return new Response(JSON.stringify({ data: null }), { status: 404 });
+				return new Response(part.body, { status: 206, headers: {
+					"Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
+					"Content-Range": `bytes ${range.offset}-${range.offset + range.length - 1}/${obj.size}`,
+					"Content-Length": String(range.length), "ETag": obj.httpEtag, "Accept-Ranges": "bytes",
+					"Cache-Control": IMMUTABLE.test(path) ? "public, max-age=31536000, immutable" : "public, max-age=60"
+				} });
+			}
+			if (ranged && !(obj = await bucket.get(path))) return new Response(JSON.stringify({ data: null }), { status: 404 });   // Range が使えない時（複数区間・gzip で置いた物）＝全体
 			const response = new Response((obj as R2ObjectBody).body, {
 				headers: {
 					"Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",

@@ -18,7 +18,7 @@ export interface R2MultipartUpload {
 export interface R2Bucket {
 	list(options?: R2ListOptions): Promise<R2Objects>;
 	head(key: string): Promise<R2Object | null>;
-	get(key: string): Promise<R2ObjectBody | null>;
+	get(key: string, options?: { range?: { offset: number; length: number } }): Promise<R2ObjectBody | null>;
 	put(key: string, value: R2PutValue, options?: R2PutOptions): Promise<R2Object | null>;
 	delete(key: string): Promise<void>;
 	createMultipartUpload(key: string, options?: R2PutOptions): Promise<R2MultipartUpload>;

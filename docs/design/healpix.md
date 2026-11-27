@@ -127,6 +127,53 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min
 - 目で確かめる＝`node packages/ortho-core/scripts/hpx-vt-preview.mjs --order 9 --bbox 139.4,35.4,140.1,35.95 --width 2400`（`--grid` でタイルの境）。
 - 未確認（クラウドの器に GDAL と PBF が無い）：本物の PBF での通し・所要時間・タイルの大きさ。合成の GeoJSONSeq（道の格子・鉄道・川・穴あきの池・建物）では焼きと描画が通っている。
 
+## 6. 読む側＝HEALPix のまま描く（本人 2026-11-27「HEALPixのまま描く(本筋)」・設計案）
+
+メルカトルのタイルへ切り直す仮の経路は作らない。タイル選びも頂点の位置も HEALPix で行う。既存のメルカトルの経路は既定のまま残す（HEALPix は足し算・旗 `?hpxvt=1` の時だけ）。
+
+### 今の描画がメルカトルを前提にしている所（2026-11-27 に読んだ分）
+
+| 所 | 何をしているか | HEALPix では |
+|---|---|---|
+| `build.ts` の `llInto`／`latOf` | タイルの中の点 → 経緯度（原点からの差）。**頂点の位置はここ 1 か所** | `hpxTilePointLonLat` に差し替える |
+| `build.ts` の `extendToPole`・`fillSub`（128/2^z の格子）・`dK = 2^(32−z)/extent` | 極への延長・面の細分・破線の物差し | 極の延長は要らない（面が極まで覆う）。細分と破線は「相当する z」で |
+| `tilepayload.ts` | `origin = tileBounds の北西`・線の細分の長さ（緯度の cos） | origin＝タイルの中心の経緯度・長さは等積なので緯度に依らない |
+| `labels.ts`（4 か所）・`buildings.ts`（1 か所）・`query.ts`・`expr-geo.ts` | `tileLocalToLonLat` を直に呼ぶ | 同じ差し替え口を通す |
+| `tilecover.ts` `selectLOD` | 画面の標本点 → `lonLatToTile` → 四分木を割る（`tileBoundsInto` で画面上の大きさ） | 標本点 → `lonLatToNest`・四分木は `hpxChildren`・大きさは `hpxCorners` |
+| `tilemanager.ts` | 鍵 `z/x/y`・親子は `x >> d`・距離は中心の経緯度 | 鍵 `h{order}/{npix}`・親子は `npix >> 2d`・中心は `nestToLonLat` |
+| `overzoom.ts`・`pmtiles-src.ts` の範囲の門 | 祖先の引き伸ばし・ヘッダの bbox | 祖先は `npix` の下位 2 ビットが子の位置（Z 字）＝同じ引き伸ばしが使える・門は通さない（`fetchPMTilesAt`） |
+
+build より下流（scene・drape・シェーダ）は経緯度を受け取る＝投影に依らない。**直す所は「番地の計算」に集まっている。**
+
+### 形＝番地の計算を 1 つの口（格子）に寄せる
+
+```ts
+interface TileGrid<T> {                       // T＝番地（メルカトル {z,x,y}／HEALPix {order,npix}）
+  key(t: T): string;                          // キャッシュの鍵
+  styleZoom(t: T): number;                    // style を評価する zoom
+  origin(t: T): [lon, lat];                   // 頂点の差の基準
+  toLonLat(t: T, extent: number): (px, py, out, oi) => void;   // タイルの中の点 → 経緯度（タイルごとに 1 回作る＝今の llInto と同じ流儀）
+  bounds(t: T): [w, s, e, n];  center(t: T): [lon, lat];
+  rootsAt(lon, lat, level): T;  children(t: T): T[];  parent(t: T): T;  under(t: T, b: T): boolean;
+}
+```
+
+メルカトルの実装は今の式をそのまま移すだけ（結果が 1 ビットも変わらない事を検定で縛る）。HEALPix の実装は `healpix.ts`／`healpixvt.ts` の関数を並べるだけ。
+
+### 段取り（各段で止まれる）
+
+1. **格子の口を足す**（新しいファイルだけ・配線しない）：`tilegrid.ts`＝メルカトルと HEALPix の 2 実装＋検定（メルカトルは `tile.ts` と同じ値・HEALPix は往復と隣の継ぎ）。既存のファイルは触らない。
+2. **組み立てを格子越しに**：`build.ts`・`labels.ts`・`buildings.ts`・`tilepayload.ts` の番地の計算を口越しに替える。既定はメルカトル＝絵は変わらない（既存の検定＋描画の突き合わせで確かめる）。**ここが既存のファイルに触る最初の段＝本人に見せてから。**
+3. **HEALPix のタイル 1 枚を地球に置く**：`?hpxvt=1` で、決め打ちの数枚（東京の N9）を今の style で組み立てて描く。位置と継ぎ目を目で確かめる。
+4. **タイル選び**：`selectLOD`／`tilemanager` を格子越しに。HEALPix で視野を覆う・段の切り替え・祖先の引き伸ばし。
+5. **style の合わせ**：焼いた層（roads・water・buildings）と属性に合う style。今の基図の style は別のスキーマ＝そのままでは色が付かない。
+
+### 決める事
+
+- **style の zoom**：段 k の 1 枚の辺は赤道でメルカトル z = k + 2.62 と同じ長さ。段 k を zoom k + 3 として評価する案（N12＝z15＝建物が立つ段と合う）。メルカトルと違い緯度で縮まないので、日本（北緯 35°）では同じ z のメルカトルより 1 枚が 2 割ほど大きい。
+- **海と陸**：焼いたのは道・水・建物だけ＝陸の面が無い。下地は今の地形の色のまま、その上に線と建物を載せる形で始める。
+- **メルカトルの基図との同居**：`?hpxvt=1` の間は基図のベクタを止めるか、重ねるか。始めは「止める」（二重に描かない）。
+
 ## 4. 轍
 
 - 面の縁・隅ちょうどの点（例：経度 90°・緯度 0°）は、どちらのセルに入るかが丸めで決まる＝healpy と 1 つ隣になる事がある（どちらも正しい）。検定の基準値からは外してある。
