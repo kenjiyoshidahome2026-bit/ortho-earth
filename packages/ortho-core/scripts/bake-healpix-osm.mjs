@@ -6,7 +6,7 @@
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs                      # 日本の PBF（無ければ Geofabrik から約 2.3 GB）→ Norder 4..12
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs --pbf=<file.osm.pbf>  # 手元の PBF（県・地方の PBF＝試し焼き）
 //   node packages/ortho-core/scripts/bake-healpix-osm.mjs --box=139.5,35.5,140,35.9   # 範囲だけ
-//   … --order=12 --min-order=4 --extent=4096 --out=bake-out/hpx/osm --jobs=<働き手の数>
+//   … --order=12 --min-order=4 --extent=4096 --out=bake-out/hpx/osm --jobs=<働き手の数> --readers=2
 //   … --lines=<a.geojsonl> --polys=<b.geojsonl>   # ogr2ogr の代わりに GeoJSONSeq を直に読む（検定用）
 // 層（Protomaps の層名と kind に寄せる＝今の style が効きやすい）と、出し始める段（Norder k ≒ メルカトルの z k+2.6）:
 //   roads     … 道（kind＝highway／major_road／minor_road／path・kind_detail＝highway の値）と鉄道（kind＝rail）
@@ -16,7 +16,7 @@
 // 間引き：最も細かい段は丸めるだけ。粗い段は Douglas–Peucker（1.5 刻み）と小さい多角形の切り捨て。タイルの縁の点は動かさない。
 // 線のまとめ：タイルごと・層ごとに、属性が同じ線を 1 つの地物にまとめ、端点が 2 本だけ出会う所でつなぐ（`hpxMergeLines`）。粗い段はつないだ後にもう 1 度間引き、縁に触れない短い線（4 刻み未満）を捨てる。
 //   （東京の試し焼きで Norder 7・8 の 1 枚が約 600 KB＝細かい段より重かった＝短い way が 1 本ずつ別の地物だったため・2026-11-27）
-// 並列（2026-11-27・本人「可能ならば並列化しませんか？」）：読む口（ogr2ogr）は線と面を同時に走らせ、切る・間引く・タイルへ詰めるのは働き手（worker_threads・既定＝コア数−1・--jobs=N）へ配る。
+// 並列（2026-11-27・本人「可能ならば並列化しませんか？」）：読む口（ogr2ogr）は 1 本ずつ（--readers=2 で線と面を同時＝記憶に余裕がある時だけ）、切る・間引く・タイルへ詰めるのは働き手（worker_threads・既定＝コア数−1・--jobs=N）へ配る。
 //   働き手ごとに別の仮のファイルへ書く＝取り合いは無い。タイルの中の地物と部品は並べ直す＝働き手の数によらず同じタイルになる。
 // 出力：bake-out/hpx/osm/Norder{k}/Dir{d}/Npix{n}.mvt ＋ index.json { made, source, layers, minOrder, maxOrder, extent, tiles, bytes }。上げるのは uploader のボタン。
 // 許諾：© OpenStreetMap contributors（ODbL）。
@@ -103,26 +103,32 @@ function worker() {
 		}
 		return used;
 	}
-	function pack(files) {   // 1 つの束（働き手ごとのファイルの組）→ タイル。返り＝[相対パス, 大きさ] の列
+	async function pack(files) {   // 1 つの束（働き手ごとのファイルの組）→ タイル。返り＝[相対パス, 大きさ] の列
+		// 記憶を抑える：まず行を文字列のままタイルごとに分け（＝ファイルの大きさ程度）、座標の配列に開くのは 1 タイルずつ（開いた配列は文字列の 20 倍ほど重い＝束ごと開くと全国で 100 GB 級になった・2026-11-27）
 		const by = new Map(), made = [];
-		for (const file of files) for (const l of fs.readFileSync(path.join(TMP, file), "utf8").split("\n")) {
+		for (const file of files) for await (const l of readline.createInterface({ input: fs.createReadStream(path.join(TMP, file)), crlfDelay: Infinity })) {
 			if (!l) continue;
-			const [key, layer, ty, props, co] = l.split("\t");
-			const parts = co.split(";").map(s => { const v = s.split(" ").map(Number), p = []; for (let i = 0; i < v.length; i += 2) p.push([v[i], v[i + 1]]); return p; });
-			const tl = by.get(key) ?? by.set(key, new Map()).get(key);
-			const fs_ = tl.get(layer) ?? tl.set(layer, { list: [], lines: new Map() }).get(layer);
-			if (ty === "l") { const g = fs_.lines.get(props); if (g) g.push(...parts); else fs_.lines.set(props, parts); }   // 線は属性ごとに束ねる
-			else fs_.list.push({ type: TYPE[ty], parts, props: JSON.parse(props) });
+			const i = l.indexOf("\t"), key = l.slice(0, i);
+			(by.get(key) ?? by.set(key, []).get(key)).push(l.slice(i + 1));
 		}
 		const ord = (a, b) => { const n = Math.min(a.length, b.length); for (let i = 0; i < n; i++) { const d = a[i][0] - b[i][0] || a[i][1] - b[i][1]; if (d) return d; } return a.length - b.length; };   // 部品の並びを決める（働き手の数・届く順によらず同じタイルになるように）＝座標の辞書順（近い物が隣に来る＝差分が小さい）
-		for (const [key, tl] of by) {
+		for (const [key, rows] of by) {
+			by.set(key, null);
+			const tl = new Map();
+			for (const l of rows) {
+				const [layer, ty, props, co] = l.split("\t");
+				const parts = co.split(";").map(s => { const v = s.split(" ").map(Number), p = []; for (let i = 0; i < v.length; i += 2) p.push([v[i], v[i + 1]]); return p; });
+				const fs_ = tl.get(layer) ?? tl.set(layer, { list: [], lines: new Map() }).get(layer);
+				if (ty === "l") { const g = fs_.lines.get(props); if (g) g.push(...parts); else fs_.lines.set(props, parts); }   // 線は属性ごとに束ねる
+				else fs_.list.push({ type: TYPE[ty], parts, props: JSON.parse(props), key: props });
+			}
 			const [k, n] = key.split("/").map(Number), rel = hpxPath(k, n, "mvt"), out = path.join(OUT, rel);
-			for (const fs_ of tl.values()) for (const [props, raw] of [...fs_.lines].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
+			for (const fs_ of tl.values()) for (const [props, raw] of fs_.lines) {
 				let parts = hpxMergeLines(raw.sort(ord), EXT, k < MAX ? 4 : 0);
 				if (k < MAX) parts = hpxSimplify({ order: k, npix: n, type: "line", parts }, 1.5, 0, EXT)?.parts ?? [];
 				if (parts.length) fs_.list.push({ type: "line", parts: parts.sort(ord), props: JSON.parse(props), key: props });
 			}
-			for (const fs_ of tl.values()) { for (const f of fs_.list) f.key ??= JSON.stringify(f.props); fs_.list.sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : ord(a.parts[0], b.parts[0]) || a.parts.length - b.parts.length); }
+			for (const fs_ of tl.values()) fs_.list.sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : ord(a.parts[0], b.parts[0]) || a.parts.length - b.parts.length);
 			const b = encodeHpxVt(LAYERS.filter(L => tl.get(L)?.list.length).map(L => ({ name: L, extent: EXT, features: tl.get(L).list })));
 			if (!b.length) continue;
 			fs.mkdirSync(path.dirname(out), { recursive: true }); fs.writeFileSync(out, b); made.push([rel, b.length]);
@@ -132,7 +138,7 @@ function worker() {
 	parentPort.on("message", m => {
 		if (m.rows) { const p0 = pieces, used = cut(m.kind, m.rows); parentPort.postMessage({ cut: 1, seen: m.rows.length, used, pieces: pieces - p0 }); }
 		else if (m.flush) { flush(); parentPort.postMessage({ flushed: 1 }); }
-		else if (m.files) parentPort.postMessage({ packed: pack(m.files) });
+		else if (m.files) pack(m.files).then(packed => parentPort.postMessage({ packed }));
 	});
 }
 
@@ -187,10 +193,9 @@ async function main() {
 		await Promise.all(jobs);
 		if (ogr) { const code = await new Promise(r => ogr.exitCode !== null ? r(ogr.exitCode) : ogr.on("close", r)); if (code) { console.error(`\nogr2ogr（${layer}）が ${code} で止まった`); process.exit(1); } }
 	}
-	await Promise.all([
-		LINES || pbf ? feed("lines", LINES, ["highway", "railway", "waterway"]) : null,
-		POLYS || pbf ? feed("multipolygons", POLYS, ["building", "natural", "landuse", "waterway"]) : null,
-	]);
+	// 線と面を同時に読むのは --readers=2 の時だけ：面を読む ogr2ogr は日本全体で 100 GB 超の記憶を使った（Mac で実測・2026-11-27）＝既定は 1 本ずつ
+	const fl = () => LINES || pbf ? feed("lines", LINES, ["highway", "railway", "waterway"]) : null, fp = () => POLYS || pbf ? feed("multipolygons", POLYS, ["building", "natural", "landuse", "waterway"]) : null;
+	if (+opt("readers", 1) >= 2) await Promise.all([fl(), fp()]); else { await fl(); await fp(); }
 	idle.length = 0; await Promise.all(ws.map(w => new Promise(done => { w.job = { done }; w.postMessage({ flush: 1 }); })));   // 全員の残りを書き出す（1 人ずつ名指しで＝返事で空きに戻る）
 	tick(true);
 	const seen = st.lines.seen + st.multipolygons.seen, used = st.lines.used + st.multipolygons.used, tRead = (Date.now() - t0) / 1000;
