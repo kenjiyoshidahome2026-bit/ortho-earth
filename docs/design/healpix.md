@@ -75,7 +75,7 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min
 ## 5. ベクタのタイル（2026-11-27 起案・切る側の純関数まで）
 
 本人（2026-11-27）「OSM のベクタを同じ座標で切ることをまず考えましょう」→「切る純関数だけ先に作る」。設計案＝Claude Doc「OSMベクタをHEALPixの面座標で切る設計案」。
-大元（既存の PMTiles の切り直し／OSM の生データ）・層分け・段ごとの間引き・焼き手・読む側（選抜と組み立ての入口）は未着手＝本人の裁定待ち。
+大元は OSM の生データ・日本域（本人裁定 2026-11-27）。読む側（選抜と組み立ての入口）は未着手。
 
 - 純関数：`packages/ortho-core/src/healpixvt.ts`（検定 `tests/healpix-vt.mjs`）
 - 器＝MVT（Mapbox Vector Tile 2.1）をそのまま借りる。違うのは座標の意味だけ：タイルの中の (x, y)＝面ごとの座標（x＝ix の向き・y＝iy の向き＝標高タイルの列と行）を 0..extent（既定 4096）の整数にした物。
@@ -89,6 +89,25 @@ node packages/ortho-core/scripts/bake-healpix-elev.mjs --src R10 --order 5 --min
 - 読み方の約束：経度の進みが 180° を超え 360° 未満の辺は「180° 線をまたいだ書き方」・ちょうど 360°（−180→180）は全周の辺。極を一周する輪がどちらの極を囲むかは輪の緯度の平均で決める。
   元から経度 ±180° で切ってある多角形（南極大陸など）は、その切り口が面 6 の中に継ぎ目として残る（面積は合う）。
 - 速さの目安（クラウドの器の Node）：2 万点の輪を order 11 の 95,565 枚へ＝約 0.4 秒。
+
+### 日本域の試し焼き（OSM の生データ・本人裁定 2026-11-27「OSM の生データ＋日本域で行きましょう」）
+
+- 焼き手：`packages/ortho-core/scripts/bake-healpix-osm.mjs`（Geofabrik の日本の PBF を GDAL の ogr2ogr で読む＝歩ける道の網と同じ読み方）→ `bake-out/hpx/osm/Norder{k}/Dir{d}/Npix{n}.mvt`＋`index.json`。
+- 置き場＝bucket の `GIS/hpx/osm/`・上げるのは uploader のボタン「HEALPix の OSM ベクタ（bake-out/hpx/osm）→ GIS/hpx/osm」（標高と同じ置き方）。
+- 層と kind は Protomaps の流儀に寄せる（今の style が効きやすい）。出し始める段（Norder k ≒ メルカトルの z k+2.6）：
+
+| 層 | 中身 | 出し始める段 |
+|---|---|---|
+| `roads` | 道：kind＝`highway`（motorway・trunk＝4〜）／`major_road`（primary 6・secondary 7・tertiary 8）／`minor_road`（residential ほか 10・service 11）／`path`（11）。`kind_detail`＝highway の値・`name`／`ref` は 9〜・`is_tunnel`／`is_bridge` | 4〜11 |
+| `roads` | 鉄道：kind＝`rail`・`kind_detail`＝railway の値（rail 6・subway ほか 9・tram 10） | 6〜10 |
+| `water` | 水面（多角形・kind＝`water`）5〜・水路（線・`river` 7・`canal` 9・`stream` 11） | 5〜11 |
+| `buildings` | 建物（多角形・属性なし） | 最も細かい段だけ（既定 11） |
+
+- 間引き：最も細かい段は丸めるだけ。粗い段は Douglas–Peucker（1.5 刻み）と小さい多角形（8 刻み² 未満）の切り捨て。線の両端とタイルの縁の点は動かさない＝隣のタイルとの継ぎを保つ（`hpxSimplify`）。
+- 多角形の輪は外周＝反時計回り・穴＝時計回りにそろえて焼く（y が上向きの約束）。
+- 入れていない物：海岸線（陸の多角形＝PBF からは出ない・osmcoastline の仕事）・地名や施設の点・土地利用・行政界。
+- 目で確かめる＝`node packages/ortho-core/scripts/hpx-vt-preview.mjs --order 9 --bbox 139.4,35.4,140.1,35.95 --width 2400`（`--grid` でタイルの境）。
+- 未確認（クラウドの器に GDAL と PBF が無い）：本物の PBF での通し・所要時間・タイルの大きさ。合成の GeoJSONSeq（道の格子・鉄道・川・穴あきの池・建物）では焼きと描画が通っている。
 
 ## 4. 轍
 

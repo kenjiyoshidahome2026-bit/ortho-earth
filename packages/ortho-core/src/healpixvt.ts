@@ -176,6 +176,33 @@ export function hpxSliceFace(fg: FaceGeom, order: number, extent = 4096): TileGe
 	rec(fg.parts, 0, 0, 0);
 	return out;
 }
+/** タイルの中の図形を間引く（Douglas–Peucker・tol＝刻みの単位）。線の両端と、タイルの縁に乗る点は動かさない＝隣のタイルとの継ぎを保つ。
+ *  多角形は minArea（刻み²）より小さい輪を捨てる。粗い段で頂点を減らすための物（最も細かい段には使わない） */
+export function hpxSimplify(t: TileGeom, tol: number, minArea = 0, extent = 4096): TileGeom | null {
+	if (t.type === "point") return t;
+	const onEdge = (q: Pt): boolean => q[0] === 0 || q[1] === 0 || q[0] === extent || q[1] === extent;
+	const dp = (p: Pt[], keep: Uint8Array, a: number, b: number): void => {
+		const st: [number, number][] = [[a, b]];
+		while (st.length) {
+			const [i, j] = st.pop()!; if (j - i < 2) continue;
+			const dx = p[j][0] - p[i][0], dy = p[j][1] - p[i][1], L = Math.hypot(dx, dy) || 1; let m = -1, md = tol;
+			for (let k = i + 1; k < j; k++) { const d = L === 1 && !dx && !dy ? Math.hypot(p[k][0] - p[i][0], p[k][1] - p[i][1]) : Math.abs((p[k][0] - p[i][0]) * dy - (p[k][1] - p[i][1]) * dx) / L; if (d > md) { md = d; m = k; } }
+			if (m >= 0) { keep[m] = 1; st.push([i, m], [m, j]); }
+		}
+	};
+	const parts: Pt[][] = [];
+	for (const p0 of t.parts) {
+		const closed = t.type === "polygon";
+		if (closed && Math.abs(ringArea(p0)) < minArea) continue;
+		const p = closed ? [...p0, p0[0]] : p0, keep = new Uint8Array(p.length); keep[0] = keep[p.length - 1] = 1;
+		for (let i = 0; i < p.length; i++) if (onEdge(p[i])) keep[i] = 1;
+		let last = 0; for (let i = 1; i < p.length; i++) if (keep[i]) { dp(p, keep, last, i); last = i; }
+		const q = p.filter((_, i) => keep[i]); if (closed) q.pop();
+		if (closed ? q.length >= 3 && ringArea(q) !== 0 : q.length >= 2) parts.push(q);
+		else if (closed && Math.abs(ringArea(p0)) >= Math.max(minArea, 1)) parts.push(p0);   // 間引くと潰れる輪は元のまま
+	}
+	return parts.length ? { ...t, parts } : null;
+}
 /** 経緯度の図形 → order のタイルごとの図形（①〜③ を通す）。曲がりの許しは刻みの 1/4 */
 export function hpxTileGeoms(g: LLGeom, order: number, extent = 4096): TileGeom[] {
 	return hpxSplitFaces(g, 1 / (2 ** order * extent * 4)).flatMap(f => hpxSliceFace(f, order, extent));
