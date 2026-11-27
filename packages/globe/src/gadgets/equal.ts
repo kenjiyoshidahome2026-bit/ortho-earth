@@ -71,6 +71,12 @@ export async function goEqual(map: GlobeMap, { url, center, morph: doMorph = tru
 		const u = new URL(dest, location.href);
 		u.searchParams.set("lang", getLang()); if (morph) u.searchParams.set("morph", morph);
 		u.searchParams.set("back", back.href); u.hash = viewHash;
+		// 移る前にこの地図を畳む（destroy）＝GPU・worker・配列を今すぐ手放す。iOS Safari は離れた頁を bfcache に生かしたまま
+		// 次の頁を開く＝畳まないと「頁を移ったのに 2 つの地図が乗ったまま」になり、行きも帰りも落ちる（本人報告 2026-11-27）。
+		// bfcache から戻された時（ブラウザの「戻る」）は畳んだ後の抜け殻＝読み直す
+		addEventListener("pageshow", e => { if (e.persisted) location.reload(); });
+		document.documentElement.style.background = document.body.style.background = "#000";   // equal は黒地の球から開く＝間に地の色を挟まない
+		try { map.destroy(); } catch (e) { console.warn("[equal] destroy before leaving", e); }
 		// 入口（?start=equal＝www のカード）は履歴を差し替える＝この頁を履歴に残すと、equal からの「戻る」（ブラウザの戻る・「← 戻る」の history.back()）が
 		// ここへ着いてまた equal へ送り返す＝www へ戻れない罠になる（本人 2026-11-27「www に戻りません」）。差し替えれば戻る＝来た頁（www）
 		if (/[?&]start=equal\b/.test(location.search)) location.replace(u.href); else location.href = u.href;

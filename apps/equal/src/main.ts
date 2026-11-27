@@ -4,7 +4,15 @@ import { createEqual } from "@ortho-earth/equal";
 import { t } from "@ortho-earth/equal/i18n";
 
 const Q = new URLSearchParams(location.search);
-const MORPH = Q.has("morph");   // 球から開いて着いた＝戻る時も球へ畳んでから
+// 球から開いて着いた＝戻る時も球へ畳んでから。部品は開いた後に URL から ?morph を落とす（読み直しで変形をやり直さない）＝
+// 読み直し・ブラウザの「戻る」で入り直した時も「球から来た」を覚えておく（同じ back 宛ての間だけ・タブの間だけ）
+const MORPH = (() => {
+	const key = "equal:morph-back", back = Q.get("back") || "";
+	try {
+		if (Q.has("morph")) { if (back) sessionStorage.setItem(key, back); return true; }
+		return !!back && sessionStorage.getItem(key) === back;
+	} catch { return Q.has("morph"); }
+})();
 const EMBED = Q.get("embed") === "1" && window.parent !== window;   // japan の iframe に重なって開く（同一 URL の受け渡し・2026-09-20）
 const app = await createEqual({ target: "#app", params: location.search, hash: true });
 globalThis.equal = app;   // 検証・コンソール用の口（旧来と同じ名前＝equal.setView(…)・equal.openCSV(file)…）
@@ -32,12 +40,15 @@ const BACK = (() => {
 // その球の視点を呼び出し元の hash へ載せて戻る＝japan が同じ球で開く。重ねて開いた時（embed）の「地球儀＝japan へ返す」と同じ動き
 if (BACK && MORPH && !EMBED) {
 	let leaving = false;
-	addEventListener("pageshow", e => { if (e.persisted) { leaving = false; void app.morphIn(); } });   // ブラウザの「進む」で bfcache から戻った＝留まっていた球から開き直す（もう一度畳める）
+	addEventListener("pageshow", e => { if (e.persisted) location.reload(); });   // bfcache から戻された＝畳んだ後の抜け殻（下の destroy）＝読み直す
 	app.on("parked", v => {
 		const s = v as { zoom: number; lat: number; lon: number } | undefined;
 		if (leaving || !s) return; leaving = true;
 		const rest = BACK.hash.replace(/^#/, "").split("/").filter(Boolean).slice(3);
 		const u = new URL(BACK.href); u.hash = "#" + [s.zoom.toFixed(2), s.lat.toFixed(5), s.lon.toFixed(5), ...rest].join("/");
+		// 移る前に畳む＝GPU・配列を今すぐ手放す（iOS Safari は離れた頁を bfcache に生かす＝畳まないと戻り先の地図と同時にメモリへ乗る）
+		document.documentElement.style.background = document.body.style.background = "#000";   // 球のフレームの地色のまま渡す
+		try { app.destroy(); } catch (e) { console.warn("[equal] destroy before leaving", e); }
 		location.replace(u.href);   // 履歴は差し替える＝呼び出し元 → equal → 呼び出し元 と積まない（積むと、戻った先でブラウザの「戻る」がまた equal を開く）
 	});
 }
