@@ -27,7 +27,7 @@ import { worldAtlas } from "./terrain/worldatlas.ts";
 import { worldUI } from "./world/index.ts";
 import { modelsUI } from "./models.ts";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
 import { sharedData } from "./shared-data.ts";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）
-import { altTiles, nlftpCatalog, plateauBake, walkJapan, hpxElev } from "./bake-out.ts";   // 焼きスクリプトの出力（bake-out/）→ GIS/alt・catalog/（スクリプトは鍵を読まない・2026-10-15）
+import { altTiles, nlftpCatalog, plateauBake, walkJapan, hpxElev, hpxOsm } from "./bake-out.ts";   // 焼きスクリプトの出力（bake-out/）→ GIS/alt・catalog/（スクリプトは鍵を読まない・2026-10-15）
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -67,6 +67,7 @@ const MENU: [string, [string, Run][]][] = [
 		["国土数値情報カタログ（bake-out/catalog）→ catalog/", nlftpCatalog],   // 年版の差し替え＝apps/gishub-jp/scripts/nlftp-bump.mjs --write が書いた物
 		["PLATEAU の焼き（bake-out/plateau）→ GIS/plateau", plateauBake],   // apps/japan-map/scripts/bake-plateau.mjs --only=… が焼いた物（横浜の LOD1 13 区など）
 		["歩ける道の網・全国（bake-out/walk）→ GIS/walk", walkJapan],   // packages/citytwin/scripts/bake-walk-japan.mjs が焼いた物（デジタルツインの道順・2026-11-25）
+		["HEALPix の OSM ベクタ（bake-out/hpx/osm）→ GIS/hpx/osm", hpxOsm],   // packages/ortho-core/scripts/bake-healpix-osm.mjs が焼いた物（日本域の試し焼き・道と鉄道／水／建物・docs/design/healpix.md §5）
 	]],
 	["共有データ", [
 		["census・zipcode → GIS/shared", sharedData],

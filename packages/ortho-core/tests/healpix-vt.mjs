@@ -97,4 +97,18 @@ for (const [name, lat, pole] of [["北極の蓋", 80, 90], ["南極の蓋", -70,
 	const flat = t.parts.map(p => [...p, p[0]].flat());
 	ok(JSON.stringify(f.geometry) === JSON.stringify(flat) || JSON.stringify(f.geometry) === JSON.stringify(t.parts.map(p => p.flat())), `MVT：座標が読み戻せる（${f.geometry[0].length / 2} 点）`);
 }
+// 8. 間引き（粗い段）：線の両端とタイルの縁の点は動かない・曲がりは tol の内・小さい多角形は捨てる
+{
+	const { hpxSimplify } = await import("../src/healpixvt.ts");
+	const wav = []; for (let i = 0; i <= 400; i++) wav.push([i * 10, 2000 + Math.round(300 * Math.sin(i / 20) + (i % 2))]);   // 1 刻みのぎざぎざを載せた波
+	const t = { order: 5, npix: 0, type: "line", parts: [[[0, 100], ...wav.slice(1, -1), [4096, 2300]]] }, s = hpxSimplify(t, 1.5);
+	const p = s.parts[0], q = t.parts[0];
+	ok(p.length < q.length / 3 && p[0][0] === 0 && p[p.length - 1][0] === 4096, `間引き：点が減る（${q.length} → ${p.length}）・両端（タイルの縁）は残る`);
+	let worst = 0; for (const u of q) { let best = Infinity; for (let i = 1; i < p.length; i++) { const a = p[i - 1], b = p[i], dx = b[0] - a[0], dy = b[1] - a[1], k = Math.max(0, Math.min(1, ((u[0] - a[0]) * dx + (u[1] - a[1]) * dy) / (dx * dx + dy * dy || 1))); best = Math.min(best, Math.hypot(a[0] + dx * k - u[0], a[1] + dy * k - u[1])); } worst = Math.max(worst, best); }
+	ok(worst <= 1.5 + 1e-9, `間引き：元の点は間引いた線から tol の内（最大 ${worst.toFixed(2)} 刻み）`);
+	const sq = (x, y, w) => [[x, y], [x + w, y], [x + w, y + w], [x, y + w]];
+	const polys = hpxSimplify({ order: 5, npix: 0, type: "polygon", parts: [sq(10, 10, 2), sq(100, 100, 50), [[0, 0], [2000, 0], [4096, 0], [4096, 4096], [0, 4096]]] }, 1.5, 8);
+	ok(polys.parts.length === 2 && polys.parts[0].length === 4 && polys.parts[1].length === 5, "間引き：小さい多角形は捨てる・縁に乗る点（切り口）は残す");
+	ok(hpxSimplify({ order: 5, npix: 0, type: "polygon", parts: [sq(10, 10, 2)] }, 1.5, 8) === null, "間引き：何も残らないタイルは null");
+}
 console.log(fails ? `${fails} failed` : "all passed"); process.exit(fails ? 1 : 0);
