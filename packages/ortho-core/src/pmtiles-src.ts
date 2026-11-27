@@ -274,6 +274,13 @@ export async function fetchPMTilesRaw(url: string, z: number, x: number, y: numb
 	return (await rawTile(srcOf(url), z, x, y, signal))?.data ?? null;
 }
 
+// 範囲の門を通さない生タイル（HEALPix の面の PMTiles＝z/x/y がメルカトルの番地でない＝ヘッダの bbox・tileOutsideCoverage と比べられない・healpix-vt-src.ts）。
+// 単体のアーカイブだけ（複合は扱わない）。索引に無い＝null。取り口（Range・取り順・端末のキャッシュ）は他と同じ archiveOf
+export async function fetchPMTilesAt(url: string, z: number, x: number, y: number, signal?: AbortSignal | null): Promise<Uint8Array | null> {
+	const t = await (await archiveOf(srcOf(url))).getZxy(z, x, y, signal as AbortSignal | undefined);
+	return t?.data?.byteLength ? new Uint8Array(t.data) : null;
+}
+
 // pmtiles.js TileType（ヘッダ 1 バイト）→ 名前。0=unknown 1=mvt 2=png 3=jpeg 4=webp 5=avif 6=mlt。
 // ベクタの名前は登録簿（pmtilesType）から引く＝プラグインが増えれば表を触らずに増える。既知だが未登録（mlt のプラグイン無し）でも名前は返す
 // ＝decodeTile の「未登録」の警告が形式名で言える。
