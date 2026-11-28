@@ -26,7 +26,7 @@ export interface HpxVtFlowOptions {
 	li0?: number;
 	/** 出す集合が変わるたびに呼ぶ。null＝何も出さない（遠すぎる・範囲の外） */
 	onScene: (scene: MergedScene | null, info: HpxVtFlowInfo) => void;
-	/** 同時に取る本数（既定 6＝ブラウザーの 1 ホストあたりの本数） */
+	/** 同時に取る本数（既定 16。束の Range は no-store で引く＝HTTP/2・3 の 1 接続に同時に乗る。本番の実測で 16 本は 1 本分とほぼ同じ時間） */
 	concurrency?: number;
 	/** 持っておく組み立て済みタイルの上限（出している分は数えずに残す） */
 	cacheMax?: number;
@@ -55,7 +55,7 @@ export function hpxOverlap(a: HpxTile, b: HpxTile): boolean {
 
 interface Entry { t: HpxTile; p: TilePayload | null }   // p＝null は「空のタイル」（取りに行った結果、無かった）
 
-export function createHpxVtFlow({ source, style = HPX_OSM_TRIAL_STYLE, li0 = 0, onScene, concurrency = 6, cacheMax = 256, mergeWait = 120, coarseSlack = 1, select = {}, onError = () => {} }: HpxVtFlowOptions): HpxVtFlow {
+export function createHpxVtFlow({ source, style = HPX_OSM_TRIAL_STYLE, li0 = 0, onScene, concurrency = 16, cacheMax = 256, mergeWait = 120, coarseSlack = 1, select = {}, onError = () => {} }: HpxVtFlowOptions): HpxVtFlow {
 	let index: HpxVtIndex | null = null, faces: Set<number> | null = null, dead = false;
 	let pose: { cam: CameraPose; W: number; H: number } | null = null;
 	let want: HpxTile[] = [], shown: HpxTile[] = [], sticky = new Set<number>(), center: [number, number] = [0, 0];

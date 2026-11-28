@@ -7,6 +7,8 @@ const IMMUTABLE = /^GIS\/shared\/.+\.[0-9a-f]{8,}\.[a-z0-9]+$/;
 // 一覧（prefix/）は R2 の list を全頁なぞる＝誰でも叩けるので頁数に上限を置き、エッジに 60 秒持たせる（2026-10-24）
 const MAX_LIST_PAGES = 10;
 const LIST_CACHE = "public, max-age=0, s-maxage=60";
+// 版つきの URL の Range をエッジに置く上限（1 区間）と持たせ方（版が URL に入っている＝中身は変わらない）
+const RANGE_CACHE_MAX = 4 * 1024 * 1024, RANGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 /** Range ヘッダ（bytes=a-b／a-／-n の 1 区間だけ）→ R2 の {offset, length}。無い・読めない＝null（全体を返す）・範囲の外＝false（416） */
 // 置いた時の縮め方。昔の put は X-Content-Encoding が無い時に null をそのまま R2 へ渡していて、R2 はそれを文字列 "null" で持つ（本番の zip で確認 2026-11-27）
@@ -35,6 +37,18 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 	const purge = () => ctx?.waitUntil?.(Promise.all([purgeOne(url.pathname), purgeOne(url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1))]));
 	if (request.method === "GET") {
 		const res = await cache.match(request); if (res) return res;
+	}
+	// 版つきの URL（?v=…）への Range（bytes=a-b の形だけ）は、区間ごとにエッジへ載せる（2026-11-28・HEALPix の OSM の束＝1 GB は全体がエッジに載らず、毎回 R2 へ head＋get していた）。
+	//   Cache API は 206 を置けない＝区間の中身を 200 として別の鍵（…&__r=a-b）に置き、当たったら 206 に組み直す。当たれば R2 へは行かない。
+	//   版なしの URL には使わない＝書き換えの後、古い区間と新しい区間が混ざる（purge は区間の鍵を数え上げられない）。版が変われば鍵ごと変わる
+	const rm = request.method === "GET" && url.searchParams.has("v") ? /^bytes=(\d+)-(\d+)$/.exec((request.headers.get("Range") || "").trim()) : null;
+	const rangeKey = rm && +rm[2] >= +rm[1] && +rm[2] - +rm[1] < RANGE_CACHE_MAX ? new Request(`${url.origin}${url.pathname}?v=${encodeURIComponent(url.searchParams.get("v")!)}&__r=${+rm[1]}-${+rm[2]}`, { method: "GET" }) : null;
+	if (rangeKey) {
+		const hit = await cache.match(rangeKey);
+		if (hit) return new Response(hit.body, { status: 206, headers: {
+			"Content-Type": hit.headers.get("Content-Type") || "application/octet-stream", "Content-Range": hit.headers.get("X-Content-Range") || "", "Content-Length": hit.headers.get("Content-Length") || "",
+			"ETag": hit.headers.get("ETag") || "", "Accept-Ranges": "bytes", "Cache-Control": RANGE_CACHE_CONTROL, "X-Range-Cache": "HIT"
+		} });
 	}
 	try {
 		if (request.method === "GET") {
@@ -81,6 +95,13 @@ export async function bucket(request: Request, bucket: R2Bucket, ctx: ExecutionC
 			if (range) {
 				const part = await bucket.get(path, { range });
 				if (!part) return new Response(JSON.stringify({ data: null }), { status: 404 });
+				if (rangeKey) {   // 版つき＝区間をエッジに置いて返す（中身は小さい＝いったん受け切る）
+					const buf = await new Response(part.body).arrayBuffer();
+					const h = { "Content-Type": obj.httpMetadata?.contentType || "application/octet-stream", "Content-Length": String(buf.byteLength), "ETag": obj.httpEtag, "Cache-Control": RANGE_CACHE_CONTROL };
+					const cr = `bytes ${range.offset}-${range.offset + range.length - 1}/${obj.size}`;
+					ctx.waitUntil(cache.put(rangeKey, new Response(buf.slice(0), { headers: { ...h, "X-Content-Range": cr } })));
+					return new Response(buf, { status: 206, headers: { ...h, "Content-Range": cr, "Accept-Ranges": "bytes", "X-Range-Cache": "MISS" } });
+				}
 				return new Response(part.body, { status: 206, headers: {
 					"Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
 					"Content-Range": `bytes ${range.offset}-${range.offset + range.length - 1}/${obj.size}`,

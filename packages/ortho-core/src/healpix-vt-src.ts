@@ -3,7 +3,7 @@
 // PMTiles の (z, x, y) ＝ (Norder, 面の中の ix, iy)＝メルカトルではない＝範囲の門（ヘッダの bbox）を通さない fetchPMTilesAt で引く。
 // ここは「番地 → タイルの中身」まで。どのタイルを描くか・頂点を地球のどこへ置くか（hpxTilePointLonLat）は使う側。
 import { cellOf, hpxParent } from "./healpix.ts";
-import { fetchPMTilesAt } from "./pmtiles-src.ts";
+import { fetchPMTilesAt, pmtilesParallelRanges } from "./pmtiles-src.ts";
 import { decodeTile, loadTileFormat } from "./decode.ts";
 import type { TileData } from "./tileformat.ts";
 
@@ -41,7 +41,11 @@ export function createHpxVtSource({ apiUrl, dir = HPX_OSM_DIR, fetchFn = (u: str
 		let b = new Uint8Array(await res.arrayBuffer());
 		if (b[0] === 0x1f && b[1] === 0x8b) b = new Uint8Array(await new Response(new Blob([b as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
 		const index = checkHpxVtIndex(JSON.parse(new TextDecoder().decode(b)));
-		return { index, files: new Map(index.faces.map(f => [f.face, "pmtiles://" + base + f.file])) };
+		// 版の印を URL に付ける（?v=）＝Worker が Range を区間ごとにエッジへ載せる条件（版なしは載せない＝書き換えの後に古い区間と混ざるため）。焼いた時刻＋束の大きさ
+		const ver = (f: { bytes: number }) => encodeURIComponent(`${index.made ?? ""}-${f.bytes ?? 0}`);
+		const files = new Map(index.faces.map(f => [f.face, `pmtiles://${base}${f.file}?v=${ver(f)}`]));
+		for (const u of files.values()) pmtilesParallelRanges(u);   // Range を同時に引く（Chrome が同じ URL の Range を 1 本ずつにする件・pmtiles-src.ts）
+		return { index, files };
 	})().catch(e => { idx = null; throw e; });
 	const cell = { face: 0, ix: 0, iy: 0 };
 	const raw = async (order: number, npix: number, signal?: AbortSignal | null): Promise<Uint8Array | null> => {

@@ -27,13 +27,14 @@ const index = { made: "2026-11-27T00:00:00Z", source: "test", layers: ["roads"],
 
 // 偽の鯖：index.json と Range つきの face1.pmtiles
 const API = "https://api.test";
-let down = false, indexHits = 0, whole = 0;
+let down = false, indexHits = 0, whole = 0, ranges = 0, cached = 0, probes = 0;
 const rangeOf = init => { const h = init?.headers instanceof Headers ? init.headers.get("range") : (init?.headers?.Range ?? init?.headers?.range ?? ""); return /bytes=(\d+)-(\d+)/.exec(h || ""); };
 globalThis.fetch = async (u, init) => {
 	const url = String(u?.url ?? u);
 	if (url === `${API}/bucket/GIS/hpx/osm/index.json`) { indexHits++; return down ? new Response("x", { status: 503 }) : Response.json(index); }
-	if (url === `${API}/bucket/GIS/hpx/osm/face1.pmtiles`) {
+	if (url === `${API}/bucket/GIS/hpx/osm/face1.pmtiles?v=${encodeURIComponent(`${index.made}-${pm.length}`)}`) {   // 版の印つき（Worker が Range をエッジへ載せる条件）
 		const r = rangeOf(init ?? u); if (!r) whole++;
+		if (r) { ranges++; if (init?.cache !== "no-store") cached++; if (r[1] === "0" && r[2] === "0") probes++; }
 		const body = r ? pm.subarray(+r[1], Math.min(pm.length, +r[2] + 1)) : pm;
 		return new Response(body, { status: r ? 206 : 200, headers: { "Content-Length": String(body.byteLength), ETag: '"e1"', ...(r ? { "Content-Range": `bytes ${r[1]}-${+r[1] + body.byteLength - 1}/${pm.length}` } : {}) } });
 	}
@@ -94,4 +95,5 @@ ok(whole === 0, "アーカイブを丸ごと取りに行かない（全部 Range
 	ok(bad(null) && bad({ minOrder: 9, maxOrder: 6, faces: [] }) && bad({ minOrder: 4, maxOrder: 12, faces: [{ face: 12, file: "face12.pmtiles" }] }) && bad({ minOrder: 4, maxOrder: 12, faces: [{ face: 1, file: "../x.pmtiles" }] }), "壊れた目録は投げる（面の番号・ファイル名）");
 	ok(checkHpxVtIndex({ minOrder: 4, maxOrder: 12, faces: [] }).extent === 4096, "extent の既定＝4096");
 }
+ok(ranges > 2 && cached === 0 && probes === 0, `Range は全部 cache: "no-store" で引く（${ranges} 本）・探りの 0-0 は送らない（Chrome が同じ URL の Range を 1 本ずつにする件）`);
 console.log(fails ? `${fails} failed` : "all passed"); process.exit(fails ? 1 : 0);

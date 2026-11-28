@@ -40,7 +40,7 @@ const noOverlap = ts => ts.every((a, i) => ts.every((b, j) => i >= j || !hpxOver
 // ── 1. 普通の流れ：選んだタイルが全部届いて 1 つの scene になる ──
 {
 	const src = fakeSource(), scenes = [];
-	const flow = createHpxVtFlow({ source: src, li0: 1 << 20, mergeWait: 5, onScene: (s, i) => scenes.push({ s, i }) });
+	const flow = createHpxVtFlow({ source: src, concurrency: 6, li0: 1 << 20, mergeWait: 5, onScene: (s, i) => scenes.push({ s, i }) });
 	flow.update(camAt(15), W, H); await sleep(5);
 	flow.update(camAt(15), W, H);   // 目録が来た後
 	await sleep(5);
@@ -61,7 +61,7 @@ const noOverlap = ts => ts.every((a, i) => ts.every((b, j) => i >= j || !hpxOver
 // ── 2. 段の切り替え：新しい段が届くまで前の段を出し続ける（穴なし・重なりなし） ──
 {
 	const src = fakeSource(), seen = [];
-	const flow = createHpxVtFlow({ source: src, mergeWait: 1, onScene: () => {} });
+	const flow = createHpxVtFlow({ source: src, concurrency: 6, mergeWait: 1, onScene: () => {} });
 	flow.update(camAt(13), W, H); await sleep(5); flow.update(camAt(13), W, H); src.openAll(); await sleep(30);
 	const coarse = flow.stats();
 	ok(coarse.pending === 0 && coarse.orders.join() === "10", `z13 では段 10（${coarse.shown} 枚）`);
@@ -84,7 +84,7 @@ const noOverlap = ts => ts.every((a, i) => ts.every((b, j) => i >= j || !hpxOver
 // 出す集合そのものを見る：途中のどの時点でも重なりが無く、注視点を含むタイルがある
 {
 	const src = fakeSource();
-	const flow = createHpxVtFlow({ source: src, mergeWait: 0, onScene: () => {} });
+	const flow = createHpxVtFlow({ source: src, concurrency: 6, mergeWait: 0, onScene: () => {} });
 	flow.update(camAt(12), W, H); await sleep(5); flow.update(camAt(12), W, H); src.openAll(); await sleep(30);
 	const a = flow.stats();
 	const hold = fakeSource(); src.tile = hold.tile;
@@ -99,7 +99,7 @@ const noOverlap = ts => ts.every((a, i) => ts.every((b, j) => i >= j || !hpxOver
 // ── 3. 要らなくなった取得は止める ──
 {
 	const src = fakeSource();
-	const flow = createHpxVtFlow({ source: src, mergeWait: 1, onScene: () => {} });
+	const flow = createHpxVtFlow({ source: src, concurrency: 6, mergeWait: 1, onScene: () => {} });
 	flow.update(camAt(15), W, H); await sleep(5); flow.update(camAt(15), W, H); await sleep(5);
 	const before = flow.stats();
 	flow.update(camAt(15, [135.5, 34.7]), W, H); await sleep(10);   // 大阪へ飛ぶ
@@ -111,7 +111,7 @@ const noOverlap = ts => ts.every((a, i) => ts.every((b, j) => i >= j || !hpxOver
 // ── 4. 遠すぎる視点・束の無い面 ──
 {
 	const src = fakeSource({ minOrder: 6 }), scenes = [];
-	const flow = createHpxVtFlow({ source: src, mergeWait: 1, onScene: s => scenes.push(s) });
+	const flow = createHpxVtFlow({ source: src, concurrency: 6, mergeWait: 1, onScene: s => scenes.push(s) });
 	flow.update(camAt(5), W, H); await sleep(5); flow.update(camAt(5), W, H); await sleep(10);
 	ok(flow.stats().wanted === 0 && src.log.length === 0, "z5（段 2 相当）は目録の最小の段 6 より粗すぎる＝取りに行かない");
 	flow.update(camAt(15, [-0.12, 51.5]), W, H); await sleep(10);   // ロンドン＝面 1 ではない
@@ -127,7 +127,7 @@ const noOverlap = ts => ts.every((a, i) => ts.every((b, j) => i >= j || !hpxOver
 // ── 5. 空のタイル・持ちすぎ ──
 {
 	const src = fakeSource({ empty: () => true }), scenes = [];
-	const flow = createHpxVtFlow({ source: src, mergeWait: 1, onScene: s => scenes.push(s) });
+	const flow = createHpxVtFlow({ source: src, concurrency: 6, mergeWait: 1, onScene: s => scenes.push(s) });
 	flow.update(camAt(15), W, H); await sleep(5); flow.update(camAt(15), W, H); src.openAll(); await sleep(40);
 	const n = src.log.length;
 	flow.update(camAt(15), W, H); await sleep(10);

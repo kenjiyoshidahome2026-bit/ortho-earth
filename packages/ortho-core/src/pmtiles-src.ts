@@ -151,9 +151,22 @@ export function scheduledSource(inner: Source, src: string, sched: Scheduler = g
 	};
 }
 
+// 「同時に引ける」アーカイブの印（2026-11-28・HEALPix の OSM の束）。Chrome は同じ URL への Range を、HTTP キャッシュの鍵が同じなので 1 本ずつしか送らない
+//   （本番の実測：64 KB の Range 16 本が 3.8 秒＝約 230 ms ずつの階段。cache: "no-store" なら 0.3〜0.4 秒で全部同時）。
+//   pmtiles.js も Windows の Chrome にだけ同じ手当て（no-store）を持つ＝その旗を立てて全部の環境で効かせる。
+//   印を付けたアーカイブは、(1) Range を no-store で引く (2) 共通の取り順（オリジンごと 6 本）を通さない＝同時数は呼び手が決める
+//   (3) 探りの 1 往復（0-0）を省く＝Range で読める置き場だと呼び手が知っている。端末キャッシュ（Cache API）は今までどおり外側に付く。
+const parallel = new Set<string>();
+export const pmtilesParallelRanges = (url: string): void => { parallel.add(srcOf(url)); };
+
 async function openArchive(src: string): Promise<PMTiles> {
 	const m = await import("pmtiles");
 	if (src.startsWith(OPFS)) return new m.PMTiles(opfsSource(src.slice(OPFS.length)));
+	if (parallel.has(src)) {
+		const fs = new m.FetchSource(src); (fs as unknown as { chromeWindowsNoCache: boolean }).chromeWindowsNoCache = true;   // ＝fetch の cache: "no-store"
+		const st = rangeCacheFlag.on ? await openRangeStore() : null;
+		return new m.PMTiles(st ? cachingSource(src, fs, async () => st, () => new m.EtagMismatch("archive changed")) : fs);
+	}
 	// Range で読める置き場だと一度分かったら、次の起動からは探りの 1 往復を省く（端末キャッシュが入の時だけ）
 	const store = rangeCacheFlag.on ? await openRangeStore() : null, probeKey = rcKey(src, "range-ok");
 	const net = (): Source => scheduledSource(new m.FetchSource(src), src);   // 回線＝共通の取り順を通す
