@@ -37,7 +37,10 @@ export function createHpxVtSource({ apiUrl, dir = HPX_OSM_DIR, fetchFn = (u: str
 	const load = () => idx ??= (async () => {
 		const res = await fetchFn(base + "index.json");
 		if (!res.ok) throw new Error(`hpx-vt index HTTP ${res.status}`);
-		const index = checkHpxVtIndex(await res.json());
+		// 置き場の JSON は gzip で置かれる（Bucket.put）＝ブラウザーが Content-Encoding を解いた後も中身がまだ gzip（頭 1f 8b）で届く。Bucket.get と同じく自分で解く
+		let b = new Uint8Array(await res.arrayBuffer());
+		if (b[0] === 0x1f && b[1] === 0x8b) b = new Uint8Array(await new Response(new Blob([b as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+		const index = checkHpxVtIndex(JSON.parse(new TextDecoder().decode(b)));
 		return { index, files: new Map(index.faces.map(f => [f.face, "pmtiles://" + base + f.file])) };
 	})().catch(e => { idx = null; throw e; });
 	const cell = { face: 0, ix: 0, iy: 0 };

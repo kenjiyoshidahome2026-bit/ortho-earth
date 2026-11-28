@@ -47,6 +47,11 @@ down = false;
 const idx = await src.index();
 ok(idx.minOrder === 6 && idx.maxOrder === 9 && idx.faces.length === 1 && indexHits === 2, "失敗は覚えない＝次に取り直す");
 await src.index(); ok(indexHits === 2, "目録は 1 回だけ取る");
+{	// 本番の置き場＝index.json は gzip のまま届く（2026-11-27 の実機：res.json() で落ちた）
+	const gz = new Uint8Array(await new Response(new Blob([JSON.stringify(index)]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+	const s2 = createHpxVtSource({ apiUrl: API, fetchFn: async u => new Response(gz, { headers: { "Content-Type": "application/gzip" } }) });
+	const i2 = await s2.index(); ok(gz[0] === 0x1f && i2.maxOrder === 9 && i2.faces[0].file === "face1.pmtiles", "gzip のまま届く目録も読む");
+}
 
 // 焼いた全タイルが (Norder, npix) で引けて、中身が同じ
 {
