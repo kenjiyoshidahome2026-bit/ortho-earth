@@ -4087,10 +4087,24 @@ const vtxMount = async (v: UserLayerRec, layer: MLLayer) => {
 let vtdCtl: ReturnType<typeof createVTDraw> | null = null;
 // ?hpxvt=N ＝HEALPix の OSM ベクタ（bucket の GIS/hpx/osm・面ごとの PMTiles）を段 N で数枚だけ地球に置く（V3 の読む側の試し・docs/design/healpix.md §6 の 3 段目）。
 //   &hpxat=経度,緯度（既定＝東京駅）を含むタイルと隣の計 9 枚を一度だけ取り、利用者の層と同じ "user" の枠へ流す（基図の上・基図の配管は触らない）。
-//   タイル選びは無い＝視点を動かしても取り直さない。旗が無ければ何も読まない。⚠ "user" の枠を使う＝vector source の描く層（vtdraw）と同時には使えない（後から来た方が上書き）
+//   数字の時はタイル選びは無い＝視点を動かしても取り直さない。?hpxvt=auto は視点に合わせて出し入れする（下）。旗が無ければ何も読まない。⚠ "user" の枠を使う＝vector source の描く層（vtdraw）と同時には使えない（後から来た方が上書き）
 {
-	const m = /[?&]hpxvt=(\d+)/.exec(location.search);
-	if (m) {
+	const m = /[?&]hpxvt=(\d+|auto)/.exec(location.search);
+	if (m && m[1] === "auto") {
+		// ?hpxvt=auto ＝視点に合わせて出し入れする（4 段目・core の healpix-vt-flow）。move は 150ms に 1 回へ間引く。組み立ては今は main で 1 枚ずつ
+		Promise.all([import("@ortho-earth/core/healpix-vt-flow"), import("./vtops.ts")]).then(([f, v]) => {
+			const flow = dbgHost.__hpxvt = f.createHpxVtFlow({
+				source: f.createHpxVtSource({ apiUrl: "https://api.ortho-earth.com" }), li0: v.USER_LI0,
+				onScene: scene => { wPost({ type: "set", cmd: "scene", data: scene ?? { origin: [0, 0], layers: [], buildings: null }, prop: "user" }, scene ? f.hpxSceneBuffers(scene) : []); requestDraw(); },
+				onError: (e, t) => console.warn("[hpxvt] failed", t.order, t.npix, (e as Error)?.message ?? e),
+			});
+			let t = 0, last = 0;
+			const run = () => { t = 0; last = performance.now(); flow.update(cam, size.w, size.h); };
+			const onMove = () => { if (t) return; const wait = 150 - (performance.now() - last); wait <= 0 ? run() : (t = window.setTimeout(run, wait)); };
+			map.on("move", onMove); map.on("settle", onMove); run();
+			ownDestroy.push(() => { clearTimeout(t); flow.destroy(); });
+		}).catch(e => console.warn("[hpxvt] failed", (e as Error)?.message ?? e));
+	} else if (m) {
 		const at = /[?&]hpxat=(-?[\d.]+),(-?[\d.]+)/.exec(location.search), lon = at ? +at[1] : 139.767, lat = at ? +at[2] : 35.681;
 		Promise.all([import("@ortho-earth/core/healpix-vt"), import("./vtops.ts")]).then(async ([h, v]) => {
 			const r = await h.loadHpxVtScene({ apiUrl: "https://api.ortho-earth.com", order: +m[1], lon, lat, li0: v.USER_LI0 });
