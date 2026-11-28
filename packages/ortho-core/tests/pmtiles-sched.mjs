@@ -35,4 +35,12 @@ const inner = { getKey: () => "k", getBytes: async (o, l, signal) => {
 	assert.equal(await run.then(() => "ok", e => e.name), "AbortError", "走りの中断は内側の signal へ");
 	open2(); gate = null;
 }
+{	// PMTiles の枠は COG・COPC の枠（オリジン）と別＝鍵を渡して同時数を上げられる（既定の枠はそのまま）
+	const sched = createScheduler({ concurrency: 2 }); sched.setConcurrency(5, "https://tiles.test|pmtiles");
+	const s = scheduledSource(inner, "https://tiles.test/a.pmtiles", sched, "https://tiles.test|pmtiles"), plain = scheduledSource(inner, "https://tiles.test/b.pmtiles", sched);
+	peak = 0; await Promise.all([...Array(12)].map((_, i) => s.getBytes(100 + i, 4)));
+	assert.equal(peak, 5, "PMTiles の枠の同時数");
+	peak = 0; await Promise.all([...Array(8)].map((_, i) => plain.getBytes(100 + i, 4)));
+	assert.equal(peak, 2, "鍵を渡さなければオリジンの枠のまま");
+}
 console.log("PASS pmtiles-sched");
