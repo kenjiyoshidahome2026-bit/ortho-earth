@@ -183,6 +183,7 @@ interface TileGrid<T> {                       // T＝番地（メルカトル {z
        - 手当て 1：束の Range を no-store で引く・共通の取り順（オリジンごと 6 本）を通さない・探りの 0-0 を省く（`pmtiles-src.ts` の `pmtilesParallelRanges`＝印を付けたアーカイブだけ。基図の PMTiles は今までどおり）。流れの同時数は 6 → 16。
        - 手当て 2：Worker `/bucket` が、版つきの URL（`?v=`）への Range を区間ごとにエッジへ載せる（当たれば R2 へ行かない。実測の見込み 1 本 290 ms → 約 40 ms）。読み口が束の URL に版の印（焼いた時刻＋大きさ）を付ける。
        - 見送り：隣り合うタイルを 1 本の Range にまとめる（27 本 → 7 本にできるが、同時に引ければ差は小さい）。
+       - 手当て 3（基図の PMTiles＝`/unmap/` も含む全部の HTTP のアーカイブ）：(a) 開く前の探り（`bytes=0-0`）をやめ、先頭の読みが探りを兼ねる（Range を無視する置き場だけ全量を丸呑み）(b) 同じ範囲を別々の realm が同時に取りに行かない（Web Locks で 1 人だけ回線へ・残りは Cache API から。本番で planet の先頭 5 回・葉の索引 5 回が重複していた）(c) PMTiles の同時数を COG・COPC の枠と分けて realm ごと 12 本（`setPMTilesConcurrency`）。
      - まだ無い物：組み立ての worker（今は main で 1 枚ずつ）・線に沿う注記・建物の押し出し・日付変更線をまたぐ結合の原点。実機の絵は未確認。
 5. **style の合わせ**：焼いた層（roads・water・buildings）と属性に合う style。今の基図の style は別のスキーマ＝そのままでは色が付かない。
 

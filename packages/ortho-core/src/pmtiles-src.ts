@@ -95,45 +95,79 @@ const openRangeStore = async (): Promise<RangeStore | null> => { try { return ty
 const fnv = (buf: ArrayBuffer): string => { const u = new Uint8Array(buf); let h = 0x811c9dc5; for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 0x01000193); return (h >>> 0).toString(16); };
 const rcKey = (src: string, tail: string): string => `https://range-cache.invalid/${encodeURIComponent(src)}/${tail}`;
 type RangeBytes = { data: ArrayBuffer; etag?: string };
+// 同じ範囲を別々の realm（main・タイルの worker たち・描画の worker）が同時に欲しがる時の順番待ち（2026-11-28）。
+//   アーカイブは realm ごとに開く＝開いた直後は全員が同じ先頭（16 KB）と同じ葉の索引を回線へ取りに行っていた（本番の /unmap/：planet の先頭 5 回・葉の索引 5 回）。
+//   Web Locks（worker でも使える・同じオリジンの realm で共有）で範囲ごとに 1 人だけ回線へ出し、残りは待って Cache API に載った分を読む。
+//   待つのは「同じ範囲」だけ＝別々のタイルは今までどおり同時に出る。Web Locks の無い環境はそのまま（重複するだけ）。
+/** 範囲ごとの順番待ち（Web Locks の要る分だけ）。試験は偽物を渡す */
+export type RangeLock = <T>(name: string, fn: () => Promise<T>) => Promise<T>;
+const webLock: RangeLock = (name, fn) => { const l = (globalThis as { navigator?: { locks?: { request?: <T>(n: string, f: () => Promise<T>) => Promise<T> } } }).navigator?.locks; return l?.request ? l.request(name, fn) : fn(); };
+const CHECK_FRESH_MS = 10000;   // 先頭の見比べを他の realm が済ませていたら、この間はそれを信じる
 /** mismatch＝「版が合わない」の誤り（pmtiles.js の EtagMismatch）を作る口＝投げると pmtiles.js が先頭を読み直す */
-export function cachingSource(src: string, inner: Source, open: () => Promise<RangeStore | null> = openRangeStore, mismatch: () => Error = () => new Error("pmtiles: archive changed")): Source {
+export function cachingSource(src: string, inner: Source, open: () => Promise<RangeStore | null> = openRangeStore, mismatch: () => Error = () => new Error("pmtiles: archive changed"), lock: RangeLock = webLock): Source {
 	let store: Promise<RangeStore | null> | null = null, puts = 0, ver = "";   // ver＝今の版の印（先頭を読むたびに決まる）
 	let checking: Promise<boolean> | null = null, fresh: RangeBytes | null = null;   // checking＝裏の見比べ（true＝差し替わっていた）・fresh＝その時に回線から来た先頭
 	const stamp = (r: RangeBytes): string => `${fnv(r.data)}:${r.etag || ""}`;
-	const keep = (c: RangeStore | null, k: string, r: RangeBytes): void => {
-		if (!c || !ver) return;
-		c.put(k, new Response(r.data.slice(0), { headers: { "x-ver": ver, ...(r.etag ? { "x-etag": r.etag } : {}) } })).catch(() => {});
+	const keep = (c: RangeStore | null, k: string, r: RangeBytes): Promise<void> => {
+		if (!c || !ver) return Promise.resolve();
+		const done = c.put(k, new Response(r.data.slice(0), { headers: { "x-ver": ver, ...(r.etag ? { "x-etag": r.etag } : {}) } })).catch(() => {});
 		if (++puts % RC_TRIM_EVERY === 0) (async () => { const ks = await c.keys(); for (let i = 0; i < ks.length - RC_MAX; i++) await c.delete(ks[i]); })().catch(() => {});
+		return done;
 	};
+	const checkedKey = rcKey(src, "checked");
+	/** 残した範囲を読む（want＝版の印が合う物だけ。先頭は印を問わない） */
+	const hit = async (c: RangeStore | null, k: string, want?: string): Promise<{ r: RangeBytes; ver: string } | null> => {
+		const h = c ? await c.match(k).catch(() => undefined) : undefined;
+		if (!h || (want !== undefined && h.headers.get("x-ver") !== want)) return null;
+		return { r: { data: await h.arrayBuffer(), etag: h.headers.get("x-etag") || undefined }, ver: h.headers.get("x-ver") || "" };
+	};
+	/** 回線へ出るのは範囲ごとに 1 人。順番が来たらまず残した分を見直す（先に出た realm が載せている）。結果は載せ終わりを待たずに返し、順番は載せ終わるまで持つ */
+	const fetchOnce = (c: RangeStore | null, k: string, recheck: () => Promise<RangeBytes | null>, load: () => Promise<RangeBytes>, after: (r: RangeBytes) => Promise<void>): Promise<RangeBytes> =>
+		!c ? load().then(async r => { await after(r); return r; }) : new Promise<RangeBytes>((res, rej) => {
+			lock(`oj-range:${k}`, async () => {
+				const h = await recheck().catch(() => null);
+				if (h) { res(h); return; }
+				const r = await load();
+				const put = after(r);
+				res(r); await put;
+			}).catch(rej);
+		});
 	return {
 		getKey: () => src,
 		getBytes: async (offset, length, signal, etag) => {
 			const c = await (store ??= open()), k = rcKey(src, `${offset}-${length}`);
 			if (offset === 0) {
 				if (fresh) { const r = fresh; fresh = null; return r; }   // 差し替わりに気づいた直後の読み直し＝もう手元にある
-				const h = c ? await c.match(k).catch(() => undefined) : undefined;
+				const h = await hit(c, k);
 				if (h) {   // 残した先頭ですぐ開く・裏で見比べる
-					const old: RangeBytes = { data: await h.arrayBuffer(), etag: h.headers.get("x-etag") || undefined };
+					const old = h.r;
 					ver = stamp(old);
-					checking = inner.getBytes(offset, length).then(r => {
-						if (stamp(r) === ver) return false;
-						ver = stamp(r); fresh = r; keep(c, k, r);
-						return true;
-					}, () => false);   // 回線なし＝残した分で続ける
+					// 見比べも 1 人だけ＝他の realm がさっき済ませていたら、その結果（checked の印）を使う
+					checking = lock(`oj-range:${checkedKey}`, async () => {
+						const m = c ? await c.match(checkedKey).catch(() => undefined) : undefined;
+						if (m && Date.now() - +(m.headers.get("x-at") || 0) < CHECK_FRESH_MS) {
+							if (m.headers.get("x-ver") === ver) return false;
+							const now = await hit(c, k);   // 差し替わっていた＝先に気づいた realm が新しい先頭を載せている
+							if (now && stamp(now.r) === m.headers.get("x-ver")) { ver = stamp(now.r); fresh = now.r; return true; }
+						}
+						const r = await inner.getBytes(offset, length);
+						const changed = stamp(r) !== ver;
+						if (changed) { ver = stamp(r); fresh = r; await keep(c, k, r); }
+						await c?.put(checkedKey, new Response("1", { headers: { "x-ver": ver, "x-at": String(Date.now()) } })).catch(() => {});
+						return changed;
+					}).catch(() => false);   // 回線なし＝残した分で続ける
 					return old;
 				}
-				const r = await inner.getBytes(offset, length, signal, etag);
-				ver = stamp(r); keep(c, k, r);
-				return r;
+				// 初めて＝先頭を回線から。同時に開いた他の realm が載せた直後なら、それを使う（見比べは要らない＝今読まれたばかり）
+				return fetchOnce(c, k, async () => { const now = await hit(c, k); if (now) ver = stamp(now.r); return now ? now.r : null; },
+					() => inner.getBytes(offset, length, signal, etag),
+					async r => { ver = stamp(r); await keep(c, k, r); await c?.put(checkedKey, new Response("1", { headers: { "x-ver": ver, "x-at": String(Date.now()) } })).catch(() => {}); });
 			}
-			if (c && ver) {
-				const h = await c.match(k).catch(() => undefined);
-				if (h && h.headers.get("x-ver") === ver) return { data: await h.arrayBuffer(), etag };
-			}
+			const cached = async (): Promise<RangeBytes | null> => { const h = c && ver ? await hit(c, k, ver) : null; return h ? { data: h.r.data, etag } : null; };
+			const h = await cached();
+			if (h) return h;
 			if (checking && await checking) { checking = null; throw mismatch(); }   // 古い索引のまま新しいファイルを読まない
-			const r = await inner.getBytes(offset, length, signal, etag);
-			keep(c, k, r);
-			return r;
+			return fetchOnce(c, k, cached, () => inner.getBytes(offset, length, signal, etag), r => keep(c, k, r));
 		},
 	};
 }
@@ -142,9 +176,13 @@ export function cachingSource(src: string, inner: Source, open: () => Promise<Ra
 //   ＝この realm の COG のタイル・COPC の節と同じ規則（オリジンごとの同時数・優先度の高い順・中断は回線に出る前に列から外す）。
 //   優先度＝先頭（ヘッダ＋根の索引）が一番先・それ以外は新しく頼まれた読みほど先（今の画面）。画面を外れたタイルは呼び手の signal（raster-src の abort）で列から外れる。
 //   端末キャッシュ（cachingSource・Cache API）はこの外側＝当たった範囲は列に並ばない。OPFS・丸呑み（Range 非対応）は回線に出ないので通さない。
+//   同時数（2026-11-28）：PMTiles の読みは 1 本が小さい（タイル 1 枚＝数十 KB）ので、COG・COPC の 6 本とは別の枠（オリジン＋"|pmtiles"）にして PM_CONC 本まで出す。
+//   本番の /unmap/ の実測：動かした時の 66〜70 本が 6 本ずつ（× 読む realm の数）で 2.4〜2.6 秒。source.coop は 16 本同時でも 0.8〜1.1 秒で返す。
+//   相手の置き場なので上げすぎない＝realm ごとに 12。setPMTilesConcurrency で変えられる（これから開くアーカイブに効く）。
+let pmConc = 12;
+export const setPMTilesConcurrency = (n: number): void => { pmConc = Math.max(1, n | 0); };
 let ticket = 0;
-export function scheduledSource(inner: Source, src: string, sched: Scheduler = getScheduler()): Source {
-	const key = originKey(src);
+export function scheduledSource(inner: Source, src: string, sched: Scheduler = getScheduler(), key: string = originKey(src)): Source {
 	return {
 		getKey: () => inner.getKey(),
 		getBytes: (offset, length, signal, etag) => sched.run(js => inner.getBytes(offset, length, js, etag), { key, priority: offset === 0 ? Number.MAX_SAFE_INTEGER : ++ticket, signal }),
@@ -162,6 +200,27 @@ const noStoreSource = (m: typeof import("pmtiles"), src: string): Source => { co
 const parallel = new Set<string>();
 export const pmtilesParallelRanges = (url: string): void => { parallel.add(srcOf(url)); };
 
+// Range で読めない置き場の見分け（2026-11-28・探りの 1 往復をやめた）：以前は開く前に `bytes=0-0` を 1 本送って 206 か 200 かを見ていた＝初めて開く時に 1 往復余分。
+//   今は先頭（ヘッダ＋根の索引）の読みそのものを探りにする＝pmtiles.js の FetchSource は、Range を無視して全量（200）が返ると「Byte Serving」の誤りを投げる。
+//   その時だけ全量を取り直して丸呑みし、以後はメモリから返す（Cloudflare Workers Assets＝public 同梱の小さなアーカイブ）。Range で読める置き場は余分な往復なし。
+const NO_RANGE = /Byte Serving/i;
+export function probingSource(src: string, inner: Source, slurp: (src: string) => Promise<ArrayBuffer> = async s => { const r = await fetch(s); if (!r.ok) throw new Error(`Bad response code: ${r.status}`); return r.arrayBuffer(); }): Source {
+	let mem: Promise<ArrayBuffer> | null = null;
+	const cut = async (offset: number, length: number): Promise<RangeBytes> => ({ data: (await mem!).slice(offset, offset + length) });
+	return {
+		getKey: () => src,
+		getBytes: async (offset, length, signal, etag) => {
+			if (mem) return cut(offset, length);
+			try { return await inner.getBytes(offset, length, signal, etag); }
+			catch (e) {
+				if (offset !== 0 || !NO_RANGE.test(String((e as Error)?.message))) throw e;
+				mem ??= slurp(src); mem.catch(() => { mem = null; });
+				return cut(offset, length);
+			}
+		},
+	};
+}
+
 async function openArchive(src: string): Promise<PMTiles> {
 	const m = await import("pmtiles");
 	if (src.startsWith(OPFS)) return new m.PMTiles(opfsSource(src.slice(OPFS.length)));
@@ -170,25 +229,11 @@ async function openArchive(src: string): Promise<PMTiles> {
 		const st = rangeCacheFlag.on ? await openRangeStore() : null;
 		return new m.PMTiles(st ? cachingSource(src, fs, async () => st, () => new m.EtagMismatch("archive changed")) : fs);
 	}
-	// Range で読める置き場だと一度分かったら、次の起動からは探りの 1 往復を省く（端末キャッシュが入の時だけ）
-	const store = rangeCacheFlag.on ? await openRangeStore() : null, probeKey = rcKey(src, "range-ok");
-	const net = (): Source => scheduledSource(noStoreSource(m, src), src);   // 回線＝共通の取り順を通す。Range は no-store で引く（基図の PMTiles も・2026-11-28）＝取り順の 6 本が本当に同時に出る
-	const ranged = (): PMTiles => new m.PMTiles(rangeCacheFlag.on ? cachingSource(src, net(), async () => store, () => new m.EtagMismatch("archive changed")) : net());
-	if (store && await store.match(probeKey).catch(() => undefined)) return ranged();
-	try {
-		const res = await fetch(src, { headers: { Range: "bytes=0-0" } });
-		if (res.ok && res.status !== 206) {   // Range 無視＝全量が来ている＝そのまま丸呑み
-			const buf = await res.arrayBuffer();
-			const source: Source = {   // pmtiles.js の Source IF（getKey/getBytes）＝メモリ実装
-				getKey: () => src,
-				getBytes: async (offset, length) => ({ data: buf.slice(offset, offset + length) }),
-			};
-			return new m.PMTiles(source);
-		}
-		res.body?.cancel?.().catch?.(() => {});   // 206＝プローブの1バイトは捨ててレンジ直読へ
-		if (res.status === 206) store?.put(probeKey, new Response("1")).catch(() => {});
-	} catch { /* プローブ失敗＝従来経路に任せる（オフライン等は getZxy 側で失敗が見える） */ }
-	return ranged();
+	const store = rangeCacheFlag.on ? await openRangeStore() : null;
+	const sched = getScheduler(), key = `${originKey(src)}|pmtiles`;
+	sched.setConcurrency(pmConc, key);
+	const net = scheduledSource(noStoreSource(m, src), src, sched, key);   // 回線＝共通の取り順を通す。Range は no-store で引く（基図の PMTiles も・2026-11-28）＝取り順の枠が本当に同時に出る
+	return new m.PMTiles(probingSource(src, store ? cachingSource(src, net, async () => store, () => new m.EtagMismatch("archive changed")) : net));
 }
 
 // アーカイブの自己申告（ヘッダの bbox とズーム域・metadata の層名/出典）。**範囲制御の正本はここ**＝

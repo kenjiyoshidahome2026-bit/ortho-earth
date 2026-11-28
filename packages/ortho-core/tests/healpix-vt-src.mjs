@@ -102,10 +102,10 @@ ok(whole === 0, "アーカイブを丸ごと取りに行かない（全部 Range
 	ok(checkHpxVtIndex({ minOrder: 4, maxOrder: 12, faces: [] }).extent === 4096, "extent の既定＝4096");
 }
 ok(ranges > 2 && cached === 0 && probes === 0, `Range は全部 cache: "no-store" で引く（${ranges} 本）・探りの 0-0 は送らない（Chrome が同じ URL の Range を 1 本ずつにする件）`);
-{	// 印の無い HTTP のアーカイブ＝探りの 0-0 は今までどおり送る・その後の Range は全部 no-store
+{	// 印の無い HTTP のアーカイブ＝探りの 0-0 は送らない（先頭の読みが探りを兼ねる）・Range は全部 no-store
 	const { fetchPMTilesAt } = await import("../src/pmtiles-src.ts");
 	const t0 = tiles[0], got = await fetchPMTilesAt(`pmtiles://${API}/plain.pmtiles`, t0.z, t0.x, t0.y);
 	const reads = plain.filter(p => !p.probe);
-	ok(got?.byteLength > 0 && plain.filter(p => p.probe).length === 1 && reads.length >= 2 && reads.every(p => p.cache === "no-store"), `印の無いアーカイブ（基図の PMTiles の道）：探り 1 回の後、Range ${reads.length} 本は全部 no-store`);
+	ok(got?.byteLength > 0 && plain.filter(p => p.probe).length === 0 && reads.length >= 2 && reads.every(p => p.cache === "no-store"), `印の無いアーカイブ（基図の PMTiles の道）：探りなし・Range ${reads.length} 本は全部 no-store`);
 }
 console.log(fails ? `${fails} failed` : "all passed"); process.exit(fails ? 1 : 0);
