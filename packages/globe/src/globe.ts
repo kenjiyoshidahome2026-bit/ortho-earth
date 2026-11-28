@@ -1730,6 +1730,7 @@ const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle
 	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y) as string, requestDraw: requestDraw, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker, request: requester.forTiles(),   // タイル/シーン worker もアプリの入口で・request＝transformRequest/addProtocol（#37）・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
 	encoding: () => BASE_SOURCE.encoding || "mvt",   // 基図タイルの形式（mvt｜mlt・#88）＝tileUrl と同じく関数で包む（setStyle で置き場と一緒に替わる）
 	tileQueue: !/[?&]tileq=0/.test(location.search),
+	perSlot: Math.max(1, Math.min(16, qNum(/[?&]tileslot=(\d+)/, 3))),   // worker 1 本が同時に抱えるタイルの数（既定 3＝worker 4 本で同時 12 枚）。?tileslot=N で上書き（A/B・2026-11-28：/unmap/ の動かした時の同時 12 本の頭打ちはここ＝回線の取り順ではなかった）
 	// 建物を立ち上げ始めるタイルの z（2026-11-04・本人裁定）：4GB 機の GPU は斜めの遠景まで続く建物の頂点で詰まる（実機 Mali-G615＝建物を全部消すと滑らか）。
 	// LOW_MEM は 15＝遠景の z14 のタイルの建物は平ら（足元の塗りは残る）。?bldz=N で上書き（A/B・既定 14）
 	bldMinZ: qNum(/[?&]bldz=(\d+)/, LOW_MEM ? 15 : 14),   // 優先付き共有キュー（vt perf plan §3.1）＝?tileq=0 で旧の round-robin（A/B・計器 e で比べる）
