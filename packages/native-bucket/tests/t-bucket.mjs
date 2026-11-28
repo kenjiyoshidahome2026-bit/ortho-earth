@@ -101,6 +101,29 @@ await t("Range は要る分だけ 206 で返す（PMTiles の部分読み）", a
 	{ const r = await bucket(new Request(BASE + "GIS/n.zip"), R2, ctx, ENV); await settle(); eq(r.headers.get("Content-Encoding") || "", "", "全体の応答に content-encoding: null を出さない"); }
 	R2.get = realGet; R2.head = realHead;
 });
+await t("版つきの URL（?v=）の Range は区間ごとにエッジに載る（2 回目は R2 へ行かない）", async () => {
+	objs.set("GIS/hpx/osm/face9.pmtiles", "abcdefghij");
+	const rg = async (h, q = "?v=1") => { const r = await bucket(new Request(BASE + "GIS/hpx/osm/face9.pmtiles" + q, { headers: { Range: h } }), R2, ctx, ENV); await settle(); return [r.status, r.headers.get("Content-Range"), r.headers.get("Content-Length"), r.headers.get("X-Range-Cache"), await r.text()].join("|"); };
+	const r0 = ranged;
+	eq(await rg("bytes=2-5"), "206|bytes 2-5/10|4|MISS|cdef", "1 回目＝R2 から");
+	eq(ranged, r0 + 1, "R2 へ 1 回");
+	eq(await rg("bytes=2-5"), "206|bytes 2-5/10|4|HIT|cdef", "2 回目＝エッジから・同じ中身と同じ Content-Range");
+	eq(ranged, r0 + 1, "R2 へは行っていない");
+	eq(await rg("bytes=0-16383"), "206|bytes 0-9/10|10|MISS|abcdefghij", "末尾を越える b は切り詰めて置く");
+	eq(await rg("bytes=0-16383"), "206|bytes 0-9/10|10|HIT|abcdefghij", "切り詰めた Content-Range のまま返る");
+	// 版が変われば別の鍵（差し替えの後に古い区間を返さない）
+	objs.set("GIS/hpx/osm/face9.pmtiles", "ABCDEFGHIJ");
+	eq(await rg("bytes=2-5", "?v=2"), "206|bytes 2-5/10|4|MISS|CDEF", "版が変われば取り直す");
+	eq(await rg("bytes=2-5"), "206|bytes 2-5/10|4|HIT|cdef", "古い版の URL は古い区間のまま（版ごとに閉じている）");
+	// 版なしの URL・a-b でない形・大きすぎる区間は載せない
+	const r1 = ranged;
+	eq((await rg("bytes=2-5", "")).split("|")[3], "", "版なしは今までどおり（載せない）");
+	await rg("bytes=2-5", ""); eq(ranged, r1 + 2, "版なしは毎回 R2 へ");
+	eq((await rg("bytes=7-")).split("|")[3], "", "a- の形は載せない");
+	eq((await rg("bytes=0-9999999")).split("|")[3], "", "4 MB を越える区間は載せない");
+	eq((await rg("bytes=10-12")).split("|")[0], "416", "範囲の外は 416 のまま");
+});
+
 
 const cc = async path => (await bucket(new Request(BASE + path), R2, ctx, ENV)).headers.get("Cache-Control");
 await t("中身のハッシュ入りの共有データは immutable、他は従来どおり（2026-09-30）", async () => {

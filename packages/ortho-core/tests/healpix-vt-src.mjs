@@ -32,7 +32,7 @@ const rangeOf = init => { const h = init?.headers instanceof Headers ? init.head
 globalThis.fetch = async (u, init) => {
 	const url = String(u?.url ?? u);
 	if (url === `${API}/bucket/GIS/hpx/osm/index.json`) { indexHits++; return down ? new Response("x", { status: 503 }) : Response.json(index); }
-	if (url === `${API}/bucket/GIS/hpx/osm/face1.pmtiles`) {
+	if (url === `${API}/bucket/GIS/hpx/osm/face1.pmtiles?v=${encodeURIComponent(`${index.made}-${pm.length}`)}`) {   // 版の印つき（Worker が Range をエッジへ載せる条件）
 		const r = rangeOf(init ?? u); if (!r) whole++;
 		const body = r ? pm.subarray(+r[1], Math.min(pm.length, +r[2] + 1)) : pm;
 		return new Response(body, { status: r ? 206 : 200, headers: { "Content-Length": String(body.byteLength), ETag: '"e1"', ...(r ? { "Content-Range": `bytes ${r[1]}-${+r[1] + body.byteLength - 1}/${pm.length}` } : {}) } });
